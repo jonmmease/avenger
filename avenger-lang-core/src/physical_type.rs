@@ -97,6 +97,42 @@ pub enum PhysicalType {
 }
 
 impl PhysicalType {
+    /// Canonical physical Arrow type constructors accepted by the language.
+    /// Compiler analysis and editor completion share this inventory.
+    pub const CONSTRUCTORS: &'static [&'static str] = &[
+        "boolean",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float16",
+        "float32",
+        "float64",
+        "utf8",
+        "large_utf8",
+        "binary",
+        "large_binary",
+        "date32",
+        "date64",
+        "time32",
+        "time64",
+        "timestamp",
+        "duration",
+        "interval",
+        "fixed_size_binary",
+        "decimal128",
+        "decimal256",
+        "list",
+        "large_list",
+        "fixed_size_list",
+        "struct",
+        "map",
+    ];
+
     pub fn parse(value: &Value) -> Result<Self, PhysicalTypeError> {
         parse_type(value, "type")
     }

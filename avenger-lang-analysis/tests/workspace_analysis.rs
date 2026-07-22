@@ -144,6 +144,65 @@ async fn unsaved_new_imports_participate_in_the_exact_snapshot_closure() {
     );
 }
 
+#[tokio::test]
+async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let valid = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; } mark symbol as points { size: $width; } }";
+    let invalid = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; mark symbol as points { size: $width; }";
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(
+            InMemorySourceLoader::default().with_source(loaded(&chart, valid, "disk")),
+        ))
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let snapshot = |generation, text: &str| WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(generation),
+        project_root: project_root.clone(),
+        roots: vec![ProjectRoot::chart(chart.clone())],
+        open_documents: BTreeMap::from([(
+            chart.clone(),
+            DocumentSnapshot::new(
+                chart.clone(),
+                SourceRevision::from_text(text),
+                text.to_owned(),
+            ),
+        )]),
+        known_disk_sources: vec![chart.clone()],
+        native_registry_profile: profile.clone(),
+    };
+    let service = AnalysisService::new(compiler);
+    let valid = service
+        .analyze_workspace(snapshot(1, valid), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    let invalid = service
+        .analyze_workspace(snapshot(2, invalid), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        invalid.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_err()
+    );
+    let merged = invalid.with_last_good_semantics(&valid);
+    let width = merged.semantic_index.documents[&chart]
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "width")
+        .unwrap();
+    assert!(!width.identity.starts_with("syntax:"));
+    assert_eq!(width.detail.as_deref(), Some("param: float64"));
+}
+
 #[derive(Debug)]
 struct PendingLoader;
 

@@ -1,8 +1,11 @@
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc, time::Instant};
 
 use avenger_lang_analysis::{
-    DocumentSnapshot, SnapshotSourceLoader, SourceRevision, SyntaxContextKind, analyze_syntax,
+    AnalysisCancellation, AnalysisGeneration, CompletionOptions, DocumentSnapshot, DocumentSymbol,
+    PositionRequest, SnapshotSourceLoader, SourceRevision, SyntaxContextKind, WorkspaceAnalysis,
+    analyze_syntax,
 };
+use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, SourceFile, SourceId,
     SourceLoader, SourceOrigin, syntax::parse_file,
@@ -62,6 +65,96 @@ fn frozen_valid_sources_remain_accepted_by_the_strict_parser() {
             text,
         );
         parse_file(&source).unwrap_or_else(|error| panic!("strict parse {relative}: {error}"));
+    }
+}
+
+#[test]
+fn document_symbols_match_the_zed_outline_baseline() {
+    fn value(symbol: &DocumentSymbol) -> serde_json::Value {
+        serde_json::json!({
+            "name": symbol.name,
+            "detail": symbol.detail,
+            "children": symbol.children.iter().map(value).collect::<Vec<_>>()
+        })
+    }
+
+    let baseline: serde_json::Value =
+        serde_json::from_str(&fixture("document-symbols-baseline.json")).unwrap();
+    let source = fixture(baseline["fixture"].as_str().unwrap());
+    let snapshot = DocumentSnapshot::new(
+        SourceOrigin::Memory("symbol-baseline".into()),
+        SourceRevision::from_text(&source),
+        source.clone(),
+    );
+    let analysis = analyze_syntax(&snapshot);
+    let actual = analysis.symbols.iter().map(value).collect::<Vec<_>>();
+    assert_eq!(serde_json::Value::Array(actual), baseline["symbols"]);
+    for symbol in analysis
+        .symbols
+        .iter()
+        .flat_map(|symbol| std::iter::once(symbol).chain(symbol.children.iter()))
+    {
+        let selected = &source[symbol.selection_span.range.as_range()];
+        assert_eq!(selected, symbol.name);
+    }
+}
+
+#[test]
+fn structural_completion_matches_the_frozen_baseline() {
+    let baseline: serde_json::Value =
+        serde_json::from_str(&fixture("completion-baselines.json")).unwrap();
+    let case = baseline["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["fixture"] == "expression.cursor.avenger")
+        .unwrap();
+    let marked = fixture(case["fixture"].as_str().unwrap());
+    let offset = marked.find(CURSOR).unwrap();
+    let text = marked.replacen(CURSOR, "", 1);
+    let origin = SourceOrigin::Memory("expression.cursor.avenger".into());
+    let revision = SourceRevision::from_text(&text);
+    let syntax = analyze_syntax(&DocumentSnapshot::new(
+        origin.clone(),
+        revision.clone(),
+        text,
+    ));
+    let compiler = Compiler::builder()
+        .project_root(env!("CARGO_MANIFEST_DIR"))
+        .build()
+        .unwrap();
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(1),
+        Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
+        Vec::new(),
+        BTreeMap::from([(origin.clone(), syntax)]),
+        compiler.language_host().authoring_schema().clone(),
+    );
+    let result = analysis
+        .complete(
+            &PositionRequest {
+                source: origin,
+                byte_offset: offset,
+                source_revision: revision,
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let labels = result
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+    let ordered_top = case["ordered_top"].as_array().unwrap();
+    for (ordinal, expected) in ordered_top.iter().enumerate() {
+        assert_eq!(labels.get(ordinal).copied(), expected.as_str());
+    }
+    for expected in case["must_include"].as_array().unwrap() {
+        assert!(labels.contains(&expected.as_str().unwrap()));
+    }
+    for excluded in case["must_exclude"].as_array().unwrap() {
+        assert!(!labels.contains(&excluded.as_str().unwrap()));
     }
 }
 

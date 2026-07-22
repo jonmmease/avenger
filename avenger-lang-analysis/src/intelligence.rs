@@ -89,6 +89,7 @@ pub struct DocumentSemanticIndex {
 pub struct WorkspaceSemanticIndex {
     pub documents: BTreeMap<SourceOrigin, DocumentSemanticIndex>,
     pub public_bindings: BTreeMap<String, IndexedBinding>,
+    pub public_references: BTreeMap<String, IndexedBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,6 +111,7 @@ impl WorkspaceSemanticIndex {
                 .documents
                 .insert(origin.clone(), build_document_index(origin, analysis));
         }
+        index.install_tolerant_imports(syntax);
         for root in semantic_roots.values() {
             let Ok(analysis) = &root.result else {
                 continue;
@@ -121,6 +123,48 @@ impl WorkspaceSemanticIndex {
         }
         index.resolve_lexical_references();
         index
+    }
+
+    fn install_tolerant_imports(&mut self, syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>) {
+        for (importer, analysis) in syntax {
+            for (specifier, alias) in scan_imports(analysis) {
+                let Some(imported) = resolve_local_import(importer, &specifier) else {
+                    continue;
+                };
+                let Some(document) = self.documents.get(&imported) else {
+                    continue;
+                };
+                for symbol in document
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.keyword == "define")
+                {
+                    let path = alias.as_ref().map_or_else(
+                        || symbol.name.clone(),
+                        |alias| format!("{alias}.{}", symbol.name),
+                    );
+                    self.public_references
+                        .entry(path.clone())
+                        .or_insert_with(|| IndexedBinding {
+                            path,
+                            value_kind: match symbol.native_kind.as_deref() {
+                                Some("mark") => IndexedValueKind::Mark,
+                                Some("tool") => IndexedValueKind::Tool,
+                                _ => IndexedValueKind::Declaration,
+                            },
+                            detail: format!(
+                                "imported {} definition",
+                                symbol.native_kind.as_deref().unwrap_or("Avenger")
+                            ),
+                            target: Some(NavigationTarget {
+                                origin: symbol.origin.clone(),
+                                span: symbol.declaration_span,
+                                selection_span: symbol.selection_span,
+                            }),
+                        });
+                }
+            }
+        }
     }
 
     fn enrich_from_resolved(&mut self, project: &ResolvedProject) {
@@ -197,6 +241,15 @@ impl WorkspaceSemanticIndex {
 
         for (path, target) in &project.public_targets {
             let (value_kind, detail, _) = target_metadata(target);
+            if !matches!(
+                value_kind,
+                IndexedValueKind::Scalar
+                    | IndexedValueKind::Table
+                    | IndexedValueKind::Selection
+                    | IndexedValueKind::Output
+            ) {
+                continue;
+            }
             let identity = target_declaration_identity(project, target, &declarations);
             let target = identity
                 .as_deref()
@@ -209,6 +262,34 @@ impl WorkspaceSemanticIndex {
                     detail,
                     target,
                 });
+        }
+        for file in project.files.values() {
+            for (binding, imported_file) in &file.imports {
+                let Some(definition) = project.definitions.get(imported_file) else {
+                    continue;
+                };
+                let identity = definition.declaration.to_string();
+                let target = self.navigation_for_identity(&identity);
+                let value_kind = match definition.kind {
+                    avenger_lang_core::DefinitionKind::Mark => IndexedValueKind::Mark,
+                    avenger_lang_core::DefinitionKind::Tool => IndexedValueKind::Tool,
+                    avenger_lang_core::DefinitionKind::Transform => IndexedValueKind::Declaration,
+                };
+                let path = if binding == &definition.source_name {
+                    binding.clone()
+                } else {
+                    format!("{binding}.{}", definition.source_name)
+                };
+                self.public_references
+                    .entry(path.clone())
+                    .or_insert_with(|| IndexedBinding {
+                        path,
+                        value_kind,
+                        detail: format!("imported {:?} definition", definition.kind)
+                            .to_ascii_lowercase(),
+                        target,
+                    });
+            }
         }
     }
 
@@ -272,6 +353,16 @@ impl WorkspaceSemanticIndex {
             .collect::<BTreeMap<_, _>>();
         for document in self.documents.values_mut() {
             for reference in &mut document.references {
+                if let Some(reference_target) = self.public_references.get(&reference.name) {
+                    reference.value_kind = reference_target.value_kind;
+                    reference.target_identity =
+                        reference_target.target.as_ref().and_then(|target| {
+                            identity_by_location
+                                .get(&(target.origin.clone(), target.selection_span))
+                                .cloned()
+                        });
+                    continue;
+                }
                 if let Some(bind) = self.public_bindings.get(&reference.name) {
                     reference.value_kind = bind.value_kind;
                     reference.target_identity = bind.target.as_ref().and_then(|target| {
@@ -281,8 +372,9 @@ impl WorkspaceSemanticIndex {
                     });
                     continue;
                 }
-                let leaf = reference.name.rsplit('.').next().unwrap_or(&reference.name);
-                if let Some(candidates) = by_name.get(leaf)
+                let first = reference.name.split('.').next().unwrap_or(&reference.name);
+                let last = reference.name.rsplit('.').next().unwrap_or(&reference.name);
+                if let Some(candidates) = by_name.get(first).or_else(|| by_name.get(last))
                     && candidates.len() == 1
                 {
                     reference.target_identity = Some(candidates[0].0.clone());
@@ -342,8 +434,10 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         });
         let name = header
             .name
+            .clone()
             .or_else(|| name.clone())
             .unwrap_or_else(|| keyword.clone());
+        let native_kind = header.native_kind.clone();
         output.symbols.push(IndexedSymbol {
             identity: format!(
                 "syntax:{}:{}:{ordinal}",
@@ -359,11 +453,22 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
             scope_span: node.span,
             parent,
             keyword: keyword.clone(),
-            native_kind: header.native_kind,
+            native_kind,
             visibility: header.visibility,
             detail: Some(keyword.clone()),
-            documentation: header.documentation,
+            documentation: header.documentation.clone(),
         });
+        if let (Some(path), Some(span)) = (header.native_kind, header.native_kind_span)
+            && path.contains('.')
+        {
+            output.references.push(IndexedReference {
+                name: path,
+                origin: origin.clone(),
+                span,
+                target_identity: None,
+                value_kind: IndexedValueKind::Declaration,
+            });
+        }
     }
 
     for node in &syntax.parsed.nodes {
@@ -380,7 +485,9 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         .map(|symbol| symbol.selection_span)
         .chain(output.property_names.keys().copied())
         .collect::<Vec<_>>();
-    output.references = scan_references(origin, syntax, &occupied);
+    output
+        .references
+        .extend(scan_references(origin, syntax, &occupied));
     output
 }
 
@@ -388,6 +495,7 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
 struct DeclarationHeader {
     name: Option<String>,
     native_kind: Option<String>,
+    native_kind_span: Option<SourceSpan>,
     keyword_span: Option<SourceSpan>,
     name_span: Option<SourceSpan>,
     visibility: Visibility,
@@ -442,18 +550,60 @@ fn declaration_header(
         .map(str::to_owned)
         .or_else(|| fallback_name.map(str::to_owned));
     output.name_span = named.map(|token| token.span);
-    output.native_kind = match keyword {
-        "chart" | "plot" | "mark" | "transform" | "tool" | "widget" | "resource" | "catalog"
-        | "schema" | "table" => header
-            .get(keyword_index + 1)
-            .and_then(SigToken::word)
-            .map(str::to_owned),
-        "define" => header
-            .get(keyword_index + 1)
-            .and_then(SigToken::word)
-            .map(str::to_owned),
-        _ => None,
-    };
+    let kind_start = keyword_index + 1;
+    let has_kind = matches!(
+        keyword,
+        "chart"
+            | "plot"
+            | "mark"
+            | "transform"
+            | "tool"
+            | "widget"
+            | "resource"
+            | "catalog"
+            | "schema"
+            | "table"
+            | "define"
+    );
+    if has_kind {
+        let kind_end = if keyword == "define" {
+            (kind_start + 1).min(header.len())
+        } else {
+            header
+                .iter()
+                .position(|token| {
+                    token
+                        .word()
+                        .is_some_and(|word| word.eq_ignore_ascii_case("as"))
+                })
+                .unwrap_or(header.len())
+        };
+        let kind_tokens = header.get(kind_start..kind_end).unwrap_or_default();
+        let mut path = String::new();
+        for token in kind_tokens {
+            if let Some(word) = token.word() {
+                path.push_str(word);
+            } else if matches!(token.token, Some(Token::Period)) {
+                path.push('.');
+            } else {
+                break;
+            }
+        }
+        if !path.is_empty() {
+            output.native_kind = Some(path);
+            output.native_kind_span =
+                kind_tokens
+                    .first()
+                    .zip(kind_tokens.last())
+                    .map(|(first, last)| SourceSpan {
+                        source: first.span.source,
+                        range: ByteSpan {
+                            start: first.span.range.start,
+                            end: last.span.range.end,
+                        },
+                    });
+        }
+    }
     output.documentation = leading_doc_comment(syntax, span.range.start);
     output
 }
@@ -643,6 +793,7 @@ fn ranges_overlap(left: SourceSpan, right: SourceSpan) -> bool {
 #[derive(Clone, Copy)]
 struct SigToken<'a> {
     token: Option<&'a Token>,
+    raw: &'a str,
     span: SourceSpan,
 }
 
@@ -679,9 +830,70 @@ fn significant_tokens<'a>(
         })
         .map(|token| SigToken {
             token: token.token(),
+            raw: syntax.parsed.tokens.raw(token),
             span: token.span(),
         })
         .collect()
+}
+
+fn scan_imports(syntax: &SyntaxAnalysis) -> Vec<(String, Option<String>)> {
+    let tokens = significant_tokens(syntax, None);
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index].word() != Some("import") {
+            index += 1;
+            continue;
+        }
+        let Some(source) = tokens.get(index + 1) else {
+            break;
+        };
+        let Some(specifier) = unquote(source.raw) else {
+            index += 1;
+            continue;
+        };
+        let mut alias = None;
+        let mut next = index + 2;
+        while next < tokens.len() && !matches!(tokens[next].token, Some(Token::SemiColon)) {
+            if tokens[next].word() == Some("as") {
+                alias = tokens
+                    .get(next + 1)
+                    .and_then(SigToken::word)
+                    .map(str::to_owned);
+                break;
+            }
+            next += 1;
+        }
+        output.push((specifier.to_owned(), alias));
+        index = next.saturating_add(1);
+    }
+    output
+}
+
+fn unquote(value: &str) -> Option<&str> {
+    let quote = value.chars().next()?;
+    let inner = value.strip_prefix(quote)?.strip_suffix(quote)?;
+    matches!(quote, '\'' | '"').then_some(inner)
+}
+
+fn resolve_local_import(importer: &SourceOrigin, specifier: &str) -> Option<SourceOrigin> {
+    let normalized = |path: &Path| {
+        avenger_lang_core::project::normalize_path(path)
+            .to_string_lossy()
+            .into_owned()
+    };
+    match importer {
+        SourceOrigin::File(path) => Some(SourceOrigin::File(
+            avenger_lang_core::project::normalize_path(&path.parent()?.join(specifier)),
+        )),
+        SourceOrigin::Memory(path) => Some(SourceOrigin::Memory(normalized(
+            &Path::new(path).parent()?.join(specifier),
+        ))),
+        SourceOrigin::Std(path) => Some(SourceOrigin::Std(normalized(
+            &Path::new(path).parent()?.join(specifier),
+        ))),
+        SourceOrigin::Http(_) => None,
+    }
 }
 
 fn first_word_span(syntax: &SyntaxAnalysis, within: SourceSpan, name: &str) -> Option<SourceSpan> {
@@ -740,9 +952,68 @@ fn scan_references(
             index = next;
             continue;
         }
+        if let Some(family) = token.word()
+            && matches!(
+                family,
+                "mark" | "group" | "selection" | "tool" | "widget" | "resource"
+            )
+            && !declaration_header_contains(syntax, token.span)
+        {
+            let mut next = index + 1;
+            let Some(first) = tokens.get(next).and_then(SigToken::word) else {
+                index += 1;
+                continue;
+            };
+            let mut path = first.to_owned();
+            let start = tokens[next].span.range.start;
+            let mut end = tokens[next].span.range.end;
+            next += 1;
+            while next + 1 < tokens.len()
+                && matches!(tokens[next].token, Some(Token::Period))
+                && tokens[next + 1].word().is_some()
+            {
+                path.push('.');
+                path.push_str(tokens[next + 1].word().unwrap());
+                end = tokens[next + 1].span.range.end;
+                next += 2;
+            }
+            output.push(IndexedReference {
+                name: path,
+                origin: origin.clone(),
+                span: SourceSpan {
+                    source: token.span.source,
+                    range: ByteSpan { start, end },
+                },
+                target_identity: None,
+                value_kind: match family {
+                    "mark" | "group" => IndexedValueKind::Mark,
+                    "selection" => IndexedValueKind::Selection,
+                    "tool" => IndexedValueKind::Tool,
+                    "widget" => IndexedValueKind::Widget,
+                    _ => IndexedValueKind::Declaration,
+                },
+            });
+            index = next;
+            continue;
+        }
         index += 1;
     }
     output
+}
+
+fn declaration_header_contains(syntax: &SyntaxAnalysis, span: SourceSpan) -> bool {
+    syntax.parsed.nodes.iter().any(|node| {
+        if !matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. })
+            || span.range.start < node.span.range.start
+        {
+            return false;
+        }
+        let header_end = significant_tokens(syntax, Some(node.span))
+            .into_iter()
+            .find(|token| matches!(token.token, Some(Token::LBrace | Token::SemiColon)))
+            .map_or(node.span.range.end, |token| token.span.range.end);
+        span.range.end <= header_end
+    })
 }
 
 fn symbol_kind(keyword: &str) -> SymbolKind {
@@ -837,7 +1108,7 @@ impl<'a> QueryContext<'a> {
         let text = syntax.parsed.tokens.text();
         let cursor = request.byte_offset.min(text.len());
         let replacement = replacement_span(syntax, cursor);
-        let prefix = &text[replacement.range.as_range()];
+        let prefix = &text[replacement.range.start..cursor];
         let mut items = Vec::new();
 
         if let Some(import_prefix) = import_prefix(text, cursor) {
@@ -913,6 +1184,41 @@ impl<'a> QueryContext<'a> {
                 "10",
             ));
         }
+        for reference in self.index.public_references.values() {
+            let Some(target) = reference.target.as_ref().and_then(|target| {
+                self.index
+                    .documents
+                    .get(&target.origin)
+                    .and_then(|document| {
+                        document
+                            .symbols
+                            .iter()
+                            .find(|symbol| symbol.selection_span == target.selection_span)
+                    })
+            }) else {
+                continue;
+            };
+            let target_namespace = match target.native_kind.as_deref() {
+                Some("mark") => NativeKindNamespace::Mark,
+                Some("tool") => NativeKindNamespace::Tool,
+                Some("transform") => NativeKindNamespace::Transform,
+                _ => continue,
+            };
+            if target_namespace != namespace || !candidate_matches(&reference.path, typed) {
+                continue;
+            }
+            output.push(item(
+                reference.path.clone(),
+                replacement,
+                reference.path.clone(),
+                CompletionKind::Declaration,
+                Some(reference.detail.clone()),
+                target.documentation.clone(),
+                CompletionOrigin::LexicalScope,
+                false,
+                "00",
+            ));
+        }
     }
 
     fn complete_properties(
@@ -927,34 +1233,49 @@ impl<'a> QueryContext<'a> {
         let Some(owner) = owner_symbol(self.index, origin, cursor) else {
             return;
         };
-        let Some(schema) = schema_for_symbol(self.registry, owner, self.index) else {
-            return;
-        };
         let authored = authored_properties(syntax, owner.scope_span);
-        for (name, property) in &schema.properties {
-            if authored.contains(name) || !candidate_matches(name, prefix) {
-                continue;
+        if let Some(schema) = schema_for_symbol(self.registry, owner, self.index) {
+            for (name, property) in &schema.properties {
+                if authored.contains(name) || !candidate_matches(name, prefix) {
+                    continue;
+                }
+                output.push(property_item(name, property, replacement));
             }
-            output.push(property_item(name, property, replacement));
+            for (name, channel) in &schema.channels {
+                if authored.contains(name) || !candidate_matches(name, prefix) {
+                    continue;
+                }
+                output.push(item(
+                    name.clone(),
+                    replacement,
+                    format!("{name}: "),
+                    CompletionKind::Property,
+                    Some(if channel.required {
+                        "required channel".to_owned()
+                    } else {
+                        "channel".to_owned()
+                    }),
+                    Some(channel.docs.clone()),
+                    CompletionOrigin::AuthoringSchema,
+                    false,
+                    if channel.required { "00" } else { "20" },
+                ));
+            }
         }
-        for (name, channel) in &schema.channels {
+        for &(name, docs) in core_properties(&owner.keyword) {
             if authored.contains(name) || !candidate_matches(name, prefix) {
                 continue;
             }
             output.push(item(
-                name.clone(),
+                name.to_owned(),
                 replacement,
                 format!("{name}: "),
                 CompletionKind::Property,
-                Some(if channel.required {
-                    "required channel".to_owned()
-                } else {
-                    "channel".to_owned()
-                }),
-                Some(channel.docs.clone()),
-                CompletionOrigin::AuthoringSchema,
+                Some("core property".to_owned()),
+                Some(docs.to_owned()),
+                CompletionOrigin::Syntax,
                 false,
-                if channel.required { "00" } else { "20" },
+                "10",
             ));
         }
     }
@@ -975,6 +1296,32 @@ impl<'a> QueryContext<'a> {
             .and_then(|schema| property_schema(schema, property_name));
         if let Some(property) = property {
             complete_shape(property.shape, prefix, replacement, output);
+            self.complete_reference_values(
+                property.shape,
+                prefix,
+                replacement,
+                origin,
+                cursor,
+                output,
+            );
+        }
+        for value in core_property_values(property_name) {
+            if candidate_matches(value, prefix) {
+                output.push(item(
+                    (*value).to_owned(),
+                    replacement,
+                    (*value).to_owned(),
+                    CompletionKind::EnumValue,
+                    Some(format!("{property_name} value")),
+                    None,
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
+        }
+        if property_name == "type" || owner.is_some_and(|owner| owner.keyword == "field") {
+            complete_physical_types(prefix, replacement, output);
         }
         if prefix.starts_with('$')
             || property.is_some_and(|property| shape_accepts_binding(property.shape))
@@ -1007,6 +1354,7 @@ impl<'a> QueryContext<'a> {
                     continue;
                 }
                 let label = format!("${}", symbol.name);
+                let bucket = format!("00:{:020}", symbol.selection_span.range.start);
                 output.push(item(
                     label.clone(),
                     replacement,
@@ -1016,7 +1364,7 @@ impl<'a> QueryContext<'a> {
                     symbol.documentation.clone(),
                     CompletionOrigin::LexicalScope,
                     false,
-                    "00",
+                    &bucket,
                 ));
             }
         }
@@ -1053,6 +1401,68 @@ impl<'a> QueryContext<'a> {
                         "00",
                     ));
                 }
+            }
+        }
+    }
+
+    fn complete_reference_values(
+        &self,
+        shape: &ValueShape,
+        prefix: &str,
+        replacement: SourceSpan,
+        origin: &SourceOrigin,
+        cursor: usize,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        let mut namespaces = BTreeSet::new();
+        collect_reference_namespaces(shape, &mut namespaces);
+        if namespaces.is_empty() {
+            return;
+        }
+        if let Some(document) = self.index.documents.get(origin) {
+            for symbol in &document.symbols {
+                let Some(namespace) = namespace_for_symbol(symbol) else {
+                    continue;
+                };
+                if !namespaces.contains(&namespace)
+                    || symbol.selection_span.range.start >= cursor
+                    || !scope_visible(document, symbol, cursor)
+                    || !candidate_matches(&symbol.name, prefix)
+                {
+                    continue;
+                }
+                output.push(item(
+                    symbol.name.clone(),
+                    replacement,
+                    symbol.name.clone(),
+                    CompletionKind::Variable,
+                    symbol.detail.clone(),
+                    symbol.documentation.clone(),
+                    CompletionOrigin::LexicalScope,
+                    false,
+                    "00",
+                ));
+            }
+        }
+        for reference in self.index.public_references.values() {
+            let allowed = match reference.value_kind {
+                IndexedValueKind::Mark => namespaces.contains(&NativeKindNamespace::Mark),
+                IndexedValueKind::Tool => namespaces.contains(&NativeKindNamespace::Tool),
+                IndexedValueKind::Widget => namespaces.contains(&NativeKindNamespace::Widget),
+                _ => false,
+            };
+            if allowed && candidate_matches(&reference.path, prefix) {
+                output.push(item(
+                    reference.path.clone(),
+                    replacement,
+                    reference.path.clone(),
+                    CompletionKind::Variable,
+                    Some(reference.detail.clone()),
+                    None,
+                    CompletionOrigin::LexicalScope,
+                    false,
+                    "10",
+                ));
             }
         }
     }
@@ -1169,6 +1579,18 @@ impl<'a> QueryContext<'a> {
             if let Some(docs) = &symbol.documentation {
                 markdown.push_str(&format!("\n\n{docs}"));
             }
+            markdown.push_str(&format!(
+                "\n\n- Visibility: `{}`\n- Source: `{}`",
+                match symbol.visibility {
+                    Visibility::Default => "default",
+                    Visibility::Private => "private",
+                    Visibility::Public => "public",
+                },
+                symbol.origin.canonical_uri()
+            ));
+            if let Some(kind) = &symbol.native_kind {
+                markdown.push_str(&format!("\n- Resolved kind: `{kind}`"));
+            }
             (symbol.selection_span, markdown)
         } else if let Some(reference) = reference {
             let target = reference
@@ -1178,9 +1600,24 @@ impl<'a> QueryContext<'a> {
             let detail = target
                 .and_then(|symbol| symbol.detail.clone())
                 .unwrap_or_else(|| format!("{:?}", reference.value_kind).to_ascii_lowercase());
+            let source = target
+                .map(|symbol| symbol.origin.canonical_uri())
+                .unwrap_or_else(|| reference.origin.canonical_uri());
+            let sigil = matches!(
+                reference.value_kind,
+                IndexedValueKind::Scalar
+                    | IndexedValueKind::Table
+                    | IndexedValueKind::Selection
+                    | IndexedValueKind::Output
+            )
+            .then_some("$")
+            .unwrap_or("");
             (
                 reference.span,
-                format!("```avenger\n${}\n```\n\n{detail}", reference.name),
+                format!(
+                    "```avenger\n{}\n```\n\n{detail}\n\nSource: `{source}`",
+                    format_args!("{sigil}{}", reference.name)
+                ),
             )
         } else if let Some((span, name)) = property {
             let owner = owner_symbol(self.index, &request.source, request.byte_offset);
@@ -1398,6 +1835,33 @@ fn namespace_for_keyword(keyword: &str) -> Option<NativeKindNamespace> {
     }
 }
 
+fn namespace_for_symbol(symbol: &IndexedSymbol) -> Option<NativeKindNamespace> {
+    match symbol.value_kind {
+        IndexedValueKind::Mark => Some(NativeKindNamespace::Mark),
+        IndexedValueKind::Tool => Some(NativeKindNamespace::Tool),
+        IndexedValueKind::Widget => Some(NativeKindNamespace::Widget),
+        _ => namespace_for_keyword(&symbol.keyword),
+    }
+}
+
+fn collect_reference_namespaces(shape: &ValueShape, output: &mut BTreeSet<NativeKindNamespace>) {
+    match shape {
+        ValueShape::TypedReference { namespaces }
+        | ValueShape::ConfiguredReference { namespaces, .. } => {
+            output.extend(namespaces.iter().copied());
+        }
+        ValueShape::Union(shapes) => {
+            for shape in shapes {
+                collect_reference_namespaces(shape, output);
+            }
+        }
+        ValueShape::OneOrMany(shape) | ValueShape::Array(shape) => {
+            collect_reference_namespaces(shape, output);
+        }
+        _ => {}
+    }
+}
+
 fn declaration_kind_context(text: &str, cursor: usize) -> Option<(NativeKindNamespace, &str)> {
     let prefix = &text[..cursor.min(text.len())];
     let start = prefix
@@ -1592,6 +2056,88 @@ fn shape_label(shape: &ValueShape) -> String {
     .to_owned()
 }
 
+fn complete_physical_types(
+    prefix: &str,
+    replacement: SourceSpan,
+    output: &mut Vec<CompletionItem>,
+) {
+    for constructor in avenger_lang_core::PhysicalType::CONSTRUCTORS {
+        if !candidate_matches(constructor, prefix) {
+            continue;
+        }
+        output.push(item(
+            (*constructor).to_owned(),
+            replacement,
+            (*constructor).to_owned(),
+            CompletionKind::Type,
+            Some("Arrow physical type".to_owned()),
+            None,
+            CompletionOrigin::Syntax,
+            false,
+            "00",
+        ));
+    }
+}
+
+fn core_properties(keyword: &str) -> &'static [(&'static str, &'static str)] {
+    match keyword {
+        "param" => &[
+            ("type", "Exact Arrow physical type for this parameter."),
+            ("default", "Initial scalar value."),
+            ("share", "State-sharing policy."),
+        ],
+        "store" => &[
+            ("share", "State-sharing policy."),
+            ("primary_key", "Fields that uniquely identify store rows."),
+        ],
+        "selection" => &[
+            ("empty", "Selection behavior when no values are selected."),
+            ("combine", "How multiple selection clauses combine."),
+        ],
+        "chart" | "plot" => &[
+            ("data", "Data relation visible to this plot."),
+            ("title", "Chart title expression."),
+            ("subtitle", "Chart subtitle expression."),
+            ("layout", "Canvas and plot-area layout."),
+            ("theme", "Theme configuration."),
+            ("time", "Temporal defaults."),
+            ("format", "Formatting defaults."),
+            ("guide", "Guide styling."),
+        ],
+        "cell" => &[
+            ("at", "Cell position."),
+            ("data", "Cell data relation."),
+            ("label", "Cell label."),
+            ("when", "Cell predicate."),
+        ],
+        "view" | "mark" | "group" => &[("data", "Data relation visible here.")],
+        "tool" => &[("id", "Stable tool component identifier.")],
+        "on" => &[
+            ("target", "Event target."),
+            ("scope", "Event scope."),
+            ("surface", "Event surface."),
+            ("filter", "Event filter expression."),
+            ("throttle_ms", "Event throttle duration in milliseconds."),
+            ("consume", "Whether the event is consumed."),
+            ("mode", "Preview or exact evaluation mode."),
+            ("settle_exact", "Request exact evaluation after settling."),
+            ("between", "Paired event interval."),
+        ],
+        _ => &[],
+    }
+}
+
+fn core_property_values(property: &str) -> &'static [&'static str] {
+    match property {
+        "share" => &["shared", "free", "level("],
+        "empty" => &["all", "none"],
+        "combine" => &["union", "intersect"],
+        "mode" => &["preview", "exact"],
+        "consume" | "settle_exact" => &["true", "false"],
+        _ => &[],
+    }
+}
+
 fn replacement_span(syntax: &SyntaxAnalysis, cursor: usize) -> SourceSpan {
     let text = syntax.parsed.tokens.text();
     let mut start = cursor.min(text.len());
@@ -1779,6 +2325,69 @@ mod tests {
         let cursor = text.find("$caf").unwrap() + "$caf".len();
         let span = replacement_span(&syntax, cursor);
         assert_eq!(&text[span.range.as_range()], "$caf");
+    }
+
+    #[test]
+    fn tolerant_imports_complete_and_navigate_qualified_definitions() {
+        let chart_text = "avenger 1; import 'definitions.avenger' as defs; chart cartesian as chart { mark defs.badge as badge {} }";
+        let definition_text = "avenger 1; define mark badge { mark symbol {} }";
+        let chart_origin = SourceOrigin::Memory("multi/chart.avenger".to_owned());
+        let definition_origin = SourceOrigin::Memory("multi/definitions.avenger".to_owned());
+        let chart = analyze_syntax(&DocumentSnapshot::new(
+            chart_origin.clone(),
+            SourceRevision::from_text(chart_text),
+            chart_text,
+        ));
+        let definition = analyze_syntax(&DocumentSnapshot::new(
+            definition_origin.clone(),
+            SourceRevision::from_text(definition_text),
+            definition_text,
+        ));
+        let syntax = BTreeMap::from([
+            (chart_origin.clone(), chart),
+            (definition_origin.clone(), definition),
+        ]);
+        let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let context = QueryContext::new(
+            AnalysisGeneration::new(1),
+            Path::new("/tmp"),
+            &[],
+            compiler.language_host().authoring_schema(),
+            &syntax,
+            &index,
+        );
+        let reference_start = chart_text.find("defs.badge").unwrap();
+        let navigation = context
+            .definition(
+                &PositionRequest {
+                    source: chart_origin.clone(),
+                    byte_offset: reference_start + 2,
+                    source_revision: SourceRevision::from_text(chart_text),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert_eq!(navigation.targets.len(), 1);
+        assert_eq!(navigation.targets[0].origin, definition_origin);
+
+        let completion = context
+            .complete(
+                &PositionRequest {
+                    source: chart_origin,
+                    byte_offset: reference_start + "defs.ba".len(),
+                    source_revision: SourceRevision::from_text(chart_text),
+                },
+                CompletionOptions::default(),
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            completion
+                .items
+                .iter()
+                .any(|item| item.label == "defs.badge")
+        );
     }
 
     #[test]

@@ -1,0 +1,16 @@
+{
+  "fixture": "valid_chart.avenger",
+  "symbols": [
+    {
+      "name": "chart",
+      "detail": "chart",
+      "children": [
+        { "name": "width", "detail": "param", "children": [] },
+        { "name": "points", "detail": "mark", "children": [] }
+      ]
+    }
+  ],
+  "intentional_differences": [
+    "The LSP selection range is the exact binder token; Zed's Tree-sitter outline item range remains the full captured outline item."
+  ]
+}

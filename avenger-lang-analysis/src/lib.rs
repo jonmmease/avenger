@@ -665,7 +665,7 @@ pub fn analyze_syntax(snapshot: &DocumentSnapshot) -> SyntaxAnalysis {
     );
     let parsed = avenger_lang_core::syntax::parse_file_tolerant(&source);
     let diagnostics = parsed.diagnostics.clone();
-    let symbols = declaration_symbols(&parsed.nodes, None);
+    let symbols = declaration_symbols(&parsed, None);
     SyntaxAnalysis {
         revision: snapshot.revision.clone(),
         parsed,
@@ -675,28 +675,59 @@ pub fn analyze_syntax(snapshot: &DocumentSnapshot) -> SyntaxAnalysis {
 }
 
 fn declaration_symbols(
-    nodes: &[TolerantSyntaxNode],
+    parsed: &TolerantParsedFile,
     parent: Option<TolerantSyntaxNodeId>,
 ) -> Vec<DocumentSymbol> {
-    nodes
+    parsed
+        .nodes
         .iter()
         .filter_map(|node| {
             let TolerantSyntaxNodeKind::Declaration { keyword, name } = &node.kind else {
                 return None;
             };
-            if normalized_parent(nodes, node.parent) != parent {
+            if normalized_parent(&parsed.nodes, node.parent) != parent {
                 return None;
             }
+            let selection_span = symbol_selection_span(parsed, node, name.as_deref(), keyword);
             Some(DocumentSymbol {
                 name: name.clone().unwrap_or_else(|| keyword.clone()),
                 detail: Some(keyword.clone()),
                 kind: symbol_kind(keyword),
                 span: node.span,
-                selection_span: node.span,
-                children: declaration_symbols(nodes, Some(node.id)),
+                selection_span,
+                children: declaration_symbols(parsed, Some(node.id)),
             })
         })
         .collect()
+}
+
+fn symbol_selection_span(
+    parsed: &TolerantParsedFile,
+    node: &TolerantSyntaxNode,
+    name: Option<&str>,
+    keyword: &str,
+) -> SourceSpan {
+    let desired = name.unwrap_or(keyword);
+    parsed
+        .tokens
+        .tokens()
+        .iter()
+        .take_while(|token| token.span().range.start < node.span.range.end)
+        .filter(|token| node.span.range.start <= token.span().range.start)
+        .take_while(|token| {
+            !matches!(
+                token.token(),
+                Some(sqlparser::tokenizer::Token::LBrace | sqlparser::tokenizer::Token::SemiColon)
+            )
+        })
+        .filter_map(|token| match token.token() {
+            Some(sqlparser::tokenizer::Token::Word(word)) if word.value == desired => {
+                Some(token.span())
+            }
+            _ => None,
+        })
+        .last()
+        .unwrap_or(node.span)
 }
 
 fn normalized_parent(
@@ -728,7 +759,9 @@ fn symbol_kind(keyword: &str) -> SymbolKind {
         "selection" => SymbolKind::Selection,
         "tool" => SymbolKind::Tool,
         "widget" => SymbolKind::Widget,
-        "event" => SymbolKind::Event,
+        "on" | "event" => SymbolKind::Event,
+        "view" => SymbolKind::View,
+        "field" => SymbolKind::Field,
         _ => SymbolKind::Definition,
     }
 }
