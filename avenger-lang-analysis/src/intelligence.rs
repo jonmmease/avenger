@@ -89,7 +89,7 @@ pub struct DocumentSemanticIndex {
 pub struct WorkspaceSemanticIndex {
     pub documents: BTreeMap<SourceOrigin, DocumentSemanticIndex>,
     pub public_bindings: BTreeMap<String, IndexedBinding>,
-    pub public_references: BTreeMap<String, IndexedBinding>,
+    pub public_references: BTreeMap<(SourceOrigin, String), IndexedBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -131,27 +131,31 @@ impl WorkspaceSemanticIndex {
                 let Some(imported) = resolve_local_import(importer, &specifier) else {
                     continue;
                 };
-                let Some(document) = self.documents.get(&imported) else {
+                let Some(symbols) = self.documents.get(&imported).map(|document| {
+                    document
+                        .symbols
+                        .iter()
+                        .filter(|symbol| symbol.keyword == "define")
+                        .cloned()
+                        .collect::<Vec<_>>()
+                }) else {
                     continue;
                 };
-                for symbol in document
-                    .symbols
-                    .iter()
-                    .filter(|symbol| symbol.keyword == "define")
-                {
+                for symbol in symbols {
                     let path = alias.as_ref().map_or_else(
                         || symbol.name.clone(),
                         |alias| format!("{alias}.{}", symbol.name),
                     );
+                    let value_kind = match symbol.native_kind.as_deref() {
+                        Some("mark") => IndexedValueKind::Mark,
+                        Some("tool") => IndexedValueKind::Tool,
+                        _ => IndexedValueKind::Declaration,
+                    };
                     self.public_references
-                        .entry(path.clone())
+                        .entry((importer.clone(), path.clone()))
                         .or_insert_with(|| IndexedBinding {
-                            path,
-                            value_kind: match symbol.native_kind.as_deref() {
-                                Some("mark") => IndexedValueKind::Mark,
-                                Some("tool") => IndexedValueKind::Tool,
-                                _ => IndexedValueKind::Declaration,
-                            },
+                            path: path.clone(),
+                            value_kind,
                             detail: format!(
                                 "imported {} definition",
                                 symbol.native_kind.as_deref().unwrap_or("Avenger")
@@ -162,6 +166,42 @@ impl WorkspaceSemanticIndex {
                                 selection_span: symbol.selection_span,
                             }),
                         });
+
+                    let header_references = self
+                        .documents
+                        .get(importer)
+                        .into_iter()
+                        .flat_map(|document| &document.symbols)
+                        .filter(|declaration| {
+                            declaration.native_kind.as_deref() == Some(path.as_str())
+                        })
+                        .filter_map(|declaration| {
+                            let header = declaration_header(
+                                analysis,
+                                declaration.declaration_span,
+                                &declaration.keyword,
+                                Some(&declaration.name),
+                            );
+                            header.native_kind_span.map(|span| IndexedReference {
+                                name: path.clone(),
+                                origin: importer.clone(),
+                                span,
+                                target_identity: None,
+                                value_kind,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if let Some(document) = self.documents.get_mut(importer) {
+                        for reference in header_references {
+                            if !document
+                                .references
+                                .iter()
+                                .any(|existing| existing.span == reference.span)
+                            {
+                                document.references.push(reference);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -264,6 +304,13 @@ impl WorkspaceSemanticIndex {
                 });
         }
         for file in project.files.values() {
+            let Some(importer) = project
+                .sources
+                .get(file.source)
+                .map(|source| source.origin.clone())
+            else {
+                continue;
+            };
             for (binding, imported_file) in &file.imports {
                 let Some(definition) = project.definitions.get(imported_file) else {
                     continue;
@@ -281,7 +328,7 @@ impl WorkspaceSemanticIndex {
                     format!("{binding}.{}", definition.source_name)
                 };
                 self.public_references
-                    .entry(path.clone())
+                    .entry((importer.clone(), path.clone()))
                     .or_insert_with(|| IndexedBinding {
                         path,
                         value_kind,
@@ -375,7 +422,10 @@ impl WorkspaceSemanticIndex {
                 })
                 .collect::<Vec<_>>();
             for (reference, local_target) in document.references.iter_mut().zip(local_targets) {
-                if let Some(reference_target) = self.public_references.get(&reference.name) {
+                if let Some(reference_target) = self
+                    .public_references
+                    .get(&(reference.origin.clone(), reference.name.clone()))
+                {
                     reference.value_kind = reference_target.value_kind;
                     reference.target_identity =
                         reference_target.target.as_ref().and_then(|target| {
@@ -1261,7 +1311,7 @@ impl<'a> QueryContext<'a> {
         } else if prefix.starts_with('$') {
             self.complete_bindings(prefix, replacement, &request.source, cursor, &mut items);
         } else if let Some((namespace, typed)) = declaration_kind_context(text, cursor) {
-            self.complete_native_kinds(namespace, typed, replacement, &mut items);
+            self.complete_native_kinds(namespace, typed, replacement, &request.source, &mut items);
         } else if let Some(property) = property_value_context(syntax, cursor) {
             self.complete_property_value(
                 property,
@@ -1311,6 +1361,7 @@ impl<'a> QueryContext<'a> {
         namespace: NativeKindNamespace,
         typed: &str,
         replacement: SourceSpan,
+        origin: &SourceOrigin,
         output: &mut Vec<CompletionItem>,
     ) {
         for (key, schema) in &self.registry.entries {
@@ -1329,7 +1380,10 @@ impl<'a> QueryContext<'a> {
                 "10",
             ));
         }
-        for reference in self.index.public_references.values() {
+        for ((reference_origin, _), reference) in &self.index.public_references {
+            if reference_origin != origin {
+                continue;
+            }
             let Some(target) = reference.target.as_ref().and_then(|target| {
                 self.index
                     .documents
@@ -1589,7 +1643,10 @@ impl<'a> QueryContext<'a> {
                 ));
             }
         }
-        for reference in self.index.public_references.values() {
+        for ((reference_origin, _), reference) in &self.index.public_references {
+            if reference_origin != origin {
+                continue;
+            }
             let allowed = match reference.value_kind {
                 IndexedValueKind::Mark => namespaces.contains(&NativeKindNamespace::Mark),
                 IndexedValueKind::Tool => namespaces.contains(&NativeKindNamespace::Tool),
@@ -2566,6 +2623,119 @@ mod tests {
                 .iter()
                 .any(|item| item.label == "defs.badge")
         );
+    }
+
+    #[test]
+    fn tolerant_imports_navigate_file_stem_definition_bindings() {
+        let chart_text = "avenger 1; import 'dot.mark.avenger'; chart cartesian as chart { mark dot as points {} }";
+        let definition_text = "avenger 1; define mark dot { mark symbol {} }";
+        let chart_origin = SourceOrigin::Memory("multi/chart.avenger".to_owned());
+        let definition_origin = SourceOrigin::Memory("multi/dot.mark.avenger".to_owned());
+        let chart = analyze_syntax(&DocumentSnapshot::new(
+            chart_origin.clone(),
+            SourceRevision::from_text(chart_text),
+            chart_text,
+        ));
+        let definition = analyze_syntax(&DocumentSnapshot::new(
+            definition_origin.clone(),
+            SourceRevision::from_text(definition_text),
+            definition_text,
+        ));
+        let syntax = BTreeMap::from([
+            (chart_origin.clone(), chart),
+            (definition_origin.clone(), definition),
+        ]);
+        let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
+        let context = QueryContext::new(
+            AnalysisGeneration::new(1),
+            Path::new("/tmp"),
+            &[],
+            compiler.language_host().authoring_schema(),
+            &syntax,
+            &index,
+            &semantic_roots,
+            &dataset_contexts,
+        );
+        let reference_start = chart_text.find("mark dot").unwrap() + "mark ".len();
+        let navigation = context
+            .definition(
+                &PositionRequest {
+                    source: chart_origin,
+                    byte_offset: reference_start + 1,
+                    source_revision: SourceRevision::from_text(chart_text),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert_eq!(navigation.targets.len(), 1, "index: {index:#?}");
+        assert_eq!(navigation.targets[0].origin, definition_origin);
+    }
+
+    #[test]
+    fn tolerant_import_bindings_are_scoped_to_each_importer() {
+        let chart_text = "avenger 1; import 'dot.mark.avenger'; chart cartesian as chart { mark dot as points {} }";
+        let definition_text = "avenger 1; define mark dot { mark symbol {} }";
+        let origins = [
+            (
+                SourceOrigin::Memory("multi/a/chart.avenger".to_owned()),
+                SourceOrigin::Memory("multi/a/dot.mark.avenger".to_owned()),
+            ),
+            (
+                SourceOrigin::Memory("multi/b/chart.avenger".to_owned()),
+                SourceOrigin::Memory("multi/b/dot.mark.avenger".to_owned()),
+            ),
+        ];
+        let mut syntax = BTreeMap::new();
+        for (chart_origin, definition_origin) in &origins {
+            syntax.insert(
+                chart_origin.clone(),
+                analyze_syntax(&DocumentSnapshot::new(
+                    chart_origin.clone(),
+                    SourceRevision::from_text(chart_text),
+                    chart_text,
+                )),
+            );
+            syntax.insert(
+                definition_origin.clone(),
+                analyze_syntax(&DocumentSnapshot::new(
+                    definition_origin.clone(),
+                    SourceRevision::from_text(definition_text),
+                    definition_text,
+                )),
+            );
+        }
+        let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
+        let context = QueryContext::new(
+            AnalysisGeneration::new(1),
+            Path::new("/tmp"),
+            &[],
+            compiler.language_host().authoring_schema(),
+            &syntax,
+            &index,
+            &semantic_roots,
+            &dataset_contexts,
+        );
+        let reference = chart_text.find("mark dot").unwrap() + "mark d".len();
+        for (chart_origin, definition_origin) in origins {
+            let navigation = context
+                .definition(
+                    &PositionRequest {
+                        source: chart_origin,
+                        byte_offset: reference,
+                        source_revision: SourceRevision::from_text(chart_text),
+                    },
+                    &AnalysisCancellation::default(),
+                )
+                .unwrap();
+            assert_eq!(navigation.targets.len(), 1);
+            assert_eq!(navigation.targets[0].origin, definition_origin);
+        }
     }
 
     #[test]
