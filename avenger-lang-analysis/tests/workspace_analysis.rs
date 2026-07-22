@@ -253,6 +253,39 @@ async fn cancellation_drops_in_flight_source_or_provider_analysis() {
 }
 
 #[tokio::test]
+async fn registry_profile_mismatches_never_publish_analysis() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let origin = SourceOrigin::File(project_root.join("chart.avenger"));
+    let text = "avenger 1; chart cartesian as chart {}";
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(
+            InMemorySourceLoader::default().with_source(loaded(&origin, text, "v1")),
+        ))
+        .build()
+        .unwrap();
+    let service = AnalysisService::new(compiler);
+    let result = service
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root,
+                roots: vec![ProjectRoot::chart(origin.clone())],
+                open_documents: BTreeMap::from([(
+                    origin.clone(),
+                    DocumentSnapshot::new(origin, SourceRevision::new("v1"), text),
+                )]),
+                known_disk_sources: Vec::new(),
+                native_registry_profile: "wrong-profile".to_owned(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 #[ignore = "manual timing baseline; not a CI threshold"]
 async fn record_project_analysis_timing_baseline() {
     let directory = tempfile::tempdir().unwrap();

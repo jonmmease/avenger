@@ -35,7 +35,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use position::{PositionEncoding, PositionIndex};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    sync::{Mutex, RwLock},
+    sync::{Mutex, OwnedSemaphorePermit, RwLock, Semaphore},
     task::JoinHandle,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server, jsonrpc, ls_types::*};
@@ -59,6 +59,10 @@ pub struct LspServerConfig {
     pub max_document_bytes: usize,
     pub max_diagnostics_per_document: usize,
     pub max_workspaces: usize,
+    pub max_semantic_tokens_per_document: usize,
+    pub max_concurrent_requests: usize,
+    pub max_analysis_cache_entries: usize,
+    pub max_dataset_cache_entries: usize,
 }
 
 impl Default for LspServerConfig {
@@ -68,6 +72,10 @@ impl Default for LspServerConfig {
             max_document_bytes: 8 * 1024 * 1024,
             max_diagnostics_per_document: 200,
             max_workspaces: 32,
+            max_semantic_tokens_per_document: 100_000,
+            max_concurrent_requests: 16,
+            max_analysis_cache_entries: 64,
+            max_dataset_cache_entries: 512,
         }
     }
 }
@@ -79,6 +87,10 @@ impl LspServerConfig {
             max_document_bytes: self.max_document_bytes.max(1),
             max_diagnostics_per_document: self.max_diagnostics_per_document.max(1),
             max_workspaces: self.max_workspaces.max(1),
+            max_semantic_tokens_per_document: self.max_semantic_tokens_per_document.max(1),
+            max_concurrent_requests: self.max_concurrent_requests.max(1),
+            max_analysis_cache_entries: self.max_analysis_cache_entries.max(1),
+            max_dataset_cache_entries: self.max_dataset_cache_entries.max(1),
         }
     }
 }
@@ -95,6 +107,7 @@ struct BackendInner {
     semantic_tasks: Mutex<HashMap<PathBuf, SemanticTask>>,
     publish_lock: Mutex<()>,
     watchers: StdMutex<HashMap<PathBuf, RecommendedWatcher>>,
+    request_limit: Arc<Semaphore>,
 }
 
 struct SemanticTask {
@@ -141,10 +154,12 @@ impl Backend {
     }
 
     fn with_config(client: Client, config: LspServerConfig) -> Self {
+        let config = config.normalized();
+        let request_limit = Arc::new(Semaphore::new(config.max_concurrent_requests));
         Self {
             client,
             inner: Arc::new(BackendInner {
-                config: config.normalized(),
+                config,
                 state: RwLock::new(ServerState {
                     position_encoding: PositionEncoding::Utf16,
                     position_encoding_kind: PositionEncodingKind::UTF16,
@@ -167,8 +182,16 @@ impl Backend {
                 semantic_tasks: Mutex::new(HashMap::new()),
                 publish_lock: Mutex::new(()),
                 watchers: StdMutex::new(HashMap::new()),
+                request_limit,
             }),
         }
+    }
+
+    async fn request_permit(&self) -> jsonrpc::Result<OwnedSemaphorePermit> {
+        Arc::clone(&self.inner.request_limit)
+            .acquire_owned()
+            .await
+            .map_err(|_| jsonrpc::Error::internal_error())
     }
 
     async fn report_error(&self, context: &str, error: impl std::fmt::Display) {
@@ -292,6 +315,10 @@ impl Backend {
             )
             .await;
             if let Ok(analysis) = result {
+                input.workspace.service.compiler().trim_editor_caches(
+                    backend.inner.config.max_analysis_cache_entries,
+                    backend.inner.config.max_dataset_cache_entries,
+                );
                 backend
                     .publish_semantic(task_root, generation, input.versions, analysis)
                     .await;
@@ -963,6 +990,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> jsonrpc::Result<Option<DocumentSymbolResponse>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
         let state = self.inner.state.read().await;
         let Some(document) = state.documents.get(&uri) else {
@@ -995,6 +1023,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentFormattingParams,
     ) -> jsonrpc::Result<Option<Vec<TextEdit>>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
         let Some((document, analysis, request, _)) =
             self.query_snapshot(&uri, Position::new(0, 0)).await
@@ -1027,6 +1056,7 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::SemanticTokensResult>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
         let Some((document, analysis, request, _)) =
             self.query_snapshot(&uri, Position::new(0, 0)).await
@@ -1043,7 +1073,11 @@ impl LanguageServer for Backend {
         let Ok(result) = result else {
             return Ok(None);
         };
-        let data = encode_semantic_tokens(&result.tokens, &document.positions);
+        let token_count = result
+            .tokens
+            .len()
+            .min(self.inner.config.max_semantic_tokens_per_document);
+        let data = encode_semantic_tokens(&result.tokens[..token_count], &document.positions);
         Ok(Some(
             tower_lsp_server::ls_types::SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: Some(format!(
@@ -1060,6 +1094,7 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> jsonrpc::Result<Option<PrepareRenameResponse>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
         let Some((document, analysis, request, _)) =
             self.query_snapshot(&uri, params.position).await
@@ -1087,6 +1122,7 @@ impl LanguageServer for Backend {
         &self,
         params: RenameParams,
     ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::WorkspaceEdit>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position.text_document.uri;
         let Some((_, analysis, request, _)) = self
             .query_snapshot(&uri, params.text_document_position.position)
@@ -1109,6 +1145,7 @@ impl LanguageServer for Backend {
         &self,
         params: CodeActionParams,
     ) -> jsonrpc::Result<Option<CodeActionResponse>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
         let Some((document, analysis, position_request, _)) =
             self.query_snapshot(&uri, params.range.start).await
@@ -1240,6 +1277,7 @@ impl LanguageServer for Backend {
         &self,
         mut action: tower_lsp_server::ls_types::CodeAction,
     ) -> jsonrpc::Result<tower_lsp_server::ls_types::CodeAction> {
+        let _permit = self.request_permit().await?;
         let data: PinImportResolveData =
             serde_json::from_value(action.data.clone().ok_or_else(|| {
                 jsonrpc::Error::invalid_params("code action has no resolve data")
@@ -1345,6 +1383,7 @@ impl LanguageServer for Backend {
         &self,
         params: CompletionParams,
     ) -> jsonrpc::Result<Option<CompletionResponse>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let Some((document, analysis, request, snippets)) =
@@ -1373,6 +1412,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
@@ -1399,6 +1439,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> jsonrpc::Result<Option<GotoDefinitionResponse>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
@@ -1414,6 +1455,7 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> jsonrpc::Result<Option<Vec<Location>>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
@@ -1436,6 +1478,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentHighlightParams,
     ) -> jsonrpc::Result<Option<Vec<DocumentHighlight>>> {
+        let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
@@ -2099,7 +2142,7 @@ mod tests {
     use tower::{Service, ServiceExt};
     use tower_lsp_server::{ClientSocket, LspService, jsonrpc::Request, ls_types::*};
 
-    use super::{Backend, Workspace};
+    use super::{Backend, LspServerConfig, Workspace};
 
     #[tokio::test]
     async fn initializes_and_shuts_down_in_memory() {
@@ -2177,6 +2220,95 @@ mod tests {
             result.capabilities.position_encoding,
             Some(PositionEncodingKind::UTF16)
         );
+    }
+
+    #[tokio::test]
+    async fn configured_document_diagnostic_token_and_request_bounds_are_enforced() {
+        let project = tempdir().unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let config = LspServerConfig {
+            semantic_debounce: Duration::from_secs(60),
+            max_document_bytes: 128,
+            max_diagnostics_per_document: 1,
+            max_semantic_tokens_per_document: 1,
+            max_concurrent_requests: 2,
+            ..LspServerConfig::default()
+        };
+        let captured = Arc::new(StdMutex::new(None::<Backend>));
+        let captured_factory = Arc::clone(&captured);
+        let (mut service, mut socket) = LspService::new(move |client| {
+            let backend = Backend::with_config(client, config);
+            *captured_factory.lock().unwrap() = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {},
+                    "workspaceFolders": [{ "uri": root_uri, "name": "bounded" }]
+                }))
+                .finish(),
+        )
+        .await;
+        let backend = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(backend.inner.request_limit.available_permits(), 2);
+        let uri = Uri::from_file_path(project.path().join("bounded-chart.avenger")).unwrap();
+        let text = "avenger 1; chart cartesian as chart { mark symbol as points { siez: 1; color: $missing; }";
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let publish = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let diagnostics: PublishDiagnosticsParams =
+            serde_json::from_value(publish.params().cloned().unwrap()).unwrap();
+        assert_eq!(diagnostics.diagnostics.len(), 1);
+
+        let semantic = call(
+            &mut service,
+            Request::build("textDocument/semanticTokens/full")
+                .id(2)
+                .params(json!({ "textDocument": { "uri": uri } }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let semantic: SemanticTokensResult =
+            serde_json::from_value(serde_json::to_value(semantic.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(matches!(
+            semantic,
+            SemanticTokensResult::Tokens(tokens) if tokens.data.len() <= 1
+        ));
+
+        let oversized_uri =
+            Uri::from_file_path(project.path().join("oversized-chart.avenger")).unwrap();
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": oversized_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": "x".repeat(129)
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        assert!(backend.document(&oversized_uri).await.is_none());
     }
 
     #[tokio::test]

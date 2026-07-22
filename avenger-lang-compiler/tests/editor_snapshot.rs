@@ -61,4 +61,10 @@ async fn explicit_roots_use_snapshot_loaders_generations_and_shared_caches() {
     assert_eq!(*environments.generations.lock().unwrap(), vec![41, 42]);
     assert!(compiler.cache_snapshot().resolved_projects >= 2);
     assert_eq!(compiler.cache_snapshot(), fork.cache_snapshot());
+    compiler.trim_editor_caches(1, 1);
+    let trimmed = compiler.cache_snapshot();
+    assert!(trimmed.resolved_projects <= 1);
+    assert!(trimmed.project_analyses <= 1);
+    assert!(trimmed.dataset_analyses <= 1);
+    assert_eq!(trimmed, fork.cache_snapshot());
 }

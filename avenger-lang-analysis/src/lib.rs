@@ -347,6 +347,18 @@ impl AnalysisService {
         cancellation: &AnalysisCancellation,
     ) -> Result<WorkspaceAnalysis, AnalysisCancelled> {
         cancellation.check()?;
+        if snapshot.native_registry_profile
+            != self
+                .compiler
+                .language_host()
+                .registry()
+                .profile_id()
+                .as_str()
+        {
+            // A profile change invalidates every schema-derived answer. Treat
+            // the snapshot like cancelled work so it can never publish.
+            return Err(AnalysisCancelled);
+        }
         let syntax = snapshot
             .open_documents
             .iter()

@@ -230,6 +230,38 @@ impl Compiler {
         }
     }
 
+    /// Bound the immutable frontend caches retained by long-lived editor hosts.
+    ///
+    /// Eviction affects performance only: every entry is content-addressed and
+    /// can be reconstructed from the next immutable project snapshot.
+    pub fn trim_editor_caches(&self, max_project_entries: usize, max_dataset_entries: usize) {
+        let max_project_entries = max_project_entries.max(1);
+        let max_dataset_entries = max_dataset_entries.max(1);
+        let mut resolved = self
+            .resolved_project_cache
+            .lock()
+            .expect("resolved-project cache lock poisoned");
+        while resolved.len() > max_project_entries {
+            resolved.pop_first();
+        }
+        drop(resolved);
+        let mut analyses = self
+            .analysis_cache
+            .lock()
+            .expect("analysis cache lock poisoned");
+        while analyses.len() > max_project_entries {
+            analyses.pop_first();
+        }
+        drop(analyses);
+        let mut datasets = self
+            .dataset_analysis_cache
+            .lock()
+            .expect("dataset-analysis cache lock poisoned");
+        while datasets.len() > max_dataset_entries {
+            datasets.pop_first();
+        }
+    }
+
     /// Fork compiler inputs for one immutable editor snapshot while sharing
     /// only content-addressed compiler caches with the parent.
     pub fn fork_with_source_loader(&self, source_loader: Arc<dyn SourceLoader>) -> Self {

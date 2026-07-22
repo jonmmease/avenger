@@ -79,6 +79,22 @@ pub struct LspArgs {
     /// Maximum number of workspace roots retained by the server.
     #[arg(long, default_value_t = 32, value_name = "COUNT")]
     max_workspaces: usize,
+
+    /// Maximum semantic tokens returned for one document.
+    #[arg(long, default_value_t = 100_000, value_name = "COUNT")]
+    max_semantic_tokens: usize,
+
+    /// Maximum language requests evaluated concurrently.
+    #[arg(long, default_value_t = 16, value_name = "COUNT")]
+    max_concurrent_requests: usize,
+
+    /// Maximum resolved projects and analyses retained per workspace.
+    #[arg(long, default_value_t = 64, value_name = "COUNT")]
+    max_analysis_cache_entries: usize,
+
+    /// Maximum analyzed dataset stages retained per workspace.
+    #[arg(long, default_value_t = 512, value_name = "COUNT")]
+    max_dataset_cache_entries: usize,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -269,11 +285,30 @@ fn run_lsp(args: LspArgs) -> Result<(), CliError> {
             "--max-workspaces must be greater than zero".to_owned(),
         ));
     }
+    if args.max_semantic_tokens == 0 {
+        return Err(CliError::InvalidArguments(
+            "--max-semantic-tokens must be greater than zero".to_owned(),
+        ));
+    }
+    if args.max_concurrent_requests == 0 {
+        return Err(CliError::InvalidArguments(
+            "--max-concurrent-requests must be greater than zero".to_owned(),
+        ));
+    }
+    if args.max_analysis_cache_entries == 0 || args.max_dataset_cache_entries == 0 {
+        return Err(CliError::InvalidArguments(
+            "LSP cache entry limits must be greater than zero".to_owned(),
+        ));
+    }
     let config = avenger_lsp::LspServerConfig {
         semantic_debounce: Duration::from_millis(args.debounce_ms),
         max_document_bytes,
         max_diagnostics_per_document: args.max_diagnostics,
         max_workspaces: args.max_workspaces,
+        max_semantic_tokens_per_document: args.max_semantic_tokens,
+        max_concurrent_requests: args.max_concurrent_requests,
+        max_analysis_cache_entries: args.max_analysis_cache_entries,
+        max_dataset_cache_entries: args.max_dataset_cache_entries,
     };
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -1566,6 +1601,10 @@ mod tests {
         assert_eq!(args.max_document_mb, 4);
         assert_eq!(args.max_diagnostics, 50);
         assert_eq!(args.max_workspaces, 3);
+        assert_eq!(args.max_semantic_tokens, 100_000);
+        assert_eq!(args.max_concurrent_requests, 16);
+        assert_eq!(args.max_analysis_cache_entries, 64);
+        assert_eq!(args.max_dataset_cache_entries, 512);
     }
 
     #[test]
