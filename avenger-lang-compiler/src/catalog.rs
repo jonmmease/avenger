@@ -170,6 +170,7 @@ pub(crate) async fn register_and_analyze_catalog(
                     },
                 },
                 qualified_name: Some(table.path.join(".")),
+                qualified_path: Some(table.path.clone()),
                 columns,
                 schema,
                 logical_plan_fingerprint,
@@ -229,6 +230,7 @@ pub(crate) async fn register_and_analyze_catalog(
                         DatasetStageKind::CatalogTable
                     },
                 },
+                qualified_path: Some(path),
                 qualified_name: Some(alias),
                 columns: dataframe
                     .schema()
@@ -532,6 +534,11 @@ async fn analyze_external_catalogs(
                             stage_kind: DatasetStageKind::CatalogTable,
                         },
                         qualified_name: Some(qualified.clone()),
+                        qualified_path: Some(vec![
+                            catalog_name.to_owned(),
+                            schema_name.to_owned(),
+                            table_name.to_owned(),
+                        ]),
                         columns: provider
                             .schema()
                             .fields()

@@ -261,6 +261,22 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
         tables["vega.popular"].columns[1].data_type,
         DataType::Float64
     );
+    assert_eq!(
+        tables["vega.movies"].qualified_path.as_deref(),
+        Some(["vega".to_owned(), "movies".to_owned()].as_slice())
+    );
+    assert!(
+        analysis
+            .functions
+            .scalar
+            .binary_search(&"abs".to_owned())
+            .is_ok()
+    );
+    assert!(
+        analysis
+            .physical_type_constructors
+            .contains(&"struct".to_owned())
+    );
 }
 
 #[tokio::test]

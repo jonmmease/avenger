@@ -1,7 +1,12 @@
-use std::{fs, path::Path, time::Instant};
+use std::{collections::BTreeMap, fs, path::Path, sync::Arc, time::Instant};
 
-use avenger_lang_analysis::{DocumentSnapshot, SourceRevision, SyntaxContextKind, analyze_syntax};
-use avenger_lang_core::{SourceFile, SourceId, SourceOrigin, syntax::parse_file};
+use avenger_lang_analysis::{
+    DocumentSnapshot, SnapshotSourceLoader, SourceRevision, SyntaxContextKind, analyze_syntax,
+};
+use avenger_lang_core::{
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, SourceFile, SourceId,
+    SourceLoader, SourceOrigin, syntax::parse_file,
+};
 
 const CURSOR: &str = "⟦cursor⟧";
 
@@ -115,4 +120,43 @@ fn record_syntax_timing_baseline() {
         samples[samples.len() / 2],
         samples[samples.len() * 95 / 100]
     );
+}
+
+#[tokio::test]
+async fn snapshot_loader_overlays_every_origin_kind_and_falls_back() {
+    let project_root = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
+    let file = SourceOrigin::File(project_root.join("open.avenger"));
+    let memory = SourceOrigin::Memory("untitled".into());
+    let std = SourceOrigin::Std("marks.avenger".into());
+    let http = SourceOrigin::Http("https://example.com/chart.avenger".into());
+    let fallback_origin = SourceOrigin::Memory("fallback".into());
+    let fallback = InMemorySourceLoader::default().with_source(LoadedSource::new(
+        fallback_origin.clone(),
+        "fallback text",
+        ContentVersion::new("disk-1"),
+    ));
+    let overlay = [file.clone(), memory.clone(), std.clone(), http.clone()]
+        .into_iter()
+        .map(|origin| {
+            (
+                origin.clone(),
+                DocumentSnapshot::new(origin, SourceRevision::new("open-1"), "open text"),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let loader = SnapshotSourceLoader::new(overlay, Arc::new(fallback));
+    let capabilities = ImportCapabilities {
+        project_root,
+        allow_memory: true,
+        allow_std: true,
+        allow_filesystem: true,
+        allow_http: true,
+    };
+    for origin in [file, memory, std, http] {
+        let loaded = loader.load(&origin, &capabilities).await.unwrap();
+        assert_eq!(&*loaded.text, "open text");
+        assert_eq!(loaded.version.as_str(), "open-1");
+    }
+    let loaded = loader.load(&fallback_origin, &capabilities).await.unwrap();
+    assert_eq!(&*loaded.text, "fallback text");
 }

@@ -58,6 +58,8 @@ pub struct AnalyzedDataset {
     pub provenance: DatasetProvenance,
     /// SQL-visible relation or stage name when one exists.
     pub qualified_name: Option<String>,
+    /// Exact catalog/schema/table components without lossy dot splitting.
+    pub qualified_path: Option<Vec<String>>,
     /// DataFusion's resolved qualification, Arrow type, and nullability for
     /// each output column. `schema` remains the convenient Arrow view.
     pub columns: Vec<AnalyzedColumn>,
@@ -82,6 +84,7 @@ impl std::fmt::Debug for AnalyzedDataset {
             .field("stage", &self.stage)
             .field("provenance", &self.provenance)
             .field("qualified_name", &self.qualified_name)
+            .field("qualified_path", &self.qualified_path)
             .field("columns", &self.columns)
             .field("schema", &self.schema)
             .field("logical_plan_fingerprint", &self.logical_plan_fingerprint)
@@ -172,6 +175,15 @@ pub struct ProjectAnalysis {
     pub native_registry_profile: NativeRegistryProfileId,
     pub project_fingerprint: ProjectFingerprint,
     pub dependency_fingerprints: ProjectDependencyFingerprints,
+    pub functions: FunctionInventory,
+    pub physical_type_constructors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FunctionInventory {
+    pub scalar: Vec<String>,
+    pub aggregate: Vec<String>,
+    pub window: Vec<String>,
 }
 
 impl ProjectAnalysis {
@@ -187,8 +199,49 @@ impl ProjectAnalysis {
             native_registry_profile,
             project_fingerprint,
             dependency_fingerprints: ProjectDependencyFingerprints::default(),
+            functions: FunctionInventory::default(),
+            physical_type_constructors: physical_type_constructors(),
         }
     }
+}
+
+fn physical_type_constructors() -> Vec<String> {
+    [
+        "boolean",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float16",
+        "float32",
+        "float64",
+        "utf8",
+        "large_utf8",
+        "binary",
+        "large_binary",
+        "date32",
+        "date64",
+        "time32",
+        "time64",
+        "timestamp",
+        "duration",
+        "interval",
+        "fixed_size_binary",
+        "decimal128",
+        "decimal256",
+        "list",
+        "large_list",
+        "fixed_size_list",
+        "struct",
+        "map",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 #[derive(Clone, Debug, thiserror::Error)]

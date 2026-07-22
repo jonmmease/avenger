@@ -1,0 +1,188 @@
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
+
+use async_trait::async_trait;
+use avenger_lang_analysis::{
+    AnalysisCancellation, AnalysisGeneration, AnalysisService, DocumentSnapshot, SourceRevision,
+    WorkspaceSnapshot,
+};
+use avenger_lang_compiler::Compiler;
+use avenger_lang_core::{
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectRoot,
+    SourceLoader, SourceLoaderError, SourceOrigin,
+};
+
+fn loaded(origin: &SourceOrigin, text: &str, version: &str) -> LoadedSource {
+    LoadedSource::new(
+        origin.clone(),
+        text,
+        ContentVersion::new(version.to_owned()),
+    )
+}
+
+#[tokio::test]
+async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let good = SourceOrigin::File(project_root.join("good.avenger"));
+    let bad = SourceOrigin::File(project_root.join("bad.avenger"));
+    let disk_loader = InMemorySourceLoader::default()
+        .with_source(loaded(
+            &good,
+            "avenger 1; chart cartesian as good { mark symbol as disk {} }",
+            "disk-good",
+        ))
+        .with_source(loaded(&bad, "avenger 1; chart", "disk-bad"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(disk_loader))
+        .build()
+        .unwrap();
+    let open_good = DocumentSnapshot::new(
+        good.clone(),
+        SourceRevision::new("open-good"),
+        "avenger 1; chart cartesian as good { mark symbol as unsaved {} }",
+    );
+    let snapshot = WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(7),
+        project_root,
+        roots: vec![
+            ProjectRoot::chart(good.clone()),
+            ProjectRoot::chart(bad.clone()),
+        ],
+        open_documents: BTreeMap::from([(good.clone(), open_good)]),
+        known_disk_sources: vec![good.clone(), bad.clone()],
+        native_registry_profile: compiler
+            .language_host()
+            .registry()
+            .profile_id()
+            .as_str()
+            .to_owned(),
+    };
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(snapshot, &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&good.canonical_uri()]
+            .result
+            .is_ok(),
+        "good root failed: {:?}",
+        analysis.semantic_roots[&good.canonical_uri()].result
+    );
+    assert!(
+        analysis.semantic_roots[&bad.canonical_uri()]
+            .result
+            .is_err()
+    );
+    assert_eq!(analysis.generation, AnalysisGeneration::new(7));
+    assert!(analysis.syntax.contains_key(&good));
+}
+
+#[derive(Debug)]
+struct PendingLoader;
+
+#[async_trait]
+impl SourceLoader for PendingLoader {
+    async fn load(
+        &self,
+        _origin: &SourceOrigin,
+        _capabilities: &ImportCapabilities,
+    ) -> Result<LoadedSource, SourceLoaderError> {
+        futures::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn cancellation_drops_in_flight_source_or_provider_analysis() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let root = SourceOrigin::File(project_root.join("pending.avenger"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(PendingLoader))
+        .build()
+        .unwrap();
+    let snapshot = WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(8),
+        project_root,
+        roots: vec![ProjectRoot::chart(root.clone())],
+        open_documents: BTreeMap::new(),
+        known_disk_sources: vec![root],
+        native_registry_profile: compiler
+            .language_host()
+            .registry()
+            .profile_id()
+            .as_str()
+            .to_owned(),
+    };
+    let cancellation = AnalysisCancellation::default();
+    let service = AnalysisService::new(compiler);
+    let future = service.analyze_workspace(snapshot, &cancellation);
+    tokio::pin!(future);
+    tokio::select! {
+        result = &mut future => panic!("analysis unexpectedly completed: {result:?}"),
+        () = tokio::task::yield_now() => {}
+    }
+    cancellation.cancel();
+    assert!(future.await.is_err());
+}
+
+#[tokio::test]
+#[ignore = "manual timing baseline; not a CI threshold"]
+async fn record_project_analysis_timing_baseline() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let origin = SourceOrigin::File(project_root.join("chart.avenger"));
+    let text = "avenger 1; chart cartesian as chart { mark symbol as points {} }";
+    let loader = InMemorySourceLoader::default().with_source(loaded(&origin, text, "v1"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(loader))
+        .build()
+        .unwrap();
+    let snapshot = WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(1),
+        project_root,
+        roots: vec![ProjectRoot::chart(origin.clone())],
+        open_documents: BTreeMap::from([(
+            origin.clone(),
+            DocumentSnapshot::new(origin, SourceRevision::new("v1"), text),
+        )]),
+        known_disk_sources: Vec::new(),
+        native_registry_profile: compiler
+            .language_host()
+            .registry()
+            .profile_id()
+            .as_str()
+            .to_owned(),
+    };
+    let service = AnalysisService::new(compiler);
+    let cancellation = AnalysisCancellation::default();
+    let start = Instant::now();
+    std::hint::black_box(
+        service
+            .analyze_workspace(snapshot.clone(), &cancellation)
+            .await
+            .unwrap(),
+    );
+    let cold = start.elapsed();
+    let mut samples = Vec::with_capacity(100);
+    for generation in 2..102 {
+        let mut current = snapshot.clone();
+        current.generation = AnalysisGeneration::new(generation);
+        let start = Instant::now();
+        std::hint::black_box(
+            service
+                .analyze_workspace(current, &cancellation)
+                .await
+                .unwrap(),
+        );
+        samples.push(start.elapsed());
+    }
+    samples.sort_unstable();
+    eprintln!(
+        "project cold={cold:?} warm_p50={:?} warm_p95={:?}",
+        samples[samples.len() / 2],
+        samples[samples.len() * 95 / 100]
+    );
+}

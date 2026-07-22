@@ -22,6 +22,9 @@ impl DiagnosticCode {
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticSeverity {
     Error,
+    Warning,
+    Information,
+    Hint,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +76,43 @@ impl Diagnostic {
         }
     }
 
+    pub fn warning(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        primary: SourceLabel,
+    ) -> Self {
+        Self::with_severity(DiagnosticSeverity::Warning, code, message, primary)
+    }
+
+    pub fn information(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        primary: SourceLabel,
+    ) -> Self {
+        Self::with_severity(DiagnosticSeverity::Information, code, message, primary)
+    }
+
+    pub fn hint(code: impl Into<String>, message: impl Into<String>, primary: SourceLabel) -> Self {
+        Self::with_severity(DiagnosticSeverity::Hint, code, message, primary)
+    }
+
+    fn with_severity(
+        severity: DiagnosticSeverity,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        primary: SourceLabel,
+    ) -> Self {
+        Self {
+            code: DiagnosticCode::new(code),
+            severity,
+            message: message.into(),
+            primary,
+            secondary: Vec::new(),
+            notes: Vec::new(),
+            trace: Vec::new(),
+        }
+    }
+
     pub fn with_secondary(mut self, label: SourceLabel) -> Self {
         self.secondary.push(label);
         self
@@ -115,6 +155,9 @@ pub fn render_diagnostics(diagnostics: &[Diagnostic], sources: &SourceMap) -> St
         }
         let severity = match diagnostic.severity {
             DiagnosticSeverity::Error => "error",
+            DiagnosticSeverity::Warning => "warning",
+            DiagnosticSeverity::Information => "information",
+            DiagnosticSeverity::Hint => "hint",
         };
         writeln!(
             output,
@@ -209,4 +252,29 @@ fn render_excerpt(
         label.message
     )
     .expect("write to string");
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{SourceId, SourceSpan};
+
+    use super::{Diagnostic, DiagnosticSeverity, SourceLabel};
+
+    #[test]
+    fn non_error_severities_are_explicit_and_serializable() {
+        let label = SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), "here");
+        let diagnostics = [
+            Diagnostic::warning("W", "warning", label.clone()),
+            Diagnostic::information("I", "information", label.clone()),
+            Diagnostic::hint("H", "hint", label),
+        ];
+        assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(diagnostics[1].severity, DiagnosticSeverity::Information);
+        assert_eq!(diagnostics[2].severity, DiagnosticSeverity::Hint);
+        for diagnostic in diagnostics {
+            let json = serde_json::to_string(&diagnostic).unwrap();
+            let round_trip: Diagnostic = serde_json::from_str(&json).unwrap();
+            assert_eq!(round_trip, diagnostic);
+        }
+    }
 }

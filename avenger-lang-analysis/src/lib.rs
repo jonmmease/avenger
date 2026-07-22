@@ -4,14 +4,32 @@
 //! Protocol adapters such as `avenger-lsp` are responsible for translating
 //! these contracts to editor-specific positions and wire types.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
+use async_trait::async_trait;
+use avenger_lang_compiler::{
+    CompileFailure, Compiler, DatasetStageId, DatasetStageKind, ProjectAnalysis,
+};
 use avenger_lang_core::{
-    Diagnostic, LineIndex, SourceFile, SourceId, SourceOrigin, SourceSpan,
+    ContentVersion, Diagnostic, ImportCapabilities, LineIndex, LoadedSource, ProjectRoot,
+    SourceFile, SourceId, SourceLoader, SourceLoaderError, SourceOrigin, SourceSpan,
+    project::normalize_path,
     syntax::{
         TolerantParsedFile, TolerantSyntaxNode, TolerantSyntaxNodeId, TolerantSyntaxNodeKind,
     },
 };
+use futures::{
+    future::{Either, select},
+    pin_mut,
+    task::AtomicWaker,
+};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug)]
 pub struct DocumentSnapshot {
@@ -19,6 +37,254 @@ pub struct DocumentSnapshot {
     pub revision: SourceRevision,
     pub text: Arc<str>,
     pub line_index: LineIndex,
+}
+
+#[derive(Clone)]
+pub struct WorkspaceSnapshot {
+    pub generation: AnalysisGeneration,
+    pub project_root: std::path::PathBuf,
+    pub roots: Vec<ProjectRoot>,
+    pub open_documents: BTreeMap<SourceOrigin, DocumentSnapshot>,
+    pub known_disk_sources: Vec<SourceOrigin>,
+    pub native_registry_profile: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RootAnalysis {
+    pub root: ProjectRoot,
+    pub result: Result<ProjectAnalysis, CompileFailure>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WorkspaceAnalysis {
+    pub generation: AnalysisGeneration,
+    pub syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
+    pub semantic_roots: BTreeMap<String, RootAnalysis>,
+    pub dataset_contexts: BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DatasetContext {
+    pub root_uri: String,
+    pub stage: DatasetStageId,
+    pub stage_kind: DatasetStageKind,
+    pub span: SourceSpan,
+}
+
+impl WorkspaceAnalysis {
+    pub fn dataset_context_at(
+        &self,
+        origin: &SourceOrigin,
+        byte_offset: usize,
+    ) -> Option<&DatasetContext> {
+        self.dataset_contexts.get(origin)?.iter().find(|context| {
+            context.span.range.start <= byte_offset && byte_offset <= context.span.range.end
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct AnalysisService {
+    compiler: Compiler,
+}
+
+impl AnalysisService {
+    pub fn new(compiler: Compiler) -> Self {
+        Self { compiler }
+    }
+
+    pub fn compiler(&self) -> &Compiler {
+        &self.compiler
+    }
+
+    pub async fn analyze_workspace(
+        &self,
+        snapshot: WorkspaceSnapshot,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<WorkspaceAnalysis, AnalysisCancelled> {
+        cancellation.check()?;
+        let syntax = snapshot
+            .open_documents
+            .iter()
+            .map(|(origin, document)| (origin.clone(), analyze_syntax(document)))
+            .collect();
+        cancellation.check()?;
+
+        let loader = snapshot.source_loader(self.compiler.options().source_loader.clone());
+        let compiler = self.compiler.fork_with_source_loader(Arc::new(loader));
+        let data_roots = snapshot
+            .roots
+            .iter()
+            .filter(|root| root.role == avenger_lang_core::ProjectDependencyRole::DataConfiguration)
+            .cloned()
+            .collect::<Vec<_>>();
+        let chart_roots = snapshot
+            .roots
+            .iter()
+            .filter(|root| root.role == avenger_lang_core::ProjectDependencyRole::RootChart)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut semantic_roots = BTreeMap::new();
+        let mut dataset_contexts = BTreeMap::<SourceOrigin, Vec<DatasetContext>>::new();
+        for root in chart_roots {
+            cancellation.check()?;
+            let mut closure_roots = vec![root.clone()];
+            closure_roots.extend(data_roots.iter().cloned());
+            let analysis = compiler.analyze_project_roots(closure_roots, snapshot.generation.get());
+            pin_mut!(analysis);
+            let cancelled = cancellation.cancelled();
+            pin_mut!(cancelled);
+            let result = match select(analysis, cancelled).await {
+                Either::Left((result, _)) => result,
+                Either::Right(((), _)) => return Err(AnalysisCancelled),
+            };
+            let root_uri = root.origin.canonical_uri();
+            if let Ok(project) = &result {
+                for (stage, dataset) in project.datasets.iter() {
+                    if let Some(source) = project.sources.get(dataset.provenance.stage_span.source)
+                    {
+                        dataset_contexts
+                            .entry(source.origin.clone())
+                            .or_default()
+                            .push(DatasetContext {
+                                root_uri: root_uri.clone(),
+                                stage: stage.clone(),
+                                stage_kind: dataset.provenance.stage_kind.clone(),
+                                span: dataset.provenance.stage_span,
+                            });
+                    }
+                }
+            }
+            semantic_roots.insert(root_uri, RootAnalysis { root, result });
+        }
+        for contexts in dataset_contexts.values_mut() {
+            contexts.sort_by_key(|context| {
+                (
+                    context.span.range.len(),
+                    context.span.range.start,
+                    context.stage.clone(),
+                )
+            });
+        }
+        cancellation.check()?;
+        Ok(WorkspaceAnalysis {
+            generation: snapshot.generation,
+            syntax,
+            semantic_roots,
+            dataset_contexts,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnalysisCancellation {
+    inner: Arc<AnalysisCancellationInner>,
+}
+
+#[derive(Debug, Default)]
+struct AnalysisCancellationInner {
+    cancelled: AtomicBool,
+    waker: AtomicWaker,
+}
+
+impl AnalysisCancellation {
+    pub fn cancel(&self) {
+        self.inner.cancelled.store(true, Ordering::Release);
+        self.inner.waker.wake();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.cancelled.load(Ordering::Acquire)
+    }
+
+    pub fn check(&self) -> Result<(), AnalysisCancelled> {
+        if self.is_cancelled() {
+            Err(AnalysisCancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn cancelled(&self) {
+        futures::future::poll_fn(|context| {
+            if self.is_cancelled() {
+                return std::task::Poll::Ready(());
+            }
+            self.inner.waker.register(context.waker());
+            if self.is_cancelled() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("analysis cancelled")]
+pub struct AnalysisCancelled;
+
+impl WorkspaceSnapshot {
+    pub fn source_loader(&self, fallback: Arc<dyn SourceLoader>) -> SnapshotSourceLoader {
+        SnapshotSourceLoader::new(self.open_documents.clone(), fallback)
+    }
+}
+
+/// Immutable open-buffer overlay for one analysis generation.
+#[derive(Clone)]
+pub struct SnapshotSourceLoader {
+    overlay: Arc<BTreeMap<SourceOrigin, DocumentSnapshot>>,
+    fallback: Arc<dyn SourceLoader>,
+}
+
+impl SnapshotSourceLoader {
+    pub fn new(
+        overlay: BTreeMap<SourceOrigin, DocumentSnapshot>,
+        fallback: Arc<dyn SourceLoader>,
+    ) -> Self {
+        Self {
+            overlay: Arc::new(overlay),
+            fallback,
+        }
+    }
+
+    pub fn overlay(&self) -> &BTreeMap<SourceOrigin, DocumentSnapshot> {
+        &self.overlay
+    }
+}
+
+#[async_trait]
+impl SourceLoader for SnapshotSourceLoader {
+    async fn load(
+        &self,
+        origin: &SourceOrigin,
+        capabilities: &ImportCapabilities,
+    ) -> Result<LoadedSource, SourceLoaderError> {
+        if let Some(document) = self.overlay.get(origin) {
+            if !origin_allowed(origin, capabilities) {
+                return Err(SourceLoaderError::CapabilityDenied(origin.clone()));
+            }
+            return Ok(LoadedSource::new(
+                document.origin.clone(),
+                document.text.clone(),
+                ContentVersion::new(document.revision.as_str()),
+            ));
+        }
+        self.fallback.load(origin, capabilities).await
+    }
+}
+
+fn origin_allowed(origin: &SourceOrigin, capabilities: &ImportCapabilities) -> bool {
+    match origin {
+        SourceOrigin::Memory(_) => capabilities.allow_memory,
+        SourceOrigin::File(path) => {
+            capabilities.allow_filesystem
+                && normalize_path(path).starts_with(normalize_path(&capabilities.project_root))
+        }
+        SourceOrigin::Std(_) => capabilities.allow_std,
+        SourceOrigin::Http(_) => capabilities.allow_http,
+    }
 }
 
 impl DocumentSnapshot {
@@ -58,6 +324,11 @@ impl SourceRevision {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn from_text(text: &str) -> Self {
+        let digest = Sha256::digest(text.as_bytes());
+        Self::new(format!("sha256:{digest:x}"))
     }
 }
 
@@ -395,6 +666,8 @@ pub struct CodeAction {
 mod tests {
     use std::fs;
 
+    use super::SourceRevision;
+
     #[test]
     fn editor_neutral_crate_has_no_lsp_or_zed_dependency() {
         let manifest = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
@@ -405,5 +678,24 @@ mod tests {
                 "editor-neutral analysis crate must not depend on {forbidden}"
             );
         }
+        let source = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("read analysis source");
+        let session_context = ["Session", "Context"].concat();
+        assert!(
+            !source.contains(&session_context),
+            "workspace analysis must not retain a mutable DataFusion session"
+        );
+    }
+
+    #[test]
+    fn source_revisions_are_content_identities() {
+        assert_eq!(
+            SourceRevision::from_text("same"),
+            SourceRevision::from_text("same")
+        );
+        assert_ne!(
+            SourceRevision::from_text("before"),
+            SourceRevision::from_text("after")
+        );
     }
 }

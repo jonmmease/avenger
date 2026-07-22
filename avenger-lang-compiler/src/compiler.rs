@@ -159,6 +159,9 @@ impl std::fmt::Display for CompileFailure {
                 "{}[{}]: {}",
                 match diagnostic.severity {
                     avenger_lang_core::DiagnosticSeverity::Error => "error",
+                    avenger_lang_core::DiagnosticSeverity::Warning => "warning",
+                    avenger_lang_core::DiagnosticSeverity::Information => "information",
+                    avenger_lang_core::DiagnosticSeverity::Hint => "hint",
                 },
                 diagnostic.code.as_str(),
                 diagnostic.message
@@ -225,6 +228,16 @@ impl Compiler {
             chart_artifacts: artifact_cache.artifacts.len(),
             artifact_keys: artifact_cache.artifacts.keys().cloned().collect(),
         }
+    }
+
+    /// Fork compiler inputs for one immutable editor snapshot while sharing
+    /// only content-addressed compiler caches with the parent.
+    pub fn fork_with_source_loader(&self, source_loader: Arc<dyn SourceLoader>) -> Self {
+        let mut options = (*self.options).clone();
+        options.source_loader = source_loader;
+        let mut fork = self.clone();
+        fork.options = Arc::new(options);
+        fork
     }
 
     pub async fn compile_file_attempt(
@@ -502,6 +515,29 @@ impl Compiler {
             .await
     }
 
+    /// Analyze an explicit immutable root inventory without filesystem
+    /// discovery. Editor hosts use this with a snapshot source-loader overlay.
+    pub async fn analyze_project_roots(
+        &self,
+        roots: Vec<ProjectRoot>,
+        generation: u64,
+    ) -> Result<ProjectAnalysis, CompileFailure> {
+        let attempt = self.load_project_roots_attempt(roots).await;
+        let dependencies = attempt.dependencies;
+        let parsed = attempt.result?;
+        let project = self
+            .resolve_parsed_project_attempt(CompileAttempt {
+                result: Ok(parsed.clone()),
+                dependencies: dependencies.clone(),
+            })
+            .result?;
+        let (environment, catalog) = self
+            .analyze_resolved_project(&project, generation, &dependencies)
+            .await?;
+        self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
+            .await
+    }
+
     async fn finish_project_analysis(
         &self,
         parsed: &ParsedProject,
@@ -538,6 +574,13 @@ impl Compiler {
             self.options.native_registry.profile_id().clone(),
             project_fingerprint,
         );
+        let state = environment.session_context().state();
+        analysis.functions.scalar = state.scalar_functions().keys().cloned().collect();
+        analysis.functions.aggregate = state.aggregate_functions().keys().cloned().collect();
+        analysis.functions.window = state.window_functions().keys().cloned().collect();
+        analysis.functions.scalar.sort();
+        analysis.functions.aggregate.sort();
+        analysis.functions.window.sort();
         analysis.lineage = catalog.lineage.clone();
         let mut pending_datasets = BTreeMap::new();
         for (_, dataset) in catalog.datasets.iter() {
@@ -595,6 +638,7 @@ impl Compiler {
                     stage_kind: dataset.stage_kind,
                 },
                 qualified_name: Some(format!("chart:{}", dataset.dataset.as_str())),
+                qualified_path: None,
                 columns: dataset.columns,
                 schema: dataset.schema,
                 logical_plan_fingerprint: dataset.logical_plan_fingerprint,
@@ -780,7 +824,7 @@ impl Compiler {
                 .into_iter()
                 .map(|path| ProjectRoot::data(SourceOrigin::File(path))),
         );
-        self.load_roots(roots).await
+        self.load_project_roots_attempt(roots).await
     }
 
     /// Phase 3 frontend seam: discover all chart roots and ambient data files
@@ -828,10 +872,15 @@ impl Compiler {
                 dependencies: DiscoveredDependencySet::default(),
             };
         }
-        self.load_roots(roots).await
+        self.load_project_roots_attempt(roots).await
     }
 
-    async fn load_roots(&self, roots: Vec<ProjectRoot>) -> CompileAttempt<ParsedProject> {
+    /// Load an explicit root inventory and its import closure without scanning
+    /// the project directory.
+    pub async fn load_project_roots_attempt(
+        &self,
+        roots: Vec<ProjectRoot>,
+    ) -> CompileAttempt<ParsedProject> {
         let request = ProjectLoadRequest {
             project_root: normalize_path(&self.options.project_root),
             roots,
