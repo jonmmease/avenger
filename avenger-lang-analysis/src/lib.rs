@@ -224,6 +224,14 @@ impl WorkspaceAnalysis {
         editing::code_actions(self, request, cancellation)
     }
 
+    pub fn pin_import_target(
+        &self,
+        request: &CodeActionRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Option<PinImportTarget>, AnalysisQueryError> {
+        editing::pin_import_target(self, request, cancellation)
+    }
+
     pub fn hover(
         &self,
         request: &PositionRequest,
@@ -292,6 +300,45 @@ impl AnalysisService {
 
     pub fn compiler(&self) -> &Compiler {
         &self.compiler
+    }
+
+    /// Fetch and hash one explicitly requested remote definition import.
+    ///
+    /// Ordinary project analysis retains its configured network capability;
+    /// only this user-selected operation enables HTTP for the one origin.
+    pub async fn pin_http_import(
+        &self,
+        url: &str,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<String, PinImportError> {
+        cancellation
+            .check()
+            .map_err(|_| PinImportError::Cancelled)?;
+        let origin = SourceOrigin::Http(url.to_owned());
+        let mut capabilities = self.compiler.options().import_capabilities.clone();
+        capabilities.allow_http = true;
+        let load = self
+            .compiler
+            .options()
+            .source_loader
+            .load(&origin, &capabilities);
+        pin_mut!(load);
+        let cancelled = cancellation.cancelled();
+        pin_mut!(cancelled);
+        let loaded = match select(load, cancelled).await {
+            Either::Left((result, _)) => {
+                result.map_err(|error| PinImportError::Load(error.to_string()))?
+            }
+            Either::Right(((), _)) => return Err(PinImportError::Cancelled),
+        };
+        let source = SourceFile::new(SourceId::new(0), loaded.origin, loaded.text.to_string());
+        let parsed = avenger_lang_core::syntax::parse_file(&source)
+            .map_err(|_| PinImportError::NotDefinition)?;
+        if !matches!(parsed.ast.root, avenger_lang_core::ast::Root::Define(_)) {
+            return Err(PinImportError::NotDefinition);
+        }
+        let digest = Sha256::digest(loaded.text.as_bytes());
+        Ok(format!("{digest:x}"))
     }
 
     pub async fn analyze_workspace(
@@ -915,6 +962,8 @@ pub struct VersionedSourceEdits {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkspaceEdit {
     pub sources: BTreeMap<SourceOrigin, VersionedSourceEdits>,
+    /// New authored files to create before applying `sources` edits.
+    pub create_files: BTreeMap<SourceOrigin, String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -940,6 +989,24 @@ pub struct CodeActionRequest {
     pub range: SourceSpan,
     pub source_revision: SourceRevision,
     pub diagnostic_codes: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PinImportTarget {
+    pub url: String,
+    pub insertion_span: SourceSpan,
+    pub generation: AnalysisGeneration,
+    pub source_revision: SourceRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum PinImportError {
+    #[error("the pin-import request was cancelled")]
+    Cancelled,
+    #[error("could not fetch import: {0}")]
+    Load(String),
+    #[error("the fetched source is not a valid Avenger definition")]
+    NotDefinition,
 }
 
 #[cfg(test)]

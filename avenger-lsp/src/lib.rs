@@ -21,8 +21,9 @@ use avenger_lang_analysis::{
     CompletionKind as AvengerCompletionKind, CompletionOptions as AnalysisCompletionOptions,
     CompletionTextFormat, DocumentRequest, DocumentSnapshot, LineEnding, PositionRequest,
     RenameError, SemanticTokenKind as AvengerSemanticTokenKind,
-    SemanticTokenModifiers as AvengerSemanticTokenModifiers, SourceRevision, SyntaxAnalysis,
-    WorkspaceAnalysis, WorkspaceEdit as AnalysisWorkspaceEdit, WorkspaceSnapshot, analyze_syntax,
+    SemanticTokenModifiers as AvengerSemanticTokenModifiers, SourceRevision, SourceTextEdit,
+    SyntaxAnalysis, VersionedSourceEdits, WorkspaceAnalysis,
+    WorkspaceEdit as AnalysisWorkspaceEdit, WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::{CompileFailure, Compiler};
 use avenger_lang_core::{
@@ -32,6 +33,7 @@ use avenger_lang_core::{
 use documents::{DocumentStore, OpenDocument};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use position::{PositionEncoding, PositionIndex};
+use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{Mutex, RwLock},
     task::JoinHandle,
@@ -39,6 +41,18 @@ use tokio::{
 use tower_lsp_server::{Client, LanguageServer, LspService, Server, jsonrpc, ls_types::*};
 
 const SERVER_NAME: &str = "avenger-lsp";
+const PIN_IMPORT_ACTION_KIND: &str = "source.pinImport";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PinImportResolveData {
+    operation: String,
+    uri: Uri,
+    version: i32,
+    range_start: usize,
+    range_end: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LspServerConfig {
     pub semantic_debounce: Duration,
@@ -94,7 +108,9 @@ struct ServerState {
     hierarchical_symbols: bool,
     completion_snippets: bool,
     document_changes: bool,
+    resource_create: bool,
     code_action_literals: bool,
+    code_action_resolve_edit: bool,
     code_action_preferred: bool,
     documents: DocumentStore,
     syntax: HashMap<Uri, SyntaxAnalysis>,
@@ -135,7 +151,9 @@ impl Backend {
                     hierarchical_symbols: true,
                     completion_snippets: false,
                     document_changes: false,
+                    resource_create: false,
                     code_action_literals: false,
+                    code_action_resolve_edit: false,
                     code_action_preferred: false,
                     documents: DocumentStore::default(),
                     syntax: HashMap::new(),
@@ -485,6 +503,11 @@ impl Backend {
     ) -> jsonrpc::Result<tower_lsp_server::ls_types::WorkspaceEdit> {
         let encoding = self.position_encoding().await;
         let state = self.inner.state.read().await;
+        if !edit.create_files.is_empty() && !state.resource_create {
+            return Err(jsonrpc::Error::invalid_params(
+                "client does not support create-file workspace edits",
+            ));
+        }
         let mut documents = Vec::new();
         for (origin, source_edits) in edit.sources {
             let canonical_uri = uri_for_origin(&origin).ok_or_else(|| {
@@ -547,9 +570,49 @@ impl Backend {
                 edits,
             });
         }
+        let document_changes = if edit.create_files.is_empty() {
+            DocumentChanges::Edits(documents)
+        } else {
+            let mut operations = Vec::new();
+            for (origin, contents) in edit.create_files {
+                let SourceOrigin::File(path) = &origin else {
+                    return Err(jsonrpc::Error::invalid_params(
+                        "only local files can be created by a workspace edit",
+                    ));
+                };
+                if path.exists() {
+                    return Err(jsonrpc::Error::invalid_params(format!(
+                        "refusing to overwrite existing file {}",
+                        path.display()
+                    )));
+                }
+                let uri = uri_for_origin(&origin).ok_or_else(|| {
+                    jsonrpc::Error::invalid_params("new file has no editable URI")
+                })?;
+                operations.push(DocumentChangeOperation::Op(ResourceOp::Create(
+                    CreateFile {
+                        uri: uri.clone(),
+                        options: Some(CreateFileOptions {
+                            overwrite: Some(false),
+                            ignore_if_exists: Some(false),
+                        }),
+                        annotation_id: None,
+                    },
+                )));
+                operations.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
+                    edits: vec![OneOf::Left(TextEdit::new(
+                        Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        contents,
+                    ))],
+                }));
+            }
+            operations.extend(documents.into_iter().map(DocumentChangeOperation::Edit));
+            DocumentChanges::Operations(operations)
+        };
         Ok(tower_lsp_server::ls_types::WorkspaceEdit {
             changes: None,
-            document_changes: Some(DocumentChanges::Edits(documents)),
+            document_changes: Some(document_changes),
             change_annotations: None,
         })
     }
@@ -634,6 +697,13 @@ impl LanguageServer for Backend {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|edit| edit.document_changes)
             .unwrap_or(false);
+        let resource_create = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.resource_operations.as_ref())
+            .is_some_and(|operations| operations.contains(&ResourceOperationKind::Create));
         let code_action = params
             .capabilities
             .text_document
@@ -645,6 +715,12 @@ impl LanguageServer for Backend {
         let code_action_preferred = code_action
             .and_then(|action| action.is_preferred_support)
             .unwrap_or(false);
+        let code_action_resolve_edit = code_action.is_some_and(|action| {
+            action.data_support.unwrap_or(false)
+                && action.resolve_support.as_ref().is_some_and(|support| {
+                    support.properties.iter().any(|property| property == "edit")
+                })
+        });
         let mut roots = Vec::new();
         if let Some(folders) = params.workspace_folders.as_ref() {
             roots.extend(
@@ -689,8 +765,10 @@ impl LanguageServer for Backend {
             state.hierarchical_symbols = hierarchical_symbols;
             state.completion_snippets = completion_snippets;
             state.document_changes = document_changes;
+            state.resource_create = resource_create;
             state.code_action_literals = code_action_literals;
             state.code_action_preferred = code_action_preferred;
+            state.code_action_resolve_edit = code_action_resolve_edit;
             state.workspaces = workspaces;
             state.workspace_generations = state
                 .workspaces
@@ -748,9 +826,14 @@ impl LanguageServer for Backend {
                 })),
                 code_action_provider: (document_changes && code_action_literals).then(|| {
                     CodeActionProviderCapability::Options(CodeActionOptions {
-                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        code_action_kinds: Some(vec![
+                            CodeActionKind::QUICKFIX,
+                            CodeActionKind::REFACTOR_INLINE,
+                            CodeActionKind::REFACTOR_EXTRACT,
+                            CodeActionKind::new(PIN_IMPORT_ACTION_KIND),
+                        ]),
                         work_done_progress_options: WorkDoneProgressOptions::default(),
-                        resolve_provider: Some(false),
+                        resolve_provider: Some(code_action_resolve_edit),
                     })
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -1035,14 +1118,10 @@ impl LanguageServer for Backend {
         let state = self.inner.state.read().await;
         let supported = state.document_changes && state.code_action_literals;
         let preferred_support = state.code_action_preferred;
+        let resource_create = state.resource_create;
+        let resolve_edit = state.code_action_resolve_edit;
         drop(state);
-        if !supported
-            || params.context.only.as_ref().is_some_and(|only| {
-                !only
-                    .iter()
-                    .any(|kind| kind.as_str().is_empty() || kind == &CodeActionKind::QUICKFIX)
-            })
-        {
+        if !supported {
             return Ok(None);
         }
         let Ok(byte_range) = document.positions.byte_range(params.range) else {
@@ -1064,26 +1143,36 @@ impl LanguageServer for Backend {
                 NumberOrString::Number(code) => Some(code.to_string()),
             })
             .collect::<Vec<_>>();
-        let actions = analysis.code_actions(
-            &CodeActionRequest {
-                source: position_request.source,
-                range: avenger_lang_core::SourceSpan {
-                    source: source_id,
-                    range: avenger_lang_core::ByteSpan {
-                        start: byte_range.start,
-                        end: byte_range.end,
-                    },
+        let analysis_request = CodeActionRequest {
+            source: position_request.source,
+            range: avenger_lang_core::SourceSpan {
+                source: source_id,
+                range: avenger_lang_core::ByteSpan {
+                    start: byte_range.start,
+                    end: byte_range.end,
                 },
-                source_revision: position_request.source_revision,
-                diagnostic_codes,
             },
-            &AnalysisCancellation::default(),
-        );
+            source_revision: position_request.source_revision,
+            diagnostic_codes,
+        };
+        let actions = analysis.code_actions(&analysis_request, &AnalysisCancellation::default());
         let Ok(actions) = actions else {
             return Ok(None);
         };
         let mut response = Vec::new();
         for action in actions {
+            if action.kind == AnalysisCodeActionKind::RefactorExtract && !resource_create {
+                continue;
+            }
+            let kind = match action.kind {
+                AnalysisCodeActionKind::QuickFix => CodeActionKind::QUICKFIX,
+                AnalysisCodeActionKind::RefactorInline => CodeActionKind::REFACTOR_INLINE,
+                AnalysisCodeActionKind::RefactorExtract => CodeActionKind::REFACTOR_EXTRACT,
+                AnalysisCodeActionKind::Source => CodeActionKind::SOURCE,
+            };
+            if !code_action_kind_allowed(&kind, params.context.only.as_deref()) {
+                continue;
+            }
             let matching_diagnostics = params
                 .context
                 .diagnostics
@@ -1103,12 +1192,7 @@ impl LanguageServer for Backend {
             response.push(CodeActionOrCommand::CodeAction(
                 tower_lsp_server::ls_types::CodeAction {
                     title: action.title,
-                    kind: Some(match action.kind {
-                        AnalysisCodeActionKind::QuickFix => CodeActionKind::QUICKFIX,
-                        AnalysisCodeActionKind::RefactorInline => CodeActionKind::REFACTOR_INLINE,
-                        AnalysisCodeActionKind::RefactorExtract => CodeActionKind::REFACTOR_EXTRACT,
-                        AnalysisCodeActionKind::Source => CodeActionKind::SOURCE,
-                    }),
+                    kind: Some(kind),
                     diagnostics: (!matching_diagnostics.is_empty()).then_some(matching_diagnostics),
                     edit: Some(edit),
                     command: None,
@@ -1118,7 +1202,143 @@ impl LanguageServer for Backend {
                 },
             ));
         }
+        let pin_kind = CodeActionKind::new(PIN_IMPORT_ACTION_KIND);
+        if resolve_edit
+            && code_action_kind_allowed(&pin_kind, params.context.only.as_deref())
+            && let Ok(Some(_target)) =
+                analysis.pin_import_target(&analysis_request, &AnalysisCancellation::default())
+        {
+            let data = serde_json::to_value(PinImportResolveData {
+                operation: PIN_IMPORT_ACTION_KIND.to_owned(),
+                uri,
+                version: document.version,
+                range_start: byte_range.start,
+                range_end: byte_range.end,
+            })
+            .map_err(|error| {
+                jsonrpc::Error::invalid_params(format!(
+                    "could not encode pin-import resolve data: {error}"
+                ))
+            })?;
+            response.push(CodeActionOrCommand::CodeAction(
+                tower_lsp_server::ls_types::CodeAction {
+                    title: "Fetch and pin remote import".to_owned(),
+                    kind: Some(pin_kind),
+                    diagnostics: None,
+                    edit: None,
+                    command: None,
+                    is_preferred: preferred_support.then_some(true),
+                    disabled: None,
+                    data: Some(data),
+                },
+            ));
+        }
         Ok((!response.is_empty()).then_some(response))
+    }
+
+    async fn code_action_resolve(
+        &self,
+        mut action: tower_lsp_server::ls_types::CodeAction,
+    ) -> jsonrpc::Result<tower_lsp_server::ls_types::CodeAction> {
+        let data: PinImportResolveData =
+            serde_json::from_value(action.data.clone().ok_or_else(|| {
+                jsonrpc::Error::invalid_params("code action has no resolve data")
+            })?)
+            .map_err(|error| {
+                jsonrpc::Error::invalid_params(format!("invalid resolve data: {error}"))
+            })?;
+        if data.operation != PIN_IMPORT_ACTION_KIND {
+            return Err(jsonrpc::Error::invalid_params(
+                "unsupported code action resolve operation",
+            ));
+        }
+        let document = self.document(&data.uri).await.ok_or_else(|| {
+            jsonrpc::Error::invalid_params("pin-import document is no longer open")
+        })?;
+        if document.version != data.version {
+            return Err(jsonrpc::Error::invalid_params(
+                "pin-import document changed before the action was resolved",
+            ));
+        }
+        let position = document
+            .positions
+            .position(data.range_start)
+            .map_err(|error| jsonrpc::Error::invalid_params(error.to_string()))?;
+        let Some((document, analysis, position_request, _)) =
+            self.query_snapshot(&data.uri, position).await
+        else {
+            return Err(jsonrpc::Error::invalid_params(
+                "pin-import analysis is no longer available",
+            ));
+        };
+        let source_id = analysis
+            .syntax
+            .get(&position_request.source)
+            .map(|syntax| syntax.parsed.tokens.source())
+            .ok_or_else(|| jsonrpc::Error::invalid_params("pin-import source is not indexed"))?;
+        let request = CodeActionRequest {
+            source: position_request.source.clone(),
+            range: avenger_lang_core::SourceSpan {
+                source: source_id,
+                range: avenger_lang_core::ByteSpan {
+                    start: data.range_start,
+                    end: data.range_end,
+                },
+            },
+            source_revision: position_request.source_revision.clone(),
+            diagnostic_codes: Vec::new(),
+        };
+        let target = analysis
+            .pin_import_target(&request, &AnalysisCancellation::default())
+            .map_err(|error| jsonrpc::Error::invalid_params(error.to_string()))?
+            .ok_or_else(|| {
+                jsonrpc::Error::invalid_params("remote import is already pinned or changed")
+            })?;
+        let path = data.uri.to_file_path().ok_or_else(|| {
+            jsonrpc::Error::invalid_params("pin-import source is not a local file")
+        })?;
+        let workspace = {
+            let state = self.inner.state.read().await;
+            let root = owning_workspace(&state.workspaces, &path).ok_or_else(|| {
+                jsonrpc::Error::invalid_params("pin-import workspace is unavailable")
+            })?;
+            state.workspaces.get(&root).cloned().ok_or_else(|| {
+                jsonrpc::Error::invalid_params("pin-import workspace is unavailable")
+            })?
+        };
+        let hash = workspace
+            .service
+            .pin_http_import(&target.url, &AnalysisCancellation::default())
+            .await
+            .map_err(|error| jsonrpc::Error::invalid_params(error.to_string()))?;
+        let current = self.document(&data.uri).await.ok_or_else(|| {
+            jsonrpc::Error::invalid_params("pin-import document closed during fetch")
+        })?;
+        if current.version != document.version
+            || SourceRevision::from_text(&current.text) != target.source_revision
+        {
+            return Err(jsonrpc::Error::invalid_params(
+                "pin-import document changed during fetch",
+            ));
+        }
+        action.edit = Some(
+            self.workspace_edit(AnalysisWorkspaceEdit {
+                sources: BTreeMap::from([(
+                    position_request.source,
+                    VersionedSourceEdits {
+                        source_revision: target.source_revision,
+                        edits: vec![SourceTextEdit {
+                            span: target.insertion_span,
+                            new_text: format!(" sha256 '{hash}'"),
+                        }],
+                    },
+                )]),
+                create_files: BTreeMap::new(),
+            })
+            .await?,
+        );
+        action.data = None;
+        Ok(action)
     }
 
     async fn completion(
@@ -1325,6 +1545,19 @@ pub async fn run_stdio_with_config(config: LspServerConfig) {
     let stdout = tokio::io::stdout();
     let (service, socket) = LspService::new(move |client| Backend::with_config(client, config));
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+fn code_action_kind_allowed(kind: &CodeActionKind, only: Option<&[CodeActionKind]>) -> bool {
+    only.is_none_or(|requested| {
+        requested.iter().any(|requested| {
+            requested.as_str().is_empty()
+                || kind == requested
+                || kind
+                    .as_str()
+                    .strip_prefix(requested.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('.'))
+        })
+    })
 }
 
 fn negotiate_position_encoding(capabilities: &ClientCapabilities) -> PositionEncodingKind {
@@ -1851,15 +2084,22 @@ fn source_text_for_origin(analysis: &WorkspaceAnalysis, origin: &SourceOrigin) -
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::Duration};
+    use std::{
+        fs,
+        sync::{Arc, Mutex as StdMutex},
+        time::Duration,
+    };
 
+    use avenger_lang_analysis::AnalysisService;
+    use avenger_lang_compiler::Compiler;
+    use avenger_lang_core::SourceOrigin;
     use futures::StreamExt;
     use serde_json::json;
     use tempfile::tempdir;
     use tower::{Service, ServiceExt};
     use tower_lsp_server::{ClientSocket, LspService, jsonrpc::Request, ls_types::*};
 
-    use super::Backend;
+    use super::{Backend, Workspace};
 
     #[tokio::test]
     async fn initializes_and_shuts_down_in_memory() {
@@ -2236,6 +2476,279 @@ mod tests {
                         })
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn transcript_extract_and_lazy_pin_import_use_capability_safe_workspace_edits() {
+        let project = tempdir().unwrap();
+        let root = fs::canonicalize(project.path()).unwrap();
+        let chart = root.join("chart.avenger");
+        let remote_url = "https://example.test/badge.mark.avenger";
+        let text = format!(
+            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ group as cluster {{ mark symbol {{}} }} }}"
+        );
+        fs::write(&chart, &text).unwrap();
+        let root_uri = Uri::from_file_path(&root).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let remote_origin = SourceOrigin::Http(remote_url.to_owned());
+        let remote_definition = "avenger 1; define mark badge { mark symbol {} }";
+        let loader = avenger_lang_core::InMemorySourceLoader::default().with_source(
+            avenger_lang_core::LoadedSource::new(
+                remote_origin,
+                remote_definition,
+                avenger_lang_core::ContentVersion::new("remote-fixture"),
+            ),
+        );
+        let compiler = Compiler::builder()
+            .project_root(&root)
+            .source_loader(Arc::new(loader))
+            .build()
+            .unwrap();
+        let captured = Arc::new(StdMutex::new(None::<Backend>));
+        let captured_factory = Arc::clone(&captured);
+        let (mut service, mut socket) = LspService::new(move |client| {
+            let backend = Backend::new(client);
+            *captured_factory.lock().unwrap() = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "workspace": {
+                            "workspaceEdit": {
+                                "documentChanges": true,
+                                "resourceOperations": ["create"]
+                            }
+                        },
+                        "textDocument": {
+                            "codeAction": {
+                                "codeActionLiteralSupport": {
+                                    "codeActionKind": {
+                                        "valueSet": ["quickfix", "refactor", "source"]
+                                    }
+                                },
+                                "dataSupport": true,
+                                "resolveSupport": { "properties": ["edit"] }
+                            }
+                        }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        let backend = captured.lock().unwrap().clone().unwrap();
+        backend.inner.state.write().await.workspaces.insert(
+            root.clone(),
+            Workspace {
+                service: AnalysisService::new(compiler),
+            },
+        );
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text.clone()
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let url_start = text.find(remote_url).unwrap();
+        let offered = call(
+            &mut service,
+            Request::build("textDocument/codeAction")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "range": {
+                        "start": { "line": 0, "character": url_start },
+                        "end": { "line": 0, "character": url_start + remote_url.len() }
+                    },
+                    "context": { "diagnostics": [], "only": ["source.pinImport"] }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let offered: CodeActionResponse =
+            serde_json::from_value(serde_json::to_value(offered.result().unwrap()).unwrap())
+                .unwrap();
+        let CodeActionOrCommand::CodeAction(pin) = offered.into_iter().next().unwrap() else {
+            panic!("expected literal pin action")
+        };
+        assert!(pin.edit.is_none());
+        assert!(pin.data.is_some());
+        let resolved = call(
+            &mut service,
+            Request::build("codeAction/resolve")
+                .id(3)
+                .params(serde_json::to_value(pin).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let resolved: tower_lsp_server::ls_types::CodeAction =
+            serde_json::from_value(serde_json::to_value(resolved.result().unwrap()).unwrap())
+                .unwrap();
+        let Some(DocumentChanges::Edits(pin_edits)) = resolved.edit.unwrap().document_changes
+        else {
+            panic!("pin did not return versioned document edits")
+        };
+        assert_eq!(pin_edits[0].text_document.version, Some(1));
+        assert!(matches!(
+            &pin_edits[0].edits[0],
+            OneOf::Left(edit) if edit.new_text.starts_with(" sha256 '") && edit.new_text.len() == 74
+        ));
+
+        let group_start = text.find("group as cluster").unwrap();
+        let extracted = call(
+            &mut service,
+            Request::build("textDocument/codeAction")
+                .id(4)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "range": {
+                        "start": { "line": 0, "character": group_start },
+                        "end": { "line": 0, "character": group_start + "group as cluster".len() }
+                    },
+                    "context": { "diagnostics": [], "only": ["refactor.extract"] }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let extracted: CodeActionResponse =
+            serde_json::from_value(serde_json::to_value(extracted.result().unwrap()).unwrap())
+                .unwrap();
+        let CodeActionOrCommand::CodeAction(extracted) = extracted.into_iter().next().unwrap()
+        else {
+            panic!("expected literal extract action")
+        };
+        let Some(DocumentChanges::Operations(operations)) =
+            extracted.edit.unwrap().document_changes
+        else {
+            panic!("extract did not return create-file operations")
+        };
+        assert!(matches!(
+            operations.first(),
+            Some(DocumentChangeOperation::Op(ResourceOp::Create(_)))
+        ));
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| matches!(operation, DocumentChangeOperation::Edit(_)))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn transcript_inline_definition_returns_a_versioned_compiler_expansion() {
+        let project = tempdir().unwrap();
+        let chart = project.path().join("chart.avenger");
+        let definition = project.path().join("badge.mark.avenger");
+        let text = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
+        fs::write(
+            &definition,
+            "avenger 1; define mark badge { mark symbol as body {} }",
+        )
+        .unwrap();
+        fs::write(&chart, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "workspace": {
+                            "workspaceEdit": { "documentChanges": true }
+                        },
+                        "textDocument": {
+                            "codeAction": {
+                                "codeActionLiteralSupport": {
+                                    "codeActionKind": { "valueSet": ["refactor.inline"] }
+                                }
+                            }
+                        }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 9,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let start = text.find("mark badge").unwrap();
+        let response = call(
+            &mut service,
+            Request::build("textDocument/codeAction")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "range": {
+                        "start": { "line": 0, "character": start },
+                        "end": { "line": 0, "character": start + "mark badge".len() }
+                    },
+                    "context": { "diagnostics": [], "only": ["refactor.inline"] }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let response: CodeActionResponse =
+            serde_json::from_value(serde_json::to_value(response.result().unwrap()).unwrap())
+                .unwrap();
+        let CodeActionOrCommand::CodeAction(action) = response.into_iter().next().unwrap() else {
+            panic!("expected inline action")
+        };
+        let Some(DocumentChanges::Edits(edits)) = action.edit.unwrap().document_changes else {
+            panic!("inline action did not return versioned edits")
+        };
+        assert_eq!(edits[0].text_document.version, Some(9));
+        assert!(matches!(
+            &edits[0].edits[0],
+            OneOf::Left(edit)
+                if edit.new_text.starts_with("group as imported")
+                    && edit.new_text.contains("component_kind: badge")
+        ));
     }
 
     #[tokio::test]

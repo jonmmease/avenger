@@ -10,6 +10,8 @@ avenger-lang-analysis = { path = "../avenger-lang-analysis" }
 avenger-lang-compiler = { path = "../avenger-lang-compiler" }
 avenger-lang-core = { path = "../avenger-lang-core" }
 notify = "8.0.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-std", "rt-multi-thread", "sync", "time"] }
 tower-lsp-server = { workspace = true }
@@ -17,7 +19,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
-serde_json = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt", "io-util"] }
 tower = { version = "0.5", features = ["util"] }

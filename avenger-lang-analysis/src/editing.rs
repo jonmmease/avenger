@@ -7,15 +7,15 @@ use avenger_lang_core::{
     ByteSpan, SourceFile, SourceId, SourceOrigin, SourceSpan,
     ast::Name,
     sql::{LosslessTokenKind, TokenClass},
-    syntax::format_source,
+    syntax::{format_source, parse_file},
 };
 use sqlparser::tokenizer::Token;
 
 use crate::{
     AnalysisCancellation, AnalysisQueryError, CodeAction, CodeActionKind, CodeActionRequest,
     CompletionOptions, DocumentRequest, FormattingResult, IndexedReference, IndexedSymbol,
-    IndexedValueKind, LineEnding, PositionRequest, PrepareRenameResult, SemanticToken,
-    SemanticTokenKind, SemanticTokenModifiers, SemanticTokensResult, SourceTextEdit,
+    IndexedValueKind, LineEnding, PinImportTarget, PositionRequest, PrepareRenameResult,
+    SemanticToken, SemanticTokenKind, SemanticTokenModifiers, SemanticTokensResult, SourceTextEdit,
     VersionedSourceEdits, WorkspaceAnalysis, WorkspaceEdit,
 };
 
@@ -287,7 +287,10 @@ pub(crate) fn rename(
             },
         );
     }
-    Ok(WorkspaceEdit { sources })
+    Ok(WorkspaceEdit {
+        sources,
+        create_files: BTreeMap::new(),
+    })
 }
 
 pub(crate) fn code_actions(
@@ -308,6 +311,8 @@ pub(crate) fn code_actions(
     missing_as_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
+    inline_definition_action(analysis, request, &mut actions);
+    extract_definition_action(analysis, request, &mut actions);
     cancellation
         .check()
         .map_err(|_| AnalysisQueryError::Cancelled)?;
@@ -316,6 +321,384 @@ pub(crate) fn code_actions(
     });
     actions.dedup_by(|left, right| left.title == right.title && left.edit == right.edit);
     Ok(actions)
+}
+
+pub(crate) fn pin_import_target(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    cancellation: &AnalysisCancellation,
+) -> Result<Option<PinImportTarget>, AnalysisQueryError> {
+    let syntax = document_syntax(
+        analysis,
+        &DocumentRequest {
+            source: request.source.clone(),
+            source_revision: request.source_revision.clone(),
+        },
+        cancellation,
+    )?;
+    let Some(strict) = syntax.parsed.strict.as_ref() else {
+        return Ok(None);
+    };
+    let Some((import, span)) =
+        strict
+            .ast
+            .imports
+            .iter()
+            .zip(&strict.import_spans)
+            .find(|(import, span)| {
+                import.sha256.is_none()
+                    && (import.source.starts_with("https://")
+                        || import.source.starts_with("http://"))
+                    && spans_overlap(**span, request.range)
+            })
+    else {
+        return Ok(None);
+    };
+    let Some(source_token) = syntax.parsed.tokens.tokens().iter().find(|token| {
+        span.range.start <= token.span().range.start
+            && token.span().range.end <= span.range.end
+            && matches!(token.kind(), LosslessTokenKind::Token(TokenClass::String))
+    }) else {
+        return Ok(None);
+    };
+    cancellation
+        .check()
+        .map_err(|_| AnalysisQueryError::Cancelled)?;
+    Ok(Some(PinImportTarget {
+        url: import.source.clone(),
+        insertion_span: SourceSpan::empty(span.source, source_token.span().range.end),
+        generation: analysis.generation,
+        source_revision: request.source_revision.clone(),
+    }))
+}
+
+fn inline_definition_action(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let Some(declaration) = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                &node.kind,
+                avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                    if matches!(keyword.as_str(), "mark" | "tool" | "transform")
+            ) && spans_overlap(node.span, request.range)
+        })
+        .min_by_key(|node| node.span.range.len())
+    else {
+        return;
+    };
+
+    for root in analysis.semantic_roots.values() {
+        let Ok(project) = &root.result else {
+            continue;
+        };
+        let Some(resolved) = project.resolved_project.as_deref() else {
+            continue;
+        };
+        let Some(mapping) = resolved
+            .expansion_source_map
+            .mappings
+            .iter()
+            .find(|mapping| {
+                let Some(instantiation) = mapping.instantiation else {
+                    return false;
+                };
+                mapping.definition.is_some()
+                    && mapping.authored == instantiation
+                    && instantiation.range == declaration.span.range
+                    && resolved
+                        .sources
+                        .get(instantiation.source)
+                        .is_some_and(|source| source.origin == request.source)
+            })
+        else {
+            continue;
+        };
+        let Some(expanded_source) = resolved.sources.get(mapping.expanded.source) else {
+            continue;
+        };
+        let Some(expanded) = expanded_source
+            .text()
+            .get(mapping.expanded.range.as_range())
+        else {
+            continue;
+        };
+        let authored = syntax.parsed.tokens.text();
+        let replacement = reindent_expanded_declaration(
+            expanded_source.text(),
+            mapping.expanded.range.start,
+            expanded,
+            authored,
+            declaration.span.range.start,
+        );
+        output.push(CodeAction {
+            title: "Inline imported definition".to_owned(),
+            kind: CodeActionKind::RefactorInline,
+            diagnostic_codes: Vec::new(),
+            preferred: false,
+            edit: WorkspaceEdit {
+                sources: BTreeMap::from([(
+                    request.source.clone(),
+                    VersionedSourceEdits {
+                        source_revision: request.source_revision.clone(),
+                        edits: vec![SourceTextEdit {
+                            span: declaration.span,
+                            new_text: replacement,
+                        }],
+                    },
+                )]),
+                create_files: BTreeMap::new(),
+            },
+        });
+        return;
+    }
+}
+
+fn extract_definition_action(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let SourceOrigin::File(source_path) = &request.source else {
+        return;
+    };
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let Some(document) = analysis.semantic_index.documents.get(&request.source) else {
+        return;
+    };
+    let Some(group) = document
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.keyword == "group"
+                && !symbol.name.is_empty()
+                && spans_overlap(symbol.declaration_span, request.range)
+        })
+        .min_by_key(|symbol| symbol.declaration_span.range.len())
+    else {
+        return;
+    };
+    if Name::new(group.name.clone()).is_err() {
+        return;
+    }
+    let definition_path = source_path.with_file_name(format!("{}.mark.avenger", group.name));
+    if definition_path.exists() {
+        return;
+    }
+    let definition_origin = SourceOrigin::File(definition_path.clone());
+    if analysis.syntax.contains_key(&definition_origin) {
+        return;
+    }
+
+    let tokens = syntax.parsed.tokens.tokens();
+    let Some(open) = tokens
+        .iter()
+        .find(|token| {
+            group.declaration_span.range.start <= token.span().range.start
+                && token.span().range.end <= group.declaration_span.range.end
+                && matches!(token.token(), Some(Token::LBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    let Some(close) = tokens
+        .iter()
+        .rev()
+        .find(|token| {
+            group.declaration_span.range.start <= token.span().range.start
+                && token.span().range.end <= group.declaration_span.range.end
+                && matches!(token.token(), Some(Token::RBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    let text = syntax.parsed.tokens.text();
+    let body_range = open.range.end..close.range.start;
+    let Some(body) = text.get(body_range.clone()) else {
+        return;
+    };
+
+    let mut free_scalars = BTreeMap::<String, Vec<SourceSpan>>::new();
+    for reference in document.references.iter().filter(|reference| {
+        group.declaration_span.range.start <= reference.span.range.start
+            && reference.span.range.end <= group.declaration_span.range.end
+    }) {
+        let target = reference.target_identity.as_deref().and_then(|identity| {
+            analysis
+                .semantic_index
+                .documents
+                .values()
+                .flat_map(|document| &document.symbols)
+                .find(|symbol| symbol.identity == identity)
+        });
+        let internal = target.is_some_and(|symbol| {
+            symbol.origin == request.source
+                && group.declaration_span.range.start <= symbol.declaration_span.range.start
+                && symbol.declaration_span.range.end <= group.declaration_span.range.end
+        });
+        if internal {
+            continue;
+        }
+        if reference.value_kind != IndexedValueKind::Scalar
+            || reference.name.contains('.')
+            || !text[reference.span.range.as_range()].starts_with('$')
+        {
+            return;
+        }
+        free_scalars
+            .entry(reference.name.clone())
+            .or_default()
+            .push(reference.span);
+    }
+    if free_scalars.keys().any(|name| {
+        document.symbols.iter().any(|symbol| {
+            symbol.name == *name
+                && group.declaration_span.range.start <= symbol.declaration_span.range.start
+                && symbol.declaration_span.range.end <= group.declaration_span.range.end
+        })
+    }) {
+        return;
+    }
+
+    let mut definition_body = body.to_owned();
+    let mut replacements = free_scalars
+        .iter()
+        .flat_map(|(name, spans)| {
+            spans
+                .iter()
+                .map(move |span| (span.range.as_range(), name.as_str()))
+        })
+        .collect::<Vec<_>>();
+    replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    for (range, name) in replacements {
+        let relative = range.start - body_range.start..range.end - body_range.start;
+        definition_body.replace_range(relative, name);
+    }
+    let slots = free_scalars
+        .keys()
+        .map(|name| format!("  slot expr as {name};\n"))
+        .collect::<String>();
+    let raw_definition = format!(
+        "avenger 1;\n\ndefine mark {} {{\n{}{definition_body}\n}}\n",
+        group.name, slots
+    );
+    let definition_file =
+        SourceFile::new(SourceId::new(0), definition_origin.clone(), raw_definition);
+    let Ok(definition_text) = format_source(&definition_file) else {
+        return;
+    };
+
+    let properties = free_scalars
+        .keys()
+        .map(|name| format!(" {name}: ${name};"))
+        .collect::<String>();
+    let replacement = format!("mark {} as {} {{{properties} }}", group.name, group.name);
+    let root_start = syntax
+        .parsed
+        .nodes
+        .iter()
+        .find_map(|node| match &node.kind {
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                if keyword == "chart"
+                    && node.span.range.start <= group.declaration_span.range.start
+                    && group.declaration_span.range.end <= node.span.range.end =>
+            {
+                Some(node.span.range.start)
+            }
+            _ => None,
+        })
+        .unwrap_or(group.declaration_span.range.start);
+    let Some(import_at) = text[..root_start].rfind(';').map(|position| position + 1) else {
+        return;
+    };
+    let Some(definition_file_name) = definition_path.file_name() else {
+        return;
+    };
+    let import = format!("\nimport '{}';", definition_file_name.to_string_lossy());
+
+    let mut candidate = text.to_owned();
+    candidate.replace_range(group.declaration_span.range.as_range(), &replacement);
+    candidate.insert_str(import_at, &import);
+    let candidate_file = SourceFile::new(SourceId::new(0), request.source.clone(), candidate);
+    if parse_file(&candidate_file).is_err() {
+        return;
+    }
+
+    output.push(CodeAction {
+        title: format!("Extract group as `{}` definition", group.name),
+        kind: CodeActionKind::RefactorExtract,
+        diagnostic_codes: Vec::new(),
+        preferred: false,
+        edit: WorkspaceEdit {
+            sources: BTreeMap::from([(
+                request.source.clone(),
+                VersionedSourceEdits {
+                    source_revision: request.source_revision.clone(),
+                    edits: vec![
+                        SourceTextEdit {
+                            span: group.declaration_span,
+                            new_text: replacement,
+                        },
+                        SourceTextEdit {
+                            span: SourceSpan::empty(group.declaration_span.source, import_at),
+                            new_text: import,
+                        },
+                    ],
+                },
+            )]),
+            create_files: BTreeMap::from([(definition_origin, definition_text)]),
+        },
+    });
+}
+
+fn reindent_expanded_declaration(
+    expanded_source: &str,
+    expanded_start: usize,
+    expanded: &str,
+    authored_source: &str,
+    authored_start: usize,
+) -> String {
+    fn indent_before(text: &str, offset: usize) -> &str {
+        let start = text[..offset]
+            .rfind(['\n', '\r'])
+            .map_or(0, |position| position + 1);
+        let prefix = &text[start..offset];
+        let whitespace_start = prefix
+            .char_indices()
+            .rev()
+            .find(|(_, character)| !character.is_whitespace())
+            .map_or(0, |(position, character)| position + character.len_utf8());
+        &prefix[whitespace_start..]
+    }
+
+    let from = indent_before(expanded_source, expanded_start);
+    let to = indent_before(authored_source, authored_start);
+    let mut lines = expanded.split_inclusive('\n');
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    let mut output = first.to_owned();
+    for line in lines {
+        if let Some(rest) = line.strip_prefix(from) {
+            output.push_str(to);
+            output.push_str(rest);
+        } else {
+            output.push_str(line);
+        }
+    }
+    output
 }
 
 fn close_property_action(
@@ -672,6 +1055,7 @@ fn quick_fix(
                     edits: vec![SourceTextEdit { span, new_text }],
                 },
             )]),
+            create_files: BTreeMap::new(),
         },
     }
 }

@@ -1,14 +1,19 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeSchemaSnapshot, PropertySchema, SchemaVersion, ValueShape,
 };
 use avenger_lang_analysis::{
-    AnalysisCancellation, AnalysisGeneration, CodeActionRequest, DocumentRequest, DocumentSnapshot,
-    LineEnding, PositionRequest, RenameError, SemanticTokenKind, SourceRevision, WorkspaceAnalysis,
-    analyze_syntax,
+    AnalysisCancellation, AnalysisGeneration, AnalysisService, CodeActionKind, CodeActionRequest,
+    DocumentRequest, DocumentSnapshot, LineEnding, PositionRequest, RenameError, SemanticTokenKind,
+    SourceRevision, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
 };
-use avenger_lang_core::{ByteSpan, SourceOrigin, SourceSpan};
+use avenger_lang_compiler::Compiler;
+use avenger_lang_core::{
+    ByteSpan, ContentVersion, InMemorySourceLoader, LoadedSource, ProjectRoot, SourceOrigin,
+    SourceSpan,
+};
+use sha2::{Digest, Sha256};
 
 fn workspace_analysis(text: &str) -> (WorkspaceAnalysis, SourceOrigin, SourceRevision) {
     let origin = SourceOrigin::Memory("editing/chart.avenger".to_owned());
@@ -260,6 +265,95 @@ chart cartesian as chart {
 }
 
 #[test]
+fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
+    let source = "avenger 1; import 'https://example.test/badge.mark.avenger' as defs; chart cartesian as chart {}";
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let start = source.find("https://").unwrap();
+    let target = analysis
+        .pin_import_target(
+            &CodeActionRequest {
+                source: origin.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&origin].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + "https://example.test/badge.mark.avenger".len(),
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: Vec::new(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .expect("pin target");
+    assert_eq!(target.url, "https://example.test/badge.mark.avenger");
+    assert_eq!(
+        &source[target.insertion_span.range.start - 1..target.insertion_span.range.start],
+        "'"
+    );
+
+    let pinned = source.replace(" as defs", " sha256 'abc' as defs");
+    let (analysis, origin, revision) = workspace_analysis(&pinned);
+    assert!(
+        analysis
+            .pin_import_target(
+                &CodeActionRequest {
+                    source: origin.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&origin].parsed.tokens.source(),
+                        range: ByteSpan {
+                            start,
+                            end: start + 5,
+                        },
+                    },
+                    source_revision: revision,
+                    diagnostic_codes: Vec::new(),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn explicit_pin_fetch_hashes_only_valid_remote_definitions() {
+    let directory = tempfile::tempdir().unwrap();
+    let url = "https://example.test/badge.mark.avenger";
+    let origin = SourceOrigin::Http(url.to_owned());
+    let definition = "avenger 1; define mark badge { mark symbol {} }";
+    let loader = InMemorySourceLoader::default().with_source(LoadedSource::new(
+        origin.clone(),
+        definition,
+        ContentVersion::new("fixture"),
+    ));
+    let compiler = Compiler::builder()
+        .project_root(directory.path())
+        .source_loader(Arc::new(loader.clone()))
+        .build()
+        .unwrap();
+    let service = AnalysisService::new(compiler);
+    let hash = service
+        .pin_http_import(url, &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert_eq!(hash, format!("{:x}", Sha256::digest(definition.as_bytes())));
+
+    loader.insert(LoadedSource::new(
+        origin,
+        "avenger 1; chart cartesian as chart {}",
+        ContentVersion::new("not-definition"),
+    ));
+    assert!(matches!(
+        service
+            .pin_http_import(url, &AnalysisCancellation::default())
+            .await,
+        Err(avenger_lang_analysis::PinImportError::NotDefinition)
+    ));
+}
+
+#[test]
 fn rename_covers_import_aliases_and_cross_file_definition_references() {
     let definition_origin = SourceOrigin::Memory("editing/badge.mark.avenger".to_owned());
     let chart_origin = SourceOrigin::Memory("editing/chart.avenger".to_owned());
@@ -323,4 +417,167 @@ fn rename_covers_import_aliases_and_cross_file_definition_references() {
     assert_eq!(definition_edit.sources.len(), 2);
     assert_eq!(definition_edit.sources[&definition_origin].edits.len(), 1);
     assert_eq!(definition_edit.sources[&chart_origin].edits.len(), 1);
+}
+
+#[tokio::test]
+async fn inline_definition_uses_the_compilers_canonical_expansion() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(directory.path()).unwrap();
+    let chart_path = root.join("chart.avenger");
+    let definition_path = root.join("badge.mark.avenger");
+    let chart = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
+    let definition =
+        "avenger 1; define mark badge { mark symbol as body { x: value 1; y: value 2; } }";
+    std::fs::write(&chart_path, chart).unwrap();
+    std::fs::write(&definition_path, definition).unwrap();
+    let chart_origin = SourceOrigin::File(chart_path.clone());
+    let definition_origin = SourceOrigin::File(definition_path);
+    let revision = SourceRevision::from_text(chart);
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let analysis = AnalysisService::new(compiler.clone())
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root: root,
+                roots: vec![ProjectRoot::chart(chart_origin.clone())],
+                open_documents: BTreeMap::from([
+                    (
+                        chart_origin.clone(),
+                        DocumentSnapshot::new(chart_origin.clone(), revision.clone(), chart),
+                    ),
+                    (
+                        definition_origin.clone(),
+                        DocumentSnapshot::new(
+                            definition_origin,
+                            SourceRevision::from_text(definition),
+                            definition,
+                        ),
+                    ),
+                ]),
+                known_disk_sources: Vec::new(),
+                native_registry_profile: compiler
+                    .language_host()
+                    .registry()
+                    .profile_id()
+                    .as_str()
+                    .to_owned(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    let start = chart.find("mark badge").unwrap();
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: chart_origin.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&chart_origin].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + "mark badge".len(),
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: Vec::new(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.kind == CodeActionKind::RefactorInline)
+        .expect("inline definition action");
+    let edit = &action.edit.sources[&chart_origin].edits[0];
+    assert!(edit.new_text.starts_with("group as imported"));
+    assert!(edit.new_text.contains("component_kind: badge"));
+    assert!(edit.new_text.contains("private mark symbol"));
+
+    let mut inlined = chart.to_owned();
+    inlined.replace_range(edit.span.range.as_range(), &edit.new_text);
+    std::fs::write(&chart_path, inlined).unwrap();
+    compiler.check_project(&chart_path).await.unwrap();
+}
+
+#[tokio::test]
+async fn extract_definition_creates_a_compiling_file_and_infers_scalar_slots() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(directory.path()).unwrap();
+    let chart_path = root.join("chart.avenger");
+    let chart = r#"avenger 1;
+
+chart cartesian as chart {
+  param as point_size { type: float64; default: 32.0; }
+  group as cluster {
+    mark symbol as point { x: value 1; y: value 2; size: $point_size; }
+  }
+}
+"#;
+    std::fs::write(&chart_path, chart).unwrap();
+    let chart_origin = SourceOrigin::File(chart_path.clone());
+    let revision = SourceRevision::from_text(chart);
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let analysis = AnalysisService::new(compiler.clone())
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root: root,
+                roots: vec![ProjectRoot::chart(chart_origin.clone())],
+                open_documents: BTreeMap::from([(
+                    chart_origin.clone(),
+                    DocumentSnapshot::new(chart_origin.clone(), revision.clone(), chart),
+                )]),
+                known_disk_sources: Vec::new(),
+                native_registry_profile: compiler
+                    .language_host()
+                    .registry()
+                    .profile_id()
+                    .as_str()
+                    .to_owned(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    let start = chart.find("group as cluster").unwrap();
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: chart_origin.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&chart_origin].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + "group as cluster".len(),
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: Vec::new(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.kind == CodeActionKind::RefactorExtract)
+        .expect("extract definition action");
+    let definition_origin = SourceOrigin::File(chart_path.with_file_name("cluster.mark.avenger"));
+    let definition = &action.edit.create_files[&definition_origin];
+    assert!(definition.contains("define mark cluster"));
+    assert!(definition.contains("slot expr as point_size"));
+    assert!(definition.contains("size: point_size"));
+
+    let mut extracted = chart.to_owned();
+    let mut edits = action.edit.sources[&chart_origin].edits.clone();
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.span.range.start));
+    for edit in edits {
+        extracted.replace_range(edit.span.range.as_range(), &edit.new_text);
+    }
+    std::fs::write(&chart_path, extracted).unwrap();
+    std::fs::write(
+        chart_path.with_file_name("cluster.mark.avenger"),
+        definition,
+    )
+    .unwrap();
+    compiler.check_project(&chart_path).await.unwrap();
 }
