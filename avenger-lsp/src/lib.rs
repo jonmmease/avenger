@@ -691,12 +691,24 @@ impl Backend {
             task.cancellation.cancel();
             task.handle.abort();
         }
-        self.inner
+        let watcher = self
+            .inner
             .watchers
             .lock()
             .expect("watcher lock poisoned")
             .remove(root);
+        if let Some(watcher) = watcher {
+            drop_watcher_off_request_path(vec![watcher]);
+        }
     }
+}
+
+fn drop_watcher_off_request_path(watchers: Vec<RecommendedWatcher>) {
+    // On macOS, dropping an FSEvents-backed recursive watcher can synchronously
+    // wait for the native event thread. Zed gives `shutdown` five seconds, so
+    // detach that destructor from the JSON-RPC request while removing the
+    // watcher from server state immediately.
+    std::mem::drop(tokio::task::spawn_blocking(move || drop(watchers)));
 }
 
 impl LanguageServer for Backend {
@@ -893,17 +905,20 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> jsonrpc::Result<()> {
         self.inner.state.write().await.shutting_down = true;
-        let roots = self
-            .inner
-            .state
-            .read()
-            .await
-            .workspaces
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        for root in roots {
-            self.stop_workspace(&root).await;
+        let tasks = {
+            let mut tasks = self.inner.semantic_tasks.lock().await;
+            tasks.drain().map(|(_, task)| task).collect::<Vec<_>>()
+        };
+        for task in tasks {
+            task.cancellation.cancel();
+            task.handle.abort();
+        }
+        let watchers: Vec<_> = {
+            let mut watchers = self.inner.watchers.lock().expect("watcher lock poisoned");
+            watchers.drain().map(|(_, watcher)| watcher).collect()
+        };
+        if !watchers.is_empty() {
+            drop_watcher_off_request_path(watchers);
         }
         Ok(())
     }
@@ -2537,9 +2552,13 @@ mod tests {
         assert_eq!(backend.inner.state.read().await.workspaces.len(), 1);
         assert_eq!(backend.inner.watchers.lock().unwrap().len(), 1);
 
-        let shutdown = call(&mut service, Request::build("shutdown").id(2).finish())
-            .await
-            .unwrap();
+        let shutdown = tokio::time::timeout(
+            Duration::from_secs(1),
+            call(&mut service, Request::build("shutdown").id(2).finish()),
+        )
+        .await
+        .expect("shutdown must respond before editor timeout")
+        .unwrap();
         assert!(shutdown.is_ok());
         assert!(backend.inner.semantic_tasks.lock().await.is_empty());
         assert!(backend.inner.watchers.lock().unwrap().is_empty());
