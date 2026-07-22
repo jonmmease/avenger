@@ -30,53 +30,68 @@ fn read_message(reader: &mut impl BufRead) -> Value {
 }
 
 #[test]
-fn lsp_stdout_contains_only_framed_protocol_messages() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_avenger"))
-        .arg("lsp")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn avenger lsp");
-    let mut stdin = child.stdin.take().expect("child stdin");
-    let mut stdout = BufReader::new(child.stdout.take().expect("child stdout"));
+fn repeated_lsp_sessions_frame_stdout_reject_malformed_params_and_exit_cleanly() {
+    for restart in 0..3 {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_avenger"))
+            .arg("lsp")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn avenger lsp");
+        let mut stdin = child.stdin.take().expect("child stdin");
+        let mut stdout = BufReader::new(child.stdout.take().expect("child stdout"));
 
-    write_message(
-        &mut stdin,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": { "capabilities": {} }
-        }),
-    );
-    let initialize = read_message(&mut stdout);
-    assert_eq!(initialize["id"], 1);
-    assert_eq!(initialize["result"]["serverInfo"]["name"], "avenger-lsp");
+        write_message(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "capabilities": {} }
+            }),
+        );
+        let initialize = read_message(&mut stdout);
+        assert_eq!(initialize["id"], 1, "restart {restart}");
+        assert_eq!(initialize["result"]["serverInfo"]["name"], "avenger-lsp");
 
-    write_message(
-        &mut stdin,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    );
-    write_message(
-        &mut stdin,
-        &json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
-    );
-    let shutdown = read_message(&mut stdout);
-    assert_eq!(shutdown["id"], 2);
-    assert!(shutdown["result"].is_null());
-    write_message(&mut stdin, &json!({ "jsonrpc": "2.0", "method": "exit" }));
-    drop(stdin);
+        write_message(
+            &mut stdin,
+            &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        );
+        write_message(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 98,
+                "method": "textDocument/hover",
+                "params": {}
+            }),
+        );
+        let malformed = read_message(&mut stdout);
+        assert_eq!(malformed["id"], 98);
+        assert!(malformed["error"].is_object());
 
-    let status = child.wait().expect("wait for avenger lsp");
-    assert!(status.success(), "LSP exited with {status}");
-    let mut trailing = Vec::new();
-    stdout
-        .read_to_end(&mut trailing)
-        .expect("read trailing stdout");
-    assert!(
-        trailing.is_empty(),
-        "non-protocol bytes followed shutdown: {:?}",
-        String::from_utf8_lossy(&trailing)
-    );
+        write_message(
+            &mut stdin,
+            &json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+        );
+        let shutdown = read_message(&mut stdout);
+        assert_eq!(shutdown["id"], 2);
+        assert!(shutdown["result"].is_null());
+        write_message(&mut stdin, &json!({ "jsonrpc": "2.0", "method": "exit" }));
+        drop(stdin);
+
+        let status = child.wait().expect("wait for avenger lsp");
+        assert!(status.success(), "restart {restart} exited with {status}");
+        let mut trailing = Vec::new();
+        stdout
+            .read_to_end(&mut trailing)
+            .expect("read trailing stdout");
+        assert!(
+            trailing.is_empty(),
+            "restart {restart} emitted non-protocol bytes after shutdown: {:?}",
+            String::from_utf8_lossy(&trailing)
+        );
+    }
 }

@@ -509,6 +509,7 @@ async fn extract_definition_creates_a_compiling_file_and_infers_scalar_slots() {
 chart cartesian as chart {
   param as point_size { type: float64; default: 32.0; }
   group as cluster {
+    -- keep this authored explanation
     mark symbol as point { x: value 1; y: value 2; size: $point_size; }
   }
 }
@@ -566,6 +567,7 @@ chart cartesian as chart {
     assert!(definition.contains("define mark cluster"));
     assert!(definition.contains("slot expr as point_size"));
     assert!(definition.contains("size: point_size"));
+    assert!(definition.contains("-- keep this authored explanation"));
 
     let mut extracted = chart.to_owned();
     let mut edits = action.edit.sources[&chart_origin].edits.clone();

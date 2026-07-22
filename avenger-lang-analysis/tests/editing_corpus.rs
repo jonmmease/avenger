@@ -22,6 +22,35 @@ fn fixture(relative: &str) -> String {
     .unwrap_or_else(|error| panic!("read fixture {relative}: {error}"))
 }
 
+fn compiler_fixture_files() -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
+    fn collect(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
+        let mut entries = fs::read_dir(directory)
+            .unwrap_or_else(|error| {
+                panic!("read fixture directory {}: {error}", directory.display())
+            })
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                collect(&path, output);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "avenger")
+            {
+                output.push(path);
+            }
+        }
+    }
+
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-lang-compiler/tests/fixtures");
+    let root = fs::canonicalize(root).unwrap();
+    let mut files = Vec::new();
+    collect(&root, &mut files);
+    (root, files)
+}
+
 #[test]
 fn cursor_fixtures_have_one_valid_byte_marker() {
     for relative in ["expression.cursor.avenger", "sql_from_first.cursor.avenger"] {
@@ -70,31 +99,7 @@ fn frozen_valid_sources_remain_accepted_by_the_strict_parser() {
 
 #[test]
 fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
-    fn collect_avenger_files(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
-        let mut entries = fs::read_dir(directory)
-            .unwrap_or_else(|error| {
-                panic!("read fixture directory {}: {error}", directory.display())
-            })
-            .map(|entry| entry.unwrap().path())
-            .collect::<Vec<_>>();
-        entries.sort();
-        for path in entries {
-            if path.is_dir() {
-                collect_avenger_files(&path, output);
-            } else if path
-                .extension()
-                .is_some_and(|extension| extension == "avenger")
-            {
-                output.push(path);
-            }
-        }
-    }
-
-    let project_root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-lang-compiler/tests/fixtures");
-    let project_root = fs::canonicalize(project_root).unwrap();
-    let mut files = Vec::new();
-    collect_avenger_files(&project_root, &mut files);
+    let (project_root, files) = compiler_fixture_files();
     assert_eq!(
         files.len(),
         61,
@@ -138,6 +143,47 @@ fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
         }
         for offset in [0, syntax.parsed.tokens.text().len()] {
             std::hint::black_box(syntax.context_at(offset));
+        }
+    }
+}
+
+#[test]
+fn bounded_mutation_corpus_never_panics_or_produces_invalid_spans() {
+    fn verify(path: &Path, text: String, offset: usize) {
+        let analysis = analyze_syntax(&DocumentSnapshot::new(
+            SourceOrigin::File(path.to_path_buf()),
+            SourceRevision::from_text(&text),
+            text.clone(),
+        ));
+        for diagnostic in &analysis.diagnostics {
+            assert!(diagnostic.primary.span.range.start <= diagnostic.primary.span.range.end);
+            assert!(diagnostic.primary.span.range.end <= text.len());
+        }
+        let mut symbols = analysis.symbols.iter().collect::<Vec<_>>();
+        while let Some(symbol) = symbols.pop() {
+            assert!(symbol.span.range.start <= symbol.span.range.end);
+            assert!(symbol.span.range.end <= text.len());
+            symbols.extend(&symbol.children);
+        }
+        std::hint::black_box(analysis.context_at(offset.min(text.len())));
+    }
+
+    let (_, files) = compiler_fixture_files();
+    let insertions = ["{", "'", "/*", "$", "😀"];
+    for path in files {
+        let original = fs::read_to_string(&path).unwrap();
+        let boundaries = original
+            .char_indices()
+            .map(|(offset, _)| offset)
+            .chain(std::iter::once(original.len()))
+            .collect::<Vec<_>>();
+        for (ordinal, insertion) in insertions.iter().enumerate() {
+            let index = ordinal.wrapping_mul(2_654_435_761usize) % boundaries.len();
+            let offset = boundaries[index];
+            let mut inserted = original.clone();
+            inserted.insert_str(offset, insertion);
+            verify(&path, inserted, offset);
+            verify(&path, original[..offset].to_owned(), offset);
         }
     }
 }

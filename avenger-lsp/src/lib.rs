@@ -2128,12 +2128,13 @@ fn source_text_for_origin(analysis: &WorkspaceAnalysis, origin: &SourceOrigin) -
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         fs,
         sync::{Arc, Mutex as StdMutex},
         time::Duration,
     };
 
-    use avenger_lang_analysis::AnalysisService;
+    use avenger_lang_analysis::{AnalysisGeneration, AnalysisService};
     use avenger_lang_compiler::Compiler;
     use avenger_lang_core::SourceOrigin;
     use futures::StreamExt;
@@ -2219,6 +2220,43 @@ mod tests {
         assert_eq!(
             result.capabilities.position_encoding,
             Some(PositionEncodingKind::UTF16)
+        );
+    }
+
+    #[test]
+    fn file_uri_normalization_round_trips_special_paths_and_symlinks() {
+        let directory = tempdir().unwrap();
+        for name in [
+            "space chart.avenger",
+            "unicode-é中.avenger",
+            "hash#question?.avenger",
+        ] {
+            let path = directory.path().join(name);
+            fs::write(&path, "avenger 1; chart cartesian as chart {}").unwrap();
+            let canonical = fs::canonicalize(&path).unwrap();
+            let uri = Uri::from_file_path(&path).unwrap();
+            let origin = super::origin_for_uri(&uri);
+            assert_eq!(origin, SourceOrigin::File(canonical.clone()));
+            let round_trip = super::uri_for_origin(&origin).unwrap();
+            assert_eq!(round_trip.to_file_path().unwrap().into_owned(), canonical);
+        }
+
+        #[cfg(unix)]
+        {
+            let target = directory.path().join("target.avenger");
+            let alias = directory.path().join("alias.avenger");
+            fs::write(&target, "avenger 1; chart cartesian as chart {}").unwrap();
+            std::os::unix::fs::symlink(&target, &alias).unwrap();
+            assert_eq!(
+                super::origin_for_uri(&Uri::from_file_path(&alias).unwrap()),
+                SourceOrigin::File(fs::canonicalize(target).unwrap())
+            );
+        }
+
+        let missing = directory.path().join("nested/../missing.avenger");
+        assert_eq!(
+            super::normalize_existing_path(missing),
+            directory.path().join("missing.avenger")
         );
     }
 
@@ -2309,6 +2347,113 @@ mod tests {
         )
         .await;
         assert!(backend.document(&oversized_uri).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn rapid_edits_cancel_prior_generation_and_shutdown_releases_workspace_resources() {
+        let project = tempdir().unwrap();
+        let root = fs::canonicalize(project.path()).unwrap();
+        let chart = root.join("chart.avenger");
+        let initial = "avenger 1; chart cartesian as chart {}";
+        fs::write(&chart, initial).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let root_uri = Uri::from_file_path(&root).unwrap();
+        let config = LspServerConfig {
+            semantic_debounce: Duration::from_secs(60),
+            ..LspServerConfig::default()
+        };
+        let captured = Arc::new(StdMutex::new(None::<Backend>));
+        let captured_factory = Arc::clone(&captured);
+        let (mut service, mut socket) = LspService::new(move |client| {
+            let backend = Backend::with_config(client, config);
+            *captured_factory.lock().unwrap() = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {},
+                    "workspaceFolders": [{ "uri": root_uri, "name": "rapid" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": initial
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let backend = captured.lock().unwrap().clone().unwrap();
+        let first_cancellation = backend
+            .inner
+            .semantic_tasks
+            .lock()
+            .await
+            .get(&root)
+            .unwrap()
+            .cancellation
+            .clone();
+
+        let replacement = "avenger 1; chart cartesian as chart { mark symbol {} }";
+        call(
+            &mut service,
+            Request::build("textDocument/didChange")
+                .params(json!({
+                    "textDocument": { "uri": chart_uri, "version": 2 },
+                    "contentChanges": [{ "text": replacement }]
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        assert!(first_cancellation.is_cancelled());
+        assert_eq!(backend.inner.semantic_tasks.lock().await.len(), 1);
+        assert_eq!(backend.inner.watchers.lock().unwrap().len(), 1);
+        let (_, stale_analysis, _, _) = backend
+            .query_snapshot(&chart_uri, Position::new(0, 0))
+            .await
+            .unwrap();
+        backend
+            .publish_semantic(
+                root.clone(),
+                AnalysisGeneration::new(1),
+                BTreeMap::new(),
+                (*stale_analysis).clone(),
+            )
+            .await;
+        assert!(
+            backend
+                .inner
+                .state
+                .read()
+                .await
+                .semantic_analysis
+                .is_empty()
+        );
+
+        let shutdown = call(&mut service, Request::build("shutdown").id(2).finish())
+            .await
+            .unwrap();
+        assert!(shutdown.is_ok());
+        assert!(backend.inner.semantic_tasks.lock().await.is_empty());
+        assert!(backend.inner.watchers.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -2725,6 +2870,7 @@ mod tests {
         };
         assert!(pin.edit.is_none());
         assert!(pin.data.is_some());
+        let stale_pin = pin.clone();
         let resolved = call(
             &mut service,
             Request::build("codeAction/resolve")
@@ -2746,6 +2892,27 @@ mod tests {
             &pin_edits[0].edits[0],
             OneOf::Left(edit) if edit.new_text.starts_with(" sha256 '") && edit.new_text.len() == 74
         ));
+        call(
+            &mut service,
+            Request::build("textDocument/didChange")
+                .params(json!({
+                    "textDocument": { "uri": chart_uri, "version": 2 },
+                    "contentChanges": [{ "text": text.clone() }]
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let stale = call(
+            &mut service,
+            Request::build("codeAction/resolve")
+                .id(31)
+                .params(serde_json::to_value(stale_pin).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+        assert!(stale.is_error());
 
         let group_start = text.find("group as cluster").unwrap();
         let extracted = call(
