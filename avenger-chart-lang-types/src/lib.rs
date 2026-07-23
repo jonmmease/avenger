@@ -101,7 +101,7 @@ impl fmt::Debug for ResolvedValue {
 pub struct ResolvedDeclaration {
     pub kind: String,
     /// Optional source-level declaration variant following the structural
-    /// role, such as `row` in `variable row as mpg { ... }`.
+    /// role, such as `row` in `variable row mpg { ... }`.
     pub variant: Option<String>,
     /// Stable source-level name, separate from schema properties so lowerers
     /// can preserve identity without inventing a kind-specific `id` field.
