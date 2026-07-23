@@ -28,7 +28,7 @@ chart cartesian as chart {
 
     part point {
       fill: value '#dc2626';
-      size: 64;
+      size: value 64;
     }
   }
 

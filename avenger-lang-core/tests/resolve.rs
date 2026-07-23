@@ -163,7 +163,7 @@ chart cartesian {
   mark subplot {
     x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
     y: avg("y");
-    plot polar { mark symbol { r: 1.0; theta: 0.0; } }
+    plot polar { mark symbol { r: value 1.0; theta: value 0.0; } }
   }
 }
 "#,

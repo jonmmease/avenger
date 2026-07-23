@@ -23,14 +23,14 @@ define mark error_bar {
       value_axis: low;
       value_axis2: high;
       stroke: value '#374151';
-      stroke_width: 2;
+      stroke_width: value 2;
     }
 
     mark symbol as point {
       category_axis: category;
       value_axis: center;
       fill: value '#111827';
-      size: 42;
+      size: value 42;
     }
 
     match mode {

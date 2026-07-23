@@ -21,6 +21,6 @@ chart cartesian as chart {
   mark symbol as points {
     x: "category";
     y: summary.adjusted;
-    size: 80;
+    size: value 80;
   }
 }

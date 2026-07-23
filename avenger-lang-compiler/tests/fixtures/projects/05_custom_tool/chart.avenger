@@ -18,6 +18,6 @@ chart cartesian as chart {
     x: "x" { scale: linear { domain: [0.0, 3.0]; } }
     y: "y" { scale: linear { domain: [0.0, 3.0]; } }
     details: [id];
-    size: 80;
+    size: value 80;
   }
 }

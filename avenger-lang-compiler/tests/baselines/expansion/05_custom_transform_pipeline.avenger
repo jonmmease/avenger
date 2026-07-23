@@ -28,7 +28,7 @@ chart cartesian as chart {
     query: SELECT * FROM input;
   }
   mark symbol as points {
-    size: 80;
+    size: value 80;
     x: "category";
     y: summary.adjusted;
   }

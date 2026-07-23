@@ -40,7 +40,7 @@ define tool inspect_points {
       x: "x";
       y: "y";
       fill: value '#dc2626';
-      size: 24;
+      size: value 24;
       visible: $enabled;
     }
   }

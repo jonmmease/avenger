@@ -67,7 +67,7 @@ chart cartesian as mark_effects {
     x2: "x" + 0.25;
     y: "y";
     y2: "y" + 0.25;
-    fill: '#dbeafe';
+    fill: value '#dbeafe';
 
     derive rect as backplates {
       x: item_bbox(left) - 1.0;

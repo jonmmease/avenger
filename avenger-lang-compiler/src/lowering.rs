@@ -3662,17 +3662,17 @@ impl<'a> ProjectLowerer<'a> {
             };
         }
         Ok(match value {
-            ResolvedValue::String(value) => ChannelValue::from(value.as_str()),
+            ResolvedValue::String(value) => scaled_literal_channel(lit(value.clone())),
             ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
-                ChannelValue::from(value.parse::<i64>().unwrap())
+                scaled_literal_channel(lit(value.parse::<i64>().unwrap()))
             }
             ResolvedValue::Number(value) => {
-                ChannelValue::from(value.parse::<f64>().map_err(|_| {
+                scaled_literal_channel(lit(value.parse::<f64>().map_err(|_| {
                     lowerer_error(declaration, format!("invalid numeric literal `{value}`"))
-                })?)
+                })?))
             }
-            ResolvedValue::Boolean(value) => ChannelValue::from(*value),
-            ResolvedValue::Null => ChannelValue::from(lit(ScalarValue::Null)).no_scale(),
+            ResolvedValue::Boolean(value) => scaled_literal_channel(lit(*value)),
+            ResolvedValue::Null => scaled_literal_channel(lit(ScalarValue::Null)),
             ResolvedValue::Visual(inner) => {
                 ChannelValue::from(self.expression_value(inner, data, declaration)?).no_scale()
             }
@@ -5584,6 +5584,16 @@ fn is_direct_reference_sql(sql: &str, path: &[String]) -> bool {
     candidate == bare || candidate == quoted
 }
 
+/// DSL channel literals are expressions and therefore scaled by default.
+///
+/// Do not use `ChannelValue`'s primitive `From` implementations here: those
+/// intentionally provide identity-value ergonomics to Rust chart authors.
+/// The DSL's explicit `value` form converts this scaled value with
+/// `ChannelValue::no_scale`.
+fn scaled_literal_channel(expr: Expr) -> ChannelValue {
+    ChannelValue::from(expr)
+}
+
 fn lowerer_error(declaration: &ResolvedDeclaration, message: impl Into<String>) -> Diagnostic {
     diagnostic(
         declaration.span,
@@ -5614,4 +5624,18 @@ fn lowerer_error_at(
 
 fn diagnostic(span: SourceSpan, code: &str, message: &str, label: impl Into<String>) -> Diagnostic {
     Diagnostic::error(code, message, SourceLabel::new(span, label))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dsl_channel_literals_are_scaled_until_value_bypasses_the_scale() {
+        let bare = scaled_literal_channel(lit(80_i64));
+        assert!(matches!(bare, ChannelValue::Scaled { .. }));
+
+        let explicit_value = scaled_literal_channel(lit(80_i64)).no_scale();
+        assert!(matches!(explicit_value, ChannelValue::Value { .. }));
+    }
 }

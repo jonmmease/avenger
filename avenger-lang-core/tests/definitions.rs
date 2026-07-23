@@ -52,7 +52,7 @@ chart cartesian as chart {
     mode: show;
     measure: rolled.value;
     zindex: 2;
-    annotations: { mark text as label { x: "x"; y: "y"; text: 'ok'; } }
+    annotations: { mark text as label { x: "x"; y: "y"; text: value 'ok'; } }
     part point { fill: value '#dc2626'; }
   }
 }
@@ -415,7 +415,7 @@ chart cartesian as chart {
     measure: "value";
     mode: hide;
     annotations: {
-      mark text as hidden_label { x: "x"; y: "y"; text: 'not selected'; }
+      mark text as hidden_label { x: "x"; y: "y"; text: value 'not selected'; }
     }
   }
   widget slider as threshold {

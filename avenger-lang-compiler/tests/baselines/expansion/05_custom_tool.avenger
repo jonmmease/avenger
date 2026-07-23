@@ -46,7 +46,7 @@ chart cartesian as chart {
     private container group as __av_9208499af4a7_chrome_layer {
       private mark symbol as __av_9208499af4a7_chrome {
         fill: value '#dc2626';
-        size: 24;
+        size: value 24;
         visible: $__av_9208499af4a7_enabled;
         x: "x";
         y: "y";
@@ -55,7 +55,7 @@ chart cartesian as chart {
   }
   mark symbol as points {
     details: [id];
-    size: 80;
+    size: value 80;
     x: "x" {
       scale: linear {
         domain: [0.0, 3.0];

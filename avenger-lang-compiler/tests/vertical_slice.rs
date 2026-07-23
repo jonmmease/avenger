@@ -265,6 +265,30 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
 }
 
 #[tokio::test]
+async fn native_surface_bare_channel_literals_scale_and_value_literals_bypass() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          mark symbol as point {
+            x: 1.0;
+            y: value 2.0;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(
+        json.contains("\"Scaled\""),
+        "bare channel literal did not lower as scaled: {json}"
+    );
+    assert!(
+        json.contains("\"Value\""),
+        "explicit value literal did not bypass scaling: {json}"
+    );
+}
+
+#[tokio::test]
 async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
     let source = r#"avenger 1;
         chart cartesian as chart {
