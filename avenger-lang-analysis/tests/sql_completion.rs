@@ -47,14 +47,13 @@ fn chart_source(expression: &str) -> String {
 
 chart cartesian as chart {{
   data: {{ table: 'vega.movies'; }}
-  param as minimum {{ type: float64; default: 5.0; }}
-  param as config {{
-    type: struct(field('label', utf8), field('weight', int64));
-    default: {{ label: 'base'; weight: 2; }}
+  param float64 as minimum {{ value: 5.0; }}
+  param struct(field(utf8, 'label'), field(int64, 'weight')) as config {{
+    value: {{ label: 'base'; weight: 2; }}
   }}
-  store as selected {{
-    field id: int64;
-    field label: utf8;
+  param store as selected {{
+    field int64 id;
+    field utf8 label;
   }}
   mark symbol as points {{
     x: {expression};

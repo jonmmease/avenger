@@ -116,8 +116,8 @@ fn semantic_tokens_and_safe_rename_share_authored_symbol_identity() {
     let source = r#"avenger 1;
 
 chart cartesian as chart {
-  param as width { type: float64; default: 10.0; }
-  param as height { type: float64; default: 20.0; }
+  param float64 as width { value: 10.0; }
+  param float64 as height { value: 20.0; }
   mark symbol as points { size: $width; }
 }
 "#;
@@ -176,7 +176,7 @@ chart cartesian as chart {
     for edit in edits.iter().rev() {
         renamed.replace_range(edit.span.range.as_range(), &edit.new_text);
     }
-    assert!(renamed.contains("param as canvas_width"));
+    assert!(renamed.contains("param float64 as canvas_width"));
     assert!(renamed.contains("$canvas_width"));
 
     assert!(matches!(
@@ -190,18 +190,48 @@ chart cartesian as chart {
 }
 
 #[test]
+fn selection_param_rename_updates_target_resolved_set_references() {
+    let source = r#"avenger 1;
+chart cartesian {
+  param selection as picked {}
+  on click { set picked = clear; }
+}"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let cursor = source.find("picked").unwrap() + 1;
+    let renamed = analysis
+        .rename(
+            &PositionRequest {
+                source: origin.clone(),
+                byte_offset: cursor,
+                source_revision: revision,
+            },
+            "selected",
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let edits = &renamed.sources[&origin].edits;
+    assert_eq!(edits.len(), 2);
+    let mut text = source.to_owned();
+    for edit in edits.iter().rev() {
+        text.replace_range(edit.span.range.as_range(), &edit.new_text);
+    }
+    assert!(text.contains("param selection as selected"));
+    assert!(text.contains("set selected = clear"));
+}
+
+#[test]
 fn references_prefer_the_nearest_lexical_binding_when_names_repeat() {
     let source = r#"avenger 1;
 
 chart cartesian as first {
   -- | Width for the first chart.
-  param as width { type: float64; default: 10.0; }
+  param float64 as width { value: 10.0; }
   mark symbol as points { size: $width; }
 }
 
 chart cartesian as second {
   -- | Width for the second chart.
-  param as width { type: float64; default: 20.0; }
+  param float64 as width { value: 20.0; }
   mark symbol as points { size: $width; }
 }
 "#;
@@ -230,7 +260,7 @@ chart cartesian as second {
     );
     assert_eq!(
         definition.targets[0].selection_span.range.start,
-        source.find("param as width").unwrap() + "param as ".len()
+        source.find("param float64 as width").unwrap() + "param float64 as ".len()
     );
 
     let edit = analysis
@@ -245,11 +275,11 @@ fn nested_state_shadowing_resolves_each_reference_to_its_own_scope() {
 
 chart cartesian as chart {
   -- | Outer width.
-  param as width { type: float64; default: 10.0; }
+  param float64 as width { value: 10.0; }
 
-  group as inner {
+  container group as inner {
     -- | Inner width.
-    param as width { type: float64; default: 20.0; }
+    param float64 as width { value: 20.0; }
     mark symbol as inner_points { size: $width; }
   }
 
@@ -367,10 +397,10 @@ chart cartesian as chart {
         .find(|action| action.title.contains("Declare parameter `$threshold`"))
         .unwrap();
     let inserted = &action.edit.sources[&origin].edits[0].new_text;
-    assert!(inserted.contains("param as threshold"));
-    assert!(inserted.contains("type: float64"));
+    assert!(inserted.contains("param float64 as threshold"));
+    assert!(inserted.contains("value: NULL"));
 
-    let missing_as = "avenger 1; chart cartesian as chart { param width { type: float64; } }";
+    let missing_as = "avenger 1; chart cartesian as chart { param float64 width { value: 1.0; } }";
     let (analysis, origin, revision) = workspace_analysis(missing_as);
     let start = missing_as.find("width").unwrap();
     let actions = analysis
@@ -622,7 +652,7 @@ async fn inline_definition_uses_the_compilers_canonical_expansion() {
         .find(|action| action.kind == CodeActionKind::RefactorInline)
         .expect("inline definition action");
     let edit = &action.edit.sources[&chart_origin].edits[0];
-    assert!(edit.new_text.starts_with("group as imported"));
+    assert!(edit.new_text.starts_with("container group as imported"));
     assert!(edit.new_text.contains("component_kind: badge"));
     assert!(edit.new_text.contains("private mark symbol"));
 
@@ -640,8 +670,8 @@ async fn extract_definition_creates_a_compiling_file_and_infers_scalar_slots() {
     let chart = r#"avenger 1;
 
 chart cartesian as chart {
-  param as point_size { type: float64; default: 32.0; }
-  group as cluster {
+  param float64 as point_size { value: 32.0; }
+  container group as cluster {
     -- keep this authored explanation
     mark symbol as point { x: value 1; y: value 2; size: $point_size; }
   }
@@ -673,7 +703,7 @@ chart cartesian as chart {
         )
         .await
         .unwrap();
-    let start = chart.find("group as cluster").unwrap();
+    let start = chart.find("container group as cluster").unwrap();
     let actions = analysis
         .code_actions(
             &CodeActionRequest {
@@ -682,7 +712,7 @@ chart cartesian as chart {
                     source: analysis.syntax[&chart_origin].parsed.tokens.source(),
                     range: ByteSpan {
                         start,
-                        end: start + "group as cluster".len(),
+                        end: start + "container group as cluster".len(),
                     },
                 },
                 source_revision: revision,
@@ -698,7 +728,7 @@ chart cartesian as chart {
     let definition_origin = SourceOrigin::File(chart_path.with_file_name("cluster.mark.avenger"));
     let definition = &action.edit.create_files[&definition_origin];
     assert!(definition.contains("define mark cluster"));
-    assert!(definition.contains("slot expr as point_size"));
+    assert!(definition.contains("slot expr point_size"));
     assert!(definition.contains("size: point_size"));
     assert!(definition.contains("-- keep this authored explanation"));
 

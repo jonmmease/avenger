@@ -91,9 +91,12 @@ impl Printer {
         }
         match decl.keyword.as_str() {
             "catalog" | "schema" | "table" | "mark" | "transform" | "view" | "widget"
-            | "resource" | "variable" | "derive" | "tool" => self.kind_bind_decl(decl),
-            "param" | "store" | "selection" | "dimension" => self.bind_decl(decl),
-            "group" | "overlay" => self.optional_bind_decl(decl),
+            | "resource" | "derive" | "tool" => self.kind_bind_decl(decl),
+            "variable" => self.variable(decl),
+            "param" => self.param(decl),
+            "store" | "selection" => self.state_param(decl),
+            "group" | "overlay" => self.container(decl),
+            "dimension" => self.predicate_entry(decl),
             "on" => self.event(decl),
             "cell" => self.cell(decl),
             "plot" => self.kind_body_decl(decl),
@@ -124,14 +127,36 @@ impl Printer {
         self.body(&decl.props, &decl.children, &[]);
     }
 
-    fn bind_decl(&mut self, decl: &Decl) {
+    fn variable(&mut self, decl: &Decl) {
+        self.text("variable ");
+        self.text(name_or(&decl.kind, "role"));
+        self.text(" ");
+        self.text(name_or(&decl.name, "variable"));
+        self.body(&decl.props, &decl.children, &[]);
+    }
+
+    fn param(&mut self, decl: &Decl) {
+        self.text("param ");
+        if let Some(data_type) = decl.props.get("type") {
+            self.value(data_type);
+        } else {
+            self.text("unknown");
+        }
+        self.text(" as ");
+        self.text(name_or(&decl.name, "binding"));
+        self.body(&decl.props, &decl.children, &["type"]);
+    }
+
+    fn state_param(&mut self, decl: &Decl) {
+        self.text("param ");
         self.text(decl.keyword.as_str());
         self.text(" as ");
         self.text(name_or(&decl.name, "binding"));
         self.body(&decl.props, &decl.children, &[]);
     }
 
-    fn optional_bind_decl(&mut self, decl: &Decl) {
+    fn container(&mut self, decl: &Decl) {
+        self.text("container ");
         self.text(decl.keyword.as_str());
         self.binder(&decl.name);
         self.body(&decl.props, &decl.children, &[]);
@@ -184,24 +209,40 @@ impl Printer {
             self.text(" ");
             self.text(kind.as_str());
             self.binder(&decl.name);
+        } else {
+            self.text(" expr");
         }
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn plain_body_decl(&mut self, decl: &Decl) {
         self.text(decl.keyword.as_str());
+        if matches!(decl.keyword.as_str(), "equality" | "interval") {
+            self.body_with_parent(
+                &decl.props,
+                &decl.children,
+                &[],
+                Some(decl.keyword.as_str()),
+            );
+        } else {
+            self.body(&decl.props, &decl.children, &[]);
+        }
+    }
+
+    fn predicate_entry(&mut self, decl: &Decl) {
+        self.text(name_or(&decl.name, "dimension"));
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn field(&mut self, decl: &Decl) {
         self.text("field ");
-        self.text(name_or(&decl.name, "field"));
-        self.text(": ");
         if let Some(value) = decl.props.get("type") {
             self.value(value);
         } else {
             self.text("null");
         }
+        self.text(" ");
+        self.text(name_or(&decl.name, "field"));
         if matches!(decl.props.get("nullable"), Some(Value::Bool(true))) {
             self.text(" nullable");
         }
@@ -211,7 +252,7 @@ impl Printer {
     fn slot(&mut self, decl: &Decl) {
         self.text("slot ");
         self.text(name_or(&decl.kind, "expr"));
-        self.text(" as ");
+        self.text(" ");
         self.text(name_or(&decl.name, "slot"));
         if decl.props.is_empty() && decl.children.is_empty() {
             self.line(";");
@@ -221,22 +262,28 @@ impl Printer {
     }
 
     fn channel(&mut self, decl: &Decl) {
-        self.text("channel ");
+        self.text("slot channel ");
         self.text(name_or(&decl.name, "channel"));
         if let Some(kind) = &decl.kind {
-            self.text(": ");
+            self.line(" {");
+            self.indent += 1;
+            self.text("default: ");
             self.text(kind.as_str());
+            self.line(";");
+            self.indent -= 1;
+            self.line("}");
+        } else {
+            self.line(";");
         }
-        self.line(";");
     }
 
     fn output(&mut self, decl: &Decl) {
         self.text("output ");
-        self.text(name_or(&decl.name, "output"));
         if let Some(value) = decl.props.get("value") {
-            self.text(": ");
             self.value(value);
+            self.text(" as ");
         }
+        self.text(name_or(&decl.name, "output"));
         self.line(";");
     }
 
@@ -276,12 +323,14 @@ impl Printer {
 
     fn action(&mut self, decl: &Decl) {
         self.text("set ");
-        let kind = name_or(&decl.kind, "param");
-        self.text(kind);
-        if kind == "cursor" {
+        if decl
+            .kind
+            .as_ref()
+            .is_some_and(|kind| kind.as_str() == "cursor")
+        {
+            self.text("cursor");
             self.text(" = ");
         } else {
-            self.text(" ");
             self.path_property(&decl.props, "target");
             if let Some(Value::Atom(at)) = decl.props.get("at") {
                 self.text(" at ");
@@ -331,6 +380,16 @@ impl Printer {
     }
 
     fn body(&mut self, props: &PropertyMap, children: &[Decl], skip: &[&str]) {
+        self.body_with_parent(props, children, skip, None);
+    }
+
+    fn body_with_parent(
+        &mut self,
+        props: &PropertyMap,
+        children: &[Decl],
+        skip: &[&str],
+        parent: Option<&str>,
+    ) {
         if self.output.ends_with(' ') {
             self.line("{");
         } else {
@@ -346,7 +405,13 @@ impl Printer {
             self.property_value(key.as_str(), value);
         }
         for child in children {
-            self.decl(child);
+            if matches!(parent, Some("equality" | "interval"))
+                && child.keyword.as_str() == "dimension"
+            {
+                self.predicate_entry(child);
+            } else {
+                self.decl(child);
+            }
         }
         self.indent -= 1;
         self.line("}");
@@ -652,7 +717,7 @@ mod tests {
     fn print_round_trip_chart_definition_and_data() {
         round_trip("avenger 1; chart cartesian { z: 2; a: 1; mark symbol as dots { x: \"x\"; } }");
         round_trip(
-            "avenger 1; define tool brushing { slot number as radius; channel x: x; output domain: span(0, 1); export brush.domain as domain; tool behavior as inner {} }",
+            "avenger 1; define tool brushing { slot number radius; slot channel x { default: x; } output span(0, 1) as domain; export brush.domain as domain; tool behavior as inner {} }",
         );
         round_trip(
             "avenger 1; catalog memory as local { schema tables as vega { table inline as movies { values: []; } } }",

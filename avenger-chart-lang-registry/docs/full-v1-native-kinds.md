@@ -127,6 +127,7 @@ A wide-form parallel-coordinate frame with user-named dimensions.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `data` | property | false | Chart-level data source. |
+| `dimensions` | property | false | Sparse frame configuration keyed by mark-owned logical dimension id. |
 | `format` | property | false | Chart formatting defaults. |
 | `guide` | property | false | Coordinate-independent guide styling. |
 | `layout` | property | false | Chart canvas, plot-area, and margin layout. |

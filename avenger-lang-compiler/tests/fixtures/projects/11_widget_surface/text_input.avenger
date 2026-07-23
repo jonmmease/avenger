@@ -1,9 +1,8 @@
 avenger 1;
 
 chart zerod as text_input {
-  param as query_state {
-    type: utf8;
-    default: 'initial';
+  param utf8 as query_state {
+    value: 'initial';
   }
 
   widget text_input as query {

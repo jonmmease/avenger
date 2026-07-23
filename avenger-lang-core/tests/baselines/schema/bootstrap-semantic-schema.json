@@ -94,9 +94,6 @@
               "props": {
                 "additionalProperties": false,
                 "properties": {
-                  "default": {
-                    "$ref": "#/$defs/value"
-                  },
                   "sharing": {
                     "oneOf": [
                       {
@@ -149,11 +146,14 @@
                         "type": "object"
                       }
                     ]
+                  },
+                  "value": {
+                    "$ref": "#/$defs/value"
                   }
                 },
                 "required": [
                   "type",
-                  "default"
+                  "value"
                 ],
                 "type": "object"
               }
@@ -66689,7 +66689,7 @@
       "type": "object"
     },
     "name": {
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$",
       "type": "string"
     },
     "props": {
@@ -66750,7 +66750,7 @@
           "type": "string"
         },
         "dim": {
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$",
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$",
           "type": "string"
         },
         "env": {

@@ -266,9 +266,9 @@ impl fmt::Display for PhysicalType {
                     }
                     write!(
                         formatter,
-                        "field('{}',{})",
-                        field.name.replace('\'', "''"),
-                        field.data_type
+                        "field({},'{}')",
+                        field.data_type,
+                        field.name.replace('\'', "''")
                     )?;
                 }
                 formatter.write_str(")")
@@ -407,7 +407,10 @@ fn parse_type(value: &Value, context: &str) -> Result<PhysicalType, PhysicalType
                 if function.as_str() != "field" || args.len() != 2 {
                     return Err(PhysicalTypeError::ExpectedField);
                 }
-                let Value::Str(name) = &args[0] else {
+                if matches!((&args[0], &args[1]), (Value::Str(_), _)) {
+                    return Err(PhysicalTypeError::LegacyFieldOrder);
+                }
+                let Value::Str(name) = &args[1] else {
                     return Err(PhysicalTypeError::ExpectedString {
                         context: "struct field name".to_owned(),
                     });
@@ -420,7 +423,7 @@ fn parse_type(value: &Value, context: &str) -> Result<PhysicalType, PhysicalType
                 }
                 fields.push(PhysicalField {
                     name: name.clone(),
-                    data_type: parse_type(&args[1], "struct field")?,
+                    data_type: parse_type(&args[0], "struct field")?,
                     nullable: true,
                 });
             }
@@ -647,8 +650,10 @@ pub enum PhysicalTypeError {
         precision: u8,
         scale: i8,
     },
-    #[error("struct arguments must be `field('<name>', <type>)`")]
+    #[error("struct arguments must be `field(<type>, '<name>')`")]
     ExpectedField,
+    #[error("struct fields use `field(<type>, '<name>')`; the name-first order was removed")]
+    LegacyFieldOrder,
     #[error("struct field names cannot be empty")]
     EmptyFieldName,
     #[error("duplicate struct field `{0}`")]

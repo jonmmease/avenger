@@ -109,6 +109,13 @@ pub(crate) fn semantic_tokens(
             modifiers: SemanticTokenModifiers::default(),
         });
     }
+    for span in crate::intelligence::physical_type_spans(syntax) {
+        tokens.push(SemanticToken {
+            span,
+            kind: SemanticTokenKind::Type,
+            modifiers: SemanticTokenModifiers::default(),
+        });
+    }
     for reference in &document.references {
         if let Some(span) = semantic_reference_span(analysis, reference) {
             tokens.push(SemanticToken {
@@ -588,7 +595,7 @@ fn extract_definition_action(
     }
     let slots = free_scalars
         .keys()
-        .map(|name| format!("  slot expr as {name};\n"))
+        .map(|name| format!("  slot expr {name};\n"))
         .collect::<String>();
     let raw_definition = format!(
         "avenger 1;\n\ndefine mark {} {{\n{}{definition_body}\n}}\n",
@@ -637,7 +644,7 @@ fn extract_definition_action(
     }
 
     output.push(CodeAction {
-        title: format!("Extract group as `{}` definition", group.name),
+        title: format!("Extract container group as `{}` definition", group.name),
         kind: CodeActionKind::RefactorExtract,
         diagnostic_codes: Vec::new(),
         preferred: false,
@@ -814,7 +821,13 @@ fn missing_as_action(
     {
         return;
     }
-    let Some((name_span, Some(Token::Word(_)))) = tokens.get(keyword_index + 1) else {
+    let Some((name_span, Some(Token::Word(_)))) = tokens
+        .iter()
+        .take_while(|(_, token)| !matches!(token, Some(Token::LBrace | Token::SemiColon)))
+        .skip(keyword_index + 1)
+        .filter(|(_, token)| matches!(token, Some(Token::Word(_))))
+        .last()
+    else {
         return;
     };
     output.push(quick_fix(
@@ -969,7 +982,7 @@ fn missing_param_action(
         .collect::<String>();
     let indent = format!("{parent_indent}  ");
     let declaration = format!(
-        "\n{indent}param as {} {{\n{indent}  type: {data_type};\n{indent}}}",
+        "\n{indent}param {data_type} as {} {{\n{indent}  value: NULL;\n{indent}}}",
         reference.name
     );
     output.push(quick_fix(
@@ -1108,8 +1121,10 @@ fn rename_symbol<'a>(
 }
 
 fn renameable_kind(kind: IndexedValueKind, keyword: &str) -> bool {
-    matches!(kind, IndexedValueKind::Scalar | IndexedValueKind::Table)
-        || matches!(keyword, "define" | "import")
+    matches!(
+        kind,
+        IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
+    ) || matches!(keyword, "define" | "import")
 }
 
 fn references_are_complete(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol) -> bool {

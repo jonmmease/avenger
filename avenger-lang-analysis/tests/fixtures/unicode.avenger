@@ -1,8 +1,7 @@
 avenger 1;
 
 chart cartesian as café {
-    param as Δvalue {
-        type: utf8;
-        default: '😀 café';
+    param utf8 as Δvalue {
+        value: '😀 café';
     }
 }

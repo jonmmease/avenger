@@ -9,8 +9,8 @@ schema tables as local {
   }
 
   table sql as borough_trips {
-    param as borough { type: utf8; default: 'Manhattan'; }
-    param as min_fare { type: int64; default: 0; }
+    param utf8 as borough { value: 'Manhattan'; }
+    param int64 as min_fare { value: 0; }
     sql:
       SELECT "borough", "fare"
       FROM local.trips
@@ -18,24 +18,22 @@ schema tables as local {
   }
 
   table sql as forwarded {
-    param as requested { type: utf8; default: 'Queens'; }
+    param utf8 as requested { value: 'Queens'; }
     sql:
       SELECT "borough", "fare"
       FROM borough_trips(borough => $requested, min_fare => 10);
   }
 
   table sql as configured {
-    param as config {
-      type: struct(field('label', utf8), field('weight', int64));
-      default: { label: 'base'; weight: 2; }
+    param struct(field(utf8, 'label'), field(int64, 'weight')) as config {
+      value: { label: 'base'; weight: 2; }
     }
     sql: SELECT $config AS settings;
   }
 
   table sql as configured_forwarded {
-    param as forwarded_settings {
-      type: struct(field('label', utf8), field('weight', int64));
-      default: { label: 'forwarded'; weight: 3; }
+    param struct(field(utf8, 'label'), field(int64, 'weight')) as forwarded_settings {
+      value: { label: 'forwarded'; weight: 3; }
     }
     sql:
       SELECT *

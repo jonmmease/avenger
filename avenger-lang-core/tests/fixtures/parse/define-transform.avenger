@@ -1,8 +1,8 @@
 avenger 1;
 
 define transform centered {
-  slot expr as field;
-  output centered: "centered";
+  slot expr field;
+  output "centered" as centered;
 
   transform pipeline as pipeline {
     transform aggregate {
@@ -12,6 +12,6 @@ define transform centered {
       expression: $field - "value";
       as: 'centered';
     }
-    output centered: "centered";
+    output "centered" as centered;
   }
 }

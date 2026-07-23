@@ -375,7 +375,7 @@ fn id_is_a_property_or_block_slot_splice_but_not_a_declaration() {
     let splice = SourceFile::new(
         SourceId::new(2),
         SourceOrigin::Memory("id-splice.avenger".into()),
-        "avenger 1; define mark example { slot block as id; id; }",
+        "avenger 1; define mark example { slot block id; id; }",
     );
     assert!(parse_file(&splice).is_ok());
 

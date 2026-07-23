@@ -8,11 +8,11 @@ use avenger_chart_schema::{
     ValueShape,
 };
 use avenger_lang_core::{
-    ByteSpan, ResolvedDeclaration, ResolvedProject, ResolvedTarget, SourceOrigin, SourceSpan,
-    allowed_child_declarations,
+    ByteSpan, ResolvedDeclaration, ResolvedProject, ResolvedTarget, SourceFile, SourceId,
+    SourceOrigin, SourceSpan, allowed_child_declarations,
     ast::Visibility,
     sql::{LosslessTokenKind, TokenClass},
-    syntax::{TolerantSyntaxNodeId, TolerantSyntaxNodeKind},
+    syntax::{TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
 };
 use sqlparser::tokenizer::Token;
 
@@ -675,11 +675,12 @@ fn declaration_header(
                 .is_some_and(|word| word.eq_ignore_ascii_case("as"))
         })
         .and_then(|index| header.get(index + 1));
-    let fallback = match keyword {
-        "define" => header.get(keyword_index + 2),
-        "param" | "store" | "selection" => header.get(keyword_index + 2),
-        _ => header.get(keyword_index + 1),
-    };
+    let recovered =
+        fallback_name.and_then(|name| header.iter().rfind(|token| token.word() == Some(name)));
+    let fallback = recovered.or_else(|| match keyword {
+        "define" | "param" => header.get(keyword_index + 2),
+        _ => None,
+    });
     let named = binder.or(fallback).filter(|token| token.word().is_some());
     output.name = named
         .and_then(SigToken::word)
@@ -1090,6 +1091,40 @@ fn scan_references(
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
+        if token.word() == Some("set") {
+            let mut next = index + 1;
+            let Some(first) = tokens.get(next).and_then(SigToken::word) else {
+                index += 1;
+                continue;
+            };
+            let mut path = first.to_owned();
+            let start = tokens[next].span.range.start;
+            let mut end = tokens[next].span.range.end;
+            next += 1;
+            while next + 1 < tokens.len()
+                && matches!(tokens[next].token, Some(Token::Period))
+                && tokens[next + 1].word().is_some()
+            {
+                path.push('.');
+                path.push_str(tokens[next + 1].word().unwrap());
+                end = tokens[next + 1].span.range.end;
+                next += 2;
+            }
+            if path != "cursor" {
+                output.push(IndexedReference {
+                    name: path,
+                    origin: origin.clone(),
+                    span: SourceSpan {
+                        source: token.span.source,
+                        range: ByteSpan { start, end },
+                    },
+                    target_identity: None,
+                    value_kind: IndexedValueKind::Declaration,
+                });
+            }
+            index = next;
+            continue;
+        }
         if occupied.contains(&token.span) {
             index += 1;
             continue;
@@ -1225,6 +1260,7 @@ fn value_kind(keyword: &str) -> IndexedValueKind {
         "widget" => IndexedValueKind::Widget,
         "on" => IndexedValueKind::Event,
         "field" => IndexedValueKind::Field,
+        "output" => IndexedValueKind::Output,
         _ => IndexedValueKind::Declaration,
     }
 }
@@ -1294,6 +1330,10 @@ impl<'a> QueryContext<'a> {
         let replacement = replacement_span(syntax, cursor);
         let prefix = &text[replacement.range.start..cursor];
         let mut items = Vec::new();
+        let set_target = set_action_target(text, cursor);
+        let set_target_kind =
+            set_target.and_then(|target| self.state_target_kind(&request.source, cursor, target));
+        let action_target = set_action_rhs_target(text, cursor).and(set_target_kind);
 
         let sql = crate::sql_intelligence::complete_sql(
             request,
@@ -1306,10 +1346,137 @@ impl<'a> QueryContext<'a> {
         let sql_incomplete = sql.as_ref().is_some_and(|result| result.is_incomplete);
         if let Some(sql) = sql {
             items.extend(sql.items);
+            if let Some(property) = property_value_context(syntax, cursor) {
+                self.complete_property_value(
+                    property,
+                    prefix,
+                    replacement,
+                    cursor,
+                    &request.source,
+                    &mut items,
+                );
+            }
+            if let Some(kind) = action_target {
+                complete_state_operations(kind, prefix, replacement, &mut items);
+            }
+            if output_alias_context(text, replacement.range.start)
+                && candidate_matches("as", prefix)
+            {
+                items.push(item(
+                    "as".to_owned(),
+                    replacement,
+                    "as".to_owned(),
+                    CompletionKind::Keyword,
+                    Some("output alias".to_owned()),
+                    None,
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
         } else if let Some(import_prefix) = import_prefix(text, cursor) {
             self.complete_imports(import_prefix, replacement, &mut items);
         } else if prefix.starts_with('$') {
             self.complete_bindings(prefix, replacement, &request.source, cursor, &mut items);
+        } else if struct_field_name_context(text, cursor) {
+            if candidate_matches("'<name>'", prefix) {
+                let mut candidate = item(
+                    "'<name>'".to_owned(),
+                    replacement,
+                    "'${1:name}'".to_owned(),
+                    CompletionKind::Snippet,
+                    Some("Arrow struct member name".to_owned()),
+                    None,
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                );
+                candidate.insert_text_format = CompletionTextFormat::Snippet;
+                items.push(candidate);
+            }
+        } else if param_binder_context(text, cursor) {
+            if candidate_matches("as", prefix) {
+                items.push(item(
+                    "as".to_owned(),
+                    replacement,
+                    "as".to_owned(),
+                    CompletionKind::Keyword,
+                    Some("parameter binder".to_owned()),
+                    None,
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
+        } else if field_nullable_context(text, cursor) {
+            if candidate_matches("nullable", prefix) {
+                items.push(item(
+                    "nullable".to_owned(),
+                    replacement,
+                    "nullable".to_owned(),
+                    CompletionKind::Keyword,
+                    Some("nullable Arrow field".to_owned()),
+                    None,
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
+        } else if physical_type_header_context(text, cursor) {
+            complete_physical_types(prefix, replacement, &mut items);
+            if param_type_header_context(text, cursor) {
+                for parameter_type in ["store", "selection"] {
+                    if candidate_matches(parameter_type, prefix) {
+                        items.push(item(
+                            parameter_type.to_owned(),
+                            replacement,
+                            parameter_type.to_owned(),
+                            CompletionKind::Type,
+                            Some("parameter category".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        ));
+                    }
+                }
+            }
+        } else if let Some(values) = fixed_header_candidates(text, cursor) {
+            for value in values {
+                if candidate_matches(value, prefix) {
+                    items.push(item(
+                        (*value).to_owned(),
+                        replacement,
+                        (*value).to_owned(),
+                        CompletionKind::Keyword,
+                        Some("declaration header".to_owned()),
+                        None,
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+        } else if let Some(values) = set_modifier_candidates(text, cursor, set_target_kind) {
+            for value in values {
+                if candidate_matches(value, prefix) {
+                    items.push(item(
+                        (*value).to_owned(),
+                        replacement,
+                        (*value).to_owned(),
+                        CompletionKind::Keyword,
+                        Some("state action modifier".to_owned()),
+                        None,
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+        } else if set_target_context(text, cursor) {
+            self.complete_state_targets(prefix, replacement, &request.source, cursor, &mut items);
+        } else if let Some(kind) = action_target {
+            complete_state_operations(kind, prefix, replacement, &mut items);
         } else if let Some((namespace, typed)) = declaration_kind_context(text, cursor) {
             self.complete_native_kinds(namespace, typed, replacement, &request.source, &mut items);
         } else if let Some(property) = property_value_context(syntax, cursor) {
@@ -1322,6 +1489,7 @@ impl<'a> QueryContext<'a> {
                 &mut items,
             );
         } else if is_property_name_context(text, cursor) {
+            let nested_property = enclosing_property(syntax, cursor).is_some();
             self.complete_properties(
                 syntax,
                 &request.source,
@@ -1330,6 +1498,16 @@ impl<'a> QueryContext<'a> {
                 replacement,
                 &mut items,
             );
+            if !nested_property {
+                self.complete_declarations(
+                    &request.source,
+                    cursor,
+                    prefix,
+                    replacement,
+                    options,
+                    &mut items,
+                );
+            }
         } else {
             self.complete_declarations(
                 &request.source,
@@ -1432,9 +1610,133 @@ impl<'a> QueryContext<'a> {
         let Some(owner) = owner_symbol(self.index, origin, cursor) else {
             return;
         };
-        let authored = authored_properties(syntax, owner.scope_span);
+        let authored = authored_properties(syntax, owner.scope_span, cursor);
+        if owner.keyword == "slot"
+            && let Some(shape) = declaration_header_role(syntax, owner)
+        {
+            let properties: &[(&str, &str)] = match shape.as_str() {
+                "enum" => &[
+                    ("default", "Optional default value."),
+                    ("values", "Closed enum value inventory."),
+                ],
+                "function" => &[
+                    ("default", "Optional default function."),
+                    ("class", "Required function class."),
+                ],
+                "ref" => &[
+                    ("default", "Optional default reference."),
+                    ("kind", "Required reference kind."),
+                ],
+                "block" => &[
+                    ("default", "Optional default block."),
+                    ("exposes", "Names exposed by the block."),
+                ],
+                "channel" => &[("default", "Optional physical channel identity.")],
+                _ => &[("default", "Optional slot default value.")],
+            };
+            for (name, docs) in properties {
+                if !authored.contains(*name) && candidate_matches(name, prefix) {
+                    output.push(item(
+                        (*name).to_owned(),
+                        replacement,
+                        format!("{name}: "),
+                        CompletionKind::Property,
+                        Some("slot property".to_owned()),
+                        Some((*docs).to_owned()),
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
+        if owner.keyword == "dimension" {
+            let parent_keyword = owner
+                .parent
+                .and_then(|parent| self.index.documents.get(origin)?.symbols.get(parent))
+                .map(|parent| parent.keyword.as_str());
+            let properties: &[(&str, &str)] = match parent_keyword {
+                Some("equality") => &[
+                    ("field", "Selected data field."),
+                    ("value", "Selected equality value."),
+                ],
+                Some("interval") => &[
+                    ("field", "Selected data field."),
+                    ("from", "Interval start expression."),
+                    ("to", "Interval end expression."),
+                ],
+                _ => &[],
+            };
+            for (name, docs) in properties {
+                if !authored.contains(*name) && candidate_matches(name, prefix) {
+                    output.push(item(
+                        (*name).to_owned(),
+                        replacement,
+                        format!("{name}: "),
+                        CompletionKind::Property,
+                        Some("predicate member property".to_owned()),
+                        Some((*docs).to_owned()),
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
+        if owner.keyword == "variable" {
+            for (name, docs) in [
+                ("expr", "Expression bound to this repeat variable."),
+                ("title", "Display title for this repeat variable."),
+            ] {
+                if !authored.contains(name) && candidate_matches(name, prefix) {
+                    output.push(item(
+                        name.to_owned(),
+                        replacement,
+                        format!("{name}: "),
+                        CompletionKind::Property,
+                        Some("repeat variable property".to_owned()),
+                        Some(docs.to_owned()),
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
+        if owner.keyword == "adjust"
+            && declaration_header_role(syntax, owner).as_deref() == Some("expr")
+            && let Some(parent) = owner
+                .parent
+                .and_then(|parent| self.index.documents.get(origin)?.symbols.get(parent))
+            && let Some(schema) = schema_for_symbol(self.registry, parent, self.index)
+        {
+            for (name, channel) in &schema.channels {
+                if !authored.contains(name) && candidate_matches(name, prefix) {
+                    output.push(item(
+                        name.clone(),
+                        replacement,
+                        format!("{name}: "),
+                        CompletionKind::Property,
+                        Some("adjusted mark channel".to_owned()),
+                        Some(channel.docs.clone()),
+                        CompletionOrigin::AuthoringSchema,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
         if let Some(schema) = schema_for_symbol(self.registry, owner, self.index) {
-            for (name, property) in &schema.properties {
+            let nested = nested_object_properties(syntax, schema, cursor);
+            if nested.is_none() && enclosing_property(syntax, cursor).is_some() {
+                return;
+            }
+            let properties = nested.unwrap_or(&schema.properties);
+            for (name, property) in properties {
                 if authored.contains(name) || !candidate_matches(name, prefix) {
                     continue;
                 }
@@ -1460,6 +1762,9 @@ impl<'a> QueryContext<'a> {
                     if channel.required { "00" } else { "20" },
                 ));
             }
+        }
+        if enclosing_property(syntax, cursor).is_some() {
+            return;
         }
         for &(name, docs) in core_properties(&owner.keyword) {
             if authored.contains(name) || !candidate_matches(name, prefix) {
@@ -1490,6 +1795,48 @@ impl<'a> QueryContext<'a> {
         output: &mut Vec<CompletionItem>,
     ) {
         let owner = owner_symbol(self.index, origin, cursor);
+        if property_name == "default"
+            && let Some(owner) = owner
+            && owner.keyword == "slot"
+            && let Some(syntax) = self.syntax.get(origin)
+            && declaration_header_role(syntax, owner).as_deref() == Some("channel")
+        {
+            let mut channels = BTreeSet::from([
+                "x".to_owned(),
+                "y".to_owned(),
+                "x2".to_owned(),
+                "y2".to_owned(),
+                "color".to_owned(),
+                "fill".to_owned(),
+                "stroke".to_owned(),
+                "size".to_owned(),
+                "opacity".to_owned(),
+                "shape".to_owned(),
+                "text".to_owned(),
+            ]);
+            channels.extend(
+                self.registry
+                    .entries
+                    .values()
+                    .flat_map(|schema| schema.channels.keys().cloned()),
+            );
+            for channel in channels {
+                if candidate_matches(&channel, prefix) {
+                    output.push(item(
+                        channel.clone(),
+                        replacement,
+                        channel,
+                        CompletionKind::EnumValue,
+                        Some("physical channel identity".to_owned()),
+                        None,
+                        CompletionOrigin::AuthoringSchema,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
         let property = owner
             .and_then(|owner| schema_for_symbol(self.registry, owner, self.index))
             .and_then(|schema| property_schema(schema, property_name));
@@ -1543,9 +1890,7 @@ impl<'a> QueryContext<'a> {
             for symbol in &document.symbols {
                 if !matches!(
                     symbol.value_kind,
-                    IndexedValueKind::Scalar
-                        | IndexedValueKind::Table
-                        | IndexedValueKind::Selection
+                    IndexedValueKind::Scalar | IndexedValueKind::Table
                 ) || symbol.selection_span.range.start >= cursor
                     || !scope_visible(document, symbol, cursor)
                     || !candidate_matches(&symbol.name, typed)
@@ -1568,7 +1913,11 @@ impl<'a> QueryContext<'a> {
             }
         }
         for binding in self.index.public_bindings.values() {
-            if !candidate_matches(&binding.path, typed) {
+            if !matches!(
+                binding.value_kind,
+                IndexedValueKind::Scalar | IndexedValueKind::Table
+            ) || !candidate_matches(&binding.path, typed)
+            {
                 continue;
             }
             let label = format!("${}", binding.path);
@@ -1602,6 +1951,116 @@ impl<'a> QueryContext<'a> {
                 }
             }
         }
+    }
+
+    fn complete_state_targets(
+        &self,
+        prefix: &str,
+        replacement: SourceSpan,
+        origin: &SourceOrigin,
+        cursor: usize,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        let Some(document) = self.index.documents.get(origin) else {
+            return;
+        };
+        for symbol in &document.symbols {
+            if !matches!(
+                symbol.value_kind,
+                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
+            ) || symbol.selection_span.range.start >= cursor
+                || !scope_visible(document, symbol, cursor)
+                || !candidate_matches(&symbol.name, prefix)
+            {
+                continue;
+            }
+            output.push(item(
+                symbol.name.clone(),
+                replacement,
+                symbol.name.clone(),
+                CompletionKind::Variable,
+                symbol.detail.clone(),
+                symbol.documentation.clone(),
+                CompletionOrigin::LexicalScope,
+                false,
+                "00",
+            ));
+        }
+        for binding in self.index.public_bindings.values() {
+            if matches!(
+                binding.value_kind,
+                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
+            ) && candidate_matches(&binding.path, prefix)
+            {
+                output.push(item(
+                    binding.path.clone(),
+                    replacement,
+                    binding.path.clone(),
+                    CompletionKind::Variable,
+                    Some(binding.detail.clone()),
+                    None,
+                    CompletionOrigin::LexicalScope,
+                    false,
+                    "10",
+                ));
+            }
+        }
+        if candidate_matches("cursor", prefix) {
+            output.push(item(
+                "cursor".to_owned(),
+                replacement,
+                "cursor".to_owned(),
+                CompletionKind::Variable,
+                Some("window cursor".to_owned()),
+                None,
+                CompletionOrigin::Syntax,
+                false,
+                "10",
+            ));
+        }
+    }
+
+    fn state_target_kind(
+        &self,
+        origin: &SourceOrigin,
+        cursor: usize,
+        target: &str,
+    ) -> Option<IndexedValueKind> {
+        let document = self.index.documents.get(origin)?;
+        let local_name = target.rsplit('.').next().unwrap_or(target);
+        let local = document
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.name == local_name
+                    && matches!(
+                        symbol.value_kind,
+                        IndexedValueKind::Scalar
+                            | IndexedValueKind::Table
+                            | IndexedValueKind::Selection
+                    )
+                    && symbol.selection_span.range.start < cursor
+            })
+            .filter_map(|symbol| {
+                lexical_scope_rank(document, symbol, cursor).map(|rank| (rank, symbol))
+            })
+            .min_by_key(|(rank, symbol)| {
+                (*rank, std::cmp::Reverse(symbol.selection_span.range.start))
+            })
+            .map(|(_, symbol)| symbol.value_kind);
+        if local.is_some() && !target.contains('.') {
+            return local;
+        }
+        self.index
+            .public_bindings
+            .get(target)
+            .or_else(|| {
+                self.index
+                    .public_references
+                    .get(&(origin.clone(), target.to_owned()))
+            })
+            .map(|binding| binding.value_kind)
+            .or(local)
     }
 
     fn complete_reference_values(
@@ -1685,16 +2144,19 @@ impl<'a> QueryContext<'a> {
             vec!["import", "chart", "define", "catalog", "schema", "table"]
         };
         for keyword in keywords {
-            if !candidate_matches(keyword, prefix) {
+            let Some(label) = source_declaration_label(keyword) else {
+                continue;
+            };
+            if !candidate_matches(label, prefix) {
                 continue;
             }
             let (insert_text, format) = if options.snippets {
-                (declaration_snippet(keyword), CompletionTextFormat::Snippet)
+                (declaration_snippet(label), CompletionTextFormat::Snippet)
             } else {
-                (keyword.to_owned(), CompletionTextFormat::PlainText)
+                (label.to_owned(), CompletionTextFormat::PlainText)
             };
             let mut candidate = item(
-                keyword.to_owned(),
+                label.to_owned(),
                 replacement,
                 insert_text,
                 CompletionKind::Keyword,
@@ -1759,7 +2221,7 @@ impl<'a> QueryContext<'a> {
         request: &PositionRequest,
         cancellation: &AnalysisCancellation,
     ) -> Result<Option<HoverResult>, AnalysisQueryError> {
-        self.syntax(request, cancellation)?;
+        let syntax = self.syntax(request, cancellation)?;
         let symbol = self.index.symbol_at(&request.source, request.byte_offset);
         let reference = self
             .index
@@ -1845,6 +2307,16 @@ impl<'a> QueryContext<'a> {
                 .map(|property| property.docs)
                 .unwrap_or("Avenger property");
             (*span, format!("`{name}`\n\n{docs}"))
+        } else if let Some(span) = physical_type_spans(syntax).into_iter().find(|span| {
+            span.range.start <= request.byte_offset && request.byte_offset <= span.range.end
+        }) {
+            let spelling = &syntax.parsed.tokens.text()[span.range.as_range()];
+            let docs = if avenger_lang_core::PhysicalType::CONSTRUCTORS.contains(&spelling) {
+                "Canonical physical Apache Arrow type used for state and schema validation."
+            } else {
+                "Canonical Avenger declaration type or role."
+            };
+            (span, format!("`{spelling}`\n\n{docs}"))
         } else {
             return Ok(None);
         };
@@ -1945,6 +2417,68 @@ impl<'a> QueryContext<'a> {
             source_revision: request.source_revision.clone(),
         })
     }
+}
+
+pub(crate) fn physical_type_spans(syntax: &SyntaxAnalysis) -> Vec<SourceSpan> {
+    let mut output = Vec::new();
+    for node in &syntax.parsed.nodes {
+        let TolerantSyntaxNodeKind::Declaration { keyword, name } = &node.kind else {
+            continue;
+        };
+        let tokens = significant_tokens(syntax, Some(node.span));
+        if matches!(
+            keyword.as_str(),
+            "store" | "selection" | "group" | "overlay"
+        ) {
+            if let Some(token) = tokens
+                .iter()
+                .find(|token| token.word() == Some(keyword.as_str()))
+            {
+                output.push(token.span);
+            }
+            continue;
+        }
+        if matches!(keyword.as_str(), "slot" | "variable" | "adjust") {
+            if let Some(index) = tokens
+                .iter()
+                .position(|token| token.word() == Some(keyword.as_str()))
+                && let Some(token) = tokens.get(index + 1)
+                && token.word().is_some()
+            {
+                output.push(token.span);
+            }
+            continue;
+        }
+        if !matches!(keyword.as_str(), "param" | "field") {
+            continue;
+        }
+        let Some(keyword_index) = tokens
+            .iter()
+            .position(|token| token.word() == Some(keyword.as_str()))
+        else {
+            continue;
+        };
+        let type_end = if keyword == "param" {
+            tokens.iter().position(|token| token.word() == Some("as"))
+        } else {
+            name.as_deref()
+                .and_then(|name| tokens.iter().rposition(|token| token.word() == Some(name)))
+        };
+        let Some(type_end) = type_end else {
+            continue;
+        };
+        output.extend(
+            tokens[keyword_index + 1..type_end]
+                .iter()
+                .filter(|token| {
+                    token.word().is_some_and(|word| {
+                        avenger_lang_core::PhysicalType::CONSTRUCTORS.contains(&word)
+                    })
+                })
+                .map(|token| token.span),
+        );
+    }
+    output
 }
 
 pub(crate) fn owner_symbol<'a>(
@@ -2105,6 +2639,422 @@ fn declaration_kind_context(text: &str, cursor: usize) -> Option<(NativeKindName
     Some((namespace, typed))
 }
 
+fn statement_fragment(text: &str, cursor: usize) -> &str {
+    let prefix = &text[..cursor.min(text.len())];
+    let start = prefix
+        .rfind(['{', '}', ';', '\n'])
+        .map_or(0, |position| position + 1);
+    prefix[start..].trim_start()
+}
+
+fn param_type_header_context(text: &str, cursor: usize) -> bool {
+    let fragment = statement_fragment(text, cursor);
+    fragment.strip_prefix("param").is_some_and(|rest| {
+        rest.chars().next().is_some_and(char::is_whitespace)
+            && split_header_type(rest.trim_start()).is_none()
+            && !struct_field_argument_is_name(fragment)
+    })
+}
+
+fn physical_type_header_context(text: &str, cursor: usize) -> bool {
+    if param_type_header_context(text, cursor) {
+        return true;
+    }
+    let fragment = statement_fragment(text, cursor);
+    fragment.strip_prefix("field").is_some_and(|rest| {
+        rest.chars().next().is_some_and(char::is_whitespace)
+            && !rest.contains(';')
+            && split_header_type(rest.trim_start()).is_none()
+            && !struct_field_argument_is_name(fragment)
+    })
+}
+
+fn set_target_context(text: &str, cursor: usize) -> bool {
+    let fragment = statement_fragment(text, cursor);
+    fragment.strip_prefix("set").is_some_and(|rest| {
+        rest.chars().next().is_some_and(char::is_whitespace)
+            && !rest.contains('=')
+            && rest.trim().split_whitespace().count() <= 1
+    })
+}
+
+fn set_action_target(text: &str, cursor: usize) -> Option<&str> {
+    let fragment = statement_fragment(text, cursor);
+    let rest = fragment.strip_prefix("set")?;
+    rest.chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+        .then_some(())?;
+    rest.trim_start()
+        .split(|character: char| character.is_whitespace() || character == '=')
+        .next()
+        .filter(|target| !target.is_empty())
+}
+
+fn set_action_rhs_target(text: &str, cursor: usize) -> Option<&str> {
+    let fragment = statement_fragment(text, cursor);
+    fragment
+        .contains('=')
+        .then(|| set_action_target(text, cursor))?
+}
+
+fn set_modifier_candidates(
+    text: &str,
+    cursor: usize,
+    target_kind: Option<IndexedValueKind>,
+) -> Option<&'static [&'static str]> {
+    let fragment = statement_fragment(text, cursor);
+    let rest = fragment.strip_prefix("set")?.trim_start();
+    if rest.contains('=') {
+        return None;
+    }
+    let mut words = rest.split_whitespace();
+    words.next()?;
+    let tail = words.collect::<Vec<_>>();
+    if tail.is_empty() {
+        if !fragment
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
+        {
+            return None;
+        }
+        return Some(if target_kind == Some(IndexedValueKind::Selection) {
+            &["at"]
+        } else {
+            &["at", "replacing"]
+        });
+    }
+    match tail.as_slice() {
+        [partial] if "at".starts_with(*partial) => Some(&["at"]),
+        ["at"]
+            if fragment
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace) =>
+        {
+            Some(&["current", "start"])
+        }
+        ["at", partial] if "current".starts_with(*partial) || "start".starts_with(*partial) => {
+            Some(&["current", "start"])
+        }
+        [partial]
+            if target_kind != Some(IndexedValueKind::Selection)
+                && "replacing".starts_with(*partial) =>
+        {
+            Some(&["replacing"])
+        }
+        ["replacing"]
+            if fragment
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace) =>
+        {
+            Some(&["scopes"])
+        }
+        ["replacing", partial] if "scopes".starts_with(*partial) => Some(&["scopes"]),
+        _ => None,
+    }
+}
+
+fn complete_state_operations(
+    kind: IndexedValueKind,
+    prefix: &str,
+    replacement: SourceSpan,
+    output: &mut Vec<CompletionItem>,
+) {
+    let operations: &[&str] = match kind {
+        IndexedValueKind::Table => &[
+            "clear",
+            "insert_rows",
+            "replace_rows",
+            "upsert_rows",
+            "update_by_key",
+            "delete_by_key",
+            "toggle_rows",
+        ],
+        IndexedValueKind::Selection => &[
+            "clear",
+            "clear_in_scope",
+            "replace_all_clauses",
+            "replace_clauses_in_scope",
+            "upsert_clauses",
+            "toggle_clauses",
+            "delete_clauses",
+            "delete_clauses_in_scope",
+            "replace_all_from_scene_query",
+            "replace_from_scene_query_in_scope",
+            "upsert_from_scene_query",
+            "toggle_from_scene_query",
+        ],
+        _ => &[],
+    };
+    for operation in operations {
+        if candidate_matches(operation, prefix) {
+            output.push(item(
+                (*operation).to_owned(),
+                replacement,
+                (*operation).to_owned(),
+                CompletionKind::Function,
+                Some(
+                    match kind {
+                        IndexedValueKind::Table => "store update operation",
+                        IndexedValueKind::Selection => "selection update operation",
+                        _ => "state update operation",
+                    }
+                    .to_owned(),
+                ),
+                None,
+                CompletionOrigin::Syntax,
+                false,
+                "00",
+            ));
+        }
+    }
+}
+
+fn param_binder_context(text: &str, cursor: usize) -> bool {
+    let fragment = statement_fragment(text, cursor);
+    let Some(data_type) = fragment.strip_prefix("param") else {
+        return false;
+    };
+    let Some((data_type, tail)) = split_header_type(data_type.trim_start()) else {
+        return false;
+    };
+    if tail == "as"
+        && fragment
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
+    {
+        return false;
+    }
+    if tail.split_whitespace().count() > 1
+        || tail
+            .split_whitespace()
+            .next()
+            .is_some_and(|word| word != "as" && !"as".starts_with(word))
+    {
+        return false;
+    }
+    if matches!(data_type, "store" | "selection") {
+        return true;
+    }
+    let probe = SourceFile::new(
+        SourceId::new(u32::MAX),
+        SourceOrigin::Memory("completion-type-probe.avenger".to_owned()),
+        format!("avenger 1; chart cartesian {{ param {data_type} as value {{ value: NULL; }} }}"),
+    );
+    parse_file(&probe).is_ok()
+}
+
+fn field_nullable_context(text: &str, cursor: usize) -> bool {
+    let fragment = statement_fragment(text, cursor);
+    let Some(rest) = fragment.strip_prefix("field") else {
+        return false;
+    };
+    let Some((data_type, tail)) = split_header_type(rest.trim_start()) else {
+        return false;
+    };
+    let words = tail.split_whitespace().collect::<Vec<_>>();
+    if words.is_empty()
+        || words.len() > 2
+        || words
+            .get(1)
+            .is_some_and(|word| !"nullable".starts_with(*word))
+        || (words.len() == 1
+            && !fragment
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace))
+    {
+        return false;
+    }
+    let probe = SourceFile::new(
+        SourceId::new(u32::MAX),
+        SourceOrigin::Memory("completion-field-type-probe.avenger".to_owned()),
+        format!(
+            "avenger 1; chart cartesian {{ param store as rows {{ field {data_type} value; }} }}"
+        ),
+    );
+    parse_file(&probe).is_ok()
+}
+
+fn split_header_type(value: &str) -> Option<(&str, &str)> {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in value.char_indices() {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            character if character.is_whitespace() && depth == 0 => {
+                let remainder = &value[index..];
+                if remainder.trim_start().starts_with('(') {
+                    continue;
+                }
+                return Some((value[..index].trim_end(), remainder.trim_start()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn struct_field_name_context(text: &str, cursor: usize) -> bool {
+    struct_field_argument_is_name(statement_fragment(text, cursor))
+}
+
+fn struct_field_argument_is_name(fragment: &str) -> bool {
+    let mut stack = Vec::<(String, usize)>::new();
+    let mut identifier = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in fragment.chars() {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                identifier.clear();
+            }
+            character if character.is_alphanumeric() || character == '_' => {
+                identifier.push(character)
+            }
+            '(' => {
+                stack.push((std::mem::take(&mut identifier), 0));
+            }
+            ',' => {
+                if let Some((_, argument)) = stack.last_mut() {
+                    *argument += 1;
+                }
+                identifier.clear();
+            }
+            ')' => {
+                stack.pop();
+                identifier.clear();
+            }
+            character if character.is_whitespace() => {}
+            _ => identifier.clear(),
+        }
+    }
+    stack
+        .last()
+        .is_some_and(|(function, argument)| function == "field" && *argument >= 1)
+}
+
+fn fixed_header_candidates(text: &str, cursor: usize) -> Option<&'static [&'static str]> {
+    let fragment = statement_fragment(text, cursor);
+    let mut words = fragment.split_whitespace();
+    let keyword = words.next()?;
+    let remaining = words.count();
+    if remaining > 1
+        || (remaining == 1
+            && fragment
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace))
+    {
+        return None;
+    }
+    match keyword {
+        "slot" => Some(&[
+            "expr",
+            "expr_list",
+            "literal",
+            "number",
+            "string",
+            "boolean",
+            "enum",
+            "function",
+            "ref",
+            "block",
+            "channel",
+        ]),
+        "variable" => Some(&["row", "column", "item"]),
+        "adjust" => Some(&["expr", "nudge", "jitter", "dodge"]),
+        _ => None,
+    }
+}
+
+fn output_alias_context(text: &str, prefix_start: usize) -> bool {
+    let fragment = statement_fragment(text, prefix_start);
+    let Some(source) = fragment.strip_prefix("output") else {
+        return false;
+    };
+    source.chars().next().is_some_and(char::is_whitespace) && !contains_top_level_word(source, "as")
+}
+
+fn contains_top_level_word(value: &str, expected: &str) -> bool {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut word = String::new();
+    let flush = |word: &mut String, depth: usize| {
+        let matched = depth == 0 && word.eq_ignore_ascii_case(expected);
+        word.clear();
+        matched
+    };
+    for character in value.chars() {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => {
+                if flush(&mut word, depth) {
+                    return true;
+                }
+                quote = Some(character);
+            }
+            '(' | '[' => {
+                if flush(&mut word, depth) {
+                    return true;
+                }
+                depth += 1;
+            }
+            ')' | ']' => {
+                if flush(&mut word, depth) {
+                    return true;
+                }
+                depth = depth.saturating_sub(1);
+            }
+            character if character.is_alphanumeric() || character == '_' => word.push(character),
+            _ => {
+                if flush(&mut word, depth) {
+                    return true;
+                }
+            }
+        }
+    }
+    flush(&mut word, depth)
+}
+
 fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str> {
     syntax
         .parsed
@@ -2114,7 +3064,14 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
             TolerantSyntaxNodeKind::Property { name }
                 if node.span.range.start <= cursor && cursor <= node.span.range.end =>
             {
-                Some((node.span.range.len(), name.as_str()))
+                let body_started =
+                    significant_tokens(syntax, Some(node.span))
+                        .into_iter()
+                        .any(|token| {
+                            matches!(token.token, Some(Token::LBrace))
+                                && token.span.range.start < cursor
+                        });
+                (!body_started).then_some((node.span.range.len(), name.as_str()))
             }
             _ => None,
         })
@@ -2130,14 +3087,31 @@ fn is_property_name_context(text: &str, cursor: usize) -> bool {
     !prefix[start..].contains(':')
 }
 
-fn authored_properties(syntax: &SyntaxAnalysis, scope: SourceSpan) -> BTreeSet<String> {
+fn authored_properties(
+    syntax: &SyntaxAnalysis,
+    scope: SourceSpan,
+    cursor: usize,
+) -> BTreeSet<String> {
+    let property_owner = enclosing_property(syntax, cursor).map(|node| node.id);
+    let declaration_owner = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. })
+                && node.span.range.start == scope.range.start
+        })
+        .map(|node| node.id)
+        .next();
+    let expected_parent = property_owner.or(declaration_owner);
     syntax
         .parsed
         .nodes
         .iter()
         .filter_map(|node| match &node.kind {
             TolerantSyntaxNodeKind::Property { name }
-                if scope.range.start <= node.span.range.start
+                if node.parent == expected_parent
+                    && scope.range.start <= node.span.range.start
                     && node.span.range.end <= scope.range.end =>
             {
                 Some(name.clone())
@@ -2145,6 +3119,87 @@ fn authored_properties(syntax: &SyntaxAnalysis, scope: SourceSpan) -> BTreeSet<S
             _ => None,
         })
         .collect()
+}
+
+fn enclosing_property(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+) -> Option<&avenger_lang_core::syntax::TolerantSyntaxNode> {
+    syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(node.kind, TolerantSyntaxNodeKind::Property { .. })
+                && node.span.range.start <= cursor
+                && cursor <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())
+}
+
+fn nested_object_properties<'a>(
+    syntax: &SyntaxAnalysis,
+    schema: &'a KindSchema,
+    cursor: usize,
+) -> Option<&'a BTreeMap<String, PropertySchema>> {
+    let mut properties = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(node.kind, TolerantSyntaxNodeKind::Property { .. })
+                && node.span.range.start <= cursor
+                && cursor <= node.span.range.end
+        })
+        .collect::<Vec<_>>();
+    properties.sort_by_key(|node| node.span.range.len());
+    let innermost = properties.first()?;
+    let mut path = Vec::new();
+    let mut current = Some(innermost.id);
+    while let Some(id) = current {
+        let node = &syntax.parsed.nodes[id.get() as usize];
+        if let TolerantSyntaxNodeKind::Property { name } = &node.kind {
+            path.push(name.as_str());
+        }
+        current = node.parent;
+    }
+    path.reverse();
+
+    let first = path.first()?;
+    let mut shape = &schema.properties.get(*first)?.shape;
+    for name in path.into_iter().skip(1) {
+        shape = match shape {
+            ValueShape::Map(value) => value,
+            ValueShape::Object(properties) => &properties.get(name)?.shape,
+            ValueShape::ConfiguredExpression(properties) => &properties.get(name)?.shape,
+            ValueShape::ConfiguredReference { properties, .. } => &properties.get(name)?.shape,
+            ValueShape::Union(shapes) => shapes.iter().find_map(|shape| match shape {
+                ValueShape::Object(properties) => properties.get(name).map(|item| &item.shape),
+                _ => None,
+            })?,
+            _ => return None,
+        };
+    }
+    match shape {
+        ValueShape::Object(properties) | ValueShape::ConfiguredExpression(properties) => {
+            Some(properties)
+        }
+        ValueShape::ConfiguredReference { properties, .. } => Some(properties),
+        _ => None,
+    }
+}
+
+fn declaration_header_role(syntax: &SyntaxAnalysis, symbol: &IndexedSymbol) -> Option<String> {
+    let tokens = significant_tokens(syntax, Some(symbol.declaration_span));
+    let source_keyword = match symbol.keyword.as_str() {
+        "store" | "selection" => "param",
+        "group" | "overlay" => "container",
+        keyword => keyword,
+    };
+    let keyword = tokens
+        .iter()
+        .position(|token| token.word() == Some(source_keyword))?;
+    tokens.get(keyword + 1)?.word().map(str::to_owned)
 }
 
 #[derive(Clone, Copy)]
@@ -2309,12 +3364,11 @@ fn complete_physical_types(
 pub(crate) fn core_properties(keyword: &str) -> &'static [(&'static str, &'static str)] {
     match keyword {
         "param" => &[
-            ("type", "Exact Arrow physical type for this parameter."),
-            ("default", "Initial scalar value."),
-            ("share", "State-sharing policy."),
+            ("value", "Required initial scalar value."),
+            ("sharing", "State-sharing policy."),
         ],
         "store" => &[
-            ("share", "State-sharing policy."),
+            ("sharing", "State-sharing policy."),
             ("primary_key", "Fields that uniquely identify store rows."),
         ],
         "selection" => &[
@@ -2356,7 +3410,7 @@ pub(crate) fn core_properties(keyword: &str) -> &'static [(&'static str, &'stati
 
 fn core_property_values(property: &str) -> &'static [&'static str] {
     match property {
-        "share" => &["shared", "free", "level("],
+        "sharing" => &["shared", "free", "level("],
         "empty" => &["all", "none"],
         "combine" => &["union", "intersect"],
         "mode" => &["preview", "exact"],
@@ -2467,12 +3521,73 @@ fn rank_and_deduplicate(items: &mut Vec<CompletionItem>, prefix: &str) {
 
 fn declaration_snippet(keyword: &str) -> String {
     match keyword {
-        "param" | "store" | "selection" => format!("{keyword} as ${{1:name}} {{\n  $0\n}}"),
+        "param" => "param ${1:float64} as ${2:name} {\n  value: ${3:NULL};\n  $0\n}".to_owned(),
+        "param store" | "param selection" => {
+            format!("{keyword} as ${{1:name}} {{\n  $0\n}}")
+        }
         "mark" | "transform" | "tool" | "widget" | "resource" => {
             format!("{keyword} ${{1:kind}} as ${{2:name}} {{\n  $0\n}}")
         }
-        "group" | "view" => format!("{keyword} as ${{1:name}} {{\n  $0\n}}"),
+        "container group" | "container overlay" => {
+            format!("{keyword} as ${{1:name}} {{\n  $0\n}}")
+        }
+        "slot channel" => "slot channel ${1:name};".to_owned(),
+        "slot" => "slot ${1:expr} ${2:name};".to_owned(),
+        "variable" => "variable ${1:row} ${2:name} {\n  $0\n}".to_owned(),
+        "field" => "field ${1:utf8} ${2:name};".to_owned(),
+        "output" => "output ${1:value} as ${2:name};".to_owned(),
+        "adjust" => "adjust expr {\n  $0\n}".to_owned(),
+        "view" => "view ${1:kind} as ${2:name} {\n  $0\n}".to_owned(),
         _ => keyword.to_owned(),
+    }
+}
+
+fn source_declaration_label(semantic_keyword: &str) -> Option<&str> {
+    match semantic_keyword {
+        "store" => Some("param store"),
+        "selection" => Some("param selection"),
+        "group" => Some("container group"),
+        "overlay" => Some("container overlay"),
+        "channel" => Some("slot channel"),
+        "dimension" => None,
+        "param" => Some("param"),
+        "slot" => Some("slot"),
+        "adjust" => Some("adjust"),
+        "variable" => Some("variable"),
+        "field" => Some("field"),
+        "output" => Some("output"),
+        "view" => Some("view"),
+        "mark" => Some("mark"),
+        "transform" => Some("transform"),
+        "tool" => Some("tool"),
+        "widget" => Some("widget"),
+        "resource" => Some("resource"),
+        "catalog" => Some("catalog"),
+        "schema" => Some("schema"),
+        "table" => Some("table"),
+        "cell" => Some("cell"),
+        "plot" => Some("plot"),
+        "axis" => Some("axis"),
+        "legend" => Some("legend"),
+        "layout" => Some("layout"),
+        "theme" => Some("theme"),
+        "derive" => Some("derive"),
+        "layer" => Some("layer"),
+        "level" => Some("level"),
+        "part" => Some("part"),
+        "when" => Some("when"),
+        "row" => Some("row"),
+        "key" => Some("key"),
+        "fields" => Some("fields"),
+        "scale_hint" => Some("scale_hint"),
+        "frame" => Some("frame"),
+        "on" => Some("on"),
+        "set" => Some("set"),
+        "scale_edit" => Some("scale_edit"),
+        "match" => Some("match"),
+        "splice" => Some("splice"),
+        "export" => Some("export"),
+        other => Some(other),
     }
 }
 
@@ -2496,9 +3611,45 @@ mod tests {
         (origin, analyze_syntax(&snapshot))
     }
 
+    fn completion_labels(marked: &str) -> Vec<String> {
+        let cursor = marked.find('|').expect("completion marker");
+        let text = marked.replacen('|', "", 1);
+        let (origin, syntax) = fixture(&text);
+        let revision = syntax.revision.clone();
+        let syntax = BTreeMap::from([(origin.clone(), syntax)]);
+        let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
+        QueryContext::new(
+            AnalysisGeneration::new(1),
+            Path::new("/tmp"),
+            &[],
+            compiler.language_host().authoring_schema(),
+            &syntax,
+            &index,
+            &semantic_roots,
+            &dataset_contexts,
+        )
+        .complete(
+            &PositionRequest {
+                source: origin,
+                byte_offset: cursor,
+                source_revision: revision,
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect()
+    }
+
     #[test]
     fn index_preserves_exact_binder_and_reference_spans() {
-        let text = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 1.0; } mark symbol as points { size: $width; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 1.0; } mark symbol as points { size: $width; } }";
         let (origin, syntax) = fixture(text);
         let index = build_document_index(&origin, &syntax);
         let width = index
@@ -2513,6 +3664,37 @@ mod tests {
             .find(|reference| reference.name == "width")
             .unwrap();
         assert_eq!(&text[reference.span.range.as_range()], "$width");
+    }
+
+    #[test]
+    fn index_preserves_unified_header_names_and_semantic_categories() {
+        let text = r#"avenger 1; chart cartesian {
+          param store as rows {}
+          param selection as picked {}
+          container group as layer {}
+          variable row mpg {}
+          field float64 amount;
+          output amount as total;
+        }"#;
+        let (origin, syntax) = fixture(text);
+        let index = build_document_index(&origin, &syntax);
+        for (name, keyword, value_kind) in [
+            ("rows", "store", IndexedValueKind::Table),
+            ("picked", "selection", IndexedValueKind::Selection),
+            ("layer", "group", IndexedValueKind::Mark),
+            ("mpg", "variable", IndexedValueKind::Declaration),
+            ("amount", "field", IndexedValueKind::Field),
+            ("total", "output", IndexedValueKind::Output),
+        ] {
+            let symbol = index
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == name)
+                .unwrap_or_else(|| panic!("missing {name}: {:?}", index.symbols));
+            assert_eq!(symbol.keyword, keyword);
+            assert_eq!(symbol.value_kind, value_kind);
+            assert_eq!(&text[symbol.selection_span.range.as_range()], name);
+        }
     }
 
     #[test]
@@ -2551,11 +3733,188 @@ mod tests {
 
     #[test]
     fn completion_replacement_never_splits_unicode() {
-        let text = "avenger 1; chart cartesian as chart { param as café { type: float64; default: 1.0; } mark symbol { size: $caf; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as café { value: 1.0; } mark symbol { size: $caf; } }";
         let (_, syntax) = fixture(text);
         let cursor = text.find("$caf").unwrap() + "$caf".len();
         let span = replacement_span(&syntax, cursor);
         assert_eq!(&text[span.range.as_range()], "$caf");
+    }
+
+    #[test]
+    fn unified_header_and_set_target_completion_use_semantic_categories() {
+        let types = completion_labels("avenger 1; chart cartesian { param | }");
+        assert!(types.contains(&"float64".to_owned()));
+        assert!(types.contains(&"store".to_owned()));
+        assert!(types.contains(&"selection".to_owned()));
+
+        let fields = completion_labels("avenger 1; chart cartesian { field utf| }");
+        assert!(fields.contains(&"utf8".to_owned()));
+
+        let targets = completion_labels(
+            "avenger 1; chart cartesian { param float64 as width { value: 1; } param store as rows {} param selection as picked {} on click { set | = 1; } }",
+        );
+        for target in ["width", "rows", "picked", "cursor"] {
+            assert!(targets.contains(&target.to_owned()), "{targets:?}");
+        }
+
+        let store_ops = completion_labels(
+            "avenger 1; chart cartesian { param store as rows {} on click { set rows = |; } }",
+        );
+        assert!(
+            store_ops.contains(&"insert_rows".to_owned()),
+            "{store_ops:?}"
+        );
+        assert!(
+            !store_ops.contains(&"toggle_clauses".to_owned()),
+            "{store_ops:?}"
+        );
+
+        let selection_ops = completion_labels(
+            "avenger 1; chart cartesian { param selection as picked {} on click { set picked = |; } }",
+        );
+        assert!(
+            selection_ops.contains(&"toggle_clauses".to_owned()),
+            "{selection_ops:?}"
+        );
+        assert!(
+            !selection_ops.contains(&"insert_rows".to_owned()),
+            "{selection_ops:?}"
+        );
+
+        let scalar_modifiers = completion_labels(
+            "avenger 1; chart cartesian { param float64 as width { value: 1; } on click { set width | = 2; } }",
+        );
+        assert!(
+            scalar_modifiers.contains(&"at".to_owned()),
+            "{scalar_modifiers:?}"
+        );
+        assert!(
+            scalar_modifiers.contains(&"replacing".to_owned()),
+            "{scalar_modifiers:?}"
+        );
+
+        let selection_modifiers = completion_labels(
+            "avenger 1; chart cartesian { param selection as picked {} on click { set picked | = clear; } }",
+        );
+        assert!(
+            selection_modifiers.contains(&"at".to_owned()),
+            "{selection_modifiers:?}"
+        );
+        assert!(
+            !selection_modifiers.contains(&"replacing".to_owned()),
+            "{selection_modifiers:?}"
+        );
+
+        let bindings = completion_labels(
+            "avenger 1; chart cartesian { param float64 as width { value: 1; } param store as rows {} param selection as picked {} mark symbol { size: $|; } }",
+        );
+        assert!(bindings.contains(&"$width".to_owned()));
+        assert!(bindings.contains(&"$rows".to_owned()));
+        assert!(!bindings.contains(&"$picked".to_owned()));
+
+        let binder = completion_labels("avenger 1; chart cartesian { param float64 | }");
+        assert!(binder.contains(&"as".to_owned()), "{binder:?}");
+        assert!(!binder.contains(&"float64".to_owned()), "{binder:?}");
+
+        let field = completion_labels(
+            "avenger 1; chart cartesian { param store as rows { field utf8 name | } }",
+        );
+        assert!(field.contains(&"nullable".to_owned()), "{field:?}");
+
+        let member = completion_labels(
+            "avenger 1; chart cartesian { param struct(field(float64, |)) as value { value: NULL; } }",
+        );
+        assert!(member.contains(&"'<name>'".to_owned()), "{member:?}");
+        assert!(!member.contains(&"float64".to_owned()), "{member:?}");
+
+        let slot_name =
+            completion_labels("avenger 1; define mark sample { slot expr | mark symbol {} }");
+        assert!(!slot_name.contains(&"expr".to_owned()), "{slot_name:?}");
+        assert!(!slot_name.contains(&"as".to_owned()), "{slot_name:?}");
+
+        let slot_shapes = completion_labels("avenger 1; define mark sample { slot | }");
+        for shape in ["expr", "expr_list", "literal", "channel"] {
+            assert!(slot_shapes.contains(&shape.to_owned()), "{slot_shapes:?}");
+        }
+        assert!(
+            !slot_shapes.contains(&"value".to_owned()),
+            "{slot_shapes:?}"
+        );
+        assert!(!slot_shapes.contains(&"list".to_owned()), "{slot_shapes:?}");
+
+        let variable_name =
+            completion_labels("avenger 1; chart repeat_grid { variable row | cell cartesian {} }");
+        assert!(
+            !variable_name.contains(&"row".to_owned()),
+            "{variable_name:?}"
+        );
+        assert!(
+            !variable_name.contains(&"as".to_owned()),
+            "{variable_name:?}"
+        );
+
+        let channel_body = completion_labels(
+            "avenger 1; define mark sample { slot channel position { | } mark symbol {} }",
+        );
+        assert_eq!(channel_body, ["default"]);
+        let channel_default = completion_labels(
+            "avenger 1; define mark sample { slot channel position { default: |; } mark symbol {} }",
+        );
+        assert!(
+            channel_default.contains(&"x".to_owned()),
+            "{channel_default:?}"
+        );
+        assert!(
+            channel_default.contains(&"color".to_owned()),
+            "{channel_default:?}"
+        );
+
+        let equality = completion_labels("avenger 1; chart cartesian { equality { id { | } } }");
+        assert!(equality.contains(&"field".to_owned()), "{equality:?}");
+        assert!(equality.contains(&"value".to_owned()), "{equality:?}");
+
+        let interval = completion_labels("avenger 1; chart cartesian { interval { x { | } } }");
+        for property in ["field", "from", "to"] {
+            assert!(interval.contains(&property.to_owned()), "{interval:?}");
+        }
+
+        let adjust =
+            completion_labels("avenger 1; chart cartesian { mark symbol { adjust expr { | } } }");
+        assert!(adjust.contains(&"x".to_owned()), "{adjust:?}");
+        assert!(adjust.contains(&"fill".to_owned()), "{adjust:?}");
+
+        let output_alias = completion_labels(
+            "avenger 1; define transform sample { output CAST(value AS float64) |; }",
+        );
+        assert!(output_alias.contains(&"as".to_owned()), "{output_alias:?}");
+    }
+
+    #[test]
+    fn declaration_completion_emits_only_canonical_source_starters() {
+        let labels = completion_labels("avenger 1; chart cartesian { | }");
+        assert!(labels.contains(&"param store".to_owned()));
+        assert!(labels.contains(&"param selection".to_owned()));
+        assert!(labels.contains(&"container group".to_owned()));
+        assert!(!labels.contains(&"store".to_owned()));
+        assert!(!labels.contains(&"selection".to_owned()));
+        assert!(!labels.contains(&"group".to_owned()));
+        assert!(!labels.contains(&"dimension".to_owned()));
+    }
+
+    #[test]
+    fn parallel_frame_completion_uses_nested_authoring_schema() {
+        let frame = completion_labels(
+            "avenger 1; chart parallel { dimensions: { mpg: { | } } mark parallel_line { dimensions: { mpg: \"mpg\"; } } }",
+        );
+        assert!(frame.contains(&"axis".to_owned()), "{frame:?}");
+
+        let axis = completion_labels(
+            "avenger 1; chart parallel { dimensions: { mpg: { axis: { | } } } mark parallel_line { dimensions: { mpg: \"mpg\"; } } }",
+        );
+        for property in ["title", "visible", "grid", "tick_count"] {
+            assert!(axis.contains(&property.to_owned()), "{axis:?}");
+        }
+        assert!(!axis.contains(&"data".to_owned()), "{axis:?}");
     }
 
     #[test]

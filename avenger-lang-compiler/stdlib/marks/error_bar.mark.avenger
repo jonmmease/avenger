@@ -1,8 +1,8 @@
 avenger 1;
 
 define mark error_bar {
-  channel x;
-  channel y;
+  slot channel x;
+  slot channel y;
 
   private mark rule {
     x: channel(x);

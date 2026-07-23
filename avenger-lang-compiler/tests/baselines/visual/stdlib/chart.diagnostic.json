@@ -7,8 +7,8 @@
       "span": {
         "source": 1,
         "range": {
-          "start": 73,
-          "end": 126
+          "start": 83,
+          "end": 136
         }
       },
       "message": "definition bodies are private as a unit; publish exact names with header `export` declarations"

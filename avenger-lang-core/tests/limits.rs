@@ -27,7 +27,7 @@ fn syntax_limits_bound_tokens_nesting_and_declarations() {
     assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-022");
 
     let error = parse_file_with_limits(
-        &source("avenger 1; chart cartesian { group { mark symbol {} } }"),
+        &source("avenger 1; chart cartesian { container group { mark symbol {} } }"),
         SyntaxLimits {
             max_nesting_depth: 1,
             ..SyntaxLimits::default()
@@ -50,9 +50,7 @@ fn syntax_limits_bound_tokens_nesting_and_declarations() {
 #[test]
 fn syntax_limits_bound_sql_tokens_and_recursion() {
     let error = parse_file_with_limits(
-        &source(
-            "avenger 1; chart cartesian { param as value { type: int64; default: 1 + 2 + 3; } }",
-        ),
+        &source("avenger 1; chart cartesian { param int64 as value { value: 1 + 2 + 3; } }"),
         SyntaxLimits {
             sql: SqlParseLimits {
                 max_tokens: 2,
@@ -65,9 +63,7 @@ fn syntax_limits_bound_sql_tokens_and_recursion() {
     assert_eq!(error.diagnostic().code.as_str(), "AVENGER-SQL-010");
 
     let error = parse_file_with_limits(
-        &source(
-            "avenger 1; chart cartesian { param as value { type: int64; default: (((((1))))); } }",
-        ),
+        &source("avenger 1; chart cartesian { param int64 as value { value: (((((1))))); } }"),
         SyntaxLimits {
             sql: SqlParseLimits {
                 max_recursion_depth: 1,

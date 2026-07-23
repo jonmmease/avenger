@@ -18,18 +18,16 @@ chart cartesian as chart {
     export __av_9208499af4a7_enabled as enabled;
     export __av_9208499af4a7_hovered as hovered;
     export __av_9208499af4a7_chrome_layer.__av_9208499af4a7_chrome as chrome;
-    private param as __av_9208499af4a7_enabled {
-      default: true;
-      type: boolean;
+    private param boolean as __av_9208499af4a7_enabled {
+      value: true;
     }
-    private param as __av_9208499af4a7_x_domain {
-      default: NULL;
-      type: list(float64);
+    private param list(float64) as __av_9208499af4a7_x_domain {
+      value: NULL;
     }
-    private selection as __av_9208499af4a7_hovered {
+    private param selection as __av_9208499af4a7_hovered {
       empty: none;
     }
-    private selection as __av_9208499af4a7_nested_selected {
+    private param selection as __av_9208499af4a7_nested_selected {
       empty: none;
     }
     scale_edit {
@@ -42,10 +40,10 @@ chart cartesian as chart {
     }
     on click {
       target: mark points;
-      set param __av_9208499af4a7_enabled = NOT $__av_9208499af4a7_enabled;
-      set selection __av_9208499af4a7_hovered = clear;
+      set __av_9208499af4a7_enabled = NOT $__av_9208499af4a7_enabled;
+      set __av_9208499af4a7_hovered = clear;
     }
-    private group as __av_9208499af4a7_chrome_layer {
+    private container group as __av_9208499af4a7_chrome_layer {
       private mark symbol as __av_9208499af4a7_chrome {
         fill: value '#dc2626';
         size: 24;

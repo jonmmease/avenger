@@ -11,7 +11,7 @@ chart cartesian as mark_effects {
     y: "y" { scale: linear { domain: [0.0, 3.0]; } }
     size: value 80.0;
 
-    adjust {
+    adjust expr {
       x: item_channel(x) + 4.0;
       y: item_channel(y) - 2.0;
     }

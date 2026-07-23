@@ -13,6 +13,13 @@ quick fixes, definition refactors, and remote-import pinning. Ordinary editor
 analysis is schema-only and never scans table data, creates a physical plan, or
 calls `collect()`.
 
+Declaration intelligence follows the canonical unified surface: physical Arrow
+types are completed and highlighted in param/field headers; stores and
+selections occupy the param type position; containers, no-`as` definition
+members, keyed predicates, sparse parallel frame configuration, output aliases,
+and target-resolved `set` actions retain their semantic categories in symbols,
+navigation, hover, completion, and generated edits.
+
 ## Running
 
 From this workspace:

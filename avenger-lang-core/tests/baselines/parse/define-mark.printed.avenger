@@ -1,18 +1,18 @@
 avenger 1;
 define mark badge {
   -- | Radius exposed by the definition.
-  slot number as radius {
+  slot number radius {
     default: 4;
   }
-  slot enum as style {
+  slot enum style {
     default: dot;
     values: [dot, line];
   }
-  slot block as content;
-  channel x;
-  output bounds: span(0, $radius);
+  slot block content;
+  slot channel x;
+  output span(0, $radius) as bounds;
   export points as marks;
-  private group as implementation {
+  private container group as implementation {
     public mark symbol as points {
       size: $radius;
       x: channel(x);

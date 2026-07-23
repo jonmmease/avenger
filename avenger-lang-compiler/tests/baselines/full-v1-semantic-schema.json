@@ -94,9 +94,6 @@
               "props": {
                 "additionalProperties": false,
                 "properties": {
-                  "default": {
-                    "$ref": "#/$defs/value"
-                  },
                   "sharing": {
                     "oneOf": [
                       {
@@ -149,11 +146,14 @@
                         "type": "object"
                       }
                     ]
+                  },
+                  "value": {
+                    "$ref": "#/$defs/value"
                   }
                 },
                 "required": [
                   "type",
-                  "default"
+                  "value"
                 ],
                 "type": "object"
               }
@@ -4416,25 +4416,6 @@
             ]
           },
           "then": {
-            "allOf": [
-              {
-                "properties": {
-                  "children": {
-                    "contains": {
-                      "properties": {
-                        "decl": {
-                          "const": "dimension"
-                        }
-                      },
-                      "required": [
-                        "decl"
-                      ]
-                    },
-                    "minContains": 1
-                  }
-                }
-              }
-            ],
             "properties": {
               "props": {
                 "additionalProperties": false,
@@ -4444,6 +4425,982 @@
                   },
                   "data": {
                     "$ref": "#/$defs/value"
+                  },
+                  "dimensions": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "children": {
+                              "maxItems": 0
+                            },
+                            "head": {
+                              "$ref": "#/$defs/value"
+                            },
+                            "props": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "axis": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "block": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "children": {
+                                          "maxItems": 0
+                                        },
+                                        "head": {
+                                          "$ref": "#/$defs/value"
+                                        },
+                                        "props": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "format": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "grid": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_angle": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "show_title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_count": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_spacing": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_color": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "visible": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "type": "object"
+                                        }
+                                      },
+                                      "required": [
+                                        "props"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  },
+                                  "required": [
+                                    "block"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "props"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "object"
                   },
                   "format": {
                     "additionalProperties": false,
@@ -4735,14 +5692,7 @@
                 },
                 "type": "object"
               }
-            },
-            "x-avenger-child-rules": [
-              {
-                "docs": "A stable frame dimension id with optional axis configuration.",
-                "min": 1,
-                "role": "dimension"
-              }
-            ]
+            }
           }
         },
         {
@@ -12214,31 +13164,988 @@
             ]
           },
           "then": {
-            "allOf": [
-              {
-                "properties": {
-                  "children": {
-                    "contains": {
-                      "properties": {
-                        "decl": {
-                          "const": "dimension"
-                        }
-                      },
-                      "required": [
-                        "decl"
-                      ]
-                    },
-                    "minContains": 1
-                  }
-                }
-              }
-            ],
             "properties": {
               "props": {
                 "additionalProperties": false,
                 "properties": {
                   "data": {
                     "$ref": "#/$defs/value"
+                  },
+                  "dimensions": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "children": {
+                              "maxItems": 0
+                            },
+                            "head": {
+                              "$ref": "#/$defs/value"
+                            },
+                            "props": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "axis": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "block": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "children": {
+                                          "maxItems": 0
+                                        },
+                                        "head": {
+                                          "$ref": "#/$defs/value"
+                                        },
+                                        "props": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "format": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "grid": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_angle": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "show_title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_count": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_spacing": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_color": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "visible": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "type": "object"
+                                        }
+                                      },
+                                      "required": [
+                                        "props"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  },
+                                  "required": [
+                                    "block"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "props"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "object"
                   },
                   "format": {
                     "additionalProperties": false,
@@ -12530,14 +14437,7 @@
                 },
                 "type": "object"
               }
-            },
-            "x-avenger-child-rules": [
-              {
-                "docs": "A stable frame dimension id with optional axis configuration.",
-                "min": 1,
-                "role": "dimension"
-              }
-            ]
+            }
           }
         },
         {
@@ -52500,31 +54400,988 @@
             ]
           },
           "then": {
-            "allOf": [
-              {
-                "properties": {
-                  "children": {
-                    "contains": {
-                      "properties": {
-                        "decl": {
-                          "const": "dimension"
-                        }
-                      },
-                      "required": [
-                        "decl"
-                      ]
-                    },
-                    "minContains": 1
-                  }
-                }
-              }
-            ],
             "properties": {
               "props": {
                 "additionalProperties": false,
                 "properties": {
                   "data": {
                     "$ref": "#/$defs/value"
+                  },
+                  "dimensions": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "children": {
+                              "maxItems": 0
+                            },
+                            "head": {
+                              "$ref": "#/$defs/value"
+                            },
+                            "props": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "axis": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "block": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "children": {
+                                          "maxItems": 0
+                                        },
+                                        "head": {
+                                          "$ref": "#/$defs/value"
+                                        },
+                                        "props": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "format": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "grid": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_angle": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "label_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "show_title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_count": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "tick_spacing": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_color": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "title_font_family": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            "visible": {
+                                              "oneOf": [
+                                                {
+                                                  "type": [
+                                                    "string",
+                                                    "boolean",
+                                                    "null"
+                                                  ]
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "num": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "num"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "col": {}
+                                                  },
+                                                  "required": [
+                                                    "col"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "atom": {}
+                                                  },
+                                                  "required": [
+                                                    "atom"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "binding": {}
+                                                  },
+                                                  "required": [
+                                                    "binding"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "expr": {}
+                                                  },
+                                                  "required": [
+                                                    "expr"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "value": {}
+                                                  },
+                                                  "required": [
+                                                    "value"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "block": {}
+                                                  },
+                                                  "required": [
+                                                    "block"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "type": "object"
+                                        }
+                                      },
+                                      "required": [
+                                        "props"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  },
+                                  "required": [
+                                    "block"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "props"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "object"
                   },
                   "format": {
                     "additionalProperties": false,
@@ -52816,14 +55673,7 @@
                 },
                 "type": "object"
               }
-            },
-            "x-avenger-child-rules": [
-              {
-                "docs": "A stable frame dimension id with optional axis configuration.",
-                "min": 1,
-                "role": "dimension"
-              }
-            ]
+            }
           }
         },
         {
@@ -67427,7 +70277,7 @@
       "type": "object"
     },
     "name": {
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$",
       "type": "string"
     },
     "props": {
@@ -67488,7 +70338,7 @@
           "type": "string"
         },
         "dim": {
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$",
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$",
           "type": "string"
         },
         "env": {
@@ -67581,7 +70431,7 @@
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",
   "x-avenger-language-major": 1,
-  "x-avenger-native-profile": "avenger-native-1-497ed7d3ce7af8399cd6b4ab86f8c9277237ec1bfef43db3331955869ec1d499",
+  "x-avenger-native-profile": "avenger-native-1-792bddbd9844fa5eb1335ca4f379db145181193ddcb7f252f3b7f235dc965778",
   "x-avenger-native-schema": {
     "entries": [
       {
@@ -69284,13 +72134,7 @@
       {
         "body_mode": "mixed",
         "channels": {},
-        "child_rules": [
-          {
-            "docs": "A stable frame dimension id with optional axis configuration.",
-            "min": 1,
-            "role": "dimension"
-          }
-        ],
+        "child_rules": [],
         "compatible_coordinates": [],
         "docs": "A wide-form parallel-coordinate frame with user-named dimensions.",
         "exports": {},
@@ -69306,6 +72150,104 @@
             "required": false,
             "shape": {
               "shape": "any"
+            }
+          },
+          "dimensions": {
+            "docs": "Sparse frame configuration keyed by mark-owned logical dimension id.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "detail": {
+                  "axis": {
+                    "docs": "Shared axis configuration for this logical dimension.",
+                    "required": false,
+                    "shape": {
+                      "detail": {
+                        "format": {
+                          "docs": "Number-format pattern.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "grid": {
+                          "docs": "Whether to draw grid lines.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "label_angle": {
+                          "docs": "Tick-label rotation angle in degrees.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "label_font_family": {
+                          "docs": "Tick-label font family.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "show_title": {
+                          "docs": "Whether to render the title while retaining its configuration.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "tick_count": {
+                          "docs": "Requested number of ticks.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "tick_spacing": {
+                          "docs": "Structured start/step tick-spacing expression.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "title": {
+                          "docs": "Axis title text.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "title_color": {
+                          "docs": "Axis-title color.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "title_font_family": {
+                          "docs": "Axis-title font family.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        },
+                        "visible": {
+                          "docs": "Whether the axis is visible.",
+                          "required": false,
+                          "shape": {
+                            "shape": "sql_expression"
+                          }
+                        }
+                      },
+                      "shape": "object"
+                    }
+                  }
+                },
+                "shape": "object"
+              },
+              "shape": "map"
             }
           },
           "format": {

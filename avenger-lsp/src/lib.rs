@@ -2238,6 +2238,108 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn utf16_transcript_preserves_complex_type_and_unicode_name_spans() {
+        let project = tempdir().unwrap();
+        let chart = project.path().join("unicode.avenger");
+        let text = "avenger 1; chart cartesian as chart { title: '😀'; param struct(field(float64, 'x')) as café { value: NULL; } param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: $café; } }";
+        fs::write(&chart, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {},
+                    "workspaceFolders": [{ "uri": root_uri, "name": "unicode" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let reference_start = text.rfind("$café").unwrap();
+        let reference_cursor = reference_start + "$ca".len();
+        let character = text[..reference_cursor].encode_utf16().count() as u32;
+        let hover = call(
+            &mut service,
+            Request::build("textDocument/hover")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": character }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let hover: Hover =
+            serde_json::from_value(serde_json::to_value(hover.result().unwrap()).unwrap()).unwrap();
+        let range = hover.range.expect("hover range");
+        assert_eq!(
+            range.start.character,
+            text[..reference_start].encode_utf16().count() as u32
+        );
+        assert_eq!(
+            range.end.character,
+            text[..reference_start + "$café".len()]
+                .encode_utf16()
+                .count() as u32
+        );
+
+        let symbols = call(
+            &mut service,
+            Request::build("textDocument/documentSymbol")
+                .id(3)
+                .params(json!({ "textDocument": { "uri": chart_uri } }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let symbols = serde_json::to_string(symbols.result().unwrap()).unwrap();
+        assert!(symbols.contains("café"), "{symbols}");
+        assert!(symbols.contains("données"), "{symbols}");
+
+        let semantic = call(
+            &mut service,
+            Request::build("textDocument/semanticTokens/full")
+                .id(4)
+                .params(json!({ "textDocument": { "uri": chart_uri } }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let semantic: SemanticTokensResult =
+            serde_json::from_value(serde_json::to_value(semantic.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(matches!(
+            semantic,
+            SemanticTokensResult::Tokens(tokens) if !tokens.data.is_empty()
+        ));
+    }
+
     #[test]
     fn file_uri_normalization_round_trips_special_paths_and_symlinks() {
         let directory = tempdir().unwrap();
@@ -2701,7 +2803,7 @@ mod tests {
     async fn transcript_format_semantic_tokens_prepare_and_versioned_rename() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param as width { default: 640.0; type: float64; } mark symbol as points { siez: 12.0; size: $width; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { siez: 12.0; size: $width; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -2767,7 +2869,7 @@ mod tests {
             serde_json::from_value(serde_json::to_value(formatting.result().unwrap()).unwrap())
                 .unwrap();
         assert_eq!(formatting.len(), 1);
-        assert!(formatting[0].new_text.contains("param as width"));
+        assert!(formatting[0].new_text.contains("param float64 as width"));
 
         let semantic = call(
             &mut service,
@@ -2870,7 +2972,7 @@ mod tests {
         let chart = root.join("chart.avenger");
         let remote_url = "https://example.test/badge.mark.avenger";
         let text = format!(
-            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ group as cluster {{ mark symbol {{}} }} }}"
+            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ container group as cluster {{ mark symbol {{}} }} }}"
         );
         fs::write(&chart, &text).unwrap();
         let root_uri = Uri::from_file_path(&root).unwrap();
@@ -3022,7 +3124,7 @@ mod tests {
         .unwrap();
         assert!(stale.is_error());
 
-        let group_start = text.find("group as cluster").unwrap();
+        let group_start = text.find("container group as cluster").unwrap();
         let extracted = call(
             &mut service,
             Request::build("textDocument/codeAction")
@@ -3031,7 +3133,7 @@ mod tests {
                     "textDocument": { "uri": chart_uri },
                     "range": {
                         "start": { "line": 0, "character": group_start },
-                        "end": { "line": 0, "character": group_start + "group as cluster".len() }
+                        "end": { "line": 0, "character": group_start + "container group as cluster".len() }
                     },
                     "context": { "diagnostics": [], "only": ["refactor.extract"] }
                 }))
@@ -3153,7 +3255,7 @@ mod tests {
         assert!(matches!(
             &edits[0].edits[0],
             OneOf::Left(edit)
-                if edit.new_text.starts_with("group as imported")
+                if edit.new_text.starts_with("container group as imported")
                     && edit.new_text.contains("component_kind: badge")
         ));
     }
@@ -3162,7 +3264,7 @@ mod tests {
     async fn transcript_completion_hover_definition_references_and_highlights() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; } mark symbol as points { size: $wid; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { size: $wid; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();

@@ -1,29 +1,26 @@
 avenger 1;
 
 chart cartesian as chart {
-  param as canvas_width {
-    type: float64;
-    default: 640.0;
+  param float64 as canvas_width {
+    value: 640.0;
   }
 
-  param as canvas_height {
-    type: float64;
-    default: 420.0;
+  param float64 as canvas_height {
+    value: 420.0;
   }
 
-  param as selected_size {
-    type: float64;
-    default: 80.0;
+  param float64 as selected_size {
+    value: 80.0;
   }
 
-  store as dragged {
-    field id: utf8;
-    field x: float64;
-    field y: float64;
+  param store as dragged {
+    field utf8 id;
+    field float64 x;
+    field float64 y;
     primary_key: [id];
   }
 
-  selection as picked {
+  param selection as picked {
     empty: none;
     combine: union;
   }
@@ -65,15 +62,15 @@ chart cartesian as chart {
 
   on click as toggle_point {
     target: mark points;
-    set selection picked = toggle_clauses {
+    set picked = toggle_clauses {
       clause {
         id: 'clicked';
         equality {
-          dimension as id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum('id'); }
         }
       }
     }
-    set param selected_size = CASE
+    set selected_size = CASE
       WHEN selection_contains(picked, datum('id')) THEN 520.0
       ELSE 80.0
     END;
@@ -85,7 +82,7 @@ chart cartesian as chart {
       start: mouse_down {}
       end: mouse_up {}
     }
-    set store dragged = upsert_rows {
+    set dragged = upsert_rows {
       row { id: 'drag'; x: event_coord(x); y: event_coord(y); }
     }
     set cursor = 'crosshair';

@@ -14,8 +14,11 @@ already used by the Rust chart and partial-evaluation code into their SQL forms.
 `tokens/tree_sitter_conformance.json` is the machine-readable editor-grammar
 contract. The Rust token/query tests execute every row against the strict
 frontend; peer Tree-sitter repositories consume a revision-and-hash-pinned copy.
-`tree_sitter/sql_island_boundaries.json` closes the four structural SQL-island
+`tree_sitter/sql_island_boundaries.json` closes the five structural SQL-island
 contexts and every strict-parser call site. `tree_sitter/structural_sources.json`
 explicitly classifies and hashes every `.avenger` source under the language
 crates. `tree_sitter_contracts.rs` makes both manifests executable and prevents
 new sources or island-bearing syntax from bypassing the editor contract.
+Run `scripts/update_structural_manifest.py` after intentional edits to a
+classified source. It updates content hashes but refuses to classify newly
+added or removed sources automatically.

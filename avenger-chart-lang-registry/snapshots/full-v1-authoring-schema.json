@@ -1716,6 +1716,104 @@
           "required": false,
           "docs": "Chart-level data source."
         },
+        "dimensions": {
+          "shape": {
+            "shape": "map",
+            "detail": {
+              "shape": "object",
+              "detail": {
+                "axis": {
+                  "shape": {
+                    "shape": "object",
+                    "detail": {
+                      "format": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Number-format pattern."
+                      },
+                      "grid": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Whether to draw grid lines."
+                      },
+                      "label_angle": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Tick-label rotation angle in degrees."
+                      },
+                      "label_font_family": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Tick-label font family."
+                      },
+                      "show_title": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Whether to render the title while retaining its configuration."
+                      },
+                      "tick_count": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Requested number of ticks."
+                      },
+                      "tick_spacing": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Structured start/step tick-spacing expression."
+                      },
+                      "title": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Axis title text."
+                      },
+                      "title_color": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Axis-title color."
+                      },
+                      "title_font_family": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Axis-title font family."
+                      },
+                      "visible": {
+                        "shape": {
+                          "shape": "sql_expression"
+                        },
+                        "required": false,
+                        "docs": "Whether the axis is visible."
+                      }
+                    }
+                  },
+                  "required": false,
+                  "docs": "Shared axis configuration for this logical dimension."
+                }
+              }
+            }
+          },
+          "required": false,
+          "docs": "Sparse frame configuration keyed by mark-owned logical dimension id."
+        },
         "format": {
           "shape": {
             "shape": "object",
@@ -1847,13 +1945,7 @@
       "compatible_coordinates": [],
       "body_mode": "mixed",
       "stateless": false,
-      "child_rules": [
-        {
-          "role": "dimension",
-          "min": 1,
-          "docs": "A stable frame dimension id with optional axis configuration."
-        }
-      ]
+      "child_rules": []
     },
     {
       "key": {

@@ -1,9 +1,8 @@
 avenger 1;
 
 chart zerod as slider {
-  param as threshold_state {
-    type: float64;
-    default: 2.5;
+  param float64 as threshold_state {
+    value: 2.5;
   }
 
   widget slider as threshold {

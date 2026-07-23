@@ -149,8 +149,8 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
     let directory = tempfile::tempdir().unwrap();
     let project_root = std::fs::canonicalize(directory.path()).unwrap();
     let chart = SourceOrigin::File(project_root.join("chart.avenger"));
-    let valid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam as width { type: float64; default: 640.0; } mark symbol as points { size: $width; } }";
-    let invalid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam as width { type: float64; default: 640.0; mark symbol as points { size: $width; }";
+    let valid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam float64 as width { value: 640.0; } mark symbol as points { size: $width; } }";
+    let invalid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam float64 as width { value: 640.0; mark symbol as points { size: $width; }";
     let compiler = Compiler::builder()
         .project_root(&project_root)
         .source_loader(Arc::new(

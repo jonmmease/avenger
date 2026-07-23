@@ -15,14 +15,14 @@ chart cartesian as chart {
     }
     ];
   }
-  group as errors {
+  container group as errors {
     component_kind: error_bar;
     export __av_0a80c915a42e_body.__av_0a80c915a42e_stem as stem;
     export __av_0a80c915a42e_body.__av_0a80c915a42e_point as point;
     transform filter {
       predicate: true;
     }
-    private group as __av_0a80c915a42e_body {
+    private container group as __av_0a80c915a42e_body {
       private mark rule as __av_0a80c915a42e_stem {
         stroke: value '#374151';
         stroke_width: 2;

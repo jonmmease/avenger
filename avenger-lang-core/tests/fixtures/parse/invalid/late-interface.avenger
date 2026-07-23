@@ -1,5 +1,5 @@
 avenger 1;
 define mark bad {
   mark symbol {}
-  slot number as radius;
+  slot number radius;
 }

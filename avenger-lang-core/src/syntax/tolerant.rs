@@ -251,11 +251,24 @@ impl<'a> TolerantTreeBuilder<'a> {
                 } else {
                     position
                 };
-                if let Some(keyword) = self
-                    .word_at(declaration_position)
-                    .filter(|word| is_declaration(word))
-                    .map(str::to_owned)
-                {
+                let declaration = self
+                    .declaration_keyword(declaration_position)
+                    .map(|keyword| (keyword, None))
+                    .or_else(|| {
+                        self.is_predicate_owner(parent)
+                            .then(|| {
+                                self.word_at(declaration_position)
+                                    .filter(|_| {
+                                        self.token_at_significant_opt(declaration_position + 1)
+                                            .is_some_and(|token| {
+                                                matches!(token.token(), Some(Token::LBrace))
+                                            })
+                                    })
+                                    .map(|name| ("dimension".to_owned(), Some(name.to_owned())))
+                            })
+                            .flatten()
+                    });
+                if let Some((keyword, recovered_name)) = declaration {
                     if self.declaration_count >= self.limits.max_declarations {
                         if !self.reported_declaration_limit {
                             self.diagnostics.push(Diagnostic::error(
@@ -277,7 +290,8 @@ impl<'a> TolerantTreeBuilder<'a> {
                     self.declaration_count += 1;
                     let end_position = self.find_header_end(declaration_position);
                     let end_span = self.token_at_significant(end_position).span();
-                    let name = self.declaration_name(declaration_position, end_position);
+                    let name = recovered_name
+                        .or_else(|| self.declaration_name(declaration_position, end_position));
                     let id = self.push_node(
                         parent,
                         SourceSpan {
@@ -287,13 +301,46 @@ impl<'a> TolerantTreeBuilder<'a> {
                                 end: end_span.range.end,
                             },
                         },
-                        TolerantSyntaxNodeKind::Declaration { keyword, name },
+                        TolerantSyntaxNodeKind::Declaration {
+                            keyword: keyword.clone(),
+                            name,
+                        },
                     );
                     if matches!(
                         end_span_token(self.token_at_significant(end_position)),
                         Some('{')
                     ) {
                         self.pending_delimiter_owners.insert(end_position, id);
+                    }
+                    if keyword == "output"
+                        && let Some((start, end)) =
+                            self.output_island_bounds(declaration_position, end_position)
+                    {
+                        self.push_node(
+                            Some(id),
+                            SourceSpan {
+                                source: self.source.id,
+                                range: ByteSpan { start, end },
+                            },
+                            TolerantSyntaxNodeKind::SqlIsland {
+                                context: SqlIslandContext::AliasedExpression,
+                            },
+                        );
+                    }
+                    if keyword == "set"
+                        && let Some((start, end)) =
+                            self.action_island_bounds(declaration_position, end_position)
+                    {
+                        self.push_node(
+                            Some(id),
+                            SourceSpan {
+                                source: self.source.id,
+                                range: ByteSpan { start, end },
+                            },
+                            TolerantSyntaxNodeKind::SqlIsland {
+                                context: SqlIslandContext::TerminatedExpression,
+                            },
+                        );
                     }
                 }
             }
@@ -320,6 +367,13 @@ impl<'a> TolerantTreeBuilder<'a> {
                     },
                     TolerantSyntaxNodeKind::Property { name: name.clone() },
                 );
+                if let Some(body_position) = (value_start..=value_end).find(|position| {
+                    self.token_at_significant_opt(*position)
+                        .is_some_and(|token| matches!(token.token(), Some(Token::LBrace)))
+                }) {
+                    self.pending_delimiter_owners
+                        .insert(body_position, property);
+                }
                 if value_start <= value_end {
                     if let (Some(first), Some(last)) = (
                         self.token_at_significant_opt(value_start),
@@ -462,15 +516,115 @@ impl<'a> TolerantTreeBuilder<'a> {
             }
         }
         let keyword = self.word_at(start)?;
-        let fallback = if keyword.eq_ignore_ascii_case("define") {
-            start + 2
-        } else {
-            start + 1
+        let fallback = match keyword {
+            "define" | "slot" | "variable" => Some(start + 2),
+            "field" => self.name_after_physical_type(start + 1, end),
+            "output" | "export" => Some(start + 1),
+            _ => None,
         };
-        (fallback <= end)
-            .then(|| self.word_at(fallback))
-            .flatten()
+        fallback
+            .filter(|fallback| *fallback <= end)
+            .and_then(|fallback| self.word_at(fallback))
             .map(str::to_owned)
+    }
+
+    fn name_after_physical_type(&self, type_start: usize, end: usize) -> Option<usize> {
+        let mut next = type_start + 1;
+        if matches!(
+            self.token_at_significant_opt(next)
+                .and_then(|token| token.token()),
+            Some(Token::LParen)
+        ) {
+            let mut depth = 0usize;
+            while next < end {
+                match self.token_at_significant(next).token() {
+                    Some(Token::LParen) => depth += 1,
+                    Some(Token::RParen) => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            next += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                next += 1;
+            }
+        }
+        (next < end).then_some(next)
+    }
+
+    fn declaration_keyword(&self, position: usize) -> Option<String> {
+        let keyword = self.word_at(position)?;
+        if !SOURCE_DECLARATION_KEYWORDS.contains(&keyword) {
+            return None;
+        }
+        let semantic = match (keyword, self.word_at(position + 1)) {
+            ("param", Some("store")) => "store",
+            ("param", Some("selection")) => "selection",
+            ("container", Some("group")) => "group",
+            ("container", Some("overlay")) => "overlay",
+            _ => keyword,
+        };
+        Some(semantic.to_owned())
+    }
+
+    fn is_predicate_owner(&self, parent: Option<TolerantSyntaxNodeId>) -> bool {
+        parent.is_some_and(|parent| {
+            matches!(
+                &self.nodes[parent.get() as usize].kind,
+                TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                    if matches!(keyword.as_str(), "equality" | "interval")
+            )
+        })
+    }
+
+    fn output_island_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let first = self.token_at_significant_opt(start + 1)?;
+        let mut nesting = 0usize;
+        let mut island_end = self.token_at_significant_opt(end)?.span().range.start;
+        for position in start + 1..end {
+            let token = self.token_at_significant(position);
+            match token.token() {
+                Some(Token::LParen | Token::LBracket | Token::LBrace) => nesting += 1,
+                Some(Token::RParen | Token::RBracket | Token::RBrace) if nesting > 0 => {
+                    nesting -= 1
+                }
+                Some(Token::Word(word))
+                    if nesting == 0 && word.value.eq_ignore_ascii_case("as") =>
+                {
+                    island_end = token.span().range.start;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        (first.span().range.start < island_end).then_some((first.span().range.start, island_end))
+    }
+
+    fn action_island_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let equals = (start + 1..=end).find(|position| {
+            matches!(
+                self.token_at_significant_opt(*position)
+                    .and_then(|token| token.token()),
+                Some(Token::Eq)
+            )
+        })?;
+        let value_start = equals + 1;
+        let first = self.token_at_significant_opt(value_start)?;
+        if self
+            .token_at_significant_opt(value_start + 1)
+            .is_some_and(|next| matches!(next.token(), Some(Token::LBrace)))
+        {
+            return None;
+        }
+        let last = self.token_at_significant_opt(end)?;
+        let island_end = if matches!(last.token(), Some(Token::SemiColon)) {
+            last.span().range.start
+        } else {
+            last.span().range.end
+        };
+        (first.span().range.start < island_end).then_some((first.span().range.start, island_end))
     }
 
     fn find_property_end(&self, start: usize) -> usize {
@@ -508,12 +662,53 @@ impl<'a> TolerantTreeBuilder<'a> {
     }
 }
 
-fn is_declaration(word: &str) -> bool {
-    word == "chart"
-        || crate::resolve::DECLARATION_KEYWORDS
-            .iter()
-            .any(|keyword| *keyword == word)
-}
+/// Canonical source starters. Internal semantic declaration keywords such as
+/// `store`, `selection`, `group`, `overlay`, `dimension`, and `channel` do not
+/// enter the tolerant source grammar through this list.
+const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
+    "adjust",
+    "axis",
+    "catalog",
+    "cell",
+    "chart",
+    "container",
+    "define",
+    "derive",
+    "equality",
+    "export",
+    "field",
+    "fields",
+    "frame",
+    "key",
+    "layer",
+    "layout",
+    "legend",
+    "level",
+    "interval",
+    "mark",
+    "match",
+    "on",
+    "output",
+    "param",
+    "part",
+    "plot",
+    "resource",
+    "row",
+    "scale_edit",
+    "scale_hint",
+    "schema",
+    "set",
+    "slot",
+    "splice",
+    "table",
+    "theme",
+    "tool",
+    "transform",
+    "variable",
+    "view",
+    "when",
+    "widget",
+];
 
 fn opening_delimiter(token: Option<&Token>) -> Option<char> {
     match token {
@@ -605,7 +800,7 @@ mod tests {
         let source = SourceFile::new(
             SourceId::new(1),
             SourceOrigin::Memory("hierarchy".into()),
-            "avenger 1; chart cartesian as chart { public param as width { type: float64; default: 1.0; } mark symbol as points {} }",
+            "avenger 1; chart cartesian as chart { public param float64 as width { value: 1.0; } mark symbol as points {} }",
         );
         let parsed = parse_file_tolerant(&source);
         let chart = parsed
@@ -630,5 +825,107 @@ mod tests {
         assert!(children.iter().any(|node| {
             matches!(&node.kind, TolerantSyntaxNodeKind::Declaration { keyword, name } if keyword == "mark" && name.as_deref() == Some("points"))
         }));
+    }
+
+    #[test]
+    fn unified_headers_recover_semantic_categories_and_direct_names() {
+        let source = SourceFile::new(
+            SourceId::new(1),
+            SourceOrigin::Memory("headers".into()),
+            r#"avenger 1; define mark sample {
+              slot channel x;
+              slot expr amount;
+              output amount;
+              output amount + 1 as next;
+              param store as rows {}
+              param selection as picked {}
+              container group as layer {}
+              variable row mpg {}
+              field float64 value;
+              field struct(field(float64, 'x')) position;
+              equality { id { field: "id"; value: 1; } }
+            }"#,
+        );
+        let parsed = parse_file_tolerant(&source);
+        let declarations = parsed
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                TolerantSyntaxNodeKind::Declaration { keyword, name } => {
+                    Some((keyword.as_str(), name.as_deref()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for expected in [
+            ("slot", Some("x")),
+            ("slot", Some("amount")),
+            ("output", Some("amount")),
+            ("output", Some("next")),
+            ("store", Some("rows")),
+            ("selection", Some("picked")),
+            ("group", Some("layer")),
+            ("variable", Some("mpg")),
+            ("field", Some("value")),
+            ("field", Some("position")),
+            ("dimension", Some("id")),
+        ] {
+            assert!(declarations.contains(&expected), "{declarations:?}");
+        }
+        assert!(parsed.nodes.iter().any(|node| {
+            matches!(
+                node.kind,
+                TolerantSyntaxNodeKind::SqlIsland {
+                    context: super::SqlIslandContext::AliasedExpression
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn action_expression_islands_exclude_structural_update_blocks() {
+        let source = SourceFile::new(
+            SourceId::new(2),
+            SourceOrigin::Memory("actions".into()),
+            "avenger 1; chart cartesian { on click { set width = $width + 1; set rows = insert_rows { row { id: 1; } } } }",
+        );
+        let parsed = parse_file_tolerant(&source);
+        let islands = parsed
+            .nodes
+            .iter()
+            .filter_map(|node| match node.kind {
+                TolerantSyntaxNodeKind::SqlIsland {
+                    context: super::SqlIslandContext::TerminatedExpression,
+                } => Some(&source.text()[node.span.range.as_range()]),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(islands, ["$width + 1"]);
+    }
+
+    #[test]
+    fn object_properties_own_nested_recovery_scopes() {
+        let source = SourceFile::new(
+            SourceId::new(3),
+            SourceOrigin::Memory("nested-properties".into()),
+            "avenger 1; chart parallel { dimensions: { mpg: { axis: { title: 'MPG'; } } } }",
+        );
+        let parsed = parse_file_tolerant(&source);
+        let property = |name: &str| {
+            parsed
+                .nodes
+                .iter()
+                .find(|node| {
+                    matches!(
+                        &node.kind,
+                        TolerantSyntaxNodeKind::Property { name: candidate }
+                            if candidate == name
+                    )
+                })
+                .unwrap()
+        };
+        assert_eq!(property("mpg").parent, Some(property("dimensions").id));
+        assert_eq!(property("axis").parent, Some(property("mpg").id));
+        assert_eq!(property("title").parent, Some(property("axis").id));
     }
 }

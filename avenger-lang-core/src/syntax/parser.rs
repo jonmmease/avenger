@@ -14,6 +14,7 @@ use crate::{
         Import, Name, NumericLiteral, PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value,
         Visibility,
     },
+    physical_type::PhysicalType,
     sql::{
         ParsedSqlIsland, SqlFrontendError, SqlParseLimits, TokenClass, TokenStream,
         parse_sql_expression_with_limits, parse_sql_query_with_limits, tokenize,
@@ -28,7 +29,7 @@ pub struct SyntaxLimits {
     pub sql: SqlParseLimits,
 }
 
-/// The four structural contexts that can own an embedded SQL island.
+/// The five structural contexts that can own an embedded SQL island.
 ///
 /// This is intentionally a closed compiler/editor contract. Adding a context
 /// requires updating the checked Tree-sitter boundary manifest.
@@ -38,6 +39,7 @@ pub enum SqlIslandContext {
     PropertyExpression,
     TerminatedExpression,
     ArrayExpression,
+    AliasedExpression,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,18 +58,18 @@ pub enum SqlIslandSite {
     PropertyValue,
     ArrayValuePayload,
     ArrayElement,
-    FieldType,
-    OutputValue,
+    OutputSource,
     CursorActionRhs,
     StateActionRhs,
 }
 
 impl SqlIslandContext {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::QueryProperty,
         Self::PropertyExpression,
         Self::TerminatedExpression,
         Self::ArrayExpression,
+        Self::AliasedExpression,
     ];
 
     pub const fn manifest_name(self) -> &'static str {
@@ -76,15 +78,17 @@ impl SqlIslandContext {
             Self::PropertyExpression => "property_expression",
             Self::TerminatedExpression => "terminated_expression",
             Self::ArrayExpression => "array_expression",
+            Self::AliasedExpression => "aliased_expression",
         }
     }
 
     pub const fn root(self) -> SqlIslandRoot {
         match self {
             Self::QueryProperty => SqlIslandRoot::Query,
-            Self::PropertyExpression | Self::TerminatedExpression | Self::ArrayExpression => {
-                SqlIslandRoot::Expression
-            }
+            Self::PropertyExpression
+            | Self::TerminatedExpression
+            | Self::ArrayExpression
+            | Self::AliasedExpression => SqlIslandRoot::Expression,
         }
     }
 
@@ -93,19 +97,19 @@ impl SqlIslandContext {
             Self::QueryProperty | Self::TerminatedExpression => &[";"],
             Self::PropertyExpression => &[";", "{"],
             Self::ArrayExpression => &[",", "]"],
+            Self::AliasedExpression => &["as", ";"],
         }
     }
 }
 
 impl SqlIslandSite {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::QueryProperty,
         Self::ValuePropertyPayload,
         Self::PropertyValue,
         Self::ArrayValuePayload,
         Self::ArrayElement,
-        Self::FieldType,
-        Self::OutputValue,
+        Self::OutputSource,
         Self::CursorActionRhs,
         Self::StateActionRhs,
     ];
@@ -117,8 +121,7 @@ impl SqlIslandSite {
             Self::PropertyValue => "property_value",
             Self::ArrayValuePayload => "array_value_payload",
             Self::ArrayElement => "array_element",
-            Self::FieldType => "field_type",
-            Self::OutputValue => "output_value",
+            Self::OutputSource => "output_source",
             Self::CursorActionRhs => "cursor_action_rhs",
             Self::StateActionRhs => "state_action_rhs",
         }
@@ -131,9 +134,8 @@ impl SqlIslandSite {
                 SqlIslandContext::PropertyExpression
             }
             Self::ArrayValuePayload | Self::ArrayElement => SqlIslandContext::ArrayExpression,
-            Self::FieldType | Self::OutputValue | Self::CursorActionRhs | Self::StateActionRhs => {
-                SqlIslandContext::TerminatedExpression
-            }
+            Self::CursorActionRhs | Self::StateActionRhs => SqlIslandContext::TerminatedExpression,
+            Self::OutputSource => SqlIslandContext::AliasedExpression,
         }
     }
 }
@@ -286,6 +288,12 @@ struct Parser {
     declaration_count: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BodyContext {
+    Ordinary,
+    Predicate,
+}
+
 impl Parser {
     fn new(stream: TokenStream, limits: SyntaxLimits) -> Self {
         Self {
@@ -393,11 +401,11 @@ impl Parser {
         let body = self.body()?;
         let mut saw_body_item = false;
         for child in &body.children {
-            if matches!(child.keyword.as_str(), "slot" | "channel") {
+            if child.keyword.as_str() == "slot" {
                 if saw_body_item {
                     return Err(self.error(
                         "AVENGER-PARSE-020",
-                        "slot and channel interfaces must precede definition body items",
+                        "slot interfaces must precede definition body items",
                     ));
                 }
             } else if !matches!(child.keyword.as_str(), "output" | "export") {
@@ -411,13 +419,17 @@ impl Parser {
     }
 
     fn body(&mut self) -> Result<Body, ParseError> {
+        self.body_with_context(BodyContext::Ordinary)
+    }
+
+    fn body_with_context(&mut self, context: BodyContext) -> Result<Body, ParseError> {
         self.enter_nesting()?;
-        let result = self.body_inner();
+        let result = self.body_inner(context);
         self.nesting_depth -= 1;
         result
     }
 
-    fn body_inner(&mut self) -> Result<Body, ParseError> {
+    fn body_inner(&mut self, context: BodyContext) -> Result<Body, ParseError> {
         self.expect(Token::LBrace, "`{` to start a body")?;
         let mut body = Body::default();
         loop {
@@ -449,6 +461,15 @@ impl Parser {
                 body.props
                     .insert(key, value)
                     .map_err(|error| self.ast_error(error))?;
+            } else if context == BodyContext::Predicate
+                && self.word().is_some()
+                && self.nth_is(1, &Token::LBrace)
+            {
+                let start = self.start();
+                let name = self.name()?;
+                let mut child = from_body(n("dimension"), None, Some(name), self.body()?);
+                child.doc = doc;
+                body.children.push(self.finish(start, child)?);
             } else {
                 body.children.push(self.declaration(doc)?);
             }
@@ -709,10 +730,35 @@ impl Parser {
         };
         let mut decl = match keyword.as_str() {
             "catalog" | "schema" | "table" | "mark" | "transform" | "view" | "widget"
-            | "resource" | "variable" | "derive" => self.kind_bind_body()?,
+            | "resource" | "derive" => self.kind_bind_body()?,
+            "variable" => self.variable()?,
             "tool" => self.tool()?,
-            "param" | "store" | "selection" | "dimension" => self.bind_body()?,
-            "group" | "overlay" => self.optional_bind_body()?,
+            "param" => self.param()?,
+            "container" => self.container()?,
+            "store" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-026",
+                    "store declarations use `param store as <name>`",
+                ));
+            }
+            "selection" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-027",
+                    "selection declarations use `param selection as <name>`",
+                ));
+            }
+            "group" | "overlay" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-028",
+                    "groups and overlays use `container group|overlay`",
+                ));
+            }
+            "dimension" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-029",
+                    "predicate dimensions are keyed members and parallel frame dimensions use the `dimensions:` map",
+                ));
+            }
             "on" => self.event()?,
             "cell" => self.cell()?,
             "plot" => self.kind_body()?,
@@ -728,7 +774,12 @@ impl Parser {
             }
             "field" => self.field()?,
             "slot" => self.slot()?,
-            "channel" => self.channel()?,
+            "channel" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-030",
+                    "definition channels use `slot channel <name>`",
+                ));
+            }
             "output" => self.output()?,
             "export" => self.export()?,
             "match" => self.match_block()?,
@@ -744,6 +795,9 @@ impl Parser {
     fn kind_bind_body(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
         let kind = self.name()?;
+        if keyword.as_str() == "mark" && kind.as_str() == "group" {
+            return Err(self.error("AVENGER-PARSE-028", "mark groups use `container group`"));
+        }
         let binder = self.optional_binder()?;
         if matches!(
             keyword.as_str(),
@@ -771,19 +825,93 @@ impl Parser {
         }
     }
 
-    fn bind_body(&mut self) -> Result<Decl, ParseError> {
-        let keyword = self.name()?;
-        self.expect_word("as")?;
-        let binder = self.name()?;
+    fn variable(&mut self) -> Result<Decl, ParseError> {
+        self.expect_word("variable")?;
+        let role = self.name()?;
+        if !matches!(role.as_str(), "row" | "column" | "item") {
+            return Err(self.error(
+                "AVENGER-PARSE-035",
+                "repeat variable role must be `row`, `column`, or `item`",
+            ));
+        }
+        if self.consume_word("as") {
+            return Err(self.error(
+                "AVENGER-PARSE-035",
+                "repeat variables use `variable <role> <id>` without `as`",
+            ));
+        }
+        let name = self.name()?;
         let body = self.body()?;
-        Ok(from_body(keyword, None, Some(binder), body))
+        Ok(from_body(n("variable"), Some(role), Some(name), body))
     }
 
-    fn optional_bind_body(&mut self) -> Result<Decl, ParseError> {
-        let keyword = self.name()?;
+    fn param(&mut self) -> Result<Decl, ParseError> {
+        self.expect_word("param")?;
+        if self.word_is("as") {
+            return Err(self.error(
+                "AVENGER-PARSE-031",
+                "param declarations require an Arrow type, `store`, or `selection` before `as`",
+            ));
+        }
+
+        if self.consume_word("store") {
+            self.expect_word("as")?;
+            let binder = self.name()?;
+            let body = self.body()?;
+            return Ok(from_body(n("store"), None, Some(binder), body));
+        }
+        if self.consume_word("selection") {
+            self.expect_word("as")?;
+            let binder = self.name()?;
+            let body = self.body()?;
+            return Ok(from_body(n("selection"), None, Some(binder), body));
+        }
+
+        let data_type = self.physical_type_value()?;
+        PhysicalType::parse(&data_type).map_err(|error| {
+            self.error(
+                "AVENGER-PARSE-032",
+                format!("invalid param physical Arrow type: {error}"),
+            )
+        })?;
+        if !self.consume_word("as") {
+            return Err(self.error(
+                "AVENGER-PARSE-031",
+                "param declarations require `as <name>` after the Arrow type",
+            ));
+        }
+        let binder = self.name()?;
+        let mut body = self.body()?;
+        if body.props.get("type").is_some() || body.props.get("default").is_some() {
+            return Err(self.error(
+                "AVENGER-PARSE-033",
+                "scalar param types belong in the header and `value:` replaces `default:`",
+            ));
+        }
+        if body.props.get("value").is_none() {
+            return Err(self.error(
+                "AVENGER-PARSE-033",
+                "scalar params require exactly one `value:` initializer",
+            ));
+        }
+        body.props
+            .insert(n("type"), data_type)
+            .expect("param body cannot author `type`");
+        Ok(from_body(n("param"), None, Some(binder), body))
+    }
+
+    fn container(&mut self) -> Result<Decl, ParseError> {
+        self.expect_word("container")?;
+        let kind = self.name()?;
+        if !matches!(kind.as_str(), "group" | "overlay") {
+            return Err(self.error(
+                "AVENGER-PARSE-028",
+                "container type must be `group` or `overlay`",
+            ));
+        }
         let binder = self.optional_binder()?;
         let body = self.body()?;
-        Ok(from_body(keyword, None, binder, body))
+        Ok(from_body(kind, None, binder, body))
     }
 
     fn event(&mut self) -> Result<Decl, ParseError> {
@@ -844,10 +972,23 @@ impl Parser {
 
     fn adjust(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let (kind, binder) = if self.is(&Token::LBrace) {
+        if self.is(&Token::LBrace) {
+            return Err(self.error(
+                "AVENGER-PARSE-036",
+                "expression adjustments use `adjust expr { ... }`",
+            ));
+        }
+        let authored_kind = self.name()?;
+        let (kind, binder) = if authored_kind.as_str() == "expr" {
+            if self.word_is("as") {
+                return Err(self.error(
+                    "AVENGER-PARSE-036",
+                    "`adjust expr` cannot have an `as` binder",
+                ));
+            }
             (None, None)
         } else {
-            (Some(self.name()?), self.optional_binder()?)
+            (Some(authored_kind), self.optional_binder()?)
         };
         let body = self.body()?;
         Ok(from_body(keyword, kind, binder, body))
@@ -855,18 +996,30 @@ impl Parser {
 
     fn plain_body(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let body = self.body()?;
+        let body = if matches!(keyword.as_str(), "equality" | "interval") {
+            self.body_with_context(BodyContext::Predicate)?
+        } else {
+            self.body()?
+        };
         Ok(from_body(keyword, None, None, body))
     }
 
     fn field(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
+        if self.nth_is(1, &Token::Colon) {
+            return Err(self.error(
+                "AVENGER-PARSE-034",
+                "store fields use `field <type> <name> [nullable];`",
+            ));
+        }
+        let value = self.physical_type_value()?;
+        PhysicalType::parse(&value).map_err(|error| {
+            self.error(
+                "AVENGER-PARSE-034",
+                format!("invalid field physical Arrow type: {error}"),
+            )
+        })?;
         let binder = self.name()?;
-        self.expect(Token::Colon, "`:` after field name")?;
-        let value = self.try_generic_call()?.map_or_else(
-            || self.expression(BindingKind::Param, SqlIslandSite::FieldType),
-            Ok,
-        )?;
         let mut props = PropertyMap::default();
         props.insert(n("type"), value).expect("new property");
         if self.consume_word("nullable") {
@@ -898,10 +1051,16 @@ impl Parser {
                 | "function"
                 | "ref"
                 | "block"
+                | "channel"
         ) {
             return Err(self.error("AVENGER-PARSE-021", "unknown definition slot shape"));
         }
-        self.expect_word("as")?;
+        if self.consume_word("as") {
+            return Err(self.error(
+                "AVENGER-PARSE-037",
+                "definition slots use `slot <shape> <name>` without `as`",
+            ));
+        }
         let binder = self.name()?;
         let body = if self.consume(Token::SemiColon) {
             Body::default()
@@ -911,30 +1070,26 @@ impl Parser {
         Ok(from_body(keyword, Some(kind), Some(binder), body))
     }
 
-    fn channel(&mut self) -> Result<Decl, ParseError> {
-        let keyword = self.name()?;
-        let binder = self.name()?;
-        let kind = self
-            .consume(Token::Colon)
-            .then(|| self.name())
-            .transpose()?;
-        self.expect(Token::SemiColon, "`;` after channel")?;
-        Ok(Decl {
-            keyword,
-            kind,
-            name: Some(binder),
-            ..Decl::new(n("channel"))
-        })
-    }
-
     fn output(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let binder = self.name()?;
+        let value = self.expression(BindingKind::Param, SqlIslandSite::OutputSource)?;
         let mut props = PropertyMap::default();
-        if self.consume(Token::Colon) {
-            let value = self.expression(BindingKind::Param, SqlIslandSite::OutputValue)?;
+        let binder = if self.consume_word("as") {
             props.insert(n("value"), value).expect("new property");
-        }
+            self.name()?
+        } else if self.is(&Token::Colon) {
+            return Err(self.error(
+                "AVENGER-PARSE-038",
+                "transform outputs use `output <expression> as <public-name>`",
+            ));
+        } else if let Value::Atom(name) = value {
+            name
+        } else {
+            return Err(self.error(
+                "AVENGER-PARSE-038",
+                "computed and qualified outputs require `as <public-name>`",
+            ));
+        };
         self.expect(Token::SemiColon, "`;` after output")?;
         Ok(Decl {
             keyword,
@@ -998,21 +1153,24 @@ impl Parser {
 
     fn action(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let kind = self.name()?;
+        let target = self.qual()?;
+        let is_cursor = target.len() == 1 && target[0].as_str() == "cursor";
         let mut props = PropertyMap::default();
-        if kind.as_str() == "cursor" {
+        if is_cursor {
             self.expect(Token::Eq, "`=` in cursor action")?;
             let value = self.expression(BindingKind::Param, SqlIslandSite::CursorActionRhs)?;
             props.insert(n("value"), value).expect("new property");
             self.expect(Token::SemiColon, "`;` after cursor action")?;
         } else {
-            if !matches!(kind.as_str(), "param" | "store" | "selection") {
+            if target.len() == 1
+                && matches!(target[0].as_str(), "param" | "store" | "selection")
+                && !self.is(&Token::Eq)
+            {
                 return Err(self.error(
                     "AVENGER-PARSE-013",
-                    "set target must be param, store, selection, or cursor",
+                    "set actions use `set <target> = ...` without a target-kind prefix",
                 ));
             }
-            let target = self.qual()?;
             props
                 .insert(n("target"), path_value(target))
                 .expect("new property");
@@ -1042,7 +1200,7 @@ impl Parser {
         }
         Ok(Decl {
             keyword,
-            kind: Some(kind),
+            kind: is_cursor.then(|| n("cursor")),
             props,
             ..Decl::new(n("set"))
         })
@@ -1194,6 +1352,26 @@ impl Parser {
         let result = self.finish_generic_call(checkpoint, function);
         self.nesting_depth -= 1;
         result
+    }
+
+    /// Parse one complete physical Arrow type without delegating to SQL.
+    ///
+    /// Atomic types end at the next identifier; constructor types are balanced
+    /// by `try_generic_call`, so both forms leave a following declaration name
+    /// untouched.
+    fn physical_type_value(&mut self) -> Result<Value, ParseError> {
+        if self.word().is_none() {
+            return Err(self.error("AVENGER-PARSE-032", "expected a physical Arrow type"));
+        }
+        if self.nth_is(1, &Token::LParen) {
+            return self.try_generic_call()?.ok_or_else(|| {
+                self.error(
+                    "AVENGER-PARSE-032",
+                    "invalid or unbalanced physical Arrow type constructor",
+                )
+            });
+        }
+        self.name().map(Value::Atom)
     }
 
     fn finish_generic_call(
@@ -1725,7 +1903,7 @@ chart cartesian as example {
     size: $radius@start * 2;
   }
   on pointermove as drag {
-    set param radius at start = $radius + 1;
+    set radius at start = $radius + 1;
   }
 }
 "#,
@@ -1741,7 +1919,7 @@ chart cartesian as example {
     #[test]
     fn parse_definition_and_data_roots() {
         let definition = parse(
-            "avenger 1; define mark badge { slot number as radius; channel x; mark symbol {} }",
+            "avenger 1; define mark badge { slot number radius; slot channel x; mark symbol {} }",
         );
         assert!(matches!(definition.ast.root, Root::Define(_)));
 
@@ -1781,12 +1959,134 @@ chart cartesian as example {
     #[test]
     fn parse_doc_comments_require_adjacency() {
         let parsed = parse(
-            "avenger 1; define mark docs { -- | attached\n slot number as first; -- | detached\n\n slot number as second; }",
+            "avenger 1; define mark docs { -- | attached\n slot number first; -- | detached\n\n slot number second; }",
         );
         let Root::Define(definition) = parsed.ast.root else {
             panic!()
         };
         assert_eq!(definition.children[0].doc.as_deref(), Some("attached"));
         assert_eq!(definition.children[1].doc, None);
+    }
+
+    #[test]
+    fn parse_unified_declaration_headers_normalize_to_semantic_ast() {
+        let parsed = parse(
+            r#"avenger 1;
+chart cartesian as chart {
+  param struct(field(float64, 'x')) as point { value: NULL; }
+  param store as rows { field float64 x nullable; }
+  param selection as picked {}
+  container group as layer {}
+  container overlay {}
+  variable row mpg {}
+  adjust expr { x: "x" + 1; }
+  equality { id { field: "id"; value: datum('id'); } }
+  on click { set point = NULL; set picked = clear; set cursor = 'crosshair'; }
+}"#,
+        );
+        let Root::Chart(chart) = parsed.ast.root else {
+            panic!("expected chart root")
+        };
+        let keywords = chart
+            .children
+            .iter()
+            .map(|child| child.keyword.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            keywords,
+            [
+                "param",
+                "store",
+                "selection",
+                "group",
+                "overlay",
+                "variable",
+                "adjust",
+                "equality",
+                "on"
+            ]
+        );
+        assert_eq!(chart.children[6].kind, None);
+        assert_eq!(chart.children[7].children[0].keyword.as_str(), "dimension");
+        assert_eq!(chart.children[8].children[0].kind, None);
+        assert_eq!(
+            chart.children[8].children[2]
+                .kind
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "cursor"
+        );
+
+        let definition = parse(
+            "avenger 1; define transform sample { slot channel x; slot expr amount; output amount; output CAST(amount AS float64) + 1 as next; }",
+        );
+        let Root::Define(definition) = definition.ast.root else {
+            panic!("expected definition root")
+        };
+        assert_eq!(
+            definition.children[0].kind.as_ref().unwrap().as_str(),
+            "channel"
+        );
+        assert_eq!(
+            definition.children[2].name.as_ref().unwrap().as_str(),
+            "amount"
+        );
+        assert_eq!(
+            definition.children[3].name.as_ref().unwrap().as_str(),
+            "next"
+        );
+    }
+
+    #[test]
+    fn parse_rejects_every_removed_declaration_form_with_a_focused_code() {
+        let cases = [
+            (
+                "param as value { type: float64; default: 1; }",
+                "AVENGER-PARSE-031",
+            ),
+            ("store as rows {}", "AVENGER-PARSE-026"),
+            ("selection as picked {}", "AVENGER-PARSE-027"),
+            ("group as layer {}", "AVENGER-PARSE-028"),
+            ("overlay {}", "AVENGER-PARSE-028"),
+            ("dimension as x {}", "AVENGER-PARSE-029"),
+            ("channel x;", "AVENGER-PARSE-030"),
+            ("adjust {}", "AVENGER-PARSE-036"),
+            ("slot expr as value;", "AVENGER-PARSE-037"),
+            ("variable row as mpg {}", "AVENGER-PARSE-035"),
+            ("field x: float64;", "AVENGER-PARSE-034"),
+            ("output total: values.total;", "AVENGER-PARSE-038"),
+            ("set param value = 1;", "AVENGER-PARSE-013"),
+        ];
+        for (declaration, code) in cases {
+            let source = SourceFile::new(
+                SourceId::new(9),
+                SourceOrigin::Memory("legacy.avenger".into()),
+                format!("avenger 1; chart cartesian {{ {declaration} }}"),
+            );
+            let error = parse_file(&source).expect_err(declaration);
+            assert_eq!(error.diagnostic().code.as_str(), code, "{declaration}");
+        }
+
+        let nested = SourceFile::new(
+            SourceId::new(10),
+            SourceOrigin::Memory("legacy-type.avenger".into()),
+            "avenger 1; chart cartesian { param struct(field('x', float64)) as value { value: NULL; } }",
+        );
+        let error = parse_file(&nested).unwrap_err();
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-032");
+    }
+
+    #[test]
+    fn scalar_params_require_value_and_reject_body_type_or_default() {
+        for body in ["{}", "{ type: float64; value: 1; }", "{ default: 1; }"] {
+            let source = SourceFile::new(
+                SourceId::new(11),
+                SourceOrigin::Memory("param.avenger".into()),
+                format!("avenger 1; chart cartesian {{ param float64 as value {body} }}"),
+            );
+            let error = parse_file(&source).unwrap_err();
+            assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-033");
+        }
     }
 }

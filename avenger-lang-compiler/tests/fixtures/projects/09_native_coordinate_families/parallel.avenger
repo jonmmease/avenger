@@ -1,8 +1,15 @@
 avenger 1;
 
 chart parallel as parallel {
-  dimension as horsepower {}
-  dimension as mileage {}
+  dimensions: {
+    horsepower: {
+      axis: {
+        title: 'Horsepower';
+        grid: true;
+      }
+    }
+    mileage: {}
+  }
   order: [horsepower, mileage];
   data: {
     values: [

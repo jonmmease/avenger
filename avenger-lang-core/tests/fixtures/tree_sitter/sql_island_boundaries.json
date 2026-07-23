@@ -22,13 +22,19 @@
       "name": "terminated_expression",
       "root": "expression",
       "outer_delimiters": [";"],
-      "sites": ["field_type", "output_value", "cursor_action_rhs", "state_action_rhs"]
+      "sites": ["cursor_action_rhs", "state_action_rhs"]
     },
     {
       "name": "array_expression",
       "root": "expression",
       "outer_delimiters": [",", "]"],
       "sites": ["array_value_payload", "array_element"]
+    },
+    {
+      "name": "aliased_expression",
+      "root": "expression",
+      "outer_delimiters": ["as", ";"],
+      "sites": ["output_source"]
     }
   ],
   "boundary_cases": [
@@ -113,6 +119,38 @@
       "accepted": false
     },
     {
+      "id": "aliased_qualified_column",
+      "context": "aliased_expression",
+      "source": "b.start as start",
+      "island": "b.start ",
+      "outer": "as",
+      "accepted": true
+    },
+    {
+      "id": "aliased_nested_cast",
+      "context": "aliased_expression",
+      "source": "CAST(value AS float64) + 1 as adjusted",
+      "island": "CAST(value AS float64) + 1 ",
+      "outer": "as",
+      "accepted": true
+    },
+    {
+      "id": "aliased_case_comment",
+      "context": "aliased_expression",
+      "source": "CASE WHEN x > 0 THEN x ELSE 0 END /* public */ as positive",
+      "island": "CASE WHEN x > 0 THEN x ELSE 0 END /* public */ ",
+      "outer": "as",
+      "accepted": true
+    },
+    {
+      "id": "identity_output_semicolon",
+      "context": "aliased_expression",
+      "source": "count;",
+      "island": "count",
+      "outer": ";",
+      "accepted": true
+    },
+    {
       "id": "array_nested_array_comma",
       "context": "array_expression",
       "source": "coalesce([1, 2], [3, 4]),next",
@@ -151,12 +189,12 @@
     {
       "id": "configured_and_terminated_forms",
       "accepted": true,
-      "source": "avenger 1; define mark sample { channel x; output result: $width + 1; mark symbol as points { x: coalesce(\"x\", 0) { scale: linear {} } filter: \"x\" > 0; } }"
+      "source": "avenger 1; define mark sample { slot channel x; output $width + 1 as result; mark symbol as points { x: coalesce(\"x\", 0) { scale: linear {} } filter: \"x\" > 0; } }"
     },
     {
       "id": "terminated_output_cannot_open_configuration",
       "accepted": false,
-      "source": "avenger 1; define mark sample { output result: $width + 1 { enabled: true; } }"
+      "source": "avenger 1; define mark sample { output $width + 1 as result { enabled: true; } }"
     },
     {
       "id": "mixed_structural_array",
@@ -171,12 +209,22 @@
     {
       "id": "all_terminated_action_sites",
       "accepted": true,
-      "source": "avenger 1; chart cartesian { on pointermove { set param width = event_coord(x); set store rows = $rows; set selection brush = clear; set cursor = 'crosshair'; } }"
+      "source": "avenger 1; chart cartesian { param float64 as width { value: 1.0; } param store as rows {} param selection as brush {} on pointermove { set width = event_coord(x); set rows = $rows; set brush = clear; set cursor = 'crosshair'; } }"
     },
     {
-      "id": "field_type_is_terminated",
+      "id": "field_type_is_balanced",
       "accepted": true,
-      "source": "avenger 1; define transform sample { field payload: struct(field('x', float64)); }"
+      "source": "avenger 1; define transform sample { field struct(field(float64, 'x')) payload; }"
+    },
+    {
+      "id": "nested_output_as_is_not_outer",
+      "accepted": true,
+      "source": "avenger 1; define transform sample { output CAST(value AS float64) as value_float; }"
+    },
+    {
+      "id": "legacy_output_colon_is_rejected",
+      "accepted": false,
+      "source": "avenger 1; define transform sample { output value_float: CAST(value AS float64); }"
     }
   ]
 }

@@ -2,130 +2,735 @@
   "schema_version": 1,
   "authority": {
     "workspace": "avenger",
-    "discovery_roots": ["avenger-lang-core", "avenger-lang-compiler", "avenger-lang-cli", "avenger-lang"],
+    "discovery_roots": [
+      "avenger-lang-core",
+      "avenger-lang-compiler",
+      "avenger-lang-cli",
+      "avenger-lang"
+    ],
     "purpose": "Reviewed structural source corpus synchronized into tree-sitter-avenger"
   },
   "snapshot_source_count": 120,
   "sources": [
-    {"path":"avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger","sha256":"a0d0eae182064b6e025d64337d6e9e3f3968f5dae5b1b89a3efe8b8b28139d01","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-cli/tests/fixtures/watch_project/catalog.data.avenger","sha256":"d898a27a3c49f9f975ab510ae8764dab2562a9f0a008f4317bdc8a7619eb2b46","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-cli/tests/fixtures/watch_project/chart.avenger","sha256":"80b7321da88d86f2a13ce5e63f9dfa460a747e6f2cdc0b167f7c543c995826ad","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-cli/tests/fixtures/watch_project/marks/badge.mark.avenger","sha256":"fcccb517c0d99fdf1f58bd704e598153fc44e1d7677c56550b782c2d34aee237","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/stdlib/marks/error_bar.mark.avenger","sha256":"ae991e90d2fb541a6589b4cc40e22d3dbd0862670437bb21a4822642f72b00e6","classification":"stdlib_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/baselines/expansion/04_custom_error_bar.avenger","sha256":"fc7d9668b2b8665f0e5eb7194c5be6d9c6384907a533f968e8ff1ee26a0b5a77","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/baselines/expansion/05_custom_tool.avenger","sha256":"d6e4ed076b6ffcba428fe6f73858a41cb8390bce97a2cf21b31e8780c697c32f","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/baselines/expansion/05_custom_transform_pipeline.avenger","sha256":"e866591f330d19885aac706c05cd512b0f8c585487e0719d1770d1d7a3b4643c","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/00_hello_scatter/chart.avenger","sha256":"ea32830701de3de40adad3e1cf5da187df671ea2590333860a95fbf1a175c967","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline/chart.avenger","sha256":"5087cd3d1d8e1963b6b11cac075a6d3667425080558e01c1ddb158d2d30fcf94","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush/chart.avenger","sha256":"ded7bddcddbe3ec7a7ded340b16f48172b500b5bb64288b7efc9fbc2b0c1ac9a","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/03_widget_vertical_slice/chart.avenger","sha256":"05fb82241153bd76f0e6deceef96bb1f9c06ae1eb9671930fa2a48f59edde32d","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_compound.avenger","sha256":"15db4e8936558acfc438996c4220dbd2b741db03ebb2521d1a7aa823586017f8","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_coordinate.avenger","sha256":"3065b3fbfd7ed9b861ca14a27e10463bf9c6676869da2e448cb3cd1076ee602e","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_primitive.avenger","sha256":"d52e1107f0e17e5969822d6b9a4420c735447d457074bb3d6f68d10f7b7c89b2","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/mixed_coordinates.avenger","sha256":"76a4d3614f01de496ecebe7221a16138c802198ff0945c0303fb5d6bfcbee65f","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_custom_error_bar/chart.avenger","sha256":"c72843ce1da54d6a496de7069cb870f3b0c0ece61c7ada313f33546ffbb15f29","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/04_custom_error_bar/error_bar.mark.avenger","sha256":"280e67569d44710042bb70af1d59e0799a925c94f5f7b43cb5ab005548170d6a","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_custom_tool/chart.avenger","sha256":"6d93ce16b7dc920ceb3b7fddcc7c653646a502692077deb02c2b51a689acca9c","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_custom_tool/inspect_points.tool.avenger","sha256":"ef36b0be5883cf9f6689b67377b78d4733705e2364e0b84d7987ec050116e5e0","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_custom_transform_pipeline/chart.avenger","sha256":"bced0667d33220d0840b028db978deb957b4476106e28e8e03a3caf7aac75d6e","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_custom_transform_pipeline/summarize.transform.avenger","sha256":"8b7556b8c3d7e1d259fc3dbc2d65e7528ae55be28919796db767d7be8d8a69a9","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_lowering_error/broken.transform.avenger","sha256":"5f6b6d2c8d938819caea0c75b2cb3e1e8e2343a7c6d3239f099aa01d7fd09b28","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_lowering_error/chart.avenger","sha256":"668db31ad8c5699b36e09dfc43c85ff8687b050f8b06f3f33fafb5a7d7b96e79","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/chart.avenger","sha256":"1a1da93089b5cc84f8793acd575f27b71cb62cfcaec59bf4bce981a50e9c7f7f","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/cursor_tool.tool.avenger","sha256":"c87c70bebb80de360610b5ffdf2388027f9a3ce5296ff191e4e4bc750e4cfdf5","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/dot.mark.avenger","sha256":"c4ecf9b6b1454109fc6f6d24ece7cc9f59915f7a9720a4561c86f91b8591bbe9","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/pass.transform.avenger","sha256":"5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/catalog.data.avenger","sha256":"c83f2e2944a2c0c76a310229dc8da7940153c9c4aab2ef4a075b6dc4f1152756","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/movies.avenger","sha256":"05cb3a2dd64c58ba81d39283ea53132b274f0b01d44fcf82ad0da31fc1583723","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/regions.avenger","sha256":"493f2a34e45e1ef9e5f4121dd40bf0d03ac9b09d86913904f7ceffe8269f9a46","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/07_inline_view_raster/chart.avenger","sha256":"913e555fb5ab33e487c841003ed03e09f1dec9ccfca6b604b72dd1996aad4c83","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/cartesian.avenger","sha256":"7726ae656808e2ee293ff28e34f7669684257a23d569a31c8629de2e1c024d57","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/geo.avenger","sha256":"3b5e5008d81a2b9a2aa3b13bf0d8e13b4dbef3adb326cad8a05cdb629bcc51a3","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/pass.transform.avenger","sha256":"5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/polar.avenger","sha256":"27a081f8354f6e0a6a1c2c2f8248fa4790c9598cdf65362bd14fb49fd8e015ba","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/shared.data.avenger","sha256":"a8c9fc575f8c03ff2ebab4d6c3d1c6020a789c4bd00e77ce315c684e26bbe41d","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/concat.avenger","sha256":"9ad5665c7631ed2f127354607e78f688c131875b235f5ad420ee1ac41c84dfec","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/facet.avenger","sha256":"8fe45133ef946b259453cacf29e5fdb5cb8e5d1477c5f4ebb63509534d163923","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/geo.avenger","sha256":"1a6f537b36d88c27e44933647d54068cd8a1851e545439e2efd4034e069f60e5","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/parallel.avenger","sha256":"59e43c9ccbc1d28b6aceac7e407fe2edf774ee3a00d49f345bd05ed8b59b2b04","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/polar.avenger","sha256":"dd2179dc43469e9ebdc5d89d53485752303d647331a65c79e6d82ebe68afebfb","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/repeat.avenger","sha256":"1a34fd61c2198772681b24cd777109c9efe01ecf73b11eb7b19c6403bf7dc8c4","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/subplot.avenger","sha256":"d64d935469428537bbb56631781a091b433a03de72242b57ca0669e75e6ef0e4","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/treemap.avenger","sha256":"d34dc2bbd0fd342b9f17881719c2ae457e710b4a86b17637f39a1d1daf058564","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/mark_effects.avenger","sha256":"23891546d3f69076b7d4730f987bf0957d9c2c986c48a38d841b0e8243dcec36","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/public_routing.avenger","sha256":"41d3562a172833508ffb6af2f02b88331517b517b783f3cc373fbfc104cc8ed5","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/store_backed.avenger","sha256":"2c71c694a55ed2241460e3b5945b1467aa901a5781e82af98237b2ef8ba19a06","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/theme_parts.avenger","sha256":"d271b4c136bda6a898e24c43fda363c9b0811b110f9aafc18d6b83f1e49fabfe","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/button.avenger","sha256":"5a1c98ded995861ef0adc982cb6fe4017d7fcb55c163992cf2dc33d7e957427b","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/checkbox.avenger","sha256":"aabc3eca9a238a5b43920fb3e0a6ad40f36e581277b7a175b8ec2c98ba566bc6","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/checkbox_list.avenger","sha256":"b732231fb9787869eb3dc5e701017525ec13a7367447106c7d788124b7c52a8b","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/radio_button_list.avenger","sha256":"6192345fcb0248ff6daa1e020ca833887aaa9c41fad09f780e7d28074873fdfa","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/slider.avenger","sha256":"97aeef84e94f547efd43547d7b1f417e885ef0ba21ff9a1477c1eb271de41970","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/text_input.avenger","sha256":"220d4129efa02374860a416f5bf34ea647af2bd633e003c2ecb98b203a500fdd","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-files/catalog.data.avenger","sha256":"47ebe90d3ea061b072a4b02a5f269acec61c313b506b7c83c6391c2eade3b6ba","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-files/chart.avenger","sha256":"c7d4d47aa0d34b4b1bbc755265032501bd5f138f14e5d9e47f5b1f6f9fbda028","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-pack/chart.avenger","sha256":"8ffe5acc18f24c46f64699aca1e0b0fcd9dfde00707e0b5e1f6d548b6d949290","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-pack/vega.data.avenger","sha256":"dee6bf061f4c71cabb6dd35e625d3d04557d69d91a9ce77a243a7cd49a543256","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-parameterized/catalog.data.avenger","sha256":"105350894a6f66f3437d2c14d7998d35b1b49b3363200cfe4b8d197f9e4ccd70","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-parameterized/chart.avenger","sha256":"8d5fe32ff743f5e582a8412488a56ab2b76a88927ee49edff94afd44c0ddbf5b","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-providers/catalog.data.avenger","sha256":"2824ba6cd55bb4ce7e4ca09b7ea7b1153032c8afddd7888f3abff95bc6443241","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-providers/chart.avenger","sha256":"2727615ad86ff654ff076ae5986a1925902961cece46426fe20de05aaddf929f","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-schema-chain/catalog.data.avenger","sha256":"e6b5767c223be8813c663b0f3baf88d2d30b560caa428b54df28296d56a8dd04","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/phase9-schema-chain/chart.avenger","sha256":"f862bff1d0cceb07191367d1c2cb1c0897a3b88b8a9b7cb46a270dfe3a8aa64b","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/relative-import/catalog.data.avenger","sha256":"f56b3f5babc34570f59603ad03b52d5516bb03adf68fdcb07ab0e41d6820cab5","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/relative-import/charts/chart.avenger","sha256":"d6dbc3d26d346c7adddf38ad5d518e48b95495e3754e0c4dc46beaa7adf56244","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/relative-import/marks/badge.mark.avenger","sha256":"77a35ec1db8460f7fe3b0e2c433c418734b6cd558a1a05f2c15b64e100033961","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-compiler/tests/fixtures/projects/stdlib/chart.avenger","sha256":"8786f5a9a1fc487f7778b1d7706cbd12b768ee8490777b55209b3e1e5e4d6b7c","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/baselines/parse/catalog.data.printed.avenger","sha256":"be99ab526c4eb07274180d09f88c38942e890de2e770393c653733f76a05fd6d","classification":"canonical_valid","root":"data"},
-    {"path":"avenger-lang-core/tests/baselines/parse/chart.printed.avenger","sha256":"b49e65c2d7de9a1ac7b8aa532b3e53033de1d3930ef6829a9847f318b16ea650","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/baselines/parse/dedicated-shapes.printed.avenger","sha256":"e746dec9f9fad915fb680e53050c91a2c0d1eb0602fbc10c6ea506ff0e4d50fb","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/baselines/parse/define-mark.printed.avenger","sha256":"d4c681b0313c2faaae5fe1e1ec2355ba74d2d6dcd74b746d5ffcbb1226e1d79b","classification":"canonical_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/baselines/parse/define-tool.printed.avenger","sha256":"f118da15aa57fd6a92d236073c8f3bc7bbc867f76a4188399a6eedb3756d3351","classification":"canonical_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/baselines/parse/define-transform.printed.avenger","sha256":"e3eb9c6af6415c2c63dcf397487659aabee09e8323d48b9d4bab1703d9ba60e5","classification":"canonical_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/baselines/parse/headed-blocks.printed.avenger","sha256":"ae535fa86f18d1a0c2b386ab90663fbb293ad5eccd5401550e3e31012d28bc93","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/baselines/parse/query-entry.printed.avenger","sha256":"ebd493d37318af6ed2272e14f844224b0377380b70ae0ce50d7706bd61fd4b99","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/baselines/parse/selection-payloads.printed.avenger","sha256":"04812b5bb33ab43bb1a50a3b4c5dec3ba25d3d70b72fffb68b9a1b8dc3beb95a","classification":"canonical_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/catalog.data.avenger","sha256":"1530124ecf2ff8207c48caaa342a56297d521eb9502800dbf80ca00f95705b6b","classification":"strict_valid","root":"data"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/chart.avenger","sha256":"889da6dcd9a2acf2e68da399d33487941c40344dd556cda396afad49f81a4a55","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/dedicated-shapes.avenger","sha256":"effcef3956f74468a4dbec71e57fea8553f21ca83d05ca82a2855a936a7ef1a7","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/define-mark.avenger","sha256":"f68ab1daf452fcefc3e99ccfc8f3c91c5e50c86cea27ba4872c473785bc64b2e","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/define-tool.avenger","sha256":"ca79942190c5ff14c9873fb88dca10e97807a7ee5a7cc86ce5089d163d282e24","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/define-transform.avenger","sha256":"901ae137cd09f8d6f1b9f654a9961d7aecee9b936446c7336284fc463539cc3b","classification":"strict_valid","root":"definition"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/headed-blocks.avenger","sha256":"76d116336246eede44de11c6d57d4801e0ec5953e81310f444f878fb8fbe2b95","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/define-widget.avenger","sha256":"0a5673b0124c731da8d83d528aac431c5c395f7dcece053bf156bbada51fe288","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/id-declaration.avenger","sha256":"6cf0aa9d4f18cba458a7b4c5f38abbc0836669b135b9674c499b5eac6f1c7218","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/illegal-visibility.avenger","sha256":"2e3a193b7512069bf9de68c723214e9d12c809098f1fe15ebd2c6b093d584814","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/invalid-slot-shape.avenger","sha256":"c676cc7c6c664acea13f693ed4f7a67467c8fb693d39fc9424b3dd4b21fd1ec2","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/late-interface.avenger","sha256":"3bdf97e0756bdc0074d1acd2844b6c67e37cf12f2e9a82d67e400fd72b65c254","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/malformed-action.avenger","sha256":"326b073de44ce9a8c944b04e29888be6220766bb0614d584991f3939eda9cf02","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/missing-delimiter.avenger","sha256":"4dd2896091903684552cddf587a3e4904421185c5e0c1e91c637cddca4c3d12c","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/multiple-roots.avenger","sha256":"2a90d23758c39a6cc2f0322d330ed59e6f894a1890139b256cb65fbd1561eaae","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/multiple-statements.avenger","sha256":"d6817d9c07704724307a386fe648087905e370523027831880a56a9a5c0e4aab","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/invalid/wrong-root.avenger","sha256":"6588c2555e73268ea66045573f3eea8da0a1d11df1c26e45d140311f2805240f","classification":"strict_invalid","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/parse/query-entry.avenger","sha256":"176b08cc1a04f6a93d6ced1c6a05d3a970bff21623bac28ef7081f64195e66cd","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/parse/selection-payloads.avenger","sha256":"e611c01adfc29bf10295f37f71079c5800fd66ecc292b082a4eb670b76b54077","classification":"strict_valid","root":"chart"},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/bindings.avenger","sha256":"7d8b3b9c15f2d6d35d8c6bc49e7d407ad7a6621eb872b59232851139bb18df16","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/comments.avenger","sha256":"00a14e70d818774c04410a779d460e0555fdca637d15a54f8752d82dce9faec5","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/cursor_styles.avenger","sha256":"402af836e3822190997ad586546b73443ac807c81e4f9efdf606305601566c05","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/datafusion_expressions.avenger","sha256":"830554590c9f61d56d5f3aa173bd3b36a2f2fee4903043e26df4da7d80d69b00","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/bare_binding.avenger","sha256":"4c6afee9df8587377332e57628a67e6c138f3c271d20b08d2d1423e59a0c06df","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/missing_path_segment.avenger","sha256":"4029afb613b29e89333daec1bfef362736aaa6990a3bdff4206ca9083a353bf1","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/numeric_path.avenger","sha256":"eb85768a139e9b7bd1d61c8f8d20d18c4a84aee033a8fabacc7d56e7e8f5d04f","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/positional_dollar.avenger","sha256":"0b6238873e59f84dc66a87ed39237b2d5d63846e5e4ef9d6ee195b7759e079cd","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/positional_question.avenger","sha256":"4b8acd66a693c27374a765bd94ac6e38324bc719808a93d2ab1bb7b1cb0ce793","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/quoted_path.avenger","sha256":"f1ca5d1eed9c7678ccae3efca0097cc03261f4225fd3f3dca32f5800afaf4118","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/unknown_temporal.avenger","sha256":"20af03f6ddede650a5eab10ee0ccb73b349861dcc7d06423414d31006cce0d7c","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/unterminated_comment.avenger","sha256":"e3cb4f6a0aec5ebc9669d3cf4c3347f4a99c256a6daaeb99d1e4cdd0735887fe","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/unterminated_string.avenger","sha256":"99639a7ab6f3f0391a0fe514b43be83b3d78a4ed3be7ec9550c5094cc82692f6","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/invalid/whitespace_temporal.avenger","sha256":"d3c4dec743a3874ec2ffc38a32b75166f666f335807796e27e08a2eea0e1560d","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/kernel_islands.avenger","sha256":"03c541fd92f6c17a45c75cba6f72c9bb92aedbf148b8a265e76dcf2be4f3e03c","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/sql_constructs.avenger","sha256":"e92ad9af9fa310be3db599dee30b62c29642c1bd5a53f2a6a90e548c20fb2146","classification":"token_fragment","root":null},
-    {"path":"avenger-lang-core/tests/fixtures/tokens/token_classes.avenger","sha256":"508a960a1e027baffe53ad0ee83f56b83ce8275fd118aeee73cb914c8b660a20","classification":"token_fragment","root":null},
-    {"path":"avenger-lang/examples/projects/hello_scatter/chart.avenger","sha256":"ea32830701de3de40adad3e1cf5da187df671ea2590333860a95fbf1a175c967","classification":"example_valid","root":"chart"},
-    {"path":"avenger-lang/examples/projects/multi_chart/cartesian.avenger","sha256":"aa54bcd3cd493620d343cc6489ac791df9794505b9bd222ddbdaa25dd62b8fa5","classification":"example_valid","root":"chart"},
-    {"path":"avenger-lang/examples/projects/multi_chart/geo.avenger","sha256":"19117acbaa2e205c0b6033fe9bb35c671dbd72dcb549b40d4901075cde895105","classification":"example_valid","root":"chart"},
-    {"path":"avenger-lang/examples/projects/multi_chart/pass.transform.avenger","sha256":"5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618","classification":"example_valid","root":"definition"},
-    {"path":"avenger-lang/examples/projects/multi_chart/polar.avenger","sha256":"e4d368b2d65737e0cf9082cc5b5dfa14630aed93498007a07e972ee863ee9926","classification":"example_valid","root":"chart"},
-    {"path":"avenger-lang/examples/projects/multi_chart/shared.data.avenger","sha256":"a8c9fc575f8c03ff2ebab4d6c3d1c6020a789c4bd00e77ce315c684e26bbe41d","classification":"example_valid","root":"data"}
+    {
+      "path": "avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger",
+      "sha256": "b129aeff6254f67bc91e1f2fc82c7490ea552c9dfca011bcac33a9fac8497cb2",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-cli/tests/fixtures/watch_project/catalog.data.avenger",
+      "sha256": "d898a27a3c49f9f975ab510ae8764dab2562a9f0a008f4317bdc8a7619eb2b46",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-cli/tests/fixtures/watch_project/chart.avenger",
+      "sha256": "d722ea752e893df6d83b13b3dfd92d6d13c54f04bb8e5668254b8a3eeab8a86e",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-cli/tests/fixtures/watch_project/marks/badge.mark.avenger",
+      "sha256": "fcccb517c0d99fdf1f58bd704e598153fc44e1d7677c56550b782c2d34aee237",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/stdlib/marks/error_bar.mark.avenger",
+      "sha256": "fa861c536c5f15ef62be775b3630884d4f5805ea6f3b29799737f7d0531b68e8",
+      "classification": "stdlib_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/baselines/expansion/04_custom_error_bar.avenger",
+      "sha256": "605cd013825324ef71fa06aa784abad987604c1df8567b6cfe0642a20aa41402",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_tool.avenger",
+      "sha256": "d86b3e1a780924d92f93dc2a52e82094cd072b5a9041d958f74473afb840e2cd",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_transform_pipeline.avenger",
+      "sha256": "e866591f330d19885aac706c05cd512b0f8c585487e0719d1770d1d7a3b4643c",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/00_hello_scatter/chart.avenger",
+      "sha256": "acf6a6387e3ec06c7675602ed96251a1aad2062b1cb1507270dfd6bffd9f6050",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline/chart.avenger",
+      "sha256": "02641840560862928430ac1c4d1f37dd7c8c4d457a0a2be2124fbeae2af9f61f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush/chart.avenger",
+      "sha256": "d60a39e709ff5a87fe5618f1f5e37b7161fdd6526cd83562e4889c6274d37961",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/03_widget_vertical_slice/chart.avenger",
+      "sha256": "b0954f7c8b7a81d9ce951dfa1d96ac6726351a9ac190e837040ea5598cd4fa7d",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_compound.avenger",
+      "sha256": "15db4e8936558acfc438996c4220dbd2b741db03ebb2521d1a7aa823586017f8",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_coordinate.avenger",
+      "sha256": "3065b3fbfd7ed9b861ca14a27e10463bf9c6676869da2e448cb3cd1076ee602e",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/external_primitive.avenger",
+      "sha256": "d52e1107f0e17e5969822d6b9a4420c735447d457074bb3d6f68d10f7b7c89b2",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_composed_extension/mixed_coordinates.avenger",
+      "sha256": "76a4d3614f01de496ecebe7221a16138c802198ff0945c0303fb5d6bfcbee65f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_custom_error_bar/chart.avenger",
+      "sha256": "c72843ce1da54d6a496de7069cb870f3b0c0ece61c7ada313f33546ffbb15f29",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/04_custom_error_bar/error_bar.mark.avenger",
+      "sha256": "bf05d011079ca3b825b75a2b15c0dc42f3225050e0d9ed25f51880366fc7ae61",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_tool/chart.avenger",
+      "sha256": "6d93ce16b7dc920ceb3b7fddcc7c653646a502692077deb02c2b51a689acca9c",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_tool/inspect_points.tool.avenger",
+      "sha256": "41bd19235600b1eb8a50649152851bcbde2ddf64ea4d2a20b7be3de777b34ac7",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_transform_pipeline/chart.avenger",
+      "sha256": "bced0667d33220d0840b028db978deb957b4476106e28e8e03a3caf7aac75d6e",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_transform_pipeline/summarize.transform.avenger",
+      "sha256": "33b89812c14b1976bd6e74186a160fc2e210ab206dd3355dde6892f508a39cc2",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_lowering_error/broken.transform.avenger",
+      "sha256": "5f6b6d2c8d938819caea0c75b2cb3e1e8e2343a7c6d3239f099aa01d7fd09b28",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_lowering_error/chart.avenger",
+      "sha256": "668db31ad8c5699b36e09dfc43c85ff8687b050f8b06f3f33fafb5a7d7b96e79",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/chart.avenger",
+      "sha256": "1a1da93089b5cc84f8793acd575f27b71cb62cfcaec59bf4bce981a50e9c7f7f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/cursor_tool.tool.avenger",
+      "sha256": "86644f1bdb179a4caea412fb27ee650b79c77e66695892577ca3d7b4f4445fbf",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/dot.mark.avenger",
+      "sha256": "c4ecf9b6b1454109fc6f6d24ece7cc9f59915f7a9720a4561c86f91b8591bbe9",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/05_definition_widget_adjacency/pass.transform.avenger",
+      "sha256": "5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/catalog.data.avenger",
+      "sha256": "c83f2e2944a2c0c76a310229dc8da7940153c9c4aab2ef4a075b6dc4f1152756",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/movies.avenger",
+      "sha256": "05cb3a2dd64c58ba81d39283ea53132b274f0b01d44fcf82ad0da31fc1583723",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/regions.avenger",
+      "sha256": "493f2a34e45e1ef9e5f4121dd40bf0d03ac9b09d86913904f7ceffe8269f9a46",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/07_inline_view_raster/chart.avenger",
+      "sha256": "913e555fb5ab33e487c841003ed03e09f1dec9ccfca6b604b72dd1996aad4c83",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/cartesian.avenger",
+      "sha256": "43539e9b51b49e9b92d4a8102270610a19bb54c533279f0af48114f4376549df",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/geo.avenger",
+      "sha256": "62342eeb092595f679033031e86e1ce2606fdbda02e8c5992b0fea079f245e2f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/pass.transform.avenger",
+      "sha256": "5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/polar.avenger",
+      "sha256": "5de04ffb2343761a356764793853d6244078263a3041d15011b18262b05838af",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/shared.data.avenger",
+      "sha256": "a8c9fc575f8c03ff2ebab4d6c3d1c6020a789c4bd00e77ce315c684e26bbe41d",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/concat.avenger",
+      "sha256": "9ad5665c7631ed2f127354607e78f688c131875b235f5ad420ee1ac41c84dfec",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/facet.avenger",
+      "sha256": "8fe45133ef946b259453cacf29e5fdb5cb8e5d1477c5f4ebb63509534d163923",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/geo.avenger",
+      "sha256": "1a6f537b36d88c27e44933647d54068cd8a1851e545439e2efd4034e069f60e5",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/parallel.avenger",
+      "sha256": "12de5dc275eeeed4d24a9f354e271424e82ea77b14833d60234a197f0f34b4b0",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/polar.avenger",
+      "sha256": "dd2179dc43469e9ebdc5d89d53485752303d647331a65c79e6d82ebe68afebfb",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/repeat.avenger",
+      "sha256": "767c6cf6ea919b6c05d7ca85b7c18098d5eea903219949c68315ca330d22e645",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/subplot.avenger",
+      "sha256": "d64d935469428537bbb56631781a091b433a03de72242b57ca0669e75e6ef0e4",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/09_native_coordinate_families/treemap.avenger",
+      "sha256": "d34dc2bbd0fd342b9f17881719c2ae457e710b4a86b17637f39a1d1daf058564",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/mark_effects.avenger",
+      "sha256": "4d47fc0300970c931b3618cd5072e6bdd149b7136b034b5c9fc9ac337e000233",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/public_routing.avenger",
+      "sha256": "ab5be652745ac977f5e0630d79decf7751d90c04a23b35cad07b2d81034d1f94",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/store_backed.avenger",
+      "sha256": "3591a2b48431a5419a70a736158c3e9ea22531ef3976de1b35086dd04ae9cc1f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/theme_parts.avenger",
+      "sha256": "8064d1b7555b76757fb2bbecf81e0601a0f092b8c8b7e8a61c47cc3fb5961738",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/button.avenger",
+      "sha256": "b1c69f3d481187bb9af26ee258875a6c3f654437f0c4544ec7c40da64d2e5ee5",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/checkbox.avenger",
+      "sha256": "673d70e41615d30f97619d7cfe41d3330c411cfc6b62fdf3928c79feb17d5240",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/checkbox_list.avenger",
+      "sha256": "17d2a29c9a6c225dc2148894f672351b7ea0cde475091b5ae6a744a14bb2adea",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/radio_button_list.avenger",
+      "sha256": "0b125f86dee8b338b297be1268ed3cb587f8867785bacf3898d0a2df94d158f2",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/slider.avenger",
+      "sha256": "f76de615b8912b37f4b81b01938c64436fce717fc78b50b77676481df29e8bce",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/text_input.avenger",
+      "sha256": "6239fb5ab0c0db9c4378f2a139d72ec1572014476faa920406bc6d59ddb25d60",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-files/catalog.data.avenger",
+      "sha256": "47ebe90d3ea061b072a4b02a5f269acec61c313b506b7c83c6391c2eade3b6ba",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-files/chart.avenger",
+      "sha256": "c7d4d47aa0d34b4b1bbc755265032501bd5f138f14e5d9e47f5b1f6f9fbda028",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-pack/chart.avenger",
+      "sha256": "8ffe5acc18f24c46f64699aca1e0b0fcd9dfde00707e0b5e1f6d548b6d949290",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-pack/vega.data.avenger",
+      "sha256": "dee6bf061f4c71cabb6dd35e625d3d04557d69d91a9ce77a243a7cd49a543256",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-parameterized/catalog.data.avenger",
+      "sha256": "c9466c8ec2b2432bc56e5878026e6d75958cec55411540cfbbcc7e7e1c14d7a8",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-parameterized/chart.avenger",
+      "sha256": "b488c673fc2aa8449a9da43b9574bca540f39a02e1dc8fba374d1688e39a0b1e",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-providers/catalog.data.avenger",
+      "sha256": "2824ba6cd55bb4ce7e4ca09b7ea7b1153032c8afddd7888f3abff95bc6443241",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-providers/chart.avenger",
+      "sha256": "2727615ad86ff654ff076ae5986a1925902961cece46426fe20de05aaddf929f",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-schema-chain/catalog.data.avenger",
+      "sha256": "e6b5767c223be8813c663b0f3baf88d2d30b560caa428b54df28296d56a8dd04",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-schema-chain/chart.avenger",
+      "sha256": "f862bff1d0cceb07191367d1c2cb1c0897a3b88b8a9b7cb46a270dfe3a8aa64b",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/relative-import/catalog.data.avenger",
+      "sha256": "f56b3f5babc34570f59603ad03b52d5516bb03adf68fdcb07ab0e41d6820cab5",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/relative-import/charts/chart.avenger",
+      "sha256": "d6dbc3d26d346c7adddf38ad5d518e48b95495e3754e0c4dc46beaa7adf56244",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/relative-import/marks/badge.mark.avenger",
+      "sha256": "77a35ec1db8460f7fe3b0e2c433c418734b6cd558a1a05f2c15b64e100033961",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/stdlib/chart.avenger",
+      "sha256": "8786f5a9a1fc487f7778b1d7706cbd12b768ee8490777b55209b3e1e5e4d6b7c",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/catalog.data.printed.avenger",
+      "sha256": "350fcee08e642ae90afe14065679d0d0ecc7b2f919b72679a3c982096f6c4162",
+      "classification": "canonical_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/chart.printed.avenger",
+      "sha256": "7252a2a95f0caf9f4e00e5a5a8f775a9ed8306e576948c5e97c811e8f83ea2ec",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/dedicated-shapes.printed.avenger",
+      "sha256": "0d474669e0f1cf4e2d62c4c2179766d680ed3259618034f83ad411818bed2831",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/define-mark.printed.avenger",
+      "sha256": "225048c8bca63c679ed186d6a7570caf01e33d51f8ce6c06bdd9e1dafea9c91d",
+      "classification": "canonical_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/define-tool.printed.avenger",
+      "sha256": "71bc17cefc599187699f9ce8285f6dce4b4835044efe3b79796737f0052d77b7",
+      "classification": "canonical_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/define-transform.printed.avenger",
+      "sha256": "15d38fa33a77be0214f3db206d96c226ba7c1ced79382e4347edf845fd4abd6f",
+      "classification": "canonical_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/headed-blocks.printed.avenger",
+      "sha256": "ae535fa86f18d1a0c2b386ab90663fbb293ad5eccd5401550e3e31012d28bc93",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/query-entry.printed.avenger",
+      "sha256": "c95df958a2cd1a8e46661552d713527d2720c7ec9d10e8874dfbebceb9a217c6",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/baselines/parse/selection-payloads.printed.avenger",
+      "sha256": "dc35adc0c020aa2fa307b6b23bb10d87a5dbb960696baeafe9d1eb03c9975862",
+      "classification": "canonical_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/catalog.data.avenger",
+      "sha256": "e007d9d104141b72a2cd3583797d401ea60daac50525453f2c8ecb5f3580b095",
+      "classification": "strict_valid",
+      "root": "data"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/chart.avenger",
+      "sha256": "aa6aec0d472ade0d465b535de136aca458b9d41e453fd296a1624f5a4a55b873",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/dedicated-shapes.avenger",
+      "sha256": "c33f6694ab9de41e6b62980a4bb8d252f43fff8f91050174a46f39277e13b0c4",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/define-mark.avenger",
+      "sha256": "653fdf03533d3fc659503a6a199718a0bff3e5438b141c45601c1fecef584fad",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/define-tool.avenger",
+      "sha256": "b3bdcc6a2b5778726d3a0347381018b244f3a65c7ae4f9e8cf91661356b8053d",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/define-transform.avenger",
+      "sha256": "dacdb59a253f779ce982e62c3042c8e1e7e7867891c3ccdb631c64fcfe4887c5",
+      "classification": "strict_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/headed-blocks.avenger",
+      "sha256": "76d116336246eede44de11c6d57d4801e0ec5953e81310f444f878fb8fbe2b95",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/define-widget.avenger",
+      "sha256": "0a5673b0124c731da8d83d528aac431c5c395f7dcece053bf156bbada51fe288",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/id-declaration.avenger",
+      "sha256": "6cf0aa9d4f18cba458a7b4c5f38abbc0836669b135b9674c499b5eac6f1c7218",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/illegal-visibility.avenger",
+      "sha256": "2e3a193b7512069bf9de68c723214e9d12c809098f1fe15ebd2c6b093d584814",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/invalid-slot-shape.avenger",
+      "sha256": "99ed6d44a50fd2f01f7f76eb6c230bff636f0e1c4d26a4ddacd94afd3f13cac2",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/late-interface.avenger",
+      "sha256": "fa1d49251ac9a4e7f72600aa9551e02880dbe189c1d6932e2862772fa9bf8eb9",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/malformed-action.avenger",
+      "sha256": "326b073de44ce9a8c944b04e29888be6220766bb0614d584991f3939eda9cf02",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/missing-delimiter.avenger",
+      "sha256": "4dd2896091903684552cddf587a3e4904421185c5e0c1e91c637cddca4c3d12c",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/multiple-roots.avenger",
+      "sha256": "2a90d23758c39a6cc2f0322d330ed59e6f894a1890139b256cb65fbd1561eaae",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/multiple-statements.avenger",
+      "sha256": "d6817d9c07704724307a386fe648087905e370523027831880a56a9a5c0e4aab",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/invalid/wrong-root.avenger",
+      "sha256": "d94b27cf9f2e63ca5d2824b1839f31c8e5b38e4664fbf10b10eca669ea1c9c2e",
+      "classification": "strict_invalid",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/query-entry.avenger",
+      "sha256": "b4fdbd3c726c2e215af65732f402246409b6a8223c4756a7fd345aaf959774bc",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/parse/selection-payloads.avenger",
+      "sha256": "3443a8909f2845ade2bb4e559a04fdf0ba88c21238ef87d023dc844dd26245a7",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/bindings.avenger",
+      "sha256": "7d8b3b9c15f2d6d35d8c6bc49e7d407ad7a6621eb872b59232851139bb18df16",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/comments.avenger",
+      "sha256": "00a14e70d818774c04410a779d460e0555fdca637d15a54f8752d82dce9faec5",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/cursor_styles.avenger",
+      "sha256": "402af836e3822190997ad586546b73443ac807c81e4f9efdf606305601566c05",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/datafusion_expressions.avenger",
+      "sha256": "830554590c9f61d56d5f3aa173bd3b36a2f2fee4903043e26df4da7d80d69b00",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/bare_binding.avenger",
+      "sha256": "4c6afee9df8587377332e57628a67e6c138f3c271d20b08d2d1423e59a0c06df",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/missing_path_segment.avenger",
+      "sha256": "4029afb613b29e89333daec1bfef362736aaa6990a3bdff4206ca9083a353bf1",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/numeric_path.avenger",
+      "sha256": "eb85768a139e9b7bd1d61c8f8d20d18c4a84aee033a8fabacc7d56e7e8f5d04f",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/positional_dollar.avenger",
+      "sha256": "0b6238873e59f84dc66a87ed39237b2d5d63846e5e4ef9d6ee195b7759e079cd",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/positional_question.avenger",
+      "sha256": "4b8acd66a693c27374a765bd94ac6e38324bc719808a93d2ab1bb7b1cb0ce793",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/quoted_path.avenger",
+      "sha256": "f1ca5d1eed9c7678ccae3efca0097cc03261f4225fd3f3dca32f5800afaf4118",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/unknown_temporal.avenger",
+      "sha256": "20af03f6ddede650a5eab10ee0ccb73b349861dcc7d06423414d31006cce0d7c",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/unterminated_comment.avenger",
+      "sha256": "e3cb4f6a0aec5ebc9669d3cf4c3347f4a99c256a6daaeb99d1e4cdd0735887fe",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/unterminated_string.avenger",
+      "sha256": "99639a7ab6f3f0391a0fe514b43be83b3d78a4ed3be7ec9550c5094cc82692f6",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/invalid/whitespace_temporal.avenger",
+      "sha256": "d3c4dec743a3874ec2ffc38a32b75166f666f335807796e27e08a2eea0e1560d",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/kernel_islands.avenger",
+      "sha256": "03c541fd92f6c17a45c75cba6f72c9bb92aedbf148b8a265e76dcf2be4f3e03c",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/sql_constructs.avenger",
+      "sha256": "e92ad9af9fa310be3db599dee30b62c29642c1bd5a53f2a6a90e548c20fb2146",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang-core/tests/fixtures/tokens/token_classes.avenger",
+      "sha256": "508a960a1e027baffe53ad0ee83f56b83ce8275fd118aeee73cb914c8b660a20",
+      "classification": "token_fragment",
+      "root": null
+    },
+    {
+      "path": "avenger-lang/examples/projects/hello_scatter/chart.avenger",
+      "sha256": "acf6a6387e3ec06c7675602ed96251a1aad2062b1cb1507270dfd6bffd9f6050",
+      "classification": "example_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang/examples/projects/multi_chart/cartesian.avenger",
+      "sha256": "5d20e812d5bc72b69263b2053c9ec3866ddcdb3300bdde0944be1a82f3a18275",
+      "classification": "example_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang/examples/projects/multi_chart/geo.avenger",
+      "sha256": "8c2c8ce883dd3f1389d964f05b65f725176fa0e570970a6765ca0b74ee35ee02",
+      "classification": "example_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang/examples/projects/multi_chart/pass.transform.avenger",
+      "sha256": "5bea5ecf2ca19e18afc4592b2cfeb8f2ce8cbc8ebbc42363c9e08b498934d618",
+      "classification": "example_valid",
+      "root": "definition"
+    },
+    {
+      "path": "avenger-lang/examples/projects/multi_chart/polar.avenger",
+      "sha256": "18a5e8c8bfa7f7795142832893e55f1447df13fa9c90cea986b25ddbb3022ce1",
+      "classification": "example_valid",
+      "root": "chart"
+    },
+    {
+      "path": "avenger-lang/examples/projects/multi_chart/shared.data.avenger",
+      "sha256": "a8c9fc575f8c03ff2ebab4d6c3d1c6020a789c4bd00e77ce315c684e26bbe41d",
+      "classification": "example_valid",
+      "root": "data"
+    }
   ]
 }

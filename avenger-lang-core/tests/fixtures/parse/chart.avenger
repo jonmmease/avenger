@@ -25,12 +25,11 @@ chart cartesian as values {
   configured_value: "amount" { scale: linear { nice: true; } }
   call_value: span(0, 100);
 
-  param as width {
-    type: float64;
-    default: 640;
+  param float64 as width {
+    value: 640;
   }
-  store as rows {
-    schema: struct(field('x', float64));
+  param store as rows {
+    schema: struct(field(float64, 'x'));
   }
   mark symbol as points {
     x: "Horsepower";

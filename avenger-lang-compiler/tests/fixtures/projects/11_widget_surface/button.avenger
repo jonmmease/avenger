@@ -1,15 +1,14 @@
 avenger 1;
 
 chart zerod as button {
-  param as query {
-    type: utf8;
-    default: 'initial';
+  param utf8 as query {
+    value: 'initial';
   }
-  store as history {
-    field id: utf8;
+  param store as history {
+    field utf8 id;
     primary_key: [id];
   }
-  selection as picked {
+  param selection as picked {
     empty: none;
     combine: union;
   }
@@ -19,11 +18,11 @@ chart zerod as button {
     label: 'Clear';
     variant: accent;
     action: {
-      set param query = '';
-      set store history = insert_rows {
+      set query = '';
+      set history = insert_rows {
         row { id: 'clear'; }
       }
-      set selection picked = clear;
+      set picked = clear;
     }
   }
 

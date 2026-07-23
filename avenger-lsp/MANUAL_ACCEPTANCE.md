@@ -23,7 +23,13 @@ ordinary non-monorepo worktree with `avenger` on `PATH`.
 - [ ] Tolerant diagnostics and outline symbols update through incomplete
   braces, strings, SQL, and rapid edits without restarting the server.
 - [ ] Structural completion covers declarations, native kinds, properties,
-  enums, `$` bindings, struct fields, import paths, and channels.
+  enums, `$` bindings, struct fields, import paths, and channels. Exercise
+  `param <type>|store|selection`, `container group|overlay`, every no-`as`
+  slot/variable/field header, and both output forms.
+- [ ] Contextual completion distinguishes parallel frame `dimensions:` from
+  mark-owned dimension expressions, limits channel-slot bodies to `default:`,
+  offers predicate-member fields, and filters `set` operations by the resolved
+  scalar/store/selection target.
 - [ ] SQL completion covers SELECT-first and FROM-first queries, qualified
   columns, CTEs/subqueries, joins, and transform-stage schemas.
 - [ ] Hover, definition, references, and highlights stay on authored source
@@ -34,6 +40,7 @@ ordinary non-monorepo worktree with `avenger` on `PATH`.
   With `semantic_tokens: "combined"`, resolved identities overlay cleanly.
 - [ ] Rename preview/application is versioned, cross-file where appropriate,
   and suppressed for collisions, stale documents, and unsupported symbols.
+  Confirm a `param selection` rename updates an unprefixed `set` target.
 - [ ] Quick fixes work for a close property typo, missing `as`, ambiguous SQL
   qualification, and an unambiguous missing scalar param.
 - [ ] Inline definition replaces one imported instance with canonical ordinary

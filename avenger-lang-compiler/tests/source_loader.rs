@@ -46,7 +46,7 @@ async fn compiler_resolves_projects_and_preserves_dependency_attempts() {
     write(
         root.join("chart.avenger"),
         r#"avenger 1; chart cartesian as chart {
-            param as size { type: float64; default: 4; }
+            param float64 as size { value: 4; }
             data: { values: [{ x: 1.0; y: 2.0; }]; }
             mark symbol as points { x: "x"; y: "y"; }
         }"#,

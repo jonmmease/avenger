@@ -1,9 +1,8 @@
 avenger 1;
 
 chart zerod as radio_button_list {
-  param as choice_state {
-    type: utf8;
-    default: 'east';
+  param utf8 as choice_state {
+    value: 'east';
   }
 
   widget radio_button_list as choice {

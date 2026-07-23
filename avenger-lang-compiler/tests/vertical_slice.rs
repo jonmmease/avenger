@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use avenger_chart::prelude::{
     Cartesian, CompiledWidget, FacetColumn, FacetColumnSubplotChannels, IntoPlotMark, Subplot,
@@ -33,6 +33,16 @@ fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/projects")
         .join(name)
+}
+
+fn assert_expansion_baseline(name: &str, actual: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/baselines/expansion")
+        .join(name);
+    if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+        fs::write(&path, actual).unwrap();
+    }
+    assert_eq!(actual, fs::read_to_string(path).unwrap());
 }
 
 fn source_compiler(source: &str, registry: Option<Arc<NativeRegistry>>) -> Compiler {
@@ -224,7 +234,7 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
           }
           transform pipeline as summarized {
             scope: level(2);
-            output total: totals.total;
+            output totals.total as total;
             transform aggregate as totals {
               total: sum("amount");
             }
@@ -362,7 +372,7 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
     let source = r#"avenger 1;
         chart cartesian as chart {
           data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
-          selection as picked {
+          param selection as picked {
             empty: none;
             combine: union;
           }
@@ -407,8 +417,8 @@ async fn native_surface_tool_instances_own_distinct_generated_state_and_exports(
     let source = r#"avenger 1;
 chart cartesian as chart {
   data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
-  selection as first_selection { empty: none; }
-  selection as second_selection { empty: none; }
+  param selection as first_selection { empty: none; }
+  param selection as second_selection { empty: none; }
   tool point_selection as first { selection: first_selection; fields: [id]; }
   tool point_selection as second { selection: second_selection; fields: [id]; }
   mark symbol as points { x: "x"; y: "y"; details: [id]; }
@@ -601,10 +611,10 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
     let grid = r#"avenger 1;
         chart repeat_grid as chart {
           data: { values: [{ mpg: 21.0; hp: 110.0; weight: 2500.0; accel: 12.0; }]; }
-          variable row as mpg { expr: "mpg"; title: 'MPG'; }
-          variable row as hp { expr: "hp"; title: 'Horsepower'; }
-          variable column as weight { expr: "weight"; title: 'Weight'; }
-          variable column as accel { expr: "accel"; title: 'Acceleration'; }
+          variable row mpg { expr: "mpg"; title: 'MPG'; }
+          variable row hp { expr: "hp"; title: 'Horsepower'; }
+          variable column weight { expr: "weight"; title: 'Weight'; }
+          variable column accel { expr: "accel"; title: 'Acceleration'; }
           domain_coordination: matrix;
 
           cell cartesian {
@@ -626,8 +636,8 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
     let wrap = r#"avenger 1;
         chart repeat_wrap as chart {
           data: { values: [{ mpg: 21.0; hp: 110.0; }]; }
-          variable item as mpg { expr: "mpg"; }
-          variable item as hp { expr: "hp"; }
+          variable item mpg { expr: "mpg"; }
+          variable item hp { expr: "hp"; }
           responsive_columns: 180;
           cell cartesian {
             mark symbol { x: repeat.item; y: repeat.item; }
@@ -724,6 +734,62 @@ async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
         serde_json::json!(["horsepower", "mileage"]),
         "parallel dimension order must survive language lowering"
     );
+    assert_eq!(
+        parallel["coord_transform"]["dimensions"][0]["id"],
+        "horsepower"
+    );
+    assert!(
+        !parallel["coord_transform"]["dimensions"][0]["axis"].is_null(),
+        "configured sparse dimension must carry its axis"
+    );
+    assert!(
+        parallel["coord_transform"]["dimensions"][1]["axis"].is_null(),
+        "empty sparse dimension must retain default axis configuration"
+    );
+}
+
+#[tokio::test]
+async fn parallel_sparse_frame_configuration_validates_mark_owned_dimensions() {
+    let valid = r#"avenger 1;
+chart parallel as chart {
+  dimensions: {
+    first: { axis: { title: 'First'; visible: true; } }
+    second: {}
+  }
+  order: [first, second];
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  mark parallel_line {
+    dimensions: { first: "x"; second: "y"; }
+  }
+  mark parallel_symbol {
+    dimensions: { first: "x" + 1; second: "y"; }
+  }
+}"#;
+    source_compiler(valid, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+
+    let unbound = valid.replace("second: {}", "second: {}\n    unbound: {} ");
+    assert!(
+        source_compiler(&unbound, None)
+            .compile_file("chart.avenger")
+            .await
+            .is_err(),
+        "a configured frame id must be bound by at least one parallel mark"
+    );
+
+    let invalid_order = valid.replace(
+        "order: [first, second];",
+        "order: [first, second, missing];",
+    );
+    assert!(
+        source_compiler(&invalid_order, None)
+            .compile_file("chart.avenger")
+            .await
+            .is_err(),
+        "explicit order must exactly match discovered dimension ids"
+    );
 }
 
 #[tokio::test]
@@ -789,8 +855,8 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
 async fn direct_canvas_params_remain_available_for_host_resize_binding() {
     let source = r#"avenger 1;
         chart cartesian as chart {
-          param as canvas_width { type: float64; default: 640.0; }
-          param as canvas_height { type: float64; default: 420.0; }
+          param float64 as canvas_width { value: 640.0; }
+          param float64 as canvas_height { value: 420.0; }
           layout: {
             canvas: { width: $canvas_width; height: $canvas_height; }
             plot: auto;
@@ -1145,15 +1211,14 @@ async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contrac
 async fn native_surface_button_actions_preserve_order_and_shared_state_targets() {
     let source = r#"avenger 1;
         chart zerod as chart {
-          param as query {
-            type: utf8;
-            default: 'initial';
+          param utf8 as query {
+            value: 'initial';
           }
-          store as history {
-            field id: utf8;
+          param store as history {
+            field utf8 id;
             primary_key: [id];
           }
-          selection as picked {
+          param selection as picked {
             empty: none;
             combine: union;
           }
@@ -1161,11 +1226,11 @@ async fn native_surface_button_actions_preserve_order_and_shared_state_targets()
             position: right;
             label: 'Clear';
             action: {
-              set param query = '';
-              set store history = insert_rows {
+              set query = '';
+              set history = insert_rows {
                 row { id: 'clear'; }
               }
-              set selection picked = clear;
+              set picked = clear;
             }
           }
         }"#;
@@ -1345,7 +1410,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               { x: 3.0; y: 4.0; }
             ];
           }
-          group as viewed_points {
+          container group as viewed_points {
             view cartesian as viewport {
               x_domain: "x";
               y_domain: "y";
@@ -1372,7 +1437,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
     }
 
     let mark_owned = source.replace(
-        r#"group as viewed_points {
+        r#"container group as viewed_points {
             view cartesian as viewport {
               x_domain: "x";
               y_domain: "y";
@@ -1471,15 +1536,15 @@ async fn native_surface_geo_tile_resources_lower_through_typed_references() {
 async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {
-          param as enabled { type: boolean; default: true; }
-          param as drag_x { type: float64; default: 0.0; sharing: free; }
-          param as drag_domain { type: list(float64); default: [0.0, 0.0]; }
-          store as hovered {
-            field id: utf8;
-            field x: float64;
+          param boolean as enabled { value: true; }
+          param float64 as drag_x { value: 0.0; sharing: free; }
+          param list(float64) as drag_domain { value: [0.0, 0.0]; }
+          param store as hovered {
+            field utf8 id;
+            field float64 x;
             primary_key: [id];
           }
-          selection as picked { empty: none; combine: union; }
+          param selection as picked { empty: none; combine: union; }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
           mark symbol as points { x: "x"; y: "y"; }
           on cursor_moved as drag {
@@ -1493,23 +1558,23 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               start: mouse_down { filter: $enabled; }
               end: mouse_up { filter: $enabled; }
             }
-            set param drag_x at start = event_coord(x);
-            set store hovered = insert_rows {
+            set drag_x at start = event_coord(x);
+            set hovered = insert_rows {
               row { id: 'point'; x: event_coord(x); }
             }
-            set selection picked = toggle_clauses {
+            set picked = toggle_clauses {
               clause {
                 id: 'point';
                 equality {
-                  dimension as x { field: "x"; value: event_coord(x); }
+                  x { field: "x"; value: event_coord(x); }
                 }
               }
             }
-            set selection picked = upsert_clauses {
+            set picked = upsert_clauses {
               clause {
                 id: 'range';
                 interval {
-                  dimension as x {
+                  x {
                     field: "x";
                     from: start_coord(x);
                     to: event_coord(x);
@@ -1517,7 +1582,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
                 }
               }
             }
-            set selection picked = replace_all_from_scene_query {
+            set picked = replace_all_from_scene_query {
               geometry: polygon(event_path());
               policy: intersects;
               marks: [points];
@@ -1525,8 +1590,8 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               unique_by: ['x'];
               sharing: free;
             }
-            set selection picked = delete_clauses { ids: ['point']; }
-            set param drag_domain = span_ordered(event_coord(x), start_coord(x));
+            set picked = delete_clauses { ids: ['point']; }
+            set drag_domain = span_ordered(event_coord(x), start_coord(x));
             set cursor = 'crosshair';
           }
         }"#;
@@ -1603,16 +1668,14 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
 async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
     let source = r#"avenger 1;
         chart zerod as chart {
-          param as pointer {
-            type: struct(
-              field('position', struct(field('x', float64), field('y', float64))),
-              field('labels', list(utf8))
-            );
-            default: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
+          param struct(
+              field(struct(field(float64, 'x'), field(float64, 'y')), 'position'),
+              field(list(utf8), 'labels')
+            ) as pointer {
+            value: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
           }
-          param as empty_pointer {
-            type: struct(field('x', float64));
-            default: NULL;
+          param struct(field(float64, 'x')) as empty_pointer {
+            value: NULL;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -1912,10 +1975,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
-    assert_eq!(
-        expanded.text,
-        include_str!("baselines/expansion/04_custom_error_bar.avenger")
-    );
+    assert_expansion_baseline("04_custom_error_bar.avenger", &expanded.text);
 
     for removed in [
         "import 'error_bar.mark.avenger'",
@@ -1926,11 +1986,11 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         assert!(!expanded.text.contains(removed), "{}", expanded.text);
     }
     for retained in [
-        "group as errors",
+        "container group as errors",
         "component_kind: error_bar;",
         " as stem;",
         " as point;",
-        "private group as __av_",
+        "private container group as __av_",
         "fill: value '#dc2626';",
         "public mark text as labels",
         "widget slider as threshold",
@@ -2015,26 +2075,23 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
-    assert_eq!(
-        expanded.text,
-        include_str!("baselines/expansion/05_custom_tool.avenger")
-    );
+    assert_expansion_baseline("05_custom_tool.avenger", &expanded.text);
     for retained in [
         "tool behavior as inspector",
         "component_kind: inspect_points;",
         " as enabled;",
         " as hovered;",
         " as chrome;",
-        "private param as __av_",
-        "private selection as __av_",
+        "private param boolean as __av_",
+        "private param selection as __av_",
         "private tool point_selection as __av_",
         "scale_edit {",
-        "private group as __av_",
+        "private container group as __av_",
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
-    let set_param = expanded.text.find("set param __av_").unwrap();
-    let set_selection = expanded.text.find("set selection __av_").unwrap();
+    let set_param = expanded.text.find("_enabled =").unwrap();
+    let set_selection = expanded.text.find("_hovered =").unwrap();
     assert!(set_param < set_selection, "{}", expanded.text);
 
     let artifact = compiler
@@ -2125,10 +2182,7 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
-    assert_eq!(
-        expanded.text,
-        include_str!("baselines/expansion/05_custom_transform_pipeline.avenger")
-    );
+    assert_expansion_baseline("05_custom_transform_pipeline.avenger", &expanded.text);
 
     for retained in [
         "transform pipeline as summary",
@@ -2220,7 +2274,7 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
         .unwrap();
     for retained in [
         "transform pipeline",
-        "group as points",
+        "container group as points",
         "tool behavior as pointer",
         "widget slider as threshold",
         "widget text_input as search",

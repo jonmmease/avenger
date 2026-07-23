@@ -17,7 +17,7 @@
   "required": ["version", "root"],
   "additionalProperties": false,
   "$defs": {
-    "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "name": { "type": "string", "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$" },
     "import": {
       "type": "object",
       "properties": {
@@ -75,7 +75,7 @@
         "expr": { "type": "string", "minLength": 1 },
         "query": { "type": "string", "minLength": 1 },
         "value": { "$ref": "#/$defs/value" },
-        "dim": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" },
+        "dim": { "type": "string", "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$" },
         "ref": { "$ref": "#/$defs/ref" },
         "pattern": { "$ref": "#/$defs/value" },
         "env": { "type": "string", "minLength": 1 },

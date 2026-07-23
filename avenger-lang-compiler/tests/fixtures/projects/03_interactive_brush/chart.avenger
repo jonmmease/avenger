@@ -1,23 +1,21 @@
 avenger 1;
 
 chart cartesian as chart {
-  param as drag_x {
-    type: float64;
-    default: 0.0;
+  param float64 as drag_x {
+    value: 0.0;
     sharing: free;
   }
-  param as hover_count {
-    type: int64;
-    default: 0;
+  param int64 as hover_count {
+    value: 0;
   }
 
-  store as hovered {
-    field id: utf8;
-    field x: float64;
+  param store as hovered {
+    field utf8 id;
+    field float64 x;
     primary_key: [id];
   }
 
-  selection as picked {
+  param selection as picked {
     empty: none;
     combine: union;
   }
@@ -40,16 +38,16 @@ chart cartesian as chart {
       end: mouse_up {}
     }
 
-    set param drag_x at start = event_coord(x);
-    set store hovered = insert_rows {
+    set drag_x at start = event_coord(x);
+    set hovered = insert_rows {
       row { id: 'drag'; x: event_coord(x); }
     }
-    set param hover_count = (SELECT count(*) FROM $hovered);
-    set selection picked = upsert_clauses {
+    set hover_count = (SELECT count(*) FROM $hovered);
+    set picked = upsert_clauses {
       clause {
         id: 'drag';
         interval {
-          dimension as x {
+          x {
             field: "x";
             from: start_coord(x);
             to: event_coord(x);

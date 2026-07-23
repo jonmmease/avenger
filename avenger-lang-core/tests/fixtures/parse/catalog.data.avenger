@@ -9,7 +9,7 @@ catalog memory as local {
       ];
     }
     table sql as popular {
-      param as minimum { type: float64; default: 8; }
+      param float64 as minimum { value: 8; }
       sql: FROM vega.movies AS m SELECT m.* WHERE m.rating >= $minimum;
     }
   }

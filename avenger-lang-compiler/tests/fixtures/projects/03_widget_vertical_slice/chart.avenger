@@ -19,7 +19,7 @@ chart cartesian as chart {
     position: right;
   }
 
-  group as selected_points {
+  container group as selected_points {
     transform filter as selected {
       predicate: "category" = $choice.value;
     }

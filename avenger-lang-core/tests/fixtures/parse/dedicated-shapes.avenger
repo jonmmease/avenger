@@ -3,8 +3,8 @@ avenger 1;
 chart responsive as shapes {
   resource tiles as osm {}
   theme css: '.chart { color: red; }';
-  group as container {
-    variable row as mpg {}
+  container group as container {
+    variable row mpg {}
     cell cartesian as left at { row: 0; column: 1; } {
       plot polar {
         mark arc {}
@@ -14,15 +14,14 @@ chart responsive as shapes {
     level 0 {}
     adjust stack as stacked {}
     derive density as kde {}
-    overlay as annotations {}
+    container overlay as annotations {}
     layer background {}
     when {}
     row {}
-    field payload: struct(field('x', float64), field('labels', list(utf8))) nullable;
+    field struct(field(float64, 'x'), field(list(utf8), 'labels')) payload nullable;
     key {}
     fields {}
     scale_hint {}
-    dimension as frame {}
     widget slider as opacity {}
     view raster as image {}
     tool pan;

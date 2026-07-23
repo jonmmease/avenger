@@ -1,7 +1,7 @@
 avenger 1;
 
 define transform summarize {
-  slot expr as measure;
+  slot expr measure;
   output doubled;
   output adjusted;
 

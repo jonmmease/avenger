@@ -5,19 +5,16 @@ import 'marks/badge.mark.avenger';
 chart cartesian as chart {
   data: { table: 'files.rows'; }
 
-  param as canvas_width {
-    type: float64;
-    default: 640.0;
+  param float64 as canvas_width {
+    value: 640.0;
   }
 
-  param as canvas_height {
-    type: float64;
-    default: 420.0;
+  param float64 as canvas_height {
+    value: 420.0;
   }
 
-  param as point_size {
-    type: float64;
-    default: 180.0;
+  param float64 as point_size {
+    value: 180.0;
   }
 
   layout: {

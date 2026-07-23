@@ -63,9 +63,9 @@ chart cartesian as chart {
             r#"
 avenger 1;
 define mark summary {
-  slot expr as measure;
-  slot enum as mode { values: [show, hide]; default: show; }
-  slot block as annotations { exposes: [point]; default: { } }
+  slot expr measure;
+  slot enum mode { values: [show, hide]; default: show; }
+  slot block annotations { exposes: [point]; default: { } }
   export point;
   mark symbol as point { x: "x"; y: measure; }
   match mode {
@@ -80,8 +80,8 @@ define mark summary {
             r#"
 avenger 1;
 define transform rolling {
-  slot expr as measure;
-  slot function as agg { class: aggregate; default: avg; }
+  slot expr measure;
+  slot function agg { class: aggregate; default: avg; }
   output value;
   transform sql { query: SELECT *, agg(measure) OVER () AS value FROM input; }
 }
@@ -106,9 +106,9 @@ async fn definitions_reject_incomplete_matches_invalid_splices_exposure_data_and
             r#"
 avenger 1;
 define mark broken {
-  slot enum as mode { values: [a, b]; default: a; }
-  slot block as content { exposes: [missing]; default: { } }
-  group { data: { values: []; } }
+  slot enum mode { values: [a, b]; default: a; }
+  slot block content { exposes: [missing]; default: { } }
+  container group { data: { values: []; } }
   theme css: 'mark { opacity: 0.5; }';
   match mode {
     a { unknown; }
@@ -149,7 +149,7 @@ avenger 1;
 import 'rolling.transform.avenger';
 import 'picker.tool.avenger';
 chart cartesian {
-  param as state { type: boolean; default: true; }
+  param boolean as state { value: true; }
   mark symbol as points { x: "x"; y: "y"; }
   transform rolling as value { agg: row_number; window: 'wide'; }
   tool picker;
@@ -162,8 +162,8 @@ chart cartesian {
             r#"
 avenger 1;
 define transform rolling {
-  slot function as agg { class: aggregate; }
-  slot number as window;
+  slot function agg { class: aggregate; }
+  slot number window;
   output value;
   transform sql { query: SELECT agg("x") AS value FROM input; }
 }
@@ -174,7 +174,7 @@ define transform rolling {
             r#"
 avenger 1;
 define tool picker {
-  slot ref as target { kind: mark; }
+  slot ref target { kind: mark; }
   on click { target: mark target; set cursor = pointer; }
 }
 "#,
@@ -260,7 +260,7 @@ import 'private_component.mark.avenger';
 import 'colliding.mark.avenger';
 import 'output_transform.transform.avenger';
 chart cartesian as chart {
-  param as ambient { type: boolean; default: true; }
+  param boolean as ambient { value: true; }
   mark capturing as captured { }
   mark private_component as component { }
   transform output_transform { }
@@ -349,7 +349,7 @@ import 'shell.mark.avenger';
 chart cartesian {
   mark shell {
     content: {
-      param as invalid_here { type: boolean; default: true; }
+      param boolean as invalid_here { value: true; }
     }
   }
 }
@@ -360,7 +360,7 @@ chart cartesian {
             r#"
 avenger 1;
 define mark shell {
-  slot block as content;
+  slot block content;
   mark symbol { x: "x"; y: "y"; content; }
 }
 "#,
@@ -431,15 +431,15 @@ chart cartesian as chart {
             r#"
 avenger 1;
 define mark summary {
-  channel band_axis: x;
-  channel value_axis: y;
-  slot expr as measure;
-  slot number as width { default: 0.6; }
-  slot number as cap_width { default: width / 2; }
-  slot enum as mode { values: [show, hide]; default: show; }
-  slot block as annotations { exposes: [point]; default: { } }
+  slot channel band_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr measure;
+  slot number width { default: 0.6; }
+  slot number cap_width { default: width / 2; }
+  slot enum mode { values: [show, hide]; default: show; }
+  slot block annotations { exposes: [point]; default: { } }
   export body.point as point;
-  group as body {
+  container group as body {
     mark symbol as point {
       band_axis: "category";
       value_axis: measure;
@@ -466,11 +466,11 @@ define mark summary {
     assert!(!text.contains("mark summary"));
     assert!(!text.contains("match mode"));
     assert!(!text.contains("annotations;"));
-    assert!(text.contains("group as result"), "{text}");
+    assert!(text.contains("container group as result"), "{text}");
     assert!(text.contains("component_kind: summary;"), "{text}");
     assert!(text.contains("export __av_"), "{text}");
     assert!(text.contains(" as point;"), "{text}");
-    assert!(text.contains("private group as __av_"), "{text}");
+    assert!(text.contains("private container group as __av_"), "{text}");
     assert!(text.contains("y: \"category\";"), "{text}");
     assert!(text.contains("x: \"value\";"), "{text}");
     assert!(text.contains("public mark text as label"), "{text}");
@@ -494,7 +494,7 @@ async fn expansion_alpha_renames_private_state_without_capturing_caller_block_bi
 avenger 1;
 import 'shell.mark.avenger';
 chart cartesian as chart {
-  param as enabled { type: boolean; default: false; }
+  param boolean as enabled { value: false; }
   mark shell as instance {
     content: {
       mark symbol as caller_mark {
@@ -513,9 +513,9 @@ chart cartesian as chart {
             r#"
 avenger 1;
 define mark shell {
-  slot block as content { exposes: [inside]; default: { } }
+  slot block content { exposes: [inside]; default: { } }
   export inside;
-  param as enabled { type: boolean; default: true; }
+  param boolean as enabled { value: true; }
   mark symbol as inside { x: "x"; y: "y"; visible: $enabled; }
   content;
 }
@@ -531,7 +531,7 @@ define mark shell {
     assert_eq!(first.texts, second.texts);
     let chart = project.chart_roots.first().unwrap();
     let text = first.texts.get(chart).unwrap();
-    assert!(text.contains("private param as __av_"), "{text}");
+    assert!(text.contains("private param boolean as __av_"), "{text}");
     assert!(text.contains("visible: $__av_"), "{text}");
     assert!(text.contains("visible: $enabled;"), "{text}");
 
@@ -581,7 +581,7 @@ async fn definition_state_migration_tracks_source_binders_not_public_export_alia
 avenger 1;
 define mark shell {
   export local as exposed;
-  param as local { type: boolean; default: true; }
+  param boolean as local { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $local; }
 }
 "#,
@@ -593,7 +593,7 @@ define mark shell {
 avenger 1;
 define mark shell {
   export local as renamed_export;
-  param as local { type: boolean; default: true; }
+  param boolean as local { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $local; }
 }
 "#,
@@ -605,7 +605,7 @@ define mark shell {
 avenger 1;
 define mark shell {
   export renamed_state as exposed;
-  param as renamed_state { type: boolean; default: true; }
+  param boolean as renamed_state { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $renamed_state; }
 }
 "#,
@@ -698,9 +698,9 @@ chart cartesian {
             r#"
 avenger 1;
 define transform rolling {
-  slot expr as measure;
-  slot expr_list as keys;
-  slot function as agg { class: aggregate; }
+  slot expr measure;
+  slot expr_list keys;
+  slot function agg { class: aggregate; }
   output value;
   transform sql {
     query:
@@ -755,12 +755,12 @@ chart cartesian {
             r#"
 avenger 1;
 define tool hover {
-  slot ref as target { kind: mark; }
+  slot ref target { kind: mark; }
   export hovered;
-  selection as hovered { empty: none; }
+  param selection as hovered { empty: none; }
   on mark_mouse_enter {
     target: mark target;
-    set selection hovered = clear;
+    set hovered = clear;
   }
 }
 "#,
@@ -777,8 +777,8 @@ define tool hover {
     assert!(text.contains("tool behavior as highlighter"), "{text}");
     assert!(text.contains("component_kind: hover;"), "{text}");
     assert!(text.contains(" as hovered;"), "{text}");
-    assert!(text.contains("private selection as __av_"), "{text}");
-    assert!(text.contains("set selection __av_"), "{text}");
+    assert!(text.contains("private param selection as __av_"), "{text}");
+    assert!(text.contains("set __av_"), "{text}");
     assert!(text.contains("target: mark points;"), "{text}");
 
     resolve_project(&expanded.project, &bootstrap_schema())

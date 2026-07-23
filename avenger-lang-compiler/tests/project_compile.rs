@@ -169,7 +169,7 @@ async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
         &chart,
         fs::read_to_string(&chart)
             .unwrap()
-            .replace("default: 64.0", "default: 96.0"),
+            .replace("value: 64.0", "value: 96.0"),
     )
     .unwrap();
     let after = compiler.compile_project(&project.0).await.unwrap();
@@ -268,7 +268,7 @@ async fn project_compile_reuses_dataset_schema_across_unrelated_chart_edit() {
         &geo,
         fs::read_to_string(&geo)
             .unwrap()
-            .replace("default: 80.0", "default: 88.0"),
+            .replace("value: 80.0", "value: 88.0"),
     )
     .unwrap();
     let after = compiler.analyze_project(&project.0).await.unwrap();

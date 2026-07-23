@@ -1,14 +1,14 @@
 avenger 1;
 
 define mark error_bar {
-  channel category_axis: x;
-  channel value_axis: y;
-  slot expr as category;
-  slot expr as low;
-  slot expr as high;
-  slot expr as center;
-  slot enum as mode { values: [show, hide]; default: show; }
-  slot block as annotations { exposes: [point]; default: { } }
+  slot channel category_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr category;
+  slot expr low;
+  slot expr high;
+  slot expr center;
+  slot enum mode { values: [show, hide]; default: show; }
+  slot block annotations { exposes: [point]; default: { } }
   export body.stem as stem;
   export body.point as point;
 
@@ -16,7 +16,7 @@ define mark error_bar {
     predicate: true;
   }
 
-  group as body {
+  container group as body {
     mark rule as stem {
       category_axis: category;
       category_axis2: category;

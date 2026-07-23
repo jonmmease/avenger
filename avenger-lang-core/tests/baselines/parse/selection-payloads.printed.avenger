@@ -1,17 +1,17 @@
 avenger 1;
 chart cartesian {
   on pointermove {
-    set selection brush = update {
+    set brush = update {
       clause {
         id: 'primary';
         equality {
-          dimension as category {
+          category {
             field: "category";
             value: datum('category');
           }
         }
         interval {
-          dimension as x {
+          x {
             field: "x";
             from: start_coord(x);
             to: event_coord(x);

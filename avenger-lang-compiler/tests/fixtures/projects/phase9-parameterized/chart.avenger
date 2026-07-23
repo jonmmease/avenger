@@ -1,7 +1,7 @@
 avenger 1;
 
 chart cartesian as chart {
-  param as selected { type: utf8; default: 'Manhattan'; }
+  param utf8 as selected { value: 'Manhattan'; }
   data: {
     table: 'local.borough_trips';
     borough: $selected;

@@ -40,7 +40,7 @@ async fn semantic_project(text: &str) -> avenger_lang_core::ParsedProject {
 
 fn type_value(spelling: &str) -> Value {
     let text = format!(
-        "avenger 1; chart cartesian as chart {{ param as value {{ type: {spelling}; default: NULL; }} }}"
+        "avenger 1; chart cartesian as chart {{ param {spelling} as value {{ value: NULL; }} }}"
     );
     let source = SourceFile::new(
         SourceId::new(1),
@@ -54,6 +54,16 @@ fn type_value(spelling: &str) -> Value {
         panic!("chart root")
     };
     chart.children[0].props.get("type").unwrap().clone()
+}
+
+fn type_source(spelling: &str) -> SourceFile {
+    SourceFile::new(
+        SourceId::new(3),
+        SourceOrigin::Memory("invalid-type.avenger".into()),
+        format!(
+            "avenger 1; chart cartesian as chart {{ param {spelling} as value {{ value: NULL; }} }}"
+        ),
+    )
 }
 
 #[test]
@@ -91,7 +101,7 @@ fn schema_physical_arrow_type_corpus_is_canonical_and_recursive() {
         "large_list(utf8)",
         "fixed_size_list(float32,4)",
         "struct()",
-        "struct(field('position',struct(field('x',float64),field('y',float64))),field('labels',list(utf8)))",
+        "struct(field(struct(field(float64,'x'),field(float64,'y')),'position'),field(list(utf8),'labels'))",
         "map(utf8,list(int64))",
     ];
     for spelling in corpus {
@@ -116,13 +126,13 @@ fn schema_physical_arrow_types_reject_aliases_shapes_and_duplicate_fields() {
         "decimal256(77,0)",
         "list()",
         "fixed_size_list(int64,-1)",
-        "struct(field('',int64))",
-        "struct(field('x',int64),field('x',utf8))",
+        "struct(field(int64, ''))",
+        "struct(field(int64, 'x'),field(utf8, 'x'))",
         "struct(int64)",
         "map(utf8)",
     ] {
         assert!(
-            PhysicalType::parse(&type_value(invalid)).is_err(),
+            parse_file(&type_source(invalid)).is_err(),
             "unexpectedly accepted {invalid}"
         );
     }
@@ -154,7 +164,7 @@ fn schema_recursive_list_and_struct_literals_use_destination_types() {
     );
 
     let data_type = PhysicalType::parse(&type_value(
-        "struct(field('x',float64),field('labels',list(utf8)))",
+        "struct(field(float64, 'x'),field(list(utf8), 'labels'))",
     ))
     .unwrap();
     let value = object(&[("x", number("1.25")), ("labels", strings(&["a", "b"]))]);
@@ -184,25 +194,19 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             true,
             r#"avenger 1; chart cartesian as chart {
-                selection as picked { empty: none; combine: union; }
+                param selection as picked { empty: none; combine: union; }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                selection as picked { empty: maybe; combine: union; }
+                param selection as picked { empty: maybe; combine: union; }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
                 mark symbol as dots { x: "x"; y: "y"; bogus: 1; }
-            }"#,
-        ),
-        (
-            false,
-            r#"avenger 1; chart cartesian as chart {
-                param as limit { type: int64; }
             }"#,
         ),
         (
@@ -250,25 +254,25 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param as limit { type: int64; default: 1; mark symbol { x: "x"; y: "y"; } }
+                param int64 as limit { value: 1; mark symbol { x: "x"; y: "y"; } }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                selection as picked { mark symbol { x: "x"; y: "y"; } }
+                param selection as picked { mark symbol { x: "x"; y: "y"; } }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                store as rows { primary_key: []; field id: utf8; }
+                param store as rows { primary_key: []; field utf8 id; }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                group { view cartesian as viewport { export child; } }
+                container group { view cartesian as viewport { export child; } }
             }"#,
         ),
         (
@@ -287,6 +291,27 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         assert_eq!(semantic_valid, expected, "semantic result for {source}");
         assert_eq!(schema_valid, expected, "JSON Schema result for {source}");
     }
+
+    let missing_value = semantic_project(
+        r#"avenger 1; chart cartesian as chart {
+            param int64 as limit { value: 1; }
+        }"#,
+    )
+    .await;
+    let file = missing_value
+        .files
+        .values()
+        .next()
+        .expect("one source file");
+    let mut instance = serde_json::to_value(&file.parsed.ast).unwrap();
+    instance["root"]["children"][0]["props"]
+        .as_object_mut()
+        .unwrap()
+        .remove("value");
+    assert!(
+        !validator.is_valid(&instance),
+        "the interchange schema must require a scalar param initializer"
+    );
 
     let second = semantic_json_schema(&registry, "bootstrap-test-profile");
     assert_eq!(
@@ -315,9 +340,26 @@ fn schema_generated_bootstrap_snapshot_is_reviewed() {
     }
 }
 
+#[test]
+fn interchange_name_schema_matches_unicode_identifier_contract() {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schemas/ast-core-1.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).expect("AST schema compiles");
+    let source = SourceFile::new(
+        SourceId::new(4),
+        SourceOrigin::Memory("unicode.avenger".into()),
+        "avenger 1; chart cartesian as café_2 {}",
+    );
+    let parsed = parse_file(&source).unwrap();
+    let mut instance = serde_json::to_value(&parsed.ast).unwrap();
+    assert!(validator.is_valid(&instance));
+    instance["root"]["name"] = serde_json::Value::String("bad$name".to_owned());
+    assert!(!validator.is_valid(&instance));
+}
+
 fn number(spelling: &str) -> Value {
     let text = format!(
-        "avenger 1; chart cartesian as chart {{ param as value {{ type: int64; default: {spelling}; }} }}"
+        "avenger 1; chart cartesian as chart {{ param int64 as value {{ value: {spelling}; }} }}"
     );
     let source = SourceFile::new(
         SourceId::new(2),
@@ -328,7 +370,7 @@ fn number(spelling: &str) -> Value {
     let Root::Chart(chart) = parsed.ast.root else {
         panic!("chart root")
     };
-    chart.children[0].props.get("default").unwrap().clone()
+    chart.children[0].props.get("value").unwrap().clone()
 }
 
 fn strings(values: &[&str]) -> Value {

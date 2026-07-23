@@ -153,10 +153,10 @@ fn param_body_schema() -> Value {
             "props": object_properties_schema(
                 Map::from_iter([
                     ("type".to_owned(), call_or_atom_schema()),
-                    ("default".to_owned(), value_ref()),
+                    ("value".to_owned(), value_ref()),
                     ("sharing".to_owned(), sharing_schema()),
                 ]),
-                vec![json!("type"), json!("default")],
+                vec![json!("type"), json!("value")],
                 true,
             ),
             "children": { "maxItems": 0 },

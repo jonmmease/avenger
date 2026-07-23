@@ -543,8 +543,7 @@ struct Scope {
     parent: Option<ScopeId>,
     owner: Option<DeclarationId>,
     label: String,
-    values: BTreeMap<String, ValueSymbol>,
-    selections: BTreeMap<String, SelectionId>,
+    state_symbols: BTreeMap<String, StateSymbol>,
     structural: BTreeMap<String, DeclarationId>,
     transforms: BTreeSet<String>,
     events: BTreeMap<String, EventId>,
@@ -554,9 +553,20 @@ struct Scope {
 }
 
 #[derive(Clone, Debug)]
-enum ValueSymbol {
+enum StateSymbol {
     Param(ParamId, Option<PhysicalType>),
     Store(StoreId),
+    Selection(SelectionId),
+}
+
+impl StateSymbol {
+    fn target(&self) -> ResolvedTarget {
+        match self {
+            Self::Param(id, _) => ResolvedTarget::Param(id.clone()),
+            Self::Store(id) => ResolvedTarget::Store(id.clone()),
+            Self::Selection(id) => ResolvedTarget::Selection(id.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -869,7 +879,13 @@ impl<'a> Resolver<'a> {
             let all_slot_names = declaration
                 .children
                 .iter()
-                .filter(|child| child.keyword.as_str() == "slot")
+                .filter(|child| {
+                    child.keyword.as_str() == "slot"
+                        && child
+                            .kind
+                            .as_ref()
+                            .is_none_or(|kind| kind.as_str() != "channel")
+                })
                 .filter_map(|child| child.name.as_ref().map(ToString::to_string))
                 .collect::<BTreeSet<_>>();
             for child in &declaration.children {
@@ -879,6 +895,57 @@ impl<'a> Resolver<'a> {
                             continue;
                         };
                         let shape = child.kind.as_ref().map_or("", Name::as_str).to_owned();
+                        if shape == "channel" {
+                            self.check_definition_interface_name(
+                                &mut interface_names,
+                                name.as_str(),
+                                "channel",
+                                file,
+                            );
+                            for (property, _) in child.props.iter() {
+                                if property.as_str() != "default" {
+                                    self.error(
+                                        "AVENGER-RESOLVE-004",
+                                        "invalid definition channel slot property",
+                                        root_span(file),
+                                        format!(
+                                            "channel slot `{name}` does not support `{property}:`"
+                                        ),
+                                    );
+                                }
+                            }
+                            if !child.children.is_empty() {
+                                self.error(
+                                    "AVENGER-RESOLVE-004",
+                                    "invalid definition channel slot body",
+                                    root_span(file),
+                                    format!("channel slot `{name}` cannot contain declarations"),
+                                );
+                            }
+                            let physical_channel = child
+                                .props
+                                .get("default")
+                                .and_then(value_atom)
+                                .map(str::to_owned);
+                            if child.props.get("default").is_some() && physical_channel.is_none() {
+                                self.error(
+                                    "AVENGER-RESOLVE-004",
+                                    "invalid definition channel default",
+                                    root_span(file),
+                                    format!(
+                                        "channel slot `{name}` requires one bare physical channel name"
+                                    ),
+                                );
+                            }
+                            channels.insert(
+                                name.to_string(),
+                                DefinitionChannel {
+                                    required: physical_channel.is_none(),
+                                    physical_channel,
+                                },
+                            );
+                            continue;
+                        }
                         if !matches!(
                             shape.as_str(),
                             "expr"
@@ -949,23 +1016,7 @@ impl<'a> Resolver<'a> {
                         }
                         slots.insert(name.to_string(), slot_schema);
                     }
-                    "channel" => {
-                        if let Some(name) = child.name.as_ref() {
-                            self.check_definition_interface_name(
-                                &mut interface_names,
-                                name.as_str(),
-                                "channel",
-                                file,
-                            );
-                            channels.insert(
-                                name.to_string(),
-                                DefinitionChannel {
-                                    required: child.kind.is_none(),
-                                    physical_channel: child.kind.as_ref().map(ToString::to_string),
-                                },
-                            );
-                        }
-                    }
+                    "channel" => {}
                     "output" => {
                         if let Some(name) = child.name.as_ref() {
                             self.check_definition_interface_name(
@@ -1738,10 +1789,10 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 });
-                self.insert_value_symbol(
+                self.insert_state_symbol(
                     scope,
                     name,
-                    ValueSymbol::Param(param_id.clone(), data_type.clone()),
+                    StateSymbol::Param(param_id.clone(), data_type.clone()),
                     span,
                 );
                 if let Some(data_type) = data_type {
@@ -1756,7 +1807,7 @@ impl<'a> Resolver<'a> {
                     id.as_str(),
                     &ancestry_text(ancestry),
                 ]));
-                self.insert_value_symbol(scope, name, ValueSymbol::Store(store_id.clone()), span);
+                self.insert_state_symbol(scope, name, StateSymbol::Store(store_id.clone()), span);
                 self.set_runtime_target(id, ResolvedTarget::Store(store_id));
             }
             "selection" => {
@@ -1766,18 +1817,12 @@ impl<'a> Resolver<'a> {
                     id.as_str(),
                     &ancestry_text(ancestry),
                 ]));
-                if self.scopes[scope.0]
-                    .selections
-                    .insert(name.to_owned(), selection_id.clone())
-                    .is_some()
-                {
-                    self.error(
-                        "AVENGER-RESOLVE-011",
-                        "duplicate selection name",
-                        span,
-                        format!("`{name}` is already declared in this scope"),
-                    );
-                }
+                self.insert_state_symbol(
+                    scope,
+                    name,
+                    StateSymbol::Selection(selection_id.clone()),
+                    span,
+                );
                 self.set_runtime_target(id, ResolvedTarget::Selection(selection_id));
             }
             "on" => {
@@ -1816,13 +1861,18 @@ impl<'a> Resolver<'a> {
                 else {
                     return;
                 };
-                let target = if declaration.keyword.as_str() == "slot" {
-                    ResolvedTarget::DefinitionSlot {
+                let target = if declaration.keyword.as_str() == "channel"
+                    || declaration
+                        .kind
+                        .as_ref()
+                        .is_some_and(|kind| kind.as_str() == "channel")
+                {
+                    ResolvedTarget::DefinitionChannel {
                         definition,
                         name: name.to_owned(),
                     }
                 } else {
-                    ResolvedTarget::DefinitionChannel {
+                    ResolvedTarget::DefinitionSlot {
                         definition,
                         name: name.to_owned(),
                     }
@@ -1857,24 +1907,35 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn insert_value_symbol(
+    fn insert_state_symbol(
         &mut self,
         scope: ScopeId,
         name: &str,
-        symbol: ValueSymbol,
+        symbol: StateSymbol,
         span: SourceSpan,
     ) {
-        if self.scopes[scope.0]
-            .values
-            .insert(name.to_owned(), symbol)
-            .is_some()
-        {
+        if name == "cursor" {
+            self.error(
+                "AVENGER-RESOLVE-011",
+                "state parameter name `cursor` is reserved",
+                span,
+                "`cursor` is reserved for the write-only cursor effect",
+            );
+            return;
+        }
+        if self.scopes[scope.0].state_symbols.contains_key(name) {
             self.error(
                 "AVENGER-RESOLVE-010",
-                "duplicate param/store value binding",
+                "duplicate state parameter binding",
                 span,
-                format!("`{name}` is already bound by a param or store in this scope"),
+                format!(
+                    "`{name}` is already bound by a scalar, store, or selection param in this scope"
+                ),
             );
+        } else {
+            self.scopes[scope.0]
+                .state_symbols
+                .insert(name.to_owned(), symbol);
         }
     }
 
@@ -2843,15 +2904,8 @@ impl<'a> Resolver<'a> {
         let mut cursor = Some(scope);
         let mut target = None;
         while let Some(id) = cursor {
-            if let Some(symbol) = self.scopes[id.0].values.get(first) {
-                target = Some(match symbol {
-                    ValueSymbol::Param(id, _) => ResolvedTarget::Param(id.clone()),
-                    ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
-                });
-                break;
-            }
-            if let Some(selection) = self.scopes[id.0].selections.get(first) {
-                target = Some(ResolvedTarget::Selection(selection.clone()));
+            if let Some(symbol) = self.scopes[id.0].state_symbols.get(first) {
+                target = Some(symbol.target());
                 break;
             }
             if let Some(declaration) = self.scopes[id.0].structural.get(first) {
@@ -2878,15 +2932,8 @@ impl<'a> Resolver<'a> {
             };
             let interface = self.instances.get(&declaration)?;
             let child_scope = interface.child_scope?;
-            if let Some(symbol) = self.scopes[child_scope.0].values.get(segment) {
-                target = match symbol {
-                    ValueSymbol::Param(id, _) => ResolvedTarget::Param(id.clone()),
-                    ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
-                };
-                continue;
-            }
-            if let Some(selection) = self.scopes[child_scope.0].selections.get(segment) {
-                target = ResolvedTarget::Selection(selection.clone());
+            if let Some(symbol) = self.scopes[child_scope.0].state_symbols.get(segment) {
+                target = symbol.target();
                 continue;
             }
             if let Some(child) = self.scopes[child_scope.0].structural.get(segment) {
@@ -3549,11 +3596,7 @@ impl<'a> Resolver<'a> {
     fn validate_core_declaration(&mut self, declaration: &Decl, span: SourceSpan, in_event: bool) {
         match declaration.keyword.as_str() {
             "param" => {
-                self.validate_core_property_names(
-                    declaration,
-                    &["type", "default", "sharing", "kind"],
-                    span,
-                );
+                self.validate_core_property_names(declaration, &["type", "value", "sharing"], span);
                 if !declaration.children.is_empty() {
                     self.error(
                         "AVENGER-RESOLVE-045",
@@ -3562,7 +3605,7 @@ impl<'a> Resolver<'a> {
                         "`param` does not accept child declarations",
                     );
                 }
-                for required in ["type", "default"] {
+                for required in ["type", "value"] {
                     if declaration.props.get(required).is_none() {
                         self.error(
                             "AVENGER-RESOLVE-032",
@@ -3571,14 +3614,6 @@ impl<'a> Resolver<'a> {
                             format!("every param requires `{required}:`"),
                         );
                     }
-                }
-                if declaration.props.get("kind").is_some() {
-                    self.error(
-                        "AVENGER-RESOLVE-033",
-                        "params do not have a behavioral kind",
-                        span,
-                        "remove `kind:` and retain the explicit physical `type:`",
-                    );
                 }
             }
             "store" => {
@@ -4729,6 +4764,20 @@ impl<'a> Resolver<'a> {
         let actual = match target {
             ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. } => BindingKind::Param,
             ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. } => BindingKind::Store,
+            ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. } => {
+                if diagnose {
+                    self.error(
+                        "AVENGER-RESOLVE-063",
+                        "selection is not a SQL value binding",
+                        span,
+                        format!(
+                            "`${}` resolves to selection state; use a typed selection reference",
+                            path.join(".")
+                        ),
+                    );
+                }
+                return None;
+            }
             _ => {
                 if diagnose {
                     self.error(
@@ -4857,8 +4906,8 @@ impl<'a> Resolver<'a> {
             let mut cursor = Some(scope);
             let mut found = None;
             while let Some(id) = cursor {
-                if let Some(selection) = self.scopes[id.0].selections.get(name) {
-                    found = Some(ResolvedTarget::Selection(selection.clone()));
+                if let Some(symbol) = self.scopes[id.0].state_symbols.get(name) {
+                    found = Some(symbol.target());
                     break;
                 }
                 cursor = self.scopes[id.0].parent;
@@ -4950,17 +4999,11 @@ impl<'a> Resolver<'a> {
         if path.len() == 1 {
             let mut cursor = Some(scope);
             while let Some(id) = cursor {
-                if let Some(symbol) = self.scopes[id.0].values.get(first) {
-                    return Some(match symbol {
-                        ValueSymbol::Param(id, _) => ResolvedTarget::Param(id.clone()),
-                        ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
-                    });
+                if let Some(symbol) = self.scopes[id.0].state_symbols.get(first) {
+                    return Some(symbol.target());
                 }
                 if let Some(target) = self.scopes[id.0].definition_arguments.get(first) {
                     return Some(target.clone());
-                }
-                if let Some(id) = self.scopes[id.0].selections.get(first) {
-                    return Some(ResolvedTarget::Selection(id.clone()));
                 }
                 if let Some(id) = self.scopes[id.0].structural.get(first) {
                     return self
@@ -5002,22 +5045,22 @@ impl<'a> Resolver<'a> {
         match declaration.keyword.as_str() {
             "param" => {
                 let symbol = self.scopes[info.containing_scope.0]
-                    .values
+                    .state_symbols
                     .get(&name)
                     .cloned();
-                let Some(ValueSymbol::Param(id, Some(data_type))) = symbol else {
+                let Some(StateSymbol::Param(id, Some(data_type))) = symbol else {
                     return;
                 };
                 let default = properties
-                    .get("default")
+                    .get("value")
                     .cloned()
                     .unwrap_or(ResolvedValue::Invalid);
                 self.validate_typed_boundary(
                     &data_type,
-                    declaration.props.get("default"),
+                    declaration.props.get("value"),
                     &default,
                     info.span,
-                    "param default",
+                    "param value",
                 );
                 let sharing =
                     parse_sharing(properties.get("sharing"), info.span, &mut self.diagnostics);
@@ -5028,7 +5071,7 @@ impl<'a> Resolver<'a> {
                 if table_owner.is_some()
                     && !declaration
                         .props
-                        .get("default")
+                        .get("value")
                         .is_some_and(is_self_contained_scalar_literal)
                 {
                     self.error(
@@ -5066,8 +5109,8 @@ impl<'a> Resolver<'a> {
             }
             "store" => self.resolve_store(file, declaration, info, &name, properties),
             "selection" => {
-                let Some(id) = self.scopes[info.containing_scope.0]
-                    .selections
+                let Some(StateSymbol::Selection(id)) = self.scopes[info.containing_scope.0]
+                    .state_symbols
                     .get(&name)
                     .cloned()
                 else {
@@ -5127,8 +5170,8 @@ impl<'a> Resolver<'a> {
         name: &str,
         properties: &BTreeMap<String, ResolvedValue>,
     ) {
-        let Some(ValueSymbol::Store(id)) = self.scopes[info.containing_scope.0]
-            .values
+        let Some(StateSymbol::Store(id)) = self.scopes[info.containing_scope.0]
+            .state_symbols
             .get(name)
             .cloned()
         else {
@@ -5652,20 +5695,28 @@ impl<'a> Resolver<'a> {
             .get("target")
             .and_then(resolved_path)
             .unwrap_or_default();
-        let expected = match kind.as_str() {
-            "param" => Some(BindingKind::Param),
-            "store" => Some(BindingKind::Store),
-            "selection" => None,
-            _ => {
+        let target = self.resolve_any_path(scope, &path, span, true);
+        let kind = match target.as_ref() {
+            Some(ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. }) => "param",
+            Some(ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }) => "store",
+            Some(ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }) => {
+                "selection"
+            }
+            Some(_) => {
                 self.error(
                     "AVENGER-RESOLVE-089",
-                    "unknown state action target kind",
+                    "state action target has the wrong kind",
                     span,
-                    format!("`set {kind}` is not a param, store, selection, or cursor action"),
+                    format!(
+                        "`{}` is not a scalar, store, or selection parameter",
+                        path.join(".")
+                    ),
                 );
                 return;
             }
+            None => return,
         };
+        action.kind = Some(kind.to_owned());
         if !action.properties.contains_key("value") {
             self.error(
                 "AVENGER-RESOLVE-085",
@@ -5695,24 +5746,6 @@ impl<'a> Resolver<'a> {
                 "state action has an invalid owner route",
                 span,
                 "use `at current` or `at start`",
-            );
-        }
-        let target = if kind == "selection" {
-            self.resolve_typed_reference_path(scope, &path, RefKind::Selection, span)
-        } else {
-            self.resolve_binding_path(scope, &path, expected, span, true)
-        };
-        if kind == "selection"
-            && !matches!(
-                target,
-                Some(ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. })
-            )
-        {
-            self.error(
-                "AVENGER-RESOLVE-092",
-                "selection action target has the wrong kind",
-                span,
-                format!("`{}` is not a selection", path.join(".")),
             );
         }
         if let Some(target) = target.clone() {
@@ -8885,9 +8918,7 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
     let source = crate::SourceFile::new(
         SourceId::new(0),
         crate::SourceOrigin::Memory("<registry-type>".into()),
-        format!(
-            "avenger 1; chart cartesian {{ param as value {{ type: {text}; default: NULL; }} }}"
-        ),
+        format!("avenger 1; chart cartesian {{ param {text} as value {{ value: NULL; }} }}"),
     );
     let parsed = crate::syntax::parse_file(&source).ok()?;
     let Root::Chart(chart) = parsed.ast.root else {

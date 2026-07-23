@@ -75,9 +75,9 @@ async fn resolve_valid_kernel_project_binds_forward_params_and_native_mark() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  param as upper { type: int64; default: $lower + 10; }
-  param as lower { type: int64; default: 0; }
-  group as points {
+  param int64 as upper { value: $lower + 10; }
+  param int64 as lower { value: 0; }
+  container group as points {
     mark symbol as dots { x: "x"; y: "y"; }
   }
 }
@@ -243,46 +243,89 @@ chart facet_wrap {
 
 #[tokio::test]
 async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
-    let project = project(
+    for declarations in [
+        "param int64 as state { value: 0; } param store as state { field int64 id; }",
+        "param int64 as state { value: 0; } param selection as state {}",
+        "param store as state { field int64 id; } param selection as state {}",
+    ] {
+        let source = format!("avenger 1; chart cartesian {{ {declarations} }}");
+        let project = project(&[("duplicate.avenger", &source)], "duplicate.avenger").await;
+        let failure = resolve_project(&project, &bootstrap_schema())
+            .result
+            .unwrap_err();
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-010"),
+            "{declarations}: {:?}",
+            failure.diagnostics
+        );
+    }
+
+    let shadowed = project(
         &[(
-            "duplicate.avenger",
-            r#"
-avenger 1;
+            "shadowed.avenger",
+            r#"avenger 1;
 chart cartesian {
-  param as state { type: int64; default: 0; }
-  store as state { field id: int64; }
-}
-"#,
+  param int64 as state { value: 1; }
+  container group {
+    param selection as state {}
+    mark symbol { x: "x"; y: "y"; size: $state; }
+  }
+}"#,
         )],
-        "duplicate.avenger",
+        "shadowed.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_project(&shadowed, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
         failure
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-010")
+            .any(|diagnostic| diagnostic.message.contains("selection")),
+        "nearest wrong-category state must stop lookup: {:?}",
+        failure.diagnostics
+    );
+
+    let cursor = project(
+        &[(
+            "cursor.avenger",
+            "avenger 1; chart cartesian { param int64 as cursor { value: 0; } }",
+        )],
+        "cursor.avenger",
+    )
+    .await;
+    let failure = resolve_project(&cursor, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("cursor")),
+        "{:?}",
+        failure.diagnostics
     );
 }
 
 #[tokio::test]
-async fn resolve_namespace_matrix_separates_value_selection_structure_and_events() {
+async fn resolve_namespace_matrix_unifies_state_but_separates_structure_and_events() {
     let valid = project(
         &[(
             "namespaces.avenger",
             r#"
 avenger 1;
 chart cartesian as namespaces {
-  private param as shared { type: int64; default: 0; }
-  private selection as shared {}
+  private param int64 as shared_value { value: 0; }
+  private param selection as shared {}
   mark symbol as shared { x: "x"; y: "y"; }
   on click as shared {
     target: mark shared;
-    set selection shared = clear;
-    set param shared = $shared + 1;
+    set shared = clear;
+    set shared_value = $shared_value + 1;
   }
 }
 "#,
@@ -314,8 +357,8 @@ chart cartesian as namespaces {
             r#"
 avenger 1;
 chart cartesian {
-  selection as picked {}
-  selection as picked {}
+  param selection as picked {}
+  param selection as picked {}
   mark symbol as points { x: "x"; y: "y"; }
   mark symbol as points { x: "x"; y: "y"; }
   on click as handler {}
@@ -334,7 +377,7 @@ chart cartesian {
         .iter()
         .map(|diagnostic| diagnostic.code.as_str())
         .collect::<Vec<_>>();
-    assert!(codes.contains(&"AVENGER-RESOLVE-011"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-010"));
     assert!(codes.contains(&"AVENGER-RESOLVE-012"));
     assert!(codes.contains(&"AVENGER-RESOLVE-013"));
 }
@@ -355,7 +398,7 @@ chart cartesian as widgets {
     data: { values: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }]; }
     position: top;
   }
-  param as selected { type: utf8; default: $first.value; }
+  param utf8 as selected { value: $first.value; }
 }
 "#,
         )],
@@ -395,9 +438,8 @@ avenger 1;
 chart cartesian as tools {
   tool pan_scroll_zoom as first {}
   tool pan_scroll_zoom as second {}
-  param as domain {
-    type: fixed_size_list(float64, 2);
-    default: $first.x_domain;
+  param fixed_size_list(float64, 2) as domain {
+    value: $first.x_domain;
   }
 }
 "#,
@@ -440,7 +482,7 @@ async fn resolve_widget_existing_state_parts_and_typed_failures() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  param as selected { type: utf8; default: 'a'; }
+  param utf8 as selected { value: 'a'; }
   widget radio_button_list as choice {
     data: { values: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }]; }
     position: top;
@@ -475,8 +517,8 @@ chart cartesian as chart {
             r#"
 avenger 1;
 chart cartesian {
-  param as wrong { type: int64; default: 1; }
-  store as wrong_kind { field id: utf8; }
+  param int64 as wrong { value: 1; }
+  param store as wrong_kind { field utf8 id; }
   widget radio_button_list as choice {
     data: { values: [{ value: 'a'; label: 'A'; }]; }
     position: top;
@@ -487,7 +529,7 @@ chart cartesian {
     position: top;
     value_param: $wrong_kind;
   }
-  param as also_wrong { type: utf8; default: $choice.value; }
+  param utf8 as also_wrong { value: $choice.value; }
 }
 "#,
         )],
@@ -515,7 +557,7 @@ async fn resolve_native_schema_contracts_cover_placement_body_children_and_coord
             r#"
 avenger 1;
 chart cartesian as contracts {
-  group {
+  container group {
     widget radio_button_list as nested {
       data: { values: [{ value: 'a'; label: 'A'; }]; }
       position: top;
@@ -585,14 +627,14 @@ async fn resolve_private_exports_hoisting_and_nearest_value_shadowing() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  group as controls {
-    private param as internal { type: int64; default: 7; }
+  container group as controls {
+    private param int64 as internal { value: 7; }
     export internal as value;
   }
-  private group as implementation {
+  private container group as implementation {
     public mark symbol as visible { x: "x"; y: "y"; }
   }
-  param as copied { type: int64; default: $controls.value; }
+  param int64 as copied { value: $controls.value; }
 }
 "#,
         )],
@@ -615,10 +657,10 @@ chart cartesian as chart {
             r#"
 avenger 1;
 chart cartesian {
-  param as data { type: int64; default: 1; }
-  group as nested {
-    store as data { field id: int64; }
-    param as copy { type: int64; default: $data; }
+  param int64 as data { value: 1; }
+  container group as nested {
+    param store as data { field int64 id; }
+    param int64 as copy { value: $data; }
   }
 }
 "#,
@@ -642,7 +684,7 @@ chart cartesian {
             r#"
 avenger 1;
 chart cartesian as exports {
-  group as component {
+  container group as component {
     private mark symbol as first { x: "x"; y: "y"; }
     private mark symbol as second { x: "x"; y: "y"; }
     export first as glyph;
@@ -673,7 +715,7 @@ async fn resolve_selection_contract_is_hoisted_and_core_properties_are_closed() 
             r#"
 avenger 1;
 chart cartesian {
-  selection as picked { empty: all; combine: intersect; }
+  param selection as picked { empty: all; combine: intersect; }
 }
 "#,
         )],
@@ -691,7 +733,7 @@ chart cartesian {
             r#"
 avenger 1;
 chart cartesian {
-  selection as picked { empty: maybe; combine: either; bogus: true; }
+  param selection as picked { empty: maybe; combine: either; bogus: true; }
 }
 "#,
         )],
@@ -719,8 +761,8 @@ async fn resolve_reports_complete_param_cycle_and_independent_schema_errors() {
             r#"
 avenger 1;
 chart cartesian {
-  param as a { type: int64; default: $b; }
-  param as b { type: int64; default: $a; }
+  param int64 as a { value: $b; }
+  param int64 as b { value: $a; }
   mark symbol { x: "x"; bogus: 1; }
   resource tiles as missing_url { kind: xyz; }
 }
@@ -760,7 +802,7 @@ import 'controller.tool.avenger';
 chart cartesian as chart {
   tool controller as first {}
   tool controller as second {}
-  param as selected { type: int64; default: $first.value; }
+  param int64 as selected { value: $first.value; }
 }
 "#,
             ),
@@ -769,7 +811,7 @@ chart cartesian as chart {
                 r#"
 avenger 1;
 define tool controller {
-  param as threshold { type: int64; default: 0; }
+  param int64 as threshold { value: 0; }
   export threshold as value;
 }
 "#,
@@ -839,11 +881,11 @@ chart cartesian as chart {
                 r#"
 avenger 1;
 define mark point_pair {
-  channel horizontal: x;
-  channel vertical: y;
-  slot expr as horizontal_value;
-  slot expr as vertical_value;
-  group as body {
+  slot channel horizontal { default: x; }
+  slot channel vertical { default: y; }
+  slot expr horizontal_value;
+  slot expr vertical_value;
+  container group as body {
     mark symbol as point {
       horizontal: horizontal_value;
       vertical: vertical_value;
@@ -923,7 +965,7 @@ define tool high { tool base as inner {} }
             ),
             (
                 "base.tool.avenger",
-                "avenger 1; define tool base { param as state { type: int64; default: 0; } }",
+                "avenger 1; define tool base { param int64 as state { value: 0; } }",
             ),
         ],
         "chart.avenger",
@@ -960,8 +1002,8 @@ chart cartesian as chart {
                 r#"
 avenger 1;
 define transform project {
-  slot expr as measure;
-  output result: measure;
+  slot expr measure;
+  output measure as result;
 }
 "#,
             ),
@@ -1007,7 +1049,7 @@ define transform project {
             ),
             (
                 "project.transform.avenger",
-                "avenger 1; define transform project { slot expr as measure; output result: measure; }",
+                "avenger 1; define transform project { slot expr measure; output measure as result; }",
             ),
         ],
         "chart.avenger",
@@ -1032,7 +1074,7 @@ async fn resolve_inline_views_are_body_lexical_and_never_public() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  group as owner {
+  container group as owner {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
@@ -1068,7 +1110,7 @@ chart cartesian as chart {
             r#"
 avenger 1;
 chart cartesian {
-  group {
+  container group {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
@@ -1103,7 +1145,7 @@ async fn resolve_rejects_reusable_exported_and_nested_inline_views() {
             r#"
 avenger 1;
 chart cartesian {
-  group {
+  container group {
     public view cartesian as reusable {
       export child;
       view cartesian as nested {
@@ -1159,13 +1201,13 @@ async fn resolve_named_runtime_ids_ignore_irrelevant_sibling_order() {
         r#"
 avenger 1;
 chart cartesian as stable {
-  param as unrelated { type: boolean; default: true; }
+  param boolean as unrelated { value: true; }
   mark symbol as stable_mark { x: "x"; y: "y"; }
   widget radio_button_list as stable_widget {
     data: { values: [{ value: 1; label: 'one'; }]; }
     position: top;
   }
-  param as stable_param { type: int64; default: 1; }
+  param int64 as stable_param { value: 1; }
 }
 "#,
     )
@@ -1174,13 +1216,13 @@ chart cartesian as stable {
         r#"
 avenger 1;
 chart cartesian as stable {
-  param as stable_param { type: int64; default: 1; }
+  param int64 as stable_param { value: 1; }
   widget radio_button_list as stable_widget {
     data: { values: [{ value: 1; label: 'one'; }]; }
     position: top;
   }
   mark symbol as stable_mark { x: "x"; y: "y"; }
-  param as unrelated { type: boolean; default: true; }
+  param boolean as unrelated { value: true; }
 }
 "#,
     )
@@ -1205,9 +1247,9 @@ chart cartesian as chart { mark broken { value: "x"; } }
                 r#"
 avenger 1;
 define mark broken {
-  slot expr as later;
-  slot enum as mode { values: [a, b]; default: missing; }
-  group {}
+  slot expr later;
+  slot enum mode { values: [a, b]; default: missing; }
+  container group {}
 }
 "#,
             ),
@@ -1238,7 +1280,7 @@ async fn resolve_public_mark_and_component_part_provenance_matches_baseline() {
             r#"
 avenger 1;
 chart cartesian as provenance {
-  group as composite {
+  container group as composite {
     component_kind: point_pair;
     mark symbol as point { x: "x"; y: "y"; }
     export point as glyph;
@@ -1359,7 +1401,7 @@ async fn resolve_pipeline_defers_output_interfaces_but_preserves_stage_order() {
 avenger 1;
 chart cartesian as pipeline {
   transform pipeline as summarized {
-    output final: second.final;
+    output second.final as final;
     transform aggregate as first {
       measures: [{ name: 'total'; op: sum; expr: "amount"; }];
     }
@@ -1398,8 +1440,8 @@ avenger 1;
 chart cartesian {
   transform pipeline as duplicate {
     transform aggregate { measures: [{ name: 'total'; op: sum; expr: "x"; }]; }
-    output total: "total";
-    output total: "total";
+    output "total" as total;
+    output "total" as total;
   }
 }
 "#,
@@ -1484,8 +1526,8 @@ async fn resolve_sql_placeholders_distinguish_scalar_and_table_bindings() {
             r#"
 avenger 1;
 chart cartesian as bindings {
-  param as minimum { type: int64; default: 1; }
-  store as rows { field id: int64; }
+  param int64 as minimum { value: 1; }
+  param store as rows { field int64 id; }
   transform sql as filtered {
     query:
       SELECT * FROM $rows WHERE "id" >= $minimum;
@@ -1516,8 +1558,8 @@ chart cartesian as bindings {
             r#"
 avenger 1;
 chart cartesian as wrong_bindings {
-  param as scalar { type: int64; default: 1; }
-  store as relation { field id: int64; }
+  param int64 as scalar { value: 1; }
+  param store as relation { field int64 id; }
   transform sql {
     query:
       SELECT * FROM $scalar;
@@ -1550,17 +1592,15 @@ async fn resolve_nested_arrow_state_and_store_rows_at_exact_boundaries() {
             r#"
 avenger 1;
 chart cartesian as state {
-  param as pointer {
-    type: struct(field('position',struct(field('x',float64),field('y',float64))),field('labels',list(utf8)));
-    default: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
+  param struct(field(struct(field(float64, 'x'),field(float64, 'y')), 'position'),field(list(utf8), 'labels')) as pointer {
+    value: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
   }
-  param as empty_pointer {
-    type: struct(field('position',struct(field('x',float64),field('y',float64))),field('labels',list(utf8)));
-    default: NULL;
+  param struct(field(struct(field(float64, 'x'),field(float64, 'y')), 'position'),field(list(utf8), 'labels')) as empty_pointer {
+    value: NULL;
   }
-  store as rows {
-    field id: utf8;
-    field payload: struct(field('count',int8),field('tags',list(utf8))) nullable;
+  param store as rows {
+    field utf8 id;
+    field struct(field(int8, 'count'),field(list(utf8), 'tags')) payload nullable;
     primary_key: [id];
     row { id: 'one'; }
   }
@@ -1583,9 +1623,9 @@ chart cartesian as state {
             r#"
 avenger 1;
 chart cartesian as bad_state {
-  store as rows {
-    field __avenger_store_owner: utf8;
-    field id: int8;
+  param store as rows {
+    field utf8 __avenger_store_owner;
+    field int8 id;
     primary_key: [id, id];
     row { id: 128; }
     row { }
@@ -1625,7 +1665,7 @@ avenger 1;
 schema tables as local {
   table parquet as base { path: 'base.parquet'; }
   table sql as filtered {
-    param as minimum { type: int64; default: 10; }
+    param int64 as minimum { value: 10; }
     sql: SELECT * FROM local.base WHERE "value" >= $minimum;
   }
 }
@@ -1655,8 +1695,8 @@ schema tables as local {
 avenger 1;
 schema tables as local {
   table sql as bad {
-    param as first { type: int64; default: 1; }
-    param as second { type: int64; default: $first; }
+    param int64 as first { value: 1; }
+    param int64 as second { value: $first; }
     sql: VALUES ($second);
   }
 }
@@ -1685,7 +1725,7 @@ async fn resolve_event_routes_temporal_reads_and_ordered_typed_actions() {
             r#"
 avenger 1;
 chart cartesian as events {
-  param as x { type: int8; default: 0; }
+  param int8 as x { value: 0; }
   mark symbol as points { x: "x"; y: "y"; }
   on cursor_moved as drag {
     target: mark points;
@@ -1695,7 +1735,7 @@ chart cartesian as events {
       start: mouse_down { filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set param x at start = $x@start + event_facet_value(0);
+    set x at start = $x@start + event_facet_value(0);
     set cursor = 'crosshair';
   }
 }
@@ -1728,13 +1768,13 @@ chart cartesian as events {
             r#"
 avenger 1;
 chart cartesian as bad_events {
-  param as x { type: int8; default: 0; }
+  param int8 as x { value: 0; }
   on cursor_moved as drag {
     between: {
       start: mouse_down { filter: $x@previous > 0; }
       end: mouse_up {}
     }
-    set param x = 128;
+    set x = 128;
   }
 }
 "#,
@@ -1762,13 +1802,13 @@ async fn resolve_reserved_helpers_bind_typed_targets_and_registered_channels() {
             r#"
 avenger 1;
 chart cartesian as helpers {
-  param as cursor_x { type: float64; default: 0; }
-  selection as picked {}
+  param float64 as cursor_x { value: 0; }
+  param selection as picked {}
   mark symbol as points { x: channel(y) + 1; y: "y"; }
   on click {
     target: mark points;
     filter: selection_contains(picked, datum('id')) = true;
-    set param cursor_x = event_coord(x) + 0;
+    set cursor_x = event_coord(x) + 0;
   }
 }
 "#,
@@ -1847,15 +1887,15 @@ async fn resolve_event_scope_targets_and_action_lvalues_are_fully_typed() {
             r#"
 avenger 1;
 chart cartesian as events {
-  param as x { type: float64; default: 0; sharing: free; }
-  store as rows {
-    field id: utf8;
-    field value: float64 nullable;
+  param float64 as x { value: 0; sharing: free; }
+  param store as rows {
+    field utf8 id;
+    field float64 value nullable;
     primary_key: [id];
   }
-  selection as picked { empty: none; combine: union; }
-  group as overview { mark symbol as points { x: "x"; y: "y"; } }
-  group as detail { mark symbol as points { x: "x"; y: "y"; } }
+  param selection as picked { empty: none; combine: union; }
+  container group as overview { mark symbol as points { x: "x"; y: "y"; } }
+  container group as detail { mark symbol as points { x: "x"; y: "y"; } }
   on cursor_moved as drag {
     target: marks [overview.points, detail.points];
     scope: subplots [overview, detail];
@@ -1864,9 +1904,9 @@ chart cartesian as events {
       start: mouse_down { target: mark overview.points; filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set param x at start replacing scopes = event_coord(x);
-    set store rows = insert_rows { row { id: 'cursor'; value: event_coord(x); } }
-    set selection picked = replace_all_from_scene_query {
+    set x at start replacing scopes = event_coord(x);
+    set rows = insert_rows { row { id: 'cursor'; value: event_coord(x); } }
+    set picked = replace_all_from_scene_query {
       geometry: polygon(event_path());
       policy: intersects;
       marks: [overview.points, detail.points];
@@ -1937,10 +1977,10 @@ async fn resolve_rejects_invalid_scene_query_mark_targets() {
             r#"
 avenger 1;
 chart cartesian as bad_scene_targets {
-  selection as picked { empty: none; combine: union; }
-  group as panel { mark symbol as points { x: "x"; y: "y"; } }
+  param selection as picked { empty: none; combine: union; }
+  container group as panel { mark symbol as points { x: "x"; y: "y"; } }
   on cursor_moved {
-    set selection picked = replace_all_from_scene_query {
+    set picked = replace_all_from_scene_query {
       geometry: polygon(event_path());
       policy: intersects;
       marks: [panel.points, panel.points, panel, 1 + 2];
