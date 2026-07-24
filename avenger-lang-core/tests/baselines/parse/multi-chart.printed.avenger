@@ -1,0 +1,6 @@
+avenger 1;
+chart cartesian as cartesian_example {
+}
+
+chart polar as polar_example {
+}

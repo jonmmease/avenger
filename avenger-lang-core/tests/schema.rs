@@ -2,10 +2,7 @@ use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, PhysicalType,
     ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId,
-    SourceOrigin,
-    ast::{Root, Value},
-    resolve_project, semantic_json_schema,
-    syntax::parse_file,
+    SourceOrigin, ast::Value, resolve_project, semantic_json_schema, syntax::parse_file,
 };
 use std::{fs, path::PathBuf};
 
@@ -50,9 +47,7 @@ fn type_value(spelling: &str) -> Value {
     let parsed = parse_file(&source).unwrap_or_else(|error| {
         panic!("failed to parse physical type spelling {spelling}: {error:?}")
     });
-    let Root::Chart(chart) = parsed.ast.root else {
-        panic!("chart root")
-    };
+    let chart = parsed.ast.items.into_iter().next().unwrap().declaration;
     chart.children[0].props.get("type").unwrap().clone()
 }
 
@@ -304,7 +299,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         .next()
         .expect("one source file");
     let mut instance = serde_json::to_value(&file.parsed.ast).unwrap();
-    instance["root"]["children"][0]["props"]
+    instance["items"][0]["declaration"]["children"][0]["props"]
         .as_object_mut()
         .unwrap()
         .remove("value");
@@ -353,8 +348,24 @@ fn interchange_name_schema_matches_unicode_identifier_contract() {
     let parsed = parse_file(&source).unwrap();
     let mut instance = serde_json::to_value(&parsed.ast).unwrap();
     assert!(validator.is_valid(&instance));
-    instance["root"]["name"] = serde_json::Value::String("bad$name".to_owned());
+    instance["items"][0]["declaration"]["name"] = serde_json::Value::String("bad$name".to_owned());
     assert!(!validator.is_valid(&instance));
+
+    let invalid_top_level = serde_json::json!({
+        "version": 1,
+        "items": [{
+            "exported": false,
+            "declaration": {
+                "decl": "param",
+                "name": "value",
+                "props": {
+                    "type": { "atom": "float64" },
+                    "value": { "num": "1" }
+                }
+            }
+        }]
+    });
+    assert!(!validator.is_valid(&invalid_top_level));
 }
 
 fn number(spelling: &str) -> Value {
@@ -367,9 +378,7 @@ fn number(spelling: &str) -> Value {
         text,
     );
     let parsed = parse_file(&source).unwrap();
-    let Root::Chart(chart) = parsed.ast.root else {
-        panic!("chart root")
-    };
+    let chart = parsed.ast.items.into_iter().next().unwrap().declaration;
     chart.children[0].props.get("value").unwrap().clone()
 }
 

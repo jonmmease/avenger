@@ -1,3 +1,3 @@
-AVENGER-PARSE-004
-expected one chart, definition, or data root
+AVENGER-PARSE-045
+expected a chart, define mark/tool/transform, table, schema, or catalog module item
 11..16

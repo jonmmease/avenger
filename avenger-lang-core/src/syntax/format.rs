@@ -274,6 +274,32 @@ chart cartesian {
         parse_file(&source(2, formatted)).unwrap();
     }
 
+    #[test]
+    fn format_anchors_comments_across_imports_and_sibling_module_items() {
+        let input = source(
+            1,
+            r#"avenger 1;
+-- imported charts
+import { chart as example } from './library.avenger'; -- exact module
+
+-- first item
+export chart cartesian as first {}
+
+-- second item
+chart polar as second {}
+"#,
+        );
+        let formatted = format_source(&input).unwrap();
+        assert!(formatted.find("imported charts").unwrap() < formatted.find("import {").unwrap());
+        assert!(formatted.find("import {").unwrap() < formatted.find("exact module").unwrap());
+        assert!(formatted.find("first item").unwrap() < formatted.find("as first").unwrap());
+        assert!(formatted.find("second item").unwrap() < formatted.find("as second").unwrap());
+        assert_eq!(
+            formatted,
+            format_source(&source(2, formatted.clone())).unwrap()
+        );
+    }
+
     fn strip_ordinary_comments(source_text: &str) -> String {
         let source = source(99, source_text);
         let tokens = tokenize(&source).unwrap();

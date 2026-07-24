@@ -87,36 +87,127 @@ impl fmt::Display for NumericLiteral {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct File {
     pub version: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<Name>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub imports: Vec<Import>,
-    pub root: Root,
+    pub items: Vec<ModuleItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModuleItem {
+    pub exported: bool,
+    pub declaration: Decl,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Import {
-    #[serde(rename = "import")]
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
-    #[serde(rename = "as", default, skip_serializing_if = "Option::is_none")]
-    pub alias: Option<Name>,
+    pub clause: ImportClause,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Root {
-    Chart(Decl),
-    Define(Decl),
-    Data(Vec<Decl>),
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportClause {
+    Named(Vec<ImportSpecifier>),
+    Namespace(Name),
 }
 
-impl Root {
-    pub fn declarations(&self) -> &[Decl] {
-        match self {
-            Self::Chart(decl) | Self::Define(decl) => std::slice::from_ref(decl),
-            Self::Data(declarations) => declarations,
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSpecifier {
+    pub imported: Name,
+    pub local: Name,
+}
+
+/// A non-empty dotted path used only in declaration-kind positions.
+///
+/// The canonical spelling is retained alongside validated segments so
+/// resolvers can distinguish unqualified and namespaced kinds without
+/// reparsing or allocating a joined string.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct QualifiedName {
+    segments: Vec<Name>,
+    canonical: String,
+}
+
+impl QualifiedName {
+    pub fn new(segments: Vec<Name>) -> Result<Self, AstError> {
+        if segments.is_empty() {
+            return Err(AstError::InvalidQualifiedName(
+                "qualified name must contain at least one segment".to_string(),
+            ));
         }
+        let canonical = segments
+            .iter()
+            .map(Name::as_str)
+            .collect::<Vec<_>>()
+            .join(".");
+        Ok(Self {
+            segments,
+            canonical,
+        })
+    }
+
+    pub fn parse(value: &str) -> Result<Self, AstError> {
+        if value.is_empty() {
+            return Err(AstError::InvalidQualifiedName(value.to_string()));
+        }
+        value
+            .split('.')
+            .map(Name::new)
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(Self::new)
+    }
+
+    pub fn segments(&self) -> &[Name] {
+        &self.segments
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.canonical
+    }
+
+    pub fn simple(&self) -> Option<&Name> {
+        let [name] = self.segments.as_slice() else {
+            return None;
+        };
+        Some(name)
+    }
+}
+
+impl From<Name> for QualifiedName {
+    fn from(name: Name) -> Self {
+        let canonical = name.as_str().to_string();
+        Self {
+            segments: vec![name],
+            canonical,
+        }
+    }
+}
+
+impl fmt::Display for QualifiedName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl Serialize for QualifiedName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for QualifiedName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::parse(&String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
 
@@ -126,7 +217,7 @@ pub struct Decl {
     #[serde(rename = "decl")]
     pub keyword: Name,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Name>,
+    pub kind: Option<QualifiedName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<Name>,
     #[serde(default, skip_serializing_if = "Visibility::is_default")]
@@ -449,6 +540,15 @@ pub struct AstSourceMap {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AstNodeRole {
     Declaration(Name),
+    DeclarationKindSegment { name: Name, index: usize },
+    DeclarationBinder(Name),
+    Import,
+    ImportSource,
+    ImportImportedName(Name),
+    ImportLocalName(Name),
+    ImportNamespaceAlias(Name),
+    ModuleItem,
+    ExportKeyword,
     PropertyValue(Name),
 }
 
@@ -487,6 +587,8 @@ impl AstSourceMap {
 pub enum AstError {
     #[error("invalid Avenger name `{0}`")]
     InvalidName(String),
+    #[error("invalid qualified Avenger name `{0}`")]
+    InvalidQualifiedName(String),
     #[error("invalid exact numeric literal `{0}`")]
     InvalidNumber(String),
     #[error("duplicate property `{0}`")]

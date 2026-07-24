@@ -6,8 +6,8 @@ use std::{
 use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
     ast::{
-        BindingKind, BindingTime, Body, Decl, File, Name, NumericLiteral, PropertyMap, RefKind,
-        Root, SqlExpression, SqlQuery, Value,
+        BindingKind, BindingTime, Body, Decl, File, ModuleItem, Name, NumericLiteral, PropertyMap,
+        RefKind, SqlExpression, SqlQuery, Value,
     },
     interchange::{canonical_json, decode_json, encode_json},
     print::print_file,
@@ -20,7 +20,8 @@ const VALID_FIXTURES: &[&str] = &[
     "define-mark.avenger",
     "define-tool.avenger",
     "define-transform.avenger",
-    "catalog.data.avenger",
+    "catalog.avenger",
+    "multi-chart.avenger",
     "dedicated-shapes.avenger",
     "query-entry.avenger",
     "selection-payloads.avenger",
@@ -30,7 +31,10 @@ const VALID_FIXTURES: &[&str] = &[
 const INVALID_FIXTURES: &[&str] = &[
     "missing-delimiter.avenger",
     "multiple-statements.avenger",
-    "multiple-roots.avenger",
+    "legacy-import.avenger",
+    "late-import.avenger",
+    "empty-module.avenger",
+    "import-only.avenger",
     "malformed-action.avenger",
     "illegal-visibility.avenger",
     "define-widget.avenger",
@@ -58,6 +62,13 @@ fn loaded(path: &Path, id: u32) -> SourceFile {
         SourceOrigin::File(path.to_owned()),
         fs::read_to_string(path).unwrap(),
     )
+}
+
+fn only_declaration(parsed: &avenger_lang_core::syntax::ParsedFile) -> &Decl {
+    let [item] = parsed.ast.items.as_slice() else {
+        panic!("expected exactly one module item")
+    };
+    &item.declaration
 }
 
 fn assert_baseline(path: &Path, actual: &str) {
@@ -213,11 +224,11 @@ fn ast_json_rejects_every_closed_tag_boundary_violation() {
     }
 
     for invalid in [
-        r#"{"version":1,"version":1,"root":{"decl":"chart"}}"#,
-        r#"{"version":1,"root":{"decl":"chart","provenance":{}}}"#,
-        r#"{"version":1,"root":{"decl":"chart","visibility":"default"}}"#,
-        r#"{"version":1,"root":{"decl":"chart","props":{"x":{"binding":{"kind":"param","path":"x","time":"current"}}}}}"#,
-        r#"{"version":1,"imports":[{"import":"x","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}],"root":{"decl":"chart"}}"#,
+        r#"{"version":1,"version":1,"items":[{"exported":false,"declaration":{"decl":"chart","kind":"cartesian"}}]}"#,
+        r#"{"version":1,"items":[{"exported":false,"declaration":{"decl":"chart","kind":"cartesian","provenance":{}}}]}"#,
+        r#"{"version":1,"items":[{"exported":false,"declaration":{"decl":"chart","kind":"cartesian","visibility":"default"}}]}"#,
+        r#"{"version":1,"items":[{"exported":false,"declaration":{"decl":"chart","kind":"cartesian","props":{"x":{"binding":{"kind":"param","path":"x","time":"current"}}}}}]}"#,
+        r#"{"version":1,"imports":[{"source":"x","clause":{"named":[]}}],"items":[{"exported":false,"declaration":{"decl":"chart","kind":"cartesian"}}]}"#,
     ] {
         assert!(decode_json(invalid).is_err(), "accepted {invalid}");
     }
@@ -241,17 +252,19 @@ fn ast_generated_generic_trees_obey_json_and_print_properties() {
             .unwrap();
         let file = File {
             version: 1,
-            name: None,
             imports: Vec::new(),
-            root: Root::Chart(Decl {
-                keyword: name("chart"),
-                kind: Some(name("cartesian")),
-                name: None,
-                visibility: Default::default(),
-                doc: None,
-                props,
-                children: vec![Decl::new(name("row")), Decl::new(name("when"))],
-            }),
+            items: vec![ModuleItem {
+                exported: false,
+                declaration: Decl {
+                    keyword: name("chart"),
+                    kind: Some(name("cartesian").into()),
+                    name: None,
+                    visibility: Default::default(),
+                    doc: None,
+                    props,
+                    children: vec![Decl::new(name("row")), Decl::new(name("when"))],
+                },
+            }],
         };
         let json = encode_json(&file).unwrap();
         assert_eq!(file, decode_json(&json).unwrap());
@@ -275,9 +288,7 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
         "avenger 1; chart cartesian { a: 9007199254740993; b: 12345678901234567890.12345678901234567890; c: 1.20E+003; d: -0; literal: 1; parenthesized: (1); casted: CAST(1 AS DECIMAL(38, 20)); compound: 1 + 0; }",
     );
     let parsed = parse_file(&source).unwrap();
-    let Root::Chart(chart) = &parsed.ast.root else {
-        panic!()
-    };
+    let chart = only_declaration(&parsed);
     for key in ["a", "b", "c", "d", "literal"] {
         assert!(matches!(chart.props.get(key), Some(Value::Num(_))), "{key}");
     }
@@ -293,13 +304,8 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
             NumericLiteral::new("9007199254740993").unwrap()
         ))
     );
-    let Root::Define(definition) = &parse_file(&loaded(&fixture("define-mark.avenger"), 9))
-        .unwrap()
-        .ast
-        .root
-    else {
-        panic!()
-    };
+    let definition_file = parse_file(&loaded(&fixture("define-mark.avenger"), 9)).unwrap();
+    let definition = only_declaration(&definition_file);
     let Value::Call { args, .. } = definition.children[4].props.get("value").unwrap() else {
         panic!("definition output should normalize as a call")
     };
@@ -343,9 +349,7 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
 fn headed_block_disambiguation_is_stable() {
     let path = fixture("headed-blocks.avenger");
     let parsed = parse_file(&loaded(&path, 1)).unwrap();
-    let Root::Chart(chart) = &parsed.ast.root else {
-        panic!("expected chart root")
-    };
+    let chart = only_declaration(&parsed);
 
     let head = |property: &str| match chart.props.get(property) {
         Some(Value::Block {

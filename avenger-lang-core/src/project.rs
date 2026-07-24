@@ -12,7 +12,7 @@ use url::Url;
 use crate::{
     Diagnostic, ExpansionOrImportFrame, ImportCapabilities, LoadedSource, SourceFile, SourceId,
     SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
-    ast::{Decl, Name, Root, is_name},
+    ast::{Decl, ImportClause},
     syntax::{ParsedFile, SyntaxLimits, parse_file_with_limits},
 };
 
@@ -40,16 +40,6 @@ pub enum DefinitionKind {
     Mark,
     Tool,
     Transform,
-}
-
-impl DefinitionKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Mark => "mark",
-            Self::Tool => "tool",
-            Self::Transform => "transform",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -410,12 +400,12 @@ impl<'a> ProjectLoader<'a> {
                             message,
                         )
                     })?;
-            let explicit_alias = import.alias.is_some();
-            let binding = import
-                .alias
-                .as_ref()
-                .map(ToString::to_string)
-                .or_else(|| inferred_import_name(&target));
+            let binding = match &import.clause {
+                ImportClause::Named(specifiers) => specifiers
+                    .first()
+                    .map(|specifier| specifier.local.to_string()),
+                ImportClause::Namespace(local) => Some(local.to_string()),
+            };
             let mut trace = pending.trace.clone();
             trace.push((import_site, import.source.clone()));
             state.enqueue(
@@ -425,7 +415,7 @@ impl<'a> ProjectLoader<'a> {
                     importer: source_id,
                     site: import_site,
                     binding,
-                    explicit_alias,
+                    explicit_alias: true,
                 }),
                 Some((import.sha256, trace)),
             );
@@ -689,7 +679,17 @@ impl<'a> LoadState<'a> {
 }
 
 fn imported_data_binding(file: &ProjectFile, site: SourceSpan) -> ProjectResult<String> {
-    let Root::Data(declarations) = &file.parsed.ast.root else {
+    let declarations = file
+        .parsed
+        .ast
+        .items
+        .iter()
+        .map(|item| &item.declaration)
+        .collect::<Vec<_>>();
+    if !declarations
+        .iter()
+        .all(|declaration| matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog"))
+    {
         return Err(project_diagnostic(
             "AVENGER-PROJECT-002",
             "data file kind does not contain a data root",
@@ -733,72 +733,62 @@ fn classify_and_validate(
     source: SourceId,
 ) -> ProjectResult<ProjectFileKind> {
     let path = origin_path(origin);
-    let kind = if path.ends_with(".data.avenger") {
-        ProjectFileKind::Data
-    } else if path.ends_with(".mark.avenger") {
-        ProjectFileKind::Definition(DefinitionKind::Mark)
-    } else if path.ends_with(".tool.avenger") {
-        ProjectFileKind::Definition(DefinitionKind::Tool)
-    } else if path.ends_with(".transform.avenger") {
-        ProjectFileKind::Definition(DefinitionKind::Transform)
-    } else if path.ends_with(".avenger") {
-        ProjectFileKind::Chart
-    } else {
+    if !path.ends_with(".avenger") {
         return Err(project_diagnostic(
             "AVENGER-PROJECT-001",
             "unrecognized Avenger file extension",
             SourceSpan::empty(source, 0),
-            "expected .avenger, .mark.avenger, .tool.avenger, .transform.avenger, or .data.avenger",
+            "expected an ordinary .avenger source module",
         ));
-    };
-    let root_matches = matches!(
-        (kind, &parsed.ast.root),
-        (ProjectFileKind::Chart, Root::Chart(_))
-            | (ProjectFileKind::Data, Root::Data(_))
-            | (ProjectFileKind::Definition(_), Root::Define(_))
-    );
-    if !root_matches {
+    }
+    let declarations = parsed
+        .ast
+        .items
+        .iter()
+        .map(|item| &item.declaration)
+        .collect::<Vec<_>>();
+    if declarations
+        .iter()
+        .any(|declaration| declaration.keyword.as_str() == "chart")
+    {
+        return Ok(ProjectFileKind::Chart);
+    }
+    if declarations
+        .iter()
+        .all(|declaration| matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog"))
+    {
+        return Ok(ProjectFileKind::Data);
+    }
+    let Some(definition) = declarations
+        .iter()
+        .find(|declaration| declaration.keyword.as_str() == "define")
+    else {
         return Err(project_diagnostic(
             "AVENGER-PROJECT-002",
-            "file extension does not match its root declaration",
+            "module has no chart, definition, or dataset item",
             SourceSpan::empty(source, 0),
-            format!("{} requires a matching root kind", origin.display_name()),
+            origin.display_name(),
         ));
-    }
-    if let (ProjectFileKind::Definition(expected), Root::Define(decl)) = (kind, &parsed.ast.root)
-        && decl.kind.as_ref().map(Name::as_str) != Some(expected.as_str())
+    };
+    let definition_kind = match definition
+        .kind
+        .as_ref()
+        .and_then(|kind| kind.simple())
+        .map(|kind| kind.as_str())
     {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-003",
-            "definition extension does not match definition kind",
-            SourceSpan::empty(source, 0),
-            format!("expected `define {}`", expected.as_str()),
-        ));
-    }
-    if kind != ProjectFileKind::Data {
-        let name = canonical_file_name(&path).ok_or_else(|| {
-            project_diagnostic(
-                "AVENGER-PROJECT-004",
-                "file name is not a valid Avenger name",
-                SourceSpan::empty(source, 0),
-                "rename the file to a bare identifier or use an import alias",
-            )
-        })?;
-        let declaration_name = match &parsed.ast.root {
-            Root::Chart(decl) | Root::Define(decl) => decl.name.as_ref(),
-            Root::Data(_) => None,
-        };
-        if declaration_name.is_some_and(|declared| declared.as_str() != name) {
+        Some("mark") => DefinitionKind::Mark,
+        Some("tool") => DefinitionKind::Tool,
+        Some("transform") => DefinitionKind::Transform,
+        _ => {
             return Err(project_diagnostic(
-                "AVENGER-PROJECT-005",
-                "declaration name does not match file name",
+                "AVENGER-PROJECT-003",
+                "invalid definition module item",
                 SourceSpan::empty(source, 0),
-                format!("expected `{name}`"),
+                "expected define mark, define tool, or define transform",
             ));
         }
-        parsed.ast.name = Some(Name::new(name).expect("validated file name"));
-    }
-    Ok(kind)
+    };
+    Ok(ProjectFileKind::Definition(definition_kind))
 }
 
 fn validate_import_matrix(
@@ -943,10 +933,16 @@ fn validate_ambient_catalogs(
         let Some(source) = origins.get(&root.origin).copied() else {
             continue;
         };
-        let Root::Data(declarations) = &files[&source].parsed.ast.root else {
-            continue;
-        };
-        for declaration in declarations {
+        for declaration in files[&source]
+            .parsed
+            .ast
+            .items
+            .iter()
+            .map(|item| &item.declaration)
+            .filter(|declaration| {
+                matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog")
+            })
+        {
             collect_catalog_paths(declaration, &[], source, &mut paths)?;
         }
     }
@@ -963,9 +959,10 @@ fn validate_imported_data_collisions(
         .iter()
         .filter(|root| root.role == ProjectDependencyRole::DataConfiguration)
         .filter_map(|root| origins.get(&root.origin))
-        .flat_map(|source| match &files[source].parsed.ast.root {
-            Root::Data(declarations) => declarations.as_slice(),
-            _ => &[],
+        .flat_map(|source| files[source].parsed.ast.items.iter())
+        .map(|item| &item.declaration)
+        .filter(|declaration| {
+            matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog")
         })
         .filter_map(|declaration| declaration.name.as_ref())
         .map(ToString::to_string)
@@ -1117,33 +1114,6 @@ fn origin_path(origin: &SourceOrigin) -> String {
     }
 }
 
-fn canonical_file_name(path: &str) -> Option<&str> {
-    let file_name = Path::new(path).file_name()?.to_str()?;
-    let stem = [
-        ".mark.avenger",
-        ".tool.avenger",
-        ".transform.avenger",
-        ".avenger",
-    ]
-    .iter()
-    .find_map(|suffix| file_name.strip_suffix(suffix))?;
-    let unversioned = stem.split_once('@').map_or(stem, |(name, _)| name);
-    is_name(unversioned).then_some(unversioned)
-}
-
-fn inferred_import_name(origin: &SourceOrigin) -> Option<String> {
-    canonical_file_name(&origin_path(origin))
-        .map(ToOwned::to_owned)
-        .or_else(|| match origin {
-            SourceOrigin::Std(path) => Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .filter(|name| is_name(name))
-                .map(ToOwned::to_owned),
-            _ => None,
-        })
-}
-
 fn validate_sha256(
     expected: &str,
     loaded: &LoadedSource,
@@ -1237,17 +1207,21 @@ fn merge_ambient_catalog(
     let mut declarations = Vec::new();
     for id in ambient_data {
         let file = &files[id];
-        if let Root::Data(roots) = &file.parsed.ast.root {
-            declarations.extend(
-                roots
-                    .iter()
-                    .cloned()
-                    .map(|declaration| AmbientDataDeclaration {
-                        source: file.source,
-                        declaration,
-                    }),
-            );
-        }
+        declarations.extend(
+            file.parsed
+                .ast
+                .items
+                .iter()
+                .map(|item| &item.declaration)
+                .filter(|declaration| {
+                    matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog")
+                })
+                .cloned()
+                .map(|declaration| AmbientDataDeclaration {
+                    source: file.source,
+                    declaration,
+                }),
+        );
     }
     declarations
 }

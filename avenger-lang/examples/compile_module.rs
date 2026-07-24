@@ -1,4 +1,4 @@
-//! Compile and evaluate one real Avenger chart-language source file.
+//! Compile and evaluate one chart from an Avenger source module.
 
 use std::path::PathBuf;
 
@@ -10,12 +10,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
-        .ok_or("usage: compile_file <chart.avenger>")?;
+        .ok_or("usage: compile_module <module.avenger>")?;
     let absolute = std::fs::canonicalize(&path)?;
     let project_root = absolute
         .parent()
         .ok_or("chart source has no parent directory")?;
     let compiler = Compiler::builder().project_root(project_root).build()?;
+    // The module-oriented compiler API replaces this transitional `compile_file`
+    // call in Phase 8 of the module-system implementation.
     let artifact = compiler.compile_file(&absolute).await?;
     let evaluated = artifact
         .compiled_plot()

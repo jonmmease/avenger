@@ -1,6 +1,9 @@
 //! Canonical semantic source printing over the shared indentation engine.
 
-use crate::ast::{BindingTime, Decl, File, Name, PropertyMap, RefKind, Root, Value, Visibility};
+use crate::ast::{
+    BindingTime, Decl, File, ImportClause, ModuleItem, Name, PropertyMap, QualifiedName, RefKind,
+    Value, Visibility,
+};
 
 pub fn print_file(file: &File) -> String {
     let mut printer = Printer::default();
@@ -30,60 +33,108 @@ impl Printer {
         self.text(&file.version.to_string());
         self.line(";");
         for import in &file.imports {
-            self.text("import ");
+            match &import.clause {
+                ImportClause::Named(specifiers) => {
+                    let inline = specifiers
+                        .iter()
+                        .map(|specifier| {
+                            if specifier.imported == specifier.local {
+                                specifier.imported.to_string()
+                            } else {
+                                format!("{} as {}", specifier.imported, specifier.local)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let source_width = import.source.chars().count() + 16;
+                    if inline.chars().count() + source_width <= 88 {
+                        self.text("import { ");
+                        self.text(&inline);
+                        self.text(" } from ");
+                    } else {
+                        self.line("import {");
+                        self.indent += 1;
+                        for specifier in specifiers {
+                            self.text(specifier.imported.as_str());
+                            if specifier.imported != specifier.local {
+                                self.text(" as ");
+                                self.text(specifier.local.as_str());
+                            }
+                            self.line(",");
+                        }
+                        self.indent -= 1;
+                        self.text("} from ");
+                    }
+                }
+                ImportClause::Namespace(local) => {
+                    self.text("import * as ");
+                    self.text(local.as_str());
+                    self.text(" from ");
+                }
+            }
             self.string(&import.source);
             if let Some(hash) = &import.sha256 {
                 self.text(" sha256 ");
                 self.string(hash);
-            }
-            if let Some(alias) = &import.alias {
-                self.text(" as ");
-                self.text(alias.as_str());
             }
             self.line(";");
         }
         if !file.imports.is_empty() {
             self.line("");
         }
-        match &file.root {
-            Root::Chart(decl) => self.chart(decl),
-            Root::Define(decl) => self.definition(decl),
-            Root::Data(declarations) => {
-                for (index, decl) in declarations.iter().enumerate() {
-                    if index > 0 {
-                        self.line("");
-                    }
-                    self.decl(decl);
-                }
+        for (index, item) in file.items.iter().enumerate() {
+            if index > 0 {
+                self.line("");
             }
+            self.module_item(item);
         }
         if !self.output.ends_with('\n') {
             self.output.push('\n');
         }
     }
 
+    fn module_item(&mut self, item: &ModuleItem) {
+        self.doc(&item.declaration);
+        if item.exported {
+            self.text("export ");
+        }
+        match item.declaration.keyword.as_str() {
+            "chart" => self.chart(&item.declaration),
+            "define" => self.definition(&item.declaration),
+            _ => self.decl_without_doc(&item.declaration),
+        }
+    }
+
     fn chart(&mut self, decl: &Decl) {
         self.text("chart ");
-        self.text(name_or(&decl.kind, "chart-kind"));
+        self.text(kind_or(&decl.kind, "chart-kind"));
         self.binder(&decl.name);
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn definition(&mut self, decl: &Decl) {
         self.text("define ");
-        self.text(name_or(&decl.kind, "definition-kind"));
+        self.text(kind_or(&decl.kind, "definition-kind"));
         self.text(" ");
         self.text(name_or(&decl.name, "definition"));
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn decl(&mut self, decl: &Decl) {
+        self.doc(decl);
+        self.decl_without_doc(decl);
+    }
+
+    fn doc(&mut self, decl: &Decl) {
         if let Some(doc) = &decl.doc {
             for line in doc.lines() {
                 self.text("-- | ");
                 self.line(line);
             }
         }
+    }
+
+    fn decl_without_doc(&mut self, decl: &Decl) {
         match decl.visibility {
             Visibility::Default => {}
             Visibility::Private => self.text("private "),
@@ -121,14 +172,14 @@ impl Printer {
     fn kind_bind_decl(&mut self, decl: &Decl) {
         self.text(decl.keyword.as_str());
         self.text(" ");
-        self.text(name_or(&decl.kind, "kind"));
+        self.text(kind_or(&decl.kind, "kind"));
         self.binder(&decl.name);
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn variable(&mut self, decl: &Decl) {
         self.text("variable ");
-        self.text(name_or(&decl.kind, "role"));
+        self.text(kind_or(&decl.kind, "role"));
         self.text(" ");
         self.text(name_or(&decl.name, "variable"));
         self.body(&decl.props, &decl.children, &[]);
@@ -156,14 +207,14 @@ impl Printer {
 
     fn event(&mut self, decl: &Decl) {
         self.text("on ");
-        self.text(name_or(&decl.kind, "event"));
+        self.text(kind_or(&decl.kind, "event"));
         self.binder(&decl.name);
         self.body(&decl.props, &decl.children, &[]);
     }
 
     fn cell(&mut self, decl: &Decl) {
         self.text("cell ");
-        self.text(name_or(&decl.kind, "coordinate"));
+        self.text(kind_or(&decl.kind, "coordinate"));
         self.binder(&decl.name);
         if let Some(Value::Block { head: None, body }) = decl.props.get("at") {
             self.text(" at");
@@ -175,7 +226,7 @@ impl Printer {
     fn kind_body_decl(&mut self, decl: &Decl) {
         self.text(decl.keyword.as_str());
         self.text(" ");
-        self.text(name_or(&decl.kind, "kind"));
+        self.text(kind_or(&decl.kind, "kind"));
         self.body(&decl.props, &decl.children, &[]);
     }
 
@@ -243,7 +294,7 @@ impl Printer {
 
     fn slot(&mut self, decl: &Decl) {
         self.text("slot ");
-        self.text(name_or(&decl.kind, "expr"));
+        self.text(kind_or(&decl.kind, "expr"));
         self.text(" ");
         self.text(name_or(&decl.name, "slot"));
         if decl.props.is_empty() && decl.children.is_empty() {
@@ -660,6 +711,10 @@ fn name_or<'a>(name: &'a Option<Name>, fallback: &'a str) -> &'a str {
     name.as_ref().map_or(fallback, Name::as_str)
 }
 
+fn kind_or<'a>(kind: &'a Option<QualifiedName>, fallback: &'a str) -> &'a str {
+    kind.as_ref().map_or(fallback, QualifiedName::as_str)
+}
+
 fn call_path<'a>(value: &'a Value, function: &str) -> Option<Vec<&'a Name>> {
     let Value::Call {
         function: actual,
@@ -713,6 +768,26 @@ mod tests {
         round_trip(
             "avenger 1; catalog memory as local { schema tables as vega { table inline as movies { values: []; } } }",
         );
+    }
+
+    #[test]
+    fn print_round_trips_mixed_modules_and_canonical_import_forms() {
+        let printed = round_trip(
+            "avenger 1;\
+             import { first, second as local, third, fourth, fifth, sixth, seventh, eighth } from './a-very-long-library-module-name.avenger';\
+             import * as acme from 'native:acme' sha256 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';\
+             export define mark badge { mark symbol {} }\
+             table inline as rows { values: []; }\
+             export chart acme.cartesian as dashboard {}",
+        );
+        assert!(printed.contains(
+            "import {\n  first,\n  second as local,\n  third,\n  fourth,\n  fifth,\n  sixth,\n  seventh,\n  eighth,\n} from './a-very-long-library-module-name.avenger';"
+        ));
+        assert!(printed.contains("import * as acme from 'native:acme' sha256 'aaaaaaaa"));
+        assert!(printed.contains("export define mark badge"));
+        assert!(printed.contains("export chart acme.cartesian as dashboard"));
+        assert!(printed.find("define mark").unwrap() < printed.find("table inline").unwrap());
+        assert!(printed.find("table inline").unwrap() < printed.find("chart acme").unwrap());
     }
 
     #[test]

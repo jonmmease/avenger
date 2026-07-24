@@ -1,3 +1,3 @@
-AVENGER-PARSE-004
-expected one chart, definition, or data root
+AVENGER-PARSE-044
+top-level module items use `export`, not component visibility modifiers
 11..17

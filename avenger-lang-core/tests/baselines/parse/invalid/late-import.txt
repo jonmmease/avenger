@@ -1,0 +1,3 @@
+AVENGER-PARSE-040
+imports must precede every module item
+30..36

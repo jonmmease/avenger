@@ -21,7 +21,7 @@ use sqlparser::ast::{
 use crate::{
     Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceFile,
     SourceId, SourceLabel, SourceMap, SourceSpan,
-    ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Root, Value, Visibility},
+    ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Value, Visibility},
     expand::ExpansionSourceMap,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
     sort_diagnostics,
@@ -653,13 +653,7 @@ impl<'a> Resolver<'a> {
         let mut files = BTreeMap::new();
         let mut charts = Vec::new();
         for (file_id, file) in &self.project.files {
-            let roots = file
-                .parsed
-                .ast
-                .root
-                .declarations()
-                .iter()
-                .enumerate()
+            let roots = module_declarations(file)
                 .map(|(index, declaration)| {
                     let path = vec![index];
                     let resolved = self.resolve_declaration(
@@ -671,7 +665,7 @@ impl<'a> Resolver<'a> {
                         false,
                         false,
                     );
-                    if matches!(file.kind, ProjectFileKind::Chart) {
+                    if declaration.keyword.as_str() == "chart" {
                         charts.push(resolved.id.clone());
                     }
                     resolved
@@ -872,10 +866,12 @@ impl<'a> Resolver<'a> {
             let ProjectFileKind::Definition(kind) = file.kind else {
                 continue;
             };
-            let Root::Define(declaration) = &file.parsed.ast.root else {
+            let Some((root_index, declaration)) = module_declarations(file)
+                .find(|(_, declaration)| declaration.keyword.as_str() == "define")
+            else {
                 continue;
             };
-            let id = declaration_id(file, &[0]);
+            let id = declaration_id(file, &[root_index]);
             let mut slots = BTreeMap::new();
             let mut slot_order = Vec::new();
             let mut channels = BTreeMap::new();
@@ -901,7 +897,11 @@ impl<'a> Resolver<'a> {
                         let Some(name) = child.name.as_ref() else {
                             continue;
                         };
-                        let shape = child.kind.as_ref().map_or("", Name::as_str).to_owned();
+                        let shape = child
+                            .kind
+                            .as_ref()
+                            .map_or("", |kind| kind.as_str())
+                            .to_owned();
                         if shape == "channel" {
                             self.check_definition_interface_name(
                                 &mut interface_names,
@@ -1175,7 +1175,9 @@ impl<'a> Resolver<'a> {
             .iter()
             .filter_map(|(file_id, file)| {
                 let schema = self.definitions.get(file_id)?.clone();
-                let Root::Define(root) = &file.parsed.ast.root else {
+                let Some((_, root)) = module_declarations(file)
+                    .find(|(_, declaration)| declaration.keyword.as_str() == "define")
+                else {
                     return None;
                 };
                 Some((file.clone(), root.clone(), schema))
@@ -1463,7 +1465,7 @@ impl<'a> Resolver<'a> {
     fn predeclare_project(&mut self) {
         for (file_id, file) in &self.project.files {
             let file_scope = self.new_scope(None, format!("file:{}", file_id.as_str()));
-            for (index, declaration) in file.parsed.ast.root.declarations().iter().enumerate() {
+            for (index, declaration) in module_declarations(file) {
                 self.predeclare_declaration(file, declaration, vec![index], file_scope, Vec::new());
             }
         }
@@ -1477,7 +1479,7 @@ impl<'a> Resolver<'a> {
             .filter(|file| matches!(file.kind, ProjectFileKind::Data))
             .collect::<Vec<_>>();
         for file in data_files {
-            for (index, declaration) in file.parsed.ast.root.declarations().iter().enumerate() {
+            for (index, declaration) in module_declarations(file) {
                 self.collect_table_names(file, declaration, &[index], &[]);
             }
         }
@@ -1562,7 +1564,7 @@ impl<'a> Resolver<'a> {
     fn declaration_source(&self, id: &DeclarationId) -> Option<(&ProjectFile, &Decl)> {
         let ((file_id, path), _) = self.declarations.iter().find(|(_, info)| &info.id == id)?;
         let file = self.project.files.get(file_id)?;
-        let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+        let declaration = declaration_at(file, path)?;
         Some((file, declaration))
     }
 
@@ -1679,7 +1681,11 @@ impl<'a> Resolver<'a> {
     ) {
         match declaration.keyword.as_str() {
             "catalog" => {
-                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                let kind = declaration
+                    .kind
+                    .as_ref()
+                    .map(|kind| kind.as_str())
+                    .unwrap_or("");
                 if matches!(kind, "schemas" | "memory") {
                     self.validate_core_property_names(declaration, &[], span);
                     if declaration
@@ -1697,7 +1703,11 @@ impl<'a> Resolver<'a> {
                 }
             }
             "schema" => {
-                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                let kind = declaration
+                    .kind
+                    .as_ref()
+                    .map(|kind| kind.as_str())
+                    .unwrap_or("");
                 match kind {
                     "tables" => {
                         self.validate_core_property_names(declaration, &[], span);
@@ -1738,7 +1748,11 @@ impl<'a> Resolver<'a> {
                 }
             }
             "table" => {
-                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                let kind = declaration
+                    .kind
+                    .as_ref()
+                    .map(|kind| kind.as_str())
+                    .unwrap_or("");
                 let (allowed, required): (&[&str], Option<&str>) = match kind {
                     "sql" => (&["sql", "materialize"], Some("sql")),
                     "inline" => (&["values", "materialize"], Some("values")),
@@ -1978,8 +1992,7 @@ impl<'a> Resolver<'a> {
             let Some(file) = self.project.files.get(&file_id) else {
                 continue;
             };
-            let Some(declaration) = declaration_at(file.parsed.ast.root.declarations(), &path)
-            else {
+            let Some(declaration) = declaration_at(file, &path) else {
                 continue;
             };
             let Some(info) = self
@@ -2065,8 +2078,7 @@ impl<'a> Resolver<'a> {
             if matches!(file.kind, ProjectFileKind::Definition(_)) {
                 continue;
             }
-            let Some(declaration) = declaration_at(file.parsed.ast.root.declarations(), &path)
-            else {
+            let Some(declaration) = declaration_at(file, &path) else {
                 continue;
             };
             if declaration.keyword.as_str() == "tool"
@@ -2146,7 +2158,7 @@ impl<'a> Resolver<'a> {
             .iter()
             .filter_map(|((file_id, path), info)| {
                 let file = self.project.files.get(file_id)?;
-                let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+                let declaration = declaration_at(file, path)?;
                 let component_kind = declaration
                     .props
                     .get("component_kind")
@@ -3020,7 +3032,10 @@ impl<'a> Resolver<'a> {
                 format!(
                     "no registered or imported {} kind `{}` is available here",
                     declaration.keyword,
-                    declaration.kind.as_ref().map_or("<missing>", Name::as_str)
+                    declaration
+                        .kind
+                        .as_ref()
+                        .map_or("<missing>", |kind| kind.as_str())
                 ),
             );
         }
@@ -3865,9 +3880,9 @@ impl<'a> Resolver<'a> {
             );
         }
         let has_private_ancestor = (1..path.len()).any(|length| {
-            declaration_at(file.parsed.ast.root.declarations(), &path[..length]).is_some_and(
-                |ancestor| ancestor.visibility == Visibility::Private && is_structural(ancestor),
-            )
+            declaration_at(file, &path[..length]).is_some_and(|ancestor| {
+                ancestor.visibility == Visibility::Private && is_structural(ancestor)
+            })
         });
         if declaration.visibility == Visibility::Public && !has_private_ancestor {
             self.error(
@@ -5411,7 +5426,7 @@ impl<'a> Resolver<'a> {
         }
         let file = self.project.files.get(file_id)?;
         let parent_path = &path[..path.len() - 1];
-        let parent = declaration_at(file.parsed.ast.root.declarations(), parent_path)?;
+        let parent = declaration_at(file, parent_path)?;
         (parent.keyword.as_str() == "table").then(|| declaration_id(file, parent_path))
     }
 
@@ -6122,7 +6137,10 @@ impl<'a> Resolver<'a> {
                 span,
                 format!(
                     "`{}` is not an exposed v1 event",
-                    declaration.kind.as_ref().map_or("<missing>", Name::as_str)
+                    declaration
+                        .kind
+                        .as_ref()
+                        .map_or("<missing>", |kind| kind.as_str())
                 ),
             );
         }
@@ -7502,9 +7520,7 @@ fn coordinate_at_path(file: &ProjectFile, path: &[usize]) -> Option<String> {
         if path[length - 1] == MARK_BLOCK_PATH_SEGMENT {
             coordinate = Some("cartesian".to_owned());
         }
-        if let Some(declaration) =
-            declaration_at(file.parsed.ast.root.declarations(), &path[..length])
-        {
+        if let Some(declaration) = declaration_at(file, &path[..length]) {
             coordinate = declaration_coordinate(declaration, coordinate.as_deref());
         }
     }
@@ -7519,8 +7535,7 @@ fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a D
     {
         return None;
     }
-    (path.len() > 1)
-        .then(|| declaration_at(file.parsed.ast.root.declarations(), &path[..path.len() - 1]))?
+    (path.len() > 1).then(|| declaration_at(file, &path[..path.len() - 1]))?
 }
 
 fn requires_registered_kind(declaration: &Decl) -> bool {
@@ -7531,7 +7546,7 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
         && !matches!(
             (
                 declaration.keyword.as_str(),
-                declaration.kind.as_ref().map(Name::as_str)
+                declaration.kind.as_ref().map(|kind| kind.as_str())
             ),
             ("tool", Some("behavior"))
         )
@@ -7539,7 +7554,7 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
 
 fn is_mark_group(declaration: &Decl) -> bool {
     declaration.keyword.as_str() == "mark"
-        && declaration.kind.as_ref().map(Name::as_str) == Some("group")
+        && declaration.kind.as_ref().map(|kind| kind.as_str()) == Some("group")
 }
 
 fn core_mark_group_schema(coordinate: Option<&str>) -> KindSchema {
@@ -8922,7 +8937,7 @@ fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
             stable_declaration_path(file, owner_path),
             format!("legend-overlay#{block_ordinal}"),
         ];
-        let Some(owner) = declaration_at(file.parsed.ast.root.declarations(), owner_path) else {
+        let Some(owner) = declaration_at(file, owner_path) else {
             components.push("missing-owner".to_owned());
             return components.join("/");
         };
@@ -8961,21 +8976,26 @@ fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
 
     let mut components = Vec::with_capacity(path.len());
     for (depth, index) in path.iter().copied().enumerate() {
-        let siblings = if depth == 0 {
-            file.parsed.ast.root.declarations()
-        } else {
-            declaration_at(file.parsed.ast.root.declarations(), &path[..depth])
-                .map_or(&[][..], |parent| parent.children.as_slice())
-        };
-        let Some(declaration) = siblings.get(index) else {
+        let Some(declaration) = declaration_at(file, &path[..=depth]) else {
             components.push(format!("missing:{index}"));
             continue;
         };
         let signature = declaration_identity_signature(declaration);
-        let ordinal = siblings[..index]
-            .iter()
-            .filter(|candidate| declaration_identity_signature(candidate) == signature)
-            .count();
+        let ordinal = if depth == 0 {
+            file.parsed.ast.items[..index]
+                .iter()
+                .filter(|item| declaration_identity_signature(&item.declaration) == signature)
+                .count()
+        } else {
+            declaration_at(file, &path[..depth])
+                .map(|parent| {
+                    parent.children[..index]
+                        .iter()
+                        .filter(|candidate| declaration_identity_signature(candidate) == signature)
+                        .count()
+                })
+                .unwrap_or_default()
+        };
         components.push(format!("{signature}#{ordinal}"));
     }
     components.join("/")
@@ -8983,7 +9003,7 @@ fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
 
 fn declaration_identity_signature(declaration: &Decl) -> String {
     let name = declaration.name.as_ref().map_or("", Name::as_str);
-    let kind = declaration.kind.as_ref().map_or("", Name::as_str);
+    let kind = declaration.kind.as_ref().map_or("", |kind| kind.as_str());
     format!("{}:{}:{}", declaration.keyword, name, kind)
 }
 
@@ -9012,9 +9032,18 @@ fn ancestry_text(ancestry: &[DeclarationId]) -> String {
         .join("/")
 }
 
-fn declaration_at<'a>(roots: &'a [Decl], path: &[usize]) -> Option<&'a Decl> {
+fn module_declarations(file: &ProjectFile) -> impl Iterator<Item = (usize, &Decl)> {
+    file.parsed
+        .ast
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (index, &item.declaration))
+}
+
+fn declaration_at<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl> {
     let (first, rest) = path.split_first()?;
-    let mut declaration = roots.get(*first)?;
+    let mut declaration = &file.parsed.ast.items.get(*first)?.declaration;
     let mut cursor = 0usize;
     while cursor < rest.len() {
         if rest[cursor] == MARK_BLOCK_PATH_SEGMENT {
@@ -9034,7 +9063,7 @@ fn declaration_at<'a>(roots: &'a [Decl], path: &[usize]) -> Option<&'a Decl> {
 }
 
 fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
-    let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+    let declaration = declaration_at(file, path)?;
     let mut spans = file
         .parsed
         .source_map
@@ -9050,15 +9079,25 @@ fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
     // Same-keyword declarations are selected by their ordinal among matching
     // declarations in source preorder.
     let mut ordinal = 0usize;
-    declaration_preorder(file.parsed.ast.root.declarations(), &mut |candidate| {
-        if std::ptr::eq(candidate, declaration) {
-            return false;
+    let mut found = false;
+    for item in &file.parsed.ast.items {
+        declaration_preorder(std::slice::from_ref(&item.declaration), &mut |candidate| {
+            if found {
+                return false;
+            }
+            if std::ptr::eq(candidate, declaration) {
+                found = true;
+                return false;
+            }
+            if candidate.keyword == declaration.keyword {
+                ordinal += 1;
+            }
+            true
+        });
+        if found {
+            break;
         }
-        if candidate.keyword == declaration.keyword {
-            ordinal += 1;
-        }
-        true
-    });
+    }
     spans.get(ordinal).copied()
 }
 
@@ -9346,9 +9385,12 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
         format!("avenger 1; chart cartesian {{ param {text} as value {{ value: NULL; }} }}"),
     );
     let parsed = crate::syntax::parse_file(&source).ok()?;
-    let Root::Chart(chart) = parsed.ast.root else {
-        return None;
-    };
+    let chart = parsed
+        .ast
+        .items
+        .into_iter()
+        .find(|item| item.declaration.keyword.as_str() == "chart")?
+        .declaration;
     PhysicalType::parse(chart.children.first()?.props.get("type")?).ok()
 }
 
@@ -9589,7 +9631,7 @@ impl DeclName for Decl {
             || {
                 self.kind
                     .as_ref()
-                    .map_or("anonymous", Name::as_str)
+                    .map_or("anonymous", |kind| kind.as_str())
                     .to_owned()
             },
             ToString::to_string,

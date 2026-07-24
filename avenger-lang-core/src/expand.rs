@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     Diagnostic, ExpansionOrImportFrame, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin,
     SourceSpan,
-    ast::{AstNodeRole, Body, Decl, File, Name, PropertyMap, Root, Value, Visibility},
+    ast::{AstNodeRole, Body, Decl, File, ModuleItem, Name, PropertyMap, Value, Visibility},
     print::print_file,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
     resolve::{DefinitionSchema, ResolvedProject},
@@ -245,17 +245,26 @@ impl Expander<'_> {
                     files.insert(file_id.clone(), file.clone());
                 }
                 ProjectFileKind::Chart => {
-                    let Root::Chart(root) = &file.parsed.ast.root else {
+                    let Some((root_index, item)) = file
+                        .parsed
+                        .ast
+                        .items
+                        .iter()
+                        .enumerate()
+                        .find(|(_, item)| item.declaration.keyword.as_str() == "chart")
+                    else {
                         continue;
                     };
+                    let root = &item.declaration;
                     let imports = retained_imports(self.project, file, &definition_sources);
+                    let root_path = [root_index];
                     let expanded_root = self.expand_declaration(
                         file_id,
                         root,
-                        &[0],
+                        &root_path,
                         None,
                         PendingOrigin {
-                            authored: declaration_span(file, &[0])
+                            authored: declaration_span(file, &root_path)
                                 .unwrap_or_else(|| root_span(file)),
                             definition: None,
                             instantiation: None,
@@ -263,9 +272,11 @@ impl Expander<'_> {
                     );
                     let ast = File {
                         version: file.parsed.ast.version,
-                        name: file.parsed.ast.name.clone(),
                         imports,
-                        root: Root::Chart(expanded_root),
+                        items: vec![ModuleItem {
+                            exported: item.exported,
+                            declaration: expanded_root,
+                        }],
                     };
                     let text = print_file(&ast);
                     if text.len() > self.limits.max_output_bytes_per_chart {
@@ -465,7 +476,7 @@ impl Expander<'_> {
         context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        if let Some(kind) = declaration.kind.as_ref().map(Name::as_str)
+        if let Some(kind) = declaration.kind.as_ref().map(|kind| kind.as_str())
             && let Some(definition) = self.imported_definition(owner, kind)
         {
             return self.instantiate_definition(
@@ -719,7 +730,14 @@ impl Expander<'_> {
         let Some(definition_file) = self.project.files.get(&definition_id) else {
             return instance.clone();
         };
-        let Root::Define(template) = &definition_file.parsed.ast.root else {
+        let Some(template) = definition_file
+            .parsed
+            .ast
+            .items
+            .iter()
+            .map(|item| &item.declaration)
+            .find(|declaration| declaration.keyword.as_str() == "define")
+        else {
             return instance.clone();
         };
         let Some(schema) = self.resolved.definitions.get(&definition_id) else {
@@ -834,17 +852,17 @@ impl Expander<'_> {
         let mut wrapper = match schema.kind {
             DefinitionKind::Mark => {
                 let mut declaration = Decl::new(name("mark"));
-                declaration.kind = Some(name("group"));
+                declaration.kind = Some(name("group").into());
                 declaration
             }
             DefinitionKind::Tool => {
                 let mut declaration = Decl::new(name("tool"));
-                declaration.kind = Some(name("behavior"));
+                declaration.kind = Some(name("behavior").into());
                 declaration
             }
             DefinitionKind::Transform => {
                 let mut declaration = Decl::new(name("transform"));
-                declaration.kind = Some(name("pipeline"));
+                declaration.kind = Some(name("pipeline").into());
                 declaration
             }
         };
@@ -1566,10 +1584,16 @@ fn stable_expansion_path(file: Option<&ProjectFile>, path: &[usize]) -> String {
     let mut components = Vec::with_capacity(path.len());
     for (depth, index) in path.iter().copied().enumerate() {
         let siblings = if depth == 0 {
-            file.parsed.ast.root.declarations()
+            file.parsed
+                .ast
+                .items
+                .iter()
+                .map(|item| &item.declaration)
+                .collect::<Vec<_>>()
         } else {
-            declaration_at(file.parsed.ast.root.declarations(), &path[..depth])
-                .map_or(&[][..], |parent| parent.children.as_slice())
+            module_declaration_at(&file.parsed.ast, &path[..depth])
+                .map(|parent| parent.children.iter().collect())
+                .unwrap_or_default()
         };
         let Some(declaration) = siblings.get(index) else {
             components.push(format!("missing:{index}"));
@@ -1579,7 +1603,7 @@ fn stable_expansion_path(file: Option<&ProjectFile>, path: &[usize]) -> String {
             "{}:{}:{}",
             declaration.keyword,
             declaration.name.as_ref().map_or("", Name::as_str),
-            declaration.kind.as_ref().map_or("", Name::as_str),
+            declaration.kind.as_ref().map_or("", |kind| kind.as_str()),
         );
         let ordinal = siblings[..index]
             .iter()
@@ -1588,7 +1612,7 @@ fn stable_expansion_path(file: Option<&ProjectFile>, path: &[usize]) -> String {
                     "{}:{}:{}",
                     candidate.keyword,
                     candidate.name.as_ref().map_or("", Name::as_str),
-                    candidate.kind.as_ref().map_or("", Name::as_str),
+                    candidate.kind.as_ref().map_or("", |kind| kind.as_str()),
                 ) == signature
             })
             .count();
@@ -1607,9 +1631,9 @@ fn content_hash(text: &str) -> String {
     format!("sha256:{:x}", hash.finalize())
 }
 
-fn declaration_at<'a>(roots: &'a [Decl], path: &[usize]) -> Option<&'a Decl> {
+fn module_declaration_at<'a>(file: &'a File, path: &[usize]) -> Option<&'a Decl> {
     let (first, rest) = path.split_first()?;
-    let mut declaration = roots.get(*first)?;
+    let mut declaration = &file.items.get(*first)?.declaration;
     for index in rest {
         declaration = declaration.children.get(*index)?;
     }
@@ -1680,7 +1704,7 @@ fn resolved_mark_blocks(
 }
 
 fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
-    let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+    let declaration = module_declaration_at(&file.parsed.ast, path)?;
     declaration_node_span(file, declaration)
 }
 
@@ -1698,7 +1722,7 @@ fn declaration_node_span(file: &ProjectFile, declaration: &Decl) -> Option<Sourc
         .collect::<Vec<_>>();
     spans.sort_by_key(|span| (span.range.start, std::cmp::Reverse(span.range.end)));
     let mut ordinal = 0usize;
-    declaration_preorder(file.parsed.ast.root.declarations(), &mut |candidate| {
+    module_declaration_preorder(&file.parsed.ast, &mut |candidate| {
         if std::ptr::eq(candidate, declaration) {
             return false;
         }
@@ -1708,6 +1732,16 @@ fn declaration_node_span(file: &ProjectFile, declaration: &Decl) -> Option<Sourc
         true
     });
     spans.get(ordinal).copied()
+}
+
+fn module_declaration_preorder<'a>(file: &'a File, visit: &mut impl FnMut(&'a Decl) -> bool) {
+    for item in &file.items {
+        let declaration = &item.declaration;
+        if !visit(declaration) {
+            return;
+        }
+        declaration_preorder(&declaration.children, visit);
+    }
 }
 
 fn declaration_preorder<'a>(declarations: &'a [Decl], visit: &mut impl FnMut(&'a Decl) -> bool) {

@@ -9,8 +9,8 @@ use serde::{
 };
 
 use crate::ast::{
-    AstError, BindingKind, BindingTime, Body, Decl, File, Import, Name, NumericLiteral,
-    PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value, Visibility,
+    AstError, BindingKind, BindingTime, Body, Decl, File, Import, ImportClause, ModuleItem, Name,
+    NumericLiteral, PropertyMap, RefKind, SqlExpression, SqlQuery, Value, Visibility,
 };
 
 pub const CORE_SCHEMA_V1: &str = include_str!("../schemas/ast-core-1.json");
@@ -25,10 +25,8 @@ impl<'de> Deserialize<'de> for File {
         struct Payload {
             version: u32,
             #[serde(default)]
-            name: Option<Name>,
-            #[serde(default)]
             imports: Vec<Import>,
-            root: Root,
+            items: Vec<ModuleItem>,
         }
 
         let payload = Payload::deserialize(deserializer)?;
@@ -39,16 +37,18 @@ impl<'de> Deserialize<'de> for File {
                 crate::LANGUAGE_MAJOR
             )));
         }
-        if payload.name.is_some() && matches!(payload.root, Root::Data(_)) {
+        if payload.items.is_empty() {
             return Err(de::Error::custom(
-                "plural data-catalog roots cannot carry a top-level name",
+                "Avenger modules must contain at least one module item",
             ));
+        }
+        for item in &payload.items {
+            validate_module_item(item).map_err(de::Error::custom)?;
         }
         Ok(Self {
             version: payload.version,
-            name: payload.name,
             imports: payload.imports,
-            root: payload.root,
+            items: payload.items,
         })
     }
 }
@@ -116,12 +116,10 @@ impl<'de> Deserialize<'de> for Import {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Payload {
-            #[serde(rename = "import")]
             source: String,
             #[serde(default)]
             sha256: Option<String>,
-            #[serde(rename = "as", default)]
-            alias: Option<Name>,
+            clause: ImportClause,
         }
 
         let payload = Payload::deserialize(deserializer)?;
@@ -138,11 +136,49 @@ impl<'de> Deserialize<'de> for Import {
                 "import sha256 must contain exactly 64 lowercase hexadecimal digits",
             ));
         }
+        if matches!(&payload.clause, ImportClause::Named(specifiers) if specifiers.is_empty()) {
+            return Err(de::Error::custom(
+                "named import clauses must contain at least one specifier",
+            ));
+        }
         Ok(Self {
             source: payload.source,
             sha256: payload.sha256,
-            alias: payload.alias,
+            clause: payload.clause,
         })
+    }
+}
+
+fn validate_module_item(item: &ModuleItem) -> Result<(), AstError> {
+    let declaration = &item.declaration;
+    if declaration.visibility != Visibility::Default {
+        return Err(AstError::InvalidInterchange(
+            "top-level module items cannot carry component visibility".to_string(),
+        ));
+    }
+    let valid = match declaration.keyword.as_str() {
+        "chart" => declaration.kind.is_some(),
+        "define" => {
+            declaration.name.is_some()
+                && matches!(
+                    declaration
+                        .kind
+                        .as_ref()
+                        .and_then(|kind| kind.simple())
+                        .map(Name::as_str),
+                    Some("mark" | "tool" | "transform")
+                )
+        }
+        "table" | "schema" | "catalog" => declaration.kind.is_some() && declaration.name.is_some(),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(AstError::InvalidInterchange(format!(
+            "declaration `{}` is not a valid top-level module item",
+            declaration.keyword
+        )))
     }
 }
 
@@ -169,61 +205,6 @@ impl<'de> Deserialize<'de> for BindingTime {
             "previous" => Ok(Self::Previous),
             value => Err(de::Error::unknown_variant(value, &["start", "previous"])),
         }
-    }
-}
-
-impl Serialize for Root {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Self::Chart(decl) | Self::Define(decl) => decl.serialize(serializer),
-            Self::Data(declarations) => declarations.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Root {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct RootVisitor;
-
-        impl<'de> Visitor<'de> for RootVisitor {
-            type Value = Root;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("one root declaration or a non-empty data declaration array")
-            }
-
-            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let decl = Decl::deserialize(de::value::MapAccessDeserializer::new(map))?;
-                if decl.keyword.as_str() == "chart" {
-                    Ok(Root::Chart(decl))
-                } else {
-                    Ok(Root::Define(decl))
-                }
-            }
-
-            fn visit_seq<A>(self, sequence: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let declarations =
-                    Vec::<Decl>::deserialize(de::value::SeqAccessDeserializer::new(sequence))?;
-                if declarations.is_empty() {
-                    return Err(de::Error::invalid_length(0, &"at least one declaration"));
-                }
-                Ok(Root::Data(declarations))
-            }
-        }
-
-        deserializer.deserialize_any(RootVisitor)
     }
 }
 

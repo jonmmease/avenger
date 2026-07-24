@@ -6,7 +6,6 @@ use std::{
 
 use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
-    ast::Root,
     sql::{parse_sql_expression, parse_sql_query, tokenize},
     syntax::{SqlIslandContext, SqlIslandRoot, SqlIslandSite, parse_file},
 };
@@ -295,10 +294,11 @@ fn structural_source_manifest_is_complete_hashed_and_parse_checked() {
             source.path
         );
         if let Ok(parsed) = parsed {
-            let root = match parsed.ast.root {
-                Root::Chart(_) => "chart",
-                Root::Define(_) => "definition",
-                Root::Data(_) => "data",
+            let root = match parsed.ast.items[0].declaration.keyword.as_str() {
+                "chart" => "chart",
+                "define" => "definition",
+                "catalog" | "schema" | "table" => "data",
+                keyword => panic!("unexpected module item `{keyword}` in {}", source.path),
             };
             assert_eq!(
                 source.root.as_deref(),

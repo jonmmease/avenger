@@ -334,7 +334,12 @@ impl AnalysisService {
         let source = SourceFile::new(SourceId::new(0), loaded.origin, loaded.text.to_string());
         let parsed = avenger_lang_core::syntax::parse_file(&source)
             .map_err(|_| PinImportError::NotDefinition)?;
-        if !matches!(parsed.ast.root, avenger_lang_core::ast::Root::Define(_)) {
+        if !parsed
+            .ast
+            .items
+            .iter()
+            .any(|item| item.declaration.keyword.as_str() == "define")
+        {
             return Err(PinImportError::NotDefinition);
         }
         let digest = Sha256::digest(loaded.text.as_bytes());

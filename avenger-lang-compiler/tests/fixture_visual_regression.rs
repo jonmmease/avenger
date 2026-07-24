@@ -33,7 +33,7 @@ use avenger_lang_compiler::{
     CompiledChartArtifact, Compiler, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 use avenger_lang_core::{
-    DataCapabilities, MapEnvironmentProvider, SourceFile, SourceId, SourceOrigin, ast::Root,
+    DataCapabilities, MapEnvironmentProvider, SourceFile, SourceId, SourceOrigin,
     syntax::parse_file,
 };
 use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
@@ -226,7 +226,11 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
         ))
         .unwrap_or_else(|error| panic!("{} did not parse: {error}", case.root));
         assert!(
-            matches!(parsed.ast.root, Root::Chart(_)),
+            parsed
+                .ast
+                .items
+                .iter()
+                .any(|item| item.declaration.keyword.as_str() == "chart"),
             "case root {} is not a chart",
             case.root
         );

@@ -1,0 +1,3 @@
+AVENGER-PARSE-041
+module must contain at least one chart, definition, table, schema, or catalog
+11..11

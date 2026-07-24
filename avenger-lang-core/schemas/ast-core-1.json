@@ -5,34 +5,120 @@
   "type": "object",
   "properties": {
     "version": { "const": 1 },
-    "name": { "$ref": "#/$defs/name" },
     "imports": { "type": "array", "items": { "$ref": "#/$defs/import" } },
-    "root": {
-      "oneOf": [
-        { "$ref": "#/$defs/decl" },
-        { "type": "array", "items": { "$ref": "#/$defs/decl" }, "minItems": 1 }
-      ]
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/moduleItem" },
+      "minItems": 1
     }
   },
-  "required": ["version", "root"],
+  "required": ["version", "items"],
   "additionalProperties": false,
   "$defs": {
     "name": { "type": "string", "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$" },
+    "qualifiedName": {
+      "type": "string",
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*(?:\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*)*$"
+    },
+    "moduleItem": {
+      "type": "object",
+      "properties": {
+        "exported": { "type": "boolean" },
+        "declaration": {
+          "oneOf": [
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "const": "chart" },
+                    "kind": { "$ref": "#/$defs/qualifiedName" }
+                  },
+                  "required": ["decl", "kind"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "const": "define" },
+                    "kind": { "enum": ["mark", "tool", "transform"] }
+                  },
+                  "required": ["decl", "kind", "name"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "enum": ["table", "schema", "catalog"] },
+                    "kind": { "$ref": "#/$defs/qualifiedName" }
+                  },
+                  "required": ["decl", "kind", "name"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "required": ["exported", "declaration"],
+      "additionalProperties": false
+    },
     "import": {
       "type": "object",
       "properties": {
-        "import": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "as": { "$ref": "#/$defs/name" }
+        "clause": { "$ref": "#/$defs/importClause" }
       },
-      "required": ["import"],
+      "required": ["source", "clause"],
+      "additionalProperties": false
+    },
+    "importClause": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/importSpecifier" },
+              "minItems": 1
+            }
+          },
+          "required": ["named"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "namespace": { "$ref": "#/$defs/name" }
+          },
+          "required": ["namespace"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "importSpecifier": {
+      "type": "object",
+      "properties": {
+        "imported": { "$ref": "#/$defs/name" },
+        "local": { "$ref": "#/$defs/name" }
+      },
+      "required": ["imported", "local"],
       "additionalProperties": false
     },
     "decl": {
       "type": "object",
       "properties": {
         "decl": { "$ref": "#/$defs/name" },
-        "kind": { "$ref": "#/$defs/name" },
+        "kind": { "$ref": "#/$defs/qualifiedName" },
         "name": { "$ref": "#/$defs/name" },
         "visibility": { "enum": ["private", "public"] },
         "doc": { "type": "string" },

@@ -1,5 +1,5 @@
 avenger 1;
-import './catalog.data.avenger' as data;
+import * as data from './catalog.avenger';
 
 chart cartesian as values {
   string_value: 'Avenger';

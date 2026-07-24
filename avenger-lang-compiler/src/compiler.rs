@@ -1532,8 +1532,13 @@ fn discover_local_resources(
         dependencies,
     };
     for file in project.files.values() {
-        for declaration in file.parsed.ast.root.declarations() {
-            discover_declaration_resources(declaration, file.source, &file.origin, &mut context)?;
+        for item in &file.parsed.ast.items {
+            discover_declaration_resources(
+                &item.declaration,
+                file.source,
+                &file.origin,
+                &mut context,
+            )?;
         }
     }
     Ok(())

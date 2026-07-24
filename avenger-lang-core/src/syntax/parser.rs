@@ -11,8 +11,8 @@ use crate::{
     Diagnostic, SourceFile, SourceLabel, SourceSpan,
     ast::{
         AstError, AstNodeId, AstNodeRole, AstSourceMap, BindingKind, BindingTime, Body, Decl, File,
-        Import, Name, NumericLiteral, PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value,
-        Visibility,
+        Import, ImportClause, ImportSpecifier, ModuleItem, Name, NumericLiteral, PropertyMap,
+        QualifiedName, RefKind, SqlExpression, SqlQuery, Value, Visibility,
     },
     physical_type::PhysicalType,
     sql::{
@@ -198,8 +198,60 @@ pub struct ConcreteNode {
 pub struct ParsedFile {
     pub ast: File,
     pub source_map: AstSourceMap,
+    pub module_syntax: ModuleSyntaxMap,
+    /// Temporary compatibility view for callers not yet migrated to
+    /// `module_syntax.imports`; it carries no additional ownership semantics.
     pub import_spans: Vec<SourceSpan>,
     pub concrete: ConcreteFile,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ModuleSyntaxMap {
+    pub version: Option<SourceSpan>,
+    pub imports: Vec<ImportSyntax>,
+    pub items: Vec<ModuleItemSyntax>,
+    pub qualified_kinds: Vec<QualifiedNameSyntax>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ImportSyntax {
+    pub span: SourceSpan,
+    pub source: SourceSpan,
+    pub sha256: Option<SourceSpan>,
+    pub clause: ImportClauseSyntax,
+}
+
+#[derive(Clone, Debug)]
+pub enum ImportClauseSyntax {
+    Named {
+        span: SourceSpan,
+        specifiers: Vec<ImportSpecifierSyntax>,
+    },
+    Namespace {
+        span: SourceSpan,
+        local: SourceSpan,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ImportSpecifierSyntax {
+    pub span: SourceSpan,
+    pub imported: SourceSpan,
+    pub local: SourceSpan,
+    pub alias_keyword: Option<SourceSpan>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModuleItemSyntax {
+    pub span: SourceSpan,
+    pub export_keyword: Option<SourceSpan>,
+    pub declaration: SourceSpan,
+}
+
+#[derive(Clone, Debug)]
+pub struct QualifiedNameSyntax {
+    pub span: SourceSpan,
+    pub segments: Vec<SourceSpan>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,11 +315,17 @@ pub fn parse_file_with_limits(
     let mut parser = Parser::new(tokens.clone(), limits);
     let ast = parser.file()?;
     let source_map = parser.source_map;
-    let import_spans = parser.import_spans;
+    let module_syntax = parser.module_syntax;
+    let import_spans = module_syntax
+        .imports
+        .iter()
+        .map(|import| import.span)
+        .collect();
     let nodes = concrete_nodes(&tokens, &source_map);
     Ok(ParsedFile {
         ast,
         source_map,
+        module_syntax,
         import_spans,
         concrete: ConcreteFile {
             source: source.clone(),
@@ -282,7 +340,7 @@ struct Parser {
     index: usize,
     next_node_id: u32,
     source_map: AstSourceMap,
-    import_spans: Vec<SourceSpan>,
+    module_syntax: ModuleSyntaxMap,
     limits: SyntaxLimits,
     nesting_depth: usize,
     declaration_count: usize,
@@ -301,7 +359,7 @@ impl Parser {
             index: 0,
             next_node_id: 0,
             source_map: AstSourceMap::default(),
-            import_spans: Vec::new(),
+            module_syntax: ModuleSyntaxMap::default(),
             limits,
             nesting_depth: 0,
             declaration_count: 0,
@@ -309,6 +367,7 @@ impl Parser {
     }
 
     fn file(&mut self) -> Result<File, ParseError> {
+        let version_start = self.start();
         self.expect_word("avenger")?;
         let version = self.number()?.parse::<u32>().map_err(|_| {
             self.error(
@@ -323,65 +382,205 @@ impl Parser {
             ));
         }
         self.expect(Token::SemiColon, "`;` after the version")?;
+        self.module_syntax.version = Some(self.span(version_start, self.end()));
         let mut imports = Vec::new();
         while self.word_is("import") {
-            let start = self.start();
-            imports.push(self.import()?);
-            self.import_spans.push(
-                SourceSpan::new(self.stream.source(), start, self.end())
-                    .expect("parser token spans are ordered"),
-            );
+            let (import, syntax) = self.import()?;
+            imports.push(import);
+            self.module_syntax.imports.push(syntax);
         }
-        let _ = self.leading_doc();
-        let root = if self.word_is("chart") {
-            Root::Chart(self.chart()?)
-        } else if self.word_is("define") {
-            Root::Define(self.definition()?)
-        } else if matches!(self.word(), Some("catalog" | "schema" | "table")) {
-            let mut declarations = Vec::new();
-            while matches!(self.word(), Some("catalog" | "schema" | "table")) {
-                declarations.push(self.declaration(None)?);
-                let _ = self.leading_doc();
+        let mut items = Vec::new();
+        loop {
+            let doc = self.leading_doc();
+            self.trivia();
+            if self.eof() {
+                if doc.is_some() {
+                    return Err(self.error(
+                        "AVENGER-PARSE-043",
+                        "doc comment must precede a module item",
+                    ));
+                }
+                break;
             }
-            Root::Data(declarations)
-        } else {
+            if self.word_is("import") {
+                return Err(self.error(
+                    "AVENGER-PARSE-040",
+                    "imports must precede every module item",
+                ));
+            }
+            items.push(self.module_item(doc)?);
+        }
+        if items.is_empty() {
             return Err(self.error(
-                "AVENGER-PARSE-004",
-                "expected one chart, definition, or data root",
+                "AVENGER-PARSE-041",
+                "module must contain at least one chart, definition, table, schema, or catalog",
             ));
-        };
-        self.trivia();
-        if !self.eof() {
-            return Err(self.error("AVENGER-PARSE-005", "unexpected tokens after file root"));
         }
         Ok(File {
             version,
-            name: None,
             imports,
-            root,
+            items,
         })
     }
 
-    fn import(&mut self) -> Result<Import, ParseError> {
+    fn import(&mut self) -> Result<(Import, ImportSyntax), ParseError> {
+        let start = self.start();
         self.expect_word("import")?;
-        let source = self.string()?;
-        let sha256 = self
-            .consume_word("sha256")
-            .then(|| self.string())
-            .transpose()?;
-        let alias = self.consume_word("as").then(|| self.name()).transpose()?;
+        let clause_start = self.start();
+        let (clause, clause_syntax) = if self.consume(Token::LBrace) {
+            if self.consume(Token::RBrace) {
+                return Err(self.error(
+                    "AVENGER-PARSE-042",
+                    "named import lists must contain at least one specifier",
+                ));
+            }
+            let mut specifiers = Vec::new();
+            let mut syntax = Vec::new();
+            loop {
+                let specifier_start = self.start();
+                let (imported, imported_span) = self.name_with_span()?;
+                self.record(
+                    imported_span.range.start,
+                    imported_span.range.end,
+                    AstNodeRole::ImportImportedName(imported.clone()),
+                );
+                let (local, local_span, alias_keyword) = if self.word_is("as") {
+                    let alias_start = self.start();
+                    self.expect_word("as")?;
+                    let alias_keyword = self.span(alias_start, self.end());
+                    let (local, local_span) = self.name_with_span()?;
+                    (local, local_span, Some(alias_keyword))
+                } else {
+                    (imported.clone(), imported_span, None)
+                };
+                self.record(
+                    local_span.range.start,
+                    local_span.range.end,
+                    AstNodeRole::ImportLocalName(local.clone()),
+                );
+                specifiers.push(ImportSpecifier { imported, local });
+                syntax.push(ImportSpecifierSyntax {
+                    span: self.span(specifier_start, self.end()),
+                    imported: imported_span,
+                    local: local_span,
+                    alias_keyword,
+                });
+                if self.consume(Token::Comma) {
+                    if self.consume(Token::RBrace) {
+                        break;
+                    }
+                } else {
+                    self.expect(Token::RBrace, "`}` after named imports")?;
+                    break;
+                }
+            }
+            (
+                ImportClause::Named(specifiers),
+                ImportClauseSyntax::Named {
+                    span: self.span(clause_start, self.end()),
+                    specifiers: syntax,
+                },
+            )
+        } else if self.consume(Token::Mul) {
+            self.expect_word("as")?;
+            let (local, local_span) = self.name_with_span()?;
+            self.record(
+                local_span.range.start,
+                local_span.range.end,
+                AstNodeRole::ImportNamespaceAlias(local.clone()),
+            );
+            (
+                ImportClause::Namespace(local),
+                ImportClauseSyntax::Namespace {
+                    span: self.span(clause_start, self.end()),
+                    local: local_span,
+                },
+            )
+        } else {
+            return Err(self.error(
+                "AVENGER-PARSE-042",
+                "expected a named import list or `* as <namespace>`",
+            ));
+        };
+        self.expect_word("from")?;
+        let (source, source_span) = self.string_with_span()?;
+        self.record(
+            source_span.range.start,
+            source_span.range.end,
+            AstNodeRole::ImportSource,
+        );
+        let (sha256, sha256_span) = if self.consume_word("sha256") {
+            let (hash, span) = self.string_with_span()?;
+            (Some(hash), Some(span))
+        } else {
+            (None, None)
+        };
         self.expect(Token::SemiColon, "`;` after import")?;
-        Ok(Import {
-            source,
-            sha256,
-            alias,
+        let span = self.span(start, self.end());
+        self.record(start, self.end(), AstNodeRole::Import);
+        Ok((
+            Import {
+                source,
+                sha256,
+                clause,
+            },
+            ImportSyntax {
+                span,
+                source: source_span,
+                sha256: sha256_span,
+                clause: clause_syntax,
+            },
+        ))
+    }
+
+    fn module_item(&mut self, doc: Option<String>) -> Result<ModuleItem, ParseError> {
+        let start = self.start();
+        if matches!(self.word(), Some("private" | "public")) {
+            return Err(self.error(
+                "AVENGER-PARSE-044",
+                "top-level module items use `export`, not component visibility modifiers",
+            ));
+        }
+        let export_keyword = if self.word_is("export") {
+            let export_start = self.start();
+            self.expect_word("export")?;
+            let span = self.span(export_start, self.end());
+            self.record(export_start, self.end(), AstNodeRole::ExportKeyword);
+            Some(span)
+        } else {
+            None
+        };
+        let declaration_start = self.start();
+        let mut declaration = match self.word() {
+            Some("chart") => self.chart()?,
+            Some("define") => self.definition()?,
+            Some("catalog" | "schema" | "table") => self.declaration(None)?,
+            _ => {
+                return Err(self.error(
+                    "AVENGER-PARSE-045",
+                    "expected a chart, define mark/tool/transform, table, schema, or catalog module item",
+                ));
+            }
+        };
+        declaration.doc = doc;
+        let declaration_span = self.span(declaration_start, self.end());
+        let span = self.span(start, self.end());
+        self.record(start, self.end(), AstNodeRole::ModuleItem);
+        self.module_syntax.items.push(ModuleItemSyntax {
+            span,
+            export_keyword,
+            declaration: declaration_span,
+        });
+        Ok(ModuleItem {
+            exported: export_keyword.is_some(),
+            declaration,
         })
     }
 
     fn chart(&mut self) -> Result<Decl, ParseError> {
         let start = self.start();
         self.expect_word("chart")?;
-        let kind = self.name()?;
+        let kind = self.qualified_kind()?;
         let binder = self.optional_binder()?;
         let body = self.body()?;
         self.finish(start, from_body(n("chart"), Some(kind), binder, body))
@@ -397,7 +596,7 @@ impl Parser {
                 "`define` supports only mark, tool, and transform",
             ));
         }
-        let binder = self.name()?;
+        let binder = self.declaration_name()?;
         let body = self.body()?;
         let mut saw_body_item = false;
         for child in &body.children {
@@ -414,7 +613,7 @@ impl Parser {
         }
         self.finish(
             start,
-            from_body(n("define"), Some(kind), Some(binder), body),
+            from_body(n("define"), Some(kind.into()), Some(binder), body),
         )
     }
 
@@ -813,7 +1012,7 @@ impl Parser {
 
     fn kind_bind_body(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let kind = self.name()?;
+        let kind = self.qualified_kind()?;
         let binder = self.optional_binder()?;
         if matches!(
             keyword.as_str(),
@@ -831,7 +1030,7 @@ impl Parser {
 
     fn tool(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let kind = self.name()?;
+        let kind = self.qualified_kind()?;
         let binder = self.optional_binder()?;
         if self.consume(Token::SemiColon) {
             Ok(from_body(keyword, Some(kind), binder, Body::default()))
@@ -858,7 +1057,12 @@ impl Parser {
         }
         let name = self.name()?;
         let body = self.body()?;
-        Ok(from_body(n("variable"), Some(role), Some(name), body))
+        Ok(from_body(
+            n("variable"),
+            Some(role.into()),
+            Some(name),
+            body,
+        ))
     }
 
     fn param(&mut self) -> Result<Decl, ParseError> {
@@ -921,12 +1125,12 @@ impl Parser {
         let kind = self.name()?;
         let binder = self.optional_binder()?;
         let body = self.body()?;
-        Ok(from_body(keyword, Some(kind), binder, body))
+        Ok(from_body(keyword, Some(kind.into()), binder, body))
     }
 
     fn cell(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let kind = self.name()?;
+        let kind = self.qualified_kind()?;
         let binder = self.optional_binder()?;
         let at = if self.consume_word("at") {
             Some(self.body()?)
@@ -950,7 +1154,7 @@ impl Parser {
 
     fn kind_body(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
-        let kind = self.name()?;
+        let kind = self.qualified_kind()?;
         let body = self.body()?;
         Ok(from_body(keyword, Some(kind), None, body))
     }
@@ -990,7 +1194,7 @@ impl Parser {
             }
             (None, None)
         } else {
-            (Some(authored_kind), self.optional_binder()?)
+            (Some(authored_kind.into()), self.optional_binder()?)
         };
         let body = self.body()?;
         Ok(from_body(keyword, kind, binder, body))
@@ -1069,7 +1273,7 @@ impl Parser {
         } else {
             self.body()?
         };
-        Ok(from_body(keyword, Some(kind), Some(binder), body))
+        Ok(from_body(keyword, Some(kind.into()), Some(binder), body))
     }
 
     fn output(&mut self) -> Result<Decl, ParseError> {
@@ -1202,7 +1406,7 @@ impl Parser {
         }
         Ok(Decl {
             keyword,
-            kind: is_cursor.then(|| n("cursor")),
+            kind: is_cursor.then(|| n("cursor").into()),
             props,
             ..Decl::new(n("set"))
         })
@@ -1230,7 +1434,7 @@ impl Parser {
         self.expect(Token::SemiColon, "`;` after theme")?;
         Ok(Decl {
             keyword,
-            kind: Some(n("css")),
+            kind: Some(n("css").into()),
             props,
             ..Decl::new(n("theme"))
         })
@@ -1239,7 +1443,52 @@ impl Parser {
 
 impl Parser {
     fn optional_binder(&mut self) -> Result<Option<Name>, ParseError> {
-        self.consume_word("as").then(|| self.name()).transpose()
+        if self.consume_word("as") {
+            self.declaration_name().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn declaration_name(&mut self) -> Result<Name, ParseError> {
+        let (name, span) = self.name_with_span()?;
+        self.record(
+            span.range.start,
+            span.range.end,
+            AstNodeRole::DeclarationBinder(name.clone()),
+        );
+        Ok(name)
+    }
+
+    fn qualified_kind(&mut self) -> Result<QualifiedName, ParseError> {
+        let start = self.start();
+        let mut names = Vec::new();
+        let mut spans = Vec::new();
+        loop {
+            let (name, span) = self.name_with_span()?;
+            let index = names.len();
+            self.record(
+                span.range.start,
+                span.range.end,
+                AstNodeRole::DeclarationKindSegment {
+                    name: name.clone(),
+                    index,
+                },
+            );
+            names.push(name);
+            spans.push(span);
+            if !self.consume(Token::Period) {
+                break;
+            }
+        }
+        let span = self.span(start, self.end());
+        self.module_syntax
+            .qualified_kinds
+            .push(QualifiedNameSyntax {
+                span,
+                segments: spans,
+            });
+        QualifiedName::new(names).map_err(|error| self.ast_error(error))
     }
 
     fn qual(&mut self) -> Result<Vec<Name>, ParseError> {
@@ -1313,6 +1562,12 @@ impl Parser {
         Ok(value)
     }
 
+    fn name_with_span(&mut self) -> Result<(Name, SourceSpan), ParseError> {
+        let start = self.start();
+        let name = self.name()?;
+        Ok((name, self.span(start, self.end())))
+    }
+
     fn number(&mut self) -> Result<String, ParseError> {
         self.trivia();
         let Some(Token::Number(value, false)) = self.stream.token(self.index).map(|t| t.token())
@@ -1334,6 +1589,12 @@ impl Parser {
         let value = value.clone();
         self.index += 1;
         Ok(value)
+    }
+
+    fn string_with_span(&mut self) -> Result<(String, SourceSpan), ParseError> {
+        let start = self.start();
+        let value = self.string()?;
+        Ok((value, self.span(start, self.end())))
     }
 
     /// Parse the unambiguous literal/atom subset of a generic DSL call.
@@ -1635,6 +1896,10 @@ impl Parser {
             .map_or(0, |token| token.span().range.end)
     }
 
+    fn span(&self, start: usize, end: usize) -> SourceSpan {
+        SourceSpan::new(self.stream.source(), start, end).expect("parser token spans are ordered")
+    }
+
     fn error(&self, code: &'static str, message: impl Into<String>) -> ParseError {
         let message = message.into();
         let span = self.stream.token(self.index).map_or(
@@ -1810,7 +2075,7 @@ fn binding_text(binding: &crate::ast::SqlBinding) -> String {
     value
 }
 
-fn from_body(keyword: Name, kind: Option<Name>, name: Option<Name>, body: Body) -> Decl {
+fn from_body(keyword: Name, kind: Option<QualifiedName>, name: Option<Name>, body: Body) -> Decl {
     Decl {
         keyword,
         kind,
@@ -1876,7 +2141,10 @@ fn concrete_nodes(stream: &TokenStream, source_map: &AstSourceMap) -> Vec<Concre
 
 #[cfg(test)]
 mod tests {
-    use crate::{SourceFile, SourceId, SourceOrigin, ast::Root};
+    use crate::{
+        SourceFile, SourceId, SourceOrigin,
+        ast::{ImportClause, ModuleItem},
+    };
 
     use super::parse_file;
 
@@ -1889,12 +2157,19 @@ mod tests {
         .unwrap()
     }
 
+    fn only_item(parsed: &super::ParsedFile) -> &ModuleItem {
+        let [item] = parsed.ast.items.as_slice() else {
+            panic!("expected exactly one module item")
+        };
+        item
+    }
+
     #[test]
-    fn parse_chart_root_with_mixed_body_and_sql() {
+    fn parse_chart_module_item_with_mixed_body_and_sql() {
         let parsed = parse(
             r#"
 avenger 1;
-import './data.data.avenger' as data;
+import { rows as data } from './data.avenger';
 chart cartesian as example {
   height: 400;
   data: $rows;
@@ -1909,36 +2184,67 @@ chart cartesian as example {
 }
 "#,
         );
-        let Root::Chart(chart) = parsed.ast.root else {
-            panic!("expected chart root")
-        };
+        let chart = &only_item(&parsed).declaration;
         assert_eq!(chart.children.len(), 2);
         assert_eq!(chart.children[0].doc.as_deref(), Some("Visible points."));
+        assert!(matches!(
+            &parsed.ast.imports[0].clause,
+            ImportClause::Named(specifiers)
+                if specifiers[0].imported.as_str() == "rows"
+                    && specifiers[0].local.as_str() == "data"
+        ));
         assert!(!parsed.source_map.is_empty());
     }
 
     #[test]
-    fn parse_definition_and_data_roots() {
-        let definition = parse(
-            "avenger 1; define mark badge { slot number radius; slot channel x; mark symbol {} }",
+    fn parse_mixed_exported_and_private_module_items() {
+        let parsed = parse(
+            "avenger 1;\
+             export define mark badge { slot number radius; slot channel x; mark symbol {} }\
+             table inline as movies { values: []; }\
+             export chart cartesian as example {}",
         );
-        assert!(matches!(definition.ast.root, Root::Define(_)));
-
-        let data = parse(
-            "avenger 1; catalog memory as local { schema tables as vega { table inline as movies { values: []; } } }",
-        );
-        assert!(matches!(data.ast.root, Root::Data(_)));
+        assert_eq!(parsed.ast.items.len(), 3);
+        assert!(parsed.ast.items[0].exported);
+        assert!(!parsed.ast.items[1].exported);
+        assert!(parsed.ast.items[2].exported);
+        assert_eq!(parsed.ast.items[0].declaration.keyword.as_str(), "define");
+        assert_eq!(parsed.ast.items[1].declaration.keyword.as_str(), "table");
+        assert_eq!(parsed.ast.items[2].declaration.keyword.as_str(), "chart");
     }
 
     #[test]
-    fn parse_rejects_multiple_roots_and_duplicate_properties() {
-        let source = SourceFile::new(
-            SourceId::new(1),
-            SourceOrigin::Memory("bad.avenger".into()),
-            "avenger 1; chart cartesian {} chart polar {}",
+    fn parse_named_and_namespace_imports_with_metadata() {
+        let parsed = parse(
+            "avenger 1;\
+             import { chart, points as marks, } from './library.avenger' sha256 'abc123';\
+             import * as native from 'native:acme';\
+             chart native.cartesian as example {}",
         );
-        assert!(parse_file(&source).is_err());
+        assert_eq!(parsed.ast.imports.len(), 2);
+        assert_eq!(
+            parsed.ast.items[0]
+                .declaration
+                .kind
+                .as_ref()
+                .unwrap()
+                .segments()
+                .len(),
+            2
+        );
+        assert_eq!(parsed.module_syntax.qualified_kinds[0].segments.len(), 2);
+        assert_eq!(parsed.module_syntax.imports.len(), 2);
+        assert_eq!(parsed.module_syntax.imports[0].sha256.is_some(), true);
+        assert!(matches!(
+            &parsed.ast.imports[1].clause,
+            ImportClause::Namespace(name) if name.as_str() == "native"
+        ));
+    }
 
+    #[test]
+    fn parse_accepts_multiple_items_and_rejects_duplicate_properties() {
+        let parsed = parse("avenger 1; chart cartesian as first {} chart polar as second {}");
+        assert_eq!(parsed.ast.items.len(), 2);
         let source = SourceFile::new(
             SourceId::new(2),
             SourceOrigin::Memory("bad.avenger".into()),
@@ -1962,9 +2268,7 @@ chart cartesian as example {
         let parsed = parse(
             "avenger 1; define mark docs { -- | attached\n slot number first; -- | detached\n\n slot number second; }",
         );
-        let Root::Define(definition) = parsed.ast.root else {
-            panic!()
-        };
+        let definition = &only_item(&parsed).declaration;
         assert_eq!(definition.children[0].doc.as_deref(), Some("attached"));
         assert_eq!(definition.children[1].doc, None);
     }
@@ -1984,9 +2288,7 @@ chart cartesian as chart {
   on click { set point = NULL; set picked = clear; set cursor = 'crosshair'; }
 }"#,
         );
-        let Root::Chart(chart) = parsed.ast.root else {
-            panic!("expected chart root")
-        };
+        let chart = &only_item(&parsed).declaration;
         let keywords = chart
             .children
             .iter()
@@ -2006,10 +2308,10 @@ chart cartesian as chart {
             ]
         );
         assert_eq!(chart.children[6].kind, None);
-        assert_eq!(chart.children[7].children[0].keyword.as_str(), "dimension");
-        assert_eq!(chart.children[8].children[0].kind, None);
+        assert_eq!(chart.children[6].children[0].keyword.as_str(), "dimension");
+        assert_eq!(chart.children[7].children[0].kind, None);
         assert_eq!(
-            chart.children[8].children[2]
+            chart.children[7].children[2]
                 .kind
                 .as_ref()
                 .unwrap()
@@ -2020,9 +2322,7 @@ chart cartesian as chart {
         let definition = parse(
             "avenger 1; define transform sample { slot channel x; slot expr amount; output amount; output CAST(amount AS float64) + 1 as next; }",
         );
-        let Root::Define(definition) = definition.ast.root else {
-            panic!("expected definition root")
-        };
+        let definition = &only_item(&definition).declaration;
         assert_eq!(
             definition.children[0].kind.as_ref().unwrap().as_str(),
             "channel"
@@ -2089,5 +2389,64 @@ chart cartesian as chart {
             let error = parse_file(&source).unwrap_err();
             assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-033");
         }
+    }
+
+    #[test]
+    fn parse_rejects_removed_module_forms_with_focused_codes() {
+        let cases = [
+            (
+                "avenger 1; import './thing.avenger' as thing; chart cartesian {}",
+                "AVENGER-PARSE-042",
+            ),
+            (
+                "avenger 1; import {} from './thing.avenger'; chart cartesian {}",
+                "AVENGER-PARSE-042",
+            ),
+            (
+                "avenger 1; chart cartesian {} import * as thing from './thing.avenger';",
+                "AVENGER-PARSE-040",
+            ),
+            ("avenger 1;", "AVENGER-PARSE-041"),
+            (
+                "avenger 1; import * as thing from './thing.avenger';",
+                "AVENGER-PARSE-041",
+            ),
+            (
+                "avenger 1; public chart cartesian as chart {}",
+                "AVENGER-PARSE-044",
+            ),
+            (
+                "avenger 1; param float64 as value { value: 1; }",
+                "AVENGER-PARSE-045",
+            ),
+        ];
+        for (source, code) in cases {
+            let source = SourceFile::new(
+                SourceId::new(12),
+                SourceOrigin::Memory("module-error.avenger".into()),
+                source,
+            );
+            let error = parse_file(&source).expect_err(source.text());
+            assert_eq!(error.diagnostic().code.as_str(), code, "{}", source.text());
+        }
+    }
+
+    #[test]
+    fn module_keywords_do_not_disturb_sql_islands() {
+        let parsed = parse(
+            r#"avenger 1;
+export chart cartesian as grouped {
+  table sql as summary {
+    sql: SELECT "group", count(*) AS total
+         FROM input
+         GROUP BY "group";
+  }
+}"#,
+        );
+        let table = &only_item(&parsed).declaration.children[0];
+        let crate::ast::Value::Query(query) = table.props.get("sql").unwrap() else {
+            panic!("expected a query")
+        };
+        assert!(query.canonical_sql().contains("GROUP BY"));
     }
 }

@@ -1,0 +1,2 @@
+avenger 1;
+import * as library from './library.avenger';
