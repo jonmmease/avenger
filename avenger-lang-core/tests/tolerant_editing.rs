@@ -2,7 +2,8 @@ use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
     sql::LosslessTokenKind,
     syntax::{
-        SyntaxLimits, TolerantParsedFile, parse_file_tolerant, parse_file_tolerant_with_limits,
+        SqlIslandContext, SyntaxLimits, TolerantParsedFile, TolerantSyntaxNodeKind,
+        parse_file_tolerant, parse_file_tolerant_with_limits,
     },
 };
 
@@ -147,4 +148,47 @@ fn configured_limits_collapse_work_without_losing_source_ownership() {
             .iter()
             .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-TOKEN-003")
     );
+}
+
+#[test]
+fn module_tokens_and_qualified_sql_relations_keep_independent_boundaries() {
+    let text = r#"avenger 1;
+import { movies as films } from './data.avenger';
+import * as acme from 'native:acme';
+
+chart acme.cartesian as chart {
+  table sql as summary {
+    sql: FROM samples.movies AS m
+         SELECT m.genre, count(*) AS total
+         GROUP BY m.genre;
+  }
+}
+"#;
+    let parsed = parse(text);
+    assert_lossless(text, &parsed);
+    assert_eq!(parsed.module_syntax.imports.len(), 2);
+    assert_eq!(parsed.module_syntax.items.len(), 1);
+    assert_eq!(
+        parsed.module_syntax.items[0]
+            .kind_segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<Vec<_>>(),
+        ["acme", "cartesian"]
+    );
+    let query = parsed
+        .nodes
+        .iter()
+        .find(|node| {
+            matches!(
+                node.kind,
+                TolerantSyntaxNodeKind::SqlIsland {
+                    context: SqlIslandContext::QueryProperty
+                }
+            )
+        })
+        .expect("query island");
+    let query_text = &text[query.span.range.as_range()];
+    assert!(query_text.contains("samples.movies"));
+    assert!(query_text.contains("GROUP BY"));
 }

@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    SourceFile, SourceId, SourceOrigin,
+    ByteSpan, SourceFile, SourceId, SourceOrigin,
     print::print_file,
     sql::{CommentKind, TokenClass, TokenStream, tokenize},
 };
 
-use super::{ParseError, ParsedFile, parse_file};
+use super::{ParseError, ParsedFile, parse_file, parse_file_tolerant};
 
 pub fn format_source(source: &SourceFile) -> Result<String, ParseError> {
-    parse_file(source).map(|parsed| format_parsed(&parsed))
+    match parse_file(source) {
+        Ok(parsed) => Ok(format_parsed(&parsed)),
+        Err(error) => format_recovered_module(source).ok_or(error),
+    }
 }
 
 pub fn format_parsed(parsed: &ParsedFile) -> String {
@@ -23,6 +26,57 @@ pub fn format_parsed(parsed: &ParsedFile) -> String {
         .expect("canonical semantic output must tokenize under the Avenger dialect");
     let anchors = collect_anchors(parsed.concrete.tokens());
     reinsert_comments(&canonical, &canonical_tokens, &anchors)
+}
+
+fn format_recovered_module(source: &SourceFile) -> Option<String> {
+    let tolerant = parse_file_tolerant(source);
+    let mut replacements = Vec::<(ByteSpan, String)>::new();
+    for import in &tolerant.module_syntax.imports {
+        if !import.complete {
+            continue;
+        }
+        let authored = &source.text()[import.span.range.as_range()];
+        let synthetic = format!("avenger 1;\n{authored}\nchart cartesian {{}}\n");
+        let parsed = parse_file(&SourceFile::new(
+            SourceId::new(source.id.get()),
+            SourceOrigin::Memory("<format-import-fragment>".into()),
+            synthetic,
+        ))
+        .ok()?;
+        let printed = print_file(&parsed.ast);
+        let body = printed.strip_prefix("avenger 1;\n")?;
+        let end = body.find("\n\nchart ")?;
+        replacements.push((import.span.range, body[..end].to_owned()));
+    }
+    for item in &tolerant.module_syntax.items {
+        if !item.complete {
+            continue;
+        }
+        let authored = &source.text()[item.span.range.as_range()];
+        let synthetic = format!("avenger 1;\n{authored}\n");
+        let Ok(parsed) = parse_file(&SourceFile::new(
+            SourceId::new(source.id.get()),
+            SourceOrigin::Memory("<format-module-item-fragment>".into()),
+            synthetic,
+        )) else {
+            continue;
+        };
+        let printed = print_file(&parsed.ast);
+        let canonical = printed
+            .strip_prefix("avenger 1;\n")?
+            .trim_end_matches('\n')
+            .to_owned();
+        replacements.push((item.span.range, canonical));
+    }
+    if replacements.is_empty() {
+        return None;
+    }
+    replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = source.text().to_owned();
+    for (range, replacement) in replacements {
+        output.replace_range(range.as_range(), &replacement);
+    }
+    Some(output)
 }
 
 #[derive(Clone, Copy)]
@@ -298,6 +352,20 @@ chart polar as second {}
             formatted,
             format_source(&source(2, formatted.clone())).unwrap()
         );
+    }
+
+    #[test]
+    fn format_preserves_ambiguous_item_and_formats_owned_siblings() {
+        let input = source(
+            3,
+            "avenger 1;\nchart cartesian as broken {\n  width:\nchart polar as healthy { z:2; a:1; }\n",
+        );
+        let formatted = format_source(&input).unwrap();
+        assert!(formatted.contains("chart cartesian as broken {\n  width:\n"));
+        assert!(formatted.contains("chart polar as healthy {\n  a: 1;\n  z: 2;\n}"));
+
+        let only_ambiguous = source(4, "avenger 1;\nchart cartesian as broken {\n  width:\n");
+        assert!(format_source(&only_ambiguous).is_err());
     }
 
     fn strip_ordinary_comments(source_text: &str) -> String {

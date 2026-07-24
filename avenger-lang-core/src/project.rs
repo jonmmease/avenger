@@ -370,13 +370,20 @@ impl<'a> ProjectLoader<'a> {
             ..pending.clone()
         });
 
+        let import_spans = state.loaded[&source_id]
+            .parsed
+            .module_syntax
+            .imports
+            .iter()
+            .map(|import| import.span)
+            .collect::<Vec<_>>();
         let imports = state.loaded[&source_id]
             .parsed
             .ast
             .imports
             .clone()
             .into_iter()
-            .zip(state.loaded[&source_id].parsed.import_spans.clone());
+            .zip(import_spans);
         let import_count = state.loaded[&source_id].parsed.ast.imports.len();
         if import_count > request.limits.max_imports_per_source {
             return Err(project_diagnostic(

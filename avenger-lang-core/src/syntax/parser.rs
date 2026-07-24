@@ -199,9 +199,6 @@ pub struct ParsedFile {
     pub ast: File,
     pub source_map: AstSourceMap,
     pub module_syntax: ModuleSyntaxMap,
-    /// Temporary compatibility view for callers not yet migrated to
-    /// `module_syntax.imports`; it carries no additional ownership semantics.
-    pub import_spans: Vec<SourceSpan>,
     pub concrete: ConcreteFile,
 }
 
@@ -316,17 +313,11 @@ pub fn parse_file_with_limits(
     let ast = parser.file()?;
     let source_map = parser.source_map;
     let module_syntax = parser.module_syntax;
-    let import_spans = module_syntax
-        .imports
-        .iter()
-        .map(|import| import.span)
-        .collect();
     let nodes = concrete_nodes(&tokens, &source_map);
     Ok(ParsedFile {
         ast,
         source_map,
         module_syntax,
-        import_spans,
         concrete: ConcreteFile {
             source: source.clone(),
             tokens,

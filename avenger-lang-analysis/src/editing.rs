@@ -346,18 +346,22 @@ pub(crate) fn pin_import_target(
     let Some(strict) = syntax.parsed.strict.as_ref() else {
         return Ok(None);
     };
-    let Some((import, span)) =
-        strict
-            .ast
-            .imports
-            .iter()
-            .zip(&strict.import_spans)
-            .find(|(import, span)| {
-                import.sha256.is_none()
-                    && (import.source.starts_with("https://")
-                        || import.source.starts_with("http://"))
-                    && spans_overlap(**span, request.range)
-            })
+    let Some((import, span)) = strict
+        .ast
+        .imports
+        .iter()
+        .zip(
+            strict
+                .module_syntax
+                .imports
+                .iter()
+                .map(|import| import.span),
+        )
+        .find(|(import, span)| {
+            import.sha256.is_none()
+                && (import.source.starts_with("https://") || import.source.starts_with("http://"))
+                && spans_overlap(*span, request.range)
+        })
     else {
         return Ok(None);
     };

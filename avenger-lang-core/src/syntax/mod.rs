@@ -10,7 +10,9 @@ pub use parser::{
     SqlIslandRoot, SqlIslandSite, SyntaxLimits, SyntaxNodeId, parse_file, parse_file_with_limits,
 };
 pub use tolerant::{
-    ParseMode, ParseModeOutput, TolerantParsedFile, TolerantSyntaxNode, TolerantSyntaxNodeId,
-    TolerantSyntaxNodeKind, parse_file_tolerant, parse_file_tolerant_with_limits,
-    parse_file_with_mode,
+    ParseMode, ParseModeOutput, TolerantImportClauseSyntax, TolerantImportSpecifierSyntax,
+    TolerantImportSyntax, TolerantModuleItemSyntax, TolerantModuleSyntax, TolerantParsedFile,
+    TolerantRecoveryContext, TolerantRecoverySyntax, TolerantSpannedText, TolerantSyntaxNode,
+    TolerantSyntaxNodeId, TolerantSyntaxNodeKind, TolerantVersionSyntax, parse_file_tolerant,
+    parse_file_tolerant_with_limits, parse_file_with_mode,
 };
