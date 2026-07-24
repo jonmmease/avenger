@@ -353,6 +353,19 @@ fn interchange_name_schema_matches_unicode_identifier_contract() {
     let parsed = parse_file(&source).unwrap();
     let mut instance = serde_json::to_value(&parsed.ast).unwrap();
     assert!(validator.is_valid(&instance));
+    let mut legacy_group_ref = instance.clone();
+    legacy_group_ref["items"][0]["declaration"]["props"] = serde_json::json!({
+        "target": {
+            "ref": {
+                "kind": "group",
+                "path": ["layers"]
+            }
+        }
+    });
+    assert!(
+        !validator.is_valid(&legacy_group_ref),
+        "mark groups use the ordinary mark reference category"
+    );
     instance["items"][0]["declaration"]["name"] = serde_json::Value::String("bad$name".to_owned());
     assert!(!validator.is_valid(&instance));
 

@@ -183,7 +183,7 @@
     "ref": {
       "type": "object",
       "properties": {
-        "kind": { "enum": ["mark", "group", "selection", "tool", "widget", "resource"] },
+        "kind": { "enum": ["mark", "selection", "tool", "widget", "resource"] },
         "path": { "type": "array", "items": { "$ref": "#/$defs/name" }, "minItems": 1 }
       },
       "required": ["kind", "path"],

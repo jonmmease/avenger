@@ -70507,7 +70507,6 @@
         "kind": {
           "enum": [
             "mark",
-            "group",
             "selection",
             "tool",
             "widget",

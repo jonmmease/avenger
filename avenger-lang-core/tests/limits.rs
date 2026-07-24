@@ -88,7 +88,7 @@ async fn expansion_limits_bound_declarations_depth_and_output() {
         ))
         .with_source(LoadedSource::new(
             definition,
-            "avenger 1; define mark badge { mark symbol {} }",
+            "avenger 1; export define mark badge { mark symbol {} }",
             ContentVersion::new("limits-v1"),
         ));
     let project = ModuleGraphLoader::new(&loader)
