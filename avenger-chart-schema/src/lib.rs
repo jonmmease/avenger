@@ -5,9 +5,13 @@
 //! serialize the resulting schema for documentation, validation, completion,
 //! and compatibility profiles.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SchemaVersion {
@@ -73,6 +77,218 @@ impl NativeKindKey {
             coordinate: Some(coordinate.into()),
         }
     }
+}
+
+/// Exact host-provided native module specifier.
+///
+/// Native modules are schema/export catalogs already linked into the host.
+/// Constructing an ID never resolves, downloads, or loads executable code.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NativeModuleId(String);
+
+impl NativeModuleId {
+    pub fn new(value: impl Into<String>) -> Result<Self, SchemaError> {
+        let value = value.into();
+        if is_native_module_specifier(&value) {
+            Ok(Self(value))
+        } else {
+            Err(SchemaError::InvalidNativeModuleId(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for NativeModuleId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for NativeModuleId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for NativeModuleId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(de::Error::custom)
+    }
+}
+
+fn is_native_module_specifier(value: &str) -> bool {
+    value
+        .strip_prefix("native:")
+        .is_some_and(|body| !body.is_empty() && !body.chars().any(char::is_whitespace))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NativeModuleSchemaProfileId(String);
+
+impl NativeModuleSchemaProfileId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Stable host-supplied identity for the executable implementation behind a
+/// native module. Rust lowerer closures cannot be content-hashed, so hosts
+/// must change this value whenever compile-affecting behavior changes.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NativeModuleImplementationProfileId(String);
+
+impl NativeModuleImplementationProfileId {
+    pub fn new(value: impl Into<String>) -> Result<Self, SchemaError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            Err(SchemaError::InvalidNativeModuleImplementationProfile)
+        } else {
+            Ok(Self(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeModuleExport {
+    pub category: NativeKindNamespace,
+    pub implementation: NativeKindKey,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeModuleSchema {
+    pub id: NativeModuleId,
+    pub docs: String,
+    pub exports: BTreeMap<String, NativeModuleExport>,
+}
+
+impl NativeModuleSchema {
+    pub fn new(id: NativeModuleId, docs: impl Into<String>) -> Self {
+        Self {
+            id,
+            docs: docs.into(),
+            exports: BTreeMap::new(),
+        }
+    }
+
+    pub fn add_export(
+        &mut self,
+        name: impl Into<String>,
+        implementation: NativeKindKey,
+        docs: impl Into<String>,
+    ) -> Result<(), SchemaError> {
+        let name = name.into();
+        if self.exports.contains_key(&name) {
+            return Err(SchemaError::DuplicateNativeExport {
+                module: self.id.clone(),
+                name,
+            });
+        }
+        self.exports.insert(
+            name,
+            NativeModuleExport {
+                category: implementation.namespace,
+                implementation,
+                docs: docs.into(),
+            },
+        );
+        Ok(())
+    }
+
+    pub fn validate(
+        &self,
+        entries: &BTreeMap<NativeKindKey, KindSchema>,
+    ) -> Result<(), SchemaError> {
+        require_docs(&self.docs, format!("native module '{}'", self.id))?;
+        if self.exports.is_empty() {
+            return Err(SchemaError::EmptyNativeModule {
+                module: self.id.clone(),
+            });
+        }
+        for (name, export) in &self.exports {
+            if !is_export_name(name) {
+                return Err(SchemaError::InvalidNativeExportName {
+                    module: self.id.clone(),
+                    name: name.clone(),
+                });
+            }
+            require_docs(
+                &export.docs,
+                format!("native module '{}' export '{name}'", self.id),
+            )?;
+            if export.category != export.implementation.namespace {
+                return Err(SchemaError::NativeExportCategoryMismatch {
+                    module: self.id.clone(),
+                    name: name.clone(),
+                    category: export.category,
+                    implementation: export.implementation.namespace,
+                });
+            }
+            if !entries.contains_key(&export.implementation) {
+                return Err(SchemaError::MissingNativeExportImplementation {
+                    module: self.id.clone(),
+                    name: name.clone(),
+                    implementation: export.implementation.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn schema_profile(
+        &self,
+        entries: &BTreeMap<NativeKindKey, KindSchema>,
+    ) -> Result<NativeModuleSchemaProfileId, SchemaError> {
+        self.validate(entries)?;
+        let implementations = self
+            .exports
+            .values()
+            .map(|export| export.implementation.clone())
+            .collect::<BTreeSet<_>>();
+        let schemas = implementations
+            .iter()
+            .map(|key| {
+                entries
+                    .get(key)
+                    .ok_or_else(|| SchemaError::MissingNativeExportImplementation {
+                        module: self.id.clone(),
+                        name: key.kind.clone(),
+                        implementation: key.clone(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let canonical = serde_json::to_vec(&(self, schemas)).map_err(SchemaError::Serialize)?;
+        Ok(NativeModuleSchemaProfileId(format!(
+            "avenger-native-module-schema-{:x}",
+            Sha256::digest(canonical)
+        )))
+    }
+}
+
+fn is_export_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first.is_alphabetic())
+        && chars.all(|character| {
+            character == '_' || character.is_alphabetic() || character.is_ascii_digit()
+        })
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -490,6 +706,8 @@ pub struct NativeSchemaSnapshot {
     pub profile_label: String,
     #[serde(with = "entry_map")]
     pub entries: BTreeMap<NativeKindKey, KindSchema>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modules: BTreeMap<NativeModuleId, NativeModuleSchema>,
 }
 
 mod entry_map {
@@ -567,7 +785,25 @@ impl NativeSchemaSnapshot {
                 require_docs(&child.docs, format!("{key:?} child role '{}'", child.role))?;
             }
         }
+        for (id, module) in &self.modules {
+            if id != &module.id {
+                return Err(SchemaError::NativeModuleKeyMismatch {
+                    key: id.clone(),
+                    module: module.id.clone(),
+                });
+            }
+            module.validate(&self.entries)?;
+        }
         Ok(())
+    }
+
+    pub fn native_module(
+        &self,
+        id: &NativeModuleId,
+    ) -> Option<(&NativeModuleSchema, NativeModuleSchemaProfileId)> {
+        let module = self.modules.get(id)?;
+        let profile = module.schema_profile(&self.entries).ok()?;
+        Some((module, profile))
     }
 
     /// Deterministic documentation data generated from the same entries used
@@ -577,6 +813,31 @@ impl NativeSchemaSnapshot {
             "# Avenger native schema: {}\n\nLanguage schema {}.{}.\n",
             self.profile_label, self.version.major, self.version.minor
         );
+        if !self.modules.is_empty() {
+            output.push_str("\n## Native modules\n");
+            for (id, module) in &self.modules {
+                output.push_str(&format!("\n### `{id}`\n\n{}\n", module.docs));
+                output.push_str(
+                    "\n| Export | Category | Implementation | Description |\n\
+                     |---|---|---|---|\n",
+                );
+                for (name, export) in &module.exports {
+                    output.push_str(&format!(
+                        "| `{name}` | `{:?}` | `{:?}.{}{}` | {} |\n",
+                        export.category,
+                        export.implementation.namespace,
+                        export
+                            .implementation
+                            .coordinate
+                            .as_ref()
+                            .map(|coordinate| format!("{coordinate}."))
+                            .unwrap_or_default(),
+                        export.implementation.kind,
+                        export.docs
+                    ));
+                }
+            }
+        }
         for (key, schema) in &self.entries {
             output.push_str(&format!(
                 "\n## `{:?}.{}{}`\n\n{}\n",
@@ -670,6 +931,44 @@ fn require_docs(docs: &str, context: String) -> Result<(), SchemaError> {
 pub enum SchemaError {
     #[error("language schema is missing documentation for {context}")]
     MissingDocs { context: String },
+    #[error("invalid native module ID '{0}'; expected an exact nonempty native: specifier")]
+    InvalidNativeModuleId(String),
+    #[error("native module implementation profile must not be empty")]
+    InvalidNativeModuleImplementationProfile,
+    #[error("native module '{module}' has no exports")]
+    EmptyNativeModule { module: NativeModuleId },
+    #[error("native module '{module}' has invalid export name '{name}'")]
+    InvalidNativeExportName {
+        module: NativeModuleId,
+        name: String,
+    },
+    #[error("native module '{module}' has duplicate export '{name}'")]
+    DuplicateNativeExport {
+        module: NativeModuleId,
+        name: String,
+    },
+    #[error(
+        "native module '{module}' export '{name}' declares {category:?} but points to {implementation:?}"
+    )]
+    NativeExportCategoryMismatch {
+        module: NativeModuleId,
+        name: String,
+        category: NativeKindNamespace,
+        implementation: NativeKindNamespace,
+    },
+    #[error(
+        "native module '{module}' export '{name}' points to missing implementation {implementation:?}"
+    )]
+    MissingNativeExportImplementation {
+        module: NativeModuleId,
+        name: String,
+        implementation: NativeKindKey,
+    },
+    #[error("native module map key '{key}' does not match embedded module ID '{module}'")]
+    NativeModuleKeyMismatch {
+        key: NativeModuleId,
+        module: NativeModuleId,
+    },
     #[error("failed to serialize language schema: {0}")]
     Serialize(serde_json::Error),
 }
@@ -695,6 +994,7 @@ mod tests {
                 .into_iter()
                 .map(|entry| (entry.key.clone(), entry))
                 .collect(),
+            modules: BTreeMap::new(),
         };
         assert_eq!(
             snapshot(vec![left.clone(), right.clone()])
@@ -726,6 +1026,7 @@ mod tests {
             version: SchemaVersion::V1,
             profile_label: "test".to_string(),
             entries: [(schema.key.clone(), schema)].into_iter().collect(),
+            modules: BTreeMap::new(),
         };
         assert!(matches!(
             snapshot.validate_docs(),
@@ -747,6 +1048,7 @@ mod tests {
             version: SchemaVersion::V1,
             profile_label: "test".to_string(),
             entries: [(schema.key.clone(), schema)].into_iter().collect(),
+            modules: BTreeMap::new(),
         };
         snapshot.validate_docs().unwrap();
         assert!(snapshot.markdown_reference().contains("`*`"));
@@ -755,5 +1057,95 @@ mod tests {
                 .unwrap()
                 .contains("additional_properties")
         );
+    }
+
+    #[test]
+    fn native_module_ids_are_exact_nonempty_specifiers() {
+        assert!(NativeModuleId::new("native:com.acme.visuals@1").is_ok());
+        for invalid in ["", "com.acme.visuals@1", "native:", "native:has space"] {
+            assert!(
+                NativeModuleId::new(invalid).is_err(),
+                "accepted invalid native module ID {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_module_schema_profile_ignores_unrelated_entries() {
+        let implementation = NativeKindKey::mark("cartesian", "acme_hexbin");
+        let mut module = NativeModuleSchema::new(
+            NativeModuleId::new("native:com.acme.visuals@1").unwrap(),
+            "Acme visual extensions.",
+        );
+        module
+            .add_export(
+                "hexbin",
+                implementation.clone(),
+                "Aggregate points into hexagonal bins.",
+            )
+            .unwrap();
+        let mut entries = BTreeMap::from([(
+            implementation.clone(),
+            KindSchema::new(implementation, "Acme hexbin mark."),
+        )]);
+        let first = module.schema_profile(&entries).unwrap();
+        let unrelated = NativeKindKey::new(NativeKindNamespace::Tool, "unrelated");
+        entries.insert(
+            unrelated.clone(),
+            KindSchema::new(unrelated, "Unrelated tool."),
+        );
+        let second = module.schema_profile(&entries).unwrap();
+        assert_eq!(first, second);
+
+        let snapshot = NativeSchemaSnapshot {
+            version: SchemaVersion::V1,
+            profile_label: "test".to_string(),
+            entries,
+            modules: [(module.id.clone(), module)].into_iter().collect(),
+        };
+        let reference = snapshot.markdown_reference();
+        assert!(reference.contains("## Native modules"));
+        assert!(reference.contains("`native:com.acme.visuals@1`"));
+        assert!(reference.contains("`hexbin`"));
+    }
+
+    #[test]
+    fn native_module_exports_validate_category_docs_and_implementation() {
+        let implementation = NativeKindKey::mark("cartesian", "acme_hexbin");
+        let entries = BTreeMap::from([(
+            implementation.clone(),
+            KindSchema::new(implementation.clone(), "Acme hexbin mark."),
+        )]);
+        let id = NativeModuleId::new("native:com.acme.visuals@1").unwrap();
+
+        let mut valid = NativeModuleSchema::new(id.clone(), "Acme visuals.");
+        valid
+            .add_export("hexbin", implementation.clone(), "Hexbin mark.")
+            .unwrap();
+        valid.validate(&entries).unwrap();
+        assert!(matches!(
+            valid.add_export("hexbin", implementation.clone(), "Duplicate."),
+            Err(SchemaError::DuplicateNativeExport { .. })
+        ));
+
+        let mut wrong_category = valid.clone();
+        wrong_category.exports.get_mut("hexbin").unwrap().category = NativeKindNamespace::Transform;
+        assert!(matches!(
+            wrong_category.validate(&entries),
+            Err(SchemaError::NativeExportCategoryMismatch { .. })
+        ));
+
+        let mut missing = NativeModuleSchema::new(id, "Acme visuals.");
+        missing
+            .add_export(
+                "missing",
+                NativeKindKey::new(NativeKindNamespace::Tool, "missing"),
+                "Missing tool.",
+            )
+            .unwrap();
+        assert!(matches!(
+            missing.validate(&entries),
+            Err(SchemaError::MissingNativeExportImplementation { .. })
+        ));
     }
 }

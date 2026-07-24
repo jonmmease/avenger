@@ -1,6 +1,11 @@
 //! Explicitly composed native authoring schemas paired with Rust lowerers.
 
-use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    any::Any,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use avenger_chart::{layout::LayoutSpec, plot::CompiledPlot, prelude::*};
@@ -15,6 +20,10 @@ pub use avenger_chart_lang_types::{
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
+};
+pub use avenger_chart_schema::{
+    NativeModuleExport, NativeModuleId, NativeModuleImplementationProfileId, NativeModuleSchema,
+    NativeModuleSchemaProfileId,
 };
 use datafusion::{dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext};
 use indexmap::IndexMap;
@@ -986,6 +995,18 @@ struct ObjectEntry {
     lowerer: NativeObjectLowerer,
 }
 
+#[derive(Clone, Debug)]
+struct PendingNativeModule {
+    schema: NativeModuleSchema,
+    implementation_profile: NativeModuleImplementationProfileId,
+}
+
+#[derive(Clone, Debug)]
+enum RegistrationScope {
+    Builtin,
+    Native(NativeModuleId),
+}
+
 pub struct NativeRegistryBuilder {
     language_major: u32,
     profile_label: String,
@@ -993,6 +1014,10 @@ pub struct NativeRegistryBuilder {
     transforms: BTreeMap<String, TransformEntry>,
     widgets: BTreeMap<String, WidgetEntry>,
     objects: BTreeMap<NativeKindKey, ObjectEntry>,
+    registration_scope: Option<RegistrationScope>,
+    builtin_keys: BTreeSet<NativeKindKey>,
+    native_module_keys: BTreeMap<NativeModuleId, BTreeSet<NativeKindKey>>,
+    native_modules: BTreeMap<NativeModuleId, PendingNativeModule>,
 }
 
 impl NativeRegistryBuilder {
@@ -1004,6 +1029,68 @@ impl NativeRegistryBuilder {
             transforms: BTreeMap::new(),
             widgets: BTreeMap::new(),
             objects: BTreeMap::new(),
+            registration_scope: None,
+            builtin_keys: BTreeSet::new(),
+            native_module_keys: BTreeMap::new(),
+            native_modules: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn begin_builtin_registration(&mut self) -> Result<(), RegistryError> {
+        if self.registration_scope.is_some() {
+            return Err(RegistryError::NestedRegistrationScope);
+        }
+        self.registration_scope = Some(RegistrationScope::Builtin);
+        Ok(())
+    }
+
+    pub(crate) fn finish_builtin_registration(&mut self) {
+        debug_assert!(matches!(
+            self.registration_scope,
+            Some(RegistrationScope::Builtin)
+        ));
+        self.registration_scope = None;
+    }
+
+    pub fn native_module(
+        &mut self,
+        id: NativeModuleId,
+        docs: impl Into<String>,
+        implementation_profile: NativeModuleImplementationProfileId,
+    ) -> Result<NativeModuleBuilder<'_>, RegistryError> {
+        if self.registration_scope.is_some() {
+            return Err(RegistryError::NestedRegistrationScope);
+        }
+        if self.native_modules.contains_key(&id) || self.native_module_keys.contains_key(&id) {
+            return Err(RegistryError::DuplicateNativeModule(id));
+        }
+        self.registration_scope = Some(RegistrationScope::Native(id.clone()));
+        self.native_module_keys.insert(id.clone(), BTreeSet::new());
+        Ok(NativeModuleBuilder {
+            registry: self,
+            schema: Some(NativeModuleSchema::new(id, docs)),
+            implementation_profile: Some(implementation_profile),
+            finished: false,
+        })
+    }
+
+    fn record_registration(
+        &mut self,
+        keys: impl IntoIterator<Item = NativeKindKey>,
+    ) -> Result<(), RegistryError> {
+        match self.registration_scope.clone() {
+            Some(RegistrationScope::Builtin) => {
+                self.builtin_keys.extend(keys);
+                Ok(())
+            }
+            Some(RegistrationScope::Native(id)) => {
+                self.native_module_keys
+                    .get_mut(&id)
+                    .expect("native registration scope has a key set")
+                    .extend(keys);
+                Ok(())
+            }
+            None => Err(RegistryError::RegistrationScopeRequired),
         }
     }
 
@@ -1015,6 +1102,11 @@ impl NativeRegistryBuilder {
         if self.coordinates.contains_key(&kind) {
             return Err(RegistryError::DuplicateCoordinate(kind));
         }
+        self.record_registration(
+            ErasedCoordinatePack::schemas(&pack)
+                .into_iter()
+                .map(|schema| schema.key),
+        )?;
         self.coordinates.insert(kind, Box::new(pack));
         Ok(())
     }
@@ -1033,21 +1125,31 @@ impl NativeRegistryBuilder {
         + Sync
         + 'static,
     ) -> Result<(), RegistryError> {
+        let kind = kind.into();
+        {
+            let pack = self
+                .coordinates
+                .get(coordinate_kind)
+                .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+            let pack = pack
+                .as_any()
+                .downcast_ref::<CoordinatePack<C>>()
+                .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                    coordinate: coordinate_kind.to_string(),
+                    expected: std::any::type_name::<C>().to_string(),
+                })?;
+            if pack.marks.contains_key(&kind) {
+                return Err(RegistryError::DuplicateSchema(schema.key));
+            }
+        }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
         let pack = self
             .coordinates
             .get_mut(coordinate_kind)
-            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
-        let pack = pack
+            .expect("coordinate pack was checked above")
             .as_any_mut()
             .downcast_mut::<CoordinatePack<C>>()
-            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
-                coordinate: coordinate_kind.to_string(),
-                expected: std::any::type_name::<C>().to_string(),
-            })?;
-        let kind = kind.into();
-        if pack.marks.contains_key(&kind) {
-            return Err(RegistryError::DuplicateSchema(schema.key));
-        }
+            .expect("coordinate pack type was checked above");
         pack.marks.insert(
             kind,
             TypedMarkEntry {
@@ -1071,21 +1173,31 @@ impl NativeRegistryBuilder {
         + Sync
         + 'static,
     ) -> Result<(), RegistryError> {
+        let kind = kind.into();
+        {
+            let pack = self
+                .coordinates
+                .get(coordinate_kind)
+                .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+            let pack = pack
+                .as_any()
+                .downcast_ref::<CoordinatePack<C>>()
+                .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                    coordinate: coordinate_kind.to_string(),
+                    expected: std::any::type_name::<C>().to_string(),
+                })?;
+            if pack.marks.contains_key(&kind) {
+                return Err(RegistryError::DuplicateSchema(schema.key));
+            }
+        }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
         let pack = self
             .coordinates
             .get_mut(coordinate_kind)
-            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
-        let pack = pack
+            .expect("coordinate pack was checked above")
             .as_any_mut()
             .downcast_mut::<CoordinatePack<C>>()
-            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
-                coordinate: coordinate_kind.to_string(),
-                expected: std::any::type_name::<C>().to_string(),
-            })?;
-        let kind = kind.into();
-        if pack.marks.contains_key(&kind) {
-            return Err(RegistryError::DuplicateSchema(schema.key));
-        }
+            .expect("coordinate pack type was checked above");
         pack.marks.insert(
             kind,
             TypedMarkEntry {
@@ -1107,21 +1219,31 @@ impl NativeRegistryBuilder {
         + Sync
         + 'static,
     ) -> Result<(), RegistryError> {
+        let kind = kind.into();
+        {
+            let pack = self
+                .coordinates
+                .get(coordinate_kind)
+                .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+            let pack = pack
+                .as_any()
+                .downcast_ref::<CoordinatePack<C>>()
+                .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                    coordinate: coordinate_kind.to_string(),
+                    expected: std::any::type_name::<C>().to_string(),
+                })?;
+            if pack.tools.contains_key(&kind) {
+                return Err(RegistryError::DuplicateSchema(schema.key));
+            }
+        }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
         let pack = self
             .coordinates
             .get_mut(coordinate_kind)
-            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
-        let pack = pack
+            .expect("coordinate pack was checked above")
             .as_any_mut()
             .downcast_mut::<CoordinatePack<C>>()
-            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
-                coordinate: coordinate_kind.to_string(),
-                expected: std::any::type_name::<C>().to_string(),
-            })?;
-        let kind = kind.into();
-        if pack.tools.contains_key(&kind) {
-            return Err(RegistryError::DuplicateSchema(schema.key));
-        }
+            .expect("coordinate pack type was checked above");
         pack.tools.insert(
             kind,
             TypedToolEntry {
@@ -1147,6 +1269,7 @@ impl NativeRegistryBuilder {
                 kind,
             });
         }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
         self.transforms.insert(
             kind,
             TransformEntry {
@@ -1184,6 +1307,7 @@ impl NativeRegistryBuilder {
                 kind,
             });
         }
+        self.record_registration(std::iter::once(definition.schema.key.clone()))?;
         let lowerer = definition.lowerer;
         self.transforms.insert(
             kind,
@@ -1214,6 +1338,7 @@ impl NativeRegistryBuilder {
                 kind,
             });
         }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
         self.widgets.insert(kind, WidgetEntry { schema, lowerer });
         Ok(())
     }
@@ -1252,6 +1377,7 @@ impl NativeRegistryBuilder {
                 kind: key.kind,
             });
         }
+        self.record_registration(std::iter::once(key.clone()))?;
         self.objects.insert(key, ObjectEntry { schema, lowerer });
         Ok(())
     }
@@ -1268,6 +1394,9 @@ impl NativeRegistryBuilder {
     }
 
     pub fn build(self) -> Result<NativeRegistry, RegistryError> {
+        if self.registration_scope.is_some() {
+            return Err(RegistryError::UnfinishedRegistrationScope);
+        }
         let mut entries = BTreeMap::new();
         for pack in self.coordinates.values() {
             pack.validate_registration()?;
@@ -1287,6 +1416,65 @@ impl NativeRegistryBuilder {
         for entry in self.objects.values() {
             insert_schema(&mut entries, entry.schema.clone())?;
         }
+
+        let all_registered = self
+            .builtin_keys
+            .iter()
+            .cloned()
+            .chain(
+                self.native_module_keys
+                    .values()
+                    .flat_map(|keys| keys.iter().cloned()),
+            )
+            .collect::<BTreeSet<_>>();
+        let all_entries = entries.keys().cloned().collect::<BTreeSet<_>>();
+        if all_registered != all_entries {
+            return Err(RegistryError::RegistrationOwnershipMismatch {
+                unowned: all_entries.difference(&all_registered).cloned().collect(),
+                missing: all_registered.difference(&all_entries).cloned().collect(),
+            });
+        }
+
+        let mut module_schemas = BTreeMap::new();
+        let mut native_modules = BTreeMap::new();
+        for (id, registered_keys) in &self.native_module_keys {
+            let pending = self
+                .native_modules
+                .get(id)
+                .ok_or_else(|| RegistryError::UnfinishedNativeModule(id.clone()))?;
+            let exported_keys = pending
+                .schema
+                .exports
+                .values()
+                .map(|export| export.implementation.clone())
+                .collect::<BTreeSet<_>>();
+            if registered_keys != &exported_keys {
+                return Err(RegistryError::NativeModuleOwnershipMismatch {
+                    module: id.clone(),
+                    unexported: registered_keys
+                        .difference(&exported_keys)
+                        .cloned()
+                        .collect(),
+                    unregistered: exported_keys.difference(registered_keys).cloned().collect(),
+                });
+            }
+            pending.schema.validate(&entries)?;
+            let schema_profile = pending.schema.schema_profile(&entries)?;
+            module_schemas.insert(id.clone(), pending.schema.clone());
+            native_modules.insert(
+                id.clone(),
+                RegisteredNativeModule {
+                    schema_profile,
+                    implementation_profile: pending.implementation_profile.clone(),
+                },
+            );
+        }
+        for id in self.native_modules.keys() {
+            if !self.native_module_keys.contains_key(id) {
+                return Err(RegistryError::UnfinishedNativeModule(id.clone()));
+            }
+        }
+
         let snapshot = NativeSchemaSnapshot {
             version: SchemaVersion {
                 major: self.language_major,
@@ -1294,17 +1482,50 @@ impl NativeRegistryBuilder {
             },
             profile_label: self.profile_label,
             entries,
+            modules: module_schemas,
         };
         snapshot.validate_docs()?;
         let canonical = snapshot.canonical_json()?;
+        let module_implementation_profiles = native_modules
+            .iter()
+            .map(|(id, module)| (id, &module.implementation_profile))
+            .collect::<Vec<_>>();
         let profile_id = NativeRegistryProfileId(format!(
             "avenger-native-{}-{:x}",
             self.language_major,
-            Sha256::digest(&canonical)
+            Sha256::digest(
+                serde_json::to_vec(&(canonical, module_implementation_profiles)).map_err(
+                    |error| {
+                        RegistryError::Schema(avenger_chart_schema::SchemaError::Serialize(error))
+                    }
+                )?
+            )
+        ));
+        let builtin_schemas = self
+            .builtin_keys
+            .iter()
+            .map(|key| {
+                snapshot
+                    .entries
+                    .get(key)
+                    .expect("registered built-in key has a schema")
+            })
+            .collect::<Vec<_>>();
+        let builtin_profile_id = NativeBuiltinProfileId(format!(
+            "avenger-native-builtins-{}-{:x}",
+            self.language_major,
+            Sha256::digest(
+                serde_json::to_vec(&(snapshot.version, &snapshot.profile_label, builtin_schemas))
+                    .map_err(|error| {
+                    RegistryError::Schema(avenger_chart_schema::SchemaError::Serialize(error))
+                })?
+            )
         ));
         Ok(NativeRegistry {
             snapshot,
             profile_id,
+            builtin_profile_id,
+            native_modules,
             coordinates: self
                 .coordinates
                 .into_iter()
@@ -1314,6 +1535,83 @@ impl NativeRegistryBuilder {
             widgets: self.widgets,
             objects: self.objects,
         })
+    }
+}
+
+/// Explicit registration scope for one host-provided native module.
+///
+/// Register lowerers through [`Self::registry`] and publish every registered
+/// implementation with [`Self::export`] before calling [`Self::finish`].
+/// Dropping an unfinished scope leaves the parent builder invalid, preventing
+/// accidental implicit built-ins.
+pub struct NativeModuleBuilder<'a> {
+    registry: &'a mut NativeRegistryBuilder,
+    schema: Option<NativeModuleSchema>,
+    implementation_profile: Option<NativeModuleImplementationProfileId>,
+    finished: bool,
+}
+
+impl NativeModuleBuilder<'_> {
+    pub fn registry(&mut self) -> &mut NativeRegistryBuilder {
+        self.registry
+    }
+
+    pub fn export(
+        &mut self,
+        name: impl Into<String>,
+        implementation: NativeKindKey,
+        docs: impl Into<String>,
+    ) -> Result<&mut Self, RegistryError> {
+        let name = name.into();
+        let schema = self
+            .schema
+            .as_mut()
+            .expect("unfinished native module has a schema");
+        if schema.exports.contains_key(&name) {
+            return Err(RegistryError::DuplicateNativeExport {
+                module: schema.id.clone(),
+                name,
+            });
+        }
+        schema.add_export(name, implementation, docs)?;
+        Ok(self)
+    }
+
+    pub fn finish(mut self) -> Result<(), RegistryError> {
+        let schema = self
+            .schema
+            .take()
+            .expect("unfinished native module has a schema");
+        let implementation_profile = self
+            .implementation_profile
+            .take()
+            .expect("unfinished native module has an implementation profile");
+        let id = schema.id.clone();
+        self.registry.registration_scope = None;
+        if self
+            .registry
+            .native_modules
+            .insert(
+                id.clone(),
+                PendingNativeModule {
+                    schema,
+                    implementation_profile,
+                },
+            )
+            .is_some()
+        {
+            return Err(RegistryError::DuplicateNativeModule(id));
+        }
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for NativeModuleBuilder<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.registry.registration_scope = None;
+        }
     }
 }
 
@@ -1328,9 +1626,25 @@ fn insert_schema(
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegisteredNativeModule {
+    pub schema_profile: NativeModuleSchemaProfileId,
+    pub implementation_profile: NativeModuleImplementationProfileId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ResolvedNativeExport<'a> {
+    pub module: &'a NativeModuleId,
+    pub schema_profile: &'a NativeModuleSchemaProfileId,
+    pub implementation_profile: &'a NativeModuleImplementationProfileId,
+    pub export: &'a NativeModuleExport,
+}
+
 pub struct NativeRegistry {
     snapshot: NativeSchemaSnapshot,
     profile_id: NativeRegistryProfileId,
+    builtin_profile_id: NativeBuiltinProfileId,
+    native_modules: BTreeMap<NativeModuleId, RegisteredNativeModule>,
     coordinates: BTreeMap<String, Arc<dyn ErasedCoordinatePack>>,
     transforms: BTreeMap<String, TransformEntry>,
     widgets: BTreeMap<String, WidgetEntry>,
@@ -1348,6 +1662,41 @@ impl NativeRegistry {
 
     pub fn profile_id(&self) -> &NativeRegistryProfileId {
         &self.profile_id
+    }
+
+    pub fn builtin_profile_id(&self) -> &NativeBuiltinProfileId {
+        &self.builtin_profile_id
+    }
+
+    pub fn native_module(
+        &self,
+        id: &NativeModuleId,
+    ) -> Option<(&NativeModuleSchema, &RegisteredNativeModule)> {
+        Some((self.snapshot.modules.get(id)?, self.native_modules.get(id)?))
+    }
+
+    pub fn native_export(
+        &self,
+        id: &NativeModuleId,
+        name: &str,
+    ) -> Result<ResolvedNativeExport<'_>, RegistryError> {
+        let (schema, module) = self
+            .native_module(id)
+            .ok_or_else(|| RegistryError::UnknownNativeModule(id.clone()))?;
+        let export =
+            schema
+                .exports
+                .get(name)
+                .ok_or_else(|| RegistryError::UnknownNativeExport {
+                    module: id.clone(),
+                    name: name.to_string(),
+                })?;
+        Ok(ResolvedNativeExport {
+            module: &schema.id,
+            schema_profile: &module.schema_profile,
+            implementation_profile: &module.implementation_profile,
+            export,
+        })
     }
 
     pub fn canonical_schema_json(&self) -> Result<Vec<u8>, RegistryError> {
@@ -1698,6 +2047,16 @@ impl NativeRegistryProfileId {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NativeBuiltinProfileId(String);
+
+impl NativeBuiltinProfileId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
     #[error(transparent)]
@@ -1715,6 +2074,43 @@ pub enum RegistryError {
     },
     #[error("duplicate native schema entry {0:?}")]
     DuplicateSchema(NativeKindKey),
+    #[error("native lowerers must be registered inside a built-in or native-module scope")]
+    RegistrationScopeRequired,
+    #[error("cannot nest native registration scopes")]
+    NestedRegistrationScope,
+    #[error("native registration scope was not finished")]
+    UnfinishedRegistrationScope,
+    #[error("native module '{0}' was not finished")]
+    UnfinishedNativeModule(NativeModuleId),
+    #[error("duplicate native module '{0}'")]
+    DuplicateNativeModule(NativeModuleId),
+    #[error("native module '{module}' has duplicate export '{name}'")]
+    DuplicateNativeExport {
+        module: NativeModuleId,
+        name: String,
+    },
+    #[error("unknown native module '{0}'")]
+    UnknownNativeModule(NativeModuleId),
+    #[error("native module '{module}' has no export '{name}'")]
+    UnknownNativeExport {
+        module: NativeModuleId,
+        name: String,
+    },
+    #[error(
+        "native registration ownership does not match registry entries (unowned: {unowned:?}, missing: {missing:?})"
+    )]
+    RegistrationOwnershipMismatch {
+        unowned: Vec<NativeKindKey>,
+        missing: Vec<NativeKindKey>,
+    },
+    #[error(
+        "native module '{module}' registration/export mismatch (unexported: {unexported:?}, unregistered: {unregistered:?})"
+    )]
+    NativeModuleOwnershipMismatch {
+        module: NativeModuleId,
+        unexported: Vec<NativeKindKey>,
+        unregistered: Vec<NativeKindKey>,
+    },
     #[error("schema/lowerer namespace mismatch for {0:?}")]
     SchemaLowererMismatch(NativeKindKey),
     #[error("unknown coordinate '{0}'")]
@@ -1789,6 +2185,19 @@ mod tests {
                 .map(|(name, value)| (name.to_string(), value))
                 .collect(),
         )
+    }
+
+    fn test_builtin_builder() -> NativeRegistryBuilder {
+        let mut builder = NativeRegistry::builder();
+        builder.begin_builtin_registration().unwrap();
+        builder
+    }
+
+    fn build_test_builtins(
+        mut builder: NativeRegistryBuilder,
+    ) -> Result<NativeRegistry, RegistryError> {
+        builder.finish_builtin_registration();
+        builder.build()
     }
 
     fn schema_smoke_value(shape: &ValueShape, property: &str) -> ResolvedValue {
@@ -1933,19 +2342,244 @@ mod tests {
 
         let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
         builtins::register_stock_builtins(&mut builder).unwrap();
-        builder
+        let module_id = NativeModuleId::new("native:com.acme.symbols@1").unwrap();
+        let external_key = NativeKindKey::mark("cartesian", "external_symbol");
+        let mut module = builder
+            .native_module(
+                module_id.clone(),
+                "Acme symbol extensions.",
+                NativeModuleImplementationProfileId::new("acme-symbols-rust-v1").unwrap(),
+            )
+            .unwrap();
+        module
+            .registry()
             .register_mark::<Cartesian>(
                 "cartesian",
                 "external_symbol",
-                KindSchema::new(
-                    NativeKindKey::mark("cartesian", "external_symbol"),
-                    "External symbol fixture.",
-                ),
+                KindSchema::new(external_key.clone(), "External symbol fixture."),
                 |_| Ok(Symbol::<Cartesian>::new().x(0.0).y(0.0).into_plot_marks()),
             )
             .unwrap();
+        module
+            .export(
+                "symbol",
+                external_key,
+                "A Cartesian symbol supplied by Acme.",
+            )
+            .unwrap();
+        module.finish().unwrap();
         let extended = builder.build().unwrap();
         assert_ne!(left.profile_id(), extended.profile_id());
+        assert_eq!(left.builtin_profile_id(), extended.builtin_profile_id());
+        assert_eq!(
+            extended
+                .native_export(&module_id, "symbol")
+                .unwrap()
+                .export
+                .category,
+            NativeKindNamespace::Mark
+        );
+    }
+
+    fn registry_with_profile(
+        module_id: &NativeModuleId,
+        implementation_profile: &str,
+    ) -> NativeRegistry {
+        let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
+        builtins::register_stock_builtins(&mut builder).unwrap();
+        let implementation = NativeKindKey::mark("cartesian", "profile_fixture_symbol");
+        let mut module = builder
+            .native_module(
+                module_id.clone(),
+                "Profile isolation fixture.",
+                NativeModuleImplementationProfileId::new(implementation_profile).unwrap(),
+            )
+            .unwrap();
+        module
+            .registry()
+            .register_mark::<Cartesian>(
+                "cartesian",
+                "profile_fixture_symbol",
+                KindSchema::new(implementation.clone(), "Profile fixture symbol."),
+                |_| Ok(Symbol::<Cartesian>::new().x(0.0).y(0.0).into_plot_marks()),
+            )
+            .unwrap();
+        module
+            .export("symbol", implementation, "Profile fixture export.")
+            .unwrap();
+        module.finish().unwrap();
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn native_module_profiles_and_public_names_are_independent() {
+        let first_id = NativeModuleId::new("native:com.acme.first@1").unwrap();
+        let second_id = NativeModuleId::new("native:com.acme.second@1").unwrap();
+        let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
+        builtins::register_stock_builtins(&mut builder).unwrap();
+
+        for (id, kind, profile) in [
+            (&first_id, "first_symbol", "first-rust-v1"),
+            (&second_id, "second_symbol", "second-rust-v1"),
+        ] {
+            let implementation = NativeKindKey::mark("cartesian", kind);
+            let mut module = builder
+                .native_module(
+                    id.clone(),
+                    format!("{kind} module."),
+                    NativeModuleImplementationProfileId::new(profile).unwrap(),
+                )
+                .unwrap();
+            module
+                .registry()
+                .register_mark::<Cartesian>(
+                    "cartesian",
+                    kind,
+                    KindSchema::new(implementation.clone(), format!("{kind} implementation.")),
+                    |_| Ok(Symbol::<Cartesian>::new().x(0.0).y(0.0).into_plot_marks()),
+                )
+                .unwrap();
+            module
+                .export("symbol", implementation, format!("{kind} public export."))
+                .unwrap();
+            module.finish().unwrap();
+        }
+
+        let registry = builder.build().unwrap();
+        let first = registry.native_export(&first_id, "symbol").unwrap();
+        let second = registry.native_export(&second_id, "symbol").unwrap();
+        assert_ne!(
+            first.export.implementation, second.export.implementation,
+            "the module ID must disambiguate the same public export spelling"
+        );
+
+        let profile_id = NativeModuleId::new("native:com.acme.profile@1").unwrap();
+        let old = registry_with_profile(&profile_id, "profile-rust-v1");
+        let changed = registry_with_profile(&profile_id, "profile-rust-v2");
+        assert_eq!(old.builtin_profile_id(), changed.builtin_profile_id());
+        assert_eq!(
+            old.native_module(&profile_id).unwrap().1.schema_profile,
+            changed.native_module(&profile_id).unwrap().1.schema_profile
+        );
+        assert_ne!(
+            old.native_module(&profile_id)
+                .unwrap()
+                .1
+                .implementation_profile,
+            changed
+                .native_module(&profile_id)
+                .unwrap()
+                .1
+                .implementation_profile
+        );
+        assert_ne!(old.profile_id(), changed.profile_id());
+    }
+
+    #[test]
+    fn native_module_registration_boundaries_are_enforced() {
+        let key = NativeKindKey::new(NativeKindNamespace::Transform, "unscoped");
+        let mut unscoped = NativeRegistry::builder();
+        assert!(matches!(
+            unscoped.register_transform(
+                KindSchema::new(key, "Unscoped transform."),
+                Arc::new(|_, _| unreachable!()),
+            ),
+            Err(RegistryError::RegistrationScopeRequired)
+        ));
+
+        let module_id = NativeModuleId::new("native:com.acme.boundary@1").unwrap();
+        let mut builder = NativeRegistry::builder();
+        let mut module = builder
+            .native_module(
+                module_id.clone(),
+                "Registration boundary fixture.",
+                NativeModuleImplementationProfileId::new("boundary-rust-v1").unwrap(),
+            )
+            .unwrap();
+        let first = NativeKindKey::new(NativeKindNamespace::Transform, "boundary_first");
+        let second = NativeKindKey::new(NativeKindNamespace::Transform, "boundary_second");
+        for key in [&first, &second] {
+            module
+                .registry()
+                .register_transform(
+                    KindSchema::new(key.clone(), "Boundary transform."),
+                    Arc::new(|_, _| unreachable!()),
+                )
+                .unwrap();
+        }
+        module
+            .export("transform", first, "First public transform.")
+            .unwrap();
+        assert!(matches!(
+            module.export("transform", second, "Duplicate public transform."),
+            Err(RegistryError::DuplicateNativeExport { .. })
+        ));
+        drop(module);
+        assert!(matches!(
+            builder.build(),
+            Err(RegistryError::UnfinishedNativeModule(_))
+        ));
+
+        let missing_id = NativeModuleId::new("native:com.acme.missing-export@1").unwrap();
+        let mut builder = NativeRegistry::builder();
+        let mut module = builder
+            .native_module(
+                missing_id.clone(),
+                "Missing export fixture.",
+                NativeModuleImplementationProfileId::new("missing-export-rust-v1").unwrap(),
+            )
+            .unwrap();
+        let hidden = NativeKindKey::new(NativeKindNamespace::Transform, "hidden_transform");
+        module
+            .registry()
+            .register_transform(
+                KindSchema::new(hidden, "Unexported transform."),
+                Arc::new(|_, _| unreachable!()),
+            )
+            .unwrap();
+        module.finish().unwrap();
+        assert!(matches!(
+            builder.build(),
+            Err(RegistryError::NativeModuleOwnershipMismatch { .. })
+        ));
+
+        let duplicate_id = NativeModuleId::new("native:com.acme.duplicate@1").unwrap();
+        let mut builder = NativeRegistry::builder();
+        builder
+            .native_module(
+                duplicate_id.clone(),
+                "First registration.",
+                NativeModuleImplementationProfileId::new("duplicate-rust-v1").unwrap(),
+            )
+            .unwrap()
+            .finish()
+            .unwrap();
+        assert!(matches!(
+            builder.native_module(
+                duplicate_id.clone(),
+                "Second registration.",
+                NativeModuleImplementationProfileId::new("duplicate-rust-v2").unwrap(),
+            ),
+            Err(RegistryError::DuplicateNativeModule(id)) if id == duplicate_id
+        ));
+    }
+
+    #[test]
+    fn native_module_lookup_distinguishes_missing_modules_and_exports() {
+        let registry = builtins::stock_registry().unwrap();
+        let missing = NativeModuleId::new("native:com.acme.not-installed@1").unwrap();
+        assert!(matches!(
+            registry.native_export(&missing, "symbol"),
+            Err(RegistryError::UnknownNativeModule(id)) if id == missing
+        ));
+
+        let module_id = NativeModuleId::new("native:com.acme.lookup@1").unwrap();
+        let registry = registry_with_profile(&module_id, "lookup-rust-v1");
+        assert!(matches!(
+            registry.native_export(&module_id, "missing"),
+            Err(RegistryError::UnknownNativeExport { module, name })
+                if module == module_id && name == "missing"
+        ));
     }
 
     #[test]
@@ -2266,9 +2900,9 @@ mod tests {
             called_by_lowerer.store(true, Ordering::SeqCst);
             Ok(Symbol::<Cartesian>::new().x(0.0).y(0.0).into_plot_marks())
         });
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder.register_coordinate_pack(pack).unwrap();
-        let registry = builder.build().unwrap();
+        let registry = build_test_builtins(builder).unwrap();
         let mut plot = ResolvedPlot::new("cartesian");
         plot.marks.push(
             ResolvedDeclaration::new("strict")
@@ -2292,7 +2926,7 @@ mod tests {
         };
         let pack =
             || CoordinatePack::new("cartesian", coordinate_schema(), |_| Ok(Cartesian::new()));
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder.register_coordinate_pack(pack()).unwrap();
         assert!(matches!(
             builder.register_coordinate_pack(pack()),
@@ -2334,10 +2968,10 @@ mod tests {
                 KindSchema::new(NativeKindKey::mark("cartesian", "same"), "Second mark."),
                 |_| Ok(Symbol::<Cartesian>::new().into_plot_marks()),
             );
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder.register_coordinate_pack(duplicate_mark).unwrap();
         assert!(matches!(
-            builder.build(),
+            build_test_builtins(builder),
             Err(RegistryError::DuplicateSchema(_))
         ));
 
@@ -2358,10 +2992,10 @@ mod tests {
             .tool("same_tool", tool_schema(), |_| {
                 Ok(Arc::new(PanScrollZoom::cartesian()))
             });
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder.register_coordinate_pack(duplicate_tool).unwrap();
         assert!(matches!(
-            builder.build(),
+            build_test_builtins(builder),
             Err(RegistryError::DuplicateSchema(_))
         ));
 
@@ -2370,7 +3004,7 @@ mod tests {
             "Duplicate transform fixture.",
         );
         let transform_lowerer: NativeTransformLowerer = Arc::new(|_, _| unreachable!());
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder
             .register_transform(transform_schema.clone(), transform_lowerer.clone())
             .unwrap();
@@ -2387,7 +3021,7 @@ mod tests {
             "Duplicate widget fixture.",
         );
         let widget_lowerer: NativeWidgetLowerer = Arc::new(|_| unreachable!());
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder
             .register_widget(widget_schema.clone(), widget_lowerer.clone())
             .unwrap();
@@ -2407,10 +3041,10 @@ mod tests {
             ),
             |_| Ok(Cartesian::new()),
         );
-        let mut builder = NativeRegistry::builder();
+        let mut builder = test_builtin_builder();
         builder.register_coordinate_pack(mismatch).unwrap();
         assert!(matches!(
-            builder.build(),
+            build_test_builtins(builder),
             Err(RegistryError::SchemaLowererMismatch(_))
         ));
     }
@@ -2831,14 +3465,55 @@ mod tests {
 
         let mut builder = NativeRegistryBuilder::new(1, "downstream-fixture");
         builtins::register_bootstrap_builtins(&mut builder).unwrap();
-        register_extension(&mut builder).unwrap();
-        builder
+        let module_id = NativeModuleId::new("native:com.acme.downstream-fixture@1").unwrap();
+        let mut module = builder
+            .native_module(
+                module_id.clone(),
+                "Downstream extension fixture.",
+                NativeModuleImplementationProfileId::new("downstream-fixture-rust-v1").unwrap(),
+            )
+            .unwrap();
+        register_extension(module.registry()).unwrap();
+        module
+            .registry()
             .register_coordinate_pack(external_coordinate)
             .unwrap();
-        builder
+        module
+            .registry()
             .register_coordinate_pack(external_container)
             .unwrap();
+        for (name, key, docs) in [
+            (
+                "hexbin",
+                NativeKindKey::mark("cartesian", "external_hexbin"),
+                "Downstream Cartesian hexbin mark.",
+            ),
+            (
+                "mean_point",
+                NativeKindKey::mark("cartesian", "external_mean_point"),
+                "Downstream Cartesian aggregate mark.",
+            ),
+            (
+                "isometric",
+                NativeKindKey::new(NativeKindNamespace::Coordinate, "external_isometric"),
+                "Downstream isometric coordinate.",
+            ),
+            (
+                "cube",
+                NativeKindKey::mark("external_isometric", "external_cube"),
+                "Downstream isometric cube mark.",
+            ),
+            (
+                "facet_column",
+                NativeKindKey::new(NativeKindNamespace::Coordinate, "external_facet_column"),
+                "Downstream facet-column coordinate.",
+            ),
+        ] {
+            module.export(name, key, docs).unwrap();
+        }
+        module.finish().unwrap();
         let registry = builder.build().unwrap();
+        assert!(registry.native_export(&module_id, "hexbin").is_ok());
         let context = SessionContext::new();
 
         let mut augmented = ResolvedPlot::new("cartesian");

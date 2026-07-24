@@ -5,7 +5,13 @@
 //! `avenger-lang-compiler`.
 #![forbid(unsafe_code)]
 
-use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryBuilder, RegistryError, builtins};
+use avenger_chart_lang_registry::builtins;
+pub use avenger_chart_lang_registry::{
+    NativeBuiltinProfileId, NativeModuleBuilder, NativeModuleExport, NativeModuleId,
+    NativeModuleImplementationProfileId, NativeModuleSchema, NativeModuleSchemaProfileId,
+    NativeRegistry, NativeRegistryBuilder, NativeRegistryProfileId, RegisteredNativeModule,
+    RegistryError, ResolvedNativeExport,
+};
 
 pub use avenger_lang_compiler::{
     AnalyzedColumn, AnalyzedDataset, ArtifactCacheKey, COMPILER_PHASE, CatalogFactory,

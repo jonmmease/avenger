@@ -13,8 +13,8 @@ use avenger_chart_lang_registry::{
     CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue, builtins,
 };
 use avenger_chart_schema::{
-    BodyMode, ChannelSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
-    ValueShape,
+    BodyMode, ChannelSchema, KindSchema, NativeKindKey, NativeKindNamespace, NativeModuleId,
+    NativeModuleImplementationProfileId, PropertySchema, ValueShape,
 };
 use avenger_common::{cursor::CursorStyle, time::Instant};
 use avenger_eventstream::window::{
@@ -84,7 +84,15 @@ fn scene_has_group(marks: &[SceneMark], name: &str) -> bool {
 fn composed_registry() -> Arc<NativeRegistry> {
     let mut builder = NativeRegistryBuilder::new(1, "phase5-downstream-fixture");
     builtins::register_bootstrap_builtins(&mut builder).unwrap();
-    builder
+    let mut module = builder
+        .native_module(
+            NativeModuleId::new("native:com.acme.compiler-fixture@1").unwrap(),
+            "Compiler downstream-extension fixture.",
+            NativeModuleImplementationProfileId::new("compiler-fixture-rust-v1").unwrap(),
+        )
+        .unwrap();
+    module
+        .registry()
         .register_mark::<Cartesian>(
             "cartesian",
             "external_hexbin",
@@ -103,7 +111,8 @@ fn composed_registry() -> Arc<NativeRegistry> {
             },
         )
         .unwrap();
-    builder
+    module
+        .registry()
         .register_mark::<Cartesian>(
             "cartesian",
             "external_mean_point",
@@ -125,7 +134,8 @@ fn composed_registry() -> Arc<NativeRegistry> {
             |_| Ok(ExternalMeanPoint::new(lit("all"), lit(2.0)).into_plot_marks()),
         )
         .unwrap();
-    builder
+    module
+        .registry()
         .register_mark::<Cartesian>(
             "cartesian",
             "failing_external_mark",
@@ -172,7 +182,10 @@ fn composed_registry() -> Arc<NativeRegistry> {
             Ok(mark.into_plot_marks())
         },
     );
-    builder.register_coordinate_pack(isometric).unwrap();
+    module
+        .registry()
+        .register_coordinate_pack(isometric)
+        .unwrap();
 
     let container = CoordinatePack::new(
         "external_facet_column",
@@ -196,7 +209,45 @@ fn composed_registry() -> Arc<NativeRegistry> {
         };
         Ok(plot.mark(Subplot::<FacetColumn>::new(child).column(column)))
     });
-    builder.register_coordinate_pack(container).unwrap();
+    module
+        .registry()
+        .register_coordinate_pack(container)
+        .unwrap();
+    for (name, key, docs) in [
+        (
+            "hexbin",
+            NativeKindKey::mark("cartesian", "external_hexbin"),
+            "Downstream Cartesian hexbin mark.",
+        ),
+        (
+            "mean_point",
+            NativeKindKey::mark("cartesian", "external_mean_point"),
+            "Downstream Cartesian aggregate mark.",
+        ),
+        (
+            "failing_mark",
+            NativeKindKey::mark("cartesian", "failing_external_mark"),
+            "Deterministically failing downstream mark.",
+        ),
+        (
+            "isometric",
+            NativeKindKey::new(NativeKindNamespace::Coordinate, "external_isometric"),
+            "Downstream isometric coordinate.",
+        ),
+        (
+            "cube",
+            NativeKindKey::mark("external_isometric", "external_cube"),
+            "Downstream isometric cube mark.",
+        ),
+        (
+            "facet_column",
+            NativeKindKey::new(NativeKindNamespace::Coordinate, "external_facet_column"),
+            "Downstream facet-column coordinate.",
+        ),
+    ] {
+        module.export(name, key, docs).unwrap();
+    }
+    module.finish().unwrap();
     Arc::new(builder.build().unwrap())
 }
 

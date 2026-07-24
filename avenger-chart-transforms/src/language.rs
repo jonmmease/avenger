@@ -2333,6 +2333,7 @@ mod tests {
             version: SchemaVersion::V1,
             profile_label: "transform-owner-test".to_string(),
             entries,
+            modules: BTreeMap::new(),
         }
         .validate_docs()
         .unwrap();

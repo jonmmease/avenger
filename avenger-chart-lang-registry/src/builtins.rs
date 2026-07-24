@@ -48,6 +48,13 @@ pub fn bootstrap_registry() -> Result<NativeRegistry, RegistryError> {
 }
 
 pub fn register_stock_builtins(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    builder.begin_builtin_registration()?;
+    let result = register_stock_builtins_inner(builder);
+    builder.finish_builtin_registration();
+    result
+}
+
+fn register_stock_builtins_inner(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
     builder.register_coordinate_pack(cartesian_pack().child_mark(
         "subplot",
         avenger_chart_cartesian::language::subplot_schema(),

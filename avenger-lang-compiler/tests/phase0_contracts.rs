@@ -6,7 +6,10 @@ use std::{
 
 use arrow::datatypes::{DataType, Field, Schema};
 use avenger_chart_lang_registry::{NativeRegistryBuilder, ResolvedDeclaration, builtins};
-use avenger_chart_schema::{KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot};
+use avenger_chart_schema::{
+    KindSchema, NativeKindKey, NativeKindNamespace, NativeModuleId,
+    NativeModuleImplementationProfileId, NativeSchemaSnapshot,
+};
 use avenger_lang_compiler::{
     AnalyzedDataset, ArtifactCacheKey, CompileEnvironment, CompileEnvironmentError,
     CompileEnvironmentFactory, CompileEnvironmentRequest, Compiler, DatasetProvenance,
@@ -71,17 +74,33 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
 
     let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
     builtins::register_stock_builtins(&mut builder).unwrap();
-    builder
+    let module_id = NativeModuleId::new("native:com.acme.host-layout@1").unwrap();
+    let layout_key = NativeKindKey::new(NativeKindNamespace::Layout, "host_layout");
+    let mut module = builder
+        .native_module(
+            module_id.clone(),
+            "Host layout fixture.",
+            NativeModuleImplementationProfileId::new("host-layout-rust-v1").unwrap(),
+        )
+        .unwrap();
+    module
+        .registry()
         .register_object(
             KindSchema::new(
-                NativeKindKey::new(NativeKindNamespace::Layout, "host_layout"),
+                layout_key.clone(),
                 "Host layout used to prove profile identity changes.",
             ),
             Arc::new(|_| Ok(Box::new(()))),
         )
         .unwrap();
+    module
+        .export("host_layout", layout_key, "Host-provided layout fixture.")
+        .unwrap();
+    module.finish().unwrap();
     let extended = builder.build().unwrap();
     assert_ne!(left.profile_id(), extended.profile_id());
+    assert_eq!(left.builtin_profile_id(), extended.builtin_profile_id());
+    assert!(extended.native_export(&module_id, "host_layout").is_ok());
 
     let compiler = Compiler::builder()
         .project_root("/project")

@@ -54,6 +54,7 @@ fn test_registry() -> NativeSchemaSnapshot {
         version: SchemaVersion::V1,
         profile_label: "editing-test".to_owned(),
         entries: BTreeMap::from([(key, symbol)]),
+        modules: BTreeMap::new(),
     }
 }
 
