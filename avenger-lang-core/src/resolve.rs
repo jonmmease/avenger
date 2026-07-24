@@ -66,6 +66,82 @@ semantic_id!(EventId);
 semantic_id!(StateMigrationKey);
 semantic_id!(DefinitionLocalSeed);
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DeclarationKey(String);
+
+impl DeclarationKey {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ModuleItemId {
+    pub module: SourceModuleId,
+    pub declaration: DeclarationKey,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "selector", content = "name")]
+pub enum ChartSelector {
+    Anonymous,
+    Named(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ChartEntrypointId {
+    pub module: SourceModuleId,
+    pub selector: ChartSelector,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "category", content = "namespace")]
+pub enum BindingCategory {
+    NativeKind(NativeKindNamespace),
+    Chart,
+    Data,
+    ModuleNamespace,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ModuleExportId {
+    pub module: ModuleId,
+    pub name: String,
+    pub category: BindingCategory,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "binding", content = "identity")]
+pub enum ResolvedKindBinding {
+    LanguageCore(String),
+    Builtin(NativeKindKey),
+    Native {
+        export: ModuleExportId,
+        implementation: NativeKindKey,
+    },
+    Definition(ModuleItemId),
+    Structural(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedImport {
+    pub source: ModuleId,
+    pub specifier: String,
+    pub clause: crate::ast::ImportClause,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleExportIndex {
+    pub exports: BTreeMap<String, ModuleExportId>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleBindingEnvironment {
+    pub local: BTreeMap<(BindingCategory, String), ModuleExportId>,
+    pub namespaces: BTreeMap<String, ModuleId>,
+}
+
 /// The reusable declaration family authored by a top-level `define` item.
 ///
 /// This describes an item, never a source-module/file classification.
@@ -158,6 +234,7 @@ pub struct GeneratedStateOrigin {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DefinitionSchema {
+    pub item: ModuleItemId,
     pub declaration: DeclarationId,
     pub local_seed: DefinitionLocalSeed,
     pub kind: DefinitionKind,
@@ -221,8 +298,11 @@ pub struct ResolvedProject {
     pub source_fingerprint: String,
     pub sources: SourceMap,
     pub files: BTreeMap<SourceModuleId, ResolvedFile>,
+    pub module_items: BTreeMap<ModuleItemId, ResolvedModuleItem>,
+    pub entrypoints: BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint>,
+    pub item_dependencies: ItemDependencyGraph,
     pub charts: Vec<DeclarationId>,
-    pub definitions: BTreeMap<SourceModuleId, DefinitionSchema>,
+    pub definitions: BTreeMap<ModuleItemId, DefinitionSchema>,
     pub params: BTreeMap<ParamId, ResolvedParam>,
     pub stores: BTreeMap<StoreId, ResolvedStore>,
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
@@ -233,7 +313,7 @@ pub struct ResolvedProject {
     /// queries inside the pack continue to use these local paths.
     pub catalog_tables: BTreeMap<String, ResolvedCatalogTable>,
     pub table_order: Vec<DeclarationId>,
-    pub definition_import_order: Vec<SourceModuleId>,
+    pub definition_import_order: Vec<ModuleItemId>,
     /// Empty for ordinary projects; populated by the compiler when imported
     /// definitions were expanded before final semantic resolution.
     pub expansion_source_map: ExpansionSourceMap,
@@ -270,6 +350,56 @@ pub struct ResolvedFile {
     pub source: SourceId,
     pub imports: BTreeMap<String, SourceModuleId>,
     pub roots: Vec<ResolvedDeclaration>,
+    pub local_bindings: ModuleBindingEnvironment,
+    pub exports: ModuleExportIndex,
+    pub resolved_imports: Vec<ResolvedImport>,
+    pub item_order: Vec<ModuleItemId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedModuleItem {
+    pub id: ModuleItemId,
+    pub exported: bool,
+    pub declaration: DeclarationId,
+    pub category: BindingCategory,
+    pub source_name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemDependencyCause {
+    DefinitionUse,
+    RelationUse,
+    NativeCapability,
+    PrivateHelper,
+    ExportedClosure,
+    ChartReference,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemDependencyEdge {
+    pub from: ModuleItemId,
+    pub to: ModuleItemId,
+    pub cause: ItemDependencyCause,
+    pub site: SourceSpan,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemDependencyGraph {
+    pub edges: Vec<ItemDependencyEdge>,
+    pub transitive_closures: BTreeMap<ModuleItemId, BTreeSet<ModuleItemId>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedChartEntrypoint {
+    pub id: ChartEntrypointId,
+    pub item: ModuleItemId,
+    pub declaration: DeclarationId,
+    pub params: BTreeMap<ParamId, ResolvedParam>,
+    pub stores: BTreeMap<StoreId, ResolvedStore>,
+    pub selections: BTreeMap<SelectionId, ResolvedSelection>,
+    pub public_targets: BTreeMap<String, ResolvedTarget>,
+    pub param_default_order: Vec<ParamId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,6 +409,7 @@ pub struct ResolvedDeclaration {
     pub span: SourceSpan,
     pub keyword: String,
     pub kind: Option<String>,
+    pub kind_binding: Option<ResolvedKindBinding>,
     pub name: Option<String>,
     pub visibility: Visibility,
     pub coordinate: Option<String>,
@@ -615,15 +746,36 @@ struct InstanceInterface {
     parts: BTreeMap<String, ResolvedPart>,
 }
 
+#[derive(Clone, Debug)]
+struct ItemBinding {
+    id: ModuleItemId,
+    category: BindingCategory,
+    name: Option<String>,
+    exported: bool,
+    declaration: DeclarationId,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ModuleIndex {
+    environments: BTreeMap<SourceModuleId, ModuleBindingEnvironment>,
+    exports: BTreeMap<ModuleId, ModuleExportIndex>,
+    items: BTreeMap<ModuleItemId, ItemBinding>,
+    item_at: BTreeMap<(SourceModuleId, usize), ModuleItemId>,
+    source_export_items: BTreeMap<(SourceModuleId, String), ModuleItemId>,
+    local_items: BTreeMap<(SourceModuleId, BindingCategory, String), ModuleItemId>,
+    resolved_imports: BTreeMap<SourceModuleId, Vec<ResolvedImport>>,
+}
+
 struct Resolver<'a> {
     project: &'a ParsedModuleGraph,
     registry: &'a NativeSchemaSnapshot,
     diagnostics: Vec<Diagnostic>,
+    module_index: ModuleIndex,
     scopes: Vec<Scope>,
     declarations: BTreeMap<(SourceModuleId, Vec<usize>), DeclInfo>,
     instances: BTreeMap<DeclarationId, InstanceInterface>,
     imports: BTreeMap<SourceModuleId, BTreeMap<String, SourceModuleId>>,
-    definitions: BTreeMap<SourceModuleId, DefinitionSchema>,
+    definitions: BTreeMap<ModuleItemId, DefinitionSchema>,
     params: BTreeMap<ParamId, ResolvedParam>,
     param_types: BTreeMap<ParamId, PhysicalType>,
     stores: BTreeMap<StoreId, ResolvedStore>,
@@ -639,6 +791,7 @@ impl<'a> Resolver<'a> {
             project,
             registry,
             diagnostics: Vec::new(),
+            module_index: ModuleIndex::default(),
             scopes: Vec::new(),
             declarations: BTreeMap::new(),
             instances: BTreeMap::new(),
@@ -656,6 +809,7 @@ impl<'a> Resolver<'a> {
 
     fn run(&mut self) -> ResolveAttempt {
         self.check_versions();
+        self.build_module_index();
         self.build_import_bindings();
         self.extract_definition_schemas();
         self.validate_definition_templates();
@@ -691,6 +845,37 @@ impl<'a> Resolver<'a> {
                     source: file.source,
                     imports: self.imports.get(file_id).cloned().unwrap_or_default(),
                     roots,
+                    local_bindings: self
+                        .module_index
+                        .environments
+                        .get(file_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    exports: self
+                        .module_index
+                        .exports
+                        .get(&ModuleId::Source(file_id.clone()))
+                        .cloned()
+                        .unwrap_or_default(),
+                    resolved_imports: self
+                        .module_index
+                        .resolved_imports
+                        .get(file_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    item_order: file
+                        .parsed
+                        .ast
+                        .items
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, _)| {
+                            self.module_index
+                                .item_at
+                                .get(&(file_id.clone(), index))
+                                .cloned()
+                        })
+                        .collect(),
                 },
             );
         }
@@ -701,24 +886,46 @@ impl<'a> Resolver<'a> {
         let definition_import_order = self.definition_import_order();
         let mut public_targets = BTreeMap::new();
         for file in files.values() {
-            let mut file_targets = BTreeMap::new();
-            let mut origins = BTreeMap::new();
-            let mut collisions = Vec::new();
             for root in &file.roots {
-                collect_public_targets(root, &mut file_targets, &mut origins, &mut collisions);
+                let mut root_targets = BTreeMap::new();
+                let mut origins = BTreeMap::new();
+                let mut collisions = Vec::new();
+                collect_public_targets(root, &mut root_targets, &mut origins, &mut collisions);
+                for (path, first, second) in collisions {
+                    let mut diagnostic = Diagnostic::error(
+                        "AVENGER-RESOLVE-128",
+                        "public target path is declared more than once",
+                        SourceLabel::new(second, format!("`{path}` collides at this declaration")),
+                    )
+                    .with_secondary(SourceLabel::new(first, "the first target is declared here"));
+                    diagnostic.trace = self.import_trace_for_source(second.source);
+                    self.diagnostics.push(diagnostic);
+                }
+                // This graph-wide map is retained until the compiler moves to
+                // chart entrypoint ownership. Cross-chart names intentionally
+                // do not collide; each entrypoint carries its own exact map.
+                public_targets.extend(root_targets);
             }
-            for (path, first, second) in collisions {
-                let mut diagnostic = Diagnostic::error(
-                    "AVENGER-RESOLVE-128",
-                    "public target path is declared more than once",
-                    SourceLabel::new(second, format!("`{path}` collides at this declaration")),
-                )
-                .with_secondary(SourceLabel::new(first, "the first target is declared here"));
-                diagnostic.trace = self.import_trace_for_source(second.source);
-                self.diagnostics.push(diagnostic);
-            }
-            public_targets.extend(file_targets);
         }
+        let module_items = self
+            .module_index
+            .items
+            .values()
+            .map(|binding| {
+                (
+                    binding.id.clone(),
+                    ResolvedModuleItem {
+                        id: binding.id.clone(),
+                        exported: binding.exported,
+                        declaration: binding.declaration.clone(),
+                        category: binding.category,
+                        source_name: binding.name.clone(),
+                    },
+                )
+            })
+            .collect();
+        let entrypoints = self.resolved_entrypoints(&files, &param_default_order);
+        let item_dependencies = self.build_item_dependency_graph(&files);
         sort_diagnostics(&mut self.diagnostics, &self.project.sources);
         if !self.diagnostics.is_empty() {
             return ResolveAttempt {
@@ -738,6 +945,9 @@ impl<'a> Resolver<'a> {
                 source_fingerprint: self.project.fingerprint.clone(),
                 sources: self.project.sources.clone(),
                 files,
+                module_items,
+                entrypoints,
+                item_dependencies,
                 charts,
                 definitions: self.definitions.clone(),
                 params: self.params.clone(),
@@ -750,6 +960,180 @@ impl<'a> Resolver<'a> {
                 definition_import_order,
                 expansion_source_map: ExpansionSourceMap::default(),
             }),
+        }
+    }
+
+    fn resolved_entrypoints(
+        &self,
+        files: &BTreeMap<SourceModuleId, ResolvedFile>,
+        param_default_order: &[ParamId],
+    ) -> BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint> {
+        let mut entrypoints = BTreeMap::new();
+        for (module_id, file) in files {
+            for (index, chart) in file
+                .roots
+                .iter()
+                .enumerate()
+                .filter(|(_, declaration)| declaration.keyword == "chart")
+            {
+                let selector = chart
+                    .name
+                    .as_ref()
+                    .map_or(ChartSelector::Anonymous, |name| {
+                        ChartSelector::Named(name.clone())
+                    });
+                let id = ChartEntrypointId {
+                    module: module_id.clone(),
+                    selector,
+                };
+                let Some(item) = self
+                    .module_index
+                    .item_at
+                    .get(&(module_id.clone(), index))
+                    .cloned()
+                else {
+                    continue;
+                };
+                let owns = |ancestry: &[DeclarationId], declaration: &DeclarationId| {
+                    declaration == &chart.id || ancestry.contains(&chart.id)
+                };
+                let params = self
+                    .params
+                    .iter()
+                    .filter(|(_, param)| owns(&param.owner_ancestry, &param.declaration))
+                    .map(|(id, param)| (id.clone(), param.clone()))
+                    .collect();
+                let stores = self
+                    .stores
+                    .iter()
+                    .filter(|(_, store)| owns(&store.owner_ancestry, &store.declaration))
+                    .map(|(id, store)| (id.clone(), store.clone()))
+                    .collect();
+                let selections = self
+                    .selections
+                    .iter()
+                    .filter(|(_, selection)| {
+                        owns(&selection.owner_ancestry, &selection.declaration)
+                    })
+                    .map(|(id, selection)| (id.clone(), selection.clone()))
+                    .collect();
+                let mut public_targets = BTreeMap::new();
+                let mut origins = BTreeMap::new();
+                let mut collisions = Vec::new();
+                collect_public_targets(chart, &mut public_targets, &mut origins, &mut collisions);
+                let owned_param_order = param_default_order
+                    .iter()
+                    .filter(|param| {
+                        self.params
+                            .get(*param)
+                            .is_some_and(|param| owns(&param.owner_ancestry, &param.declaration))
+                    })
+                    .cloned()
+                    .collect();
+                entrypoints.insert(
+                    id.clone(),
+                    ResolvedChartEntrypoint {
+                        id,
+                        item,
+                        declaration: chart.id.clone(),
+                        params,
+                        stores,
+                        selections,
+                        public_targets,
+                        param_default_order: owned_param_order,
+                    },
+                );
+            }
+        }
+        entrypoints
+    }
+
+    fn build_item_dependency_graph(
+        &mut self,
+        files: &BTreeMap<SourceModuleId, ResolvedFile>,
+    ) -> ItemDependencyGraph {
+        let mut edges = Vec::new();
+        for (module_id, file) in files {
+            for (index, declaration) in file.roots.iter().enumerate() {
+                let Some(from) = self
+                    .module_index
+                    .item_at
+                    .get(&(module_id.clone(), index))
+                    .cloned()
+                else {
+                    continue;
+                };
+                collect_item_dependencies(declaration, &from, &mut edges);
+            }
+        }
+        edges.sort_by(|left, right| {
+            left.from
+                .cmp(&right.from)
+                .then(left.to.cmp(&right.to))
+                .then(left.site.cmp(&right.site))
+        });
+        edges.dedup_by(|left, right| {
+            left.from == right.from
+                && left.to == right.to
+                && left.cause == right.cause
+                && left.site == right.site
+        });
+
+        let mut adjacency = BTreeMap::<ModuleItemId, BTreeSet<ModuleItemId>>::new();
+        for item in self.module_index.items.keys() {
+            adjacency.entry(item.clone()).or_default();
+        }
+        for edge in &edges {
+            adjacency
+                .entry(edge.from.clone())
+                .or_default()
+                .insert(edge.to.clone());
+        }
+        if let Err(cycle) = topological_order(&adjacency) {
+            let site = cycle
+                .windows(2)
+                .find_map(|pair| {
+                    edges
+                        .iter()
+                        .find(|edge| edge.from == pair[0] && edge.to == pair[1])
+                        .map(|edge| edge.site)
+                })
+                .unwrap_or_else(|| SourceSpan::empty(SourceId::new(0), 0));
+            self.error(
+                "AVENGER-RESOLVE-059",
+                "module item dependency cycle",
+                site,
+                format!(
+                    "cycle: {}",
+                    cycle
+                        .iter()
+                        .map(|item| {
+                            self.module_index
+                                .items
+                                .get(item)
+                                .and_then(|binding| binding.name.as_deref())
+                                .map_or_else(
+                                    || module_item_display(item),
+                                    |name| format!("{}::{name}", item.module.as_str()),
+                                )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                ),
+            );
+        }
+        let transitive_closures = adjacency
+            .keys()
+            .map(|item| {
+                let mut closure = BTreeSet::new();
+                collect_item_closure(item, &adjacency, &mut closure);
+                closure.remove(item);
+                (item.clone(), closure)
+            })
+            .collect();
+        ItemDependencyGraph {
+            edges,
+            transitive_closures,
         }
     }
 
@@ -852,6 +1236,288 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn build_module_index(&mut self) {
+        let modules = self
+            .project
+            .source_modules
+            .iter()
+            .map(|(id, module)| (id.clone(), module.clone()))
+            .collect::<Vec<_>>();
+
+        for (module_id, module) in &modules {
+            let mut environment = ModuleBindingEnvironment::default();
+            let mut export_index = ModuleExportIndex::default();
+            let chart_count = module
+                .parsed
+                .ast
+                .items
+                .iter()
+                .filter(|item| item.declaration.keyword.as_str() == "chart")
+                .count();
+            for (index, item) in module.parsed.ast.items.iter().enumerate() {
+                let declaration = &item.declaration;
+                let Some(category) = module_item_category(declaration) else {
+                    continue;
+                };
+                let name = declaration.name.as_ref().map(ToString::to_string);
+                let span = module_item_span(module, index);
+                if requires_module_item_name(declaration) && name.is_none() {
+                    self.error(
+                        "AVENGER-RESOLVE-050",
+                        "module item requires a name",
+                        span,
+                        format!(
+                            "`{}` module items must use `as <name>`",
+                            declaration.keyword
+                        ),
+                    );
+                }
+                if declaration.keyword.as_str() == "chart" {
+                    if chart_count > 1 && name.is_none() {
+                        self.error(
+                            "AVENGER-RESOLVE-051",
+                            "every chart in a multi-chart module must be named",
+                            span,
+                            "add `as <name>` to this chart",
+                        );
+                    }
+                    if item.exported && name.is_none() {
+                        self.error(
+                            "AVENGER-RESOLVE-052",
+                            "an exported chart must be named",
+                            span,
+                            "add `as <name>` before exporting this chart",
+                        );
+                    }
+                }
+
+                let stable_name = name
+                    .as_deref()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| "<anonymous>".to_owned());
+                let declaration_key = DeclarationKey(semantic_hash(&[
+                    "module-item",
+                    module_id.as_str(),
+                    binding_category_label(category),
+                    &stable_name,
+                ]));
+                let id = ModuleItemId {
+                    module: module_id.clone(),
+                    declaration: declaration_key,
+                };
+                let declaration_id = declaration_id(module, &[index]);
+                let binding = ItemBinding {
+                    id: id.clone(),
+                    category,
+                    name: name.clone(),
+                    exported: item.exported,
+                    declaration: declaration_id,
+                };
+                self.module_index
+                    .item_at
+                    .insert((module_id.clone(), index), id.clone());
+                self.module_index.items.insert(id.clone(), binding);
+
+                if let Some(name) = &name {
+                    let local_key = (category, name.clone());
+                    let export_id = ModuleExportId {
+                        module: ModuleId::Source(module_id.clone()),
+                        name: name.clone(),
+                        category,
+                    };
+                    if environment
+                        .local
+                        .insert(local_key, export_id.clone())
+                        .is_some()
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-053",
+                            "duplicate module-local binding",
+                            span,
+                            format!(
+                                "`{name}` is already declared in the {} category",
+                                binding_category_label(category)
+                            ),
+                        );
+                    }
+                    if let BindingCategory::NativeKind(namespace) = category
+                        && self.registry.entries.keys().any(|key| {
+                            key.namespace == namespace && key.kind.as_str() == name.as_str()
+                        })
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-054",
+                            "module-local definition collides with a built-in kind",
+                            span,
+                            format!(
+                                "`{name}` is already a built-in {} kind",
+                                binding_category_label(category)
+                            ),
+                        );
+                    }
+                    self.module_index
+                        .local_items
+                        .insert((module_id.clone(), category, name.clone()), id.clone());
+                    if item.exported {
+                        if export_index
+                            .exports
+                            .insert(name.clone(), export_id)
+                            .is_some()
+                        {
+                            self.error(
+                                "AVENGER-RESOLVE-055",
+                                "duplicate module export name",
+                                span,
+                                format!(
+                                    "`{name}` is exported by more than one module item; export names are category-independent"
+                                ),
+                            );
+                        }
+                        self.module_index
+                            .source_export_items
+                            .insert((module_id.clone(), name.clone()), id.clone());
+                    }
+                }
+            }
+            self.module_index
+                .environments
+                .insert(module_id.clone(), environment);
+            self.module_index
+                .exports
+                .insert(ModuleId::Source(module_id.clone()), export_index);
+        }
+
+        for (id, module) in &self.registry.modules {
+            let exports = module
+                .exports
+                .iter()
+                .map(|(name, export)| {
+                    (
+                        name.clone(),
+                        ModuleExportId {
+                            module: ModuleId::Native(id.clone()),
+                            name: name.clone(),
+                            category: BindingCategory::NativeKind(export.category),
+                        },
+                    )
+                })
+                .collect();
+            self.module_index
+                .exports
+                .insert(ModuleId::Native(id.clone()), ModuleExportIndex { exports });
+        }
+
+        let edges = self.project.imports.clone();
+        for edge in edges {
+            if !self.project.source_modules.contains_key(&edge.importer) {
+                continue;
+            }
+            let mut environment = self
+                .module_index
+                .environments
+                .remove(&edge.importer)
+                .unwrap_or_default();
+            self.module_index
+                .resolved_imports
+                .entry(edge.importer.clone())
+                .or_default()
+                .push(ResolvedImport {
+                    source: edge.imported.clone(),
+                    specifier: edge.specifier.clone(),
+                    clause: edge.clause.clone(),
+                });
+            match &edge.clause {
+                crate::ast::ImportClause::Namespace(local) => {
+                    let local = local.to_string();
+                    let collides = environment.namespaces.contains_key(&local)
+                        || environment.local.keys().any(|(_, name)| name == &local);
+                    if collides {
+                        self.error(
+                            "AVENGER-RESOLVE-056",
+                            "module namespace alias collides with another binding",
+                            edge.site,
+                            format!("`{local}` is already bound in this module"),
+                        );
+                    } else {
+                        environment.namespaces.insert(local, edge.imported.clone());
+                    }
+                }
+                crate::ast::ImportClause::Named(specifiers) => {
+                    for specifier in specifiers {
+                        let imported = specifier.imported.to_string();
+                        let local = specifier.local.to_string();
+                        let Some(export) = self
+                            .module_index
+                            .exports
+                            .get(&edge.imported)
+                            .and_then(|exports| exports.exports.get(&imported))
+                            .cloned()
+                        else {
+                            let available = self
+                                .module_index
+                                .exports
+                                .get(&edge.imported)
+                                .map(|exports| {
+                                    exports
+                                        .exports
+                                        .keys()
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                })
+                                .unwrap_or_default();
+                            self.error(
+                                "AVENGER-RESOLVE-057",
+                                "import names a missing or private export",
+                                edge.site,
+                                if available.is_empty() {
+                                    format!("`{imported}` is not exported by `{}`", edge.specifier)
+                                } else {
+                                    format!(
+                                        "`{imported}` is not exported by `{}`; available exports: {available}",
+                                        edge.specifier
+                                    )
+                                },
+                            );
+                            continue;
+                        };
+                        if environment.namespaces.contains_key(&local) {
+                            self.error(
+                                "AVENGER-RESOLVE-056",
+                                "named import collides with a module namespace alias",
+                                edge.site,
+                                format!("`{local}` is already a namespace alias"),
+                            );
+                            continue;
+                        }
+                        let key = (export.category, local.clone());
+                        if environment.local.insert(key, export).is_some() {
+                            self.error(
+                                "AVENGER-RESOLVE-058",
+                                "duplicate imported binding",
+                                edge.site,
+                                format!(
+                                    "`{local}` is already bound in the {} category",
+                                    binding_category_label(
+                                        environment
+                                            .local
+                                            .keys()
+                                            .find(|(_, name)| name == &local)
+                                            .map(|(category, _)| *category)
+                                            .unwrap_or(BindingCategory::Data)
+                                    )
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            self.module_index
+                .environments
+                .insert(edge.importer.clone(), environment);
+        }
+    }
+
     fn build_import_bindings(&mut self) {
         for edge in &self.project.imports {
             let importer = &edge.importer;
@@ -874,55 +1540,61 @@ impl<'a> Resolver<'a> {
 
     fn extract_definition_schemas(&mut self) {
         for (file_id, file) in &self.project.source_modules {
-            let Some((root_index, declaration)) = module_declarations(file)
-                .find(|(_, declaration)| declaration.keyword.as_str() == "define")
-            else {
-                continue;
-            };
-            let Some(kind) = definition_kind(declaration) else {
-                continue;
-            };
-            let id = declaration_id(file, &[root_index]);
-            let mut slots = BTreeMap::new();
-            let mut slot_order = Vec::new();
-            let mut channels = BTreeMap::new();
-            let mut outputs = BTreeMap::new();
-            let mut exports = BTreeMap::new();
-            let mut parts = BTreeMap::new();
-            let mut interface_names = BTreeMap::<String, &'static str>::new();
-            let all_slot_names = declaration
-                .children
-                .iter()
-                .filter(|child| {
-                    child.keyword.as_str() == "slot"
-                        && child
-                            .kind
-                            .as_ref()
-                            .is_none_or(|kind| kind.as_str() != "channel")
-                })
-                .filter_map(|child| child.name.as_ref().map(ToString::to_string))
-                .collect::<BTreeSet<_>>();
-            for child in &declaration.children {
-                match child.keyword.as_str() {
-                    "slot" => {
-                        let Some(name) = child.name.as_ref() else {
-                            continue;
-                        };
-                        let shape = child
-                            .kind
-                            .as_ref()
-                            .map_or("", |kind| kind.as_str())
-                            .to_owned();
-                        if shape == "channel" {
-                            self.check_definition_interface_name(
-                                &mut interface_names,
-                                name.as_str(),
-                                "channel",
-                                file,
-                            );
-                            for (property, _) in child.props.iter() {
-                                if property.as_str() != "default" {
-                                    self.error(
+            for (root_index, declaration) in module_declarations(file)
+                .filter(|(_, declaration)| declaration.keyword.as_str() == "define")
+            {
+                let Some(kind) = definition_kind(declaration) else {
+                    continue;
+                };
+                let Some(item_id) = self
+                    .module_index
+                    .item_at
+                    .get(&(file_id.clone(), root_index))
+                    .cloned()
+                else {
+                    continue;
+                };
+                let id = declaration_id(file, &[root_index]);
+                let mut slots = BTreeMap::new();
+                let mut slot_order = Vec::new();
+                let mut channels = BTreeMap::new();
+                let mut outputs = BTreeMap::new();
+                let mut exports = BTreeMap::new();
+                let mut parts = BTreeMap::new();
+                let mut interface_names = BTreeMap::<String, &'static str>::new();
+                let all_slot_names = declaration
+                    .children
+                    .iter()
+                    .filter(|child| {
+                        child.keyword.as_str() == "slot"
+                            && child
+                                .kind
+                                .as_ref()
+                                .is_none_or(|kind| kind.as_str() != "channel")
+                    })
+                    .filter_map(|child| child.name.as_ref().map(ToString::to_string))
+                    .collect::<BTreeSet<_>>();
+                for child in &declaration.children {
+                    match child.keyword.as_str() {
+                        "slot" => {
+                            let Some(name) = child.name.as_ref() else {
+                                continue;
+                            };
+                            let shape = child
+                                .kind
+                                .as_ref()
+                                .map_or("", |kind| kind.as_str())
+                                .to_owned();
+                            if shape == "channel" {
+                                self.check_definition_interface_name(
+                                    &mut interface_names,
+                                    name.as_str(),
+                                    "channel",
+                                    file,
+                                );
+                                for (property, _) in child.props.iter() {
+                                    if property.as_str() != "default" {
+                                        self.error(
                                         "AVENGER-RESOLVE-004",
                                         "invalid definition channel slot property",
                                         root_span(file),
@@ -930,23 +1602,27 @@ impl<'a> Resolver<'a> {
                                             "channel slot `{name}` does not support `{property}:`"
                                         ),
                                     );
+                                    }
                                 }
-                            }
-                            if !child.children.is_empty() {
-                                self.error(
-                                    "AVENGER-RESOLVE-004",
-                                    "invalid definition channel slot body",
-                                    root_span(file),
-                                    format!("channel slot `{name}` cannot contain declarations"),
-                                );
-                            }
-                            let physical_channel = child
-                                .props
-                                .get("default")
-                                .and_then(value_atom)
-                                .map(str::to_owned);
-                            if child.props.get("default").is_some() && physical_channel.is_none() {
-                                self.error(
+                                if !child.children.is_empty() {
+                                    self.error(
+                                        "AVENGER-RESOLVE-004",
+                                        "invalid definition channel slot body",
+                                        root_span(file),
+                                        format!(
+                                            "channel slot `{name}` cannot contain declarations"
+                                        ),
+                                    );
+                                }
+                                let physical_channel = child
+                                    .props
+                                    .get("default")
+                                    .and_then(value_atom)
+                                    .map(str::to_owned);
+                                if child.props.get("default").is_some()
+                                    && physical_channel.is_none()
+                                {
+                                    self.error(
                                     "AVENGER-RESOLVE-004",
                                     "invalid definition channel default",
                                     root_span(file),
@@ -954,211 +1630,213 @@ impl<'a> Resolver<'a> {
                                         "channel slot `{name}` requires one bare physical channel name"
                                     ),
                                 );
+                                }
+                                channels.insert(
+                                    name.to_string(),
+                                    DefinitionChannel {
+                                        required: physical_channel.is_none(),
+                                        physical_channel,
+                                    },
+                                );
+                                continue;
                             }
-                            channels.insert(
-                                name.to_string(),
-                                DefinitionChannel {
-                                    required: physical_channel.is_none(),
-                                    physical_channel,
-                                },
-                            );
-                            continue;
-                        }
-                        if !matches!(
-                            shape.as_str(),
-                            "expr"
-                                | "expr_list"
-                                | "literal"
-                                | "number"
-                                | "string"
-                                | "boolean"
-                                | "enum"
-                                | "function"
-                                | "ref"
-                                | "block"
-                        ) {
-                            self.error(
-                                "AVENGER-RESOLVE-004",
-                                "unknown definition slot shape",
-                                root_span(file),
-                                format!("slot `{name}` uses unsupported shape `{shape}`"),
-                            );
-                        }
-                        self.check_definition_interface_name(
-                            &mut interface_names,
-                            name.as_str(),
-                            "slot",
-                            file,
-                        );
-                        let default = child
-                            .props
-                            .get("default")
-                            .map(|value| definition_value(value, &id, &all_slot_names));
-                        let enum_values = value_names(child.props.get("values"));
-                        let reference_kind = child
-                            .props
-                            .get("kind")
-                            .and_then(value_atom)
-                            .map(str::to_owned);
-                        let function_class = child
-                            .props
-                            .get("class")
-                            .and_then(value_atom)
-                            .map(str::to_owned);
-                        let exposes = value_names(child.props.get("exposes"));
-                        self.validate_slot_declaration(
-                            child,
-                            &shape,
-                            &enum_values,
-                            &slot_order,
-                            &all_slot_names,
-                            file,
-                        );
-                        slot_order.push(name.to_string());
-                        let slot_schema = DefinitionSlot {
-                            shape,
-                            required: default.is_none(),
-                            default,
-                            enum_values,
-                            function_class,
-                            reference_kind,
-                            exposes,
-                        };
-                        if let Some(default) = slot_schema.default.as_ref() {
-                            self.validate_definition_value(
-                                default,
-                                &slot_schema,
-                                "default",
-                                root_span(file),
-                            );
-                        }
-                        slots.insert(name.to_string(), slot_schema);
-                    }
-                    "channel" => {}
-                    "output" => {
-                        if let Some(name) = child.name.as_ref() {
+                            if !matches!(
+                                shape.as_str(),
+                                "expr"
+                                    | "expr_list"
+                                    | "literal"
+                                    | "number"
+                                    | "string"
+                                    | "boolean"
+                                    | "enum"
+                                    | "function"
+                                    | "ref"
+                                    | "block"
+                            ) {
+                                self.error(
+                                    "AVENGER-RESOLVE-004",
+                                    "unknown definition slot shape",
+                                    root_span(file),
+                                    format!("slot `{name}` uses unsupported shape `{shape}`"),
+                                );
+                            }
                             self.check_definition_interface_name(
                                 &mut interface_names,
                                 name.as_str(),
-                                "output",
+                                "slot",
                                 file,
                             );
-                            outputs.insert(
-                                name.to_string(),
-                                child
-                                    .props
-                                    .get("value")
-                                    .map(|value| definition_value(value, &id, &all_slot_names)),
+                            let default = child
+                                .props
+                                .get("default")
+                                .map(|value| definition_value(value, &id, &all_slot_names));
+                            let enum_values = value_names(child.props.get("values"));
+                            let reference_kind = child
+                                .props
+                                .get("kind")
+                                .and_then(value_atom)
+                                .map(str::to_owned);
+                            let function_class = child
+                                .props
+                                .get("class")
+                                .and_then(value_atom)
+                                .map(str::to_owned);
+                            let exposes = value_names(child.props.get("exposes"));
+                            self.validate_slot_declaration(
+                                child,
+                                &shape,
+                                &enum_values,
+                                &slot_order,
+                                &all_slot_names,
+                                file,
                             );
+                            slot_order.push(name.to_string());
+                            let slot_schema = DefinitionSlot {
+                                shape,
+                                required: default.is_none(),
+                                default,
+                                enum_values,
+                                function_class,
+                                reference_kind,
+                                exposes,
+                            };
+                            if let Some(default) = slot_schema.default.as_ref() {
+                                self.validate_definition_value(
+                                    default,
+                                    &slot_schema,
+                                    "default",
+                                    root_span(file),
+                                );
+                            }
+                            slots.insert(name.to_string(), slot_schema);
                         }
-                    }
-                    "export" => {
-                        if let Some(path) = value_path(child.props.get("source")) {
-                            let alias = child
-                                .name
-                                .as_ref()
-                                .map(ToString::to_string)
-                                .or_else(|| path.last().cloned());
-                            if let Some(alias) = alias {
+                        "channel" => {}
+                        "output" => {
+                            if let Some(name) = child.name.as_ref() {
                                 self.check_definition_interface_name(
                                     &mut interface_names,
-                                    &alias,
-                                    "export",
+                                    name.as_str(),
+                                    "output",
                                     file,
                                 );
-                                let target = find_definition_target(declaration, &path);
-                                if target.is_none() {
-                                    self.error(
-                                        "AVENGER-RESOLVE-005",
-                                        "definition export path does not exist",
-                                        root_span(file),
-                                        format!(
-                                            "export `{alias}` cannot resolve `{}`",
-                                            path.join(".")
-                                        ),
+                                outputs.insert(
+                                    name.to_string(),
+                                    child
+                                        .props
+                                        .get("value")
+                                        .map(|value| definition_value(value, &id, &all_slot_names)),
+                                );
+                            }
+                        }
+                        "export" => {
+                            if let Some(path) = value_path(child.props.get("source")) {
+                                let alias = child
+                                    .name
+                                    .as_ref()
+                                    .map(ToString::to_string)
+                                    .or_else(|| path.last().cloned());
+                                if let Some(alias) = alias {
+                                    self.check_definition_interface_name(
+                                        &mut interface_names,
+                                        &alias,
+                                        "export",
+                                        file,
                                     );
-                                }
-                                let target_kind = target
-                                    .map(definition_export_kind)
-                                    .unwrap_or(DefinitionExportKind::Unknown);
-                                let export = DefinitionExport {
-                                    path,
-                                    target_kind,
-                                    data_type: target.and_then(|target| {
-                                        (target.keyword.as_str() == "param")
-                                            .then(|| target.props.get("type"))
-                                            .flatten()
-                                            .and_then(|value| PhysicalType::parse(value).ok())
-                                    }),
-                                };
-                                if exports.insert(alias.clone(), export).is_some() {
-                                    self.error(
-                                        "AVENGER-RESOLVE-003",
-                                        "duplicate definition export",
-                                        root_span(file),
-                                        format!(
-                                            "export alias `{alias}` is declared more than once"
-                                        ),
-                                    );
-                                }
-                                if target_kind == DefinitionExportKind::Mark {
-                                    let path = exports
-                                        .get(&alias)
-                                        .map(|export| export.path.clone())
-                                        .unwrap_or_default();
-                                    parts.insert(
-                                        alias.clone(),
-                                        DefinitionPart {
-                                            alias,
-                                            declaration_path: path,
-                                        },
-                                    );
+                                    let target = find_definition_target(declaration, &path);
+                                    if target.is_none() {
+                                        self.error(
+                                            "AVENGER-RESOLVE-005",
+                                            "definition export path does not exist",
+                                            root_span(file),
+                                            format!(
+                                                "export `{alias}` cannot resolve `{}`",
+                                                path.join(".")
+                                            ),
+                                        );
+                                    }
+                                    let target_kind = target
+                                        .map(definition_export_kind)
+                                        .unwrap_or(DefinitionExportKind::Unknown);
+                                    let export = DefinitionExport {
+                                        path,
+                                        target_kind,
+                                        data_type: target.and_then(|target| {
+                                            (target.keyword.as_str() == "param")
+                                                .then(|| target.props.get("type"))
+                                                .flatten()
+                                                .and_then(|value| PhysicalType::parse(value).ok())
+                                        }),
+                                    };
+                                    if exports.insert(alias.clone(), export).is_some() {
+                                        self.error(
+                                            "AVENGER-RESOLVE-003",
+                                            "duplicate definition export",
+                                            root_span(file),
+                                            format!(
+                                                "export alias `{alias}` is declared more than once"
+                                            ),
+                                        );
+                                    }
+                                    if target_kind == DefinitionExportKind::Mark {
+                                        let path = exports
+                                            .get(&alias)
+                                            .map(|export| export.path.clone())
+                                            .unwrap_or_default();
+                                        parts.insert(
+                                            alias.clone(),
+                                            DefinitionPart {
+                                                alias,
+                                                declaration_path: path,
+                                            },
+                                        );
+                                    }
                                 }
                             }
                         }
-                    }
-                    "part" => {
-                        if let Some(alias) = child.name.as_ref() {
-                            self.check_definition_interface_name(
-                                &mut interface_names,
-                                alias.as_str(),
-                                "part",
-                                file,
-                            );
-                            parts.insert(
-                                alias.to_string(),
-                                DefinitionPart {
-                                    alias: alias.to_string(),
-                                    declaration_path: vec![alias.to_string()],
-                                },
-                            );
+                        "part" => {
+                            if let Some(alias) = child.name.as_ref() {
+                                self.check_definition_interface_name(
+                                    &mut interface_names,
+                                    alias.as_str(),
+                                    "part",
+                                    file,
+                                );
+                                parts.insert(
+                                    alias.to_string(),
+                                    DefinitionPart {
+                                        alias: alias.to_string(),
+                                        declaration_path: vec![alias.to_string()],
+                                    },
+                                );
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                self.definitions.insert(
+                    item_id.clone(),
+                    DefinitionSchema {
+                        item: item_id,
+                        declaration: id.clone(),
+                        local_seed: DefinitionLocalSeed(semantic_hash(&[
+                            "definition-local",
+                            file_id.as_str(),
+                            id.as_str(),
+                        ])),
+                        kind,
+                        source_name: declaration
+                            .name
+                            .as_ref()
+                            .map_or_else(|| file_id.as_str().to_owned(), ToString::to_string),
+                        slot_order,
+                        slots,
+                        channels,
+                        outputs,
+                        exports,
+                        parts,
+                    },
+                );
             }
-            self.definitions.insert(
-                file_id.clone(),
-                DefinitionSchema {
-                    declaration: id.clone(),
-                    local_seed: DefinitionLocalSeed(semantic_hash(&[
-                        "definition-local",
-                        file_id.as_str(),
-                        id.as_str(),
-                    ])),
-                    kind,
-                    source_name: declaration
-                        .name
-                        .as_ref()
-                        .map_or_else(|| file_id.as_str().to_owned(), ToString::to_string),
-                    slot_order,
-                    slots,
-                    channels,
-                    outputs,
-                    exports,
-                    parts,
-                },
-            );
         }
     }
 
@@ -1181,23 +1859,26 @@ impl<'a> Resolver<'a> {
 
     fn validate_definition_templates(&mut self) {
         let definitions = self
-            .project
-            .source_modules
-            .iter()
-            .filter_map(|(file_id, file)| {
-                let schema = self.definitions.get(file_id)?.clone();
-                let Some((_, root)) = module_declarations(file)
-                    .find(|(_, declaration)| declaration.keyword.as_str() == "define")
-                else {
-                    return None;
-                };
-                Some((file.clone(), root.clone(), schema))
+            .definitions
+            .values()
+            .filter_map(|schema| {
+                let file = self.project.source_modules.get(&schema.item.module)?;
+                let index =
+                    self.module_index
+                        .item_at
+                        .iter()
+                        .find_map(|((module, index), item)| {
+                            (module == &schema.item.module && item == &schema.item)
+                                .then_some(*index)
+                        })?;
+                let root = &file.parsed.ast.items.get(index)?.declaration;
+                Some((file.clone(), root.clone(), index, schema.clone()))
             })
             .collect::<Vec<_>>();
 
-        for (file, root, schema) in definitions {
+        for (file, root, index, schema) in definitions {
             let mut splice_counts = BTreeMap::<String, usize>::new();
-            self.validate_definition_node(&file, &root, &[0], &schema, &mut splice_counts);
+            self.validate_definition_node(&file, &root, &[index], &schema, &mut splice_counts);
             for (name, slot) in &schema.slots {
                 let count = splice_counts.get(name).copied().unwrap_or(0);
                 if slot.shape == "block" && count != 1 {
@@ -1896,7 +2577,8 @@ impl<'a> Resolver<'a> {
             "slot" | "channel" => {
                 let Some(definition) = self
                     .definitions
-                    .get(&file.id)
+                    .values()
+                    .find(|schema| ancestry.contains(&schema.declaration))
                     .map(|schema| schema.declaration.clone())
                 else {
                     return;
@@ -2008,17 +2690,27 @@ impl<'a> Resolver<'a> {
                 continue;
             };
             let coordinate = coordinate_at_path(file, &path);
-            if let Some(schema) = self.native_schema(
+            let kind_binding = self.kind_binding(
+                file,
                 declaration,
                 coordinate.as_deref(),
                 inside_definition(file, &path),
-            ) {
+            );
+            if let Some(schema) =
+                self.native_schema(declaration, coordinate.as_deref(), kind_binding.as_ref())
+            {
                 self.install_native_interface(file, declaration, &info, &schema);
             }
             if let Some(schema) = declaration
                 .kind
                 .as_ref()
-                .and_then(|kind| self.imported_definition(file, kind.as_str()))
+                .and_then(|kind| {
+                    self.imported_definition(
+                        file,
+                        kind.as_str(),
+                        declaration_kind_category(declaration)?,
+                    )
+                })
                 .cloned()
             {
                 self.install_definition_interface(&info, &schema);
@@ -3027,11 +3719,20 @@ impl<'a> Resolver<'a> {
         self.validate_visibility(file, path, declaration, info.span);
 
         let in_definition = inside_definition(file, path);
-        let native_schema = self.native_schema(declaration, coordinate.as_deref(), in_definition);
+        let kind_binding =
+            self.kind_binding(file, declaration, coordinate.as_deref(), in_definition);
+        let native_schema =
+            self.native_schema(declaration, coordinate.as_deref(), kind_binding.as_ref());
         let definition_schema = declaration
             .kind
             .as_ref()
-            .and_then(|kind| self.imported_definition(file, kind.as_str()))
+            .and_then(|kind| {
+                self.imported_definition(
+                    file,
+                    kind.as_str(),
+                    declaration_kind_category(declaration)?,
+                )
+            })
             .cloned();
         if native_schema.is_none()
             && definition_schema.is_none()
@@ -3302,6 +4003,7 @@ impl<'a> Resolver<'a> {
             span: info.span,
             keyword: declaration.keyword.to_string(),
             kind: declaration.kind.as_ref().map(ToString::to_string),
+            kind_binding,
             name: declaration.name.as_ref().map(ToString::to_string),
             visibility: declaration.visibility,
             coordinate,
@@ -3329,42 +4031,24 @@ impl<'a> Resolver<'a> {
         &self,
         declaration: &Decl,
         coordinate: Option<&str>,
-        in_definition: bool,
+        binding: Option<&ResolvedKindBinding>,
     ) -> Option<KindSchema> {
-        let kind = declaration.kind.as_ref()?.as_str();
         if is_mark_group(declaration) {
             return Some(core_mark_group_schema(coordinate));
         }
-        let key = match declaration.keyword.as_str() {
-            "chart" | "cell" | "plot" => NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
-            "view" => NativeKindKey::new(NativeKindNamespace::View, kind),
-            "mark" => {
-                if let Some(coordinate) = coordinate {
-                    NativeKindKey::mark(coordinate, kind)
-                } else if in_definition {
-                    return self.definition_mark_schema(kind);
-                } else {
-                    return None;
-                }
+        match binding? {
+            ResolvedKindBinding::Builtin(key)
+            | ResolvedKindBinding::Native {
+                implementation: key,
+                ..
+            } => self.registry.entries.get(key).cloned(),
+            ResolvedKindBinding::Structural(kind) if declaration.keyword.as_str() == "mark" => {
+                self.definition_mark_schema(kind)
             }
-            "transform" => NativeKindKey::new(NativeKindNamespace::Transform, kind),
-            "tool" if kind != "behavior" => NativeKindKey::new(NativeKindNamespace::Tool, kind),
-            "widget" => NativeKindKey::new(NativeKindNamespace::Widget, kind),
-            "resource" => NativeKindKey::new(NativeKindNamespace::Resource, kind),
-            _ => return None,
-        };
-        self.registry.entries.get(&key).cloned().or_else(|| {
-            // Tool schemas may be registered coordinate-independently and use
-            // `compatible_coordinates` as their placement constraint.
-            (declaration.keyword.as_str() == "tool")
-                .then(|| {
-                    self.registry
-                        .entries
-                        .get(&NativeKindKey::new(NativeKindNamespace::Tool, kind))
-                })
-                .flatten()
-                .cloned()
-        })
+            ResolvedKindBinding::LanguageCore(_)
+            | ResolvedKindBinding::Definition(_)
+            | ResolvedKindBinding::Structural(_) => None,
+        }
     }
 
     /// Definition bodies are checked before an instance supplies a concrete
@@ -3385,9 +4069,129 @@ impl<'a> Resolver<'a> {
         merge_definition_mark_schemas(candidates)
     }
 
-    fn imported_definition(&self, file: &ParsedModule, kind: &str) -> Option<&DefinitionSchema> {
-        let imported = self.imports.get(&file.id)?.get(kind)?;
-        self.definitions.get(imported)
+    fn imported_definition(
+        &self,
+        file: &ParsedModule,
+        kind: &str,
+        category: BindingCategory,
+    ) -> Option<&DefinitionSchema> {
+        let item = self.definition_item(file, kind, category)?;
+        self.definitions.get(item)
+    }
+
+    fn definition_item(
+        &self,
+        file: &ParsedModule,
+        kind: &str,
+        category: BindingCategory,
+    ) -> Option<&ModuleItemId> {
+        let environment = self.module_index.environments.get(&file.id)?;
+        let segments = kind.split('.').collect::<Vec<_>>();
+        let export = match segments.as_slice() {
+            [name] => environment.local.get(&(category, (*name).to_owned()))?,
+            [namespace, member] => {
+                let module = environment.namespaces.get(*namespace)?;
+                self.module_index
+                    .exports
+                    .get(module)?
+                    .exports
+                    .get(*member)
+                    .filter(|export| export.category == category)?
+            }
+            _ => return None,
+        };
+        let ModuleId::Source(module) = &export.module else {
+            return None;
+        };
+        self.module_index
+            .local_items
+            .get(&(module.clone(), category, export.name.clone()))
+            .or_else(|| {
+                self.module_index
+                    .source_export_items
+                    .get(&(module.clone(), export.name.clone()))
+            })
+    }
+
+    fn kind_binding(
+        &self,
+        file: &ParsedModule,
+        declaration: &Decl,
+        coordinate: Option<&str>,
+        in_definition: bool,
+    ) -> Option<ResolvedKindBinding> {
+        let kind = declaration.kind.as_ref()?;
+        if is_mark_group(declaration) {
+            return Some(ResolvedKindBinding::LanguageCore("mark.group".to_owned()));
+        }
+        if declaration.keyword.as_str() == "tool" && kind.as_str() == "behavior" {
+            return Some(ResolvedKindBinding::LanguageCore(
+                "tool.behavior".to_owned(),
+            ));
+        }
+        let category = declaration_kind_category(declaration)?;
+        if let Some(item) = self.definition_item(file, kind.as_str(), category) {
+            return Some(ResolvedKindBinding::Definition(item.clone()));
+        }
+
+        let environment = self.module_index.environments.get(&file.id)?;
+        let segments = kind.segments();
+        let export = match segments {
+            [name] => environment
+                .local
+                .get(&(category, name.to_string()))
+                .filter(|export| matches!(export.module, ModuleId::Native(_))),
+            [namespace, member] => {
+                let module = environment.namespaces.get(namespace.as_str())?;
+                self.module_index
+                    .exports
+                    .get(module)?
+                    .exports
+                    .get(member.as_str())
+                    .filter(|export| export.category == category)
+            }
+            _ => None,
+        };
+        if let Some(export) = export {
+            let ModuleId::Native(module) = &export.module else {
+                return None;
+            };
+            let implementation = self
+                .registry
+                .modules
+                .get(module)?
+                .exports
+                .get(&export.name)?
+                .implementation
+                .clone();
+            return Some(ResolvedKindBinding::Native {
+                export: export.clone(),
+                implementation,
+            });
+        }
+
+        let simple = kind.simple()?;
+        let key = match declaration.keyword.as_str() {
+            "chart" | "cell" | "plot" => {
+                NativeKindKey::new(NativeKindNamespace::Coordinate, simple.as_str())
+            }
+            "view" => NativeKindKey::new(NativeKindNamespace::View, simple.as_str()),
+            "mark" => {
+                if let Some(coordinate) = coordinate {
+                    NativeKindKey::mark(coordinate, simple.as_str())
+                } else if in_definition {
+                    return Some(ResolvedKindBinding::Structural(simple.to_string()));
+                } else {
+                    return None;
+                }
+            }
+            "transform" => NativeKindKey::new(NativeKindNamespace::Transform, simple.as_str()),
+            "tool" => NativeKindKey::new(NativeKindNamespace::Tool, simple.as_str()),
+            "widget" => NativeKindKey::new(NativeKindNamespace::Widget, simple.as_str()),
+            "resource" => NativeKindKey::new(NativeKindNamespace::Resource, simple.as_str()),
+            _ => return None,
+        };
+        Some(ResolvedKindBinding::Builtin(key))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4888,6 +5692,7 @@ impl<'a> Resolver<'a> {
             span,
             keyword: declaration.keyword.to_string(),
             kind: declaration.kind.as_ref().map(ToString::to_string),
+            kind_binding: None,
             name: declaration.name.as_ref().map(ToString::to_string),
             visibility: declaration.visibility,
             coordinate: None,
@@ -7185,16 +7990,23 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn definition_import_order(&self) -> Vec<SourceModuleId> {
-        let mut dependencies = BTreeMap::<SourceModuleId, BTreeSet<SourceModuleId>>::new();
-        for (file, imports) in &self.imports {
-            if !self.definitions.contains_key(file) {
-                continue;
-            }
-            dependencies.entry(file.clone()).or_default().extend(
-                imports
-                    .values()
-                    .filter(|imported| self.definitions.contains_key(*imported))
+    fn definition_import_order(&self) -> Vec<ModuleItemId> {
+        let mut dependencies = BTreeMap::<ModuleItemId, BTreeSet<ModuleItemId>>::new();
+        for item in self.definitions.keys() {
+            let imported_modules = self
+                .project
+                .imports
+                .iter()
+                .filter(|edge| edge.importer == item.module)
+                .filter_map(|edge| match &edge.imported {
+                    ModuleId::Source(module) => Some(module),
+                    ModuleId::Native(_) => None,
+                })
+                .collect::<BTreeSet<_>>();
+            dependencies.entry(item.clone()).or_default().extend(
+                self.definitions
+                    .keys()
+                    .filter(|candidate| imported_modules.contains(&candidate.module))
                     .cloned(),
             );
         }
@@ -7436,6 +8248,79 @@ fn collect_public_targets(
     for child in &declaration.children {
         collect_public_targets(child, output, origins, collisions);
     }
+}
+
+fn collect_item_dependencies(
+    declaration: &ResolvedDeclaration,
+    from: &ModuleItemId,
+    output: &mut Vec<ItemDependencyEdge>,
+) {
+    if let Some(ResolvedKindBinding::Definition(to)) = &declaration.kind_binding {
+        output.push(ItemDependencyEdge {
+            from: from.clone(),
+            to: to.clone(),
+            cause: ItemDependencyCause::DefinitionUse,
+            site: declaration.span,
+        });
+    }
+    for value in declaration.properties.values() {
+        collect_item_dependencies_from_value(value, from, output);
+    }
+    for child in &declaration.children {
+        collect_item_dependencies(child, from, output);
+    }
+}
+
+fn collect_item_dependencies_from_value(
+    value: &ResolvedValue,
+    from: &ModuleItemId,
+    output: &mut Vec<ItemDependencyEdge>,
+) {
+    match value {
+        ResolvedValue::Object {
+            properties,
+            children,
+            ..
+        } => {
+            for value in properties.values() {
+                collect_item_dependencies_from_value(value, from, output);
+            }
+            for child in children {
+                collect_item_dependencies(child, from, output);
+            }
+        }
+        ResolvedValue::Array(values) => {
+            for value in values {
+                collect_item_dependencies_from_value(value, from, output);
+            }
+        }
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            collect_item_dependencies_from_value(value, from, output);
+        }
+        ResolvedValue::Call { args, .. } => {
+            for value in args {
+                collect_item_dependencies_from_value(value, from, output);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_item_closure(
+    item: &ModuleItemId,
+    adjacency: &BTreeMap<ModuleItemId, BTreeSet<ModuleItemId>>,
+    closure: &mut BTreeSet<ModuleItemId>,
+) {
+    if !closure.insert(item.clone()) {
+        return;
+    }
+    for dependency in adjacency.get(item).into_iter().flatten() {
+        collect_item_closure(dependency, adjacency, closure);
+    }
+}
+
+fn module_item_display(item: &ModuleItemId) -> String {
+    format!("{}::{}", item.module.as_str(), item.declaration.as_str())
 }
 
 fn insert_public_target(
@@ -9071,6 +9956,71 @@ fn definition_kind(declaration: &Decl) -> Option<DefinitionKind> {
         "transform" => Some(DefinitionKind::Transform),
         _ => None,
     }
+}
+
+fn module_item_category(declaration: &Decl) -> Option<BindingCategory> {
+    match declaration.keyword.as_str() {
+        "chart" => Some(BindingCategory::Chart),
+        "define" => match definition_kind(declaration)? {
+            DefinitionKind::Mark => Some(BindingCategory::NativeKind(NativeKindNamespace::Mark)),
+            DefinitionKind::Tool => Some(BindingCategory::NativeKind(NativeKindNamespace::Tool)),
+            DefinitionKind::Transform => {
+                Some(BindingCategory::NativeKind(NativeKindNamespace::Transform))
+            }
+        },
+        "table" | "schema" | "catalog" => Some(BindingCategory::Data),
+        _ => None,
+    }
+}
+
+fn declaration_kind_category(declaration: &Decl) -> Option<BindingCategory> {
+    let namespace = match declaration.keyword.as_str() {
+        "chart" | "cell" | "plot" => NativeKindNamespace::Coordinate,
+        "view" => NativeKindNamespace::View,
+        "mark" => NativeKindNamespace::Mark,
+        "transform" => NativeKindNamespace::Transform,
+        "tool" => NativeKindNamespace::Tool,
+        "widget" => NativeKindNamespace::Widget,
+        "resource" => NativeKindNamespace::Resource,
+        _ => return None,
+    };
+    Some(BindingCategory::NativeKind(namespace))
+}
+
+fn requires_module_item_name(declaration: &Decl) -> bool {
+    matches!(
+        declaration.keyword.as_str(),
+        "define" | "table" | "schema" | "catalog"
+    )
+}
+
+fn binding_category_label(category: BindingCategory) -> &'static str {
+    match category {
+        BindingCategory::NativeKind(NativeKindNamespace::Coordinate) => "coordinate",
+        BindingCategory::NativeKind(NativeKindNamespace::Mark) => "mark",
+        BindingCategory::NativeKind(NativeKindNamespace::Transform) => "transform",
+        BindingCategory::NativeKind(NativeKindNamespace::Tool) => "tool",
+        BindingCategory::NativeKind(NativeKindNamespace::Widget) => "widget",
+        BindingCategory::NativeKind(NativeKindNamespace::Scale) => "scale",
+        BindingCategory::NativeKind(NativeKindNamespace::Axis) => "axis",
+        BindingCategory::NativeKind(NativeKindNamespace::Legend) => "legend",
+        BindingCategory::NativeKind(NativeKindNamespace::Layout) => "layout",
+        BindingCategory::NativeKind(NativeKindNamespace::View) => "view",
+        BindingCategory::NativeKind(NativeKindNamespace::Resource) => "resource",
+        BindingCategory::Chart => "chart",
+        BindingCategory::Data => "data",
+        BindingCategory::ModuleNamespace => "module namespace",
+    }
+}
+
+fn module_item_span(module: &ParsedModule, index: usize) -> SourceSpan {
+    module
+        .parsed
+        .module_syntax
+        .items
+        .get(index)
+        .map(|item| item.span)
+        .unwrap_or_else(|| root_span(module))
 }
 
 fn inside_definition(file: &ParsedModule, path: &[usize]) -> bool {

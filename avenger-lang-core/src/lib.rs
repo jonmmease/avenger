@@ -48,17 +48,20 @@ pub use physical_type::{
     IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, PhysicalValueError, TimeUnit,
 };
 pub use resolve::{
-    DECLARATION_KEYWORDS, DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind,
-    DefinitionKind, DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
-    GeneratedStateOrigin, HelperClass, MarkId, ParamId, ResolveAttempt, ResolveFailure,
-    ResolvedActionRoute, ResolvedBinding, ResolvedCatalogTable, ResolvedDeclaration,
-    ResolvedDimension, ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface,
-    ResolvedExpression, ResolvedFile, ResolvedHelper, ResolvedHelperArgument, ResolvedOutputHandle,
-    ResolvedOutputShape, ResolvedParam, ResolvedPart, ResolvedProject, ResolvedQuery,
-    ResolvedReference, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
-    ResolvedSqlReference, ResolvedStateLValue, ResolvedStore, ResolvedTarget, ResolvedValue,
-    SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId,
-    allowed_child_declarations, placement_allowed, resolve_project,
+    BindingCategory, ChartEntrypointId, ChartSelector, DECLARATION_KEYWORDS, DeclarationId,
+    DeclarationKey, DefinitionChannel, DefinitionExport, DefinitionExportKind, DefinitionKind,
+    DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
+    GeneratedStateOrigin, HelperClass, ItemDependencyCause, ItemDependencyEdge,
+    ItemDependencyGraph, MarkId, ModuleBindingEnvironment, ModuleExportId, ModuleExportIndex,
+    ModuleItemId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,
+    ResolvedCatalogTable, ResolvedChartEntrypoint, ResolvedDeclaration, ResolvedDimension,
+    ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
+    ResolvedFile, ResolvedHelper, ResolvedHelperArgument, ResolvedImport, ResolvedKindBinding,
+    ResolvedModuleItem, ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedPart,
+    ResolvedProject, ResolvedQuery, ResolvedReference, ResolvedSelection, ResolvedSelectionCombine,
+    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
+    ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
+    WidgetId, allowed_child_declarations, placement_allowed, resolve_project,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

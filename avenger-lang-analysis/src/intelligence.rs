@@ -311,21 +311,49 @@ impl WorkspaceSemanticIndex {
             else {
                 continue;
             };
-            for (binding, imported_file) in &file.imports {
-                let Some(definition) = project.definitions.get(imported_file) else {
-                    continue;
-                };
+            let imported_definitions =
+                file.local_bindings
+                    .local
+                    .iter()
+                    .filter_map(|((_, local), export)| {
+                        let avenger_lang_core::ModuleId::Source(module) = &export.module else {
+                            return None;
+                        };
+                        project
+                            .definitions
+                            .values()
+                            .find(|definition| {
+                                &definition.item.module == module
+                                    && definition.source_name == export.name
+                            })
+                            .map(|definition| (local.clone(), definition))
+                    })
+                    .chain(file.local_bindings.namespaces.iter().flat_map(
+                        |(namespace, module)| {
+                            let avenger_lang_core::ModuleId::Source(module) = module else {
+                                return Vec::new().into_iter();
+                            };
+                            project
+                                .definitions
+                                .values()
+                                .filter(|definition| &definition.item.module == module)
+                                .map(|definition| {
+                                    (
+                                        format!("{namespace}.{}", definition.source_name),
+                                        definition,
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                        },
+                    ));
+            for (path, definition) in imported_definitions {
                 let identity = definition.declaration.to_string();
                 let target = self.navigation_for_identity(&identity);
                 let value_kind = match definition.kind {
                     avenger_lang_core::DefinitionKind::Mark => IndexedValueKind::Mark,
                     avenger_lang_core::DefinitionKind::Tool => IndexedValueKind::Tool,
                     avenger_lang_core::DefinitionKind::Transform => IndexedValueKind::Declaration,
-                };
-                let path = if binding == &definition.source_name {
-                    binding.clone()
-                } else {
-                    format!("{binding}.{}", definition.source_name)
                 };
                 self.public_references
                     .entry((importer.clone(), path.clone()))

@@ -10,7 +10,9 @@ use crate::{
     ast::{AstNodeRole, Body, Decl, File, ModuleItem, Name, PropertyMap, Value, Visibility},
     module_graph::{ModuleId, ParsedModule, ParsedModuleGraph, SourceModuleId},
     print::print_file,
-    resolve::{DefinitionKind, DefinitionSchema, ResolvedProject},
+    resolve::{
+        DefinitionKind, DefinitionSchema, ModuleItemId, ResolvedKindBinding, ResolvedProject,
+    },
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
 
@@ -169,7 +171,7 @@ struct BoundSlot {
 struct ExpansionContext {
     caller: SourceModuleId,
     chart: SourceModuleId,
-    definition: SourceModuleId,
+    definition: ModuleItemId,
     definition_name: String,
     instance_name: String,
     private_names: BTreeMap<String, String>,
@@ -476,14 +478,15 @@ impl Expander<'_> {
         context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        if let Some(kind) = declaration.kind.as_ref().map(|kind| kind.as_str())
-            && let Some(definition) = self.imported_definition(owner, kind)
+        if let Some(ResolvedKindBinding::Definition(definition)) = self
+            .resolved_declaration(owner, path)
+            .and_then(|resolved| resolved.kind_binding.as_ref())
         {
             return self.instantiate_definition(
                 owner,
                 declaration,
                 path,
-                definition,
+                definition.clone(),
                 context,
                 origin,
             );
@@ -501,7 +504,7 @@ impl Expander<'_> {
             substituted.name = Some(source_alias);
         }
         if let Some(context) = context
-            && owner == &context.definition
+            && owner == &context.definition.module
             && let Some(source_name) = declaration.name.as_ref().map(Name::as_str)
             && (binds_private_name(declaration) || declaration.keyword.as_str() == "set")
             && let Some(private_name) = context.private_names.get(source_name)
@@ -525,7 +528,7 @@ impl Expander<'_> {
             .or_default()
             .push(origin);
         let expands_private = context.is_some_and(|context| {
-            owner == &context.definition
+            owner == &context.definition.module
                 && (declaration.visibility == Visibility::Private
                     || (declaration.visibility == Visibility::Default
                         && targetable_declaration(declaration)))
@@ -723,28 +726,32 @@ impl Expander<'_> {
         caller: &SourceModuleId,
         instance: &Decl,
         instance_path: &[usize],
-        definition_id: SourceModuleId,
+        definition_id: ModuleItemId,
         outer_context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        let Some(definition_file) = self.project.source_modules.get(&definition_id) else {
-            return instance.clone();
-        };
-        let Some(template) = definition_file
-            .parsed
-            .ast
-            .items
-            .iter()
-            .map(|item| &item.declaration)
-            .find(|declaration| declaration.keyword.as_str() == "define")
-        else {
+        let Some(definition_file) = self.project.source_modules.get(&definition_id.module) else {
             return instance.clone();
         };
         let Some(schema) = self.resolved.definitions.get(&definition_id) else {
             return instance.clone();
         };
-        let definition_span =
-            declaration_span(definition_file, &[0]).unwrap_or_else(|| root_span(definition_file));
+        let Some(template_index) =
+            self.resolved
+                .files
+                .get(&definition_id.module)
+                .and_then(|module| {
+                    module
+                        .roots
+                        .iter()
+                        .position(|declaration| declaration.id == schema.declaration)
+                })
+        else {
+            return instance.clone();
+        };
+        let template = &definition_file.parsed.ast.items[template_index].declaration;
+        let definition_span = declaration_span(definition_file, &[template_index])
+            .unwrap_or_else(|| root_span(definition_file));
         let instantiation_span = origin.authored;
         let source_instance_name = instance
             .name
@@ -792,7 +799,7 @@ impl Expander<'_> {
             let owner = if supplied.is_some() {
                 caller.clone()
             } else {
-                definition_id.clone()
+                definition_id.module.clone()
             };
             let value = if slot.shape == "block" {
                 raw_value.clone()
@@ -813,7 +820,7 @@ impl Expander<'_> {
                     definition_span,
                     instantiation_span,
                 };
-                self.expand_value(&definition_id, raw_value, Some(&default_context))
+                self.expand_value(&definition_id.module, raw_value, Some(&default_context))
             };
             let bound = BoundSlot {
                 shape: slot.shape.clone(),
@@ -914,10 +921,10 @@ impl Expander<'_> {
             .map(|(_, child)| child.clone())
             .collect::<Vec<_>>();
         let expanded = self.expand_body(
-            &definition_id,
+            &definition_id.module,
             &PropertyMap::default(),
             &children,
-            &[0],
+            &[template_index],
             Some(&child_indices),
             false,
             Some(&context),
@@ -1006,7 +1013,7 @@ impl Expander<'_> {
                 .unwrap_or_else(|| property.to_string());
             let value = if property.as_str() == "source"
                 && let Some(context) = context
-                && owner == &context.definition
+                && owner == &context.definition.module
                 && matches!(value, Value::Array(_))
             {
                 rename_path_value(value, &context.private_names)
@@ -1016,7 +1023,7 @@ impl Expander<'_> {
             {
                 rename_path_value(value, context_names_for_owner(owner, context))
             } else if let Some(context) = context
-                && owner == &context.definition
+                && owner == &context.definition.module
                 && matches!(value, Value::Atom(_) | Value::Array(_))
                 && resolved
                     .and_then(|properties| properties.get(property.as_str()))
@@ -1219,16 +1226,6 @@ impl Expander<'_> {
             }
             _ => value.clone(),
         }
-    }
-
-    fn imported_definition(&self, owner: &SourceModuleId, kind: &str) -> Option<SourceModuleId> {
-        self.resolved
-            .files
-            .get(owner)?
-            .imports
-            .get(kind)
-            .filter(|file| self.resolved.definitions.contains_key(*file))
-            .cloned()
     }
 
     fn resolved_declaration(
@@ -1482,7 +1479,7 @@ fn context_names_for_owner<'a>(
     owner: &SourceModuleId,
     context: &'a ExpansionContext,
 ) -> &'a BTreeMap<String, String> {
-    if owner == &context.definition {
+    if owner == &context.definition.module {
         &context.private_names
     } else {
         &context.exposed_private_names
