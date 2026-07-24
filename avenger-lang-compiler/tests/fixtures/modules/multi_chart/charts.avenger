@@ -1,0 +1,37 @@
+avenger 1;
+
+import { pass } from './transforms.avenger';
+import { shared } from './data.avenger';
+
+chart cartesian as cartesian {
+  param float64 as point_size { value: 64.0; }
+  data: { table: 'shared.points'; }
+  transform pass { }
+  mark symbol as points {
+    x: "x";
+    y: "y";
+    size: value $point_size;
+  }
+}
+
+chart geo as geo {
+  param float64 as station_size { value: 80.0; }
+  projection: mercator;
+  center_lon_lat: [-73.9857, 40.7484];
+  zoom: 10;
+  mark symbol as station {
+    lon_lat: [-73.9857, 40.7484];
+    size: value $station_size;
+  }
+}
+
+chart polar as polar {
+  param float64 as point_size { value: 72.0; }
+  data: { table: 'shared.points'; }
+  transform pass { }
+  mark symbol as points {
+    theta: "theta";
+    r: "radius";
+    size: value $point_size;
+  }
+}

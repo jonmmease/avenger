@@ -1114,11 +1114,12 @@ impl Compiler {
     }
 
     fn resolve_path(&self, path: &Path) -> PathBuf {
-        if path.is_absolute() {
+        let resolved = if path.is_absolute() {
             path.to_path_buf()
         } else {
             self.options.project_root.join(path)
-        }
+        };
+        std::fs::canonicalize(&resolved).unwrap_or_else(|_| normalize_path(&resolved))
     }
 
     async fn analyze_resolved_project(
@@ -1425,6 +1426,7 @@ fn resolve_parsed_module_graph(
     if resolved.definitions.is_empty() {
         return Ok(resolved);
     }
+    let authoring_items = resolved.authoring_items.clone();
     let expanded = expand_module_graph_with_limits(&project, &resolved, expansion_limits).map_err(
         |failure| CompileFailure {
             diagnostics: failure.diagnostics,
@@ -1434,6 +1436,7 @@ fn resolve_parsed_module_graph(
     match resolve_semantics(&expanded.project, schema).result {
         Ok(mut resolved) => {
             resolved.expansion_source_map = expanded.source_map;
+            resolved.authoring_items = authoring_items;
             Ok(resolved)
         }
         Err(mut failure) => {
@@ -1916,18 +1919,6 @@ fn compiler_options_fingerprint(options: &CompilerOptions) -> String {
     )
 }
 
-fn chart_file<'a>(
-    project: &'a ResolvedModuleGraph,
-    chart: &DeclarationId,
-) -> Option<&'a SourceModuleId> {
-    project.source_modules.iter().find_map(|(file_id, file)| {
-        file.roots
-            .iter()
-            .any(|root| declaration_contains(root, chart))
-            .then_some(file_id)
-    })
-}
-
 fn select_chart_entrypoint(
     parsed: &ParsedModuleGraph,
     resolved: &ResolvedModuleGraph,
@@ -2114,50 +2105,38 @@ fn module_root_failure(sources: &SourceMap, message: impl Into<String>) -> Compi
     }
 }
 
-fn declaration_contains(declaration: &ResolvedDeclaration, target: &DeclarationId) -> bool {
-    &declaration.id == target
-        || declaration
-            .children
-            .iter()
-            .any(|child| declaration_contains(child, target))
-}
-
-fn definition_closure_fingerprint(
-    project: &ParsedModuleGraph,
-    root: &SourceModuleId,
-    sources: &BTreeMap<SourceModuleId, DependencyFingerprint>,
+fn item_closure_fingerprint(
+    parsed: &ParsedModuleGraph,
+    resolved: &ResolvedModuleGraph,
+    entrypoint: &ChartEntrypointId,
 ) -> DependencyFingerprint {
-    let mut adjacency = BTreeMap::<SourceModuleId, BTreeSet<SourceModuleId>>::new();
-    for edge in &project.imports {
-        let avenger_lang_core::ModuleId::Source(imported) = &edge.imported else {
+    let mut parts = Vec::new();
+    let items = resolved
+        .authoring_items
+        .chart_closures
+        .get(entrypoint)
+        .into_iter()
+        .flatten();
+    for item in items {
+        let Some(item_order) = resolved.authoring_items.item_order.get(&item.module) else {
             continue;
         };
-        adjacency
-            .entry(edge.importer.clone())
-            .or_default()
-            .insert(imported.clone());
-    }
-    let mut pending = vec![root.clone()];
-    let mut included = BTreeSet::new();
-    while let Some(file) = pending.pop() {
-        if !included.insert(file.clone()) {
+        let Some(index) = item_order.iter().position(|candidate| candidate == item) else {
             continue;
-        }
-        for imported in adjacency.get(&file).into_iter().flatten() {
-            if project.source_modules.contains_key(imported) {
-                pending.push(imported.clone());
-            }
-        }
-    }
-    let mut parts = Vec::new();
-    for file in included {
-        parts.push(file.as_str().to_owned());
-        if let Some(fingerprint) = sources.get(&file) {
-            parts.push(fingerprint.as_str().to_owned());
-        }
+        };
+        let Some(authored) = parsed
+            .source_modules
+            .get(&item.module)
+            .and_then(|module| module.parsed.ast.items.get(index))
+        else {
+            continue;
+        };
+        parts.push(item.module.as_str().to_owned());
+        parts.push(item.declaration.as_str().to_owned());
+        parts.push(serde_json::to_string(authored).unwrap_or_default());
     }
     DependencyFingerprint::new(stable_hash(
-        "avenger-definition-closure-v1",
+        "avenger-item-closure-v1",
         parts.iter().map(String::as_str),
     ))
 }
@@ -2302,20 +2281,17 @@ fn dependency_fingerprint_layers(
         .map(|declaration| (declaration.id.clone(), declaration))
         .collect::<BTreeMap<_, _>>();
     for (entrypoint_id, entrypoint) in &resolved.entrypoints {
-        let definition = chart_file(resolved, &entrypoint.declaration)
-            .map(|file| definition_closure_fingerprint(parsed, file, &result.sources))
-            .unwrap_or_default();
+        let item_closure = item_closure_fingerprint(parsed, resolved, entrypoint_id);
         result
-            .definition_closures
-            .insert(entrypoint_id.clone(), definition.clone());
+            .item_closures
+            .insert(entrypoint_id.clone(), item_closure.clone());
         let mut parts = vec![
             serde_json::to_string(entrypoint_id).unwrap_or_default(),
-            definition.as_str().to_owned(),
+            item_closure.as_str().to_owned(),
             compiler_options.clone(),
             environment.dependency_fingerprint().to_owned(),
         ];
         if let Some(chart) = declarations.get(&entrypoint.declaration) {
-            parts.push(serde_json::to_string(chart).unwrap_or_default());
             let (tables, names) = collect_chart_catalog_dependencies(resolved, chart);
             for table in tables {
                 if let Some(fingerprint) = catalog.table_fingerprints.get(&table) {

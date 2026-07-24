@@ -3,7 +3,7 @@
     "params": {
       "point_size": {
         "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
-        "migration_key": "av1_9069f8351cd39f4eb3084a708e9ecdde"
+        "migration_key": "av1_0d108e48b57a6f3bb84093b622d1a986"
       }
     },
     "stores": {},
@@ -17,7 +17,7 @@
     "params": {
       "station_size": {
         "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
-        "migration_key": "av1_d8204d0ee33a46101b8bc54ba6a761ed"
+        "migration_key": "av1_e0f1469f4737c9a583757df2f8fdec60"
       }
     },
     "stores": {},
@@ -32,7 +32,7 @@
     "params": {
       "point_size": {
         "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
-        "migration_key": "av1_609f05dda3c903d3b0cb422d0b1880cb"
+        "migration_key": "av1_5e1aff99c70e0718f8d0b4c851ca0158"
       }
     },
     "stores": {},

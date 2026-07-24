@@ -50,9 +50,9 @@ pub use physical_type::{
     IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, PhysicalValueError, TimeUnit,
 };
 pub use resolve::{
-    BindingCategory, ChartEntrypointId, ChartSelector, DECLARATION_KEYWORDS, DeclarationId,
-    DeclarationKey, DefinitionChannel, DefinitionExport, DefinitionExportKind, DefinitionKind,
-    DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
+    AuthoringItemGraph, BindingCategory, ChartEntrypointId, ChartSelector, DECLARATION_KEYWORDS,
+    DeclarationId, DeclarationKey, DefinitionChannel, DefinitionExport, DefinitionExportKind,
+    DefinitionKind, DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
     GeneratedStateOrigin, HelperClass, ItemDependencyCause, ItemDependencyEdge,
     ItemDependencyGraph, MarkId, ModuleBindingEnvironment, ModuleExportId, ModuleExportIndex,
     ModuleItemId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,

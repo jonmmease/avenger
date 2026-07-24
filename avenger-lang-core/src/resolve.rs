@@ -311,6 +311,7 @@ pub struct ResolvedModuleGraph {
     pub items: BTreeMap<ModuleItemId, ResolvedModuleItem>,
     pub entrypoints: BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint>,
     pub item_dependencies: ItemDependencyGraph,
+    pub authoring_items: AuthoringItemGraph,
     pub charts: Vec<DeclarationId>,
     pub definitions: BTreeMap<ModuleItemId, DefinitionSchema>,
     pub params: BTreeMap<ParamId, ResolvedParam>,
@@ -399,6 +400,17 @@ pub struct ItemDependencyEdge {
 pub struct ItemDependencyGraph {
     pub edges: Vec<ItemDependencyEdge>,
     pub transitive_closures: BTreeMap<ModuleItemId, BTreeSet<ModuleItemId>>,
+}
+
+/// Stable authoring-level item inventory retained after definition expansion.
+///
+/// Expansion may remove imported definitions from the executable graph.
+/// Incremental compilation still needs their original dependency closure so a
+/// definition edit invalidates consumers without invalidating sibling charts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthoringItemGraph {
+    pub item_order: BTreeMap<SourceModuleId, Vec<ModuleItemId>>,
+    pub chart_closures: BTreeMap<ChartEntrypointId, BTreeSet<ModuleItemId>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -957,6 +969,16 @@ impl<'a> Resolver<'a> {
         let item_dependencies = self.build_item_dependency_graph(&files);
         let entrypoints =
             self.resolved_entrypoints(&files, &param_default_order, &item_dependencies);
+        let authoring_items = AuthoringItemGraph {
+            item_order: files
+                .iter()
+                .map(|(module, file)| (module.clone(), file.item_order.clone()))
+                .collect(),
+            chart_closures: entrypoints
+                .iter()
+                .map(|(id, entrypoint)| (id.clone(), entrypoint.reachable_items.clone()))
+                .collect(),
+        };
         sort_diagnostics(&mut self.diagnostics, &self.project.sources);
         if !self.diagnostics.is_empty() {
             return ResolveAttempt {
@@ -979,6 +1001,7 @@ impl<'a> Resolver<'a> {
                 items: module_items,
                 entrypoints,
                 item_dependencies,
+                authoring_items,
                 charts,
                 definitions: self.definitions.clone(),
                 params: self.params.clone(),

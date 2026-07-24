@@ -33,13 +33,13 @@ macro_rules! string_id {
 string_id!(ModuleFingerprint);
 string_id!(DependencyFingerprint);
 
-/// Reviewed fingerprint layers used by project analysis and incremental chart
+/// Reviewed fingerprint layers used by module analysis and incremental chart
 /// compilation. These values describe immutable inputs; they never retain a
 /// DataFusion session or provider registry.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleDependencyFingerprints {
     pub sources: BTreeMap<SourceModuleId, DependencyFingerprint>,
-    pub definition_closures: BTreeMap<ChartEntrypointId, DependencyFingerprint>,
+    pub item_closures: BTreeMap<ChartEntrypointId, DependencyFingerprint>,
     pub datasets: BTreeMap<crate::DatasetStageId, DependencyFingerprint>,
     pub data_catalog: DependencyFingerprint,
     pub compile_environment: DependencyFingerprint,
