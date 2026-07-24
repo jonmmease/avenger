@@ -3,7 +3,7 @@ chart responsive as shapes {
   resource tiles as osm {
   }
   theme css : '.chart { color: red; }';
-  container group as container {
+  mark group as container {
     variable row mpg {
     }
     cell cartesian as left at {
@@ -23,8 +23,6 @@ chart responsive as shapes {
     adjust stack as stacked {
     }
     derive density as kde {
-    }
-    container overlay as annotations {
     }
     layer background {
     }

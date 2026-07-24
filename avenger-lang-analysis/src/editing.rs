@@ -487,7 +487,8 @@ fn extract_definition_action(
         .symbols
         .iter()
         .filter(|symbol| {
-            symbol.keyword == "group"
+            symbol.keyword == "mark"
+                && symbol.native_kind.as_deref() == Some("group")
                 && !symbol.name.is_empty()
                 && spans_overlap(symbol.declaration_span, request.range)
         })
@@ -644,7 +645,7 @@ fn extract_definition_action(
     }
 
     output.push(CodeAction {
-        title: format!("Extract container group as `{}` definition", group.name),
+        title: format!("Extract mark group as `{}` definition", group.name),
         kind: CodeActionKind::RefactorExtract,
         diagnostic_codes: Vec::new(),
         preferred: false,
@@ -801,7 +802,7 @@ fn missing_as_action(
     };
     if !matches!(
         keyword.as_str(),
-        "param" | "store" | "selection" | "group" | "view"
+        "param" | "store" | "selection" | "mark" | "view"
     ) {
         return;
     }
@@ -950,7 +951,8 @@ fn missing_param_action(
         .symbols
         .iter()
         .filter(|symbol| {
-            matches!(symbol.keyword.as_str(), "chart" | "plot" | "group")
+            (matches!(symbol.keyword.as_str(), "chart" | "plot")
+                || (symbol.keyword == "mark" && symbol.native_kind.as_deref() == Some("group")))
                 && symbol.scope_span.range.start <= reference.span.range.start
                 && reference.span.range.end <= symbol.scope_span.range.end
         })

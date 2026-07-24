@@ -1,15 +1,17 @@
-# Avenger Chart DSL Syntax
+# Avenger Chart DSL Version 1 Specification
 
 ## Status
 
-Draft syntax proposal. This document sketches a dedicated scripting language for
-authoring `avenger-chart` charts. The goal is not to encode the Rust builder API
-one-to-one, and not to start from JSON or YAML. The goal is a small declarative
-DSL that can express all current chart features while remaining pleasant for
-chart authors.
+Final pre-implementation language-version-1 specification. This document
+defines the dedicated scripting language for authoring `avenger-chart` charts.
+The goal is not to encode the Rust builder API one-to-one, and not to start
+from JSON or YAML. The goal is a small declarative DSL that can express the
+planned chart surface while remaining pleasant for chart authors. A later
+change to a settled source form is a versioned language change, not an
+implementation detail.
 
-The first draft favors a regular canonical form. Shorthands can be added later
-once the core grammar is proven. Implementation sequencing — the kernel
+Language version 1 favors a regular canonical form. Shorthands may be proposed
+for a later language version once the core grammar is proven. Implementation sequencing — the kernel
 cut and its per-phase gates — is
 [Implementation Phasing](#implementation-phasing).
 
@@ -42,12 +44,12 @@ retains caller-owned names beneath the instance); ordinary groups can express
 the fully inlined form with `private` declarations, constrained `public`
 hoisting, component-boundary `export` aliases, and opaque `component_kind`
 provenance — there is no generated-only expansion dialect;
-params and stores share one lexical value-binding namespace, with `$path`
-required for references, scalar-versus-table checking by use context, relation
-bindings valid in SQL `FROM`, and typed `set param`/`set store` l-values
-retained; every param declares one physical Arrow `type:`, params are nullable,
-and behavioral roles are attached at typed use sites rather than through a
-param `kind:`;
+scalar, store, and selection params share one collision-checked lexical param
+namespace; scalar and store `$path` reads are checked by use context, store
+relations are valid in SQL `FROM`, selections retain typed references, and
+target-first `set <path>` resolution selects the update algebra; scalar params
+put their exact physical Arrow type in the header and require `value:`, while
+store and selection are reserved param types with category-specific bodies;
 registry-free distribution — imports are uniform (`std:`, relative, URL) in
 every file however obtained, relative imports resolve against the
 importer's location, the transitive closure of exact hash-pinned files is
@@ -66,7 +68,8 @@ importable as pinned single-root dataset packs by data files and charts
 (never definitions), with credentials via capability-gated `env`
 values and `.env`, and catalog-level SQL views spelled
 `table sql` — logical by default, materialized per session by opt-in, and
-parameterized by defaulted `param` declarations, `$name` scalar placeholders in a
+parameterized by scalar `param` declarations with required `value:` initializers,
+`$name` scalar placeholders in a
 once-planned query rebound per use via data-block properties or named
 table-function arguments, chaining over any catalog relation with
 placeholder forwarding), `expand` as the only definition flattening
@@ -146,22 +149,39 @@ bindings). Anonymous means private: chart-local relations are never
 referenced by name; named shared relations are catalog `table` declarations,
 which is also the graduation path.
 
+Adopted 2026-07-22: **declaration headers distinguish instances, declared
+members, and keyed entries.** Runtime/chart instances use
+`<category> <type> as <name>` when named (`param float64 as width`,
+`mark symbol as points`, `mark group as layers`). Members whose parent
+already establishes their role omit `as` and put type/shape before name
+(`slot expr measure`, `field float64 x`, `variable row mpg`). Entries whose
+parent establishes both role and type use only their key (`equality { id {
+... } }`, `dimensions: { mpg: { ... } }`). `as` otherwise retains its true
+source-to-alias meaning for imports, exports, and explicit transform outputs.
+Scalar params require `value:`; stores and selections are the reserved param
+types `param store` and `param selection`; mutation is target-resolved through
+one `set <path>` form. Logical dataflow groups are the language-owned
+`mark group` kind. Continuous-colorbar overlays are the `overlay:` mark-block
+property of a standard legend; there is no `container` declaration family.
+Definition channels are `slot channel`,
+expression adjustment is `adjust expr`, and nested Arrow struct fields are
+type-first `field(<type>, '<name>')` constructors.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
-- Use block-structured declarations for charts, groups, marks, transforms,
+- Use block-structured declarations for charts, containers, marks, transforms,
   interactions, tools, widgets, and other chart objects.
-- Use `as` whenever a typed declaration binds a structural or dataflow name:
-  `group as manual_box_plot`, `mark rule as median`, and
-  `transform aggregate as stats`. Declaration headers are uniformly
-  `[private|public] <keyword> <kind> [as <name>]`; the visibility prefix is
-  absent in ordinary authoring and appears when a declaration deliberately
-  leaves or re-enters a private structural subtree.
+- Use `as` for a named instance or a genuine source-to-alias mapping:
+  `mark group as manual_box_plot`, `mark rule as median`, and
+  `transform aggregate as stats`. Declared members omit it:
+  `slot expr measure`, `field float64 x`, and `variable row mpg`. A keyed
+  child whose parent fixes its role and type uses only the key.
 - Use `property: value` consistently inside property blocks.
 - Bodies distinguish unordered properties from ordered child declarations:
   `property: value;` entries are unordered configuration; repeated child
   declarations (`mark`, `transform`, `cell`, `when`, `level`, ...) are
-  ordered. Container bodies (`chart`, `cell`, `group`, channel config) mix
+  ordered. Container bodies (`chart`, `cell`, `mark group`, channel config) mix
   both.
 - Treat SQL expression snippets as the expression language in expression
   slots, with SQL string semantics everywhere: single quotes are string
@@ -171,8 +191,8 @@ which is also the graduation path.
   values, transform aliases, reserved namespaces, and helper functions.
 - `value` is the only unscaled spelling. A bare expression in a channel slot
   is always scaled; `value '#2563eb'` is a literal visual value.
-- Params and stores share one value-binding namespace. `$name` references the
-  nearest scalar-valued param or table-valued store, and `$component.alias`
+- Scalar, store, and selection params share one param namespace. `$name`
+  references the nearest scalar-valued param or table-valued store, and `$component.alias`
   references an exported binding; the surrounding scalar or relation-valued slot
   checks its kind. In event expressions, param reads may add `@start` or
   `@previous` to select a frozen temporal version (`$width@start` reads “width at
@@ -190,8 +210,9 @@ which is also the graduation path.
   language.
 - Make channel blocks first-class because channel configuration is the main
   authoring atom in `avenger-chart`.
-- Make `MarkGroup` explicit as `group`: a data-prep and authoring container,
-  not a rendered scenegraph group.
+- Make `MarkGroup` explicit as `mark group`: a data-prep and authoring
+  mark, not a rendered scenegraph group. Continuous-legend injected marks use
+  a singular `legend.overlay` property containing local mark declarations.
 - Reuse crosses files through `import` and parameterized `define`
   declarations (marks, tools, transforms). Native built-in kinds remain
   registered by the host and available through the same authoring schema;
@@ -199,7 +220,7 @@ which is also the graduation path.
   compound marks, tools, and SQL-backed transform pipelines over the
   language-level surface available to their kind. The conditional budget for
   definitions is explicit and closed:
-  `channel` parameters rename, `match` over an enum slot selects among
+  `slot channel` parameters rename, `match` over an enum slot selects among
   declared variants at expansion time, SQL `CASE` handles expression logic —
   and nothing else branches. No loops, no string templating: data-driven
   multiplicity belongs to `repeat` and `facet`, and programmatic generation
@@ -267,8 +288,8 @@ for the pack's internal chains. **One public item per file is the law**; if
 definition clusters ever make file sprawl hurt, the designated pressure
 valve is *private nested defines* (helpers visible only to the file's
 single export — imports, naming, expansion, and the gallery untouched),
-currently forbidden by the no-nested-definitions hygiene rule and listed
-in [Open Questions](#open-questions) — never multiple exports.
+currently forbidden by the no-nested-definitions hygiene rule and listed under
+[Post-v1 Considerations](#post-v1-considerations-non-blocking) — never multiple exports.
 Themes are not definitions — a theme is a plain `.css` file, referenced with
 `theme css from` and fetched/pinned like any import. The one plural file
 kind is the data catalog (`.data.avenger`) — host configuration naming the
@@ -289,6 +310,32 @@ from SQL:
 | `$path.to.name` | exported value-binding reference | `"mpg" >= $controls.min_mpg` |
 | `$path@start`, `$path@previous` | frozen temporal param read in an event expression | `$width@start + event_coord(x) - start_coord(x)` |
 | `<kind> <path>` | typed DSL reference | `selection hover.hovered` |
+
+Bare DSL names use exactly the same unquoted-identifier character profile as
+`AvengerSqlDialect` SQL identifiers:
+
+```text
+start        Unicode alphabetic | _
+continuation Unicode alphabetic | ASCII digit | _
+```
+
+This permits names such as `café`, `Δvalue`, and `sales_2026`. The sharing is
+lexical, not semantic: DSL names preserve their authored spelling, are
+case-sensitive, and are not Unicode-normalized, while unquoted SQL identifiers
+retain DataFusion's lowercase normalization rules. Fixed language keywords
+remain ASCII and contextual. `$`, `@`, and `#` are never identifier characters:
+`$` is reserved for value bindings and dollar-quoted strings, `@` for temporal
+suffixes and supported SQL operators, and `#` for possible future operator
+syntax. Avenger v1 rejects `a # b`: DataFusion exposes that spelling through a
+PostgreSQL parse path that the Generic-derived `AvengerSqlDialect` does not use.
+DSL names remain unquoted.
+
+Value-binding path segments use this same identifier profile. The leading `$`,
+path dots, and an adjacent optional `@start` or `@previous` provide structure
+rather than becoming part of a segment. Consequently `$controls.width`,
+`$width@start`, and `$tag$raw text$tag$` are lexically distinct without quoted
+binding segments or delimiter lookahead beyond recognition of a dollar-string
+opener.
 
 Data columns are **always** double-quoted, even when unambiguous. This is
 what makes the rest of the language unambiguous:
@@ -340,12 +387,18 @@ arrow_type = boolean
            | decimal128(precision,scale) | decimal256(precision,scale)
            | list(arrow_type) | large_list(arrow_type)
            | fixed_size_list(arrow_type,length)
-           | struct([field(string,arrow_type) {, field(string,arrow_type)}])
+           | struct([field(arrow_type,string) {, field(arrow_type,string)}])
            | map(arrow_type,arrow_type) ;
 ```
 
 Lengths and decimal precision are positive integer literals; decimal scale is
-an integer; a timestamp timezone is a single-quoted IANA name or fixed offset.
+a signed integer; a timestamp timezone is a single-quoted IANA name or fixed
+offset. These structural integer positions reuse the common DataFusion number
+token and then apply their integer/range constraint. Decimal scale alone wraps
+that token in an optional unary `+` or `-` (`decimal128(38,-2)` and
+`decimal128(38,+2)` are valid spellings); the sign is not part of the number
+token, and the canonical printer omits unary `+`. Length and precision remain
+positive and therefore do not admit a leading sign.
 Nested list/map elements and struct fields use the Arrow-schema nullability
 fixed by this v1 grammar (nullable); store-field nullability remains the
 separate trailing `nullable` modifier. Dictionary, union, run-end-encoded, and
@@ -364,27 +417,33 @@ namespace. Names must be non-empty and unique within one struct; an empty struct
 is `struct()`. For example:
 
 ```avenger
-param as pointer_state {
-  type: struct(
-    field('position', struct(
-      field('x', float64),
-      field('y', float64)
-    )),
-    field('labels', list(utf8))
-  );
-  default: NULL;
+param struct(
+    field(struct(
+      field(float64, 'x'),
+      field(float64, 'y')
+    ), 'position'),
+    field(list(utf8), 'labels')
+  ) as pointer_state {
+  value: NULL;
 }
 ```
 
-The semantic value is nested existing `Call` nodes (`struct`, `field`, `list`)
-with string and `Atom` arguments. The authoring schema validates constructor
-names, arity, field uniqueness, and recursion; these calls are type syntax and
-do not resolve through the SQL/helper-function namespace. Canonical JSON for
-the simple type `struct(field('x', float64))` is:
+The type precedes each nested field name, matching type-first store fields and
+definition slots. Nested field names remain strings so arbitrary Arrow names
+do not enter the DSL identifier namespace. The semantic value is nested
+existing `Call` nodes (`struct`, `field`, `list`) with type and string
+arguments. The authoring schema validates constructor names, arity, field
+uniqueness, and recursion; these calls are type syntax and do not resolve
+through the SQL/helper-function namespace. Canonical JSON for the simple type
+`struct(field(float64, 'x'))` is:
 
 ```json
-{"call":{"fn":"struct","args":[{"call":{"fn":"field","args":["x",{"atom":"float64"}]}}]}}
+{"call":{"fn":"struct","args":[{"call":{"fn":"field","args":[{"atom":"float64"},"x"]}}]}}
 ```
+
+The former name-first `field('x', float64)` constructor is invalid. A
+colon-based alternative such as `struct(x: float64)` is not part of the
+physical type grammar.
 
 ### Typed Value Boundaries
 
@@ -392,7 +451,8 @@ Declared Arrow types are exact at every param, store-field, and table-param
 boundary. The one ergonomic exception is a syntactic scalar literal in a
 destination-typed slot: the compiler constructs it directly as the destination
 Arrow scalar when the literal is representable without overflow, truncation, or
-invalid parsing. Thus `default: 0;` is valid for `int32`, `float64`, or
+invalid parsing. Thus `value: 0;` is valid for a scalar param declared as
+`int32`, `float64`, or
 `decimal128(10, 2)` without first becoming an `int64`; `NULL` becomes the
 destination's typed null. SQL list and struct literals recurse under the same
 expected type, and every struct field must match the destination's name, order,
@@ -406,6 +466,53 @@ digit and the sign of negative zero; its precise spelling rules are pinned by
 the parser/printer corpus. This permits exact `int64`, `uint64`,
 `decimal128`/`decimal256`, and floating-point construction without an
 IEEE-754 JSON round trip first.
+
+The accepted numeric token syntax is exactly the syntax accepted by the pinned
+DataFusion 54 general expression planner under Avenger's pinned parser options,
+and it applies everywhere in the DSL—not only inside explicit SQL fragments.
+For the pinned sqlparser/DataFusion pair, the decimal token envelope is:
+
+```text
+mantissa  := digits [ '.' [ digits ] ] | '.' digits
+exponent  := [ 'e' | 'E' ] [ '+' | '-' ] digits
+number    := mantissa [ exponent ] [ 'L' ]
+signed    := [ '+' | '-' ] number       -- signs are unary SQL operators
+```
+
+Thus `1`, `1.25`, `.5`, `1.`, `1.e2`, `1.25E+003`, `1L`, `+.5`, and `-0.`
+are accepted wherever a numeric value is allowed, including structural
+property values, definition defaults, array elements, and SQL expression or
+query islands. Numeric underscores, lowercase `l`, radix-prefixed numeric
+integers, and bare `NaN`/`Infinity` are not numeric literal spellings.
+`X'...'` is an Arrow binary literal rather than a numeric value and is tested
+under the separate delimiter-bearing literal profile; `0x...` remains outside
+the frozen Avenger source profile even though sqlparser tokenizes it into that
+same binary category.
+
+The shared token syntax does not erase contextual constraints. Structural
+positions that require an unsigned, nonnegative, positive, or integer value
+still enforce that requirement after exact numeric normalization. In
+particular, the language version, `level` declaration or state-sharing index,
+Arrow lengths, and decimal precision do not accept a leading sign; decimal
+scale is the one signed non-expression numeric position in v1. Ordinary
+property values, array elements, defaults, rows, and channel values already
+pass through SQL-expression parsing, so their unary signs need no outer-grammar
+exception.
+
+The exact AST canonicalizer adapts all planner-accepted number tokens without
+rounding: it inserts `0` before a leading decimal point, inserts `0` after a
+trailing decimal point so the value remains floating-shaped, lowercases `E`,
+normalizes exponent sign/leading zeroes, drops the semantically ignored `L`,
+and preserves significant mantissa digits, fractional trailing zeroes, and
+negative zero. Examples include `.5` → `0.5`, `1.` → `1.0`,
+`1.e+003L` → `1.0e3`, and `-0.` → `-0.0`.
+
+“DataFusion-compatible” is an executable compatibility claim: upgrades rerun a
+positive/negative matrix through both Avenger tokenization and DataFusion
+logical planning. A spelling is not supported merely because sqlparser can
+produce a `Token::Number`; it must reach a DataFusion numeric scalar under the
+pinned options. The same checked matrix supplies the structural parser,
+Tree-sitter grammars, formatter, and editor fixtures.
 
 Before the semantic AST is produced, an SQL expression consisting of exactly
 one scalar literal normalizes to the corresponding scalar `Value` variant.
@@ -422,7 +529,7 @@ or argument boundary inserts no implicit cast. Authors use an explicit SQL
 `CAST` when physical types differ, even when DataFusion could normally find a
 widening or comparison coercion inside an expression.
 
-The same law governs param defaults, `set param`, store row/patch/key fields,
+The same law governs scalar param values, `set`, store row/patch/key fields,
 table-function arguments, and computed cursor expressions (`utf8`). A mismatch
 known from schemas is a compile-time error; a dynamic mismatch, invalid runtime
 cursor string, or failed explicit cast fails the action and aborts its
@@ -475,18 +582,32 @@ two concepts, currently one word.
 
 ## Core Declaration Form
 
-The common declaration shapes are:
+The surface has three header laws:
+
+1. **Named instances** use `<category> <type> as <name>` (or the
+   schema-permitted anonymous form). The type chooses behavior; `as` binds the
+   runtime, structural, or dataflow identity.
+2. **Declared members** use `<member-category> <shape-or-type> <name>` with no
+   `as`. Their parent has already fixed their namespace and role.
+3. **Parent-keyed entries** use only `<key> { ... }` when the parent fixes both
+   the entry category and value shape.
+
+Imports, exports, and explicit transform outputs are mappings rather than
+declarations, so `as` reads consistently as source-to-alias. A declaration
+does not add `as` merely because its semantic AST stores a name.
+
+The common instance shapes are:
 
 ```avenger
 chart <coord-kind> [as <name>] {
   ...
 }
 
-group [as <name>] {
+mark group [as <name>] {
   ...
 }
 
-private group as <name> {
+private mark group as <name> {
   ...
 }
 
@@ -505,15 +626,42 @@ transform <transform-kind> [as <alias>] {
 widget <built-in-widget-kind> as <name> {
   ...
 }
+
+param <physical-arrow-type> as <name> {
+  value: <expression>;
+  ...
+}
+
+param store as <name> {
+  ...
+}
+
+param selection as <name> {
+  ...
+}
 ```
 
-The body mode depends on the declaration. `chart` and `group` bodies are mixed
+Representative member and keyed-entry forms are:
+
+```avenger
+slot expr measure;
+slot channel axis { default: x; }
+field float64 x nullable;
+variable row mpg { expr: "mpg"; }
+
+equality {
+  id { field: "id"; value: datum('id'); }
+}
+```
+
+The body mode depends on the declaration. `chart` and `mark group` bodies are mixed
 container blocks with ordered child declarations. A `mark` body is mixed only
 to admit its optional inline `view` child alongside ordinary mark properties.
-Ordinary `transform` kinds, `param`, `scale`, `axis`, `legend`, `tool`,
-`widget`, and `selection` bodies are property blocks;
+Ordinary `transform` kinds, scalar params, `scale`, `axis`, `legend`, tools,
+widgets, and selection params have property blocks;
 an inline `view` has a mixed body containing its properties and dependent
-transforms/render children; `store` has a mixed body with ordered `field`/`row` children; and the
+transforms/render children; store params have mixed bodies with ordered
+`field`/`row` children; and the
 `data:` property takes either an anonymous source block or a table-valued
 `$store` binding. The core
 `transform pipeline` kind is the transform exception: its mixed body contains
@@ -522,11 +670,14 @@ interface `output` declarations and ordered child transforms. The core
 state, events, scale edits, nested tools, chrome marks/groups, and interface
 exports.
 
+A semicolon is only the compact empty-body spelling. For slots, requiredness
+means the absence of `default:`; it is not a meaning carried by the semicolon.
+
 Examples:
 
 ```avenger
 chart cartesian as sales_by_category {
-  group as layers {
+  mark group as layers {
     transform aggregate as totals {
       group_by: "category";
       total: sum("amount");
@@ -542,7 +693,7 @@ chart cartesian as sales_by_category {
 ```
 
 `as <name>` has one meaning: bind this declaration under that name. For marks
-and groups in a chart, an ordinarily visible name contributes one segment to
+and mark groups in a chart, an ordinarily visible name contributes one segment to
 the canonical structural path used by event targets and scene queries. Every
 visible named ancestor is included; anonymous ancestors contribute no public
 segment, though the compiler still assigns them private identities. For
@@ -560,7 +711,7 @@ uses those resolved IDs rather than repeating string lookup. Compiled mark
 metadata also retains the optional source name, `component_kind`, and exported
 part aliases needed for diagnostics, decompilation, and theme matching.
 
-Named declarations are public by default in ordinary chart groups. The
+Named declarations are public by default in ordinary chart mark groups. The
 visibility modifiers are the general-purpose representation needed by inline
 definition expansion:
 
@@ -570,15 +721,16 @@ definition expansion:
   name it.
 - `public` is legal only beneath a `private` structural ancestor. It re-enters
   the public namespace at the nearest non-private named component boundary —
-  a group or `tool behavior` — omitting the
-  intervening private path. A public group carries its normally visible
+  a mark group or `tool behavior` — omitting the
+  intervening private path. A public mark group carries its normally visible
   descendants with it. This is path hoisting, so collisions are checked at the
   re-entry point rather than only at the declaration's lexical parent.
-- `export <private-path> [as <alias>];` in a group publishes one exact private
-  declaration beneath that group. Exporting a group exposes the group target,
-  not its descendants. The alias defaults to the source path's last segment.
+- `export <private-path> [as <alias>];` in a mark group publishes one exact private
+  declaration beneath that group. Exporting a mark group exposes one mark target
+  that addresses all of the group's primitive runtime descendants. The alias
+  defaults to the source path's last segment.
   Export aliases and ordinary or hoisted public children share one namespace.
-- A named group or `tool behavior` may set `component_kind: <kind>;`. This is
+- A named mark group or `tool behavior` may set `component_kind: <kind>;`. This is
   opaque component provenance, not kind instantiation. Its exported mark aliases acquire
   `(component_kind, alias)` part provenance for theme matching. Expansion
   records the definition's canonical declared kind, not a use-site import
@@ -586,14 +738,14 @@ definition expansion:
   kind remains.
 
 `private` and `public` are permitted on declarations with a named public
-identity, including marks, groups, params, stores, selections, tools, and
-widgets. They
+identity, including marks, mark groups, scalar/store/selection params,
+tools, and widgets. They
 do not alter dataflow visibility: transform aliases remain lexical
 names governed by their dataflow scope. Both modifiers are rejected inside a
 `define` body: its authored declarations are already private as a unit, and
 only definition-header `export` declarations may publish them. The modifiers
 spell the equivalent visibility after that definition has been inlined into an
-ordinary group.
+ordinary mark group.
 
 Anonymous declarations are allowed where the object does not need a public name:
 
@@ -611,7 +763,7 @@ The rule that keeps colon syntax meaningful: `property: value;` entries are
 unordered configuration; repeated child declarations are ordered. Unordered
 also means unique: a property name may appear at most once in a body — a
 duplicate is a parse-time error, never a later-wins override. Container
-bodies (`chart`, `cell`, `group`, and channel configuration blocks) mix both
+bodies (`chart`, `cell`, `mark group`, and channel configuration blocks) mix both
 modes:
 
 ```avenger
@@ -622,7 +774,7 @@ chart cartesian as example {
     table: 'sales';
   }
 
-  group as layers {
+  mark group as layers {
     transform aggregate as totals {
       group_by: "category";
       total: sum("amount");
@@ -667,6 +819,15 @@ property: typed_value {
 Block-valued properties may be anonymous objects or typed objects. They do not
 need a trailing semicolon after the closing brace.
 
+The concrete syntax resolves the otherwise overlapping `ident { ... }` shape
+as a typed object, never as a lone SQL identifier followed by a configuration
+body. Configured values therefore use any other expression head, such as a
+quoted column, binding, literal, qualified expression, or function call. This
+does not exclude a canonical v1 expression: data columns are always quoted,
+bindings begin with `$`, and calls retain parentheses. Both shapes still lower
+to a `Block` with a head, and the authoring schema decides whether that block is
+legal for the particular property.
+
 ```avenger
 mark rect as box {
   x: stats.q1 {
@@ -681,7 +842,7 @@ mark rect as box {
   }
 
   fill: value '#bfdbfe';
-  stroke_width: 1.5;
+  stroke_width: value 1.5;
 }
 ```
 
@@ -694,10 +855,10 @@ inside the property-like block rather than inventing ordered properties:
 `cell` children in containers, `part` blocks in compound marks. If a body
 needs repeated ordered *dataflow*, that belongs in an enclosing declaration
 block: mark-local data preparation is modeled canonically as a surrounding
-`group` with `transform` declarations, then a child `mark`.
+`mark group` with `transform` declarations, then a child `mark`.
 
 ```avenger
-group as layers {
+mark group as layers {
   scale_hint {
     channel: y;
     type: band;
@@ -722,18 +883,17 @@ visible: "amount" is not null;
 label: "category" || ': ' || cast("amount" as varchar);
 ```
 
-Params and stores are value bindings. Params carry scalar values and stores
-carry table values; both are referenced with a named `$path`:
+Scalar params and store params are value bindings. Scalars carry scalar values
+and stores carry table values; both are referenced with a named `$path`:
 
 ```avenger
-param as min_amount {
-  type: int64;
-  default: 0;
+param int64 as min_amount {
+  value: 0;
 }
 
-store as brush {
-  field id: utf8;
-  field x: float64;
+param store as brush {
+  field utf8 id;
+  field float64 x;
 }
 
 transform filter {
@@ -747,13 +907,14 @@ mark symbol {
 ```
 
 Only named `$` binding references are valid. Positional placeholders such as `$1`,
-`$2`, and `?` are rejected. Params and stores occupy one collision-checked
-**value-binding namespace** in each lexical scope: declaring both `param as x`
-and `store as x` in the same scope is an error. A `$name` reference first resolves
-the nearest binding by name, then checks that binding's value kind against the
-use site. It never skips an incompatible nearer binding to find a compatible
-outer one, and it never crosses a component boundary by guessing or by
-concatenating names.
+`$2`, and `?` are rejected. Scalar, store, and selection params occupy one
+collision-checked **param namespace** in each lexical scope: declaring
+`param int64 as x` and `param store as x`, or any other category pair, in the
+same scope is an error. A `$name` reference first resolves the nearest param by
+name, then requires its category to be scalar or store and checks that value
+kind against the use site. It never skips an incompatible nearer binding to
+find a compatible outer one, and it never crosses a component boundary by
+guessing or concatenating names.
 
 A qualified read of an exported binding extends the same spelling with a DSL
 path:
@@ -783,8 +944,8 @@ request to fall back to the outer declaration.
 Event expressions may qualify a param read with a temporal version:
 
 ```avenger
-set param width = $width@start + event_coord(x) - start_coord(x);
-set param velocity = event_coord(x) - $position@previous;
+set width = $width@start + event_coord(x) - start_coord(x);
+set velocity = event_coord(x) - $position@previous;
 ```
 
 `$param` reads the current transaction's working value at the current routed
@@ -874,7 +1035,7 @@ names.
 Reserved namespaces (`repeat.row`, `repeat.column_id`, ...) resolve the same
 way as transform aliases. `$path` is the only sigil form and references a lexical
 or qualified scalar/table value binding. The bare
-argument form matters for definitions: channel parameters rename through
+argument form matters for definitions: channel slots rename through
 bare channel arguments during expansion, which is what lets an imported tool
 be channel-generic.
 
@@ -896,8 +1057,23 @@ continues to parse as a SQL expression rather than silently starting a
 comment (`a---b` likewise stays an expression, `a - (-(-b))`; the
 formatter spaces operators anyway).
 
+The exact trigger follows the pinned Rust tokenizer: the character immediately
+after the second `-` must exist and satisfy Rust `char::is_whitespace`. This is
+the Unicode White_Space predicate, not an ASCII-only space/tab approximation.
+Consequently `-- comment`, `--\tcomment`, `--\u{00a0}comment`, and `--` followed
+immediately by LF or CRLF start comments, while `--x`, `amount--1`, and bare
+`--` at EOF do not. A line comment consumes through the next LF (including the
+CR in CRLF); source line indexing likewise treats LF and CRLF as line endings.
+A bare CR is whitespace and therefore triggers a comment, but is not by itself
+an Avenger line ending, so that comment continues to the next LF or EOF. The
+compiler conformance corpus and both Tree-sitter grammars use these same cases
+rather than relying on a host regex `\s` definition.
+
+Canonical formatting emits `-- ` for an ordinary empty line comment, including
+the trailing ASCII space. Zed's line-comment toggle uses the same `-- ` prefix.
+
 Doc comments are Haddock-style `-- |` lines and attach to the next
-declaration — a `define`, a `slot`, `channel`, `output`, or `export`, a
+declaration — a `define`, `slot` (including `slot channel`), `output`, or `export`, a
 named internal mark (part documentation), a `match` arm (so completing a
 mode value shows what it means), or a `chart` (gallery blurbs). Every
 line of a doc block carries the `-- |` prefix — a bare `-- |` is a blank
@@ -922,9 +1098,9 @@ definition's documentation carries proven examples:
 -- | ```
 define mark error_bar {
   -- | Grouping expression; one bar per distinct value.
-  slot expr as category;
+  slot expr category;
   -- | Measure whose min and max span the bar.
-  slot expr as measure;
+  slot expr measure;
   ...
 }
 ````
@@ -946,6 +1122,12 @@ Block comments support nesting (the tokenizer's
   */
 */
 ```
+
+The strict compiler reports an unterminated block comment as a lexical error.
+The tolerant editor grammars consume the incomplete comment only through EOF
+and expose recoverable error/incomplete-comment structure so preceding syntax
+remains usable; repairing the closing `*/` must produce the same tree as a clean
+parse.
 
 The DSL should not support `//` or `#` comments in v1. They are not exposed as
 general comment-prefix hooks by `sqlparser-rs`, and they overlap with dialect
@@ -989,9 +1171,8 @@ data: {                                -- one-off derivation; `sales` is the
 
 data: { sql: SELECT * FROM 'customers.csv'; }   -- chart-owned file
 
-param as selected_region {
-  type: utf8;
-  default: 'all';
+param utf8 as selected_region {
+  value: 'all';
 }
 ```
 
@@ -1095,8 +1276,8 @@ Named tables (`table: 'sales'`, and qualified names inside `sql:`
 statements) resolve from the project's data catalog or the host's
 registrations — see [Data Catalogs](#data-catalogs).
 
-The `sql` property is a special full-statement SQL slot. Its value is parsed
-as one SQL statement, and the SQL semicolon terminates the property. The
+The `sql` property is a special full-query SQL slot. Its value is parsed as one
+query statement, and the SQL semicolon terminates the property. The
 compiler should use the SQL tokenizer/parser to find the statement boundary
 rather than splitting naively on the first semicolon, so semicolons inside
 SQL strings or comments remain valid.
@@ -1380,8 +1561,8 @@ re-planning it:
 
 ```avenger
 table sql as borough_trips {
-  param as borough { type: utf8; default: 'Manhattan'; }
-  param as min_fare { type: int64; default: 0; }
+  param utf8 as borough { value: 'Manhattan'; }
+  param int64 as min_fare { value: 0; }
 
   sql:
     SELECT * FROM trips
@@ -1403,12 +1584,13 @@ Catalog tables take params, never slots, and two rules diverge from chart
 params because the catalog must remain a fully resolved, browsable
 surface:
 
-- **Every param carries an explicit physical Arrow `type:` and a default.** A
+- **Every scalar param carries its physical Arrow type in the header and a
+  required `value:` initializer.** A
   bare `FROM borough_trips` is always
-  valid — it binds the defaults. A query with genuinely required inputs is
+  valid — it binds the declared initial values. A query with genuinely required inputs is
   a `define transform`, which also differs in kind: it rewrites an
   upstream `input` relation mid-pipeline rather than acting as a source.
-  The type fixes placeholder schema independently of the default.
+  The type fixes placeholder schema independently of the initializer.
 - **Param values are scalar literals.** A placeholder holds a value, not
   an identifier — a table whose *columns* vary by caller is structural
   parameterization, which is `slot`/define territory.
@@ -1442,9 +1624,9 @@ data: {
 ```
 
 Arguments are named-only (`=>`, the standard table-function spelling the
-SQL parser already accepts); unbound params take their defaults; a param
+SQL parser already accepts); unbound params take their declared `value:`; a param
 name may not collide with the data block's reserved properties (`table`,
-`sql`, `url`, `values`). Params and their defaults are part of the
+`sql`, `url`, `values`). Params and their initial values are part of the
 `avenger tables` listing, and the language server completes param names
 inside table-function arguments. Binding a chart param to a table param
 (`borough: $selected_borough;`) is the interactive path: a param change
@@ -1460,7 +1642,7 @@ forwards its params to the links it calls:
 table parquet as zones { path: 'data/zones.parquet'; }
 
 table sql as zoned_trips {
-  param as borough { type: utf8; default: 'Manhattan'; }
+  param utf8 as borough { value: 'Manhattan'; }
 
   sql:
     SELECT t.*, z."zone_name"
@@ -1561,13 +1743,14 @@ Three rules make packs behave predictably:
 
 ## Groups
 
-`group` maps to `MarkGroup`. It is an authoring and data-preparation container.
+`mark group` maps to `MarkGroup`. It is a language-owned core mark and an
+authoring/data-preparation container.
 It does not create a scenegraph group or independent render surface. Primitive
 marks inside groups are flattened for rendering.
 
 ```avenger
-group as manual_box_plot {
-  group as summary {
+mark group as manual_box_plot {
+  mark group as summary {
     transform aggregate as stats {
       group_by: "group";
       q1: approx_percentile_cont("value", 0.25);
@@ -1583,13 +1766,14 @@ group as manual_box_plot {
 }
 ```
 
-Nested groups are the normal way to express branchy dataflow. A group
+Nested mark groups are the normal way to express branchy dataflow. A group
 inherits its data context from its parent unless it sets its own `data:`.
-Transform stages in a group define that group's local data context for
-child marks and child groups.
+Transform stages in a group define that group's local data context for child
+marks and child mark groups.
 
 To avoid hidden rewrites, the first implementation should require
-group-level transform declarations to appear before child `mark` and `group`
+group-level transform declarations to appear before child `mark` and
+`mark group`
 declarations in the same group. The ordered AST still records the submitted
 sequence; validation rejects a transform that appears after a consuming render
 child, and formatting never moves it to make the file valid. If such
@@ -1725,7 +1909,7 @@ A mark channel is a property. Simple channels use a scaled expression, a
 ```avenger
 x: "amount";
 fill: value '#2563eb';
-opacity: 0.85;
+opacity: value 0.85;
 stroke: none;
 ```
 
@@ -1863,8 +2047,8 @@ x: nested(["region", "category"]) {
 
 ### Colorbar Overlays
 
-Colorbar overlays are legend children hosting marks in the injected colorbar
-coordinate space (no position scales or visible legends of their own):
+Colorbar overlays are local mark blocks hosted by a standard legend in the
+injected Cartesian colorbar coordinate space:
 
 ```avenger
 fill: "value" {
@@ -1872,19 +2056,38 @@ fill: "value" {
   legend: {
     title: 'Value';
 
-    overlay as thresholds {
-      mark rule as warning {
-        x: 80;
-        x2: 80;
-        y: 0;
-        y2: 1;
-        stroke: value '#111827';
-        stroke_width: 2;
+    overlay: {
+      mark group as thresholds {
+        mark rule as warning {
+          x: 80;
+          x2: 80;
+          y: 0;
+          y2: 1;
+          stroke: value '#111827';
+          stroke_width: value 2;
+        }
       }
     }
   }
 }
 ```
+
+An authored legend block has at most one `overlay:` property. The property has
+no head or scalar properties and must contain at least one direct `mark`
+declaration. Direct transforms, tools, widgets, events, and properties are
+invalid; use an inner `mark group` when marks need shared data, a store binding,
+a view, or transforms. Imported defined marks are valid children because they
+expand through the ordinary mark pipeline.
+
+The block receives no chart-row relation. Each contained mark therefore uses
+unit data or an explicit `data:`/store binding. Both orientations expose
+Cartesian scales: the gradient axis represents the legend value and the
+cross-axis has domain `[0, 1]`. Overlay descendants cannot define position
+scales, visible legends, or positioned subplots. They remain noninteractive
+and local to the legend: authored names are retained for diagnostics and
+provenance, but no chart-level mark paths are published. If multiple channel
+legends merge, their overlay mark collections concatenate. An effective
+legend with overlays must render a continuous colorbar surface.
 
 ## Events
 
@@ -1898,8 +2101,8 @@ on click as select_outlier {
   filter: datum('value') > $threshold;
   consume: true;
 
-  set param selected_group = datum('group');
-  set param selected_value = datum('value');
+  set selected_group = datum('group');
+  set selected_value = datum('value');
 }
 ```
 
@@ -1931,6 +2134,10 @@ literal form, while a computed SQL expression must return `utf8`:
 set cursor = CASE WHEN $enabled THEN 'grab' ELSE 'default' END;
 ```
 
+The unqualified name `cursor` is reserved in the param namespace, so no
+scalar, store, or selection param may bind it. This keeps `set cursor`
+unambiguously the cursor effect rather than a state assignment.
+
 Literal styles are checked statically against the registered `CursorStyle`
 inventory; computed non-null strings are checked at runtime. `NULL` publishes
 no cursor change, while `default` explicitly resets the application cursor. An
@@ -1939,8 +2146,9 @@ invalid non-null style fails the action and aborts its transaction.
 One invocation of one event binding is a **state transaction**. Its `set`
 actions execute in source order against a private working state, and every
 action sees mutations made by preceding actions in that invocation. Thus a
-later `$param` read observes an earlier `set param`, and a later store operation
-observes rows written by an earlier `set store`, **when both references resolve
+later scalar `$param` read observes an earlier scalar `set`, and a later store
+operation observes rows written by an earlier store `set`, **when both
+references resolve
 to the same concrete `(binding, owner)`**. The working state contains all owner
 copies, but each read still selects its owner independently: ordinary `$binding`
 uses the current event route, while LHS `at start` affects only its target.
@@ -1960,10 +2168,10 @@ SQL scalar subqueries are valid in action expressions and participate in the
 same ordering:
 
 ```avenger
-set store brush = insert_rows {
+set brush = insert_rows {
   row { id: datum('id'); }
 }
-set param brush_count = (SELECT count(*) FROM $brush);
+set brush_count = (SELECT count(*) FROM $brush);
 ```
 
 The second action sees the row inserted by the first. Each action evaluates all
@@ -1973,7 +2181,7 @@ mutation aborts the whole event transaction.
 
 There is no v1 spelling for a live working-state read from a non-current owner.
 For example, if a drag has crossed facets, neither `$width` nor `$width@start`
-reads a value just written by `set param width at start = ...`: the first reads
+reads a value just written by `set width at start = ...`: the first reads
 the current owner and the second reads the frozen gesture-start snapshot. Store
 update primitives routed `at start` still inspect and mutate their target
 store's own pre-action working rows internally, but an RHS `FROM $store` scan
@@ -2085,7 +2293,7 @@ on cursor_moved as drag_box {
     }
   }
 
-  set param drag_x at start = event_coord(x);
+  set drag_x at start = event_coord(x);
 }
 ```
 
@@ -2129,13 +2337,13 @@ published by earlier successful invocations.
 An action may select the facet owner of its **left-hand target** with `at`:
 
 ```avenger
-set store brush at start = replace_rows {
+set brush at start = replace_rows {
   row { x0: start_coord(x); x1: event_coord(x); }
 }
-set param drag_x at current = event_coord(x);
-set selection picked at start = clear;
+set drag_x at current = event_coord(x);
+set picked at start = clear;
 
-set store active_brush at start replacing scopes = replace_rows {
+set active_brush at start replacing scopes = replace_rows {
   row { x0: start_coord(x); x1: event_coord(x); }
 }
 ```
@@ -2164,16 +2372,16 @@ Params and stores additionally admit the LHS modifier `replacing scopes` after
 the optional `at` route:
 
 ```avenger
-set store brush at start replacing scopes = replace_rows { ... }
-set param active at current replacing scopes = true;
+set brush at start replacing scopes = replace_rows { ... }
+set active at current replacing scopes = true;
 ```
 
 At that action's position in the transaction, the modifier removes every
 existing concrete owner instance of the target declaration, then applies the
 RHS to only the owner selected by `at current|start`. Without it, other owner
 instances remain unchanged. Later actions see the resulting working state, and
-failure rolls back both the removals and the write. Removed param owners fall
-back to the declared default; removed store owners are empty and declared
+failure rolls back both the removals and the write. Removed scalar-param owners
+fall back to the declared `value:`; removed store owners are empty and declared
 initial rows are not reseeded. The modifier is invalid for selections, whose
 update kinds already distinguish all-clause and in-scope operations. It is
 redundant for `sharing: shared` and earns a warning. This is the DSL spelling
@@ -2195,21 +2403,21 @@ Store and selection updates use the same action form with typed update
 payloads:
 
 ```avenger
-set store hover = clear;
-set store hover = insert_rows  { row { id: datum('id'); } }
-set store hover = replace_rows { row { id: datum('id'); } }
-set store hover = upsert_rows  { row { id: datum('id'); x: event_coord(x); } }
-set store hover = update_by_key { key { id: datum('id'); } fields { x: event_coord(x); } }
-set store hover = delete_by_key { key { id: datum('id'); } }
-set store hover = toggle_rows  { row { id: datum('id'); } }
+set hover = clear;
+set hover = insert_rows  { row { id: datum('id'); } }
+set hover = replace_rows { row { id: datum('id'); } }
+set hover = upsert_rows  { row { id: datum('id'); x: event_coord(x); } }
+set hover = update_by_key { key { id: datum('id'); } fields { x: event_coord(x); } }
+set hover = delete_by_key { key { id: datum('id'); } }
+set hover = toggle_rows  { row { id: datum('id'); } }
 
-set selection picked = clear;
-set selection picked = clear_in_scope { scope: level(1); }
-set selection picked = toggle_clauses {
+set picked = clear;
+set picked = clear_in_scope { scope: level(1); }
+set picked = toggle_clauses {
   clause {
     id: datum('id');
     equality {
-      dimension as id { field: "id"; value: datum('id'); }
+      id { field: "id"; value: datum('id'); }
     }
   }
 }
@@ -2219,15 +2427,17 @@ Update kinds mirror `StoreUpdate` and `SelectionUpdate`; `replace_all_clauses`,
 `replace_clauses_in_scope`, and `upsert_clauses` follow the same shape as
 `toggle_clauses`, while `delete_clauses` and `delete_clauses_in_scope` take
 clause ids through a non-empty `ids: [...]` array (and the scoped form also
-requires `scope:`). Clause predicates support `equality` and `interval`
-dimensions (`dimension as x { field: "x"; from: start_coord(x); to: event_coord(x); }`), and
-geometry-driven selection uses the scene-query update kinds —
+requires `scope:`). Clause predicates support keyed `equality` and `interval`
+dimensions (`x { field: "x"; from: start_coord(x); to: event_coord(x); }`). The
+parent fixes the child category and predicate type, so the dimension ID is the
+complete header; it is not a scoped declaration or `as` binder. Geometry-driven
+selection uses the scene-query update kinds —
 `replace_all_from_scene_query`, `replace_from_scene_query_in_scope`,
 `upsert_from_scene_query`, and `toggle_from_scene_query`, the primitives
 that make lasso and box selection definable in the language:
 
 ```avenger
-set selection picked = replace_all_from_scene_query {
+set picked = replace_all_from_scene_query {
   geometry: polygon(event_path());
   policy: intersects;
   marks: [points];
@@ -2383,64 +2593,65 @@ data: $brush.points;
 
 Properties whose schema already fixes the reference kind may omit the prefix,
 as in `selection: hover.hovered;`; the AST still records the resolved reference
-kind. Imperative actions carry the kind in their existing prefix and accept a
-qualified path. These are typed l-values, not value reads, so they deliberately
-do not take `$`:
+kind. Imperative actions accept an unprefixed lexical or qualified path. The
+compiler resolves the target first; its scalar, store, or selection category
+then determines the valid RHS expression or update operation. These are typed
+l-values, not value reads, so they deliberately do not take `$`:
 
 ```avenger
-set param zoom.domain = span(0, 100);
-set selection hover.hovered = clear;
-set store brush.points = clear;
+set zoom.domain = span(0, 100);
+set hover.hovered = clear;
+set brush.points = clear;
 ```
 
-Inside the owning component, the lexical forms `set param domain`, `set
-selection hovered`, and `set store points` remain canonical. A qualified path
-must resolve through explicit exports at every component boundary. Params,
-stores, and selections retain their kinds for validation. Params and
-stores additionally share one value-binding namespace, while a component's
+Inside the owning component, the lexical forms `set domain`, `set hovered`, and
+`set points` remain canonical. A qualified path must resolve through explicit
+exports at every component boundary. Scalar, store, and selection params retain
+their categories for validation. All three share the param namespace, while a component's
 external aliases occupy the single collision-checked interface namespace
 established above.
 
 ## Tools, Selections, Stores, And Views
 
-The same object syntax covers interaction state. Every param declares its
-physical Arrow type, and stores declare ordered `field` and `row` children:
+The same object syntax covers interaction state. `param` is the common state
+declaration category: a scalar header carries an exact physical Arrow type,
+while `store` and `selection` are reserved param types with category-specific
+bodies:
 
 ```avenger
-param as x_domain {
-  type: list(float64);
-  default: NULL;
+param list(float64) as x_domain {
+  value: NULL;
   sharing: shared;
 }
 
-store as hover {
-  field id: utf8;
-  field x: float64 nullable;
-  field y: float64 nullable;
+param store as hover {
+  field utf8 id;
+  field float64 x nullable;
+  field float64 y nullable;
   primary_key: [id];
   sharing: free;
 
   row { id: 'initial'; x: NULL; y: NULL; }
 }
 
-selection as picked {
+param selection as picked {
   empty: none;
   combine: union;
 }
 ```
 
-`param` and `store` declarations share one value-binding namespace within each
-scope. Same-name declarations of either kind conflict; nested scopes may
-shadow, and `$name` always selects the nearest declaration before scalar/table
-type checking. Their declaration bodies and typed mutation actions remain
-distinct because scalar replacement and table-row updates have different
-schemas.
+Scalar, store, and selection params share one collision-checked param namespace
+within each scope. Nested scopes may shadow. `$name` always selects the nearest
+declaration before requiring a scalar/table value category; `$selection` is
+invalid because selections are consumed through typed selection references.
+Their bodies and mutation operations remain distinct because scalar
+replacement, table-row updates, and clause updates have different schemas.
 
-`type:` is required on every chart, component, tool-owned, and catalog-table
-param. It names the exact physical Arrow type carried by the DataFusion
-placeholder and runtime `ScalarValue`; defaults never infer or alter it. Params
-are nullable: `NULL` means the typed null of the declared Arrow type, including
-for non-`NULL` defaults and first-invocation temporal reads. Defaults, host
+The exact physical type in every scalar param header is the type carried by the
+DataFusion placeholder and runtime `ScalarValue`; `value:` never infers or
+alters it and is required exactly once. Scalar params are nullable: `NULL` means
+the typed null of the declared Arrow type, including for non-`NULL` initial
+values and first-invocation temporal reads. Initial values, host
 bindings, table-function arguments, and action assignments follow the exact
 [Typed Value Boundaries](#typed-value-boundaries) rule: literals are constructed
 under the expected type, while nonliteral expressions require exact physical
@@ -2448,23 +2659,24 @@ type equality or an authored SQL `CAST`.
 
 The DSL semantic model and `CompiledParamSpec` carry this `DataType`
 explicitly. The DSL type supplies destination context while checking literals,
-`NULL`, and default expressions; placeholder fields, host bindings, and runtime
+`NULL`, and initial-value expressions; placeholder fields, host bindings, and runtime
 assignment validation use that declared type. The ordinary Rust `Param` API is
-different because its default is already a precisely typed Arrow
-`ScalarValue`: `Param::new(name, default)` derives the compiled type from
-`default.data_type()` rather than requiring the Rust author to repeat it. DSL
-lowering must construct or evaluate the default against the separately declared
+different because its initial/default value is already a precisely typed Arrow
+`ScalarValue`: `Param::new(name, value)` derives the compiled type from
+`value.data_type()` rather than requiring the Rust author to repeat it. DSL
+lowering must construct or evaluate `value:` against the separately declared
 type and reject a mismatch before producing the compiled param specification.
 
-Params have no behavioral `kind:`. Consumers impose role-specific type
-constraints at the use site. `raw_domain: $x_domain` requires
+Scalar params have no behavioral `kind:`. `store` and `selection` are closed
+header types, not metadata. Consumers impose role-specific type constraints at
+the use site. `raw_domain: $x_domain` requires
 `list(float64)`. Cursor is not a param role: it is a write-only transactional
 event effect spelled `set cursor`, defined in [Events](#events). Removing a
 consumer role does not change a param's type or identity, and a compatible param
 may serve more than one consumer.
 
 `sharing:` maps directly to Rust's `CoordinationScope` and defaults to
-`shared` for both params and stores:
+`shared` for scalar and store params:
 
 ```avenger
 sharing: shared;    -- one root-owned value across all facets
@@ -2497,8 +2709,8 @@ hoisted into the compiled chart's typed root registries. The concrete runtime
 key remains `(declaration identity, owner path)`, so hoisting does not alter
 facet sharing or component-instance isolation.
 
-Reads and event writes use the same owner-path calculation. A param with no
-written value at its resolved owner uses its declared default. Store initial
+Reads and event writes use the same owner-path calculation. A scalar param with
+no written value at its resolved owner uses its declared initial `value:`. Store initial
 rows seed only the root instance; an as-yet unwritten non-root `free` or
 `level(n)` store instance is empty. A non-shared event write with no routed
 facet scope is a no-op rather than an implicit root write. Store revisions and
@@ -2515,8 +2727,8 @@ Chart/component params are predeclared within their lexical scope, so defaults
 may form an acyclic forward-reference graph:
 
 ```avenger
-param as upper_limit { type: int64; default: $lower_limit + 10; }
-param as lower_limit { type: int64; default: 0; }
+param int64 as upper_limit { value: $lower_limit + 10; }
+param int64 as lower_limit { value: 0; }
 ```
 
 Defaults are evaluated once in topological order when initial state is built;
@@ -2663,8 +2875,8 @@ widget button as clear {
   position: right;
   label: 'Clear selection';
   action: {
-    set selection picked = clear;
-    set param query = '';
+    set picked = clear;
+    set query = '';
   }
 }
 ```
@@ -2725,7 +2937,7 @@ For example, a group view contains its view-dependent transforms and render
 children directly:
 
 ```avenger
-group as viewed_points {
+mark group as viewed_points {
   view cartesian as viewport {
     x_domain: $x_domain;
     y_domain: $y_domain;
@@ -2757,20 +2969,20 @@ chart cartesian {
     table: 'observations';
   }
 
-  group as manual_box_plot {
+  mark group as manual_box_plot {
     scale_hint {
       channel: y;
       type: band;
     }
 
-    group as fence {
+    mark group as fence {
       transform join_aggregate as fence {
         group_by: "group";
         q1: approx_percentile_cont("value", 0.25);
         q3: approx_percentile_cont("value", 0.75);
       }
 
-      group as inliers {
+      mark group as inliers {
         transform filter {
           predicate:
             "value" >= fence.q1 - (fence.q3 - fence.q1) * 1.5
@@ -2789,7 +3001,7 @@ chart cartesian {
           y: "group" { band: 0.5; }
           y2: "group" { band: 0.5; }
           stroke: value '#475569';
-          stroke_width: 1.5;
+          stroke_width: value 1.5;
           zindex: 1;
         }
 
@@ -2799,7 +3011,7 @@ chart cartesian {
           y: "group" { band: 0.32; }
           y2: "group" { band: 0.68; }
           stroke: value '#475569';
-          stroke_width: 1.5;
+          stroke_width: value 1.5;
           zindex: 2;
         }
 
@@ -2809,12 +3021,12 @@ chart cartesian {
           y: "group" { band: 0.32; }
           y2: "group" { band: 0.68; }
           stroke: value '#475569';
-          stroke_width: 1.5;
+          stroke_width: value 1.5;
           zindex: 2;
         }
       }
 
-      group as outlier_layer {
+      mark group as outlier_layer {
         transform filter {
           predicate:
             "value" < fence.q1 - (fence.q3 - fence.q1) * 1.5
@@ -2826,14 +3038,14 @@ chart cartesian {
           y: "group" { band: 0.5; }
           fill: value '#f97316';
           stroke: value '#ffffff';
-          stroke_width: 1.25;
-          size: 95;
+          stroke_width: value 1.25;
+          size: value 95;
           zindex: 5;
         }
       }
     }
 
-    group as summary {
+    mark group as summary {
       transform aggregate as stats {
         group_by: "group";
         q1: approx_percentile_cont("value", 0.25);
@@ -2865,7 +3077,7 @@ chart cartesian {
         y2: "group" { band: 0.74; }
         fill: value '#bfdbfe';
         stroke: value '#2563eb';
-        stroke_width: 1.5;
+        stroke_width: value 1.5;
         zindex: 3;
       }
 
@@ -2875,7 +3087,7 @@ chart cartesian {
         y: "group" { band: 0.24; }
         y2: "group" { band: 0.76; }
         stroke: value '#1e3a8a';
-        stroke_width: 2.2;
+        stroke_width: value 2.2;
         zindex: 4;
       }
     }
@@ -2892,7 +3104,7 @@ The public event paths contain every visible named ancestor:
 ```avenger
 on click as select_outlier {
   target: mark manual_box_plot.fence.outlier_layer.outliers;
-  set param selected_group = datum('group');
+  set selected_group = datum('group');
 }
 ```
 
@@ -2906,9 +3118,8 @@ Chart-level properties live in the mixed `chart` body:
 
 ```avenger
 chart cartesian as sales {
-  param as canvas_height {
-    type: float64;
-    default: 520.0;
+  param float64 as canvas_height {
+    value: 520.0;
   }
 
   title: 'Sales by region' {
@@ -3097,10 +3308,10 @@ optional `when:` predicate is true:
 
 ```avenger
 chart repeat_grid as scatter_matrix {
-  variable row as mpg { expr: "mpg"; title: 'MPG'; }
-  variable row as hp { expr: "horsepower"; title: 'Horsepower'; }
-  variable column as weight { expr: "weight"; title: 'Weight'; }
-  variable column as accel { expr: "acceleration"; title: 'Acceleration'; }
+  variable row mpg { expr: "mpg"; title: 'MPG'; }
+  variable row hp { expr: "horsepower"; title: 'Horsepower'; }
+  variable column weight { expr: "weight"; title: 'Weight'; }
+  variable column accel { expr: "acceleration"; title: 'Acceleration'; }
 
   domain_coordination: matrix;
 
@@ -3174,22 +3385,22 @@ chart cartesian as mpg_by_origin {
     part box {
       fill: "origin" { legend: none; }
       stroke: value '#1f2937';
-      opacity: 0.55;
+      opacity: value 0.55;
     }
-    part median { stroke: value '#111827'; stroke_width: 2; }
+    part median { stroke: value '#111827'; stroke_width: value 2; }
     part whiskers { stroke: value '#374151'; }
     part caps { stroke: value '#374151'; }
-    part outliers { size: 28; fill: value '#ffffff'; stroke: "origin"; }
+    part outliers { size: value 28; fill: value '#ffffff'; stroke: "origin"; }
   }
 
   mark violin as mpg_density {
-    band_axis: y;              -- horizontal: rebind the channel parameters
+    band_axis: y;              -- horizontal: rebind the channel slots
     value_axis: x;
     category: "origin";
     values: "mpg";
     width_normalization: per_violin;
 
-    part body { fill: "origin"; opacity: 0.58; }
+    part body { fill: "origin"; opacity: value 0.58; }
   }
 }
 ```
@@ -3217,7 +3428,7 @@ mark symbol as points {
   y: "mpg";
   fill: "origin";
 
-  adjust {
+  adjust expr {
     x: item_channel(x) + 4;
     y: item_channel(y) - 2;
   }
@@ -3240,8 +3451,14 @@ mark symbol as points {
 
 `adjust nudge`, `adjust jitter`, and `adjust dodge` map to the built-in
 adjustment transforms. Derived marks are limited to `Symbol`, `Rule`,
-`Rect`, and `Text`; derived channels evaluate against the item frame, not
-the source data frame.
+`Rect`, and `Text`. Their property assignments are item-frame expressions,
+not ordinary mark-channel slots: they evaluate after the source item's
+channels have been scaled and assign the derived primitive's item-space
+attributes directly. They therefore do not request or contribute to scales,
+and a literal in a `derive` body remains a direct item-space literal without
+the `value` prefix. This is a context distinction rather than a second
+ordinary-channel spelling; `value` remains the only way to bypass a scale in
+an ordinary mark channel or `part` override.
 
 ## Themes And CSS
 
@@ -3521,14 +3738,36 @@ stops.
 
 ## Parallel And Zero-D Coordinates
 
-Parallel coordinates declare frame-level dimensions; marks map them through
-a `dimensions:` object whose entries accept per-dimension config blocks.
-Coordinate-slot overlays host an embedded plot per dimension:
+Parallel-coordinate dimensions are discovered from the `dimensions:` bindings
+owned by parallel marks. A chart may also provide an optional, sparse
+`dimensions:` map for frame-level configuration. Both maps use the same stable
+logical dimension IDs, but they have deliberately different responsibilities:
+
+- a chart-level entry such as `mpg: { axis: { ... } }` configures the shared
+  frame slot and axis for `mpg`; it does not contain or imply a data expression;
+- a mark-level entry such as `mpg: "miles_per_gallon"` binds that mark's data
+  expression to the logical `mpg` slot and may carry mark-owned channel, scale,
+  and domain configuration;
+- the chart-level map need not mention every mark-owned dimension. An omitted
+  entry receives the default frame and axis configuration, including the
+  dimension ID as the default axis title;
+- every chart-level entry must be bound by at least one mark. Configuring an ID
+  that no mark binds is an error;
+- multiple marks may bind different expressions to the same logical dimension
+  ID. The ID is the join key for shared frame configuration and scale
+  coordination, not an alias for any one expression.
+
+Dimension IDs are also used by `order`, coordinate-slot overlays, axis drag and
+display state, and parallel guide event metadata. `order`, when present, names
+each discovered logical dimension exactly once. Coordinate-slot overlays host
+an embedded plot for the named logical dimension:
 
 ```avenger
 chart parallel as cars_parallel {
-  dimension as mpg { axis: { title: 'MPG'; } }
-  dimension as horsepower { axis: { title: 'Horsepower'; } }
+  dimensions: {
+    mpg: { axis: { title: 'MPG'; } }
+    horsepower: { axis: { title: 'Horsepower'; } }
+  }
   order: [mpg, horsepower];
 
   mark parallel_line as lines {
@@ -3537,7 +3776,7 @@ chart parallel as cars_parallel {
       horsepower: "horsepower" { scale: linear { nice: true; } }
     }
     stroke: "origin";
-    opacity: 0.35;
+    opacity: value 0.35;
   }
 
   mark parallel_axis_overlay as mpg_overlay {
@@ -3551,12 +3790,33 @@ chart parallel as cars_parallel {
 }
 ```
 
+When the defaults are sufficient, the chart-level map may be omitted entirely:
+
+```avenger
+chart parallel as compact_parallel {
+  mark parallel_line as lines {
+    dimensions: {
+      mpg: "miles_per_gallon";
+      horsepower: "engine_horsepower";
+    }
+  }
+}
+```
+
+Here `mpg` and `horsepower` are still the logical dimension IDs. The quoted
+right-hand sides are the mark's expressions, and their column names need not
+match those IDs.
+
 Zero-dimensional charts need no special body shape; the schema restricts the
 valid mark and channel set:
 
 ```avenger
 chart zerod as badge {
-  mark symbol as status_dot { size: 160; fill: "status"; shape: circle; }
+  mark symbol as status_dot {
+    size: value 160;
+    fill: "status";
+    shape: value 'circle';
+  }
   mark text as label { text: "status_label"; }
 }
 ```
@@ -3576,8 +3836,9 @@ event-system constructs, and a `define transform` builds a custom pipeline
 from built-in stages and `transform sql`. Native built-ins — including
 compound marks, tools, and transforms — remain valid kinds and do not have to
 lower through definitions or be expressible using the definition language.
-Definitions are structural templates parameterized by slots and channel
-parameters, with `match` over enum slots as the only branching form.
+Definitions are structural templates parameterized by slots, including
+specialized channel slots, with `match` over enum slots as the only branching
+form.
 
 ### Defining A Compound Mark
 
@@ -3586,14 +3847,14 @@ parameters, with `match` over enum slots as the only branching form.
 avenger 1;
 
 define mark error_bar {
-  slot expr as category;
-  slot expr as measure;
-  slot number as cap_width { default: 0.3; }
+  slot expr category;
+  slot expr measure;
+  slot number cap_width { default: 0.3; }
   export bar;
   export caps;
   export center;
 
-  group {
+  mark group {
     transform aggregate as stats {
       group_by: category;
       lo: min(measure);
@@ -3607,7 +3868,7 @@ define mark error_bar {
       y: stats.lo;
       y2: stats.hi;
       stroke: value '#374151';
-      stroke_width: 1.5;
+      stroke_width: value 1.5;
     }
 
     mark rule as caps {
@@ -3621,19 +3882,20 @@ define mark error_bar {
     mark symbol as center {
       x: category { band: 0.5; }
       y: stats.mid;
-      size: 42;
+      size: value 42;
       fill: value '#111827';
     }
   }
 }
 ```
 
-`slot <shape> as <name>` declarations are the definition's explicit property
+`slot <shape> <name>` declarations are the definition's explicit property
 schema. The closed v1 shapes are `expr`, `expr_list`, `literal`, `number`,
-`string`, `boolean`, `enum`, `function`, `ref`, and `block`. The scalar
+`string`, `boolean`, `enum`, `function`, `ref`, `block`, and `channel`. The scalar
 refinements (`number`, `string`, `boolean`) accept SQL expressions whose
 resolved type matches; `literal` accepts any scalar literal without expression
-evaluation. Required slots use `;`; optional slots carry `default:` in a body.
+evaluation. A slot is required when it has no `default:` property; `;` is only
+the compact empty-body form.
 An `enum` slot declares a non-empty, duplicate-free `values:` array and any
 default must be a member. A `function` slot declares one of `class: scalar;`,
 `class: aggregate;`, `class: window;`, or `class: table;`. A `ref` slot's
@@ -3663,28 +3925,28 @@ infers or changes the public slot signature.
 A slot default may reference earlier compatible slots:
 
 ```avenger
-slot number as band_width { default: 0.6; }
-slot number as cap_width { default: band_width / 2; }
+slot number band_width { default: 0.6; }
+slot number cap_width { default: band_width / 2; }
 ```
 
 Only textually earlier compatible slots are visible while resolving a default;
 a later-slot reference is an error. The resolver still checks the dependency
 graph defensively, though the earlier-only rule makes a valid cycle impossible.
 
-### Channel Parameters
+### Channel Slots
 
-A `channel` parameter binds a *logical* channel to a physical one at the
+A `slot channel` input binds a *logical* channel to a physical one at the
 instantiation site. This is how one definition serves both orientations
 without conditionals — orientation is just a channel binding:
 
 ```avenger
 define mark error_bar {
-  channel band_axis: x;      -- logical channel, default binding x
-  channel value_axis: y;
-  slot expr as category;
-  slot expr as measure;
+  slot channel band_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr category;
+  slot expr measure;
 
-  group {
+  mark group {
     transform aggregate as stats {
       group_by: category;
       lo: min(measure);
@@ -3712,10 +3974,10 @@ mark error_bar as horizontal_errs {
 }
 ```
 
-The physical channel after `:` is the default binding. Omitting it declares a
-required channel parameter: every instantiation must supply
+The `default:` physical channel is the default binding. Omitting it declares a
+required channel slot: every instantiation must supply
 `logical_channel: physical_channel;`, and resolution reports the missing
-binding before expansion. Channel parameters never infer a physical channel
+binding before expansion. Channel slots never infer a physical channel
 from how their logical name is used.
 
 Expansion renames logical channels wherever channel identity appears:
@@ -3728,8 +3990,8 @@ Expansion renames logical channels wherever channel identity appears:
 - bare channel arguments to reserved helpers (`event_coord(value_axis)`).
 
 This is the entire mechanism — a declared rename, not macro splicing.
-Property-name substitution is available only through `channel` parameters,
-never through `slot`.
+Property-name substitution is available only through `slot channel` inputs,
+never through the other slot shapes.
 
 ### Block Slots
 
@@ -3741,11 +4003,11 @@ a bare `name;` statement marks the splice point:
 
 ```avenger
 define mark distribution_summary {
-  channel band_axis: x;
-  channel value_axis: y;
-  slot expr as category;
-  slot expr as values;
-  slot block as outlier_marks {
+  slot channel band_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr category;
+  slot expr values;
+  slot block outlier_marks {
     default: {
       mark symbol as outliers {
         band_axis: category { band: 0.5; }
@@ -3754,10 +4016,10 @@ define mark distribution_summary {
     }
   }
 
-  group {
+  mark group {
     -- ...fence, whisker, and summary declarations...
 
-    group as outlier_layer {
+    mark group as outlier_layer {
       transform filter {
         predicate: values < fence.lo or values > fence.hi;
       }
@@ -3780,7 +4042,7 @@ mark distribution_summary as mpg_summary {
       band_axis: category { band: 0.5; }
       value_axis: values;
       text: datum('name');
-      font_size: 9;
+      font_size: value 9;
     }
   }
 }
@@ -3793,13 +4055,13 @@ bindings:
 
 ```avenger
 define mark trend_panel {
-  channel time_axis: x;
-  channel value_axis: y;
-  slot expr as time_col;
-  slot expr as measure;
-  slot block as annotations { default: { } }
+  slot channel time_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr time_col;
+  slot expr measure;
+  slot block annotations { default: { } }
 
-  group {
+  mark group {
     transform sql {
       query:
         SELECT date_trunc('week', time_col) AS week, avg(measure) AS avg_value
@@ -3811,7 +4073,7 @@ define mark trend_panel {
       time_axis: "week";
       value_axis: "avg_value";
       stroke: value '#2563eb';
-      stroke_width: 2;
+      stroke_width: value 2;
     }
 
     annotations;
@@ -3851,7 +4113,7 @@ Rules:
 - A block slot's `default:` content is definition-authored and resolves in the
   definition's lexical scope. Caller-supplied replacement content resolves in
   a layered lexical environment. The innermost
-  read-only layer contains the instance's bound slots and channel parameters;
+  read-only layer contains the instance's bound slots and channel slots;
   those names intentionally shadow same-named bare DSL names in the caller,
   with an editor warning on a collision. The remaining caller lexical scope
   stays visible, and data columns come from the splice point's data context.
@@ -3861,7 +4123,7 @@ Rules:
   nothing else leaks (Vue's scoped-slot props are the precedent):
 
   ```avenger
-  slot block as annotations {
+  slot block annotations {
     exposes: [fence, stats];
     default: { }
   }
@@ -3872,7 +4134,7 @@ Rules:
   alias.
 - A block slot has exactly one splice point. Passing an empty block
   (`outlier_marks: { }`) removes the default structure; an empty default
-  (`slot block as annotations { default: { } }`) makes the slot purely
+  (`slot block annotations { default: { } }`) makes the slot purely
   additive.
 - Public aliases exported by the definition and top-level names contributed by
   caller block content share the instance's external namespace. A collision is
@@ -3907,7 +4169,7 @@ chart cartesian as sales_errors {
     measure: "amount";
     zindex: 3;
 
-    part bar { stroke: value '#dc2626'; stroke_width: 2; }
+    part bar { stroke: value '#dc2626'; stroke_width: value 2; }
     part center { fill: value '#dc2626'; }
   }
 }
@@ -3932,8 +4194,8 @@ chart cartesian as sales_errors {
 
   ```avenger
   define mark ranged_dots {
-    slot expr as category;
-    slot expr as measure;
+    slot expr category;
+    slot expr measure;
 
     export inner.bar as bar;
 
@@ -3972,16 +4234,16 @@ tool behavior as hover {
   component_kind: hover_highlight;
   export hovered;
 
-  private selection as hovered {
+  private param selection as hovered {
     empty: none;
   }
 
   on mark_mouse_enter {
     target: mark points;
-    set selection hovered = replace_all_clauses {
+    set hovered = replace_all_clauses {
       clause {
         equality {
-          dimension as id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum('id'); }
         }
       }
     }
@@ -4019,7 +4281,9 @@ chrome.
 A custom tool definition composes the following language-level expansion
 content, all instance-scoped:
 
-- `param as` / `store as` / `selection as` declarations (generated state);
+- scalar `param <arrow-type> as <name>`, `param store as <name>`, and
+  `param selection as <name>` declarations
+  (generated state);
 - `on` event bindings;
 - `scale_edit { channel: ...; ... }` declarations, which apply scale
   configuration in the instantiating chart's scope — this is what lets a
@@ -4032,13 +4296,13 @@ A from-scratch tool built only from these primitives:
 
 ```avenger
 define tool drag_pan {
-  channel axis: x;
-  slot enum as button {
+  slot channel axis { default: x; }
+  slot enum button {
     values: [left, middle, right];
     default: left;
   }
 
-  param as domain { type: list(float64); default: NULL; }
+  param list(float64) as domain { value: NULL; }
 
   scale_edit {
     channel: axis;
@@ -4051,7 +4315,7 @@ define tool drag_pan {
       end: mouse_up;
     }
 
-    set param domain = span(
+    set domain = span(
       event_domain_start(axis) - (event_coord(axis) - start_coord(axis)),
       event_domain_end(axis) - (event_coord(axis) - start_coord(axis))
     );
@@ -4060,13 +4324,13 @@ define tool drag_pan {
 ```
 
 `tool drag_pan as pan_x;` pans x; `tool drag_pan as pan_y { axis: y; }` pans y
-— the channel parameter renames through the scale edit and the bare helper arguments
+— the channel slot renames through the scale edit and the bare helper arguments
 alike. Its behavior is exactly the behavior declared here; it makes no parity
 claim with a native pan/zoom kind. Geometry-driven custom tools can use the
 event system's scene queries:
 a lasso-like definition can combine a between-binding accumulating
 `event_path()` with a scene-query selection update
-(`set selection picked = replace_all_from_scene_query { ... }`). This is an
+(`set picked = replace_all_from_scene_query { ... }`). This is an
 example of the custom surface, not a required implementation of the native
 `lasso_selection` kind. Definitions may also wrap native kinds or imported
 definitions, preconfiguring them through slots:
@@ -4076,10 +4340,10 @@ definitions, preconfiguring them through slots:
 avenger 1;
 
 define tool wheel_zoom {
-  slot number as base { default: 1.05; }
+  slot number base { default: 1.05; }
 
-  param as x_domain { type: list(float64); default: NULL; }
-  param as y_domain { type: list(float64); default: NULL; }
+  param list(float64) as x_domain { value: NULL; }
+  param list(float64) as y_domain { value: NULL; }
 
   tool pan_scroll_zoom {
     x_domain_param: $x_domain;
@@ -4095,19 +4359,19 @@ define tool wheel_zoom {
 avenger 1;
 
 define tool hover_highlight {
-  slot ref as target { kind: mark; }
+  slot ref target { kind: mark; }
   export hovered;
 
-  selection as hovered {
+  param selection as hovered {
     empty: none;
   }
 
   on mark_mouse_enter {
     target: mark target;
-    set selection hovered = replace_all_clauses {
+    set hovered = replace_all_clauses {
       clause {
         equality {
-          dimension as id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum('id'); }
         }
       }
     }
@@ -4115,7 +4379,7 @@ define tool hover_highlight {
 
   on mark_mouse_leave {
     target: mark target;
-    set selection hovered = clear;
+    set hovered = clear;
   }
 }
 ```
@@ -4169,8 +4433,8 @@ A transform definition is a named, slotted pipeline of transform stages —
 built-ins, other imported transform definitions, and `transform sql` stages.
 `output` declarations are its public handle schema: the fields an
 instantiation alias exposes, each mapping to a column of the pipeline's
-result (bare when the column has the same name, explicit when re-exporting
-an internal stage's field).
+result. `output name;` is the same-name shorthand. Any explicit source uses
+the source-to-alias form `output <expression> as <public-name>;`.
 
 A defined-transform instantiation requires `as <alias>` exactly when its
 definition declares one or more public `output` handles. An output-free
@@ -4184,7 +4448,7 @@ also available directly to authors:
 
 ```avenger
 transform pipeline as shares {
-  output share: calc.share;
+  output calc.share as share;
 
   transform sql as calc {
     query:
@@ -4232,8 +4496,8 @@ declaration requires a binder, as shown above.
 avenger 1;
 
 define transform share_within {
-  slot expr as measure;
-  slot expr_list as partition_keys;
+  slot expr measure;
+  slot expr_list partition_keys;
   output share;
 
   transform sql {
@@ -4249,10 +4513,10 @@ define transform share_within {
 avenger 1;
 
 define transform binned_counts {
-  slot expr as field;
-  slot number as maxbins { default: 30; }
-  output start: b.start;
-  output end: b.end;
+  slot expr field;
+  slot number maxbins { default: 30; }
+  output b.start as start;
+  output b.end as end;
   output count;
 
   transform bin as b {
@@ -4275,7 +4539,7 @@ import 'lib/share_within.transform.avenger';
 chart cartesian as region_shares {
   data: { table: 'sales'; }
 
-  group as shares {
+  mark group as shares {
     transform share_within as s {
       measure: "amount";
       partition_keys: ["region", "year"];
@@ -4314,13 +4578,13 @@ aggregations from becoming one `match` arm per function:
 
 ```avenger
 define transform rolling {
-  slot expr as measure;
-  slot expr as order_key;
-  slot function as agg {
+  slot expr measure;
+  slot expr order_key;
+  slot function agg {
     class: aggregate;
     default: avg;
   }
-  slot number as preceding { default: 6; }
+  slot number preceding { default: 6; }
   output rolled;
 
   transform sql {
@@ -4356,10 +4620,10 @@ stage, then a per-mode finishing stage. It is intentionally not the native
 
 ```avenger
 define transform simple_stack {
-  slot expr as measure;
-  slot expr_list as partition_keys;
-  slot expr as order_key;
-  slot enum as mode {
+  slot expr measure;
+  slot expr_list partition_keys;
+  slot expr order_key;
+  slot enum mode {
     values: [zero, center, normalize];
     default: zero;
   }
@@ -4480,21 +4744,21 @@ how optional structure is spelled. A mark definition selecting structure
 
 ```avenger
 define mark distribution_summary {
-  channel band_axis: x;
-  channel value_axis: y;
-  slot expr as category;
-  slot expr as values;
-  slot enum as outliers {
+  slot channel band_axis { default: x; }
+  slot channel value_axis { default: y; }
+  slot expr category;
+  slot expr values;
+  slot enum outliers {
     values: [show, hide];
     default: show;
   }
 
-  group {
+  mark group {
     -- ...fence, whisker, and summary declarations as in the low-level example...
 
     match outliers {
       show {
-        group as outlier_layer {
+        mark group as outlier_layer {
           transform filter {
             predicate: values < fence.lo or values > fence.hi;
           }
@@ -4514,9 +4778,9 @@ A tool definition selecting just the action inside a shared event binding:
 
 ```avenger
 define tool click_picker {
-  slot ref as target { kind: mark; }
-  slot ref as sel { kind: selection; }
-  slot enum as mode {
+  slot ref target { kind: mark; }
+  slot ref sel { kind: selection; }
+  slot enum mode {
     values: [toggle, replace];
     default: toggle;
   }
@@ -4526,13 +4790,13 @@ define tool click_picker {
 
     match mode {
       toggle {
-        set selection sel = toggle_clauses {
-          clause { equality { dimension as id { field: "id"; value: datum('id'); } } }
+        set sel = toggle_clauses {
+          clause { equality { id { field: "id"; value: datum('id'); } } }
         }
       }
       replace {
-        set selection sel = replace_all_clauses {
-          clause { equality { dimension as id { field: "id"; value: datum('id'); } } }
+        set sel = replace_all_clauses {
+          clause { equality { id { field: "id"; value: datum('id'); } } }
         }
       }
     }
@@ -4541,7 +4805,7 @@ define tool click_picker {
 ```
 
 Multiple `match` blocks over different slots compose in one definition, and
-`match` composes with channel parameters — the custom distribution-summary
+`match` composes with channel slots — the custom distribution-summary
 sketch above is orientation-generic and outlier-optional at once.
 
 This keeps the conditional budget of the language explicit: `channel`
@@ -4608,7 +4872,7 @@ recorded so the boundary holds under pressure:
   `filter:` predicates (a two-click gesture is two bindings filtered on a
   state param).
 - **No slot-derived identifiers** outside the two declared mechanisms
-  (channel parameters and typed `function` slots). Output column names, mark
+  (channel slots and typed `function` slots). Output column names, mark
   names, and property names are never assembled from slot values.
 
 ### Project Layout
@@ -4766,7 +5030,7 @@ name-reconciliation problem:
 
 `avenger expand` is **source-level inline-definition expansion**: every imported definition
 instantiation is replaced by its expansion — slots substituted, `match` arms
-resolved, channel parameters renamed, block slots spliced, part overrides
+resolved, channel slots renamed, block slots spliced, part overrides
 merged. Native built-in marks, tools, and transforms remain native declarations;
 expansion never attempts to reconstruct them in the definition language.
 Built-in widgets likewise remain opaque `widget` declarations; there are no
@@ -4793,8 +5057,9 @@ and group/behavior exports provide the only external qualified aliases. The comp
 resolution, but those ids are never printed as DSL names and cannot collide
 with caller-authored identifiers.
 The output contains no imports needed solely for expanded definitions —
-`std:` definition imports included — and no `define`, `slot`, `channel`,
-`match`, or `exposes` constructs from those expansions. Resolved `export`
+`std:` definition imports included — and no `define`, `slot` (including
+`slot channel`), `match`, or `exposes` constructs from those expansions.
+Resolved `export`
 declarations remain because they are ordinary group interface declarations,
 and resolved `output` declarations remain because they are ordinary
 `transform pipeline` interface declarations; neither is macro machinery.
@@ -4819,12 +5084,12 @@ For example, an IDE's **inline definition** action may produce this ordinary,
 hand-editable group (irrelevant mark details abbreviated):
 
 ```avenger
-group as errs {
+mark group as errs {
   component_kind: error_bar;
   export body.bar as bar;
   export body.center as center;
 
-  private group as body {
+  private mark group as body {
     mark rule as bar {
       x: "category";
       y: "lo";
@@ -4876,12 +5141,14 @@ language.
 
 Name binding is category-based rather than uniformly textual. Entering a
 lexical scope performs a predeclaration pass for identities whose existence is
-independent of execution order: named marks, groups, params, stores,
-selections, tools, resources, and events. Their complete bindings are
+independent of execution order: named marks, groups, all three param
+categories, tools, resources, and events. Their complete bindings are
 therefore available throughout that scope, including before their textual
 declaration. Duplicate bindings are diagnosed during predeclaration before any
-body is resolved. Params and stores share one value-binding namespace, so the
-same scope cannot declare both `param as state` and `store as state`; the other
+body is resolved. Scalar, store, and selection params share one param
+namespace, so the same scope cannot reuse `state` across
+`param int64 as state`, `param store as state`, or `param selection as state`;
+the other
 typed namespaces and public-interface collision rules determine remaining
 conflicts.
 
@@ -4920,14 +5187,14 @@ regardless of source order. After SQL name resolution, dependencies among
 `table sql` declarations must form a DAG; self-reference and multi-table cycles
 are errors reported with the dependency path.
 
-Value bindings in a lexical scope are likewise predeclared before param defaults
-are resolved. Defaults may reference another compatible scalar param in that scope,
-including one declared later. Default dependencies must be acyclic and are
-evaluated in topological order when initial state is constructed; a default is
-initialization, not a reactive binding after construction. Catalog-table params
-retain their stricter existing contract: every default is a self-contained
-scalar literal checked against the separately required Arrow `type:`, so
-table-param defaults have no dependency graph.
+Value bindings in a lexical scope are likewise predeclared before scalar-param
+initializers are resolved. A `value:` expression may reference another
+compatible scalar param in that scope, including one declared later. Initializer
+dependencies must be acyclic and are evaluated in topological order when
+initial state is constructed; an initializer is not a reactive binding after
+construction. Catalog-table params retain their stricter existing contract:
+every `value:` is a self-contained scalar literal checked against the physical
+Arrow type in its header, so table-param initializers have no dependency graph.
 
 Definition slot defaults intentionally retain the simpler textual rule: a slot
 default may reference only an earlier compatible slot. Later-slot references
@@ -4964,7 +5231,8 @@ read top-to-bottom and avoids a second dependency scheduler in macro expansion.
   `<instance>.<alias>` interface. Caller-authored block-slot content retains
   caller-owned structural names beneath the instance; expansion uses `public`
   only where private definition structure would otherwise hide it. Block
-  content sees the caller scope, read-only instance slot/channel bindings,
+  content sees the caller scope, read-only instance slot bindings (including
+  channel slots),
   splice-point data columns, and only the internal handles declared by
   `exposes`.
 - **Native kind names are reserved within their kind namespace.** An import
@@ -5013,8 +5281,9 @@ tokenizer; the token classes the DSL relies on are specified normatively and
 pinned by a conformance corpus:
 
 ```text
-ident     unquoted word          DSL names: kinds, properties, enum values,
-                                 aliases, namespaces, helper functions
+ident     unquoted word using    DSL names: kinds, properties, enum values,
+          AvengerSqlDialect's    aliases, namespaces, helper functions
+          identifier characters
 column    "double quoted"        data column reference (SQL identifier)
 string    'single quoted'        string literal
 number    SQL numeric literal
@@ -5059,14 +5328,13 @@ kind          = ident ;             (* imports bind one name; `as` renames *)
 bind          = "as" , ident ;
 
 define        = "define" , ( "mark" | "tool" | "transform" ) ,
-                ident , "{" , { slot | channel_param | output | export } ,
+                ident , "{" , { slot | output | export } ,
                 { item } , "}" ;
-slot          = "slot" , slot_shape , bind , ( body | ";" ) ;
+slot          = "slot" , slot_shape , ident , ( body | ";" ) ;
 slot_shape    = "expr" | "expr_list" | "literal" | "number"
               | "string" | "boolean" | "enum" | "function"
-              | "ref" | "block" ;
-channel_param = "channel" , ident , [ ":" , ident ] , ";" ;
-output        = "output" , ident , [ ":" , sql_expr ] , ";" ;
+              | "ref" | "block" | "channel" ;
+output        = "output" , ( ident | sql_expr , "as" , ident ) , ";" ;
 export        = "export" , qual , [ "as" , ident ] , ";" ;
                      (* define headers and group bodies; source paths may
                         forward-reference body declarations. The alias
@@ -5080,11 +5348,10 @@ match_arm     = ident , "{" , { item } , "}" ;
 splice        = ident , ";" ;
                      (* define bodies only: splice point of a block slot *)
 
-resource      = param | store | selection | res | theme ;
+resource      = param | res | theme ;
                      (* data is a property: `data: { ... }` *)
-param         = "param" , bind , body ;
-store         = "store" , bind , body ;
-selection     = "selection" , bind , body ;
+param         = "param" , param_type , bind , body ;
+param_type    = arrow_type | "store" | "selection" ;
 res           = "resource" , ident , bind , body ;   (* resource tiles as osm *)
 theme         = "theme" , "css" ,
                 ( "from" , string , [ "sha256" , string ] | ":" , string ) ,
@@ -5099,14 +5366,15 @@ body          = "{" , { item } , "}" ;
 item          = property | child ;
 child         = [ visibility ] , child_decl ;
 visibility    = "private" | "public" ;
-child_decl    = param | table_bind | resource | group | mark
+child_decl    = table_bind | resource | mark
               | transform | tool | widget | view | event | cell | plot
-              | variable | part | level | adjust | derive | overlay
+              | variable | part | level | adjust | derive
               | layer | when | field | row | key | fields | action
-              | scale_edit | scale_hint | dimension | match_block | splice
+              | scale_edit | scale_hint
+              | selection_clause | equality_predicate | interval_predicate
+              | match_block | splice
               | export | output ;
 
-group         = "group" , [ bind ] , body ;
 mark          = "mark" , kind , [ bind ] , body ;
 transform     = "transform" , kind , [ bind ] , body ;
 tool          = "tool" , kind , [ bind ] , ( body | ";" ) ;
@@ -5120,24 +5388,26 @@ event_scope   = "plot" | "subplot" , qual
 event_surface = "plot" | "all" | "legend" , ident ;
 cell          = "cell" , kind , [ bind ] , [ "at" , body ] , body ;
 plot          = "plot" , kind , body ;
-variable      = "variable" , ident , [ bind ] , body ; (* variable row as mpg *)
+variable      = "variable" , ( "row" | "column" | "item" ) , ident , body ;
 part          = "part" , ident , body ;
 level         = "level" , number , body ;
-adjust        = "adjust" , [ kind , [ bind ] ] , body ;
+adjust        = "adjust" , ( "expr" , body | kind , [ bind ] , body ) ;
 derive        = "derive" , kind , [ bind ] , body ;
-overlay       = "overlay" , [ bind ] , body ;
 layer         = "layer" , ident , body ;
 when          = "when" , body ;
-field         = "field" , ident , ":" , arrow_type , [ "nullable" ] , ";" ;
+field         = "field" , arrow_type , ident , [ "nullable" ] , ";" ;
 row           = "row" , body ;
 scale_edit    = "scale_edit" , body ;      (* tool definitions/behaviors:
                                                edit a containing-plot scale *)
 scale_hint    = "scale_hint" , body ;      (* groups: scale-type hint *)
-dimension     = "dimension" , bind , body ;  (* parallel charts: frame dimensions *)
+selection_clause = "clause" , body ;       (* selection-update payload only *)
+equality_predicate = "equality" , "{" , { predicate_entry } , "}" ;
+interval_predicate = "interval" , "{" , { predicate_entry } , "}" ;
+predicate_entry = ident , body ;           (* parent fixes entry category/type *)
 key           = "key" , body ;             (* update payloads: delete_by_key, update_by_key *)
 fields        = "fields" , body ;          (* update payloads: update_by_key *)
 action        = "set" , ( state_action | cursor_action ) ;
-state_action  = ( "param" | "store" | "selection" ) , qual ,
+state_action  = qual ,
                 [ "at" , ( "current" | "start" ) ] ,
                 [ "replacing" , "scopes" ] , "=" ,
                 ( sql_expr , ";" | ident , ( body | ";" ) ) ;
@@ -5156,7 +5426,8 @@ value         = body                                 (* anonymous object *)
               | "pattern" , body
               | "env" , string , ";"                 (* environment variable, capability-gated *)
               | "none" , ";"
-              | sql_query , ";"                      (* the `sql:` property only *)
+              | sql_query , ";"                      (* reserved `sql:` and `query:`
+                                                        properties only *)
               | sql_expr , terminator ;              (* default expression slot *)
 terminator    = body | ";" ;                         (* config block or semicolon *)
 array         = "[" , [ elem , { "," , elem } , [ "," ] ] , "]" ;
@@ -5170,16 +5441,24 @@ arrow_type    = ? one canonical physical Arrow type from Physical Arrow Types ? 
 
 Grammar notes:
 
-- Declaration headers are uniformly `[visibility] <keyword> <kind> [as
-  <name>]`; ordinary declarations omit visibility, and `cell` places its
-  optional `at { ... }` after the binding.
+- Named runtime/chart instances use `[visibility] <category> <type> [as
+  <name>]`, subject to the containing schema's binder requirement. Declared
+  members instead use `<member-category> <shape-or-type> <name>` with no `as`,
+  and parent-keyed entries use only their key. `cell` places its optional
+  `at { ... }` after its instance binding.
 - `private` and `public` are optional declaration modifiers, not declaration
   kinds. The grammar shows their token position; the authoring schema permits
   them only on declarations with a named public identity. `public` additionally
   requires a private structural ancestor and hoists to the nearest non-private
-  named group. A `group` accepts `export` children and the optional opaque
+  named group. A `mark group` accepts `export` children and the optional opaque
   `component_kind:` provenance property. Definition headers accept the same
   exact `export` declaration, which expansion moves to the instance group.
+- `group` is a language-owned `mark` kind. It uses the ordinary mark
+  reference, export, visibility, document-symbol, and target categories while
+  lowering recursively through `MarkGroup`; it is not dispatched through the
+  native mark registry. A schema property with `MarkBlock` shape, currently
+  `legend.overlay`, accepts a property-only block whose direct children are
+  one or more `mark` declarations.
 - `transform pipeline` is the one transform kind with a mixed body containing
   ordered child transforms and `output` declarations. Its children form a
   sequential sub-dataflow while the container occupies one stage in the
@@ -5200,36 +5479,63 @@ Grammar notes:
   binder. It has a schema-specific property body and is legal only in the
   parents/guide positions declared by its `WidgetSchema`. `widget` is not a
   valid `define` target and has no language-level expansion form.
-- A `channel` declaration without `: ident` is a required channel parameter;
-  the instantiation must bind it. The optional identifier after `:` is its
-  default physical channel.
-- `slot` follows that same header law: the kind is its closed `slot_shape`, and
-  the `as` name is the public property. A trailing `;` declares a required
-  slot. A body may declare `default:`; `enum` additionally requires `values:`,
+- `slot channel <name>` is the logical-channel input form. Its optional
+  `default:` property names the default physical channel; without a default it
+  is required at every instantiation.
+- Every slot follows the declared-member law: the closed `slot_shape` precedes
+  the public property name and there is no `as`. A slot is required exactly
+  when it has no `default:`; a trailing `;` is merely an empty body. A body may
+  declare `default:`; `enum` additionally requires `values:`,
   `function` requires `class:`, `ref` requires `kind:`, and `block` may declare
   `exposes:`. The authoring schema rejects properties not valid for the
   declared shape. Slot shapes are explicit and never inferred from body use.
-- Which `value` production a property uses is selected by the property's
-  schema — an expression slot never parses as a typed object, `sql_query` is
-  reachable only from the `sql` property, and enum-valued properties accept
-  bare identifiers as `sql_expr` atoms that the resolver checks against the
-  enum. A `typed_ref` records an explicit reference kind plus a lexical or
+- The schema-free parser selects a `value` production from local syntax and the
+  globally reserved `sql`/`query` names; the authoring schema then validates
+  that shape for the particular property. `sql_query` is reachable only from
+  those two reserved properties. Bare identifiers in enum-valued properties
+  parse as `sql_expr` atoms that the resolver checks against the enum. A
+  `typed_ref` records an explicit reference kind plus a lexical or
   qualified path; when a property schema already fixes the kind, its shorter
-  bare `qual` form lowers to the same typed reference node. Action prefixes
-  similarly fix the kind and accept `qual`. Params and stores are the exception:
-  reads use `$qual` and lower to a typed scalar/table binding node; their
-  imperative `set param` and `set store` targets remain kind-prefixed l-values.
+  bare `qual` form lowers to the same typed reference node. Scalar and store
+  reads use `$qual` and lower to a typed scalar/table binding node. An
+  imperative `set <qual>` target is resolved first, and its scalar, store, or
+  selection category then selects the valid update algebra.
   An action's optional `at current|start` modifies that l-value's routed owner,
   never its RHS; the authoring schema permits `start` only under `between:`.
-  `replacing scopes` is a second LHS modifier, valid only for params and stores,
+  `replacing scopes` is a second LHS modifier, valid only for scalar and store params,
   that clears every concrete owner copy before writing the routed target.
   `set cursor` is the one write-only effect action: it has no target path, `at`,
   or `replacing scopes` modifier. The grammar lists the union of forms.
-- Every `param` body requires exactly one `type:` parsed as `arrow_type` and one
-  `default:` SQL scalar expression. `kind:` and inferred types are invalid.
-  `sharing:` is optional and defaults to `shared`; chart/component defaults may
-  use the acyclic param-default dependency rule, while catalog-table defaults
-  remain self-contained scalar literals.
+- The `ident , body` alternative has priority over the `sql_expr , terminator`
+  alternative when the expression would be exactly one bare identifier and the
+  terminator is a body. Thus `linear { ... }` is structurally a typed object.
+  A configured expression may still begin with a quoted column, `$` binding,
+  literal, qualified expression, parenthesized expression, or function call.
+  The strict parser and editor grammar share fixtures for this boundary.
+- `clause` remains a plain-body structural declaration. An `equality` or
+  `interval` parent fixes its children's category and value shape, so each
+  child is keyed directly by its dimension ID (`id { ... }`, `x { ... }`).
+  The key is not a binding. Clause identity remains the ordinary
+  `id: <sql_expr>;` property; scene-query field maps likewise use `id:` inside
+  anonymous objects.
+- A scalar param puts exactly one physical `arrow_type` in its header and its
+  body requires exactly one `value:` SQL scalar expression. `type:`,
+  `default:`, `kind:`, and inferred scalar types are invalid. `param store`
+  and `param selection` are reserved category types with their own body
+  schemas and do not take `value:`. `sharing:` is optional and defaults to
+  `shared`; chart/component scalar values may use the acyclic dependency rule,
+  while catalog-table scalar values remain self-contained literals.
+- Store fields are declared `field <arrow_type> <name> [nullable];`; nested
+  struct members are `field(<arrow_type>, '<name>')`. Both are type-first, but
+  nested Arrow names are strings so they can preserve names outside the DSL
+  identifier grammar.
+- `variable row|column|item <id>` is an ordered declared member, not an `as`
+  binding. `adjust expr` is the explicit unaliased expression-adjustment form;
+  all other adjustment kinds follow their schema's binder policy.
+- `output <name>;` is the same-name shorthand. An explicit output is
+  `output <sql_expr> as <public-name>;`; the top-level `as` is parsed after the
+  complete expression and is not confused with SQL-internal `AS` such as a
+  cast or subquery alias.
 - An outer `event` body's `target:`, `scope:`, and `surface:` properties parse
   only as `event_target`, `event_scope`, and `event_surface`, respectively;
   omission supplies unrestricted marks, containing-plot scope, and plot surface.
@@ -5246,8 +5552,10 @@ Grammar notes:
 - Keywords are contextual. `value`, `pattern`, `dim`, `env`, and
   `none` are recognized only in value-prefix position (immediately after
   `:`);
-  `group`, `level`, `part`, and the other declaration keywords only in
-  declaration-head position. A property may therefore be named `value`
+  `level`, `part`, and the other declaration keywords only in
+  declaration-head position; `group` is recognized as a mark kind after
+  `mark`, and `overlay` is an ordinary schema-known property name. A property
+  may therefore be named `value`
   (conditional branch payloads are) without colliding with the `value`
   prefix.
 - Ordered semantics: all child declarations preserve one cross-kind source
@@ -5345,7 +5653,7 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    expressions.
    Resolver fixtures separately pin forward structural/state/event references,
    duplicate predeclarations, sequential transform/column visibility, deferred
-   output-interface resolution, acyclic and cyclic param defaults, order-free
+   output-interface resolution, acyclic and cyclic param initializers, order-free
    table DAGs, table-cycle diagnostics, and the earlier-only slot-default rule.
    Runtime state fixtures pin event-transaction working-state reads, ordered
    multi-action updates to one store, atomic cross-kind commit, rollback on
@@ -5411,10 +5719,10 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    internally sees its target owner's pre-action working rows. They cover
    `replacing scopes`
    removal-before-write ordering, later-action visibility, rollback, param-
-   default fallback, empty non-reseeded stores, invalid selection use, and the
+   initializer fallback, empty non-reseeded stores, invalid selection use, and the
    redundant-shared warning. Sharing fixtures
    pin logical owner paths for `free`/`level(n)`/`shared`, root saturation,
-   per-owner param defaults and store revisions, root-only store initial rows,
+   per-owner scalar-param initial values and store revisions, root-only store initial rows,
    and no-op unrouted non-shared writes. Store-relation fixtures assert that
    `SELECT *` and schema tooling expose only declared fields, authored access to
    the reserved metadata prefix fails, and hidden revision metadata still
@@ -5476,7 +5784,7 @@ temporary DSL-only runtime representations while that prerequisite is open.
 
 3. **Resolver + authoring-schema integration.** Names, scopes, scalar/table `$bindings`,
    predeclaration, forward-reference categories, sequential dataflow aliases,
-   param-default and table dependency DAGs, validation, alias fields,
+   param-initializer and table dependency DAGs, validation, alias fields,
    reserved-helper rewriting, event targets,
    visibility/hoisting and group-export alias graphs, imported-definition
    schema fragments, and schema-driven property checking
@@ -5498,7 +5806,7 @@ temporary DSL-only runtime representations while that prerequisite is open.
    entries.
 
 5. **Definitions + expansion.** `import` (relative and `std:` paths),
-   `define` with slots, channel parameters, `match`, block slots,
+   `define` with slots, channel slots, `match`, block slots,
    `export`/`exposes`, the first custom definition fixtures, and `avenger
    expand`. Gate: the expansion equivalence property for charts that use
    imported definitions — `compile(chart) == compile(expand(chart))` — over
@@ -5615,7 +5923,7 @@ serious project work pairs a real editor with `avenger lsp` and
    `-- |` blurb — no rendering at doc time, so output is deterministic and
    by construction in sync with what `avenger test` verified.
 3. **The definition reference**: one section or page per mark, tool, and
-   transform — schema tables (slots and defaults, channel parameters,
+   transform — schema tables (slots and defaults, channel slots,
    outputs, public parts, exports), doc-comment text, and doc examples
    rendered as images.
 
@@ -5726,10 +6034,11 @@ DSL AST or source map.
 
 ## AST And Interchange Form
 
-Step 1 of the lowering model names "a stable DSL AST". Its shape is the
-payoff of the grammar's uniformity — every declaration is
-`keyword kind? as name? { props; children }` — so the tree needs six
-generic node types, not a node type per language feature:
+Step 1 of the lowering model names "a stable DSL AST". The source header laws
+are intentionally contextual, but they normalize to the same declaration
+record — keyword, optional kind, optional semantic name, properties, and
+ordered children. The tree therefore needs six generic node types, not a node
+type per language feature:
 
 The parser maintains two deliberately separate representations:
 
@@ -5758,7 +6067,7 @@ struct Decl {
     visibility: Visibility,              // default | private | public
     keyword: Keyword,                // chart | mark | transform | table | param | on | ...
     kind: Option<Name>,              // symbol, sql, parquet, cartesian, ...
-    name: Option<Name>,              // the `as` binder
+    name: Option<Name>,              // instance binder, declared-member name, or keyed-entry id
     props: PropertyMap<Name, Value>, // unique unordered semantic map
     children: Vec<Decl>,             // one semantic cross-kind order
     doc: Option<String>,             // attached `-- |` doc comment
@@ -5771,7 +6080,7 @@ enum Value {
     Column(String),                  // "Horsepower"
     Atom(Name),                      // lone bare identifier: retarget_cached, median
     Expr(SqlExpr),                   // parsed semantic expression only
-    Query(SqlQuery),                 // sql: statement island
+    Query(SqlQuery),                 // sql:/query: query island
     Binding(BindingKind, Vec<Name>, BindingTime),
                                       // $name or $component.alias[@time]
     Ref(RefKind, Vec<Name>),         // selection hover.hovered, mark layers.points
@@ -5796,17 +6105,29 @@ enum BindingTime { Current, Start, Previous } // Current is omitted in source/JS
 Every feature in this document is an instance of `Decl` — `table sql` with
 params, `catalog schemas` and `schema tables` containers, `match` arms,
 effects, block-slot content.
-Typed slots need no special node: `slot expr as category;` is a `Decl` with
+Typed slots need no special node: `slot expr category;` is a `Decl` with
 `keyword = slot`, `kind = expr`, and `name = category`; configured slot fields
 such as `default`, `values`, `class`, `kind`, and `exposes` are ordinary
 properties in its body.
+Surface-header normalization likewise keeps the generic AST closed. A scalar
+`param float64 as width { value: 640.0; }` is a `param` declaration whose
+semantic `type` and `value` properties came from distinct source positions;
+the parser forbids an authored body `type:` and the canonical printer moves the
+semantic type back into the header. `param store` and `param selection`
+normalize to the existing `store` and `selection` declaration keywords.
+`mark group` remains `Decl { keyword: "mark", kind: "group" }` throughout
+parsing, printing, expansion, and resolution. A `legend.overlay` mark block is
+an ordinary object value whose `children` are fully resolved mark
+declarations. Keyed selection entries normalize to the existing dimension
+representation. These are source/AST mappings, not extra interchange node
+variants.
 Visibility is likewise generic declaration metadata rather than a new node:
 the parser records a `private` or `public` prefix, the schema decides whether
 that declaration may carry it, and the resolver constructs the public alias
 graph. The default variant is omitted in text and interchange output.
 `PropertyMap` has name-to-value equality and hashing: insertion or source order
 is not semantic. The CST separately records authored order and comment anchors.
-Canonical DSL printing uses ascending ASCII lexical name order for every key,
+Canonical DSL printing uses RFC 8785's UTF-16 code-unit lexical name order for every key,
 so it is total without authoring schemas, import loading, plugins, or network
 access, and any two equal semantic maps print identically. `children`, by contrast, is one semantic sequence: equality,
 hashing, JSON, printing, expansion, and lowering all preserve it exactly across
@@ -5828,9 +6149,10 @@ three surface shapes lower to it — a bare block (`data: { ... }`, no
 head), a typed object (`scale: linear { ... }`, an `Atom` head), and a
 configured value (`x: "amount" { scale: ... }`,
 `title: 'Sales' { align: center; }`, `x: dim pixels.x_dim { axis: ... }` —
-the value being configured is the head, whatever its variant). Whether a
-head names a kind or is a value under configuration is, once again, the
-schema's call, not a structural distinction.
+the value being configured is the head, whatever its variant). The concrete
+parser deterministically treats a lone `ident` head as the typed-object form;
+all other heads are configured values. Both lower to `Block`, after which the
+schema decides whether the authored shape is legal for the property.
 
 `AstSourceMap` is diagnostic provenance rather than AST identity: parsed node
 IDs map to source spans, nodes constructed by a host API (the Python bindings)
@@ -5878,8 +6200,8 @@ Serde over these nodes defines the interchange form. Four rules:
   raw source spelling and SQL comments are CST trivia and never enter JSON.
 - Props encode as ordinary JSON objects; member order has no semantic meaning
   and decoders may return keys in any order. Canonical JSON bytes follow RFC
-  8785 lexical object-key ordering recursively. DSL property names are ASCII,
-  so this agrees with the canonical DSL property order. Duplicate object members are rejected by the
+  8785 UTF-16 code-unit object-key ordering recursively, and the canonical DSL
+  printer deliberately uses the same order. Duplicate object members are rejected by the
   interchange decoder rather than accepted with first- or last-wins behavior;
   a duplicate textual DSL property is likewise a parse error.
 - Children encode as one JSON array in semantic cross-kind order. Array order
@@ -5888,7 +6210,7 @@ Serde over these nodes defines the interchange form. Four rules:
 
 ```avenger
 table sql as borough_trips {
-  param as borough { type: utf8; default: 'Manhattan'; }
+  param utf8 as borough { value: 'Manhattan'; }
 
   sql: SELECT * FROM trips WHERE "borough" = $borough;
 }
@@ -5899,7 +6221,7 @@ table sql as borough_trips {
   "decl": "table", "kind": "sql", "name": "borough_trips",
   "children": [
     { "decl": "param", "name": "borough",
-      "props": { "default": "Manhattan", "type": { "atom": "utf8" } } }
+      "props": { "type": { "atom": "utf8" }, "value": "Manhattan" } }
   ],
   "props": {
     "sql": { "query": "SELECT * FROM trips WHERE \"borough\" = $borough" }
@@ -5985,7 +6307,10 @@ reject malformed trees early and cheaply.
   "required": ["version", "root"],
   "additionalProperties": false,
   "$defs": {
-    "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "name": {
+      "type": "string",
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*$"
+    },
     "import": {
       "type": "object",
       "properties": {
@@ -6048,7 +6373,7 @@ reject malformed trees early and cheaply.
         "value": { "$ref": "#/$defs/value" },
         "dim": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*\\.(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*$"
         },
         "ref": { "$ref": "#/$defs/ref" },
         "pattern": { "$ref": "#/$defs/value" },
@@ -6106,6 +6431,12 @@ reject malformed trees early and cheaply.
 }
 ```
 
+The core schema's `name` patterns deliberately use the Unicode
+`\p{Alphabetic}` property escape. A validator used for Avenger interchange
+must evaluate JSON Schema patterns with Unicode-aware ECMA-262-compatible
+semantics; an ASCII-only regex fallback is non-conforming because source names
+such as `café` and `Δvalue` are valid.
+
 The instance corpus for this schema includes accept/reject and bidirectional
 round-trip cases for every one of the fourteen tags, including exact `num`
 spelling, two-segment `dim`, string `env`, boolean-true `none`, compact and
@@ -6141,7 +6472,7 @@ to the same conformance corpus that pins the formatter.
   law is `decode_json(encode_json(ast)) == ast`; decoding reparses canonical SQL
   text into the same semantic SQL structure.
 - **SQL canonicalization is pinned.** A golden corpus covers expression and
-  statement islands, comments, quoted identifiers, qualified scalar/table
+  query islands, comments, quoted identifiers, qualified scalar/table
   binding reads, and dependency-sensitive syntax. An `sqlparser` or DataFusion
   upgrade that changes canonical unparse output requires an explicit reviewed
   language-snapshot update; it cannot silently churn DSL, JSON, expansion, or
@@ -6149,8 +6480,8 @@ to the same conformance corpus that pins the formatter.
 - **Property order is neither identity nor semantics.** Equal property maps
   compare and hash equally regardless of insertion or source order. The CST
   remembers authored order for editor operations, while both `print(ast)` and
-  `avenger fmt` emit all properties in ascending ASCII lexical order. Canonical
-  JSON uses the corresponding RFC 8785 key order; decoding any input order
+  `avenger fmt` emit all properties in RFC 8785 UTF-16 code-unit lexical order.
+  Canonical JSON uses that same key order; decoding any input order
   reconstructs the same semantic map.
 - **Child order is identity and semantics.** The canonical printer first emits
   canonical properties, then walks `children` without sorting or grouping.
@@ -6188,7 +6519,8 @@ at the compiler/planning boundary. The useful frontend APIs are:
 - `Parser` initialized with the existing token buffer rather than a second raw
   source parse.
 - `Parser::parse_expr()` for expression slots and
-  `Parser::parse_statement()` for full-statement `sql:` slots.
+  `Parser::parse_statement()` followed by query-only validation for the
+  full-query `sql:` and `query:` slots.
 - The parser's consumed-token position to return the first unconsumed token to
   the enclosing DSL parser.
 
@@ -6247,7 +6579,7 @@ such as a dictionary/map literal accepted by the chosen SQL dialect, SQL
 consumes those braces before the DSL parser resumes. This avoids making `{`
 ambiguous by convention.
 
-Full-statement SQL properties use the same idea:
+Full-query SQL properties use the same idea:
 
 ```avenger
 data: {
@@ -6292,16 +6624,38 @@ conditions are SQL expression slots. Selectors such as
 `scale: linear { ... }`, arrays of DSL names, and nested property objects are
 DSL values.
 
+The compiler's structural parser owns every DSL delimiter and delegates the
+smallest complete SQL unit to the sqlparser entry point appropriate for that
+context. The fixed boundary contexts are:
+
+| Source context | Structural parser owns | Delegated SQL unit | Stops before |
+| --- | --- | --- | --- |
+| reserved `sql:` or `query:` property | property name, `:`, and terminating `;` | one query (`SELECT`, `FROM`-first `SELECT`, set operation, or `VALUES`) | top-level `;` |
+| ordinary/configurable property, channel value, filter, or `value` payload | property/prefix and optional configuration body | one scalar expression | top-level `;` or the configuration `{` |
+| explicit `output <expr> as <name>` | `output`, top-level `as`, public name, and `;` | one scalar expression | top-level `as` |
+| `set ... =` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
+| structural array element | outer `[]`, commas, anonymous bodies, and `value`/`pattern`/`none` prefixes | one scalar expression for that element | top-level `,` or `]` |
+
+The SQL parser recognizes SQL-owned parentheses, brackets, braces, subqueries,
+strings, identifiers, and comments before returning control at an outer
+delimiter. Thus a SQL array, struct, function call, or subquery remains one
+expression island, while a DSL array is never delegated wholesale. Each
+ordinary element is parsed as its own expression, so the structural parser
+retains its commas and closing bracket. The structural parser does not
+reproduce an SQL expression subset.
+
 Value bindings fit this model with a kind-neutral normalization. `sqlparser-rs`
 tokenizes `$foo` as a placeholder. The DSL rejects positional placeholders such
 as `$1`, `$2`, and `?`. For `$zoom.domain`, the
 stock tokenizer produces a placeholder token for `$zoom`, followed by `.` and
-the word `domain`. Under the Generic dialect, an adjacent temporal suffix such
-as `@start` is one word token whose spelling includes `@`. Before an SQL island
-is parsed, Avenger's token-normalization pass recognizes a named placeholder,
-zero or more `. ident` pairs, and an optional exact `@start` or `@previous`
-suffix. It records the full DSL path, temporal version, and source span, then
-substitutes one unique opaque quoted identifier token. A quoted identifier is
+the word `domain`. Under the narrowed Avenger dialect, `@` is never an
+identifier character, so an adjacent temporal suffix tokenizes as `@` followed
+by the word `start` or `previous`. Before an SQL island is parsed, Avenger's
+token-normalization pass recognizes a named placeholder, zero or more
+`. ident` pairs, and an optional adjacent exact `@ start` or `@ previous` token
+pair with no source trivia between the two tokens. It records the full DSL path,
+temporal version, and source span, then substitutes one unique opaque quoted
+identifier token. A quoted identifier is
 legal in both scalar-expression and table-relation positions, so SQL parsing can
 determine the occurrence's syntactic role without first resolving the binding
 kind. A side table preserves the original path, version, and source span.
@@ -6319,10 +6673,11 @@ relation, or any temporal store occurrence is a kind error at the original
 
 This is not a lexer extension: the original source still tokenizes completely
 through `sqlparser-rs`, and `$foo.bar` has no competing valid meaning in an SQL
-island. `@start` and `@previous` are reserved only as adjacent suffixes of a
-complete `$path`; other `@` tokens retain their SQL meaning. Trivia around `.`
-may be accepted, but the canonical printer emits no spaces around `.` or `@`.
-Quoted identifiers and numeric tokens are never path segments.
+island. `@start` and `@previous` are temporal only as adjacent suffixes of a
+complete `$path`; other supported `@` operator tokens retain their SQL meaning,
+and `@` never enters an identifier. Trivia around `.` may be accepted, but the
+canonical printer emits no spaces around `.` or `@`. Quoted identifiers and
+numeric tokens are never path segments.
 Synthetic identifier spellings live only in the normalized token buffer, are
 distinguished by a side table rather than a reserved source prefix, and never
 appear in diagnostics, serialized SQL, or printed DSL.
@@ -6356,7 +6711,7 @@ and lossless binding side-table entries.
 Start editor support with Zed only. Zed wants a Tree-sitter grammar and query
 files, so the first editor artifact should be a `tree-sitter-avenger` grammar
 that mirrors the DSL surface syntax closely enough for highlighting,
-indentation, bracket matching, and SQL injections.
+indentation, bracket matching, outline, and runnable queries.
 
 The Tree-sitter grammar is not the compiler parser. The compiler should still
 use the `sqlparser-rs` tokenize-then-parse strategy described above. The
@@ -6367,10 +6722,10 @@ Initial Zed extension shape:
 
 ```text
 tree-sitter-avenger/
-  grammar.js
+  grammar.js                  # extends the pinned avenger_sql base
+  SQL_BASE.md
   queries/
-    highlights.scm
-    injections.scm
+    highlights.scm            # composed structural + SQL captures
     brackets.scm
     indents.scm
 
@@ -6385,20 +6740,32 @@ avenger-zed/
     avenger/
       config.toml
       highlights.scm
-      injections.scm
       brackets.scm
       indents.scm
       outline.scm
       runnables.scm
       tasks.json
-    avenger-sql/
-      highlights.scm
 ```
 
-The SQL grammar can start as an adapted Tree-sitter SQL grammar rather than a
-from-scratch grammar. The adaptation should match the SQL accepted by
-DataFusion closely enough for highlighting, while also accepting Avenger's SQL
-island shapes:
+The SQL grammar starts as an aggressively trimmed fork of the modular,
+MIT-licensed `DerekStride/tree-sitter-sql` grammar rather than a from-scratch
+grammar or a wholesale general-SQL import. The fork retains only the reusable
+expression and read-query foundation needed for DataFusion: scalar expressions,
+`SELECT`, `FROM`, joins, CTEs, set operations, windows, subqueries, and
+`VALUES`. DDL, writes, transactions, procedures, administration, and unsupported
+dialect syntax are removed together with their unused rules, tokens, scanner
+branches, captures, and tests. Avenger then replaces the lexical/parameter
+layer, adds bindings and `FROM`-first queries, and records the pinned upstream
+revision and retain/remove/adapt inventory.
+
+The result is maintained as the independently testable `avenger_sql` base
+grammar. `tree-sitter-avenger` extends that base at parser generation time,
+replaces its root with the Avenger source root, and references its query and
+expression nonterminals directly. Zed registers only the self-contained
+combined `avenger` parser; it does not use runtime SQL language injection.
+
+The base should match the SQL accepted by DataFusion closely enough for
+highlighting while accepting all Avenger SQL contexts:
 
 - Full SQL statements after `sql:`, including standard `SELECT`,
   `FROM relation SELECT ...`, set operations, and `VALUES`. `FROM relation`
@@ -6412,11 +6779,12 @@ island shapes:
   highlighted as functions (no dedicated tokens are needed).
 - SQL comments using `-- ...` and `/* ... */`.
 
-This likely means the injected SQL language should be named something like
-`avenger-sql` rather than plain `sql`. A stock SQL grammar may highlight full
-`SELECT` statements well, but it may not accept a top-level expression fragment
-like `"amount" >= $min_amount and "region" = $selected_region`. The adapted
-grammar can have a tolerant top-level rule such as:
+The base grammar is named `avenger_sql` rather than plain `sql`. A stock SQL
+grammar may parse full `SELECT` statements but not expose a reusable top-level
+expression rule for a fragment such as
+`"amount" >= $min_amount and "region" = $selected_region`. The adapted grammar
+can retain a tolerant standalone root for its own tests while exporting stable
+query and expression nonterminals for the derived grammar:
 
 ```javascript
 source_file: $ => repeat(choice(
@@ -6426,9 +6794,9 @@ source_file: $ => repeat(choice(
 ))
 ```
 
-The adapted SQL grammar is for editor highlighting only. The compiler remains
-the source of truth: sqlparser under `AvengerSqlDialect` parses the frontend
-islands, and DataFusion receives them only at the planning boundary.
+Both generated Tree-sitter parsers are editor artifacts only. The compiler
+remains the source of truth: sqlparser under `AvengerSqlDialect` parses the
+frontend islands, and DataFusion receives them only at the planning boundary.
 
 The SQL grammar must give `FROM`-first queries the same stable relation,
 alias, projection, and clause nodes as standard ordering wherever the adapted
@@ -6436,28 +6804,18 @@ upstream permits. Highlight and recovery fixtures must include an incomplete
 `FROM vega.movies AS m SELECT m.` because that is the authoring shape that
 motivates the syntax guarantee.
 
-The first grammar can parse declarations, property blocks, SQL expression
-islands, full-statement `sql:` properties, comments, strings, params, and
-channel references. The excerpt below is schematic: it names root/import/data
-and body rules omitted for space. The peer Tree-sitter/Zed implementation plan
-owns the complete stable node contract and corpus. A sketch:
+The first combined grammar can parse declarations, property blocks, inherited
+SQL expression/query nodes, comments, strings, params, and channel references.
+The excerpt below is schematic: it names root/import/data and body rules omitted
+for space. The peer Tree-sitter/Zed implementation plan owns the complete
+stable node contract, base revision/synchronization contract, and corpus. A
+sketch:
 
 ```javascript
-module.exports = grammar({
+const AvengerSql = require("tree-sitter-avenger-sql/grammar");
+
+module.exports = grammar(AvengerSql, {
   name: "avenger",
-
-  extras: $ => [
-    /\s/,
-    $.comment,
-  ],
-
-  word: $ => $.identifier,
-
-  externals: $ => [
-    $.block_comment,
-    $._sql_expression,
-    $._sql_statement,
-  ],
 
   rules: {
     source_file: $ => seq(
@@ -6479,12 +6837,10 @@ module.exports = grammar({
       optional($.visibility_modifier),
       choice(
         $.chart_declaration,
-        $.group_declaration,
         $.mark_declaration,
         $.transform_declaration,
         $.param_declaration,
-        $.store_declaration,
-        $.selection_declaration,
+        $.slot_declaration,
         $.tool_declaration,
         $.widget_declaration,
         $.view_declaration,
@@ -6507,9 +6863,25 @@ module.exports = grammar({
 
     output_declaration: $ => seq(
       "output",
-      field("name", $.identifier),
-      optional(seq(":", field("source", $.sql_expression))),
+      choice(
+        field("name", $.identifier),
+        seq(
+          field("source", $.sql_output_expression),
+          "as",
+          field("name", $.identifier),
+        ),
+      ),
       ";",
+    ),
+
+    slot_declaration: $ => seq(
+      "slot",
+      field("shape", choice(
+        "expr", "expr_list", "literal", "number", "string", "boolean",
+        "enum", "function", "ref", "block", "channel",
+      )),
+      field("name", $.identifier),
+      choice($.property_block, ";"),
     ),
 
     chart_declaration: $ => seq(
@@ -6519,15 +6891,9 @@ module.exports = grammar({
       $.declaration_block,
     ),
 
-    group_declaration: $ => seq(
-      "group",
-      optional($.as_clause),
-      $.mixed_block,
-    ),
-
     mark_declaration: $ => seq(
       "mark",
-      field("kind", $.identifier),
+      field("kind", choice($.identifier, alias($.keyword_group, $.identifier))),
       optional($.as_clause),
       $.mixed_block,
     ),
@@ -6539,14 +6905,11 @@ module.exports = grammar({
       $.mixed_block,
     ),
 
-    param_declaration: $ => seq("param", $.as_clause, $.property_block),
-
-    store_declaration: $ => seq("store", $.as_clause, $.mixed_block),
-
-    selection_declaration: $ => seq(
-      "selection",
+    param_declaration: $ => seq(
+      "param",
+      field("type", choice($.arrow_type, "store", "selection")),
       $.as_clause,
-      $.property_block,
+      $.mixed_block,
     ),
 
     tool_declaration: $ => seq(
@@ -6607,15 +6970,23 @@ module.exports = grammar({
 
     property_block: $ => seq("{", repeat($.property), "}"),
 
-    property: $ => seq(
+    property: $ => choice($.sql_query_property, $.ordinary_property),
+
+    sql_query_property: $ => seq(
+      field("name", choice("sql", "query")),
+      ":",
+      field("value", $.sql_query),
+      ";",
+    ),
+
+    ordinary_property: $ => seq(
       field("name", $.identifier),
       ":",
       field("value", choice(
         $.object_value,
         $.array,
         $.typed_block_value,
-        $.sql_statement_value,
-        $.sql_expression_value,
+        $.configured_expression,
       )),
     ),
 
@@ -6626,16 +6997,16 @@ module.exports = grammar({
       $.property_block,
     ),
 
-    sql_expression_value: $ => seq(
-      $.sql_expression,
-      optional($.property_block),
-      optional(";"),
+    configured_expression: $ => seq(
+      field("expression", $.sql_property_expression),
+      choice($.property_block, ";"),
     ),
 
-    sql_statement_value: $ => seq($.sql_statement, ";"),
-
-    sql_expression: $ => $._sql_expression,
-    sql_statement: $ => $._sql_statement,
+    sql_property_expression: $ => $.expression,
+    sql_query: $ => $.query,
+    sql_terminated_expression: $ => $.expression,
+    sql_output_expression: $ => $.expression,
+    sql_array_expression: $ => $.expression,
 
     array: $ => seq(
       "[",
@@ -6644,42 +7015,37 @@ module.exports = grammar({
     ),
 
     array_value: $ => choice(
-      $.string,
-      $.number,
-      $.boolean,
-      $.binding_ref,
-      $.identifier,
+      $.object_value,
+      seq("value", $.sql_array_expression),
+      seq("pattern", $.property_block),
+      "none",
+      $.sql_array_expression,
     ),
 
-    binding_ref: $ => token(/\$[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*(@(start|previous))?/),
-    identifier: $ => /[A-Za-z_][A-Za-z0-9_]*/,
-    number: $ => /-?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?/,
-    string: $ => /'([^'\\]|\\.)*'/,
-    column: $ => /"([^"\\]|\\.)*"/,
-    boolean: $ => choice("true", "false"),
-    comment: $ => choice($.line_comment, $.block_comment),
-    line_comment: $ => token(seq("--", /[ \t][^\n\r]*/)),
+    // identifier, number, strings, columns, comments, SQL expressions, and
+    // queries are inherited from the pinned avenger_sql base.
+    signed_number: $ => choice($.number, seq(choice("+", "-"), $.number)),
   },
 });
 ```
 
-The sketch uses external tokens for `sql_expression` and `sql_statement`
-because those boundaries are the hard part. V1 uses a delimiter-aware external
-scanner that balances parentheses/brackets and SQL lexical states and stops
-before the DSL semicolon or channel/config block. It does not reimplement
-sqlparser semantics; the injected adapted SQL grammar parses the contained
-tokens, while compiler conformance remains authoritative.
+The four context wrappers reference inherited grammar rules rather than opaque
+byte ranges. Their surrounding derived rules keep the DSL semicolon, comma,
+closing bracket, or configuration body structural, while the SQL grammar owns
+nested SQL delimiters. This removes the duplicate island-boundary scanner and
+keeps binding/temporal nodes directly visible in the one syntax tree.
 
-The same external scanner should handle nested `block_comment` tokens because
-Tree-sitter regex tokens are not a good fit for nested `/* ... */` comments.
-Line comments can remain a simple regex token that requires whitespace after
-`--`.
+An external scanner may still be used by the SQL base for genuinely lexical
+forms such as the exact whitespace-sensitive `line_comment`, nested
+`block_comment`, or matching tagged dollar strings. If so, the combined grammar
+inherits those external symbols and synchronizes the required scanner source
+from the pinned base revision; it does not maintain another implementation.
 
-`sql_statement_value` should only be used for the `sql` property. Tree-sitter
-cannot easily enforce property-specific schemas in the grammar alone, so the
-highlight queries should match `property` nodes with name `sql` and treat their
-value as a statement. Other expression-like property values can be treated as
-SQL expressions for highlighting.
+`sql_query_property` is selected only by the two globally reserved property
+names `sql` and `query`; both contain one query rather than an arbitrary SQL
+statement. All other SQL-bearing contexts expose one of the three expression
+wrappers above. Authoring schemas still determine whether that value shape is
+legal for a particular native or defined declaration.
 
 Initial `highlights.scm` sketch:
 
@@ -6696,6 +7062,11 @@ Initial `highlights.scm` sketch:
   "param"
   "store"
   "selection"
+  "slot"
+  "channel"
+  "field"
+  "variable"
+  "adjust"
   "tool"
   "widget"
   "view"
@@ -6712,8 +7083,6 @@ Initial `highlights.scm` sketch:
 (string) @string
 (number) @number
 (boolean) @boolean
-
-(binding_ref) @variable.parameter
 
 (property name: (identifier) @property)
 (as_clause name: (identifier) @label)
@@ -6740,34 +7109,18 @@ Initial `highlights.scm` sketch:
 ] @punctuation.delimiter
 ```
 
-Initial `injections.scm` sketch:
-
-```scheme
-((sql_statement) @injection.content
- (#set! injection.language "avenger-sql"))
-
-((sql_expression) @injection.content
- (#set! injection.language "avenger-sql"))
-```
-
-If SQL injection over-highlights non-SQL DSL values, narrow the query by
-property name for the first pass:
-
-```scheme
-((property
-  name: (identifier) @_name
-  value: (sql_statement_value (sql_statement) @injection.content))
- (#eq? @_name "sql")
- (#set! injection.language "avenger-sql"))
-```
-
-The adapted SQL `highlights.scm` should use ordinary SQL captures for keywords,
-operators, functions, identifiers, strings, numbers, and comments, plus an
-Avenger capture for value-binding references:
+There is no Avenger SQL `injections.scm`. The SQL base's highlight query uses
+ordinary SQL captures for keywords, operators, functions, identifiers,
+strings, numbers, and comments, plus an Avenger capture for value-binding
+references:
 
 ```scheme
 (binding_ref) @variable.parameter
 ```
+
+`tree-sitter-avenger` deterministically composes those base captures with its
+structural captures into one `highlights.scm`, and `avenger-zed` synchronizes
+that combined query.
 
 Initial `brackets.scm` and `indents.scm` can be small:
 
@@ -6971,7 +7324,7 @@ top-level expression fragments. It should highlight:
 
 The web editor uses CodeMirror 6, and the decisive fit is Lezer's
 mixed-language parsing: a small Lezer grammar parses the DSL shell, and
-`parseMixed` delegates expression and statement islands to the Lezer SQL
+`parseMixed` delegates expression and query islands to the Lezer SQL
 grammar — the same island architecture the compiler uses, incrementally
 parsed, with no second hand-maintained tokenizer. CodeMirror's modular core
 keeps the editor at a fraction of Monaco's size (matching the two-bundle
@@ -7090,9 +7443,9 @@ avenger-lang-analysis                 # added with the later LSP milestone
   Tolerant editor tree and complete/hover/symbol/semantic-token APIs.
   Consumes DatasetSchemaIndex as data; native + wasm target.
 
-avenger-lsp-native
-  Desktop/server adapter.
-  stdio or socket LSP transport.
+avenger-lsp
+  Native protocol-adapter library used by `avenger-lang-cli`.
+  stdio LSP transport exposed as `avenger lsp`.
   Uses avenger-lang-analysis plus avenger-lang-compiler project analysis and
   the optional running-chart inspection client.
 
@@ -7173,7 +7526,8 @@ physical-plan-first design is tracked in
 An `avenger-lang` language server should use the compiler-oriented
 tokenize-then-parse architecture, not the Tree-sitter grammar, as its semantic
 source of truth. Tree-sitter makes editing feel good in Zed: syntax
-highlighting, indentation, bracket matching, and SQL injections. The language
+highlighting, indentation, bracket matching, and a combined structural/SQL
+syntax tree. The language
 server should answer semantic questions using the same parser, SQL parsing, and
 resolver that will eventually lower to `avenger-chart`.
 
@@ -7200,12 +7554,21 @@ avenger-lang-analysis/       # introduced by the future LSP plan
   symbols.rs
   semantic_tokens.rs
 
-avenger-lsp-native/
-  main.rs         # stdio/socket transport + compiler/inspector adapters
+avenger-lsp/
+  lib.rs          # native LSP protocol adapter and stdio service
+
+avenger-lang-cli/
+  main.rs         # exposes the adapter as `avenger lsp`
 
 avenger-lsp-wasm/
   lib.rs          # Web Worker transport over dependency-light analysis
 ```
+
+`avenger-lsp` is a library rather than a second installed executable. The
+native distribution has one command/version surface, `avenger lsp`, owned by
+`avenger-lang-cli`. LSP protocol types remain confined to that adapter;
+`avenger-lang-analysis` exposes editor-neutral byte-offset request/result
+types.
 
 The parser should support two modes:
 
@@ -7228,8 +7591,8 @@ resume from a recovery point if one can be found.
 
 The Avenger parser should recover at DSL sync points:
 
-- In declaration blocks, sync at declaration starters such as `chart`, `group`,
-  `mark`, `transform`, `param`, `store`, `selection`, `tool`, `view`, `on`,
+- In declaration blocks, sync at declaration starters such as `chart`,
+  `mark`, `transform`, `param`, `tool`, `view`, `on`,
   `facet`, `cell`, `private`, `public`, `export`, `output`, or at `}`.
 - In property blocks, sync at a plausible `identifier:` pair or at `}`.
 - If a property semicolon is missing before the next `identifier:`, synthesize
@@ -7256,9 +7619,15 @@ SQL island recovery boundaries depend on the slot:
 
 - Expression property: stop at a top-level `;`, top-level `{`, `}`, EOF, or a
   plausible next `identifier:`.
-- Channel value: stop at a top-level `{` so `x: amount { ... }` still separates
-  the SQL value from channel configuration.
-- Full-statement `sql:` property: stop at the statement semicolon, `}`, or EOF.
+- Channel and `value` payload: stop at a top-level `{` so
+  `x: amount { ... }` still separates the SQL value from configuration.
+- Explicit output expression: stop before the top-level `as` that introduces
+  the required public output name. SQL-internal `AS` tokens inside a complete
+  expression remain owned by the SQL parser.
+- Structurally terminated action RHS: stop at the top-level `;`, `}`, or EOF;
+  a top-level `{` is not a DSL terminator there.
+- Array element: stop at the top-level `,` or `]`; the outer array owns both.
+- Full-query `sql:`/`query:` property: stop at the query semicolon, `}`, or EOF.
 
 The analysis pipeline should be:
 
@@ -7268,7 +7637,7 @@ The analysis pipeline should be:
    `@start` or `@previous`, inside an SQL island to a unique kind-neutral quoted
    identifier, retaining a synthetic-token-to-path/version/source-span side
    table.
-4. Parse SQL expression and statement islands with sqlparser under
+4. Parse SQL expression and query islands with sqlparser under
    `AvengerSqlDialect`; use DataFusion only for subsequent native planning.
 5. Resolve names, scopes, value-binding paths, transform aliases, event targets,
    views, tools, selections, stores, and channel references; use each binding's
@@ -7369,7 +7738,7 @@ The LSP can offer:
   targets, typed-reference kind mismatches, private cross-boundary state access,
   forward references to sequential aliases/columns, value-binding collisions,
   scalar/table binding kind mismatches, invalid temporal binding qualifiers or
-  contexts, param-default and table
+  contexts, param-initializer and table
   dependency cycles, later-slot default references, invalid block modes, group
   transform ordering violations, SQL parse errors, and invalid placeholders
   such as `$1` or `?`.
@@ -7595,8 +7964,8 @@ phase owns incremental completion of this inventory. Generic parser work does
 not wait for every family.
 
 Imported `define` files contribute schema fragments after parsing: each typed
-slot becomes a property with exactly its declared `ValueShape`, channel
-parameters become renameable channel positions, transform outputs and export
+slot becomes a property with exactly its declared `ValueShape`; channel slots
+become renameable channel positions; transform outputs and export
 aliases become completion/validation surfaces, and enum slots supply the domains that `match`
 blocks must exhaust. Those fragments must validate against the same meta-model
 before an imported kind enters the registry. They may add names but cannot
@@ -7738,40 +8107,36 @@ and unavailable providers produce explicit schema-unavailable diagnostics.
 An optional running-chart inspection connection supplies observed values and
 schemas as a revisioned overlay; it does not replace planned schema analysis.
 
-## Open Questions
+## Post-v1 Considerations (Non-blocking)
 
-- Should resource declarations such as params and data get compact shorthands
-  in v1, or remain object declarations until the grammar settles?
-- Should anything beyond `define` declarations become importable as a chart
-  dependency (for example, named data declarations)?
-- Private nested defines — the designated pressure valve if one-item
-  file sprawl ever hurts: a helper `define` visible only to the file's
+None of the items below is an unresolved v1 requirement or an implementation
+gate. V1 chooses the conservative form stated first; a future language version
+may revisit it with usage evidence.
+
+- V1 has no compact resource shorthands; params and data retain their canonical
+  declaration/property forms.
+- V1 chart dependencies are the importable definition and data resources
+  specified above; it does not add named chart-local data declarations.
+- V1 forbids private nested defines. They remain the designated pressure valve
+  if one-item file sprawl ever hurts: a helper `define` visible only to the file's
   single export (one *public* item per file stays the law; imports,
-  naming, expansion, and the gallery untouched). Currently forbidden by
-  the no-nested-definitions hygiene rule; open until real usage shows
-  the need.
-- Should a future shorthand auto-import the bundled definition library (a prelude), or
-  do explicit per-definition imports (`import 'std:marks/error_bar';`) stay mandatory?
-- When and how does a `pkg:` naming/discovery layer arrive over the
+  naming, expansion, and the gallery untouched).
+- V1 requires explicit per-definition imports
+  (`import 'std:marks/error_bar';`) and has no automatic prelude.
+- V1 has no `pkg:` scheme. A future naming/discovery layer may sit over the
   fetch-pin-cache mechanism — a community index of URLs first, a real
-  registry later, or never?
-- Should hash algorithm agility beyond `sha256` be specified now (the
-  keyword position permits future algorithms) or deferred until needed?
-- Pattern ranges are the one theming surface CSS cannot express (patterns
-  are structured DSL values). If themeable pattern defaults prove necessary,
-  do patterns gain CSS syntax, or does a minimal theme definition kind
-  return?
-- Should transform-definition outputs support slot-derived names (a
-  calculate-style transform whose output column names the caller chooses),
-  or do fixed `output` declarations cover the practical cases?
-- Should a block slot ever allow multiple splice points (the same caller
-  content stamped at several positions), or does single-splice stay the
-  rule?
-- Should `part` overrides at instantiation sites be allowed to attach mark
-  effects (`adjust`, `derive`) to a definition's internal marks, or only to
-  restyle properties?
-- Should reserved helper functions gain dotted sugar (`event.coord.x` for
-  `event_coord(x)`) once the parser can keep it unambiguous?
+  registry later, or no registry at all.
+- V1 pins only `sha256`; the grammar leaves room for later hash-algorithm
+  agility.
+- V1 does not theme structured pattern defaults through CSS. If demand appears,
+  a future version may add pattern CSS syntax or a narrowly scoped theme form.
+- V1 transform-definition outputs have fixed public names and never derive an
+  output name from a slot.
+- V1 block slots have exactly one splice point; repeated stamping is excluded.
+- V1 `part` overrides merge style/configuration properties only; they cannot
+  attach `adjust`, `derive`, or other child effects to internal marks.
+- V1 uses reserved helper functions such as `event_coord(x)` and has no dotted
+  sugar such as `event.coord.x`.
 - **An inline Rust macro** (recorded 2026-07-10; wanted): `chart!(r#"…"#)`
   as a full `Chart` constructor in Rust source. Verbatim token-tree form is
   ruled out **by design** — the SQL-flavored surface (single-quoted strings,

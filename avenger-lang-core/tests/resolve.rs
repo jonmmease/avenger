@@ -4,7 +4,8 @@ use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, NativeSchemaSnaps
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadLimits,
     ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedSelectionCombine,
-    ResolvedSelectionEmpty, ResolvedTarget, SourceOrigin, render_diagnostics, resolve_project,
+    ResolvedSelectionEmpty, ResolvedTarget, ResolvedValue, SourceOrigin, render_diagnostics,
+    resolve_project,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -77,7 +78,7 @@ avenger 1;
 chart cartesian as chart {
   param int64 as upper { value: $lower + 10; }
   param int64 as lower { value: 0; }
-  container group as points {
+  mark group as points {
     mark symbol as dots { x: "x"; y: "y"; }
   }
 }
@@ -269,7 +270,7 @@ async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
             r#"avenger 1;
 chart cartesian {
   param int64 as state { value: 1; }
-  container group {
+  mark group {
     param selection as state {}
     mark symbol { x: "x"; y: "y"; size: $state; }
   }
@@ -557,7 +558,7 @@ async fn resolve_native_schema_contracts_cover_placement_body_children_and_coord
             r#"
 avenger 1;
 chart cartesian as contracts {
-  container group {
+  mark group {
     widget radio_button_list as nested {
       data: { values: [{ value: 'a'; label: 'A'; }]; }
       position: top;
@@ -627,11 +628,11 @@ async fn resolve_private_exports_hoisting_and_nearest_value_shadowing() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  container group as controls {
+  mark group as controls {
     private param int64 as internal { value: 7; }
     export internal as value;
   }
-  private container group as implementation {
+  private mark group as implementation {
     public mark symbol as visible { x: "x"; y: "y"; }
   }
   param int64 as copied { value: $controls.value; }
@@ -658,7 +659,7 @@ chart cartesian as chart {
 avenger 1;
 chart cartesian {
   param int64 as data { value: 1; }
-  container group as nested {
+  mark group as nested {
     param store as data { field int64 id; }
     param int64 as copy { value: $data; }
   }
@@ -684,7 +685,7 @@ chart cartesian {
             r#"
 avenger 1;
 chart cartesian as exports {
-  container group as component {
+  mark group as component {
     private mark symbol as first { x: "x"; y: "y"; }
     private mark symbol as second { x: "x"; y: "y"; }
     export first as glyph;
@@ -885,7 +886,7 @@ define mark point_pair {
   slot channel vertical { default: y; }
   slot expr horizontal_value;
   slot expr vertical_value;
-  container group as body {
+  mark group as body {
     mark symbol as point {
       horizontal: horizontal_value;
       vertical: vertical_value;
@@ -1074,7 +1075,7 @@ async fn resolve_inline_views_are_body_lexical_and_never_public() {
             r#"
 avenger 1;
 chart cartesian as chart {
-  container group as owner {
+  mark group as owner {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
@@ -1110,7 +1111,7 @@ chart cartesian as chart {
             r#"
 avenger 1;
 chart cartesian {
-  container group {
+  mark group {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
@@ -1145,7 +1146,7 @@ async fn resolve_rejects_reusable_exported_and_nested_inline_views() {
             r#"
 avenger 1;
 chart cartesian {
-  container group {
+  mark group {
     public view cartesian as reusable {
       export child;
       view cartesian as nested {
@@ -1249,7 +1250,7 @@ avenger 1;
 define mark broken {
   slot expr later;
   slot enum mode { values: [a, b]; default: missing; }
-  container group {}
+  mark group {}
 }
 "#,
             ),
@@ -1280,7 +1281,7 @@ async fn resolve_public_mark_and_component_part_provenance_matches_baseline() {
             r#"
 avenger 1;
 chart cartesian as provenance {
-  container group as composite {
+  mark group as composite {
     component_kind: point_pair;
     mark symbol as point { x: "x"; y: "y"; }
     export point as glyph;
@@ -1327,6 +1328,140 @@ chart cartesian as provenance {
         "public-interface.json",
         &format!("{}\n", serde_json::to_string_pretty(&snapshot).unwrap()),
     );
+}
+
+#[tokio::test]
+async fn resolve_legend_overlay_uses_private_cartesian_mark_pipeline() {
+    let project = project(
+        &[
+            (
+                "chart.avenger",
+                r#"
+avenger 1;
+import 'band.mark.avenger';
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
+  mark symbol as points {
+    x: "x";
+    y: "y";
+    fill: "value" {
+      legend: {
+        overlay: {
+          mark group as thresholds {
+            data: { values: [{ lo: 2.0; hi: 7.0; }]; }
+            mark rect as band {
+              x: 0.0;
+              x2: 1.0;
+              y: "lo";
+              y2: "hi";
+              fill: value 'rgba(37, 99, 235, 0.20)';
+            }
+          }
+          mark band as imported_band {}
+        }
+      }
+    }
+  }
+}
+"#,
+            ),
+            (
+                "band.mark.avenger",
+                r#"
+avenger 1;
+define mark band {
+  mark rect {
+    x: 0.0;
+    x2: 1.0;
+    y: 3.0;
+    y2: 4.0;
+    fill: value 'rgba(220, 38, 38, 0.20)';
+  }
+}
+"#,
+            ),
+        ],
+        "chart.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = &resolved
+        .files
+        .values()
+        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .unwrap()
+        .roots[0];
+    let mark = &chart.children[0];
+    let ResolvedValue::Object {
+        properties: fill, ..
+    } = &mark.properties["fill"]
+    else {
+        panic!("configured fill channel")
+    };
+    let ResolvedValue::Object {
+        properties: legend, ..
+    } = &fill["legend"]
+    else {
+        panic!("legend block")
+    };
+    let ResolvedValue::Object {
+        children: overlay, ..
+    } = &legend["overlay"]
+    else {
+        panic!("overlay mark block")
+    };
+    assert_eq!(overlay.len(), 2);
+    let group = &overlay[0];
+    assert_eq!(group.keyword, "mark");
+    assert_eq!(group.kind.as_deref(), Some("group"));
+    assert!(group.public_path.is_none());
+    assert!(matches!(
+        group.runtime_target,
+        Some(ResolvedTarget::Mark(_))
+    ));
+    assert_eq!(group.children[0].keyword, "mark");
+    assert!(group.children[0].public_path.is_none());
+    let imported = &overlay[1];
+    assert_eq!(imported.keyword, "mark");
+    assert_eq!(imported.kind.as_deref(), Some("band"));
+    assert!(imported.public_path.is_none());
+}
+
+#[tokio::test]
+async fn resolve_legend_overlay_rejects_empty_properties_and_non_mark_children() {
+    for (overlay, code) in [
+        ("overlay: {}", "AVENGER-RESOLVE-179"),
+        (
+            "overlay: { data: { values: []; } mark rect {} }",
+            "AVENGER-RESOLVE-178",
+        ),
+        (
+            "overlay: { transform filter { predicate: true; } }",
+            "AVENGER-RESOLVE-178",
+        ),
+    ] {
+        let source = format!(
+            "avenger 1; chart cartesian {{ mark symbol {{ fill: 1.0 {{ legend: {{ {overlay} }} }} }} }}"
+        );
+        let project = project(&[("chart.avenger", &source)], "chart.avenger").await;
+        let failure = resolve_project(&project, &bootstrap_schema())
+            .result
+            .unwrap_err();
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_str() == code),
+            "{overlay}: {:?}",
+            failure
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
 }
 
 #[tokio::test]
@@ -1894,8 +2029,8 @@ chart cartesian as events {
     primary_key: [id];
   }
   param selection as picked { empty: none; combine: union; }
-  container group as overview { mark symbol as points { x: "x"; y: "y"; } }
-  container group as detail { mark symbol as points { x: "x"; y: "y"; } }
+  cell cartesian as overview { mark symbol as points { x: "x"; y: "y"; } }
+  cell cartesian as detail { mark symbol as points { x: "x"; y: "y"; } }
   on cursor_moved as drag {
     target: marks [overview.points, detail.points];
     scope: subplots [overview, detail];
@@ -1978,12 +2113,16 @@ async fn resolve_rejects_invalid_scene_query_mark_targets() {
 avenger 1;
 chart cartesian as bad_scene_targets {
   param selection as picked { empty: none; combine: union; }
-  container group as panel { mark symbol as points { x: "x"; y: "y"; } }
+  mark group as panel { mark symbol as points { x: "x"; y: "y"; } }
+  widget radio_button_list as choice {
+    data: { values: [{ value: 'a'; label: 'A'; }]; }
+    position: top;
+  }
   on cursor_moved {
     set picked = replace_all_from_scene_query {
       geometry: polygon(event_path());
       policy: intersects;
-      marks: [panel.points, panel.points, panel, 1 + 2];
+      marks: [panel.points, panel.points, choice.container, 1 + 2];
     }
   }
 }
@@ -2000,9 +2139,9 @@ chart cartesian as bad_scene_targets {
         .iter()
         .map(|diagnostic| diagnostic.code.as_str())
         .collect::<Vec<_>>();
-    assert!(codes.contains(&"AVENGER-RESOLVE-155"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-156"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-157"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-155"), "{codes:?}");
+    assert!(codes.contains(&"AVENGER-RESOLVE-156"), "{codes:?}");
+    assert!(codes.contains(&"AVENGER-RESOLVE-157"), "{codes:?}");
 }
 
 #[tokio::test]

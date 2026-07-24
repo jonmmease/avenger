@@ -2041,7 +2041,7 @@ fn flatten_symbols(
 fn symbol_kind(kind: avenger_lang_analysis::SymbolKind) -> SymbolKind {
     use avenger_lang_analysis::SymbolKind as A;
     match kind {
-        A::Chart | A::Group | A::Mark | A::Widget | A::View => SymbolKind::OBJECT,
+        A::Chart | A::Mark | A::Widget | A::View => SymbolKind::OBJECT,
         A::Definition | A::Transform | A::Tool => SymbolKind::FUNCTION,
         A::Catalog | A::Schema => SymbolKind::NAMESPACE,
         A::Table | A::Store => SymbolKind::ARRAY,
@@ -2972,7 +2972,7 @@ mod tests {
         let chart = root.join("chart.avenger");
         let remote_url = "https://example.test/badge.mark.avenger";
         let text = format!(
-            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ container group as cluster {{ mark symbol {{}} }} }}"
+            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ mark group as cluster {{ mark symbol {{}} }} }}"
         );
         fs::write(&chart, &text).unwrap();
         let root_uri = Uri::from_file_path(&root).unwrap();
@@ -3124,7 +3124,7 @@ mod tests {
         .unwrap();
         assert!(stale.is_error());
 
-        let group_start = text.find("container group as cluster").unwrap();
+        let group_start = text.find("mark group as cluster").unwrap();
         let extracted = call(
             &mut service,
             Request::build("textDocument/codeAction")
@@ -3133,7 +3133,7 @@ mod tests {
                     "textDocument": { "uri": chart_uri },
                     "range": {
                         "start": { "line": 0, "character": group_start },
-                        "end": { "line": 0, "character": group_start + "container group as cluster".len() }
+                        "end": { "line": 0, "character": group_start + "mark group as cluster".len() }
                     },
                     "context": { "diagnostics": [], "only": ["refactor.extract"] }
                 }))
@@ -3255,7 +3255,7 @@ mod tests {
         assert!(matches!(
             &edits[0].edits[0],
             OneOf::Left(edit)
-                if edit.new_text.starts_with("container group as imported")
+                if edit.new_text.starts_with("mark group as imported")
                     && edit.new_text.contains("component_kind: badge")
         ));
     }

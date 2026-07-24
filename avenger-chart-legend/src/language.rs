@@ -79,6 +79,13 @@ pub fn definition() -> ObjectLanguageDefinition {
             ),
         );
     }
+    schema = schema.property(
+        "overlay",
+        PropertySchema::optional(
+            ValueShape::MarkBlock,
+            "Marks rendered on a continuous colorbar surface using injected Cartesian value and cross-axis scales.",
+        ),
+    );
     ObjectLanguageDefinition {
         schema,
         lowerer: lower_legend,

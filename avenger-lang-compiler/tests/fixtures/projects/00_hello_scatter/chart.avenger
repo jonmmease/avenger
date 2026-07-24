@@ -16,7 +16,7 @@ chart cartesian as chart {
     ];
   }
 
-  container group as points {
+  mark group as points {
     mark symbol as dots {
       x: "x" {
         scale: linear;

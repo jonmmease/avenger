@@ -51,7 +51,7 @@ use crate::{
     concat::{ConcatOrigin, GridConcat, HConcat, VConcat, WrapConcat},
     event::{ChartEventBinding, ChartEventStream, rewrite_reserved_event_binding_local_datums},
     layout::{LayoutSpec, SizeMode},
-    legend::ColorbarOverlay,
+    legend::{ColorbarOverlay, colorbar_overlay::validate_overlay_mark},
     repeat::{RepeatColumns, RepeatGrid, RepeatResolvedChildPlotSpec, RepeatRows, RepeatWrap},
     tools::{ToolCompileContext, discover_tool_scale_targets},
 };
@@ -3224,7 +3224,7 @@ async fn compile_colorbar_overlays(
         if legend.colorbar_overlays.is_empty() {
             continue;
         }
-        let mut marks = Vec::new();
+        let mut authored_marks = Vec::new();
         for overlay in &legend.colorbar_overlays {
             let Some(overlay) = overlay.downcast_ref::<ColorbarOverlay>() else {
                 return Err(AvengerChartError::InvalidArgument(format!(
@@ -3232,11 +3232,55 @@ async fn compile_colorbar_overlays(
                     channel_name
                 )));
             };
-            marks.extend(overlay.compile(session_context).await?);
+            authored_marks.extend(overlay.marks().iter().cloned());
+        }
+        if authored_marks.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Legend '{}' colorbar overlay must contain at least one mark",
+                channel_name
+            )));
+        }
+
+        let mut flat = flatten_plot_marks(&authored_marks, None)?;
+        let mut states = resolve_mark_states(&flat.marks, None)?;
+        lower_group_views(&flat, &mut states)?;
+        let mut identities =
+            CompiledIdentityAllocator::new(format!("colorbar-overlay:{channel_name}"));
+        resolve_inline_view_identities(&mut flat, &mut states, &mut identities)?;
+
+        let mut marks = Vec::with_capacity(flat.marks.len());
+        for (mark_index, (mark, state)) in flat.marks.iter().zip(&states).enumerate() {
+            validate_overlay_mark(mark.as_ref(), session_context)?;
+            let dataframe = if state.data_mode == MarkDataMode::Unit {
+                None
+            } else {
+                state.data.dataframe().cloned()
+            };
+            let compiled_state = CompiledMarkState::from_mark_state(state, dataframe)
+                .with_mark_index(mark_index)
+                .with_identity(CompiledMarkIdentity {
+                    runtime_id: identities.allocate_mark(),
+                    source_name: state.id.clone(),
+                    // Colorbar overlay declarations are deliberately local:
+                    // retain source identity/provenance without publishing
+                    // chart-level target paths.
+                    public_aliases: Vec::new(),
+                    private_ancestry: flat.private_ancestries[mark_index].clone(),
+                    component: flat.component_provenance[mark_index].clone(),
+                });
+            let compiled_mark = mark.compile(compiled_state, session_context).await?;
+            if compiled_mark.as_positioned_subplot().is_some() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Colorbar overlay marks must be ordinary Cartesian marks; positioned subplots are not supported in colorbar overlays".to_string(),
+                ));
+            }
+            marks.push(compiled_mark);
         }
         compiled.push(CompiledColorbarOverlayMarks {
             channel_name: channel_name.clone(),
             marks,
+            mark_groups: compile_mark_group_states(&flat.group_states),
+            mark_group_index_by_mark: flat.mark_group_indices,
         });
     }
     Ok(compiled)

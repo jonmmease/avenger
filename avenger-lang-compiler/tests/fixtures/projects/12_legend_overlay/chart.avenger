@@ -1,0 +1,50 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { x: CAST(1.0 AS DOUBLE); y: CAST(2.0 AS DOUBLE); value: CAST(2.0 AS DOUBLE); },
+      { x: CAST(2.0 AS DOUBLE); y: CAST(3.5 AS DOUBLE); value: CAST(5.0 AS DOUBLE); },
+      { x: CAST(3.0 AS DOUBLE); y: CAST(2.8 AS DOUBLE); value: CAST(8.0 AS DOUBLE); }
+    ];
+  }
+
+  mark symbol as points {
+    x: "x" { scale: linear; axis: { title: 'X'; } }
+    y: "y" { scale: linear; axis: { title: 'Y'; } }
+    size: value 110.0;
+    fill: "value" {
+      scale: linear {
+        domain: [0.0, 10.0];
+        nice: false;
+        zero: false;
+      }
+      legend: {
+        title: 'Value';
+        overlay: {
+          mark group as selected_range {
+            data: {
+              values: [
+                { lo: CAST(2.0 AS DOUBLE); hi: CAST(7.0 AS DOUBLE); }
+              ];
+            }
+            transform filter {
+              predicate: "hi" > "lo";
+            }
+            mark rect as band {
+              x: 0.0;
+              x2: 1.0;
+              y: "lo";
+              y2: "hi";
+              fill: value 'rgba(37, 99, 235, 0.20)';
+              stroke: value '#2563eb';
+              stroke_width: value 1.5;
+            }
+          }
+        }
+      }
+    }
+    stroke: value '#ffffff';
+    stroke_width: value 1.0;
+  }
+}

@@ -13867,6 +13867,13 @@
           "required": false,
           "docs": "Legend item-flow orientation."
         },
+        "overlay": {
+          "shape": {
+            "shape": "mark_block"
+          },
+          "required": false,
+          "docs": "Marks rendered on a continuous colorbar surface using injected Cartesian value and cross-axis scales."
+        },
         "position": {
           "shape": {
             "shape": "sql_expression"

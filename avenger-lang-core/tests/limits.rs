@@ -27,7 +27,7 @@ fn syntax_limits_bound_tokens_nesting_and_declarations() {
     assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-022");
 
     let error = parse_file_with_limits(
-        &source("avenger 1; chart cartesian { container group { mark symbol {} } }"),
+        &source("avenger 1; chart cartesian { mark group { mark symbol {} } }"),
         SyntaxLimits {
             max_nesting_depth: 1,
             ..SyntaxLimits::default()

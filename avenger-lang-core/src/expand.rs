@@ -14,6 +14,8 @@ use crate::{
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
 
+const MARK_BLOCK_PATH_SEGMENT: usize = usize::MAX;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExpansionLimits {
     pub max_declarations: usize,
@@ -498,11 +500,14 @@ impl Expander<'_> {
         let resolved_properties = self
             .resolved_declaration(owner, path)
             .map(|declaration| declaration.properties.clone());
-        substituted.props = self.expand_properties(
+        let mut mark_block_ordinal = 0;
+        substituted.props = self.expand_properties_at(
             owner,
             &declaration.props,
             context,
             resolved_properties.as_ref(),
+            path,
+            &mut mark_block_ordinal,
         );
         self.pending_origins
             .entry(self.chart_owner(owner, context))
@@ -559,8 +564,40 @@ impl Expander<'_> {
         inside_private: bool,
         context: Option<&ExpansionContext>,
     ) -> Body {
+        let mut mark_block_ordinal = 0;
+        self.expand_body_at(
+            owner,
+            props,
+            children,
+            parent_path,
+            source_indices,
+            inside_private,
+            context,
+            &mut mark_block_ordinal,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn expand_body_at(
+        &mut self,
+        owner: &ProjectFileId,
+        props: &PropertyMap,
+        children: &[Decl],
+        parent_path: &[usize],
+        source_indices: Option<&[usize]>,
+        inside_private: bool,
+        context: Option<&ExpansionContext>,
+        mark_block_ordinal: &mut usize,
+    ) -> Body {
         let mut body = Body {
-            props: self.expand_properties(owner, props, context, None),
+            props: self.expand_properties_at(
+                owner,
+                props,
+                context,
+                None,
+                parent_path,
+                mark_block_ordinal,
+            ),
             children: Vec::new(),
         };
         for (index, child) in children.iter().enumerate() {
@@ -795,7 +832,11 @@ impl Expander<'_> {
             });
 
         let mut wrapper = match schema.kind {
-            DefinitionKind::Mark => Decl::new(name("group")),
+            DefinitionKind::Mark => {
+                let mut declaration = Decl::new(name("mark"));
+                declaration.kind = Some(name("group"));
+                declaration
+            }
             DefinitionKind::Tool => {
                 let mut declaration = Decl::new(name("tool"));
                 declaration.kind = Some(name("behavior"));
@@ -920,6 +961,26 @@ impl Expander<'_> {
         context: Option<&ExpansionContext>,
         resolved: Option<&BTreeMap<String, crate::resolve::ResolvedValue>>,
     ) -> PropertyMap {
+        let mut mark_block_ordinal = 0;
+        self.expand_properties_at(
+            owner,
+            props,
+            context,
+            resolved,
+            &[],
+            &mut mark_block_ordinal,
+        )
+    }
+
+    fn expand_properties_at(
+        &mut self,
+        owner: &ProjectFileId,
+        props: &PropertyMap,
+        context: Option<&ExpansionContext>,
+        resolved: Option<&BTreeMap<String, crate::resolve::ResolvedValue>>,
+        declaration_path: &[usize],
+        mark_block_ordinal: &mut usize,
+    ) -> PropertyMap {
         let mut output = PropertyMap::default();
         for (property, value) in props.iter() {
             let property_name = context
@@ -951,7 +1012,14 @@ impl Expander<'_> {
             {
                 rename_reference_value(value, &context.private_names)
             } else {
-                self.expand_value(owner, value, context)
+                self.expand_value_at(
+                    owner,
+                    property.as_str(),
+                    value,
+                    context,
+                    declaration_path,
+                    mark_block_ordinal,
+                )
             };
             output.set(name(&property_name), value);
         }
@@ -964,18 +1032,62 @@ impl Expander<'_> {
         value: &Value,
         context: Option<&ExpansionContext>,
     ) -> Value {
+        let mut mark_block_ordinal = 0;
+        self.expand_value_at(owner, "", value, context, &[], &mut mark_block_ordinal)
+    }
+
+    fn expand_value_at(
+        &mut self,
+        owner: &ProjectFileId,
+        property: &str,
+        value: &Value,
+        context: Option<&ExpansionContext>,
+        declaration_path: &[usize],
+        mark_block_ordinal: &mut usize,
+    ) -> Value {
+        if property == "overlay"
+            && let Value::Block { head, body } = value
+        {
+            let ordinal = *mark_block_ordinal;
+            *mark_block_ordinal += 1;
+            let mut block_path = declaration_path.to_vec();
+            block_path.extend([MARK_BLOCK_PATH_SEGMENT, ordinal]);
+            return Value::Block {
+                head: head.as_ref().map(|head| {
+                    Box::new(self.expand_value_at(
+                        owner,
+                        "",
+                        head,
+                        context,
+                        declaration_path,
+                        mark_block_ordinal,
+                    ))
+                }),
+                body: self.expand_body_at(
+                    owner,
+                    &body.props,
+                    &body.children,
+                    &block_path,
+                    None,
+                    false,
+                    context,
+                    mark_block_ordinal,
+                ),
+            };
+        }
         let Some(context) = context else {
             return match value {
                 Value::Block { head, body } => Value::Block {
                     head: head.clone(),
-                    body: self.expand_body(
+                    body: self.expand_body_at(
                         owner,
                         &body.props,
                         &body.children,
-                        &[],
+                        declaration_path,
                         None,
                         false,
                         None,
+                        mark_block_ordinal,
                     ),
                 },
                 _ => value.clone(),
@@ -1009,22 +1121,37 @@ impl Expander<'_> {
                         {
                             return values.clone();
                         }
-                        vec![self.expand_value(owner, value, Some(context))]
+                        vec![self.expand_value_at(
+                            owner,
+                            "",
+                            value,
+                            Some(context),
+                            declaration_path,
+                            mark_block_ordinal,
+                        )]
                     })
                     .collect(),
             ),
             Value::Block { head, body } => Value::Block {
-                head: head
-                    .as_ref()
-                    .map(|head| Box::new(self.expand_value(owner, head, Some(context)))),
-                body: self.expand_body(
+                head: head.as_ref().map(|head| {
+                    Box::new(self.expand_value_at(
+                        owner,
+                        "",
+                        head,
+                        Some(context),
+                        declaration_path,
+                        mark_block_ordinal,
+                    ))
+                }),
+                body: self.expand_body_at(
                     owner,
                     &body.props,
                     &body.children,
-                    &[],
+                    declaration_path,
                     None,
                     false,
                     Some(context),
+                    mark_block_ordinal,
                 ),
             },
             Value::Binding { kind, path, time } => Value::Binding {
@@ -1308,7 +1435,7 @@ fn find_declaration_mut<'a>(children: &'a mut [Decl], path: &[String]) -> Option
 fn targetable_declaration(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "mark" | "group" | "tool" | "param" | "store" | "selection" | "widget"
+        "mark" | "tool" | "param" | "store" | "selection" | "widget"
     )
 }
 
@@ -1319,8 +1446,6 @@ fn binds_private_name(declaration: &Decl) -> bool {
             | "store"
             | "selection"
             | "dimension"
-            | "group"
-            | "overlay"
             | "mark"
             | "transform"
             | "view"
@@ -1497,10 +1622,61 @@ fn resolved_declaration_at<'a>(
 ) -> Option<&'a crate::resolve::ResolvedDeclaration> {
     let (first, rest) = path.split_first()?;
     let mut declaration = roots.get(*first)?;
-    for index in rest {
-        declaration = declaration.children.get(*index)?;
+    let mut index = 0;
+    while index < rest.len() {
+        if rest[index] == MARK_BLOCK_PATH_SEGMENT {
+            let block = *rest.get(index + 1)?;
+            let child = *rest.get(index + 2)?;
+            declaration = resolved_mark_blocks(declaration).get(block)?.get(child)?;
+            index += 3;
+        } else {
+            declaration = declaration.children.get(rest[index])?;
+            index += 1;
+        }
     }
     Some(declaration)
+}
+
+fn resolved_mark_blocks(
+    declaration: &crate::resolve::ResolvedDeclaration,
+) -> Vec<&[crate::resolve::ResolvedDeclaration]> {
+    fn collect<'a>(
+        value: &'a crate::resolve::ResolvedValue,
+        output: &mut Vec<&'a [crate::resolve::ResolvedDeclaration]>,
+    ) {
+        match value {
+            crate::resolve::ResolvedValue::Object { properties, .. } => {
+                for (name, value) in properties {
+                    if name == "overlay"
+                        && let crate::resolve::ResolvedValue::Object { children, .. } = value
+                    {
+                        output.push(children);
+                    } else {
+                        collect(value, output);
+                    }
+                }
+            }
+            crate::resolve::ResolvedValue::Array(values) => {
+                for value in values {
+                    collect(value, output);
+                }
+            }
+            crate::resolve::ResolvedValue::Visual(value)
+            | crate::resolve::ResolvedValue::Pattern(value) => collect(value, output),
+            crate::resolve::ResolvedValue::Call { args, .. } => {
+                for value in args {
+                    collect(value, output);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut blocks = Vec::new();
+    for value in declaration.properties.values() {
+        collect(value, &mut blocks);
+    }
+    blocks
 }
 
 fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {

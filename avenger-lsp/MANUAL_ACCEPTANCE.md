@@ -24,7 +24,7 @@ ordinary non-monorepo worktree with `avenger` on `PATH`.
   braces, strings, SQL, and rapid edits without restarting the server.
 - [ ] Structural completion covers declarations, native kinds, properties,
   enums, `$` bindings, struct fields, import paths, and channels. Exercise
-  `param <type>|store|selection`, `container group|overlay`, every no-`as`
+  `param <type>|store|selection`, `mark group`, `legend.overlay`, every no-`as`
   slot/variable/field header, and both output forms.
 - [ ] Contextual completion distinguishes parallel frame `dimensions:` from
   mark-owned dimension expressions, limits channel-slot bodies to `default:`,

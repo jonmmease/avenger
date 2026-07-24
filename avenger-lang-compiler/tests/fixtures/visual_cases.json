@@ -311,6 +311,14 @@
       "review": "reviewed"
     },
     {
+      "root": "12_legend_overlay/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "12_legend_overlay/chart.avenger"
+      ],
+      "review": "reviewed"
+    },
+    {
       "root": "phase9-files/chart.avenger",
       "expectation": "visual",
       "sources": [

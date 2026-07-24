@@ -1715,7 +1715,17 @@ impl CompiledPlot {
             let render_ctx = RenderContext::new(eval_ctx, &render_state, &[], &coord_measurement);
             let coord_transform = Cartesian::new();
 
-            for mark in marks {
+            for (mark_index, mark) in marks.iter().enumerate() {
+                let prepared_base =
+                    if let Some(group_index) = overlay.data_group_index_for_mark(mark_index) {
+                        Some(
+                            overlay
+                                .prepare_mark_group_base_data(group_index, eval_ctx)
+                                .await?,
+                        )
+                    } else {
+                        None
+                    };
                 let Some(prepared) = prepare_mark_data_runtime(MarkDataRequest {
                     mark: mark.as_ref(),
                     coord_transform: Some(&coord_transform),
@@ -1723,15 +1733,13 @@ impl CompiledPlot {
                     provided_plot_df: None,
                     facet_data_scope: None,
                     prepared_logical: None,
-                    prepared_base: None,
+                    prepared_base: prepared_base.as_deref(),
                     eval_ctx,
                     evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
                     scales: &scales,
                     plot_width: surface.bounds.width,
                     plot_height: surface.bounds.height,
-                    // Colorbar overlay marks are synthetic and never sit
-                    // inside a mark group.
-                    group_view: None,
+                    group_view: overlay.group_view_for_mark(mark_index),
                 })
                 .await?
                 else {

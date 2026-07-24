@@ -1167,7 +1167,7 @@ fn scan_references(
         if let Some(family) = token.word()
             && matches!(
                 family,
-                "mark" | "group" | "selection" | "tool" | "widget" | "resource"
+                "mark" | "selection" | "tool" | "widget" | "resource"
             )
             && !declaration_header_contains(syntax, token.span)
         {
@@ -1198,7 +1198,7 @@ fn scan_references(
                 },
                 target_identity: None,
                 value_kind: match family {
-                    "mark" | "group" => IndexedValueKind::Mark,
+                    "mark" => IndexedValueKind::Mark,
                     "selection" => IndexedValueKind::Selection,
                     "tool" => IndexedValueKind::Tool,
                     "widget" => IndexedValueKind::Widget,
@@ -1235,7 +1235,6 @@ fn symbol_kind(keyword: &str) -> SymbolKind {
         "catalog" => SymbolKind::Catalog,
         "schema" => SymbolKind::Schema,
         "table" => SymbolKind::Table,
-        "group" => SymbolKind::Group,
         "mark" => SymbolKind::Mark,
         "transform" => SymbolKind::Transform,
         "param" => SymbolKind::Param,
@@ -1255,7 +1254,7 @@ fn value_kind(keyword: &str) -> IndexedValueKind {
         "param" => IndexedValueKind::Scalar,
         "store" | "table" => IndexedValueKind::Table,
         "selection" => IndexedValueKind::Selection,
-        "mark" | "group" => IndexedValueKind::Mark,
+        "mark" => IndexedValueKind::Mark,
         "tool" => IndexedValueKind::Tool,
         "widget" => IndexedValueKind::Widget,
         "on" => IndexedValueKind::Event,
@@ -1478,7 +1477,14 @@ impl<'a> QueryContext<'a> {
         } else if let Some(kind) = action_target {
             complete_state_operations(kind, prefix, replacement, &mut items);
         } else if let Some((namespace, typed)) = declaration_kind_context(text, cursor) {
-            self.complete_native_kinds(namespace, typed, replacement, &request.source, &mut items);
+            self.complete_native_kinds(
+                namespace,
+                typed,
+                replacement,
+                &request.source,
+                cursor,
+                &mut items,
+            );
         } else if let Some(property) = property_value_context(syntax, cursor) {
             self.complete_property_value(
                 property,
@@ -1490,15 +1496,36 @@ impl<'a> QueryContext<'a> {
             );
         } else if is_property_name_context(text, cursor) {
             let nested_property = enclosing_property(syntax, cursor).is_some();
-            self.complete_properties(
-                syntax,
-                &request.source,
-                cursor,
-                prefix,
-                replacement,
-                &mut items,
-            );
-            if !nested_property {
+            if inside_legend_overlay_block(syntax, cursor) {
+                if candidate_matches("mark", prefix) {
+                    let mut candidate = item(
+                        "mark".to_owned(),
+                        replacement,
+                        declaration_snippet("mark"),
+                        CompletionKind::Keyword,
+                        Some("legend overlay mark".to_owned()),
+                        Some(
+                            "A Cartesian mark local to this continuous-colorbar overlay."
+                                .to_owned(),
+                        ),
+                        CompletionOrigin::AuthoringSchema,
+                        false,
+                        "00",
+                    );
+                    candidate.insert_text_format = CompletionTextFormat::Snippet;
+                    items.push(candidate);
+                }
+            } else {
+                self.complete_properties(
+                    syntax,
+                    &request.source,
+                    cursor,
+                    prefix,
+                    replacement,
+                    &mut items,
+                );
+            }
+            if !nested_property && !inside_legend_overlay_block(syntax, cursor) {
                 self.complete_declarations(
                     &request.source,
                     cursor,
@@ -1540,10 +1567,35 @@ impl<'a> QueryContext<'a> {
         typed: &str,
         replacement: SourceSpan,
         origin: &SourceOrigin,
+        cursor: usize,
         output: &mut Vec<CompletionItem>,
     ) {
+        let overlay_mark = namespace == NativeKindNamespace::Mark
+            && self
+                .syntax
+                .get(origin)
+                .is_some_and(|syntax| inside_legend_overlay_block(syntax, cursor));
+        if namespace == NativeKindNamespace::Mark && candidate_matches("group", typed) {
+            output.push(item(
+                "group".to_owned(),
+                replacement,
+                "group".to_owned(),
+                CompletionKind::Declaration,
+                Some("language-owned mark".to_owned()),
+                Some(
+                    "A logical mark group for nested marks, shared data, transforms, and views."
+                        .to_owned(),
+                ),
+                CompletionOrigin::AuthoringSchema,
+                false,
+                "00",
+            ));
+        }
         for (key, schema) in &self.registry.entries {
-            if key.namespace != namespace || !candidate_matches(&key.kind, typed) {
+            if key.namespace != namespace
+                || (overlay_mark && key.coordinate.as_deref() != Some("cartesian"))
+                || !candidate_matches(&key.kind, typed)
+            {
                 continue;
             }
             output.push(item(
@@ -1730,7 +1782,45 @@ impl<'a> QueryContext<'a> {
             }
             return;
         }
+        let property_path = enclosing_property_path(syntax, cursor);
+        if property_path.last() == Some(&"legend") {
+            let key = NativeKindKey::new(NativeKindNamespace::Legend, "standard");
+            if let Some(schema) = self.registry.entries.get(&key) {
+                for (name, property) in &schema.properties {
+                    if authored.contains(name) || !candidate_matches(name, prefix) {
+                        continue;
+                    }
+                    output.push(property_item(name, property, replacement));
+                }
+            }
+            return;
+        }
         if let Some(schema) = schema_for_symbol(self.registry, owner, self.index) {
+            if property_path.len() == 1
+                && schema.channels.contains_key(property_path[0])
+                && enclosing_property(syntax, cursor).is_some()
+            {
+                for (name, docs) in [
+                    ("scale", "Scale configuration for this channel."),
+                    ("axis", "Axis configuration for this channel."),
+                    ("legend", "Legend configuration for this channel."),
+                ] {
+                    if !authored.contains(name) && candidate_matches(name, prefix) {
+                        output.push(item(
+                            name.to_owned(),
+                            replacement,
+                            format!("{name}: {{ }}"),
+                            CompletionKind::Property,
+                            Some("channel configuration".to_owned()),
+                            Some(docs.to_owned()),
+                            CompletionOrigin::AuthoringSchema,
+                            false,
+                            "10",
+                        ));
+                    }
+                }
+                return;
+            }
             let nested = nested_object_properties(syntax, schema, cursor);
             if nested.is_none() && enclosing_property(syntax, cursor).is_some() {
                 return;
@@ -2144,6 +2234,32 @@ impl<'a> QueryContext<'a> {
             vec!["import", "chart", "define", "catalog", "schema", "table"]
         };
         for keyword in keywords {
+            if keyword == "mark" && candidate_matches("mark group", prefix) {
+                let (insert_text, format) = if options.snippets {
+                    (
+                        "mark group as ${1:name} {\n  $0\n}".to_owned(),
+                        CompletionTextFormat::Snippet,
+                    )
+                } else {
+                    ("mark group".to_owned(), CompletionTextFormat::PlainText)
+                };
+                let mut candidate = item(
+                    "mark group".to_owned(),
+                    replacement,
+                    insert_text,
+                    CompletionKind::Keyword,
+                    Some("logical mark group".to_owned()),
+                    Some(
+                        "A language-owned group for nested marks, shared data, transforms, and views."
+                            .to_owned(),
+                    ),
+                    CompletionOrigin::AuthoringSchema,
+                    false,
+                    "10",
+                );
+                candidate.insert_text_format = format;
+                output.push(candidate);
+            }
             let Some(label) = source_declaration_label(keyword) else {
                 continue;
             };
@@ -2426,10 +2542,7 @@ pub(crate) fn physical_type_spans(syntax: &SyntaxAnalysis) -> Vec<SourceSpan> {
             continue;
         };
         let tokens = significant_tokens(syntax, Some(node.span));
-        if matches!(
-            keyword.as_str(),
-            "store" | "selection" | "group" | "overlay"
-        ) {
+        if matches!(keyword.as_str(), "store" | "selection") {
             if let Some(token) = tokens
                 .iter()
                 .find(|token| token.word() == Some(keyword.as_str()))
@@ -2674,7 +2787,7 @@ fn set_target_context(text: &str, cursor: usize) -> bool {
     fragment.strip_prefix("set").is_some_and(|rest| {
         rest.chars().next().is_some_and(char::is_whitespace)
             && !rest.contains('=')
-            && rest.trim().split_whitespace().count() <= 1
+            && rest.split_whitespace().count() <= 1
     })
 }
 
@@ -3137,6 +3250,28 @@ fn enclosing_property(
         .min_by_key(|node| node.span.range.len())
 }
 
+fn enclosing_property_path(syntax: &SyntaxAnalysis, cursor: usize) -> Vec<&str> {
+    let Some(innermost) = enclosing_property(syntax, cursor) else {
+        return Vec::new();
+    };
+    let mut path = Vec::new();
+    let mut current = Some(innermost.id);
+    while let Some(id) = current {
+        let node = &syntax.parsed.nodes[id.get() as usize];
+        if let TolerantSyntaxNodeKind::Property { name } = &node.kind {
+            path.push(name.as_str());
+        }
+        current = node.parent;
+    }
+    path.reverse();
+    path
+}
+
+fn inside_legend_overlay_block(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let path = enclosing_property_path(syntax, cursor);
+    path.windows(2).any(|pair| pair == ["legend", "overlay"])
+}
+
 fn nested_object_properties<'a>(
     syntax: &SyntaxAnalysis,
     schema: &'a KindSchema,
@@ -3193,7 +3328,6 @@ fn declaration_header_role(syntax: &SyntaxAnalysis, symbol: &IndexedSymbol) -> O
     let tokens = significant_tokens(syntax, Some(symbol.declaration_span));
     let source_keyword = match symbol.keyword.as_str() {
         "store" | "selection" => "param",
-        "group" | "overlay" => "container",
         keyword => keyword,
     };
     let keyword = tokens
@@ -3391,7 +3525,7 @@ pub(crate) fn core_properties(keyword: &str) -> &'static [(&'static str, &'stati
             ("label", "Cell label."),
             ("when", "Cell predicate."),
         ],
-        "view" | "mark" | "group" => &[("data", "Data relation visible here.")],
+        "view" | "mark" => &[("data", "Data relation visible here.")],
         "tool" => &[("id", "Stable tool component identifier.")],
         "on" => &[
             ("target", "Event target."),
@@ -3528,9 +3662,6 @@ fn declaration_snippet(keyword: &str) -> String {
         "mark" | "transform" | "tool" | "widget" | "resource" => {
             format!("{keyword} ${{1:kind}} as ${{2:name}} {{\n  $0\n}}")
         }
-        "container group" | "container overlay" => {
-            format!("{keyword} as ${{1:name}} {{\n  $0\n}}")
-        }
         "slot channel" => "slot channel ${1:name};".to_owned(),
         "slot" => "slot ${1:expr} ${2:name};".to_owned(),
         "variable" => "variable ${1:row} ${2:name} {\n  $0\n}".to_owned(),
@@ -3546,8 +3677,6 @@ fn source_declaration_label(semantic_keyword: &str) -> Option<&str> {
     match semantic_keyword {
         "store" => Some("param store"),
         "selection" => Some("param selection"),
-        "group" => Some("container group"),
-        "overlay" => Some("container overlay"),
         "channel" => Some("slot channel"),
         "dimension" => None,
         "param" => Some("param"),
@@ -3671,7 +3800,7 @@ mod tests {
         let text = r#"avenger 1; chart cartesian {
           param store as rows {}
           param selection as picked {}
-          container group as layer {}
+          mark group as layer {}
           variable row mpg {}
           field float64 amount;
           output amount as total;
@@ -3681,7 +3810,7 @@ mod tests {
         for (name, keyword, value_kind) in [
             ("rows", "store", IndexedValueKind::Table),
             ("picked", "selection", IndexedValueKind::Selection),
-            ("layer", "group", IndexedValueKind::Mark),
+            ("layer", "mark", IndexedValueKind::Mark),
             ("mpg", "variable", IndexedValueKind::Declaration),
             ("amount", "field", IndexedValueKind::Field),
             ("total", "output", IndexedValueKind::Output),
@@ -3894,11 +4023,53 @@ mod tests {
         let labels = completion_labels("avenger 1; chart cartesian { | }");
         assert!(labels.contains(&"param store".to_owned()));
         assert!(labels.contains(&"param selection".to_owned()));
-        assert!(labels.contains(&"container group".to_owned()));
+        assert!(labels.contains(&"mark group".to_owned()));
         assert!(!labels.contains(&"store".to_owned()));
         assert!(!labels.contains(&"selection".to_owned()));
         assert!(!labels.contains(&"group".to_owned()));
         assert!(!labels.contains(&"dimension".to_owned()));
+    }
+
+    #[test]
+    fn group_and_legend_overlay_completion_use_mark_semantics() {
+        let mark_kinds = completion_labels("avenger 1; chart cartesian { mark | }");
+        assert!(mark_kinds.contains(&"group".to_owned()), "{mark_kinds:?}");
+
+        let channel_configs =
+            completion_labels("avenger 1; chart cartesian { mark symbol { fill: 'x' { | } } }");
+        assert!(
+            channel_configs.contains(&"legend".to_owned()),
+            "{channel_configs:?}"
+        );
+
+        let legend_properties = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { | } } } }",
+        );
+        assert!(
+            legend_properties.contains(&"overlay".to_owned()),
+            "{legend_properties:?}"
+        );
+
+        let overlay_declarations = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { overlay: { | } } } } }",
+        );
+        assert_eq!(overlay_declarations, vec!["mark"]);
+
+        let overlay_mark_kinds = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { overlay: { mark | } } } } }",
+        );
+        assert!(
+            overlay_mark_kinds.contains(&"group".to_owned()),
+            "{overlay_mark_kinds:?}"
+        );
+        assert!(
+            overlay_mark_kinds.contains(&"rect".to_owned()),
+            "{overlay_mark_kinds:?}"
+        );
+        assert!(
+            !overlay_mark_kinds.contains(&"arc".to_owned()),
+            "{overlay_mark_kinds:?}"
+        );
     }
 
     #[test]

@@ -10530,6 +10530,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn colorbar_overlay_retains_nested_mark_groups() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let overlay = crate::legend::ColorbarOverlay::new().mark(
+            MarkGroup::<Cartesian>::new()
+                .id("thresholds")
+                .data(df.clone())
+                .mark(
+                    Rect::<Cartesian>::new()
+                        .exclude_from_scale_domains()
+                        .x(lit(0.0))
+                        .x2(lit(1.0))
+                        .y(lit(2.0))
+                        .y2(lit(7.0))
+                        .fill("rgba(37, 99, 235, 0.20)"),
+                ),
+        );
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .fill_with(col("value"), |channel| {
+                        channel.legend(|legend| legend.colorbar_overlay(overlay))
+                    }),
+            )
+            .compile(&ctx)
+            .await?;
+        assert!(
+            compiled
+                .legend_colorbar_overlays
+                .iter()
+                .any(|overlay| !overlay.mark_groups.is_empty()),
+            "compiled overlay retains mark-group metadata"
+        );
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_scene_group_by_name(&evaluated.scene_graph.marks, "fill-colorbar-overlays")
+                .expect("colorbar overlay group should render");
+        assert!(
+            overlay_group
+                .marks
+                .iter()
+                .any(|mark| matches!(mark, avenger_scenegraph::marks::mark::SceneMark::Rect(_)))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn horizontal_colorbar_overlay_rect_maps_data_values_to_pixels()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();

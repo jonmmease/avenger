@@ -26,7 +26,10 @@ use avenger_lang_compiler::{
 use avenger_lang_core::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceOrigin,
 };
-use datafusion::{arrow::datatypes::DataType, logical_expr::lit, scalar::ScalarValue};
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::{
+    arrow::datatypes::DataType, logical_expr::lit, prelude::SessionContext, scalar::ScalarValue,
+};
 use indexmap::IndexMap;
 
 fn fixture(name: &str) -> PathBuf {
@@ -70,6 +73,12 @@ fn optional_channel(name: &str, docs: &str) -> ChannelSchema {
         shape: ValueShape::SqlExpression,
         docs: docs.to_string(),
     }
+}
+
+fn scene_has_group(marks: &[SceneMark], name: &str) -> bool {
+    marks.iter().any(|mark| {
+        matches!(mark, SceneMark::Group(group) if group.name == name || scene_has_group(&group.marks, name))
+    })
 }
 
 fn composed_registry() -> Arc<NativeRegistry> {
@@ -220,6 +229,58 @@ async fn vertical_slice_sql_aggregate_pipeline_propagates_schema_and_evaluates()
         .await
         .unwrap();
     assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn legend_overlay_compiles_nested_groups_without_inheriting_chart_rows() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: {
+    values: [
+      { x: 1.0; y: 2.0; value: 5.0; },
+      { x: 2.0; y: 3.0; value: 8.0; }
+    ];
+  }
+  mark symbol as points {
+    x: "x";
+    y: "y";
+    fill: "value" {
+      legend: {
+        overlay: {
+          mark group as thresholds {
+            data: { values: [{ lo: 2.0; hi: 7.0; }]; }
+            mark rect as band {
+              x: 0.0;
+              x2: 1.0;
+              y: "lo";
+              y2: "hi";
+              fill: value 'rgba(37, 99, 235, 0.20)';
+            }
+          }
+          mark rule as midpoint {
+            x: 0.0;
+            x2: 1.0;
+            y: 5.0;
+            stroke: value '#1d4ed8';
+          }
+        }
+      }
+    }
+  }
+}"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(scene_has_group(
+        &evaluated.scene_graph.marks,
+        "fill-colorbar-overlays"
+    ));
 }
 
 #[tokio::test]
@@ -1434,7 +1495,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               { x: 3.0; y: 4.0; }
             ];
           }
-          container group as viewed_points {
+          mark group as viewed_points {
             view cartesian as viewport {
               x_domain: "x";
               y_domain: "y";
@@ -1461,7 +1522,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
     }
 
     let mark_owned = source.replace(
-        r#"container group as viewed_points {
+        r#"mark group as viewed_points {
             view cartesian as viewport {
               x_domain: "x";
               y_domain: "y";
@@ -2010,11 +2071,11 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         assert!(!expanded.text.contains(removed), "{}", expanded.text);
     }
     for retained in [
-        "container group as errors",
+        "mark group as errors",
         "component_kind: error_bar;",
         " as stem;",
         " as point;",
-        "private container group as __av_",
+        "private mark group as __av_",
         "fill: value '#dc2626';",
         "public mark text as labels",
         "widget slider as threshold",
@@ -2110,7 +2171,7 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         "private param selection as __av_",
         "private tool point_selection as __av_",
         "scale_edit {",
-        "private container group as __av_",
+        "private mark group as __av_",
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
@@ -2298,7 +2359,7 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
         .unwrap();
     for retained in [
         "transform pipeline",
-        "container group as points",
+        "mark group as points",
         "tool behavior as pointer",
         "widget slider as threshold",
         "widget text_input as search",

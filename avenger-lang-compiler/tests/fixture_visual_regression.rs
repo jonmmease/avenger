@@ -176,14 +176,14 @@ fn blessing_enabled() -> bool {
 fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
     let manifest = load_manifest();
     assert_eq!(manifest.schema_version, 1);
-    assert_eq!(manifest.cases.len(), 44, "one case per chart root");
+    assert_eq!(manifest.cases.len(), 45, "one case per chart root");
     assert_eq!(
         manifest
             .cases
             .iter()
             .filter(|case| case.expectation == FixtureExpectation::Visual)
             .count(),
-        42
+        43
     );
 
     let mut owners = BTreeMap::new();
@@ -234,7 +234,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
 
     let owned = owners.into_keys().collect::<BTreeSet<_>>();
     let discovered = discovered_sources();
-    assert_eq!(owned.len(), 61, "reviewed fixture inventory changed");
+    assert_eq!(owned.len(), 62, "reviewed fixture inventory changed");
     assert_eq!(
         owned, discovered,
         "update visual_cases.json for fixture drift"
@@ -565,6 +565,21 @@ fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<
                 ));
             }
         }
+        "12_legend_overlay/chart.avenger" => {
+            let Some(group) = find_scene_group(&scene.marks, "fill-colorbar-overlays") else {
+                return Err("legend overlay fixture must render a colorbar overlay group".into());
+            };
+            if group.interactive {
+                return Err("legend overlay scene group must remain noninteractive".into());
+            }
+            if !group
+                .marks
+                .iter()
+                .any(|mark| matches!(mark, SceneMark::Rect(_)))
+            {
+                return Err("legend overlay fixture must render its range rectangle".into());
+            }
+        }
         "05_definition_widget_adjacency/chart.avenger" => {
             let positions = scene_symbol_positions(scene);
             let plot_positions = positions
@@ -697,6 +712,23 @@ fn collect_parallel_line_y(mark: &SceneMark, lines: &mut Vec<Vec<f32>>) {
         }
         _ => {}
     }
+}
+
+fn find_scene_group<'a>(
+    marks: &'a [SceneMark],
+    name: &str,
+) -> Option<&'a avenger_scenegraph::marks::group::SceneGroup> {
+    for mark in marks {
+        if let SceneMark::Group(group) = mark {
+            if group.name == name {
+                return Some(group);
+            }
+            if let Some(found) = find_scene_group(&group.marks, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 fn collect_facet_cell_symbol_counts(mark: &SceneMark, counts: &mut Vec<usize>) {

@@ -47,6 +47,14 @@ macro_rules! semantic_id {
     };
 }
 
+/// Virtual declaration-path segment used for declarations authored inside a
+/// schema-owned `overlay:` mark block.
+///
+/// The generic AST correctly keeps these declarations inside the property
+/// value. Resolution still assigns them ordinary declaration identities and
+/// scopes so they use the complete mark pipeline.
+const MARK_BLOCK_PATH_SEGMENT: usize = usize::MAX;
+
 semantic_id!(DeclarationId);
 semantic_id!(ParamId);
 semantic_id!(StoreId);
@@ -165,7 +173,6 @@ pub enum DefinitionExportKind {
     Store,
     Selection,
     Mark,
-    Group,
     Tool,
     Widget,
     Unknown,
@@ -1408,14 +1415,7 @@ impl<'a> Resolver<'a> {
                 .is_some_and(|kind| {
                     matches!(
                         kind,
-                        "mark"
-                            | "group"
-                            | "param"
-                            | "selection"
-                            | "store"
-                            | "tool"
-                            | "widget"
-                            | "resource"
+                        "mark" | "param" | "selection" | "store" | "tool" | "widget" | "resource"
                     )
                 })
         {
@@ -1641,6 +1641,27 @@ impl<'a> Resolver<'a> {
                 nested_scope,
                 child_ancestry.clone(),
             );
+        }
+        for (block_ordinal, body) in overlay_mark_blocks(declaration).into_iter().enumerate() {
+            let block_scope = self.new_scope(
+                Some(nested_scope),
+                format!(
+                    "{}:{}:legend-overlay:{block_ordinal}",
+                    file.id.as_str(),
+                    path_text(&path)
+                ),
+            );
+            for (index, child) in body.children.iter().enumerate() {
+                let mut child_path = path.clone();
+                child_path.extend([MARK_BLOCK_PATH_SEGMENT, block_ordinal, index]);
+                self.predeclare_declaration(
+                    file,
+                    child,
+                    child_path,
+                    block_scope,
+                    child_ancestry.clone(),
+                );
+            }
         }
     }
 
@@ -3060,6 +3081,7 @@ impl<'a> Resolver<'a> {
         }
         let mut properties = BTreeMap::new();
         let mut property_channels = BTreeMap::new();
+        let mut mark_block_ordinal = 0usize;
         for (name, value) in declaration.props.iter() {
             let definition_channel =
                 self.visible_definition_channel_property(value_scope, name.as_str());
@@ -3086,7 +3108,16 @@ impl<'a> Resolver<'a> {
                     event_context,
                     declaration,
                 ),
-                _ => self.resolve_value(value_scope, value, info.span, event_context, declaration),
+                _ => self.resolve_value_with_mark_blocks(
+                    file,
+                    path,
+                    value_scope,
+                    value,
+                    info.span,
+                    event_context,
+                    declaration,
+                    &mut mark_block_ordinal,
+                ),
             };
             if let Some(shape) = native_schema
                 .as_ref()
@@ -3274,6 +3305,9 @@ impl<'a> Resolver<'a> {
         coordinate: Option<&str>,
     ) -> Option<KindSchema> {
         let kind = declaration.kind.as_ref()?.as_str();
+        if is_mark_group(declaration) {
+            return Some(core_mark_group_schema(coordinate));
+        }
         let key = match declaration.keyword.as_str() {
             "chart" | "cell" | "plot" => NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
             "view" => NativeKindKey::new(NativeKindNamespace::View, kind),
@@ -3712,7 +3746,7 @@ impl<'a> Resolver<'a> {
                     );
                 }
             }
-            "mark" | "group"
+            "mark"
                 if declaration
                     .children
                     .iter()
@@ -3722,7 +3756,7 @@ impl<'a> Resolver<'a> {
             {
                 self.error(
                     "AVENGER-RESOLVE-044",
-                    "a mark or group may own at most one inline view",
+                    "a mark may own at most one inline view",
                     span,
                     "combine the dependent transform/render chain into one view scope",
                 );
@@ -3776,7 +3810,15 @@ impl<'a> Resolver<'a> {
         let Some(parent) = parent else {
             return;
         };
-        let valid = placement_allowed(parent.keyword.as_str(), declaration.keyword.as_str());
+        let valid = if is_mark_group(parent) {
+            ordinary_plot_child(declaration.keyword.as_str())
+                || matches!(
+                    declaration.keyword.as_str(),
+                    "export" | "set" | "match" | "splice"
+                )
+        } else {
+            placement_allowed(parent.keyword.as_str(), declaration.keyword.as_str())
+        };
         if !valid {
             self.error(
                 "AVENGER-RESOLVE-040",
@@ -4573,6 +4615,217 @@ impl<'a> Resolver<'a> {
                     .map(|value| self.resolve_value(scope, value, span, in_event, owner))
                     .collect(),
             },
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_value_with_mark_blocks(
+        &mut self,
+        file: &ProjectFile,
+        owner_path: &[usize],
+        scope: ScopeId,
+        value: &Value,
+        span: SourceSpan,
+        in_event: bool,
+        owner: &Decl,
+        block_ordinal: &mut usize,
+    ) -> ResolvedValue {
+        if !contains_overlay_mark_block(value) {
+            return self.resolve_value(scope, value, span, in_event, owner);
+        }
+        match value {
+            Value::Block { head, body } => {
+                let resolved_head = head.as_deref().map(|head| {
+                    Box::new(self.resolve_value_with_mark_blocks(
+                        file,
+                        owner_path,
+                        scope,
+                        head,
+                        span,
+                        in_event,
+                        owner,
+                        block_ordinal,
+                    ))
+                });
+                let properties = body
+                    .props
+                    .iter()
+                    .map(|(name, value)| {
+                        let resolved = if name.as_str() == "overlay"
+                            && matches!(value, Value::Block { .. })
+                        {
+                            let ordinal = *block_ordinal;
+                            *block_ordinal += 1;
+                            self.resolve_overlay_mark_block(file, owner_path, value, span, ordinal)
+                        } else {
+                            self.resolve_value_with_mark_blocks(
+                                file,
+                                owner_path,
+                                scope,
+                                value,
+                                span,
+                                in_event,
+                                owner,
+                                block_ordinal,
+                            )
+                        };
+                        (name.to_string(), resolved)
+                    })
+                    .collect();
+                ResolvedValue::Object {
+                    kind: head.as_deref().and_then(value_atom).map(str::to_owned),
+                    head: resolved_head.filter(|_| {
+                        head.as_deref()
+                            .is_some_and(|head| value_atom(head).is_none())
+                    }),
+                    properties,
+                    children: body
+                        .children
+                        .iter()
+                        .enumerate()
+                        .map(|(index, child)| {
+                            self.resolve_inline_declaration(
+                                scope, child, span, index, in_event, false,
+                            )
+                        })
+                        .collect(),
+                }
+            }
+            Value::Array(values) => ResolvedValue::Array(
+                values
+                    .iter()
+                    .map(|value| {
+                        self.resolve_value_with_mark_blocks(
+                            file,
+                            owner_path,
+                            scope,
+                            value,
+                            span,
+                            in_event,
+                            owner,
+                            block_ordinal,
+                        )
+                    })
+                    .collect(),
+            ),
+            Value::Call { function, args } => ResolvedValue::Call {
+                function: function.to_string(),
+                args: args
+                    .iter()
+                    .map(|value| {
+                        self.resolve_value_with_mark_blocks(
+                            file,
+                            owner_path,
+                            scope,
+                            value,
+                            span,
+                            in_event,
+                            owner,
+                            block_ordinal,
+                        )
+                    })
+                    .collect(),
+            },
+            Value::Visual(value) => {
+                ResolvedValue::Visual(Box::new(self.resolve_value_with_mark_blocks(
+                    file,
+                    owner_path,
+                    scope,
+                    value,
+                    span,
+                    in_event,
+                    owner,
+                    block_ordinal,
+                )))
+            }
+            Value::Pattern(value) => {
+                ResolvedValue::Pattern(Box::new(self.resolve_value_with_mark_blocks(
+                    file,
+                    owner_path,
+                    scope,
+                    value,
+                    span,
+                    in_event,
+                    owner,
+                    block_ordinal,
+                )))
+            }
+            _ => self.resolve_value(scope, value, span, in_event, owner),
+        }
+    }
+
+    fn resolve_overlay_mark_block(
+        &mut self,
+        file: &ProjectFile,
+        owner_path: &[usize],
+        value: &Value,
+        span: SourceSpan,
+        block_ordinal: usize,
+    ) -> ResolvedValue {
+        let Value::Block { head, body } = value else {
+            return ResolvedValue::Invalid;
+        };
+        if head.is_some() {
+            self.error(
+                "AVENGER-RESOLVE-177",
+                "legend overlay block cannot have a value head",
+                span,
+                "use `overlay: { mark ... }`",
+            );
+        }
+        if !body.props.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-178",
+                "legend overlay block accepts only mark declarations",
+                span,
+                "move data and transforms into an inner `mark group`",
+            );
+        }
+        if body.children.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-179",
+                "legend overlay block is empty",
+                span,
+                "`overlay:` requires at least one mark",
+            );
+        }
+        for child in &body.children {
+            if child.keyword.as_str() != "mark" {
+                self.error(
+                    "AVENGER-RESOLVE-178",
+                    "legend overlay block accepts only mark declarations",
+                    span,
+                    format!(
+                        "move `{}` into an inner `mark group` or remove it",
+                        child.keyword
+                    ),
+                );
+            }
+            if child.visibility != Visibility::Default {
+                self.error(
+                    "AVENGER-RESOLVE-180",
+                    "legend overlay marks are local",
+                    span,
+                    "remove `public` or `private`; overlay declarations never publish paths",
+                );
+            }
+        }
+
+        let children = body
+            .children
+            .iter()
+            .enumerate()
+            .map(|(index, child)| {
+                let mut path = owner_path.to_vec();
+                path.extend([MARK_BLOCK_PATH_SEGMENT, block_ordinal, index]);
+                self.resolve_declaration(file, child, &path, Some("cartesian"), None, true, false)
+            })
+            .collect();
+        ResolvedValue::Object {
+            kind: None,
+            head: None,
+            properties: BTreeMap::new(),
+            children,
         }
     }
 
@@ -7246,29 +7499,55 @@ fn declaration_coordinate(declaration: &Decl, inherited: Option<&str>) -> Option
 fn coordinate_at_path(file: &ProjectFile, path: &[usize]) -> Option<String> {
     let mut coordinate = None;
     for length in 1..=path.len() {
-        let declaration = declaration_at(file.parsed.ast.root.declarations(), &path[..length])?;
-        coordinate = declaration_coordinate(declaration, coordinate.as_deref());
+        if path[length - 1] == MARK_BLOCK_PATH_SEGMENT {
+            coordinate = Some("cartesian".to_owned());
+        }
+        if let Some(declaration) =
+            declaration_at(file.parsed.ast.root.declarations(), &path[..length])
+        {
+            coordinate = declaration_coordinate(declaration, coordinate.as_deref());
+        }
     }
     coordinate
 }
 
 fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl> {
+    if let Some(segment) = path
+        .iter()
+        .rposition(|value| *value == MARK_BLOCK_PATH_SEGMENT)
+        && path.len() == segment + 3
+    {
+        return None;
+    }
     (path.len() > 1)
-        .then(|| declaration_at(file.parsed.ast.root.declarations(), &path[..path.len() - 1]))
-        .flatten()
+        .then(|| declaration_at(file.parsed.ast.root.declarations(), &path[..path.len() - 1]))?
 }
 
 fn requires_registered_kind(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
         "chart" | "cell" | "plot" | "view" | "mark" | "transform" | "tool" | "widget" | "resource"
-    ) && !matches!(
-        (
-            declaration.keyword.as_str(),
-            declaration.kind.as_ref().map(Name::as_str)
-        ),
-        ("tool", Some("behavior"))
+    ) && !is_mark_group(declaration)
+        && !matches!(
+            (
+                declaration.keyword.as_str(),
+                declaration.kind.as_ref().map(Name::as_str)
+            ),
+            ("tool", Some("behavior"))
+        )
+}
+
+fn is_mark_group(declaration: &Decl) -> bool {
+    declaration.keyword.as_str() == "mark"
+        && declaration.kind.as_ref().map(Name::as_str) == Some("group")
+}
+
+fn core_mark_group_schema(coordinate: Option<&str>) -> KindSchema {
+    KindSchema::new(
+        NativeKindKey::mark(coordinate.unwrap_or(""), "group"),
+        "Logical mark group for shared data preparation and recursive mark authoring.",
     )
+    .body_mode(BodyMode::Mixed)
 }
 
 /// Returns whether a core declaration keyword may appear below `parent`.
@@ -7277,7 +7556,7 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
 /// cannot drift from the resolver's placement rules.
 pub fn placement_allowed(parent: &str, child: &str) -> bool {
     if child == "view" {
-        return matches!(parent, "mark" | "group");
+        return parent == "mark";
     }
     match parent {
         "define" => {
@@ -7293,7 +7572,7 @@ pub fn placement_allowed(parent: &str, child: &str) -> bool {
         "on" => matches!(child, "set" | "on" | "match" | "splice"),
         "match" => child == "arm",
         "arm" => !matches!(child, "slot" | "channel" | "output" | "export" | "arm"),
-        "view" => matches!(child, "transform" | "mark" | "group"),
+        "view" => matches!(child, "transform" | "mark"),
         "mark" => matches!(
             child,
             "view" | "plot" | "adjust" | "derive" | "part" | "match" | "splice"
@@ -7316,7 +7595,6 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
     "dimension",
     "export",
     "field",
-    "group",
     "key",
     "layer",
     "level",
@@ -7324,7 +7602,6 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
     "match",
     "on",
     "output",
-    "overlay",
     "param",
     "part",
     "plot",
@@ -7363,7 +7640,6 @@ fn ordinary_plot_child(child: &str) -> bool {
             | "selection"
             | "resource"
             | "theme"
-            | "group"
             | "mark"
             | "transform"
             | "tool"
@@ -7377,7 +7653,6 @@ fn ordinary_plot_child(child: &str) -> bool {
             | "level"
             | "adjust"
             | "derive"
-            | "overlay"
             | "layer"
             | "when"
             | "scale_edit"
@@ -7387,6 +7662,20 @@ fn ordinary_plot_child(child: &str) -> bool {
 }
 
 fn core_property(declaration: &Decl, property: &str) -> bool {
+    if is_mark_group(declaration) {
+        return matches!(
+            property,
+            "data"
+                | "component_kind"
+                | "label"
+                | "visible"
+                | "details"
+                | "zindex"
+                | "facet_data_scope"
+                | "geometry_space"
+                | "exclude_from_scale_domains"
+        );
+    }
     match declaration.keyword.as_str() {
         "chart" | "plot" => {
             matches!(
@@ -7396,7 +7685,6 @@ fn core_property(declaration: &Decl, property: &str) -> bool {
         }
         "cell" => matches!(property, "at" | "data" | "label" | "when"),
         "view" => property == "data",
-        "group" => matches!(property, "data" | "component_kind" | "label"),
         "mark" => matches!(property, "data"),
         "tool" => matches!(property, "id"),
         "widget" => false,
@@ -7453,6 +7741,56 @@ fn contains_descendant(declaration: &Decl, keyword: &str) -> bool {
         .children
         .iter()
         .any(|child| child.keyword.as_str() == keyword || contains_descendant(child, keyword))
+}
+
+fn contains_overlay_mark_block(value: &Value) -> bool {
+    match value {
+        Value::Block { head, body } => {
+            body.props.iter().any(|(name, value)| {
+                (name.as_str() == "overlay" && matches!(value, Value::Block { .. }))
+                    || contains_overlay_mark_block(value)
+            }) || head.as_deref().is_some_and(contains_overlay_mark_block)
+        }
+        Value::Array(values) | Value::Call { args: values, .. } => {
+            values.iter().any(contains_overlay_mark_block)
+        }
+        Value::Visual(value) | Value::Pattern(value) => contains_overlay_mark_block(value),
+        _ => false,
+    }
+}
+
+fn overlay_mark_blocks(declaration: &Decl) -> Vec<&crate::ast::Body> {
+    fn collect<'a>(value: &'a Value, output: &mut Vec<&'a crate::ast::Body>) {
+        match value {
+            Value::Block { head, body } => {
+                if let Some(head) = head {
+                    collect(head, output);
+                }
+                for (name, value) in body.props.iter() {
+                    if name.as_str() == "overlay"
+                        && let Value::Block { body, .. } = value
+                    {
+                        output.push(body);
+                    } else {
+                        collect(value, output);
+                    }
+                }
+            }
+            Value::Array(values) | Value::Call { args: values, .. } => {
+                for value in values {
+                    collect(value, output);
+                }
+            }
+            Value::Visual(value) | Value::Pattern(value) => collect(value, output),
+            _ => {}
+        }
+    }
+
+    let mut output = Vec::new();
+    for (_, value) in declaration.props.iter() {
+        collect(value, &mut output);
+    }
+    output
 }
 
 fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
@@ -7587,6 +7925,17 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             matches!(value, ResolvedValue::Object { .. })
                 || value_matches_shape(value, &ValueShape::TableBinding)
         }
+        ValueShape::MarkBlock => matches!(
+            value,
+            ResolvedValue::Object {
+                kind: None,
+                head: None,
+                properties,
+                children,
+            } if properties.is_empty()
+                && !children.is_empty()
+                && children.iter().all(|child| child.keyword == "mark")
+        ),
         ValueShape::TypedReference { namespaces } => match value {
             ResolvedValue::Reference(reference) => namespaces
                 .iter()
@@ -7701,19 +8050,10 @@ fn reference_kind_matches(target: &ResolvedTarget, kind: RefKind) -> bool {
                 kind: DefinitionExportKind::Mark,
                 ..
             }
-        ) | (RefKind::Group, ResolvedTarget::Declaration(_))
-            | (
-                RefKind::Group,
-                ResolvedTarget::DefinitionStructural {
-                    kind: DefinitionExportKind::Group,
-                    ..
-                }
-            )
-            | (
-                RefKind::Selection,
-                ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
-            )
-            | (RefKind::Tool, ResolvedTarget::Tool(_))
+        ) | (
+            RefKind::Selection,
+            ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
+        ) | (RefKind::Tool, ResolvedTarget::Tool(_))
             | (
                 RefKind::Tool,
                 ResolvedTarget::DefinitionStructural {
@@ -7749,7 +8089,6 @@ fn target_matches_definition_ref_kind(target: &ResolvedTarget, kind: &str) -> bo
             ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
         ),
         "mark" => reference_kind_matches(target, RefKind::Mark),
-        "group" => reference_kind_matches(target, RefKind::Group),
         "tool" => reference_kind_matches(target, RefKind::Tool),
         "widget" => reference_kind_matches(target, RefKind::Widget),
         "resource" => reference_kind_matches(target, RefKind::Resource),
@@ -7760,7 +8099,6 @@ fn target_matches_definition_ref_kind(target: &ResolvedTarget, kind: &str) -> bo
 fn definition_ref_kind(kind: &str) -> Option<RefKind> {
     Some(match kind {
         "mark" => RefKind::Mark,
-        "group" => RefKind::Group,
         "selection" => RefKind::Selection,
         "tool" => RefKind::Tool,
         "widget" => RefKind::Widget,
@@ -7926,6 +8264,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::SelectionBinding => "selection reference",
         ValueShape::WidgetData => "widget data source",
         ValueShape::ParamChangeAction => "ordered parameter-change action block",
+        ValueShape::MarkBlock => "mark-only block",
         ValueShape::TypedReference { .. } => "typed reference",
         ValueShape::Union(_) => "one of the allowed shapes",
         ValueShape::OneOrMany(_) => "value or array",
@@ -8069,7 +8408,10 @@ fn json_matches_shape(value: &serde_json::Value, shape: &ValueShape) -> bool {
         (value, ValueShape::OneOrMany(inner)) => json_matches_shape(value, inner),
         (
             serde_json::Value::Object(_),
-            ValueShape::Map(_) | ValueShape::ChannelMap | ValueShape::Object(_),
+            ValueShape::Map(_)
+            | ValueShape::ChannelMap
+            | ValueShape::Object(_)
+            | ValueShape::MarkBlock,
         ) => true,
         (value, ValueShape::Union(shapes)) => {
             shapes.iter().any(|shape| json_matches_shape(value, shape))
@@ -8532,7 +8874,6 @@ fn is_structural(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
         "chart"
-            | "group"
             | "mark"
             | "tool"
             | "widget"
@@ -8541,7 +8882,6 @@ fn is_structural(declaration: &Decl) -> bool {
             | "plot"
             | "variable"
             | "dimension"
-            | "overlay"
             | "resource"
     )
 }
@@ -8549,7 +8889,7 @@ fn is_structural(declaration: &Decl) -> bool {
 fn owns_lexical_scope(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "define" | "group" | "view" | "cell" | "plot" | "overlay" | "on" | "table"
+        "chart" | "define" | "view" | "cell" | "plot" | "on" | "table"
     ) || (matches!(declaration.keyword.as_str(), "tool" | "mark")
         && !declaration.children.is_empty())
 }
@@ -8557,7 +8897,7 @@ fn owns_lexical_scope(declaration: &Decl) -> bool {
 fn is_instance_boundary(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "group" | "tool" | "widget" | "mark" | "view" | "cell" | "plot"
+        "chart" | "tool" | "widget" | "mark" | "view" | "cell" | "plot"
     )
 }
 
@@ -8571,6 +8911,54 @@ fn declaration_id(file: &ProjectFile, path: &[usize]) -> DeclarationId {
 }
 
 fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
+    if let Some(segment) = path
+        .iter()
+        .rposition(|value| *value == MARK_BLOCK_PATH_SEGMENT)
+    {
+        let owner_path = &path[..segment];
+        let block_ordinal = *path.get(segment + 1).unwrap_or(&0);
+        let child_path = path.get(segment + 2..).unwrap_or_default();
+        let mut components = vec![
+            stable_declaration_path(file, owner_path),
+            format!("legend-overlay#{block_ordinal}"),
+        ];
+        let Some(owner) = declaration_at(file.parsed.ast.root.declarations(), owner_path) else {
+            components.push("missing-owner".to_owned());
+            return components.join("/");
+        };
+        let Some(body) = overlay_mark_blocks(owner).get(block_ordinal).copied() else {
+            components.push("missing-overlay".to_owned());
+            return components.join("/");
+        };
+        let Some((first, rest)) = child_path.split_first() else {
+            return components.join("/");
+        };
+        let Some(mut declaration) = body.children.get(*first) else {
+            components.push(format!("missing:{first}"));
+            return components.join("/");
+        };
+        let signature = declaration_identity_signature(declaration);
+        let ordinal = body.children[..*first]
+            .iter()
+            .filter(|candidate| declaration_identity_signature(candidate) == signature)
+            .count();
+        components.push(format!("{signature}#{ordinal}"));
+        for index in rest {
+            let Some(next) = declaration.children.get(*index) else {
+                components.push(format!("missing:{index}"));
+                break;
+            };
+            let signature = declaration_identity_signature(next);
+            let ordinal = declaration.children[..*index]
+                .iter()
+                .filter(|candidate| declaration_identity_signature(candidate) == signature)
+                .count();
+            components.push(format!("{signature}#{ordinal}"));
+            declaration = next;
+        }
+        return components.join("/");
+    }
+
     let mut components = Vec::with_capacity(path.len());
     for (depth, index) in path.iter().copied().enumerate() {
         let siblings = if depth == 0 {
@@ -8627,8 +9015,20 @@ fn ancestry_text(ancestry: &[DeclarationId]) -> String {
 fn declaration_at<'a>(roots: &'a [Decl], path: &[usize]) -> Option<&'a Decl> {
     let (first, rest) = path.split_first()?;
     let mut declaration = roots.get(*first)?;
-    for index in rest {
-        declaration = declaration.children.get(*index)?;
+    let mut cursor = 0usize;
+    while cursor < rest.len() {
+        if rest[cursor] == MARK_BLOCK_PATH_SEGMENT {
+            let block_ordinal = *rest.get(cursor + 1)?;
+            let child_index = *rest.get(cursor + 2)?;
+            let body = overlay_mark_blocks(declaration)
+                .get(block_ordinal)
+                .copied()?;
+            declaration = body.children.get(child_index)?;
+            cursor += 3;
+        } else {
+            declaration = declaration.children.get(rest[cursor])?;
+            cursor += 1;
+        }
     }
     Some(declaration)
 }
@@ -8667,7 +9067,33 @@ fn declaration_preorder<'a>(declarations: &'a [Decl], visit: &mut impl FnMut(&'a
         if !visit(declaration) {
             return;
         }
+        for (_, value) in declaration.props.iter() {
+            value_declaration_preorder(value, visit);
+        }
         declaration_preorder(&declaration.children, visit);
+    }
+}
+
+fn value_declaration_preorder<'a>(value: &'a Value, visit: &mut impl FnMut(&'a Decl) -> bool) {
+    match value {
+        Value::Block { head, body } => {
+            if let Some(head) = head {
+                value_declaration_preorder(head, visit);
+            }
+            for (_, property) in body.props.iter() {
+                value_declaration_preorder(property, visit);
+            }
+            declaration_preorder(&body.children, visit);
+        }
+        Value::Array(values) | Value::Call { args: values, .. } => {
+            for value in values {
+                value_declaration_preorder(value, visit);
+            }
+        }
+        Value::Visual(value) | Value::Pattern(value) => {
+            value_declaration_preorder(value, visit);
+        }
+        _ => {}
     }
 }
 
@@ -8824,7 +9250,6 @@ fn definition_export_kind(declaration: &Decl) -> DefinitionExportKind {
         "store" => DefinitionExportKind::Store,
         "selection" => DefinitionExportKind::Selection,
         "mark" => DefinitionExportKind::Mark,
-        "group" => DefinitionExportKind::Group,
         "tool" => DefinitionExportKind::Tool,
         "widget" => DefinitionExportKind::Widget,
         _ => DefinitionExportKind::Unknown,

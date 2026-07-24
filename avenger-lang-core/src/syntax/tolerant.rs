@@ -562,8 +562,6 @@ impl<'a> TolerantTreeBuilder<'a> {
         let semantic = match (keyword, self.word_at(position + 1)) {
             ("param", Some("store")) => "store",
             ("param", Some("selection")) => "selection",
-            ("container", Some("group")) => "group",
-            ("container", Some("overlay")) => "overlay",
             _ => keyword,
         };
         Some(semantic.to_owned())
@@ -663,7 +661,7 @@ impl<'a> TolerantTreeBuilder<'a> {
 }
 
 /// Canonical source starters. Internal semantic declaration keywords such as
-/// `store`, `selection`, `group`, `overlay`, `dimension`, and `channel` do not
+/// `store`, `selection`, `dimension`, and `channel` do not
 /// enter the tolerant source grammar through this list.
 const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "adjust",
@@ -671,7 +669,6 @@ const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "catalog",
     "cell",
     "chart",
-    "container",
     "define",
     "derive",
     "equality",
@@ -839,7 +836,7 @@ mod tests {
               output amount + 1 as next;
               param store as rows {}
               param selection as picked {}
-              container group as layer {}
+              mark group as layer {}
               variable row mpg {}
               field float64 value;
               field struct(field(float64, 'x')) position;
@@ -864,7 +861,7 @@ mod tests {
             ("output", Some("next")),
             ("store", Some("rows")),
             ("selection", Some("picked")),
-            ("group", Some("layer")),
+            ("mark", Some("layer")),
             ("variable", Some("mpg")),
             ("field", Some("value")),
             ("field", Some("position")),

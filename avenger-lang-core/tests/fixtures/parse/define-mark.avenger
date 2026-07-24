@@ -9,7 +9,7 @@ define mark badge {
   output span(0, $radius) as bounds;
   export points as marks;
 
-  private container group as implementation {
+  private mark group as implementation {
     public mark symbol as points {
       x: channel(x);
       size: $radius;

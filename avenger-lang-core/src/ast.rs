@@ -278,7 +278,6 @@ pub enum BindingTime {
 #[serde(rename_all = "snake_case")]
 pub enum RefKind {
     Mark,
-    Group,
     Selection,
     Tool,
     Widget,

@@ -50,6 +50,7 @@ pub struct ResolvedMarkGroup {
     pub component_kind: Option<String>,
     pub data: Option<DataFrame>,
     pub store_data: Option<avenger_chart_core::StoreData>,
+    pub data_mode: MarkDataMode,
     pub transforms: Vec<ResolvedTransformStage>,
     pub view: Option<ResolvedViewScope>,
     pub marks: Vec<ResolvedMark>,
@@ -71,6 +72,7 @@ impl ResolvedMarkGroup {
             component_kind: None,
             data: None,
             store_data: None,
+            data_mode: MarkDataMode::Inherit,
             transforms: Vec::new(),
             view: None,
             marks: Vec::new(),
@@ -609,6 +611,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
 
 #[async_trait]
 trait ErasedCoordinatePack: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn schemas(&self) -> Vec<KindSchema>;
     fn validate_registration(&self) -> Result<(), RegistryError>;
@@ -700,8 +703,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                 for stage in &resolved.transforms {
                     data = data.with_transform_stage(stage.scope, stage.transform.clone());
                 }
-                let mut group =
-                    MarkGroup::<C>::new().with_data_context(data, MarkDataMode::Inherit);
+                let mut group = MarkGroup::<C>::new().with_data_context(data, resolved.data_mode);
                 if let Some(id) = &resolved.id {
                     group = group.id(id.clone());
                 }
@@ -863,6 +865,10 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
 
 #[async_trait]
 impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -1371,6 +1377,34 @@ impl NativeRegistry {
         pack.lower_child(self, plot)
     }
 
+    /// Lower resolved marks through one typed coordinate pack without
+    /// constructing a complete plot. Language-owned mark blocks such as
+    /// continuous-legend overlays use this boundary after performing their
+    /// own dataflow lowering.
+    pub fn lower_marks<C: CoordinateSystem>(
+        &self,
+        coordinate_kind: &str,
+        coordinate: &C,
+        marks: &[ResolvedMark],
+    ) -> Result<Vec<PlotMark<C>>, RegistryError> {
+        let pack = self
+            .coordinates
+            .get(coordinate_kind)
+            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+        let pack = pack
+            .as_any()
+            .downcast_ref::<CoordinatePack<C>>()
+            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                coordinate: coordinate_kind.to_string(),
+                expected: std::any::type_name::<C>().to_string(),
+            })?;
+        marks
+            .iter()
+            .map(|mark| pack.lower_mark(self, coordinate, mark))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|marks| marks.into_iter().flatten().collect())
+    }
+
     pub fn lower_transform(
         &self,
         declaration: &ResolvedDeclaration,
@@ -1803,6 +1837,7 @@ mod tests {
             ValueShape::SelectionBinding => ResolvedValue::Selection(Selection::new("smoke")),
             ValueShape::WidgetData => ResolvedValue::WidgetItems(WidgetItems::Static(vec![])),
             ValueShape::ParamChangeAction => ResolvedValue::Object(IndexMap::new()),
+            ValueShape::MarkBlock => ResolvedValue::Object(IndexMap::new()),
             ValueShape::Union(shapes) => schema_smoke_value(shapes.first().unwrap(), property),
             ValueShape::OneOrMany(inner) => schema_smoke_value(inner, property),
             ValueShape::Array(inner) => {
@@ -2148,6 +2183,24 @@ mod tests {
             registry.snapshot().markdown_reference(),
             include_str!("../docs/full-v1-native-kinds.md")
         );
+    }
+
+    #[test]
+    fn checked_bootstrap_schema_does_not_drift() {
+        let registry = builtins::bootstrap_registry().unwrap();
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = root.join("snapshots/bootstrap-schema.json");
+        if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+            fs::write(
+                path,
+                serde_json::to_string_pretty(registry.snapshot()).unwrap() + "\n",
+            )
+            .unwrap();
+            return;
+        }
+        let checked: NativeSchemaSnapshot =
+            serde_json::from_str(include_str!("../snapshots/bootstrap-schema.json")).unwrap();
+        assert_eq!(registry.snapshot(), &checked);
     }
 
     #[tokio::test]

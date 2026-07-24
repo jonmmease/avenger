@@ -3,14 +3,14 @@
     "component_kind": "point_pair",
     "exports": {
       "glyph": {
-        "id": "av1_7f22211f10a0bbb418e0c69792e222c2",
+        "id": "av1_fd8155773f6144ed384fd44dadea7245",
         "target": "mark"
       }
     },
-    "id": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
+    "id": "av1_b54df5d40d9b53394092557d6a05b324",
     "parts": {
       "glyph": {
-        "declaration": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
+        "declaration": "av1_b54df5d40d9b53394092557d6a05b324",
         "runtime_alias": "glyph",
         "runtime_kind": "point_pair",
         "source_alias": "glyph",
@@ -107,18 +107,18 @@
       "target": "param"
     },
     "provenance.composite": {
-      "id": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
-      "target": "declaration"
+      "id": "av1_17d42a0855781e8df3201fe89ed1087c",
+      "target": "mark"
     },
     "provenance.composite.glyph": {
       "id": {
         "alias": "glyph",
-        "declaration": "av1_9a7663dc0beeb779f50c37e9f08a14c5"
+        "declaration": "av1_b54df5d40d9b53394092557d6a05b324"
       },
       "target": "part"
     },
     "provenance.composite.point": {
-      "id": "av1_7f22211f10a0bbb418e0c69792e222c2",
+      "id": "av1_fd8155773f6144ed384fd44dadea7245",
       "target": "mark"
     }
   },

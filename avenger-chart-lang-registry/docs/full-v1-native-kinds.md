@@ -1771,6 +1771,7 @@ A standard discrete or continuous chart legend configuration.
 | `label_syntax` | property | false | Legend-label text syntax. |
 | `order` | property | false | Expression controlling discrete item order. |
 | `orientation` | property | false | Legend item-flow orientation. |
+| `overlay` | property | false | Marks rendered on a continuous colorbar surface using injected Cartesian value and cross-axis scales. |
 | `position` | property | false | Legend chrome-slot position. |
 | `symbol_size` | property | false | Discrete legend symbol area. |
 | `tick_color` | property | false | Continuous colorbar tick-label color. |

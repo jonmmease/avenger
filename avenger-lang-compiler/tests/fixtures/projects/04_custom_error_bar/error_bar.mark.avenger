@@ -16,7 +16,7 @@ define mark error_bar {
     predicate: true;
   }
 
-  container group as body {
+  mark group as body {
     mark rule as stem {
       category_axis: category;
       category_axis2: category;

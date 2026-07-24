@@ -95,7 +95,6 @@ impl Printer {
             "variable" => self.variable(decl),
             "param" => self.param(decl),
             "store" | "selection" => self.state_param(decl),
-            "group" | "overlay" => self.container(decl),
             "dimension" => self.predicate_entry(decl),
             "on" => self.event(decl),
             "cell" => self.cell(decl),
@@ -152,13 +151,6 @@ impl Printer {
         self.text(decl.keyword.as_str());
         self.text(" as ");
         self.text(name_or(&decl.name, "binding"));
-        self.body(&decl.props, &decl.children, &[]);
-    }
-
-    fn container(&mut self, decl: &Decl) {
-        self.text("container ");
-        self.text(decl.keyword.as_str());
-        self.binder(&decl.name);
         self.body(&decl.props, &decl.children, &[]);
     }
 
@@ -657,7 +649,6 @@ impl Printer {
 fn ref_name(kind: RefKind) -> &'static str {
     match kind {
         RefKind::Mark => "mark",
-        RefKind::Group => "group",
         RefKind::Selection => "selection",
         RefKind::Tool => "tool",
         RefKind::Widget => "widget",

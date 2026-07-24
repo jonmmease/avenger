@@ -575,6 +575,20 @@ impl Parser {
             self.expect(Token::SemiColon, "`;` after none")?;
             return Ok(Value::None);
         }
+        if self.word_is("group") {
+            let checkpoint = self.index;
+            self.bump();
+            if self.word().is_some() {
+                let _ = self.qual()?;
+                if self.is(&Token::SemiColon) {
+                    return Err(self.error(
+                        "AVENGER-PARSE-028",
+                        "group references were removed; use `mark <path>`",
+                    ));
+                }
+            }
+            self.index = checkpoint;
+        }
         if let Some(kind) = self.ref_kind() {
             let checkpoint = self.index;
             self.bump();
@@ -734,7 +748,12 @@ impl Parser {
             "variable" => self.variable()?,
             "tool" => self.tool()?,
             "param" => self.param()?,
-            "container" => self.container()?,
+            "container" => {
+                return Err(self.error(
+                    "AVENGER-PARSE-028",
+                    "`container` was removed; use `mark group` or a legend `overlay:` property",
+                ));
+            }
             "store" => {
                 return Err(self.error(
                     "AVENGER-PARSE-026",
@@ -750,7 +769,7 @@ impl Parser {
             "group" | "overlay" => {
                 return Err(self.error(
                     "AVENGER-PARSE-028",
-                    "groups and overlays use `container group|overlay`",
+                    "standalone `group` and `overlay` declarations were removed; use `mark group` or a legend `overlay:` property",
                 ));
             }
             "dimension" => {
@@ -795,9 +814,6 @@ impl Parser {
     fn kind_bind_body(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
         let kind = self.name()?;
-        if keyword.as_str() == "mark" && kind.as_str() == "group" {
-            return Err(self.error("AVENGER-PARSE-028", "mark groups use `container group`"));
-        }
         let binder = self.optional_binder()?;
         if matches!(
             keyword.as_str(),
@@ -898,20 +914,6 @@ impl Parser {
             .insert(n("type"), data_type)
             .expect("param body cannot author `type`");
         Ok(from_body(n("param"), None, Some(binder), body))
-    }
-
-    fn container(&mut self) -> Result<Decl, ParseError> {
-        self.expect_word("container")?;
-        let kind = self.name()?;
-        if !matches!(kind.as_str(), "group" | "overlay") {
-            return Err(self.error(
-                "AVENGER-PARSE-028",
-                "container type must be `group` or `overlay`",
-            ));
-        }
-        let binder = self.optional_binder()?;
-        let body = self.body()?;
-        Ok(from_body(kind, None, binder, body))
     }
 
     fn event(&mut self) -> Result<Decl, ParseError> {
@@ -1511,7 +1513,6 @@ impl Parser {
     fn ref_kind(&mut self) -> Option<RefKind> {
         match self.word()? {
             "mark" => Some(RefKind::Mark),
-            "group" => Some(RefKind::Group),
             "selection" => Some(RefKind::Selection),
             "tool" => Some(RefKind::Tool),
             "widget" => Some(RefKind::Widget),
@@ -1976,8 +1977,7 @@ chart cartesian as chart {
   param struct(field(float64, 'x')) as point { value: NULL; }
   param store as rows { field float64 x nullable; }
   param selection as picked {}
-  container group as layer {}
-  container overlay {}
+  mark group as layer {}
   variable row mpg {}
   adjust expr { x: "x" + 1; }
   equality { id { field: "id"; value: datum('id'); } }
@@ -1998,8 +1998,7 @@ chart cartesian as chart {
                 "param",
                 "store",
                 "selection",
-                "group",
-                "overlay",
+                "mark",
                 "variable",
                 "adjust",
                 "equality",
@@ -2049,6 +2048,8 @@ chart cartesian as chart {
             ("selection as picked {}", "AVENGER-PARSE-027"),
             ("group as layer {}", "AVENGER-PARSE-028"),
             ("overlay {}", "AVENGER-PARSE-028"),
+            ("container group {}", "AVENGER-PARSE-028"),
+            ("container overlay {}", "AVENGER-PARSE-028"),
             ("dimension as x {}", "AVENGER-PARSE-029"),
             ("channel x;", "AVENGER-PARSE-030"),
             ("adjust {}", "AVENGER-PARSE-036"),

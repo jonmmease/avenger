@@ -5,9 +5,9 @@ This suite owns every `.avenger` source below `tests/fixtures/projects` through
 one chart-root case, so imported definitions and data files are covered without
 pretending they are independently renderable charts.
 
-The current corpus contains 61 sources and 44 chart roots:
+The current corpus contains 62 sources and 45 chart roots:
 
-- 42 valid chart roots compile, serialize and deserialize, evaluate in isolated
+- 43 valid chart roots compile, serialize and deserialize, evaluate in isolated
   environments, render through WGPU, and compare with reviewed PNGs under
   `tests/baselines/visual`;
 - two intentionally invalid roots compare their complete structured compiler
@@ -25,7 +25,7 @@ Every visual case has an explicit `review` status in the manifest:
 Review status never skips compilation, artifact round-trip, evaluation, or PNG
 comparison. The inventory test fails when any visual case omits it.
 
-The current remediation pass is closed: all 42 visual roots are `reviewed`.
+The current remediation pass is closed: all 43 visual roots are `reviewed`.
 There are no active `known_incorrect`, `weak`, or `intentional_blank` cases.
 The provider-host fixture still renders a white canvas by design, but is
 classified as `reviewed` because the harness directly asserts that both its

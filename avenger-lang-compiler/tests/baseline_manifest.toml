@@ -9,7 +9,7 @@ visual_owner = "../../avenger-chart/tests/baselines/symbol/simple_scatter_plot.p
 [fixture_visual]
 manifest = "tests/fixtures/visual_cases.json"
 baseline_dir = "tests/baselines/visual"
-source_count = 61
-case_count = 44
-visual_count = 42
+source_count = 62
+case_count = 45
+visual_count = 43
 diagnostic_count = 2

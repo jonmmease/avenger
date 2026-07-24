@@ -272,7 +272,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                container group { view cartesian as viewport { export child; } }
+                mark group { view cartesian as viewport { export child; } }
             }"#,
         ),
         (

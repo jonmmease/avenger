@@ -154,6 +154,104 @@ use super::title::{PlotSubtitle, PlotTitle};
 pub(crate) struct CompiledColorbarOverlayMarks {
     pub(crate) channel_name: String,
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
+    #[serde(default)]
+    pub(crate) mark_groups: Vec<CompiledMarkGroupState>,
+    #[serde(default)]
+    pub(crate) mark_group_index_by_mark: Vec<Option<usize>>,
+}
+
+impl CompiledColorbarOverlayMarks {
+    fn group_index_for_mark(&self, mark_index: usize) -> Option<usize> {
+        self.mark_group_index_by_mark
+            .get(mark_index)
+            .copied()
+            .flatten()
+    }
+
+    pub(crate) fn group_view_for_mark(
+        &self,
+        mark_index: usize,
+    ) -> Option<GroupViewMarkContext<'_>> {
+        let mut group_index = self.group_index_for_mark(mark_index);
+        while let Some(index) = group_index {
+            let group = self.mark_groups.get(index)?;
+            if let Some(view) = group.view.as_ref() {
+                return Some(GroupViewMarkContext {
+                    plot_identity: self as *const Self as usize,
+                    group_index: index,
+                    scope: view,
+                });
+            }
+            group_index = group.parent_group_index;
+        }
+        None
+    }
+
+    pub(crate) fn data_group_index_for_mark(&self, mark_index: usize) -> Option<usize> {
+        let mut group_index = self.group_index_for_mark(mark_index)?;
+        loop {
+            let group = self.mark_groups.get(group_index)?;
+            if !is_data_transparent_group(group) {
+                return Some(group_index);
+            }
+            group_index = group.parent_group_index?;
+        }
+    }
+
+    pub(crate) async fn prepare_mark_group_base_data(
+        &self,
+        group_index: usize,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<Arc<PreparedBaseData>, AvengerChartError> {
+        let key = MarkGroupDataCacheKey {
+            plot_identity: self as *const Self as usize,
+            group_index,
+            facet_path: Vec::new(),
+        };
+        if let Some(cached) = eval_ctx
+            .mark_group_data_cache
+            .lock()
+            .expect("mark-group data cache lock poisoned")
+            .get(&key)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+
+        let group = self.mark_groups.get(group_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Compiled colorbar overlay mark group index {group_index} is out of bounds"
+            ))
+        })?;
+        let inherited_base = if group.data.has_explicit_data_source() {
+            None
+        } else if let Some(parent_index) = group.parent_group_index {
+            Some(Box::pin(self.prepare_mark_group_base_data(parent_index, eval_ctx)).await?)
+        } else {
+            None
+        };
+
+        let prepared = Arc::new(
+            prepare_base_data(BaseDataRequest {
+                data_context: &group.data,
+                data_mode: group.data_mode,
+                facet_data_scope: group.facet_data_scope,
+                // Colorbar overlays intentionally have no chart-row relation.
+                plot_data: None,
+                provided_plot_df: None,
+                inherited_base: inherited_base.as_deref(),
+                facet_data_scope_context: None,
+                eval_ctx,
+            })
+            .await?,
+        );
+        eval_ctx
+            .mark_group_data_cache
+            .lock()
+            .expect("mark-group data cache lock poisoned")
+            .insert(key, prepared.clone());
+        Ok(prepared)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

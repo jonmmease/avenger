@@ -4,11 +4,11 @@ chart cartesian as theme_parts {
   theme css: 'point_pair::part(glyph) { fill: #dc2626; }';
   data: { values: [{ x: 1.0; y: 2.0; }]; }
 
-  container group as pair {
+  mark group as pair {
     component_kind: point_pair;
     export body.point as glyph;
 
-    private container group as body {
+    private mark group as body {
       mark symbol as point {
         x: "x" { scale: linear { domain: [0.0, 3.0]; } }
         y: "y" { scale: linear { domain: [0.0, 3.0]; } }

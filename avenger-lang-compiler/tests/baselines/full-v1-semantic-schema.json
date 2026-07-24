@@ -510,6 +510,60 @@
           "if": {
             "properties": {
               "decl": {
+                "const": "mark"
+              },
+              "kind": {
+                "const": "group"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "component_kind": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "details": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "exclude_from_scale_domains": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "facet_data_scope": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "geometry_space": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "label": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "visible": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "zindex": {
+                    "$ref": "#/$defs/value"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "x-avenger-core-kind": "mark_group"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
                 "const": "cell"
               },
               "kind": {
@@ -70431,7 +70485,7 @@
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",
   "x-avenger-language-major": 1,
-  "x-avenger-native-profile": "avenger-native-1-792bddbd9844fa5eb1335ca4f379db145181193ddcb7f252f3b7f235dc965778",
+  "x-avenger-native-profile": "avenger-native-1-53235b661398f2f4f38f2b09d3fbd1101f9adec19ab8ae66628b8913f34fd10c",
   "x-avenger-native-schema": {
     "entries": [
       {
@@ -84300,6 +84354,13 @@
             "required": false,
             "shape": {
               "shape": "sql_expression"
+            }
+          },
+          "overlay": {
+            "docs": "Marks rendered on a continuous colorbar surface using injected Cartesian value and cross-axis scales.",
+            "required": false,
+            "shape": {
+              "shape": "mark_block"
             }
           },
           "position": {

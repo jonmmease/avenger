@@ -35,7 +35,7 @@ define tool inspect_points {
     set hovered = clear;
   }
 
-  container group as chrome_layer {
+  mark group as chrome_layer {
     mark symbol as chrome {
       x: "x";
       y: "y";

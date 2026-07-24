@@ -34,6 +34,7 @@ fn semantic_conditions(registry: &NativeSchemaSnapshot) -> Vec<Value> {
         declaration_condition("on", None, event_body_schema()),
         declaration_condition("widget", None, binder_required_schema()),
         declaration_condition("view", None, view_schema()),
+        declaration_condition("mark", Some("group"), mark_group_body_schema()),
     ];
     let mut native = BTreeMap::<(String, String), Vec<&KindSchema>>::new();
     for schema in registry.entries.values() {
@@ -57,6 +58,29 @@ fn semantic_conditions(registry: &NativeSchemaSnapshot) -> Vec<Value> {
         conditions.push(declaration_condition(&keyword, Some(&kind), body));
     }
     conditions
+}
+
+fn mark_group_body_schema() -> Value {
+    json!({
+        "properties": {
+            "props": object_properties_schema(
+                Map::from_iter([
+                    ("data".to_owned(), value_ref()),
+                    ("component_kind".to_owned(), value_ref()),
+                    ("label".to_owned(), value_ref()),
+                    ("visible".to_owned(), value_ref()),
+                    ("details".to_owned(), value_ref()),
+                    ("zindex".to_owned(), value_ref()),
+                    ("facet_data_scope".to_owned(), value_ref()),
+                    ("geometry_space".to_owned(), value_ref()),
+                    ("exclude_from_scale_domains".to_owned(), value_ref()),
+                ]),
+                Vec::new(),
+                true,
+            ),
+        },
+        "x-avenger-core-kind": "mark_group",
+    })
 }
 
 fn declaration_condition(keyword: &str, kind: Option<&str>, then: Value) -> Value {
@@ -353,6 +377,33 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::SelectionBinding => tagged_schema("ref"),
         ValueShape::WidgetData => json!({
             "oneOf": [tagged_schema("block"), binding_schema("store")]
+        }),
+        ValueShape::MarkBlock => json!({
+            "type": "object",
+            "required": ["block"],
+            "properties": {
+                "block": {
+                    "type": "object",
+                    "required": ["children"],
+                    "properties": {
+                        "children": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "allOf": [
+                                    { "$ref": "#/$defs/decl" },
+                                    {
+                                        "properties": { "decl": { "const": "mark" } },
+                                        "required": ["decl"]
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
         }),
         ValueShape::TypedReference { namespaces } => {
             let kinds = namespaces

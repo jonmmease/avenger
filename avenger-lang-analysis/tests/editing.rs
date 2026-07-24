@@ -277,7 +277,7 @@ chart cartesian as chart {
   -- | Outer width.
   param float64 as width { value: 10.0; }
 
-  container group as inner {
+  mark group as inner {
     -- | Inner width.
     param float64 as width { value: 20.0; }
     mark symbol as inner_points { size: $width; }
@@ -652,7 +652,7 @@ async fn inline_definition_uses_the_compilers_canonical_expansion() {
         .find(|action| action.kind == CodeActionKind::RefactorInline)
         .expect("inline definition action");
     let edit = &action.edit.sources[&chart_origin].edits[0];
-    assert!(edit.new_text.starts_with("container group as imported"));
+    assert!(edit.new_text.starts_with("mark group as imported"));
     assert!(edit.new_text.contains("component_kind: badge"));
     assert!(edit.new_text.contains("private mark symbol"));
 
@@ -671,7 +671,7 @@ async fn extract_definition_creates_a_compiling_file_and_infers_scalar_slots() {
 
 chart cartesian as chart {
   param float64 as point_size { value: 32.0; }
-  container group as cluster {
+  mark group as cluster {
     -- keep this authored explanation
     mark symbol as point { x: value 1; y: value 2; size: $point_size; }
   }
@@ -703,7 +703,7 @@ chart cartesian as chart {
         )
         .await
         .unwrap();
-    let start = chart.find("container group as cluster").unwrap();
+    let start = chart.find("mark group as cluster").unwrap();
     let actions = analysis
         .code_actions(
             &CodeActionRequest {
@@ -712,7 +712,7 @@ chart cartesian as chart {
                     source: analysis.syntax[&chart_origin].parsed.tokens.source(),
                     range: ByteSpan {
                         start,
-                        end: start + "container group as cluster".len(),
+                        end: start + "mark group as cluster".len(),
                     },
                 },
                 source_revision: revision,

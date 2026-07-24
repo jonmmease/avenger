@@ -108,7 +108,7 @@ avenger 1;
 define mark broken {
   slot enum mode { values: [a, b]; default: a; }
   slot block content { exposes: [missing]; default: { } }
-  container group { data: { values: []; } }
+  mark group { data: { values: []; } }
   theme css: 'mark { opacity: 0.5; }';
   match mode {
     a { unknown; }
@@ -439,7 +439,7 @@ define mark summary {
   slot enum mode { values: [show, hide]; default: show; }
   slot block annotations { exposes: [point]; default: { } }
   export body.point as point;
-  container group as body {
+  mark group as body {
     mark symbol as point {
       band_axis: "category";
       value_axis: measure;
@@ -466,11 +466,11 @@ define mark summary {
     assert!(!text.contains("mark summary"));
     assert!(!text.contains("match mode"));
     assert!(!text.contains("annotations;"));
-    assert!(text.contains("container group as result"), "{text}");
+    assert!(text.contains("mark group as result"), "{text}");
     assert!(text.contains("component_kind: summary;"), "{text}");
     assert!(text.contains("export __av_"), "{text}");
     assert!(text.contains(" as point;"), "{text}");
-    assert!(text.contains("private container group as __av_"), "{text}");
+    assert!(text.contains("private mark group as __av_"), "{text}");
     assert!(text.contains("y: \"category\";"), "{text}");
     assert!(text.contains("x: \"value\";"), "{text}");
     assert!(text.contains("public mark text as label"), "{text}");
@@ -480,6 +480,62 @@ define mark summary {
     assert!(text.contains("widget slider as threshold"), "{text}");
     assert!(!expanded.source_map.mappings.is_empty());
 
+    resolve_project(&expanded.project, &bootstrap_schema())
+        .result
+        .unwrap();
+}
+
+#[tokio::test]
+async fn definition_marks_expand_inside_legend_overlay_mark_blocks() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import 'band.mark.avenger';
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
+  mark symbol as points {
+    x: "x";
+    y: "y";
+    fill: "value" {
+      legend: {
+        overlay: {
+          mark band as imported_band {}
+        }
+      }
+    }
+  }
+}
+"#,
+        ),
+        (
+            "band.mark.avenger",
+            r#"
+avenger 1;
+define mark band {
+  mark rect {
+    x: 0.0;
+    x2: 1.0;
+    y: 3.0;
+    y2: 4.0;
+    fill: value 'rgba(220, 38, 38, 0.20)';
+  }
+}
+"#,
+        ),
+    ])
+    .await;
+    let resolved = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_project(&project, &resolved).unwrap();
+    let chart = project.chart_roots.first().unwrap();
+    let text = expanded.texts.get(chart).unwrap();
+
+    assert!(text.contains("overlay: {"), "{text}");
+    assert!(text.contains("mark group as imported_band"), "{text}");
+    assert!(text.contains("component_kind: band;"), "{text}");
     resolve_project(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();

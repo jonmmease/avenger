@@ -17,10 +17,11 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
+    cartesian::Cartesian,
     layout::LayoutSpec,
     prelude::{
-        Auto, ChannelExpr, ChannelValue, LegendableChannelValue, Param, Scale, ScaleChannelValue,
-        Selection, Store, WidgetItemRow, WidgetItems,
+        Auto, ChannelExpr, ChannelValue, ColorbarOverlay, LegendableChannelValue, Param, Scale,
+        ScaleChannelValue, Selection, Store, WidgetItemRow, WidgetItems,
     },
 };
 use avenger_chart_core::{
@@ -51,7 +52,9 @@ use avenger_lang_core::{
     ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery,
     ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference,
     ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader,
-    SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime, project::resolve_import_origin,
+    SourceSpan, StateSharing, StoreId, TimeUnit,
+    ast::{BindingTime, Visibility},
+    project::resolve_import_origin,
 };
 use datafusion::{
     common::{
@@ -199,6 +202,7 @@ struct ProjectLowerer<'a> {
     native_owned_selections: BTreeSet<SelectionId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
+    legend_overlays: BTreeMap<DeclarationId, ColorbarOverlay>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
     active_chart_id: Option<DeclarationId>,
     active_chart_path: Option<String>,
@@ -226,6 +230,7 @@ impl<'a> ProjectLowerer<'a> {
             native_owned_selections: native_owned_selections(project),
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
+            legend_overlays: BTreeMap::new(),
             analysis_schemas: Vec::new(),
             active_chart_id: None,
             active_chart_path: None,
@@ -410,7 +415,7 @@ impl<'a> ProjectLowerer<'a> {
             for child in container.children.iter().filter(|child| {
                 matches!(
                     child.keyword.as_str(),
-                    "group" | "view" | "mark" | "cell" | "plot" | "overlay" | "layer"
+                    "view" | "mark" | "cell" | "plot" | "layer"
                 )
             }) {
                 self.analyze_container_data(child, current_data.as_ref(), analysis)
@@ -2042,7 +2047,7 @@ impl<'a> ProjectLowerer<'a> {
             let mut group = ResolvedMarkGroup::new();
             group.data = explicit_store.is_none().then_some(explicit_data).flatten();
             group.store_data = explicit_store;
-            if container.keyword == "group" {
+            if is_resolved_mark_group(container) {
                 group.id = container.name.clone();
                 group.publish_id = container.public_path.is_some();
                 group.component_kind = container.component_kind.clone();
@@ -2064,7 +2069,7 @@ impl<'a> ProjectLowerer<'a> {
                             transform: stage.transform,
                         });
                     }
-                    "group" => {
+                    "mark" if is_resolved_mark_group(child) => {
                         let child_group = self
                             .lower_container(child, current_data.as_ref(), plot)
                             .await?;
@@ -2099,6 +2104,7 @@ impl<'a> ProjectLowerer<'a> {
                         } else {
                             None
                         };
+                        self.lower_legend_overlays(child, plot).await?;
                         let declaration = self.native_declaration(
                             child,
                             planning_data,
@@ -2237,6 +2243,56 @@ impl<'a> ProjectLowerer<'a> {
                 }
             }
             Ok(group)
+        })
+    }
+
+    fn lower_legend_overlays<'b>(
+        &'b mut self,
+        declaration: &'b ResolvedDeclaration,
+        plot: &'b mut ResolvedPlot,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Diagnostic>> + 'b>> {
+        Box::pin(async move {
+            for (overlay_id, children) in legend_overlay_blocks(declaration) {
+                if self.legend_overlays.contains_key(&overlay_id) {
+                    continue;
+                }
+                validate_legend_overlay_children(declaration, children)?;
+                let mut synthetic = declaration.clone();
+                synthetic.keyword = "mark".to_string();
+                synthetic.kind = Some("group".to_string());
+                synthetic.name = None;
+                synthetic.visibility = Visibility::Private;
+                synthetic.component_kind = None;
+                synthetic.properties.clear();
+                synthetic.property_channels.clear();
+                synthetic.children = children.to_vec();
+                synthetic.runtime_target = None;
+                synthetic.public_path = None;
+                synthetic.parts.clear();
+                synthetic.exports.clear();
+                synthetic.transform_outputs.clear();
+                synthetic.event_binding = None;
+                synthetic.state_lvalue = None;
+
+                let mut group = self.lower_container(&synthetic, None, plot).await?;
+                // A mark block is an isolated unit-data root. Its authored
+                // child groups may replace that root with explicit data or a
+                // store, but no chart-row relation crosses this boundary.
+                group.data_mode = avenger_chart_core::MarkDataMode::Unit;
+                let marks = self
+                    .registry
+                    .lower_marks(
+                        "cartesian",
+                        &Cartesian::new(),
+                        &[ResolvedMark::Group(Box::new(group))],
+                    )
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                let overlay = marks
+                    .into_iter()
+                    .fold(ColorbarOverlay::new(), |overlay, mark| overlay.mark(mark));
+                self.legend_overlays.insert(overlay_id, overlay);
+            }
+            Ok(())
         })
     }
 
@@ -2591,6 +2647,11 @@ impl<'a> ProjectLowerer<'a> {
             // untyped native object. The owner-facing declaration carries the
             // result separately so authored order cannot be lost in a map.
             if property_shape == Some(&ValueShape::ParamChangeAction) {
+                continue;
+            }
+            // Language-owned mark blocks are lowered asynchronously before
+            // this registered native declaration is constructed.
+            if property_shape == Some(&ValueShape::MarkBlock) {
                 continue;
             }
             // A mark declaration contains both encoding channels and ordinary
@@ -3742,13 +3803,15 @@ impl<'a> ProjectLowerer<'a> {
         if matches!(value, ResolvedValue::None) {
             return Ok(channel.no_legend());
         }
-        let native = self.object_declaration(value, data, declaration, "standard")?;
+        let overlay_id = legend_overlay_id(value);
+        let mut native = self.object_declaration(value, data, declaration, "standard")?;
+        native.properties.shift_remove("overlay");
         let key = NativeKindKey::new(NativeKindNamespace::Legend, native.kind.clone());
         let lowered = self
             .registry
             .lower_object(&key, &native)
             .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-        let legend = lowered
+        let mut legend = *lowered
             .downcast::<avenger_chart_core::Legend>()
             .map_err(|_| {
                 lowerer_error(
@@ -3756,7 +3819,16 @@ impl<'a> ProjectLowerer<'a> {
                     "registered legend lowerer did not return Legend",
                 )
             })?;
-        Ok(channel.legend(*legend))
+        if let Some(overlay_id) = overlay_id {
+            let overlay = self.legend_overlays.get(overlay_id).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    "resolved legend overlay was not prepared before mark lowering",
+                )
+            })?;
+            legend = legend.colorbar_overlay_any(Arc::new(overlay.clone()));
+        }
+        Ok(channel.legend(legend))
     }
 
     fn object_declaration(
@@ -4924,6 +4996,108 @@ fn find_declaration<'a>(
         .find(|declaration| &declaration.id == id)
 }
 
+fn legend_overlay_blocks(
+    declaration: &ResolvedDeclaration,
+) -> Vec<(DeclarationId, &[ResolvedDeclaration])> {
+    let mut overlays = Vec::new();
+    for value in declaration.properties.values() {
+        collect_legend_overlay_blocks(value, &mut overlays);
+    }
+    overlays
+}
+
+fn collect_legend_overlay_blocks<'a>(
+    value: &'a ResolvedValue,
+    overlays: &mut Vec<(DeclarationId, &'a [ResolvedDeclaration])>,
+) {
+    match value {
+        ResolvedValue::Object { properties, .. } => {
+            if let Some(legend) = properties.get("legend")
+                && let Some((id, children)) = legend_overlay_block(legend)
+            {
+                overlays.push((id.clone(), children));
+            }
+            for nested in properties.values() {
+                collect_legend_overlay_blocks(nested, overlays);
+            }
+        }
+        ResolvedValue::Array(values) => {
+            for nested in values {
+                collect_legend_overlay_blocks(nested, overlays);
+            }
+        }
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            collect_legend_overlay_blocks(value, overlays);
+        }
+        ResolvedValue::Call { args, .. } => {
+            for nested in args {
+                collect_legend_overlay_blocks(nested, overlays);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn legend_overlay_block(
+    legend: &ResolvedValue,
+) -> Option<(&DeclarationId, &[ResolvedDeclaration])> {
+    let ResolvedValue::Object { properties, .. } = legend else {
+        return None;
+    };
+    let ResolvedValue::Object { children, .. } = properties.get("overlay")? else {
+        return None;
+    };
+    children
+        .first()
+        .map(|child| (&child.id, children.as_slice()))
+}
+
+fn legend_overlay_id(legend: &ResolvedValue) -> Option<&DeclarationId> {
+    legend_overlay_block(legend).map(|(id, _)| id)
+}
+
+fn validate_legend_overlay_children(
+    owner: &ResolvedDeclaration,
+    children: &[ResolvedDeclaration],
+) -> Result<(), Diagnostic> {
+    if children.is_empty() {
+        return Err(lowerer_error(
+            owner,
+            "legend overlay must contain at least one mark",
+        ));
+    }
+    for child in children {
+        if child.keyword != "mark" {
+            return Err(lowerer_error(
+                child,
+                "legend overlay blocks may contain only mark declarations",
+            ));
+        }
+        validate_legend_overlay_mark(child)?;
+    }
+    Ok(())
+}
+
+fn validate_legend_overlay_mark(declaration: &ResolvedDeclaration) -> Result<(), Diagnostic> {
+    for child in &declaration.children {
+        match child.keyword.as_str() {
+            "mark" | "transform" | "view" => validate_legend_overlay_mark(child)?,
+            "tool" | "widget" | "on" | "cell" | "plot" | "param" | "store" | "selection"
+            | "scale_edit" | "theme" | "resource" | "export" => {
+                return Err(lowerer_error(
+                    child,
+                    format!(
+                        "legend overlay marks cannot contain `{}` declarations",
+                        child.keyword
+                    ),
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn find_declaration_by_target<'a>(
     project: &'a ResolvedProject,
     target: &ResolvedTarget,
@@ -5174,11 +5348,14 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
             "chart" | "plot",
             "data" | "title" | "subtitle" | "layout" | "theme" | "time" | "format" | "guide"
         ) | ("cell", "at" | "data" | "label" | "when")
-            | ("group", "data" | "component_kind" | "label")
             | ("mark", "data")
             | ("transform", "scope")
             | ("tool", "id")
     )
+}
+
+fn is_resolved_mark_group(declaration: &ResolvedDeclaration) -> bool {
+    declaration.keyword == "mark" && declaration.kind.as_deref() == Some("group")
 }
 
 fn chart_event_type(value: &str) -> Option<ChartEventType> {

@@ -3,7 +3,7 @@ avenger 1;
 chart responsive as shapes {
   resource tiles as osm {}
   theme css: '.chart { color: red; }';
-  container group as container {
+  mark group as container {
     variable row mpg {}
     cell cartesian as left at { row: 0; column: 1; } {
       plot polar {
@@ -14,7 +14,6 @@ chart responsive as shapes {
     level 0 {}
     adjust stack as stacked {}
     derive density as kde {}
-    container overlay as annotations {}
     layer background {}
     when {}
     row {}
