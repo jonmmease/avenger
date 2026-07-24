@@ -10,7 +10,7 @@ use avenger_lang_compiler::{
     Compiler, CompilerLimits, DefaultSourceLoader, DependencyRole, LocalResourceLimits,
 };
 use avenger_lang_core::{
-    ExpansionLimits, ImportCapabilities, ProjectLoadLimits, SourceLoader, SourceOrigin,
+    ExpansionLimits, ImportCapabilities, ModuleGraphLoadLimits, SourceLoader, SourceOrigin,
 };
 
 fn fixture_dir(name: &str) -> PathBuf {
@@ -97,9 +97,9 @@ async fn source_loader_discovers_project_and_relative_imports_deterministically(
         .await
         .result
         .unwrap();
-    assert_eq!(first.files.len(), 3);
-    assert_eq!(first.chart_roots.len(), 1);
-    assert_eq!(first.ambient_data.len(), 1);
+    assert_eq!(first.source_modules.len(), 3);
+    assert_eq!(first.requested_modules.len(), 1);
+    assert_eq!(first.ambient_data_modules.len(), 1);
     assert_eq!(first.ambient_catalog.len(), 1);
     assert_eq!(first.fingerprint, second.fingerprint);
 }
@@ -112,7 +112,7 @@ async fn source_loader_loads_versioned_bundled_std_definition() {
     let project = attempt.result.unwrap();
     assert!(
         project
-            .files
+            .source_modules
             .keys()
             .any(|id| id.as_str() == "std:marks/error_bar.mark.avenger")
     );
@@ -473,7 +473,7 @@ async fn compiler_enforces_local_resource_file_size_limit() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits::default(),
+            project: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_file_bytes: 4,
                 ..LocalResourceLimits::default()
@@ -513,7 +513,7 @@ async fn compiler_enforces_aggregate_local_resource_budget() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits::default(),
+            project: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_total_bytes: 7,
                 ..LocalResourceLimits::default()
@@ -552,9 +552,9 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits {
+            project: ModuleGraphLoadLimits {
                 max_sources: 1,
-                ..ProjectLoadLimits::default()
+                ..ModuleGraphLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
             ..CompilerLimits::default()
@@ -578,10 +578,10 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits {
+            project: ModuleGraphLoadLimits {
                 max_sources: 10,
                 max_project_directory_depth: 0,
-                ..ProjectLoadLimits::default()
+                ..ModuleGraphLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
             ..CompilerLimits::default()
@@ -603,11 +603,11 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits {
+            project: ModuleGraphLoadLimits {
                 max_sources: 10,
                 max_project_directory_depth: 10,
                 max_project_directory_entries: 2,
-                ..ProjectLoadLimits::default()
+                ..ModuleGraphLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
             ..CompilerLimits::default()
@@ -661,12 +661,12 @@ async fn compiler_applies_syntax_and_expansion_limits() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits {
+            project: ModuleGraphLoadLimits {
                 syntax: avenger_lang_core::syntax::SyntaxLimits {
                     max_declarations: 0,
                     ..avenger_lang_core::syntax::SyntaxLimits::default()
                 },
-                ..ProjectLoadLimits::default()
+                ..ModuleGraphLoadLimits::default()
             },
             ..CompilerLimits::default()
         })
@@ -749,7 +749,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
         let compiler = Compiler::builder()
             .project_root(&root)
             .limits(CompilerLimits {
-                project: ProjectLoadLimits::default(),
+                project: ModuleGraphLoadLimits::default(),
                 resources: limits,
                 ..CompilerLimits::default()
             })
@@ -769,7 +769,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ProjectLoadLimits::default(),
+            project: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_directory_depth: 0,
                 ..LocalResourceLimits::default()

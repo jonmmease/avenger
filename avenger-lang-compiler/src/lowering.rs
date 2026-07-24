@@ -54,7 +54,7 @@ use avenger_lang_core::{
     ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader,
     SourceSpan, StateSharing, StoreId, TimeUnit,
     ast::{BindingTime, Visibility},
-    project::resolve_import_origin,
+    module_graph::resolve_relative_origin,
 };
 use datafusion::{
     common::{
@@ -790,9 +790,12 @@ impl<'a> ProjectLowerer<'a> {
                     .authored_source(declaration.span)
                     .ok_or_else(|| lowerer_error(declaration, "theme source file is unavailable"))?
                     .origin;
-                let origin =
-                    resolve_import_origin(declaring_origin, path, &self.capabilities.project_root)
-                        .map_err(|error| lowerer_error(declaration, error))?;
+                let origin = resolve_relative_origin(
+                    declaring_origin,
+                    path,
+                    &self.capabilities.project_root,
+                )
+                .map_err(|error| lowerer_error(declaration, error))?;
                 loaded_css = self
                     .source_loader
                     .load(&origin, self.capabilities)

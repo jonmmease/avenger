@@ -1056,13 +1056,13 @@ fn unquote(value: &str) -> Option<&str> {
 
 fn resolve_local_import(importer: &SourceOrigin, specifier: &str) -> Option<SourceOrigin> {
     let normalized = |path: &Path| {
-        avenger_lang_core::project::normalize_path(path)
+        avenger_lang_core::module_graph::normalize_path(path)
             .to_string_lossy()
             .into_owned()
     };
     match importer {
         SourceOrigin::File(path) => Some(SourceOrigin::File(
-            avenger_lang_core::project::normalize_path(&path.parent()?.join(specifier)),
+            avenger_lang_core::module_graph::normalize_path(&path.parent()?.join(specifier)),
         )),
         SourceOrigin::Memory(path) => Some(SourceOrigin::Memory(normalized(
             &Path::new(path).parent()?.join(specifier),

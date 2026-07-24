@@ -5,7 +5,7 @@ use avenger_lang_compiler::{
     CompileEnvironmentRequest, Compiler,
 };
 use avenger_lang_core::{
-    ContentVersion, InMemorySourceLoader, LoadedSource, ProjectRoot, SourceOrigin,
+    ContentVersion, InMemorySourceLoader, LoadedSource, ModuleRoot, SourceOrigin,
 };
 use datafusion::prelude::SessionContext;
 
@@ -46,7 +46,7 @@ async fn explicit_roots_use_snapshot_loaders_generations_and_shared_caches() {
         .environment_factory(environments.clone())
         .build()
         .unwrap();
-    let roots = vec![ProjectRoot::chart(origin.clone())];
+    let roots = vec![ModuleRoot::requested(origin.clone())];
     let before = compiler
         .analyze_project_roots(roots.clone(), 41)
         .await

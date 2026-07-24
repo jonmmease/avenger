@@ -1,4 +1,4 @@
-//! Deterministic, I/O-agnostic project loading and import closure.
+//! Deterministic, I/O-agnostic Avenger source-module graph loading.
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
+use avenger_chart_schema::NativeModuleId;
+
 use crate::{
     Diagnostic, ExpansionOrImportFrame, ImportCapabilities, LoadedSource, SourceFile, SourceId,
     SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
@@ -16,15 +18,15 @@ use crate::{
     syntax::{ParsedFile, SyntaxLimits, parse_file_with_limits},
 };
 
-type ProjectResult<T> = Result<T, Box<Diagnostic>>;
+type ModuleGraphResult<T> = Result<T, Box<Diagnostic>>;
 type ImportTrace = Vec<(SourceSpan, String)>;
 type PendingImportData = (Option<String>, ImportTrace);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ProjectFileId(String);
+pub struct SourceModuleId(String);
 
-impl ProjectFileId {
+impl SourceModuleId {
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
@@ -34,75 +36,80 @@ impl ProjectFileId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DefinitionKind {
-    Mark,
-    Tool,
-    Transform,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "definition_kind")]
-pub enum ProjectFileKind {
-    Chart,
-    Definition(DefinitionKind),
-    Data,
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "id")]
+pub enum ModuleId {
+    Source(SourceModuleId),
+    Native(NativeModuleId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProjectDependencyRole {
-    RootChart,
+pub enum ModuleDependencyRole {
+    RequestedModule,
     Import,
-    DataConfiguration,
+    AmbientDataRoot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+pub enum ModuleDependencyTarget {
+    Source(SourceOrigin),
+    Native(NativeModuleId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProjectDependency {
-    /// The origin attempted before a potentially fallible loader operation.
-    pub requested_origin: SourceOrigin,
+pub struct ModuleDependency {
+    /// The source origin or native module requested before resolution.
+    pub requested: ModuleDependencyTarget,
     /// Loader-canonical origin, once known (for example after an HTTP redirect).
     pub canonical_origin: Option<SourceOrigin>,
-    pub role: ProjectDependencyRole,
+    pub role: ModuleDependencyRole,
     pub content_version: Option<String>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectRoot {
+pub struct ModuleRoot {
     pub origin: SourceOrigin,
-    pub role: ProjectDependencyRole,
+    pub role: ModuleDependencyRole,
 }
 
-impl ProjectRoot {
-    pub fn chart(origin: SourceOrigin) -> Self {
+impl ModuleRoot {
+    pub fn requested(origin: SourceOrigin) -> Self {
         Self {
             origin,
-            role: ProjectDependencyRole::RootChart,
+            role: ModuleDependencyRole::RequestedModule,
         }
     }
 
-    pub fn data(origin: SourceOrigin) -> Self {
+    pub fn ambient_data(origin: SourceOrigin) -> Self {
         Self {
             origin,
-            role: ProjectDependencyRole::DataConfiguration,
+            role: ModuleDependencyRole::AmbientDataRoot,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailableNativeModule {
+    pub schema_profile: String,
+    pub implementation_profile: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectLoadRequest {
+pub struct ModuleGraphLoadRequest {
     pub project_root: PathBuf,
-    pub roots: Vec<ProjectRoot>,
+    pub roots: Vec<ModuleRoot>,
+    pub native_modules: BTreeMap<NativeModuleId, AvailableNativeModule>,
     pub capabilities: ImportCapabilities,
     pub schema_version: String,
     pub registry_version: String,
-    pub limits: ProjectLoadLimits,
+    pub limits: ModuleGraphLoadLimits,
 }
 
-/// Bounds applied while loading an untrusted project and its import closure.
+/// Bounds applied while loading an untrusted module graph and its import closure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProjectLoadLimits {
+pub struct ModuleGraphLoadLimits {
     pub max_source_bytes: usize,
     pub max_total_source_bytes: usize,
     pub max_sources: usize,
@@ -113,7 +120,7 @@ pub struct ProjectLoadLimits {
     pub syntax: SyntaxLimits,
 }
 
-impl Default for ProjectLoadLimits {
+impl Default for ModuleGraphLoadLimits {
     fn default() -> Self {
         Self {
             max_source_bytes: 2 * 1024 * 1024,
@@ -129,20 +136,22 @@ impl Default for ProjectLoadLimits {
 }
 
 #[derive(Clone, Debug)]
-pub struct ImportEdge {
-    pub importer: SourceId,
-    pub imported: SourceId,
+pub struct ModuleImportEdge {
+    pub importer: SourceModuleId,
+    pub imported: ModuleId,
+    pub importer_source: SourceId,
+    pub imported_source: Option<SourceId>,
     pub site: SourceSpan,
-    pub binding: String,
+    pub specifier: String,
+    pub clause: ImportClause,
     pub sha256: Option<String>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectFile {
-    pub id: ProjectFileId,
+pub struct ParsedModule {
+    pub id: SourceModuleId,
     pub source: SourceId,
     pub origin: SourceOrigin,
-    pub kind: ProjectFileKind,
     pub content_version: String,
     pub content_sha256: String,
     pub parsed: ParsedFile,
@@ -150,50 +159,51 @@ pub struct ProjectFile {
 
 /// One top-level declaration in the deterministic merge of ambient data files.
 #[derive(Clone, Debug)]
-pub struct AmbientDataDeclaration {
+pub struct AmbientDataItem {
     pub source: SourceId,
     pub declaration: Decl,
 }
 
 #[derive(Clone, Debug)]
-pub struct ParsedProject {
+pub struct ParsedModuleGraph {
     pub sources: SourceMap,
-    pub files: BTreeMap<ProjectFileId, ProjectFile>,
-    pub imports: Vec<ImportEdge>,
-    pub chart_roots: Vec<ProjectFileId>,
-    pub ambient_data: Vec<ProjectFileId>,
-    pub ambient_catalog: Vec<AmbientDataDeclaration>,
+    pub source_modules: BTreeMap<SourceModuleId, ParsedModule>,
+    pub native_modules: BTreeMap<NativeModuleId, AvailableNativeModule>,
+    pub imports: Vec<ModuleImportEdge>,
+    pub requested_modules: Vec<SourceModuleId>,
+    pub ambient_data_modules: Vec<SourceModuleId>,
+    pub ambient_catalog: Vec<AmbientDataItem>,
     pub fingerprint: String,
 }
 
-impl ParsedProject {
-    pub fn file(&self, id: &ProjectFileId) -> Option<&ProjectFile> {
-        self.files.get(id)
+impl ParsedModuleGraph {
+    pub fn source_module(&self, id: &SourceModuleId) -> Option<&ParsedModule> {
+        self.source_modules.get(id)
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectLoadFailure {
+pub struct ModuleGraphLoadFailure {
     pub diagnostics: Vec<Diagnostic>,
     pub sources: SourceMap,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectLoadAttempt {
-    pub result: Result<ParsedProject, ProjectLoadFailure>,
-    pub dependencies: Vec<ProjectDependency>,
+pub struct ModuleGraphLoadAttempt {
+    pub result: Result<ParsedModuleGraph, ModuleGraphLoadFailure>,
+    pub dependencies: Vec<ModuleDependency>,
 }
 
-pub struct ProjectLoader<'a> {
+pub struct ModuleGraphLoader<'a> {
     loader: &'a dyn SourceLoader,
 }
 
-impl<'a> ProjectLoader<'a> {
+impl<'a> ModuleGraphLoader<'a> {
     pub fn new(loader: &'a dyn SourceLoader) -> Self {
         Self { loader }
     }
 
-    pub async fn load(&self, mut request: ProjectLoadRequest) -> ProjectLoadAttempt {
+    pub async fn load(&self, mut request: ModuleGraphLoadRequest) -> ModuleGraphLoadAttempt {
         request.roots.sort_by(|left, right| {
             left.origin
                 .canonical_uri()
@@ -223,7 +233,7 @@ impl<'a> ProjectLoader<'a> {
         if let Err(diagnostic) = state.finish_edges_and_validate() {
             return state.failure(*diagnostic);
         }
-        ProjectLoadAttempt {
+        ModuleGraphLoadAttempt {
             dependencies: state.dependencies(),
             result: Ok(state.finish()),
         }
@@ -231,15 +241,15 @@ impl<'a> ProjectLoader<'a> {
 
     async fn load_one(
         &self,
-        request: &ProjectLoadRequest,
+        request: &ModuleGraphLoadRequest,
         state: &mut LoadState<'_>,
         pending: PendingSource,
-    ) -> ProjectResult<()> {
+    ) -> ModuleGraphResult<()> {
         let dependency_index = state.record_candidate(&pending);
         if pending.trace.len() > request.limits.max_import_depth {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-021",
-                "project import depth limit exceeded",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-021",
+                "module import depth limit exceeded",
                 pending
                     .site
                     .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
@@ -251,8 +261,8 @@ impl<'a> ProjectLoader<'a> {
             ));
         }
         if matches!(pending.origin, SourceOrigin::Http(_)) && pending.sha256.is_none() {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-008",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-008",
                 "HTTP imports require a SHA-256 pin",
                 pending
                     .site
@@ -281,9 +291,9 @@ impl<'a> ProjectLoader<'a> {
         }
 
         if loaded.text.len() > request.limits.max_source_bytes {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-022",
-                "project source size limit exceeded",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-022",
+                "module source size limit exceeded",
                 pending
                     .site
                     .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
@@ -295,9 +305,9 @@ impl<'a> ProjectLoader<'a> {
             ));
         }
         if state.loaded.len() >= request.limits.max_sources {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-023",
-                "project source-count limit exceeded",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-023",
+                "module graph source-count limit exceeded",
                 pending
                     .site
                     .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
@@ -306,9 +316,9 @@ impl<'a> ProjectLoader<'a> {
         }
         let Some(total_source_bytes) = state.total_source_bytes.checked_add(loaded.text.len())
         else {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-024",
-                "project total source-size limit exceeded",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-024",
+                "module graph total source-size limit exceeded",
                 pending
                     .site
                     .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
@@ -316,9 +326,9 @@ impl<'a> ProjectLoader<'a> {
             ));
         };
         if total_source_bytes > request.limits.max_total_source_bytes {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-024",
-                "project total source-size limit exceeded",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-024",
+                "module graph total source-size limit exceeded",
                 pending
                     .site
                     .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
@@ -337,14 +347,13 @@ impl<'a> ProjectLoader<'a> {
             .sources
             .insert(source.clone())
             .expect("fresh source id");
-        let mut parsed =
-            parse_file_with_limits(&source, request.limits.syntax).map_err(|error| {
-                let mut diagnostic = error.into_diagnostic();
-                add_trace(&mut diagnostic, &pending.trace);
-                Box::new(diagnostic)
-            })?;
-        let kind = classify_and_validate(&loaded.origin, &mut parsed, source_id)?;
-        let file_id = project_file_id(&request.project_root, &loaded.origin)?;
+        let parsed = parse_file_with_limits(&source, request.limits.syntax).map_err(|error| {
+            let mut diagnostic = error.into_diagnostic();
+            add_trace(&mut diagnostic, &pending.trace);
+            Box::new(diagnostic)
+        })?;
+        validate_source_module_origin(&loaded.origin, source_id)?;
+        let module_id = source_module_id(&request.project_root, &loaded.origin)?;
         let content_sha256 = sha256_hex(loaded.text.as_bytes());
         state
             .origin_to_source
@@ -352,14 +361,13 @@ impl<'a> ProjectLoader<'a> {
         state
             .origin_to_source
             .insert(pending.origin.clone(), source_id);
-        state.source_to_file.insert(source_id, file_id.clone());
+        state.source_to_module.insert(source_id, module_id.clone());
         state.loaded.insert(
             source_id,
-            ProjectFile {
-                id: file_id,
+            ParsedModule {
+                id: module_id,
                 source: source_id,
                 origin: loaded.origin.clone(),
-                kind,
                 content_version: loaded.version.as_str().to_owned(),
                 content_sha256,
                 parsed,
@@ -386,8 +394,8 @@ impl<'a> ProjectLoader<'a> {
             .zip(import_spans);
         let import_count = state.loaded[&source_id].parsed.ast.imports.len();
         if import_count > request.limits.max_imports_per_source {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-025",
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-025",
                 "per-source import-count limit exceeded",
                 SourceSpan::empty(source_id, 0),
                 format!(
@@ -398,34 +406,50 @@ impl<'a> ProjectLoader<'a> {
         }
         for (import, import_site) in imports {
             let target =
-                resolve_import_origin(&loaded.origin, &import.source, &request.project_root)
+                resolve_import_target(&loaded.origin, &import.source, &request.project_root)
                     .map_err(|message| {
-                        project_diagnostic(
-                            "AVENGER-PROJECT-006",
+                        module_diagnostic(
+                            "AVENGER-MODULE-006",
                             "invalid import origin",
                             import_site,
                             message,
                         )
                     })?;
-            let binding = match &import.clause {
-                ImportClause::Named(specifiers) => specifiers
-                    .first()
-                    .map(|specifier| specifier.local.to_string()),
-                ImportClause::Namespace(local) => Some(local.to_string()),
-            };
             let mut trace = pending.trace.clone();
             trace.push((import_site, import.source.clone()));
-            state.enqueue(
-                target,
-                ProjectDependencyRole::Import,
-                Some(ImportContext {
-                    importer: source_id,
-                    site: import_site,
-                    binding,
-                    explicit_alias: true,
-                }),
-                Some((import.sha256, trace)),
-            );
+            let context = ImportContext {
+                importer: source_id,
+                site: import_site,
+                specifier: import.source.clone(),
+                clause: import.clause,
+            };
+            match target {
+                ResolvedImportTarget::Source(target) => state.enqueue(
+                    target,
+                    ModuleDependencyRole::Import,
+                    Some(context),
+                    Some((import.sha256, trace)),
+                ),
+                ResolvedImportTarget::Native(module) => {
+                    if import.sha256.is_some() {
+                        return Err(module_diagnostic(
+                            "AVENGER-MODULE-009",
+                            "native module imports do not use source-byte hashes",
+                            import_site,
+                            "native compatibility is pinned by schema and implementation profiles",
+                        ));
+                    }
+                    let Some(profiles) = request.native_modules.get(&module).cloned() else {
+                        return Err(module_diagnostic(
+                            "AVENGER-MODULE-016",
+                            "native module is unavailable",
+                            import_site,
+                            format!("the host did not register `{module}`"),
+                        ));
+                    };
+                    state.record_native_import(context, module, profiles);
+                }
+            }
         }
         Ok(())
     }
@@ -435,14 +459,14 @@ impl<'a> ProjectLoader<'a> {
 struct ImportContext {
     importer: SourceId,
     site: SourceSpan,
-    binding: Option<String>,
-    explicit_alias: bool,
+    specifier: String,
+    clause: ImportClause,
 }
 
 #[derive(Clone)]
 struct PendingSource {
     origin: SourceOrigin,
-    role: ProjectDependencyRole,
+    role: ModuleDependencyRole,
     import: Option<ImportContext>,
     sha256: Option<String>,
     site: Option<SourceSpan>,
@@ -450,21 +474,23 @@ struct PendingSource {
 }
 
 struct LoadState<'a> {
-    request: &'a ProjectLoadRequest,
+    request: &'a ModuleGraphLoadRequest,
     queue: VecDeque<PendingSource>,
     pending_edges: Vec<PendingSource>,
-    raw_dependencies: Vec<ProjectDependency>,
+    raw_dependencies: Vec<ModuleDependency>,
     sources: SourceMap,
-    loaded: BTreeMap<SourceId, ProjectFile>,
+    loaded: BTreeMap<SourceId, ParsedModule>,
     origin_to_source: BTreeMap<SourceOrigin, SourceId>,
-    source_to_file: BTreeMap<SourceId, ProjectFileId>,
-    finalized_edges: Vec<ImportEdge>,
+    source_to_module: BTreeMap<SourceId, SourceModuleId>,
+    native_imports: Vec<(ImportContext, NativeModuleId, AvailableNativeModule)>,
+    finalized_edges: Vec<ModuleImportEdge>,
+    referenced_native_modules: BTreeMap<NativeModuleId, AvailableNativeModule>,
     next_source_id: u32,
     total_source_bytes: usize,
 }
 
 impl<'a> LoadState<'a> {
-    fn new(request: &'a ProjectLoadRequest) -> Self {
+    fn new(request: &'a ModuleGraphLoadRequest) -> Self {
         Self {
             request,
             queue: VecDeque::new(),
@@ -473,8 +499,10 @@ impl<'a> LoadState<'a> {
             sources: SourceMap::default(),
             loaded: BTreeMap::new(),
             origin_to_source: BTreeMap::new(),
-            source_to_file: BTreeMap::new(),
+            source_to_module: BTreeMap::new(),
+            native_imports: Vec::new(),
             finalized_edges: Vec::new(),
+            referenced_native_modules: BTreeMap::new(),
             next_source_id: 0,
             total_source_bytes: 0,
         }
@@ -483,7 +511,7 @@ impl<'a> LoadState<'a> {
     fn enqueue(
         &mut self,
         origin: SourceOrigin,
-        role: ProjectDependencyRole,
+        role: ModuleDependencyRole,
         import: Option<ImportContext>,
         import_data: Option<PendingImportData>,
     ) {
@@ -500,8 +528,8 @@ impl<'a> LoadState<'a> {
     }
 
     fn record_candidate(&mut self, pending: &PendingSource) -> usize {
-        self.raw_dependencies.push(ProjectDependency {
-            requested_origin: pending.origin.clone(),
+        self.raw_dependencies.push(ModuleDependency {
+            requested: ModuleDependencyTarget::Source(pending.origin.clone()),
             canonical_origin: None,
             role: pending.role,
             content_version: None,
@@ -516,13 +544,33 @@ impl<'a> LoadState<'a> {
     }
 
     fn record_existing(&mut self, pending: &PendingSource, source: SourceId) {
-        let file = &self.loaded[&source];
-        self.raw_dependencies.push(ProjectDependency {
-            requested_origin: pending.origin.clone(),
-            canonical_origin: Some(file.origin.clone()),
+        let module = &self.loaded[&source];
+        self.raw_dependencies.push(ModuleDependency {
+            requested: ModuleDependencyTarget::Source(pending.origin.clone()),
+            canonical_origin: Some(module.origin.clone()),
             role: pending.role,
-            content_version: Some(file.content_version.clone()),
+            content_version: Some(module.content_version.clone()),
         });
+    }
+
+    fn record_native_import(
+        &mut self,
+        import: ImportContext,
+        module: NativeModuleId,
+        profiles: AvailableNativeModule,
+    ) {
+        self.raw_dependencies.push(ModuleDependency {
+            requested: ModuleDependencyTarget::Native(module.clone()),
+            canonical_origin: None,
+            role: ModuleDependencyRole::Import,
+            content_version: Some(format!(
+                "{}:{}",
+                profiles.schema_profile, profiles.implementation_profile
+            )),
+        });
+        self.referenced_native_modules
+            .insert(module.clone(), profiles.clone());
+        self.native_imports.push((import, module, profiles));
     }
 
     fn alias_requested_origin(&mut self, requested: SourceOrigin, canonical: SourceOrigin) {
@@ -535,16 +583,15 @@ impl<'a> LoadState<'a> {
         SourceId::new(self.next_source_id.saturating_sub(1))
     }
 
-    fn dependencies(&self) -> Vec<ProjectDependency> {
+    fn dependencies(&self) -> Vec<ModuleDependency> {
         let mut dependencies = self.raw_dependencies.clone();
         dependencies.sort_by(|left, right| {
-            left.requested_origin
-                .canonical_uri()
-                .cmp(&right.requested_origin.canonical_uri())
+            left.requested
+                .cmp(&right.requested)
                 .then(left.role.cmp(&right.role))
         });
         dependencies.dedup_by(|left, right| {
-            if left.requested_origin == right.requested_origin && left.role == right.role {
+            if left.requested == right.requested && left.role == right.role {
                 if left.canonical_origin.is_none() {
                     left.canonical_origin = right.canonical_origin.clone();
                 }
@@ -559,124 +606,92 @@ impl<'a> LoadState<'a> {
         dependencies
     }
 
-    fn finish_edges_and_validate(&mut self) -> ProjectResult<()> {
+    fn finish_edges_and_validate(&mut self) -> ModuleGraphResult<()> {
         let mut edges = Vec::new();
-        let mut bindings: BTreeMap<SourceId, BTreeSet<String>> = BTreeMap::new();
         for pending in &self.pending_edges {
             let Some(import) = &pending.import else {
                 continue;
             };
-            let Some(&imported) = self.origin_to_source.get(&pending.origin) else {
+            let Some(&imported_source) = self.origin_to_source.get(&pending.origin) else {
                 continue;
             };
-            validate_import_matrix(
-                self.loaded[&import.importer].kind,
-                self.loaded[&imported].kind,
-                import.site,
-            )?;
-            let imported_file = &self.loaded[&imported];
-            let binding = if imported_file.kind == ProjectFileKind::Data {
-                let root_binding = imported_data_binding(imported_file, import.site)?;
-                if import.explicit_alias {
-                    import.binding.clone().ok_or_else(|| {
-                        project_diagnostic(
-                            "AVENGER-PROJECT-010",
-                            "import requires an alias",
-                            import.site,
-                            "expected an explicit alias",
-                        )
-                    })?
-                } else {
-                    root_binding
-                }
-            } else {
-                import.binding.clone().ok_or_else(|| {
-                    project_diagnostic(
-                        "AVENGER-PROJECT-010",
-                        "import requires an alias",
-                        import.site,
-                        "the imported file name is not a valid Avenger name; add `as <name>`",
-                    )
-                })?
-            };
-            if !bindings
-                .entry(import.importer)
-                .or_default()
-                .insert(binding.clone())
-            {
-                return Err(project_diagnostic(
-                    "AVENGER-PROJECT-011",
-                    "duplicate import binding",
-                    import.site,
-                    format!("`{binding}` is already bound by another import in this file"),
-                ));
-            }
-            edges.push(ImportEdge {
-                importer: import.importer,
-                imported,
+            edges.push(ModuleImportEdge {
+                importer: self.source_to_module[&import.importer].clone(),
+                imported: ModuleId::Source(self.source_to_module[&imported_source].clone()),
+                importer_source: import.importer,
+                imported_source: Some(imported_source),
                 site: import.site,
-                binding,
+                specifier: import.specifier.clone(),
+                clause: import.clause.clone(),
                 sha256: pending.sha256.clone(),
+            });
+        }
+        for (import, module, _) in &self.native_imports {
+            edges.push(ModuleImportEdge {
+                importer: self.source_to_module[&import.importer].clone(),
+                imported: ModuleId::Native(module.clone()),
+                importer_source: import.importer,
+                imported_source: None,
+                site: import.site,
+                specifier: import.specifier.clone(),
+                clause: import.clause.clone(),
+                sha256: None,
             });
         }
         edges.sort_by(|left, right| {
             left.importer
                 .cmp(&right.importer)
                 .then(left.imported.cmp(&right.imported))
-                .then(left.binding.cmp(&right.binding))
+                .then(left.site.cmp(&right.site))
         });
         detect_cycles(&edges, &self.loaded)?;
-        validate_root_roles(&self.request.roots, &self.origin_to_source, &self.loaded)?;
+        validate_ambient_roots(&self.request.roots, &self.origin_to_source, &self.loaded)?;
         validate_ambient_catalogs(&self.request.roots, &self.origin_to_source, &self.loaded)?;
-        validate_imported_data_collisions(
-            &edges,
-            &self.request.roots,
-            &self.origin_to_source,
-            &self.loaded,
-        )?;
         self.finalized_edges = edges;
         Ok(())
     }
 
-    fn finish(self) -> ParsedProject {
+    fn finish(self) -> ParsedModuleGraph {
         let edges = self.finalized_edges.clone();
-        let mut files = BTreeMap::new();
-        for file in self.loaded.values() {
-            files.insert(file.id.clone(), file.clone());
+        let mut source_modules = BTreeMap::new();
+        for module in self.loaded.values() {
+            source_modules.insert(module.id.clone(), module.clone());
         }
-        let chart_roots = root_ids(
+        let requested_modules = root_ids(
             &self.request.roots,
-            ProjectDependencyRole::RootChart,
+            ModuleDependencyRole::RequestedModule,
             &self.origin_to_source,
-            &self.source_to_file,
+            &self.source_to_module,
         );
-        let ambient_data = root_ids(
+        let ambient_data_modules = root_ids(
             &self.request.roots,
-            ProjectDependencyRole::DataConfiguration,
+            ModuleDependencyRole::AmbientDataRoot,
             &self.origin_to_source,
-            &self.source_to_file,
+            &self.source_to_module,
         );
-        let ambient_catalog = merge_ambient_catalog(&ambient_data, &files);
-        let fingerprint = project_fingerprint(
-            &files,
+        let ambient_catalog = merge_ambient_catalog(&ambient_data_modules, &source_modules);
+        let fingerprint = module_graph_fingerprint(
+            &source_modules,
+            &self.referenced_native_modules,
             &edges,
             &self.request.schema_version,
             &self.request.registry_version,
         );
-        ParsedProject {
+        ParsedModuleGraph {
             sources: self.sources,
-            files,
+            source_modules,
+            native_modules: self.referenced_native_modules,
             imports: edges,
-            chart_roots,
-            ambient_data,
+            requested_modules,
+            ambient_data_modules,
             ambient_catalog,
             fingerprint,
         }
     }
 
-    fn failure(&self, diagnostic: Diagnostic) -> ProjectLoadAttempt {
-        ProjectLoadAttempt {
-            result: Err(ProjectLoadFailure {
+    fn failure(&self, diagnostic: Diagnostic) -> ModuleGraphLoadAttempt {
+        ModuleGraphLoadAttempt {
+            result: Err(ModuleGraphLoadFailure {
                 diagnostics: vec![diagnostic],
                 sources: self.sources.clone(),
             }),
@@ -685,160 +700,35 @@ impl<'a> LoadState<'a> {
     }
 }
 
-fn imported_data_binding(file: &ProjectFile, site: SourceSpan) -> ProjectResult<String> {
-    let declarations = file
-        .parsed
-        .ast
-        .items
-        .iter()
-        .map(|item| &item.declaration)
-        .collect::<Vec<_>>();
-    if !declarations
-        .iter()
-        .all(|declaration| matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog"))
-    {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-002",
-            "data file kind does not contain a data root",
-            site,
-            file.origin.display_name(),
-        ));
-    };
-    let [declaration] = declarations.as_slice() else {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-020",
-            "imported data pack must contain exactly one root",
-            site,
-            "wrap the pack in one named schema or catalog",
-        ));
-    };
-    if !matches!(declaration.keyword.as_str(), "schema" | "catalog") {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-020",
-            "imported data pack root must be a schema or catalog",
-            site,
-            "top-level table collections must be wrapped before import",
-        ));
-    }
-    declaration
-        .name
-        .as_ref()
-        .map(ToString::to_string)
-        .ok_or_else(|| {
-            project_diagnostic(
-                "AVENGER-PROJECT-020",
-                "imported data pack root must be named",
-                site,
-                "add `as <name>` to the schema or catalog declaration",
-            )
-        })
-}
-
-fn classify_and_validate(
-    origin: &SourceOrigin,
-    parsed: &mut ParsedFile,
-    source: SourceId,
-) -> ProjectResult<ProjectFileKind> {
-    let path = origin_path(origin);
-    if !path.ends_with(".avenger") {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-001",
-            "unrecognized Avenger file extension",
+fn validate_source_module_origin(origin: &SourceOrigin, source: SourceId) -> ModuleGraphResult<()> {
+    let extension_required = matches!(origin, SourceOrigin::File(_) | SourceOrigin::Http(_));
+    if extension_required && !origin_path(origin).ends_with(".avenger") {
+        return Err(module_diagnostic(
+            "AVENGER-MODULE-001",
+            "unrecognized Avenger source-module extension",
             SourceSpan::empty(source, 0),
-            "expected an ordinary .avenger source module",
+            "local and HTTP source modules must end in `.avenger`",
         ));
     }
-    let declarations = parsed
-        .ast
-        .items
-        .iter()
-        .map(|item| &item.declaration)
-        .collect::<Vec<_>>();
-    if declarations
-        .iter()
-        .any(|declaration| declaration.keyword.as_str() == "chart")
-    {
-        return Ok(ProjectFileKind::Chart);
-    }
-    if declarations
-        .iter()
-        .all(|declaration| matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog"))
-    {
-        return Ok(ProjectFileKind::Data);
-    }
-    let Some(definition) = declarations
-        .iter()
-        .find(|declaration| declaration.keyword.as_str() == "define")
-    else {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-002",
-            "module has no chart, definition, or dataset item",
-            SourceSpan::empty(source, 0),
-            origin.display_name(),
-        ));
-    };
-    let definition_kind = match definition
-        .kind
-        .as_ref()
-        .and_then(|kind| kind.simple())
-        .map(|kind| kind.as_str())
-    {
-        Some("mark") => DefinitionKind::Mark,
-        Some("tool") => DefinitionKind::Tool,
-        Some("transform") => DefinitionKind::Transform,
-        _ => {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-003",
-                "invalid definition module item",
-                SourceSpan::empty(source, 0),
-                "expected define mark, define tool, or define transform",
-            ));
-        }
-    };
-    Ok(ProjectFileKind::Definition(definition_kind))
-}
-
-fn validate_import_matrix(
-    importer: ProjectFileKind,
-    imported: ProjectFileKind,
-    site: SourceSpan,
-) -> ProjectResult<()> {
-    let allowed = match importer {
-        ProjectFileKind::Chart => {
-            matches!(
-                imported,
-                ProjectFileKind::Definition(_) | ProjectFileKind::Data
-            )
-        }
-        ProjectFileKind::Definition(_) => matches!(imported, ProjectFileKind::Definition(_)),
-        ProjectFileKind::Data => matches!(imported, ProjectFileKind::Data),
-    };
-    if allowed {
-        Ok(())
-    } else {
-        Err(project_diagnostic(
-            "AVENGER-PROJECT-012",
-            "invalid import for this file kind",
-            site,
-            format!("a {importer:?} file cannot import a {imported:?} file"),
-        ))
-    }
+    Ok(())
 }
 
 fn detect_cycles(
-    edges: &[ImportEdge],
-    files: &BTreeMap<SourceId, ProjectFile>,
-) -> ProjectResult<()> {
+    edges: &[ModuleImportEdge],
+    modules: &BTreeMap<SourceId, ParsedModule>,
+) -> ModuleGraphResult<()> {
     let mut adjacency: BTreeMap<SourceId, Vec<(SourceId, SourceSpan)>> = BTreeMap::new();
     for edge in edges {
-        adjacency
-            .entry(edge.importer)
-            .or_default()
-            .push((edge.imported, edge.site));
+        if let Some(imported) = edge.imported_source {
+            adjacency
+                .entry(edge.importer_source)
+                .or_default()
+                .push((imported, edge.site));
+        }
     }
     let mut visiting = Vec::new();
     let mut visited = BTreeSet::new();
-    for source in files.keys().copied() {
+    for source in modules.keys().copied() {
         if let Some(cycle) = visit_cycle(source, &adjacency, &mut visiting, &mut visited) {
             let site = cycle
                 .iter()
@@ -848,17 +738,17 @@ fn detect_cycles(
                 .unwrap_or_else(|| SourceSpan::empty(source, 0));
             let names = cycle
                 .iter()
-                .map(|(id, _)| files[id].origin.display_name())
+                .map(|(id, _)| modules[id].origin.display_name())
                 .collect::<Vec<_>>()
                 .join(" -> ");
             let mut diagnostic =
-                project_diagnostic("AVENGER-PROJECT-013", "import cycle detected", site, names);
+                module_diagnostic("AVENGER-MODULE-013", "import cycle detected", site, names);
             for edge in cycle.windows(2) {
                 let (_, edge_site) = edge[0];
                 let (target, _) = edge[1];
                 diagnostic.trace.push(ExpansionOrImportFrame {
                     span: edge_site,
-                    message: format!("imports {}", files[&target].origin.display_name()),
+                    message: format!("imports {}", modules[&target].origin.display_name()),
                 });
             }
             return Err(diagnostic);
@@ -900,27 +790,33 @@ fn visit_cycle(
     None
 }
 
-fn validate_root_roles(
-    roots: &[ProjectRoot],
+fn validate_ambient_roots(
+    roots: &[ModuleRoot],
     origins: &BTreeMap<SourceOrigin, SourceId>,
-    files: &BTreeMap<SourceId, ProjectFile>,
-) -> ProjectResult<()> {
-    for root in roots {
+    modules: &BTreeMap<SourceId, ParsedModule>,
+) -> ModuleGraphResult<()> {
+    for root in roots
+        .iter()
+        .filter(|root| root.role == ModuleDependencyRole::AmbientDataRoot)
+    {
         let Some(source) = origins.get(&root.origin).copied() else {
             continue;
         };
-        let actual = files[&source].kind;
-        let valid = match root.role {
-            ProjectDependencyRole::RootChart => actual == ProjectFileKind::Chart,
-            ProjectDependencyRole::DataConfiguration => actual == ProjectFileKind::Data,
-            ProjectDependencyRole::Import => true,
-        };
-        if !valid {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-002",
-                "project root role does not match its file kind",
+        let invalid = modules[&source].parsed.ast.items.iter().find(|item| {
+            !matches!(
+                item.declaration.keyword.as_str(),
+                "table" | "schema" | "catalog"
+            )
+        });
+        if let Some(item) = invalid {
+            return Err(module_diagnostic(
+                "AVENGER-MODULE-002",
+                "ambient data root contains a non-data module item",
                 SourceSpan::empty(source, 0),
-                format!("expected {:?}, found {actual:?}", root.role),
+                format!(
+                    "`{}` items are not permitted in an ambient data root",
+                    item.declaration.keyword
+                ),
             ));
         }
     }
@@ -928,19 +824,19 @@ fn validate_root_roles(
 }
 
 fn validate_ambient_catalogs(
-    roots: &[ProjectRoot],
+    roots: &[ModuleRoot],
     origins: &BTreeMap<SourceOrigin, SourceId>,
-    files: &BTreeMap<SourceId, ProjectFile>,
-) -> ProjectResult<()> {
+    modules: &BTreeMap<SourceId, ParsedModule>,
+) -> ModuleGraphResult<()> {
     let mut paths: BTreeMap<Vec<String>, SourceId> = BTreeMap::new();
     for root in roots
         .iter()
-        .filter(|root| root.role == ProjectDependencyRole::DataConfiguration)
+        .filter(|root| root.role == ModuleDependencyRole::AmbientDataRoot)
     {
         let Some(source) = origins.get(&root.origin).copied() else {
             continue;
         };
-        for declaration in files[&source]
+        for declaration in modules[&source]
             .parsed
             .ast
             .items
@@ -956,45 +852,12 @@ fn validate_ambient_catalogs(
     Ok(())
 }
 
-fn validate_imported_data_collisions(
-    edges: &[ImportEdge],
-    roots: &[ProjectRoot],
-    origins: &BTreeMap<SourceOrigin, SourceId>,
-    files: &BTreeMap<SourceId, ProjectFile>,
-) -> ProjectResult<()> {
-    let ambient_names = roots
-        .iter()
-        .filter(|root| root.role == ProjectDependencyRole::DataConfiguration)
-        .filter_map(|root| origins.get(&root.origin))
-        .flat_map(|source| files[source].parsed.ast.items.iter())
-        .map(|item| &item.declaration)
-        .filter(|declaration| {
-            matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog")
-        })
-        .filter_map(|declaration| declaration.name.as_ref())
-        .map(ToString::to_string)
-        .collect::<BTreeSet<_>>();
-    for edge in edges {
-        if files[&edge.imported].kind == ProjectFileKind::Data
-            && ambient_names.contains(&edge.binding)
-        {
-            return Err(project_diagnostic(
-                "AVENGER-PROJECT-014",
-                "imported data pack collides with the ambient catalog",
-                edge.site,
-                format!("`{}` is already configured by ambient data", edge.binding),
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn collect_catalog_paths(
     declaration: &Decl,
     parent: &[String],
     source: SourceId,
     paths: &mut BTreeMap<Vec<String>, SourceId>,
-) -> ProjectResult<()> {
+) -> ModuleGraphResult<()> {
     if !matches!(declaration.keyword.as_str(), "catalog" | "schema" | "table") {
         return Ok(());
     }
@@ -1004,8 +867,8 @@ fn collect_catalog_paths(
     let mut path = parent.to_vec();
     path.push(name.to_string());
     if let Some(previous) = paths.insert(path.clone(), source) {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-014",
+        return Err(module_diagnostic(
+            "AVENGER-MODULE-014",
             "duplicate ambient catalog path",
             SourceSpan::empty(source, 0),
             format!(
@@ -1021,42 +884,75 @@ fn collect_catalog_paths(
     Ok(())
 }
 
-pub fn resolve_import_origin(
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResolvedImportTarget {
+    Source(SourceOrigin),
+    Native(NativeModuleId),
+}
+
+pub fn resolve_import_target(
     importer: &SourceOrigin,
     specifier: &str,
     project_root: &Path,
-) -> Result<SourceOrigin, String> {
+) -> Result<ResolvedImportTarget, String> {
+    if specifier.starts_with("native:") {
+        return NativeModuleId::new(specifier)
+            .map(ResolvedImportTarget::Native)
+            .map_err(|error| error.to_string());
+    }
     if let Some(path) = specifier.strip_prefix("std:") {
-        return Ok(SourceOrigin::Std(normalize_virtual_path(path)?));
+        return Ok(ResolvedImportTarget::Source(SourceOrigin::Std(
+            normalize_virtual_path(path)?,
+        )));
     }
     if specifier.starts_with("http://") || specifier.starts_with("https://") {
         let url = Url::parse(specifier).map_err(|error| error.to_string())?;
-        return Ok(SourceOrigin::Http(url.to_string()));
+        return Ok(ResolvedImportTarget::Source(SourceOrigin::Http(
+            url.to_string(),
+        )));
     }
-    match importer {
+    let source = match importer {
         SourceOrigin::File(path) => {
             let parent = path.parent().unwrap_or(project_root);
             let candidate = normalize_path(&parent.join(specifier));
-            Ok(SourceOrigin::File(candidate))
+            SourceOrigin::File(candidate)
         }
         SourceOrigin::Http(base) => {
             let url = Url::parse(base)
                 .and_then(|base| base.join(specifier))
                 .map_err(|error| error.to_string())?;
-            Ok(SourceOrigin::Http(url.to_string()))
+            SourceOrigin::Http(url.to_string())
         }
         SourceOrigin::Std(path) => {
             let parent = Path::new(path).parent().unwrap_or_else(|| Path::new(""));
-            Ok(SourceOrigin::Std(normalize_virtual_path(
+            SourceOrigin::Std(normalize_virtual_path(
                 &parent.join(specifier).to_string_lossy(),
-            )?))
+            )?)
         }
         SourceOrigin::Memory(path) => {
             let parent = Path::new(path).parent().unwrap_or_else(|| Path::new(""));
-            Ok(SourceOrigin::Memory(normalize_virtual_path(
+            SourceOrigin::Memory(normalize_virtual_path(
                 &parent.join(specifier).to_string_lossy(),
-            )?))
+            )?)
         }
+    };
+    Ok(ResolvedImportTarget::Source(source))
+}
+
+/// Resolve a source-relative file, standard-library, or HTTP resource.
+///
+/// Unlike a module import, an external resource cannot name a `native:`
+/// module because native modules have no source bytes to load.
+pub fn resolve_relative_origin(
+    declaring_origin: &SourceOrigin,
+    specifier: &str,
+    project_root: &Path,
+) -> Result<SourceOrigin, String> {
+    match resolve_import_target(declaring_origin, specifier, project_root)? {
+        ResolvedImportTarget::Source(origin) => Ok(origin),
+        ResolvedImportTarget::Native(module) => Err(format!(
+            "native module `{module}` cannot be used as a source resource"
+        )),
     }
 }
 
@@ -1092,22 +988,25 @@ fn normalize_virtual_path(value: &str) -> Result<String, String> {
     Ok(segments.join("/"))
 }
 
-fn project_file_id(project_root: &Path, origin: &SourceOrigin) -> ProjectResult<ProjectFileId> {
+fn source_module_id(
+    project_root: &Path,
+    origin: &SourceOrigin,
+) -> ModuleGraphResult<SourceModuleId> {
     let value = match origin {
         SourceOrigin::File(path) => normalize_path(path)
             .strip_prefix(normalize_path(project_root))
             .map(|path| path.to_string_lossy().replace('\\', "/"))
             .map_err(|_| {
-                project_diagnostic(
-                    "AVENGER-PROJECT-007",
-                    "file source is outside the project root",
+                module_diagnostic(
+                    "AVENGER-MODULE-007",
+                    "source module is outside the project root",
                     SourceSpan::empty(SourceId::new(0), 0),
                     path.display().to_string(),
                 )
             })?,
         _ => origin.canonical_uri(),
     };
-    Ok(ProjectFileId::new(value))
+    Ok(SourceModuleId::new(value))
 }
 
 fn origin_path(origin: &SourceOrigin) -> String {
@@ -1126,14 +1025,14 @@ fn validate_sha256(
     loaded: &LoadedSource,
     site: Option<SourceSpan>,
     fallback: SourceId,
-) -> ProjectResult<()> {
+) -> ModuleGraphResult<()> {
     if expected.len() != 64
         || !expected
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-009",
+        return Err(module_diagnostic(
+            "AVENGER-MODULE-009",
             "invalid SHA-256 pin",
             site.unwrap_or_else(|| SourceSpan::empty(fallback, 0)),
             "expected exactly 64 lowercase hexadecimal characters",
@@ -1141,8 +1040,8 @@ fn validate_sha256(
     }
     let actual = sha256_hex(loaded.text.as_bytes());
     if actual != expected {
-        return Err(project_diagnostic(
-            "AVENGER-PROJECT-009",
+        return Err(module_diagnostic(
+            "AVENGER-MODULE-009",
             "import SHA-256 mismatch",
             site.unwrap_or_else(|| SourceSpan::empty(fallback, 0)),
             format!("expected {expected}, received {actual}"),
@@ -1156,30 +1055,56 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn project_fingerprint(
-    files: &BTreeMap<ProjectFileId, ProjectFile>,
-    edges: &[ImportEdge],
+fn module_graph_fingerprint(
+    source_modules: &BTreeMap<SourceModuleId, ParsedModule>,
+    native_modules: &BTreeMap<NativeModuleId, AvailableNativeModule>,
+    edges: &[ModuleImportEdge],
     schema_version: &str,
     registry_version: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"avenger-project-v1\0");
+    hasher.update(b"avenger-module-graph-v1\0");
     hasher.update(schema_version.as_bytes());
     hasher.update(b"\0");
     hasher.update(registry_version.as_bytes());
-    for (id, file) in files {
+    for (id, module) in source_modules {
         hasher.update(b"\0source\0");
         hasher.update(id.as_str().as_bytes());
         hasher.update(b"\0");
-        hasher.update(file.origin.canonical_uri().as_bytes());
+        hasher.update(module.origin.canonical_uri().as_bytes());
         hasher.update(b"\0");
-        hasher.update(file.content_sha256.as_bytes());
+        hasher.update(module.content_sha256.as_bytes());
+    }
+    for (id, profiles) in native_modules {
+        hasher.update(b"\0native\0");
+        hasher.update(id.as_str().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(profiles.schema_profile.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(profiles.implementation_profile.as_bytes());
     }
     for edge in edges {
         hasher.update(b"\0edge\0");
-        hasher.update(edge.importer.get().to_le_bytes());
-        hasher.update(edge.imported.get().to_le_bytes());
-        hasher.update(edge.binding.as_bytes());
+        hasher.update(edge.importer.as_str().as_bytes());
+        hasher.update(b"\0");
+        match &edge.imported {
+            ModuleId::Source(id) => {
+                hasher.update(b"source\0");
+                hasher.update(id.as_str().as_bytes());
+            }
+            ModuleId::Native(id) => {
+                hasher.update(b"native\0");
+                hasher.update(id.as_str().as_bytes());
+            }
+        }
+        hasher.update(b"\0");
+        hasher.update(edge.specifier.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(
+            serde_json::to_vec(&edge.clause)
+                .expect("import clauses serialize")
+                .as_slice(),
+        );
     }
     let digest = hasher.finalize();
     let hex = digest
@@ -1190,11 +1115,11 @@ fn project_fingerprint(
 }
 
 fn root_ids(
-    roots: &[ProjectRoot],
-    role: ProjectDependencyRole,
+    roots: &[ModuleRoot],
+    role: ModuleDependencyRole,
     origins: &BTreeMap<SourceOrigin, SourceId>,
-    ids: &BTreeMap<SourceId, ProjectFileId>,
-) -> Vec<ProjectFileId> {
+    ids: &BTreeMap<SourceId, SourceModuleId>,
+) -> Vec<SourceModuleId> {
     let mut result = roots
         .iter()
         .filter(|root| root.role == role)
@@ -1208,14 +1133,15 @@ fn root_ids(
 }
 
 fn merge_ambient_catalog(
-    ambient_data: &[ProjectFileId],
-    files: &BTreeMap<ProjectFileId, ProjectFile>,
-) -> Vec<AmbientDataDeclaration> {
+    ambient_data: &[SourceModuleId],
+    modules: &BTreeMap<SourceModuleId, ParsedModule>,
+) -> Vec<AmbientDataItem> {
     let mut declarations = Vec::new();
     for id in ambient_data {
-        let file = &files[id];
+        let module = &modules[id];
         declarations.extend(
-            file.parsed
+            module
+                .parsed
                 .ast
                 .items
                 .iter()
@@ -1224,8 +1150,8 @@ fn merge_ambient_catalog(
                     matches!(declaration.keyword.as_str(), "table" | "schema" | "catalog")
                 })
                 .cloned()
-                .map(|declaration| AmbientDataDeclaration {
-                    source: file.source,
+                .map(|declaration| AmbientDataItem {
+                    source: module.source,
                     declaration,
                 }),
         );
@@ -1238,8 +1164,8 @@ fn loader_diagnostic(
     fallback: SourceId,
     error: SourceLoaderError,
 ) -> Box<Diagnostic> {
-    let mut diagnostic = project_diagnostic(
-        "AVENGER-PROJECT-015",
+    let mut diagnostic = module_diagnostic(
+        "AVENGER-MODULE-015",
         "source could not be loaded",
         pending
             .site
@@ -1259,7 +1185,7 @@ fn add_trace(diagnostic: &mut Diagnostic, trace: &[(SourceSpan, String)]) {
         }));
 }
 
-fn project_diagnostic(
+fn module_diagnostic(
     code: &str,
     message: impl Into<String>,
     span: SourceSpan,

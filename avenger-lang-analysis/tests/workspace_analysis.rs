@@ -7,7 +7,7 @@ use avenger_lang_analysis::{
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectRoot,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleRoot,
     SourceLoader, SourceLoaderError, SourceOrigin,
 };
 
@@ -46,8 +46,8 @@ async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
         generation: AnalysisGeneration::new(7),
         project_root,
         roots: vec![
-            ProjectRoot::chart(good.clone()),
-            ProjectRoot::chart(bad.clone()),
+            ModuleRoot::requested(good.clone()),
+            ModuleRoot::requested(bad.clone()),
         ],
         open_documents: BTreeMap::from([(good.clone(), open_good)]),
         known_disk_sources: vec![good.clone(), bad.clone()],
@@ -61,7 +61,7 @@ async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
     let service = AnalysisService::new(compiler);
     let mut after_delete = snapshot.clone();
     after_delete.generation = AnalysisGeneration::new(8);
-    after_delete.roots = vec![ProjectRoot::chart(good.clone())];
+    after_delete.roots = vec![ModuleRoot::requested(good.clone())];
     after_delete.known_disk_sources = vec![good.clone()];
     let analysis = service
         .analyze_workspace(snapshot, &AnalysisCancellation::default())
@@ -108,7 +108,7 @@ async fn unsaved_new_imports_participate_in_the_exact_snapshot_closure() {
     let snapshot = WorkspaceSnapshot {
         generation: AnalysisGeneration::new(9),
         project_root,
-        roots: vec![ProjectRoot::chart(chart.clone())],
+        roots: vec![ModuleRoot::requested(chart.clone())],
         open_documents: BTreeMap::from([
             (
                 chart.clone(),
@@ -167,7 +167,7 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
     let snapshot = |generation, text: &str| WorkspaceSnapshot {
         generation: AnalysisGeneration::new(generation),
         project_root: project_root.clone(),
-        roots: vec![ProjectRoot::chart(chart.clone())],
+        roots: vec![ModuleRoot::requested(chart.clone())],
         open_documents: BTreeMap::from([(
             chart.clone(),
             DocumentSnapshot::new(
@@ -243,7 +243,7 @@ async fn cancellation_drops_in_flight_source_or_provider_analysis() {
     let snapshot = WorkspaceSnapshot {
         generation: AnalysisGeneration::new(8),
         project_root,
-        roots: vec![ProjectRoot::chart(root.clone())],
+        roots: vec![ModuleRoot::requested(root.clone())],
         open_documents: BTreeMap::new(),
         known_disk_sources: vec![root],
         native_registry_profile: compiler
@@ -284,7 +284,7 @@ async fn registry_profile_mismatches_never_publish_analysis() {
             WorkspaceSnapshot {
                 generation: AnalysisGeneration::new(1),
                 project_root,
-                roots: vec![ProjectRoot::chart(origin.clone())],
+                roots: vec![ModuleRoot::requested(origin.clone())],
                 open_documents: BTreeMap::from([(
                     origin.clone(),
                     DocumentSnapshot::new(origin, SourceRevision::new("v1"), text),
@@ -314,7 +314,7 @@ async fn record_project_analysis_timing_baseline() {
     let snapshot = WorkspaceSnapshot {
         generation: AnalysisGeneration::new(1),
         project_root,
-        roots: vec![ProjectRoot::chart(origin.clone())],
+        roots: vec![ModuleRoot::requested(origin.clone())],
         open_documents: BTreeMap::from([(
             origin.clone(),
             DocumentSnapshot::new(origin, SourceRevision::new("v1"), text),

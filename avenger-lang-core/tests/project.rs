@@ -1,10 +1,14 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use async_trait::async_trait;
+use avenger_chart_schema::NativeModuleId;
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectDependencyRole,
-    ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceLoader,
-    SourceLoaderError, SourceOrigin, render_diagnostics,
+    AvailableNativeModule, ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource,
+    ModuleDependencyTarget, ModuleGraphLoadLimits, ModuleGraphLoadRequest, ModuleGraphLoader,
+    ModuleId, ModuleRoot, SourceLoader, SourceLoaderError, SourceOrigin,
 };
 use sha2::{Digest, Sha256};
 
@@ -12,422 +16,383 @@ fn source(origin: SourceOrigin, text: &str) -> LoadedSource {
     LoadedSource::new(origin, text, ContentVersion::new("fixture-v1"))
 }
 
-fn request(roots: Vec<ProjectRoot>) -> ProjectLoadRequest {
-    ProjectLoadRequest {
+fn request(roots: Vec<ModuleRoot>) -> ModuleGraphLoadRequest {
+    ModuleGraphLoadRequest {
         project_root: "/project".into(),
         roots,
+        native_modules: BTreeMap::new(),
         capabilities: ImportCapabilities::in_memory("/project"),
         schema_version: "schema-1".into(),
         registry_version: "registry-1".into(),
-        limits: ProjectLoadLimits::default(),
+        limits: ModuleGraphLoadLimits::default(),
     }
 }
 
 #[tokio::test]
-async fn project_loads_relative_import_closure_once() {
-    let chart = SourceOrigin::Memory("charts/chart.avenger".into());
-    let mark = SourceOrigin::Memory("charts/marks/badge.mark.avenger".into());
+async fn module_graph_loads_mixed_modules_and_preserves_import_clauses() {
+    let root = SourceOrigin::Memory("charts/dashboard.avenger".into());
+    let library = SourceOrigin::Memory("charts/library.avenger".into());
     let loader = CountingLoader {
         inner: InMemorySourceLoader::default()
             .with_source(source(
-                chart.clone(),
-                "avenger 1; import 'marks/badge.mark.avenger'; chart cartesian as chart {}",
+                root.clone(),
+                "avenger 1;\
+                 import { badge as point_badge, rows } from './library.avenger';\
+                 import * as library from './library.avenger';\
+                 table memory as local_rows {}\
+                 chart cartesian as summary { mark point_badge {} }",
             ))
             .with_source(source(
-                mark,
-                "avenger 1; define mark badge { mark symbol {} }",
+                library,
+                "avenger 1;\
+                 export define mark badge { mark symbol {} }\
+                 export table memory as rows {}\
+                 chart cartesian as preview {}",
             )),
         count: AtomicUsize::new(0),
     };
-    let attempt = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart)]))
-        .await;
-    let project = attempt.result.unwrap();
-    assert_eq!(project.files.len(), 2);
-    assert_eq!(project.imports.len(), 1);
+
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(root)]))
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(graph.source_modules.len(), 2);
+    assert_eq!(graph.imports.len(), 2);
     assert_eq!(loader.count.load(Ordering::SeqCst), 2);
-    assert_eq!(
-        project.chart_roots[0].as_str(),
-        "memory:charts/chart.avenger"
-    );
-    assert!(project.fingerprint.starts_with("sha256:"));
+    assert!(graph.imports.iter().any(|edge| {
+        matches!(
+            &edge.clause,
+            avenger_lang_core::ast::ImportClause::Named(specifiers)
+                if specifiers.len() == 2
+                    && specifiers[0].imported.as_str() == "badge"
+                    && specifiers[0].local.as_str() == "point_badge"
+        )
+    }));
+    assert!(graph.imports.iter().all(|edge| {
+        matches!(edge.imported, ModuleId::Source(_)) && edge.imported_source.is_some()
+    }));
 }
 
 #[tokio::test]
-async fn project_fingerprint_is_independent_of_root_discovery_order() {
+async fn module_graph_loads_std_modules_with_multiple_exports() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let standard = SourceOrigin::Std("visuals.avenger".into());
+    let loader = InMemorySourceLoader::default()
+        .with_source(source(
+            root.clone(),
+            "avenger 1;\
+             import { badge, normalize } from 'std:visuals.avenger';\
+             chart cartesian as summary { mark badge {} transform normalize {} }",
+        ))
+        .with_source(source(
+            standard,
+            "avenger 1;\
+             export define mark badge { mark symbol {} }\
+             export define transform normalize {}",
+        ));
+
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(root)]))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(graph.source_modules.len(), 2);
+    assert_eq!(graph.imports.len(), 1);
+}
+
+#[tokio::test]
+async fn one_remote_hash_pins_the_whole_module() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let remote = SourceOrigin::Http("https://example.test/library.avenger".into());
+    let remote_text = "avenger 1;\
+        export define mark badge { mark symbol {} }\
+        export define transform normalize {}";
+    let hash = format!("{:x}", Sha256::digest(remote_text.as_bytes()));
+    let root_text = format!(
+        "avenger 1;\
+         import {{ badge, normalize }} from 'https://example.test/library.avenger' sha256 '{hash}';\
+         chart cartesian as summary {{ mark badge {{}} transform normalize {{}} }}"
+    );
+    let loader = InMemorySourceLoader::default()
+        .with_source(source(root.clone(), &root_text))
+        .with_source(source(remote, remote_text));
+    let mut load_request = request(vec![ModuleRoot::requested(root.clone())]);
+    load_request.capabilities.allow_http = true;
+    assert!(
+        ModuleGraphLoader::new(&loader)
+            .load(load_request)
+            .await
+            .result
+            .is_ok()
+    );
+
+    loader.insert(source(
+        root.clone(),
+        &root_text.replace(&hash, &"0".repeat(64)),
+    ));
+    let mut mismatch = request(vec![ModuleRoot::requested(root)]);
+    mismatch.capabilities.allow_http = true;
+    let failure = ModuleGraphLoader::new(&loader)
+        .load(mismatch)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-MODULE-009");
+}
+
+#[tokio::test]
+async fn native_modules_are_registry_leaves_and_never_loaded_as_source() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let module = NativeModuleId::new("native:com.acme.visuals@1").unwrap();
+    let loader = CountingLoader {
+        inner: InMemorySourceLoader::default().with_source(source(
+            root.clone(),
+            "avenger 1;\
+             import * as acme from 'native:com.acme.visuals@1';\
+             chart acme.cartesian as summary { mark acme.hexbin {} }",
+        )),
+        count: AtomicUsize::new(0),
+    };
+    let mut available = request(vec![ModuleRoot::requested(root.clone())]);
+    available.native_modules.insert(
+        module.clone(),
+        AvailableNativeModule {
+            schema_profile: "schema-acme-1".into(),
+            implementation_profile: "implementation-acme-1".into(),
+        },
+    );
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(available)
+        .await
+        .result
+        .unwrap();
+    assert_eq!(loader.count.load(Ordering::SeqCst), 1);
+    assert_eq!(graph.native_modules.len(), 1);
+    assert!(matches!(
+        graph.imports[0].imported,
+        ModuleId::Native(ref id) if id == &module
+    ));
+
+    let failure = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(root)]))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(loader.count.load(Ordering::SeqCst), 2);
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-MODULE-016");
+}
+
+#[tokio::test]
+async fn basename_segments_have_no_semantic_role() {
+    let root = SourceOrigin::Memory("dashboard.mark.data.avenger".into());
+    let loader = InMemorySourceLoader::default().with_source(source(
+        root.clone(),
+        "avenger 1;\
+         export table memory as rows {}\
+         export define mark badge { mark symbol {} }\
+         chart cartesian as summary {}",
+    ));
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(root)]))
+        .await
+        .result
+        .unwrap();
+    let module = graph.source_modules.values().next().unwrap();
+    assert_eq!(module.parsed.ast.items.len(), 3);
+}
+
+#[tokio::test]
+async fn source_cycles_are_reported_with_complete_import_edges() {
     let a = SourceOrigin::Memory("a.avenger".into());
     let b = SourceOrigin::Memory("b.avenger".into());
     let loader = InMemorySourceLoader::default()
-        .with_source(source(a.clone(), "avenger 1; chart cartesian as a {}"))
-        .with_source(source(b.clone(), "avenger 1; chart cartesian as b {}"));
-    let first = ProjectLoader::new(&loader)
-        .load(request(vec![
-            ProjectRoot::chart(a.clone()),
-            ProjectRoot::chart(b.clone()),
-        ]))
-        .await
-        .result
-        .unwrap();
-    let second = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(b), ProjectRoot::chart(a)]))
-        .await
-        .result
-        .unwrap();
-    assert_eq!(first.fingerprint, second.fingerprint);
-    assert_eq!(
-        first.files.keys().collect::<Vec<_>>(),
-        second.files.keys().collect::<Vec<_>>()
-    );
-
-    let b_original = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
-            "b.avenger".into(),
-        ))]))
-        .await
-        .result
-        .unwrap();
-    loader.insert(source(
-        SourceOrigin::Memory("b.avenger".into()),
-        "avenger 1; chart cartesian as b { mark symbol {} }",
-    ));
-    let changed = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
-            "b.avenger".into(),
-        ))]))
-        .await
-        .result
-        .unwrap();
-    assert_ne!(b_original.fingerprint, changed.fingerprint);
-
-    let mut registry_changed = request(vec![ProjectRoot::chart(SourceOrigin::Memory(
-        "a.avenger".into(),
-    ))]);
-    registry_changed.registry_version = "registry-2".into();
-    let registry_changed = ProjectLoader::new(&loader)
-        .load(registry_changed)
-        .await
-        .result
-        .unwrap();
-    let a_original = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
-            "a.avenger".into(),
-        ))]))
-        .await
-        .result
-        .unwrap();
-    assert_ne!(a_original.fingerprint, registry_changed.fingerprint);
-}
-
-#[tokio::test]
-async fn project_reports_cycles_with_import_trace() {
-    let a = SourceOrigin::Memory("a.mark.avenger".into());
-    let b = SourceOrigin::Memory("b.mark.avenger".into());
-    let loader = InMemorySourceLoader::default()
         .with_source(source(
             a.clone(),
-            "avenger 1; import 'b.mark.avenger'; define mark a { mark symbol {} }",
+            "avenger 1;\
+             import { b } from './b.avenger';\
+             export define mark a { mark b {} }",
         ))
         .with_source(source(
             b,
-            "avenger 1; import 'a.mark.avenger'; define mark b { mark symbol {} }",
+            "avenger 1;\
+             import { a } from './a.avenger';\
+             export define mark b { mark a {} }",
         ));
-    let failure = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot {
-            origin: a,
-            role: ProjectDependencyRole::Import,
-        }]))
+    let failure = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(a)]))
         .await
         .result
         .unwrap_err();
     let diagnostic = &failure.diagnostics[0];
-    assert_eq!(diagnostic.code.as_str(), "AVENGER-PROJECT-013");
-    assert!(diagnostic.trace.len() >= 2);
+    assert_eq!(diagnostic.code.as_str(), "AVENGER-MODULE-013");
+    assert_eq!(diagnostic.trace.len(), 2);
     assert!(
         diagnostic
             .trace
             .iter()
             .all(|frame| !frame.span.range.is_empty())
     );
-    assert_eq!(
-        render_diagnostics(&failure.diagnostics, &failure.sources),
-        include_str!("baselines/project/import-cycle.txt")
-    );
 }
 
 #[tokio::test]
-async fn project_enforces_import_matrix_and_duplicate_bindings() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let other_chart = SourceOrigin::Memory("other.avenger".into());
-    let loader = InMemorySourceLoader::default()
-        .with_source(source(
-            chart.clone(),
-            "avenger 1; import 'other.avenger'; chart cartesian as chart {}",
-        ))
-        .with_source(source(
-            other_chart,
-            "avenger 1; chart cartesian as other {}",
-        ));
-    let failure = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart)]))
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-012");
-
-    let chart = SourceOrigin::Memory("duplicate.avenger".into());
-    let a = SourceOrigin::Memory("a.mark.avenger".into());
-    let b = SourceOrigin::Memory("b.mark.avenger".into());
-    let loader = InMemorySourceLoader::default()
-        .with_source(source(
-            chart.clone(),
-            "avenger 1; import 'a.mark.avenger' as same; import 'b.mark.avenger' as same; chart cartesian as duplicate {}",
-        ))
-        .with_source(source(a, "avenger 1; define mark a { mark symbol {} }"))
-        .with_source(source(b, "avenger 1; define mark b { mark symbol {} }"));
-    let failure = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart)]))
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-011");
-}
-
-#[tokio::test]
-async fn project_data_pack_binds_single_root_and_rejects_collisions() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let pack = SourceOrigin::Memory("pack.data.avenger".into());
-    let loader = InMemorySourceLoader::default()
-        .with_source(source(
-            chart.clone(),
-            "avenger 1; import 'pack.data.avenger'; chart cartesian as chart {}",
-        ))
-        .with_source(source(
-            pack.clone(),
-            "avenger 1; schema tables as vega { table csv as rows { path: 'rows.csv'; } }",
-        ));
-    let project = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart.clone())]))
-        .await
-        .result
-        .unwrap();
-    assert_eq!(project.imports[0].binding, "vega");
-
-    loader.insert(source(
-        pack.clone(),
-        "avenger 1; schema tables as vega {} schema tables as other {}",
-    ));
-    let failure = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart.clone())]))
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-020");
-
-    loader.insert(source(pack.clone(), "avenger 1; schema tables as vega {}"));
-    let ambient = SourceOrigin::Memory("ambient.data.avenger".into());
-    loader.insert(source(
-        ambient.clone(),
-        "avenger 1; schema tables as vega {}",
-    ));
-    let failure = ProjectLoader::new(&loader)
-        .load(request(vec![
-            ProjectRoot::chart(chart),
-            ProjectRoot::data(ambient),
-        ]))
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-014");
-}
-
-#[tokio::test]
-async fn project_pinned_http_imports_succeed_and_reject_mismatch_or_denial() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let remote = SourceOrigin::Http("https://example.test/badge.mark.avenger".into());
-    let remote_text = "avenger 1; define mark badge { mark symbol {} }";
+async fn redirects_capability_denials_and_failed_dependencies_retain_identity() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let requested = SourceOrigin::Http("https://example.test/redirect.avenger".into());
+    let canonical = SourceOrigin::Http("https://cdn.example.test/library.avenger".into());
+    let remote_text = "avenger 1; export define mark badge { mark symbol {} }";
     let hash = format!("{:x}", Sha256::digest(remote_text.as_bytes()));
-    let chart_text = format!(
-        "avenger 1; import 'https://example.test/badge.mark.avenger' sha256 '{hash}'; chart cartesian as chart {{}}"
-    );
-    let loader = InMemorySourceLoader::default()
-        .with_source(source(chart.clone(), &chart_text))
-        .with_source(source(remote.clone(), remote_text));
-    let mut allowed = request(vec![ProjectRoot::chart(chart.clone())]);
-    allowed.capabilities.allow_http = true;
-    assert!(
-        ProjectLoader::new(&loader)
-            .load(allowed)
-            .await
-            .result
-            .is_ok()
-    );
-
-    let bad_text = chart_text.replace(&hash, &"0".repeat(64));
-    loader.insert(source(chart.clone(), &bad_text));
-    let mut mismatch = request(vec![ProjectRoot::chart(chart.clone())]);
-    mismatch.capabilities.allow_http = true;
-    let failure = ProjectLoader::new(&loader)
-        .load(mismatch)
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-009");
-
-    loader.insert(source(chart.clone(), &chart_text));
-    let denied = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart)]))
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(denied.diagnostics[0].code.as_str(), "AVENGER-PROJECT-015");
-}
-
-#[tokio::test]
-async fn project_records_http_redirect_candidate_and_canonical_origin() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let requested = SourceOrigin::Http("https://example.test/redirect.mark.avenger".into());
-    let canonical = SourceOrigin::Http("https://cdn.example.test/badge.mark.avenger".into());
-    let remote_text = "avenger 1; define mark badge { mark symbol {} }";
-    let hash = format!("{:x}", Sha256::digest(remote_text.as_bytes()));
-    let chart_text = format!(
-        "avenger 1; import 'https://example.test/redirect.mark.avenger' sha256 '{hash}' as badge; chart cartesian as chart {{}}"
+    let root_text = format!(
+        "avenger 1;\
+         import {{ badge }} from 'https://example.test/redirect.avenger' sha256 '{hash}';\
+         chart cartesian as summary {{ mark badge {{}} }}"
     );
     let loader = RedirectLoader {
         inner: InMemorySourceLoader::default()
-            .with_source(source(chart.clone(), &chart_text))
+            .with_source(source(root.clone(), &root_text))
             .with_source(source(canonical.clone(), remote_text)),
         requested: requested.clone(),
         canonical: canonical.clone(),
     };
-    let mut load_request = request(vec![ProjectRoot::chart(chart)]);
-    load_request.capabilities.allow_http = true;
-    let attempt = ProjectLoader::new(&loader).load(load_request).await;
+    let mut allowed = request(vec![ModuleRoot::requested(root.clone())]);
+    allowed.capabilities.allow_http = true;
+    let attempt = ModuleGraphLoader::new(&loader).load(allowed).await;
     assert!(attempt.result.is_ok());
     let redirected = attempt
         .dependencies
         .iter()
-        .find(|dependency| dependency.requested_origin == requested)
+        .find(|dependency| {
+            dependency.requested == ModuleDependencyTarget::Source(requested.clone())
+        })
         .unwrap();
     assert_eq!(redirected.canonical_origin.as_ref(), Some(&canonical));
+
+    let denied = ModuleGraphLoader::new(&loader)
+        .load(request(vec![ModuleRoot::requested(root)]))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(denied.diagnostics[0].code.as_str(), "AVENGER-MODULE-015");
 }
 
 #[tokio::test]
-async fn project_failed_attempt_keeps_prefix_and_repairs_through_the_same_api() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let missing = SourceOrigin::Memory("missing.mark.avenger".into());
-    let loader = InMemorySourceLoader::default().with_source(source(
-        chart.clone(),
-        "avenger 1; import 'missing.mark.avenger'; chart cartesian as chart {}",
-    ));
-    let attempt = ProjectLoader::new(&loader)
-        .load(request(vec![ProjectRoot::chart(chart.clone())]))
-        .await;
-    assert!(attempt.result.is_err());
-    assert_eq!(attempt.dependencies.len(), 2);
-    assert_eq!(attempt.dependencies[1].requested_origin, missing.clone());
-    assert!(attempt.dependencies[1].content_version.is_none());
-    let failure = attempt.result.unwrap_err();
-    assert_eq!(
-        render_diagnostics(&failure.diagnostics, &failure.sources),
-        include_str!("baselines/project/missing-import.txt")
-    );
-
-    loader.insert(source(
-        missing,
-        "avenger 1; define mark missing { mark symbol {} }",
-    ));
-    assert!(
-        ProjectLoader::new(&loader)
-            .load(request(vec![ProjectRoot::chart(chart)]))
-            .await
-            .result
-            .is_ok()
-    );
-}
-
-#[tokio::test]
-async fn project_enforces_source_and_import_closure_limits() {
-    let chart = SourceOrigin::Memory("chart.avenger".into());
-    let a = SourceOrigin::Memory("a.mark.avenger".into());
-    let b = SourceOrigin::Memory("b.mark.avenger".into());
+async fn ambient_data_roots_are_explicit_and_reject_mixed_content() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let ambient = SourceOrigin::Memory("ambient.avenger".into());
     let loader = InMemorySourceLoader::default()
         .with_source(source(
-            chart.clone(),
-            "avenger 1; import 'a.mark.avenger'; chart cartesian as chart {}",
+            root.clone(),
+            "avenger 1; chart cartesian as summary {}",
         ))
         .with_source(source(
-            a.clone(),
-            "avenger 1; import 'b.mark.avenger'; define mark a { mark symbol {} }",
-        ))
-        .with_source(source(
-            b.clone(),
-            "avenger 1; define mark b { mark symbol {} }",
+            ambient.clone(),
+            "avenger 1; export table memory as movies {}",
         ));
-
-    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
-    limited.limits.max_import_depth = 1;
-    let failure = ProjectLoader::new(&loader)
-        .load(limited)
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(request(vec![
+            ModuleRoot::requested(root.clone()),
+            ModuleRoot::ambient_data(ambient.clone()),
+        ]))
         .await
         .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-021");
+        .unwrap();
+    assert_eq!(graph.ambient_data_modules.len(), 1);
+    assert_eq!(graph.ambient_catalog.len(), 1);
 
-    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
-    limited.limits.max_source_bytes = 16;
-    let failure = ProjectLoader::new(&loader)
-        .load(limited)
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-022");
-
-    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
-    limited.limits.max_sources = 1;
-    let failure = ProjectLoader::new(&loader)
-        .load(limited)
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-023");
-
-    let root_bytes = loader
-        .load(&chart, &ImportCapabilities::in_memory("/project"))
-        .await
-        .unwrap()
-        .text
-        .len();
-    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
-    limited.limits.max_total_source_bytes = root_bytes;
-    let failure = ProjectLoader::new(&loader)
-        .load(limited)
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-024");
-
-    let second = SourceOrigin::Memory("second.mark.avenger".into());
     loader.insert(source(
-        second,
-        "avenger 1; define mark second { mark symbol {} }",
+        ambient.clone(),
+        "avenger 1;\
+         export table memory as movies {}\
+         chart cartesian as accidental {}",
     ));
-    loader.insert(source(
-        chart.clone(),
-        "avenger 1; import 'a.mark.avenger'; import 'second.mark.avenger'; chart cartesian as chart {}",
-    ));
-    let mut limited = request(vec![ProjectRoot::chart(chart)]);
-    limited.limits.max_imports_per_source = 1;
-    let failure = ProjectLoader::new(&loader)
-        .load(limited)
+    let failure = ModuleGraphLoader::new(&loader)
+        .load(request(vec![
+            ModuleRoot::requested(root),
+            ModuleRoot::ambient_data(ambient),
+        ]))
         .await
         .result
         .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-025");
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-MODULE-002");
+}
+
+#[tokio::test]
+async fn graph_fingerprint_tracks_source_bytes_and_referenced_native_profiles() {
+    let root = SourceOrigin::Memory("chart.avenger".into());
+    let module = NativeModuleId::new("native:com.acme.visuals@1").unwrap();
+    let loader = InMemorySourceLoader::default().with_source(source(
+        root.clone(),
+        "avenger 1;\
+         import * as acme from 'native:com.acme.visuals@1';\
+         chart acme.cartesian as summary {}",
+    ));
+    let mut first_request = request(vec![ModuleRoot::requested(root.clone())]);
+    first_request.native_modules.insert(
+        module.clone(),
+        AvailableNativeModule {
+            schema_profile: "schema-1".into(),
+            implementation_profile: "implementation-1".into(),
+        },
+    );
+    let first = ModuleGraphLoader::new(&loader)
+        .load(first_request)
+        .await
+        .result
+        .unwrap();
+
+    let mut changed_request = request(vec![ModuleRoot::requested(root.clone())]);
+    changed_request.native_modules.insert(
+        module.clone(),
+        AvailableNativeModule {
+            schema_profile: "schema-1".into(),
+            implementation_profile: "implementation-2".into(),
+        },
+    );
+    let changed_profile = ModuleGraphLoader::new(&loader)
+        .load(changed_request)
+        .await
+        .result
+        .unwrap();
+    assert_ne!(first.fingerprint, changed_profile.fingerprint);
+
+    loader.insert(source(
+        root.clone(),
+        "avenger 1;\
+         import * as acme from 'native:com.acme.visuals@1';\
+         chart acme.cartesian as changed {}",
+    ));
+    let mut changed_source_request = request(vec![ModuleRoot::requested(root)]);
+    changed_source_request.native_modules.insert(
+        module,
+        AvailableNativeModule {
+            schema_profile: "schema-1".into(),
+            implementation_profile: "implementation-1".into(),
+        },
+    );
+    let changed_source = ModuleGraphLoader::new(&loader)
+        .load(changed_source_request)
+        .await
+        .result
+        .unwrap();
+    assert_ne!(first.fingerprint, changed_source.fingerprint);
 }
 
 struct CountingLoader {
     inner: InMemorySourceLoader,
     count: AtomicUsize,
+}
+
+#[async_trait]
+impl SourceLoader for CountingLoader {
+    async fn load(
+        &self,
+        origin: &SourceOrigin,
+        capabilities: &ImportCapabilities,
+    ) -> Result<LoadedSource, SourceLoaderError> {
+        self.count.fetch_add(1, Ordering::SeqCst);
+        self.inner.load(origin, capabilities).await
+    }
 }
 
 struct RedirectLoader {
@@ -448,17 +413,5 @@ impl SourceLoader for RedirectLoader {
         } else {
             self.inner.load(origin, capabilities).await
         }
-    }
-}
-
-#[async_trait]
-impl SourceLoader for CountingLoader {
-    async fn load(
-        &self,
-        origin: &SourceOrigin,
-        capabilities: &ImportCapabilities,
-    ) -> Result<LoadedSource, SourceLoaderError> {
-        self.count.fetch_add(1, Ordering::SeqCst);
-        self.inner.load(origin, capabilities).await
     }
 }

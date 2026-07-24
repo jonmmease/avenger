@@ -30,9 +30,9 @@ use avenger_lang_compiler::{
     CompileFailure, Compiler, DatasetStageId, DatasetStageKind, ProjectAnalysis,
 };
 use avenger_lang_core::{
-    ContentVersion, Diagnostic, ImportCapabilities, LineIndex, LoadedSource, ProjectRoot,
+    ContentVersion, Diagnostic, ImportCapabilities, LineIndex, LoadedSource, ModuleRoot,
     SourceFile, SourceId, SourceLoader, SourceLoaderError, SourceOrigin, SourceSpan,
-    project::normalize_path,
+    module_graph::normalize_path,
     syntax::{
         TolerantParsedFile, TolerantSyntaxNode, TolerantSyntaxNodeId, TolerantSyntaxNodeKind,
     },
@@ -56,7 +56,7 @@ pub struct DocumentSnapshot {
 pub struct WorkspaceSnapshot {
     pub generation: AnalysisGeneration,
     pub project_root: std::path::PathBuf,
-    pub roots: Vec<ProjectRoot>,
+    pub roots: Vec<ModuleRoot>,
     pub open_documents: BTreeMap<SourceOrigin, DocumentSnapshot>,
     pub known_disk_sources: Vec<SourceOrigin>,
     pub native_registry_profile: String,
@@ -64,7 +64,7 @@ pub struct WorkspaceSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct RootAnalysis {
-    pub root: ProjectRoot,
+    pub root: ModuleRoot,
     pub result: Result<ProjectAnalysis, CompileFailure>,
 }
 
@@ -402,13 +402,13 @@ impl AnalysisService {
         let data_roots = snapshot
             .roots
             .iter()
-            .filter(|root| root.role == avenger_lang_core::ProjectDependencyRole::DataConfiguration)
+            .filter(|root| root.role == avenger_lang_core::ModuleDependencyRole::AmbientDataRoot)
             .cloned()
             .collect::<Vec<_>>();
         let chart_roots = snapshot
             .roots
             .iter()
-            .filter(|root| root.role == avenger_lang_core::ProjectDependencyRole::RootChart)
+            .filter(|root| root.role == avenger_lang_core::ModuleDependencyRole::RequestedModule)
             .cloned()
             .collect::<Vec<_>>();
         let mut semantic_roots = BTreeMap::new();

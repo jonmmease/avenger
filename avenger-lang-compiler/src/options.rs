@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart_lang_registry::NativeRegistry;
 use avenger_lang_core::{
-    DataCapabilities, EnvironmentProvider, ExpansionLimits, ImportCapabilities, ProjectLoadLimits,
-    SourceLoader,
+    DataCapabilities, EnvironmentProvider, ExpansionLimits, ImportCapabilities,
+    ModuleGraphLoadLimits, SourceLoader,
 };
 use datafusion::{catalog::CatalogProvider, datasource::TableProvider, prelude::SessionContext};
 
@@ -239,7 +239,7 @@ pub struct CompilerOptions {
 /// Bounds used by project loading and local-resource fingerprinting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CompilerLimits {
-    pub project: ProjectLoadLimits,
+    pub project: ModuleGraphLoadLimits,
     pub resources: LocalResourceLimits,
     pub expansion: ExpansionLimits,
 }

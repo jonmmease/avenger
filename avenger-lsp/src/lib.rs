@@ -27,8 +27,8 @@ use avenger_lang_analysis::{
 };
 use avenger_lang_compiler::{CompileFailure, Compiler};
 use avenger_lang_core::{
-    Diagnostic as AvengerDiagnostic, DiagnosticSeverity as AvengerDiagnosticSeverity, ProjectRoot,
-    SourceFile, SourceMap, SourceOrigin, project::normalize_path,
+    Diagnostic as AvengerDiagnostic, DiagnosticSeverity as AvengerDiagnosticSeverity, ModuleRoot,
+    SourceFile, SourceMap, SourceOrigin, module_graph::normalize_path,
 };
 use documents::{DocumentStore, OpenDocument};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -1679,10 +1679,10 @@ fn semantic_input(state: &ServerState, workspace_root: &Path) -> Option<Semantic
         .iter()
         .filter_map(|origin| match origin {
             SourceOrigin::File(path) if is_data_path(path) => {
-                Some(ProjectRoot::data(origin.clone()))
+                Some(ModuleRoot::ambient_data(origin.clone()))
             }
             SourceOrigin::File(path) if is_chart_path(path) => {
-                Some(ProjectRoot::chart(origin.clone()))
+                Some(ModuleRoot::requested(origin.clone()))
             }
             _ => None,
         })

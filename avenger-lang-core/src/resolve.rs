@@ -23,7 +23,7 @@ use crate::{
     SourceId, SourceLabel, SourceMap, SourceSpan,
     ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Value, Visibility},
     expand::ExpansionSourceMap,
-    project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
+    module_graph::{ModuleId, ModuleImportEdge, ParsedModule, ParsedModuleGraph, SourceModuleId},
     sort_diagnostics,
 };
 
@@ -65,6 +65,17 @@ semantic_id!(WidgetId);
 semantic_id!(EventId);
 semantic_id!(StateMigrationKey);
 semantic_id!(DefinitionLocalSeed);
+
+/// The reusable declaration family authored by a top-level `define` item.
+///
+/// This describes an item, never a source-module/file classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefinitionKind {
+    Mark,
+    Tool,
+    Transform,
+}
 
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -209,9 +220,9 @@ pub struct ResolvedProject {
     pub registry_profile_label: String,
     pub source_fingerprint: String,
     pub sources: SourceMap,
-    pub files: BTreeMap<ProjectFileId, ResolvedFile>,
+    pub files: BTreeMap<SourceModuleId, ResolvedFile>,
     pub charts: Vec<DeclarationId>,
-    pub definitions: BTreeMap<ProjectFileId, DefinitionSchema>,
+    pub definitions: BTreeMap<SourceModuleId, DefinitionSchema>,
     pub params: BTreeMap<ParamId, ResolvedParam>,
     pub stores: BTreeMap<StoreId, ResolvedStore>,
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
@@ -222,7 +233,7 @@ pub struct ResolvedProject {
     /// queries inside the pack continue to use these local paths.
     pub catalog_tables: BTreeMap<String, ResolvedCatalogTable>,
     pub table_order: Vec<DeclarationId>,
-    pub definition_import_order: Vec<ProjectFileId>,
+    pub definition_import_order: Vec<SourceModuleId>,
     /// Empty for ordinary projects; populated by the compiler when imported
     /// definitions were expanded before final semantic resolution.
     pub expansion_source_map: ExpansionSourceMap,
@@ -244,7 +255,7 @@ impl ResolvedProject {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedCatalogTable {
     pub id: DeclarationId,
-    pub file: ProjectFileId,
+    pub file: SourceModuleId,
     pub source: SourceId,
     pub span: SourceSpan,
     pub path: Vec<String>,
@@ -255,10 +266,9 @@ pub struct ResolvedCatalogTable {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedFile {
-    pub id: ProjectFileId,
+    pub id: SourceModuleId,
     pub source: SourceId,
-    pub kind: ProjectFileKind,
-    pub imports: BTreeMap<String, ProjectFileId>,
+    pub imports: BTreeMap<String, SourceModuleId>,
     pub roots: Vec<ResolvedDeclaration>,
 }
 
@@ -537,7 +547,10 @@ pub struct ResolveAttempt {
 }
 
 /// Resolve a parsed project against one immutable authoring registry snapshot.
-pub fn resolve_project(project: &ParsedProject, registry: &NativeSchemaSnapshot) -> ResolveAttempt {
+pub fn resolve_project(
+    project: &ParsedModuleGraph,
+    registry: &NativeSchemaSnapshot,
+) -> ResolveAttempt {
     let mut resolver = Resolver::new(project, registry);
     resolver.run()
 }
@@ -603,14 +616,14 @@ struct InstanceInterface {
 }
 
 struct Resolver<'a> {
-    project: &'a ParsedProject,
+    project: &'a ParsedModuleGraph,
     registry: &'a NativeSchemaSnapshot,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<Scope>,
-    declarations: BTreeMap<(ProjectFileId, Vec<usize>), DeclInfo>,
+    declarations: BTreeMap<(SourceModuleId, Vec<usize>), DeclInfo>,
     instances: BTreeMap<DeclarationId, InstanceInterface>,
-    imports: BTreeMap<ProjectFileId, BTreeMap<String, ProjectFileId>>,
-    definitions: BTreeMap<ProjectFileId, DefinitionSchema>,
+    imports: BTreeMap<SourceModuleId, BTreeMap<String, SourceModuleId>>,
+    definitions: BTreeMap<SourceModuleId, DefinitionSchema>,
     params: BTreeMap<ParamId, ResolvedParam>,
     param_types: BTreeMap<ParamId, PhysicalType>,
     stores: BTreeMap<StoreId, ResolvedStore>,
@@ -621,7 +634,7 @@ struct Resolver<'a> {
 }
 
 impl<'a> Resolver<'a> {
-    fn new(project: &'a ParsedProject, registry: &'a NativeSchemaSnapshot) -> Self {
+    fn new(project: &'a ParsedModuleGraph, registry: &'a NativeSchemaSnapshot) -> Self {
         Self {
             project,
             registry,
@@ -652,7 +665,7 @@ impl<'a> Resolver<'a> {
 
         let mut files = BTreeMap::new();
         let mut charts = Vec::new();
-        for (file_id, file) in &self.project.files {
+        for (file_id, file) in &self.project.source_modules {
             let roots = module_declarations(file)
                 .map(|(index, declaration)| {
                     let path = vec![index];
@@ -676,7 +689,6 @@ impl<'a> Resolver<'a> {
                 ResolvedFile {
                     id: file_id.clone(),
                     source: file.source,
-                    kind: file.kind,
                     imports: self.imports.get(file_id).cloned().unwrap_or_default(),
                     roots,
                 },
@@ -741,7 +753,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn prune_unused_lazy_exports(&mut self, files: &mut BTreeMap<ProjectFileId, ResolvedFile>) {
+    fn prune_unused_lazy_exports(&mut self, files: &mut BTreeMap<SourceModuleId, ResolvedFile>) {
         let mut used = BTreeSet::new();
         for file in files.values() {
             for root in &file.roots {
@@ -807,7 +819,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn check_versions(&mut self) {
-        for file in self.project.files.values() {
+        for file in self.project.source_modules.values() {
             if file.parsed.ast.version != LANGUAGE_MAJOR {
                 self.error(
                     "AVENGER-RESOLVE-001",
@@ -823,7 +835,7 @@ impl<'a> Resolver<'a> {
         if self.registry.version.major != LANGUAGE_MAJOR {
             let span = self
                 .project
-                .files
+                .source_modules
                 .values()
                 .next()
                 .map(root_span)
@@ -841,34 +853,33 @@ impl<'a> Resolver<'a> {
     }
 
     fn build_import_bindings(&mut self) {
-        let source_to_file = self
-            .project
-            .files
-            .iter()
-            .map(|(id, file)| (file.source, id.clone()))
-            .collect::<BTreeMap<_, _>>();
         for edge in &self.project.imports {
-            let Some(importer) = source_to_file.get(&edge.importer) else {
+            let importer = &edge.importer;
+            let ModuleId::Source(imported) = &edge.imported else {
                 continue;
             };
-            let Some(imported) = source_to_file.get(&edge.imported) else {
-                continue;
-            };
-            self.imports
-                .entry(importer.clone())
-                .or_default()
-                .insert(edge.binding.clone(), imported.clone());
+            let bindings = self.imports.entry(importer.clone()).or_default();
+            match &edge.clause {
+                crate::ast::ImportClause::Named(specifiers) => {
+                    for specifier in specifiers {
+                        bindings.insert(specifier.local.to_string(), imported.clone());
+                    }
+                }
+                crate::ast::ImportClause::Namespace(local) => {
+                    bindings.insert(local.to_string(), imported.clone());
+                }
+            }
         }
     }
 
     fn extract_definition_schemas(&mut self) {
-        for (file_id, file) in &self.project.files {
-            let ProjectFileKind::Definition(kind) = file.kind else {
-                continue;
-            };
+        for (file_id, file) in &self.project.source_modules {
             let Some((root_index, declaration)) = module_declarations(file)
                 .find(|(_, declaration)| declaration.keyword.as_str() == "define")
             else {
+                continue;
+            };
+            let Some(kind) = definition_kind(declaration) else {
                 continue;
             };
             let id = declaration_id(file, &[root_index]);
@@ -1156,7 +1167,7 @@ impl<'a> Resolver<'a> {
         names: &mut BTreeMap<String, &'static str>,
         name: &str,
         role: &'static str,
-        file: &ProjectFile,
+        file: &ParsedModule,
     ) {
         if let Some(previous) = names.insert(name.to_owned(), role) {
             self.error(
@@ -1171,7 +1182,7 @@ impl<'a> Resolver<'a> {
     fn validate_definition_templates(&mut self) {
         let definitions = self
             .project
-            .files
+            .source_modules
             .iter()
             .filter_map(|(file_id, file)| {
                 let schema = self.definitions.get(file_id)?.clone();
@@ -1224,7 +1235,7 @@ impl<'a> Resolver<'a> {
 
     fn validate_definition_node(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         path: &[usize],
         schema: &DefinitionSchema,
@@ -1342,7 +1353,7 @@ impl<'a> Resolver<'a> {
         enum_values: &[String],
         earlier_slots: &[String],
         all_slots: &BTreeSet<String>,
-        file: &ProjectFile,
+        file: &ParsedModule,
     ) {
         let span = root_span(file);
         let name = slot.name.as_ref().map_or("<unnamed>", Name::as_str);
@@ -1463,7 +1474,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn predeclare_project(&mut self) {
-        for (file_id, file) in &self.project.files {
+        for (file_id, file) in &self.project.source_modules {
             let file_scope = self.new_scope(None, format!("file:{}", file_id.as_str()));
             for (index, declaration) in module_declarations(file) {
                 self.predeclare_declaration(file, declaration, vec![index], file_scope, Vec::new());
@@ -1472,13 +1483,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn build_table_dependencies(&mut self) {
-        let data_files = self
-            .project
-            .files
-            .values()
-            .filter(|file| matches!(file.kind, ProjectFileKind::Data))
-            .collect::<Vec<_>>();
-        for file in data_files {
+        for file in self.project.source_modules.values() {
             for (index, declaration) in module_declarations(file) {
                 self.collect_table_names(file, declaration, &[index], &[]);
             }
@@ -1527,7 +1532,7 @@ impl<'a> Resolver<'a> {
 
     fn collect_table_names(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         path: &[usize],
         prefix: &[String],
@@ -1561,16 +1566,16 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn declaration_source(&self, id: &DeclarationId) -> Option<(&ProjectFile, &Decl)> {
+    fn declaration_source(&self, id: &DeclarationId) -> Option<(&ParsedModule, &Decl)> {
         let ((file_id, path), _) = self.declarations.iter().find(|(_, info)| &info.id == id)?;
-        let file = self.project.files.get(file_id)?;
+        let file = self.project.source_modules.get(file_id)?;
         let declaration = declaration_at(file, path)?;
         Some((file, declaration))
     }
 
     fn predeclare_declaration(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         path: Vec<usize>,
         containing_scope: ScopeId,
@@ -1670,7 +1675,7 @@ impl<'a> Resolver<'a> {
     #[allow(clippy::too_many_arguments)]
     fn predeclare_name(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         scope: ScopeId,
         name: &str,
@@ -1989,7 +1994,7 @@ impl<'a> Resolver<'a> {
         // instances, independently of declaration source order.
         let keys = self.declarations.keys().cloned().collect::<Vec<_>>();
         for (file_id, path) in keys {
-            let Some(file) = self.project.files.get(&file_id) else {
+            let Some(file) = self.project.source_modules.get(&file_id) else {
                 continue;
             };
             let Some(declaration) = declaration_at(file, &path) else {
@@ -2003,7 +2008,11 @@ impl<'a> Resolver<'a> {
                 continue;
             };
             let coordinate = coordinate_at_path(file, &path);
-            if let Some(schema) = self.native_schema(file, declaration, coordinate.as_deref()) {
+            if let Some(schema) = self.native_schema(
+                declaration,
+                coordinate.as_deref(),
+                inside_definition(file, &path),
+            ) {
                 self.install_native_interface(file, declaration, &info, &schema);
             }
             if let Some(schema) = declaration
@@ -2072,15 +2081,15 @@ impl<'a> Resolver<'a> {
             })
             .collect::<Vec<_>>();
         for (file_id, path, instance) in instances {
-            let Some(file) = self.project.files.get(&file_id) else {
+            let Some(file) = self.project.source_modules.get(&file_id) else {
                 continue;
             };
-            if matches!(file.kind, ProjectFileKind::Definition(_)) {
-                continue;
-            }
             let Some(declaration) = declaration_at(file, &path) else {
                 continue;
             };
+            if inside_definition(file, &path) {
+                continue;
+            }
             if declaration.keyword.as_str() == "tool"
                 && declaration
                     .kind
@@ -2122,7 +2131,7 @@ impl<'a> Resolver<'a> {
 
     fn collect_lexical_exports(
         &self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         path: &[usize],
         inside_private: bool,
@@ -2157,7 +2166,7 @@ impl<'a> Resolver<'a> {
             .declarations
             .iter()
             .filter_map(|((file_id, path), info)| {
-                let file = self.project.files.get(file_id)?;
+                let file = self.project.source_modules.get(file_id)?;
                 let declaration = declaration_at(file, path)?;
                 let component_kind = declaration
                     .props
@@ -2209,7 +2218,7 @@ impl<'a> Resolver<'a> {
 
     fn install_native_interface(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         info: &DeclInfo,
         schema: &KindSchema,
@@ -2385,7 +2394,7 @@ impl<'a> Resolver<'a> {
 
     fn generated_state_target(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         info: &DeclInfo,
         alias: &str,
@@ -2532,11 +2541,13 @@ impl<'a> Resolver<'a> {
 
     fn state_identity(
         &self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         info: &DeclInfo,
         role: &str,
     ) -> (Option<StateMigrationKey>, Option<DefinitionLocalSeed>) {
-        if matches!(file.kind, ProjectFileKind::Definition(_)) {
+        if self.definitions.values().any(|schema| {
+            schema.declaration == info.id || info.ancestry.contains(&schema.declaration)
+        }) {
             return (
                 None,
                 Some(DefinitionLocalSeed(semantic_hash(&[
@@ -2990,7 +3001,7 @@ impl<'a> Resolver<'a> {
     #[allow(clippy::too_many_arguments)]
     fn resolve_declaration(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         path: &[usize],
         inherited_coordinate: Option<&str>,
@@ -3015,7 +3026,8 @@ impl<'a> Resolver<'a> {
         self.validate_placement(declaration, parent, info.span);
         self.validate_visibility(file, path, declaration, info.span);
 
-        let native_schema = self.native_schema(file, declaration, coordinate.as_deref());
+        let in_definition = inside_definition(file, path);
+        let native_schema = self.native_schema(declaration, coordinate.as_deref(), in_definition);
         let definition_schema = declaration
             .kind
             .as_ref()
@@ -3048,7 +3060,7 @@ impl<'a> Resolver<'a> {
                 parent.map(|parent| parent.keyword.as_str()),
                 coordinate.as_deref(),
                 info.span,
-                matches!(file.kind, ProjectFileKind::Definition(_)),
+                in_definition,
             );
         }
         if let Some(schema) = definition_schema.as_ref() {
@@ -3172,7 +3184,7 @@ impl<'a> Resolver<'a> {
                     name.as_str(),
                     info.span,
                 );
-            } else if matches!(file.kind, ProjectFileKind::Definition(_)) {
+            } else if in_definition {
                 self.normalize_expression_argument(value_scope, &mut resolved, info.span);
             }
             properties.insert(name.to_string(), resolved);
@@ -3315,9 +3327,9 @@ impl<'a> Resolver<'a> {
 
     fn native_schema(
         &self,
-        file: &ProjectFile,
         declaration: &Decl,
         coordinate: Option<&str>,
+        in_definition: bool,
     ) -> Option<KindSchema> {
         let kind = declaration.kind.as_ref()?.as_str();
         if is_mark_group(declaration) {
@@ -3329,7 +3341,7 @@ impl<'a> Resolver<'a> {
             "mark" => {
                 if let Some(coordinate) = coordinate {
                     NativeKindKey::mark(coordinate, kind)
-                } else if matches!(file.kind, ProjectFileKind::Definition(_)) {
+                } else if in_definition {
                     return self.definition_mark_schema(kind);
                 } else {
                     return None;
@@ -3373,7 +3385,7 @@ impl<'a> Resolver<'a> {
         merge_definition_mark_schemas(candidates)
     }
 
-    fn imported_definition(&self, file: &ProjectFile, kind: &str) -> Option<&DefinitionSchema> {
+    fn imported_definition(&self, file: &ParsedModule, kind: &str) -> Option<&DefinitionSchema> {
         let imported = self.imports.get(&file.id)?.get(kind)?;
         self.definitions.get(imported)
     }
@@ -3849,7 +3861,7 @@ impl<'a> Resolver<'a> {
 
     fn validate_visibility(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         path: &[usize],
         declaration: &Decl,
         span: SourceSpan,
@@ -3857,7 +3869,7 @@ impl<'a> Resolver<'a> {
         if declaration.visibility == Visibility::Default {
             return;
         }
-        if matches!(file.kind, ProjectFileKind::Definition(_)) {
+        if inside_definition(file, path) {
             self.error(
                 "AVENGER-RESOLVE-043",
                 "visibility modifiers are invalid inside definitions",
@@ -4636,7 +4648,7 @@ impl<'a> Resolver<'a> {
     #[allow(clippy::too_many_arguments)]
     fn resolve_value_with_mark_blocks(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         owner_path: &[usize],
         scope: ScopeId,
         value: &Value,
@@ -4771,7 +4783,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_overlay_mark_block(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         owner_path: &[usize],
         value: &Value,
         span: SourceSpan,
@@ -5302,7 +5314,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_state_declaration(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         info: &DeclInfo,
         properties: &BTreeMap<String, ResolvedValue>,
@@ -5424,7 +5436,7 @@ impl<'a> Resolver<'a> {
         if path.len() < 2 {
             return None;
         }
-        let file = self.project.files.get(file_id)?;
+        let file = self.project.source_modules.get(file_id)?;
         let parent_path = &path[..path.len() - 1];
         let parent = declaration_at(file, parent_path)?;
         (parent.keyword.as_str() == "table").then(|| declaration_id(file, parent_path))
@@ -5432,7 +5444,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_store(
         &mut self,
-        file: &ProjectFile,
+        file: &ParsedModule,
         declaration: &Decl,
         info: &DeclInfo,
         name: &str,
@@ -7121,7 +7133,7 @@ impl<'a> Resolver<'a> {
             Err(cycle) => {
                 let span = self
                     .project
-                    .files
+                    .source_modules
                     .values()
                     .next()
                     .map(root_span)
@@ -7150,7 +7162,7 @@ impl<'a> Resolver<'a> {
             Err(cycle) => {
                 let span = self
                     .project
-                    .files
+                    .source_modules
                     .values()
                     .next()
                     .map(root_span)
@@ -7173,8 +7185,8 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn definition_import_order(&self) -> Vec<ProjectFileId> {
-        let mut dependencies = BTreeMap::<ProjectFileId, BTreeSet<ProjectFileId>>::new();
+    fn definition_import_order(&self) -> Vec<SourceModuleId> {
+        let mut dependencies = BTreeMap::<SourceModuleId, BTreeSet<SourceModuleId>>::new();
         for (file, imports) in &self.imports {
             if !self.definitions.contains_key(file) {
                 continue;
@@ -7257,9 +7269,14 @@ impl<'a> Resolver<'a> {
     fn import_trace_for_source(&self, target: SourceId) -> Vec<ExpansionOrImportFrame> {
         let roots = self
             .project
-            .chart_roots
+            .requested_modules
             .iter()
-            .filter_map(|file| self.project.files.get(file).map(|file| file.source))
+            .filter_map(|file| {
+                self.project
+                    .source_modules
+                    .get(file)
+                    .map(|file| file.source)
+            })
             .collect::<Vec<_>>();
         for root in roots {
             let mut visiting = BTreeSet::new();
@@ -7474,7 +7491,7 @@ fn unique_resolved_child<'a>(
 fn find_import_trace(
     current: SourceId,
     target: SourceId,
-    imports: &[crate::project::ImportEdge],
+    imports: &[ModuleImportEdge],
     visiting: &mut BTreeSet<SourceId>,
     path: &mut Vec<ExpansionOrImportFrame>,
 ) -> bool {
@@ -7486,19 +7503,22 @@ fn find_import_trace(
     }
     let mut edges = imports
         .iter()
-        .filter(|edge| edge.importer == current)
+        .filter(|edge| edge.importer_source == current)
         .collect::<Vec<_>>();
     edges.sort_by(|left, right| {
-        left.binding
-            .cmp(&right.binding)
+        left.specifier
+            .cmp(&right.specifier)
             .then_with(|| left.site.cmp(&right.site))
     });
     for edge in edges {
         path.push(ExpansionOrImportFrame {
             span: edge.site,
-            message: format!("imported through binding `{}`", edge.binding),
+            message: format!("imported from `{}`", edge.specifier),
         });
-        if find_import_trace(edge.imported, target, imports, visiting, path) {
+        if edge
+            .imported_source
+            .is_some_and(|source| find_import_trace(source, target, imports, visiting, path))
+        {
             return true;
         }
         path.pop();
@@ -7514,7 +7534,7 @@ fn declaration_coordinate(declaration: &Decl, inherited: Option<&str>) -> Option
     }
 }
 
-fn coordinate_at_path(file: &ProjectFile, path: &[usize]) -> Option<String> {
+fn coordinate_at_path(file: &ParsedModule, path: &[usize]) -> Option<String> {
     let mut coordinate = None;
     for length in 1..=path.len() {
         if path[length - 1] == MARK_BLOCK_PATH_SEGMENT {
@@ -7527,7 +7547,7 @@ fn coordinate_at_path(file: &ProjectFile, path: &[usize]) -> Option<String> {
     coordinate
 }
 
-fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl> {
+fn parent_declaration<'a>(file: &'a ParsedModule, path: &[usize]) -> Option<&'a Decl> {
     if let Some(segment) = path
         .iter()
         .rposition(|value| *value == MARK_BLOCK_PATH_SEGMENT)
@@ -8916,7 +8936,7 @@ fn is_instance_boundary(declaration: &Decl) -> bool {
     )
 }
 
-fn declaration_id(file: &ProjectFile, path: &[usize]) -> DeclarationId {
+fn declaration_id(file: &ParsedModule, path: &[usize]) -> DeclarationId {
     let stable_path = stable_declaration_path(file, path);
     DeclarationId(semantic_hash(&[
         "declaration",
@@ -8925,7 +8945,7 @@ fn declaration_id(file: &ProjectFile, path: &[usize]) -> DeclarationId {
     ]))
 }
 
-fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
+fn stable_declaration_path(file: &ParsedModule, path: &[usize]) -> String {
     if let Some(segment) = path
         .iter()
         .rposition(|value| *value == MARK_BLOCK_PATH_SEGMENT)
@@ -9032,7 +9052,7 @@ fn ancestry_text(ancestry: &[DeclarationId]) -> String {
         .join("/")
 }
 
-fn module_declarations(file: &ProjectFile) -> impl Iterator<Item = (usize, &Decl)> {
+fn module_declarations(file: &ParsedModule) -> impl Iterator<Item = (usize, &Decl)> {
     file.parsed
         .ast
         .items
@@ -9041,7 +9061,25 @@ fn module_declarations(file: &ProjectFile) -> impl Iterator<Item = (usize, &Decl
         .map(|(index, item)| (index, &item.declaration))
 }
 
-fn declaration_at<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl> {
+fn definition_kind(declaration: &Decl) -> Option<DefinitionKind> {
+    if declaration.keyword.as_str() != "define" {
+        return None;
+    }
+    match declaration.kind.as_ref()?.as_str() {
+        "mark" => Some(DefinitionKind::Mark),
+        "tool" => Some(DefinitionKind::Tool),
+        "transform" => Some(DefinitionKind::Transform),
+        _ => None,
+    }
+}
+
+fn inside_definition(file: &ParsedModule, path: &[usize]) -> bool {
+    path.first()
+        .and_then(|index| file.parsed.ast.items.get(*index))
+        .is_some_and(|item| item.declaration.keyword.as_str() == "define")
+}
+
+fn declaration_at<'a>(file: &'a ParsedModule, path: &[usize]) -> Option<&'a Decl> {
     let (first, rest) = path.split_first()?;
     let mut declaration = &file.parsed.ast.items.get(*first)?.declaration;
     let mut cursor = 0usize;
@@ -9062,14 +9100,14 @@ fn declaration_at<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl>
     Some(declaration)
 }
 
-fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
+fn declaration_span(file: &ParsedModule, path: &[usize]) -> Option<SourceSpan> {
     let declaration = declaration_at(file, path)?;
     let mut spans = file
         .parsed
         .source_map
         .iter()
         .filter_map(|(id, span)| match file.parsed.source_map.role(id) {
-            Some(AstNodeRole::Declaration(keyword)) if keyword == &declaration.keyword => {
+            Some(AstNodeRole::Declaration(keyword)) if *keyword == declaration.keyword => {
                 Some(span)
             }
             _ => None,
@@ -9136,7 +9174,7 @@ fn value_declaration_preorder<'a>(value: &'a Value, visit: &mut impl FnMut(&'a D
     }
 }
 
-fn root_span(file: &ProjectFile) -> SourceSpan {
+fn root_span(file: &ParsedModule) -> SourceSpan {
     file.parsed
         .source_map
         .iter()

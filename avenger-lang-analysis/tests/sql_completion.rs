@@ -6,7 +6,7 @@ use avenger_lang_analysis::{
     WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::Compiler;
-use avenger_lang_core::{ByteSpan, InMemorySourceLoader, ProjectRoot, SourceOrigin, SourceSpan};
+use avenger_lang_core::{ByteSpan, InMemorySourceLoader, ModuleRoot, SourceOrigin, SourceSpan};
 
 const CURSOR: &str = "⟦cursor⟧";
 
@@ -107,8 +107,8 @@ async fn fixture() -> Fixture {
         generation: AnalysisGeneration::new(1),
         project_root,
         roots: vec![
-            ProjectRoot::data(data.clone()),
-            ProjectRoot::chart(chart.clone()),
+            ModuleRoot::ambient_data(data.clone()),
+            ModuleRoot::requested(chart.clone()),
         ],
         open_documents: BTreeMap::from([
             (
@@ -176,7 +176,7 @@ async fn transform_pipeline_fixture() -> (Fixture, String) {
             WorkspaceSnapshot {
                 generation: AnalysisGeneration::new(1),
                 project_root,
-                roots: vec![ProjectRoot::chart(chart.clone())],
+                roots: vec![ModuleRoot::requested(chart.clone())],
                 open_documents: BTreeMap::from([(
                     chart.clone(),
                     DocumentSnapshot::new(

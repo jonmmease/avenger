@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, LoadedSource, SourceLoader, SourceLoaderError,
-    SourceOrigin, project::normalize_path,
+    SourceOrigin, module_graph::normalize_path,
 };
 use reqwest::redirect::Policy;
 use sha2::{Digest, Sha256};

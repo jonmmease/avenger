@@ -1,7 +1,7 @@
 use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, PhysicalType,
-    ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
+    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, PhysicalType, SourceFile, SourceId,
     SourceOrigin, ast::Value, resolve_project, semantic_json_schema, syntax::parse_file,
 };
 use std::{fs, path::PathBuf};
@@ -13,22 +13,23 @@ fn bootstrap_schema() -> NativeSchemaSnapshot {
     .unwrap()
 }
 
-async fn semantic_project(text: &str) -> avenger_lang_core::ParsedProject {
+async fn semantic_project(text: &str) -> avenger_lang_core::ParsedModuleGraph {
     let loader = InMemorySourceLoader::default().with_source(LoadedSource::new(
         SourceOrigin::Memory("chart.avenger".to_owned()),
         text,
         ContentVersion::new("fixture-v1"),
     ));
-    ProjectLoader::new(&loader)
-        .load(ProjectLoadRequest {
+    ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
             project_root: "/project".into(),
-            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(
+            roots: vec![ModuleRoot::requested(SourceOrigin::Memory(
                 "chart.avenger".to_owned(),
             ))],
+            native_modules: Default::default(),
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
-            limits: ProjectLoadLimits::default(),
+            limits: ModuleGraphLoadLimits::default(),
         })
         .await
         .result
@@ -280,7 +281,11 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
     for (expected, source) in corpus {
         let project = semantic_project(source).await;
         let semantic_valid = resolve_project(&project, &registry).result.is_ok();
-        let file = project.files.values().next().expect("one source file");
+        let file = project
+            .source_modules
+            .values()
+            .next()
+            .expect("one source file");
         let instance = serde_json::to_value(&file.parsed.ast).unwrap();
         let schema_valid = validator.is_valid(&instance);
         assert_eq!(semantic_valid, expected, "semantic result for {source}");
@@ -294,7 +299,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
     )
     .await;
     let file = missing_value
-        .files
+        .source_modules
         .values()
         .next()
         .expect("one source file");

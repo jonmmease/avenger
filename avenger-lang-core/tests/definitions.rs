@@ -1,7 +1,7 @@
 use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadLimits,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedDeclaration, ResolvedTarget,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
+    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, ResolvedDeclaration, ResolvedTarget,
     ResolvedValue, SourceOrigin, expand_project, resolve_project,
 };
 
@@ -12,7 +12,7 @@ fn bootstrap_schema() -> NativeSchemaSnapshot {
     .unwrap()
 }
 
-async fn project(sources: &[(&str, &str)]) -> avenger_lang_core::ParsedProject {
+async fn project(sources: &[(&str, &str)]) -> avenger_lang_core::ParsedModuleGraph {
     let loader = InMemorySourceLoader::default();
     for (name, text) in sources {
         loader.insert(LoadedSource::new(
@@ -21,16 +21,17 @@ async fn project(sources: &[(&str, &str)]) -> avenger_lang_core::ParsedProject {
             ContentVersion::new("definitions-v1"),
         ));
     }
-    ProjectLoader::new(&loader)
-        .load(ProjectLoadRequest {
+    ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
             project_root: "/project".into(),
-            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(
+            roots: vec![ModuleRoot::requested(SourceOrigin::Memory(
                 "chart.avenger".to_owned(),
             ))],
+            native_modules: Default::default(),
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
-            limits: ProjectLoadLimits::default(),
+            limits: ModuleGraphLoadLimits::default(),
         })
         .await
         .result
@@ -230,16 +231,17 @@ async fn definitions_reject_recursive_import_graphs() {
             "avenger 1; import 'a.mark.avenger'; define mark b { mark a { } }",
             ContentVersion::new("definitions-v1"),
         ));
-    let failure = ProjectLoader::new(&loader)
-        .load(ProjectLoadRequest {
+    let failure = ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
             project_root: "/project".into(),
-            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(
+            roots: vec![ModuleRoot::requested(SourceOrigin::Memory(
                 "chart.avenger".to_owned(),
             ))],
+            native_modules: Default::default(),
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
-            limits: ProjectLoadLimits::default(),
+            limits: ModuleGraphLoadLimits::default(),
         })
         .await
         .result
@@ -459,7 +461,7 @@ define mark summary {
         .result
         .unwrap();
     let expanded = expand_project(&project, &resolved).unwrap();
-    let chart = project.chart_roots.first().unwrap();
+    let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
     assert!(!text.contains("import 'summary.mark.avenger'"));
@@ -530,7 +532,7 @@ define mark band {
         .result
         .unwrap();
     let expanded = expand_project(&project, &resolved).unwrap();
-    let chart = project.chart_roots.first().unwrap();
+    let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
     assert!(text.contains("overlay: {"), "{text}");
@@ -585,7 +587,7 @@ define mark shell {
     let first = expand_project(&project, &resolved).unwrap();
     let second = expand_project(&project, &resolved).unwrap();
     assert_eq!(first.texts, second.texts);
-    let chart = project.chart_roots.first().unwrap();
+    let chart = project.requested_modules.first().unwrap();
     let text = first.texts.get(chart).unwrap();
     assert!(text.contains("private param boolean as __av_"), "{text}");
     assert!(text.contains("visible: $__av_"), "{text}");
@@ -773,7 +775,7 @@ define transform rolling {
         .result
         .unwrap();
     let expanded = expand_project(&project, &resolved).unwrap();
-    let chart = project.chart_roots.first().unwrap();
+    let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
     assert!(text.contains("transform pipeline as rolled"), "{text}");
@@ -827,7 +829,7 @@ define tool hover {
         .result
         .unwrap();
     let expanded = expand_project(&project, &resolved).unwrap();
-    let chart = project.chart_roots.first().unwrap();
+    let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
     assert!(text.contains("tool behavior as highlighter"), "{text}");

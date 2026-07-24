@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot};
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadLimits,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedSelectionCombine,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
+    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, ResolvedSelectionCombine,
     ResolvedSelectionEmpty, ResolvedTarget, ResolvedValue, SourceOrigin, render_diagnostics,
     resolve_project,
 };
@@ -45,7 +45,7 @@ fn assert_closed_cycle(diagnostic: &avenger_lang_core::Diagnostic) {
     assert_eq!(path.first(), path.last(), "cycle path must close");
 }
 
-async fn project(sources: &[(&str, &str)], root: &str) -> avenger_lang_core::ParsedProject {
+async fn project(sources: &[(&str, &str)], root: &str) -> avenger_lang_core::ParsedModuleGraph {
     let loader = InMemorySourceLoader::default();
     for (name, text) in sources {
         loader.insert(LoadedSource::new(
@@ -54,14 +54,15 @@ async fn project(sources: &[(&str, &str)], root: &str) -> avenger_lang_core::Par
             ContentVersion::new("fixture-v1"),
         ));
     }
-    ProjectLoader::new(&loader)
-        .load(ProjectLoadRequest {
+    ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
             project_root: "/project".into(),
-            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(root.to_owned()))],
+            roots: vec![ModuleRoot::requested(SourceOrigin::Memory(root.to_owned()))],
+            native_modules: Default::default(),
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
-            limits: ProjectLoadLimits::default(),
+            limits: ModuleGraphLoadLimits::default(),
         })
         .await
         .result
@@ -827,7 +828,7 @@ define tool controller {
     let chart = resolved
         .files
         .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
     let instances = chart.roots[0]
         .children
@@ -908,7 +909,7 @@ define mark point_pair {
     let definition_file = resolved
         .files
         .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Definition(_)))
+        .find(|file| file.roots.iter().any(|root| root.keyword == "define"))
         .unwrap();
     let point = &definition_file.roots[0].children[4].children[0];
     assert!(matches!(
@@ -935,7 +936,7 @@ define mark point_pair {
     let chart_file = resolved
         .files
         .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
     let instance = &chart_file.roots[0].children[0];
     assert!(matches!(
@@ -1025,7 +1026,7 @@ define transform project {
     let chart = resolved
         .files
         .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
     let transform = &chart.roots[0].children[0];
     assert!(transform.transform_outputs.contains_key("result"));
@@ -1390,7 +1391,7 @@ define mark band {
     let chart = &resolved
         .files
         .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap()
         .roots[0];
     let mark = &chart.children[0];

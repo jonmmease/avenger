@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart_core::StateMigrationKey;
 use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryProfileId};
-use avenger_lang_core::{ProjectFileId, SourceId, SourceMap};
+use avenger_lang_core::{SourceId, SourceMap, SourceModuleId};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,7 @@ string_id!(DependencyFingerprint);
 /// DataFusion session or provider registry.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectDependencyFingerprints {
-    pub sources: BTreeMap<ProjectFileId, DependencyFingerprint>,
+    pub sources: BTreeMap<SourceModuleId, DependencyFingerprint>,
     pub definition_closures: BTreeMap<ProjectChartId, DependencyFingerprint>,
     pub datasets: BTreeMap<crate::DatasetStageId, DependencyFingerprint>,
     pub data_catalog: DependencyFingerprint,

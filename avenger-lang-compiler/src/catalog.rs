@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 use avenger_lang_core::{
     DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
     ResolvedCatalogTable, ResolvedDeclaration, ResolvedProject, ResolvedValue, SourceLabel,
-    SourceOrigin, project::normalize_path,
+    SourceOrigin, module_graph::normalize_path,
 };
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
@@ -1245,9 +1245,6 @@ fn imported_table_aliases(project: &ResolvedProject) -> BTreeMap<String, &Resolv
             let Some(file) = project.files.get(imported_file) else {
                 continue;
             };
-            if !matches!(file.kind, avenger_lang_core::ProjectFileKind::Data) {
-                continue;
-            }
             let root_name = file
                 .roots
                 .iter()

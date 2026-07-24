@@ -1,7 +1,7 @@
 use avenger_lang_core::{
     ContentVersion, ExpansionLimits, ImportCapabilities, InMemorySourceLoader, LoadedSource,
-    ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId,
-    SourceOrigin, expand_project_with_limits, resolve_project,
+    ModuleGraphLoadLimits, ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, SourceFile,
+    SourceId, SourceOrigin, expand_project_with_limits, resolve_project,
     sql::SqlParseLimits,
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
@@ -83,7 +83,7 @@ async fn expansion_limits_bound_declarations_depth_and_output() {
     let loader = InMemorySourceLoader::default()
         .with_source(LoadedSource::new(
             chart.clone(),
-            "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as badge {} }",
+            "avenger 1; import { badge } from './badge.mark.avenger'; chart cartesian as chart { mark badge as badge {} }",
             ContentVersion::new("limits-v1"),
         ))
         .with_source(LoadedSource::new(
@@ -91,14 +91,15 @@ async fn expansion_limits_bound_declarations_depth_and_output() {
             "avenger 1; define mark badge { mark symbol {} }",
             ContentVersion::new("limits-v1"),
         ));
-    let project = ProjectLoader::new(&loader)
-        .load(ProjectLoadRequest {
+    let project = ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
             project_root: "/project".into(),
-            roots: vec![ProjectRoot::chart(chart)],
+            roots: vec![ModuleRoot::requested(chart)],
+            native_modules: Default::default(),
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".into(),
             registry_version: "bootstrap".into(),
-            limits: ProjectLoadLimits::default(),
+            limits: ModuleGraphLoadLimits::default(),
         })
         .await
         .result

@@ -8,9 +8,9 @@ use crate::{
     Diagnostic, ExpansionOrImportFrame, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin,
     SourceSpan,
     ast::{AstNodeRole, Body, Decl, File, ModuleItem, Name, PropertyMap, Value, Visibility},
+    module_graph::{ModuleId, ParsedModule, ParsedModuleGraph, SourceModuleId},
     print::print_file,
-    project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
-    resolve::{DefinitionSchema, ResolvedProject},
+    resolve::{DefinitionKind, DefinitionSchema, ResolvedProject},
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
 
@@ -139,8 +139,8 @@ fn push_trace(trace: &mut Vec<ExpansionOrImportFrame>, span: SourceSpan, message
 
 #[derive(Clone, Debug)]
 pub struct ExpandedProject {
-    pub project: ParsedProject,
-    pub texts: BTreeMap<ProjectFileId, String>,
+    pub project: ParsedModuleGraph,
+    pub texts: BTreeMap<SourceModuleId, String>,
     pub source_map: ExpansionSourceMap,
 }
 
@@ -161,15 +161,15 @@ struct PendingOrigin {
 struct BoundSlot {
     shape: String,
     value: Value,
-    owner: ProjectFileId,
+    owner: SourceModuleId,
     exposes: Vec<String>,
 }
 
 #[derive(Clone)]
 struct ExpansionContext {
-    caller: ProjectFileId,
-    chart: ProjectFileId,
-    definition: ProjectFileId,
+    caller: SourceModuleId,
+    chart: SourceModuleId,
+    definition: SourceModuleId,
     definition_name: String,
     instance_name: String,
     private_names: BTreeMap<String, String>,
@@ -182,14 +182,14 @@ struct ExpansionContext {
 }
 
 pub fn expand_project(
-    project: &ParsedProject,
+    project: &ParsedModuleGraph,
     resolved: &ResolvedProject,
 ) -> Result<ExpandedProject, ExpansionFailure> {
     expand_project_with_limits(project, resolved, ExpansionLimits::default())
 }
 
 pub fn expand_project_with_limits(
-    project: &ParsedProject,
+    project: &ParsedModuleGraph,
     resolved: &ResolvedProject,
     limits: ExpansionLimits,
 ) -> Result<ExpandedProject, ExpansionFailure> {
@@ -207,11 +207,11 @@ pub fn expand_project_with_limits(
 }
 
 struct Expander<'a> {
-    project: &'a ParsedProject,
+    project: &'a ParsedModuleGraph,
     resolved: &'a ResolvedProject,
     limits: ExpansionLimits,
     diagnostics: Vec<Diagnostic>,
-    pending_origins: BTreeMap<ProjectFileId, Vec<PendingOrigin>>,
+    pending_origins: BTreeMap<SourceModuleId, Vec<PendingOrigin>>,
     expanded_declarations: usize,
     expansion_depth: usize,
     total_output_bytes: usize,
@@ -228,140 +228,135 @@ impl Expander<'_> {
             .unwrap_or(0)
             .saturating_add(1);
         let mut sources = self.project.sources.clone();
-        let mut files = BTreeMap::new();
+        let mut source_modules = BTreeMap::new();
         let mut texts = BTreeMap::new();
-        let definition_sources = self
-            .project
-            .files
-            .values()
-            .filter(|file| matches!(file.kind, ProjectFileKind::Definition(_)))
-            .map(|file| file.source)
-            .collect::<BTreeSet<_>>();
 
-        for (file_id, file) in &self.project.files {
-            match file.kind {
-                ProjectFileKind::Definition(_) => {}
-                ProjectFileKind::Data => {
-                    files.insert(file_id.clone(), file.clone());
-                }
-                ProjectFileKind::Chart => {
-                    let Some((root_index, item)) = file
-                        .parsed
-                        .ast
-                        .items
-                        .iter()
-                        .enumerate()
-                        .find(|(_, item)| item.declaration.keyword.as_str() == "chart")
-                    else {
-                        continue;
-                    };
-                    let root = &item.declaration;
-                    let imports = retained_imports(self.project, file, &definition_sources);
-                    let root_path = [root_index];
-                    let expanded_root = self.expand_declaration(
-                        file_id,
-                        root,
-                        &root_path,
-                        None,
-                        PendingOrigin {
-                            authored: declaration_span(file, &root_path)
-                                .unwrap_or_else(|| root_span(file)),
-                            definition: None,
-                            instantiation: None,
-                        },
-                    );
-                    let ast = File {
-                        version: file.parsed.ast.version,
-                        imports,
-                        items: vec![ModuleItem {
-                            exported: item.exported,
-                            declaration: expanded_root,
-                        }],
-                    };
-                    let text = print_file(&ast);
-                    if text.len() > self.limits.max_output_bytes_per_chart {
-                        return Err(ExpansionFailure {
-                            diagnostics: vec![Diagnostic::error(
-                                "AVENGER-EXPAND-007",
-                                "expanded chart size limit exceeded",
-                                SourceLabel::new(
-                                    root_span(file),
-                                    format!(
-                                        "expanded chart is {} bytes; limit is {} bytes",
-                                        text.len(),
-                                        self.limits.max_output_bytes_per_chart
-                                    ),
-                                ),
-                            )],
-                            sources,
-                        });
-                    }
-                    self.total_output_bytes = self
-                        .total_output_bytes
-                        .checked_add(text.len())
-                        .ok_or_else(|| ExpansionFailure {
-                            diagnostics: vec![Diagnostic::error(
-                                "AVENGER-EXPAND-008",
-                                "expanded project size limit exceeded",
-                                SourceLabel::new(
-                                    root_span(file),
-                                    "expanded project byte count overflowed",
-                                ),
-                            )],
-                            sources: sources.clone(),
-                        })?;
-                    if self.total_output_bytes > self.limits.max_total_output_bytes {
-                        return Err(ExpansionFailure {
-                            diagnostics: vec![Diagnostic::error(
-                                "AVENGER-EXPAND-008",
-                                "expanded project size limit exceeded",
-                                SourceLabel::new(
-                                    root_span(file),
-                                    format!(
-                                        "expanded charts total {} bytes; limit is {} bytes",
-                                        self.total_output_bytes, self.limits.max_total_output_bytes
-                                    ),
-                                ),
-                            )],
-                            sources,
-                        });
-                    }
-                    let source = SourceId::new(next_source);
-                    next_source = next_source.saturating_add(1);
-                    let origin =
-                        SourceOrigin::Memory(format!("<expanded:{}>", file.origin.canonical_uri()));
-                    let source_file = SourceFile::new(source, origin, text.clone());
-                    let parsed = parse_file_with_limits(&source_file, self.limits.syntax).map_err(
-                        |error| ExpansionFailure {
-                            diagnostics: vec![error.diagnostic().clone()],
-                            sources: sources.clone(),
-                        },
-                    )?;
-                    sources
-                        .insert(source_file)
-                        .map_err(|error| ExpansionFailure {
-                            diagnostics: vec![Diagnostic::error(
-                                "AVENGER-EXPAND-002",
-                                "expanded source identity collision",
-                                SourceLabel::new(root_span(file), error.to_string()),
-                            )],
-                            sources: sources.clone(),
-                        })?;
-                    files.insert(
-                        file_id.clone(),
-                        ProjectFile {
-                            id: file_id.clone(),
-                            source,
-                            origin: file.origin.clone(),
-                            kind: ProjectFileKind::Chart,
-                            content_version: format!("expanded:{}", file.content_version),
-                            content_sha256: content_hash(&text),
-                            parsed,
-                        },
-                    );
-                    texts.insert(file_id.clone(), text);
-                }
+        for (module_id, module) in &self.project.source_modules {
+            if !module
+                .parsed
+                .ast
+                .items
+                .iter()
+                .any(|item| item.declaration.keyword.as_str() == "chart")
+            {
+                source_modules.insert(module_id.clone(), module.clone());
+                continue;
             }
+
+            let items = module
+                .parsed
+                .ast
+                .items
+                .iter()
+                .enumerate()
+                .map(|(item_index, item)| ModuleItem {
+                    exported: item.exported,
+                    declaration: if item.declaration.keyword.as_str() == "chart" {
+                        self.expand_declaration(
+                            module_id,
+                            &item.declaration,
+                            &[item_index],
+                            None,
+                            PendingOrigin {
+                                authored: declaration_span(module, &[item_index])
+                                    .unwrap_or_else(|| root_span(module)),
+                                definition: None,
+                                instantiation: None,
+                            },
+                        )
+                    } else {
+                        item.declaration.clone()
+                    },
+                })
+                .collect();
+            let ast = File {
+                version: module.parsed.ast.version,
+                imports: module.parsed.ast.imports.clone(),
+                items,
+            };
+            let text = print_file(&ast);
+            if text.len() > self.limits.max_output_bytes_per_chart {
+                return Err(ExpansionFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-EXPAND-007",
+                        "expanded module size limit exceeded",
+                        SourceLabel::new(
+                            root_span(module),
+                            format!(
+                                "expanded module is {} bytes; limit is {} bytes",
+                                text.len(),
+                                self.limits.max_output_bytes_per_chart
+                            ),
+                        ),
+                    )],
+                    sources,
+                });
+            }
+            self.total_output_bytes =
+                self.total_output_bytes
+                    .checked_add(text.len())
+                    .ok_or_else(|| ExpansionFailure {
+                        diagnostics: vec![Diagnostic::error(
+                            "AVENGER-EXPAND-008",
+                            "expanded module-graph size limit exceeded",
+                            SourceLabel::new(
+                                root_span(module),
+                                "expanded module-graph byte count overflowed",
+                            ),
+                        )],
+                        sources: sources.clone(),
+                    })?;
+            if self.total_output_bytes > self.limits.max_total_output_bytes {
+                return Err(ExpansionFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-EXPAND-008",
+                        "expanded module-graph size limit exceeded",
+                        SourceLabel::new(
+                            root_span(module),
+                            format!(
+                                "expanded modules total {} bytes; limit is {} bytes",
+                                self.total_output_bytes, self.limits.max_total_output_bytes
+                            ),
+                        ),
+                    )],
+                    sources,
+                });
+            }
+
+            let source = SourceId::new(next_source);
+            next_source = next_source.saturating_add(1);
+            let origin =
+                SourceOrigin::Memory(format!("<expanded:{}>", module.origin.canonical_uri()));
+            let source_file = SourceFile::new(source, origin, text.clone());
+            let parsed =
+                parse_file_with_limits(&source_file, self.limits.syntax).map_err(|error| {
+                    ExpansionFailure {
+                        diagnostics: vec![error.diagnostic().clone()],
+                        sources: sources.clone(),
+                    }
+                })?;
+            sources
+                .insert(source_file)
+                .map_err(|error| ExpansionFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-EXPAND-002",
+                        "expanded source identity collision",
+                        SourceLabel::new(root_span(module), error.to_string()),
+                    )],
+                    sources: sources.clone(),
+                })?;
+            source_modules.insert(
+                module_id.clone(),
+                ParsedModule {
+                    id: module_id.clone(),
+                    source,
+                    origin: module.origin.clone(),
+                    content_version: format!("expanded:{}", module.content_version),
+                    content_sha256: content_hash(&text),
+                    parsed,
+                },
+            );
+            texts.insert(module_id.clone(), text);
         }
 
         if !self.diagnostics.is_empty() {
@@ -371,23 +366,27 @@ impl Expander<'_> {
             });
         }
 
-        let retained_sources = files
-            .values()
-            .map(|file| file.source)
-            .collect::<BTreeSet<_>>();
+        let source_ids = source_modules
+            .iter()
+            .map(|(id, module)| (id.clone(), module.source))
+            .collect::<BTreeMap<_, _>>();
         let imports = self
             .project
             .imports
             .iter()
-            .filter(|edge| {
-                !definition_sources.contains(&edge.imported)
-                    && retained_sources.contains(&edge.imported)
-            })
             .cloned()
+            .map(|mut edge| {
+                edge.importer_source = source_ids[&edge.importer];
+                edge.imported_source = match &edge.imported {
+                    ModuleId::Source(id) => Some(source_ids[id]),
+                    ModuleId::Native(_) => None,
+                };
+                edge
+            })
             .collect::<Vec<_>>();
         let mut source_map = ExpansionSourceMap::default();
         for (file_id, pending) in &self.pending_origins {
-            let Some(file) = files.get(file_id) else {
+            let Some(file) = source_modules.get(file_id) else {
                 continue;
             };
             let mut expanded_spans = file
@@ -415,12 +414,13 @@ impl Expander<'_> {
         source_map.mappings.sort_by_key(|mapping| mapping.expanded);
 
         Ok(ExpandedProject {
-            project: ParsedProject {
+            project: ParsedModuleGraph {
                 sources,
-                files,
+                source_modules,
+                native_modules: self.project.native_modules.clone(),
                 imports,
-                chart_roots: self.project.chart_roots.clone(),
-                ambient_data: self.project.ambient_data.clone(),
+                requested_modules: self.project.requested_modules.clone(),
+                ambient_data_modules: self.project.ambient_data_modules.clone(),
                 ambient_catalog: self.project.ambient_catalog.clone(),
                 fingerprint: self.project.fingerprint.clone(),
             },
@@ -431,7 +431,7 @@ impl Expander<'_> {
 
     fn expand_declaration(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         declaration: &Decl,
         path: &[usize],
         context: Option<&ExpansionContext>,
@@ -470,7 +470,7 @@ impl Expander<'_> {
 
     fn expand_declaration_inner(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         declaration: &Decl,
         path: &[usize],
         context: Option<&ExpansionContext>,
@@ -567,7 +567,7 @@ impl Expander<'_> {
     #[allow(clippy::too_many_arguments)]
     fn expand_body(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         props: &PropertyMap,
         children: &[Decl],
         parent_path: &[usize],
@@ -591,7 +591,7 @@ impl Expander<'_> {
     #[allow(clippy::too_many_arguments)]
     fn expand_body_at(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         props: &PropertyMap,
         children: &[Decl],
         parent_path: &[usize],
@@ -720,14 +720,14 @@ impl Expander<'_> {
 
     fn instantiate_definition(
         &mut self,
-        caller: &ProjectFileId,
+        caller: &SourceModuleId,
         instance: &Decl,
         instance_path: &[usize],
-        definition_id: ProjectFileId,
+        definition_id: SourceModuleId,
         outer_context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        let Some(definition_file) = self.project.files.get(&definition_id) else {
+        let Some(definition_file) = self.project.source_modules.get(&definition_id) else {
             return instance.clone();
         };
         let Some(template) = definition_file
@@ -754,7 +754,7 @@ impl Expander<'_> {
         let instance_identity = expansion_identity(
             schema.local_seed.as_str(),
             caller.as_str(),
-            &stable_expansion_path(self.project.files.get(caller), instance_path),
+            &stable_expansion_path(self.project.source_modules.get(caller), instance_path),
             outer_context.map_or("", |context| context.instance_name.as_str()),
         );
         let instance_name = format!("{source_instance_name}_{instance_identity}");
@@ -974,7 +974,7 @@ impl Expander<'_> {
 
     fn expand_properties(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         props: &PropertyMap,
         context: Option<&ExpansionContext>,
         resolved: Option<&BTreeMap<String, crate::resolve::ResolvedValue>>,
@@ -992,7 +992,7 @@ impl Expander<'_> {
 
     fn expand_properties_at(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         props: &PropertyMap,
         context: Option<&ExpansionContext>,
         resolved: Option<&BTreeMap<String, crate::resolve::ResolvedValue>>,
@@ -1046,7 +1046,7 @@ impl Expander<'_> {
 
     fn expand_value(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         value: &Value,
         context: Option<&ExpansionContext>,
     ) -> Value {
@@ -1056,7 +1056,7 @@ impl Expander<'_> {
 
     fn expand_value_at(
         &mut self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         property: &str,
         value: &Value,
         context: Option<&ExpansionContext>,
@@ -1221,7 +1221,7 @@ impl Expander<'_> {
         }
     }
 
-    fn imported_definition(&self, owner: &ProjectFileId, kind: &str) -> Option<ProjectFileId> {
+    fn imported_definition(&self, owner: &SourceModuleId, kind: &str) -> Option<SourceModuleId> {
         self.resolved
             .files
             .get(owner)?
@@ -1233,59 +1233,29 @@ impl Expander<'_> {
 
     fn resolved_declaration(
         &self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         path: &[usize],
     ) -> Option<&crate::resolve::ResolvedDeclaration> {
         let roots = &self.resolved.files.get(owner)?.roots;
         resolved_declaration_at(roots, path)
     }
 
-    fn declaration_source_span(&self, owner: &ProjectFileId, declaration: &Decl) -> SourceSpan {
+    fn declaration_source_span(&self, owner: &SourceModuleId, declaration: &Decl) -> SourceSpan {
         self.project
-            .files
+            .source_modules
             .get(owner)
             .and_then(|file| declaration_node_span(file, declaration))
-            .or_else(|| self.project.files.get(owner).map(root_span))
+            .or_else(|| self.project.source_modules.get(owner).map(root_span))
             .unwrap_or_else(|| SourceSpan::empty(SourceId::new(0), 0))
     }
 
     fn chart_owner(
         &self,
-        owner: &ProjectFileId,
+        owner: &SourceModuleId,
         context: Option<&ExpansionContext>,
-    ) -> ProjectFileId {
-        if self
-            .project
-            .files
-            .get(owner)
-            .is_some_and(|file| matches!(file.kind, ProjectFileKind::Chart))
-        {
-            owner.clone()
-        } else {
-            context.map_or_else(|| owner.clone(), |context| context.chart.clone())
-        }
+    ) -> SourceModuleId {
+        context.map_or_else(|| owner.clone(), |context| context.chart.clone())
     }
-}
-
-fn retained_imports(
-    project: &ParsedProject,
-    file: &ProjectFile,
-    definition_sources: &BTreeSet<SourceId>,
-) -> Vec<crate::ast::Import> {
-    let mut edges = project
-        .imports
-        .iter()
-        .filter(|edge| edge.importer == file.source)
-        .collect::<Vec<_>>();
-    edges.sort_by_key(|edge| edge.site.range.start);
-    file.parsed
-        .ast
-        .imports
-        .iter()
-        .zip(edges)
-        .filter(|(_, edge)| !definition_sources.contains(&edge.imported))
-        .map(|(import, _)| import.clone())
-        .collect()
 }
 
 fn slot_default(template: &Decl, name: &str) -> Option<Value> {
@@ -1301,7 +1271,7 @@ fn slot_default(template: &Decl, name: &str) -> Option<Value> {
 
 fn substitute_sql(
     sql: String,
-    owner: &ProjectFileId,
+    owner: &SourceModuleId,
     context: &ExpansionContext,
 ) -> Result<String, crate::ast::AstError> {
     let mut replacements = BTreeMap::new();
@@ -1509,7 +1479,7 @@ fn rename_path(path: &[Name], private_names: &BTreeMap<String, String>) -> Vec<N
 }
 
 fn context_names_for_owner<'a>(
-    owner: &ProjectFileId,
+    owner: &SourceModuleId,
     context: &'a ExpansionContext,
 ) -> &'a BTreeMap<String, String> {
     if owner == &context.definition {
@@ -1573,7 +1543,7 @@ fn expansion_identity(
     format!("{:x}", hash.finalize())[..12].to_owned()
 }
 
-fn stable_expansion_path(file: Option<&ProjectFile>, path: &[usize]) -> String {
+fn stable_expansion_path(file: Option<&ParsedModule>, path: &[usize]) -> String {
     let Some(file) = file else {
         return path
             .iter()
@@ -1703,18 +1673,18 @@ fn resolved_mark_blocks(
     blocks
 }
 
-fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
+fn declaration_span(file: &ParsedModule, path: &[usize]) -> Option<SourceSpan> {
     let declaration = module_declaration_at(&file.parsed.ast, path)?;
     declaration_node_span(file, declaration)
 }
 
-fn declaration_node_span(file: &ProjectFile, declaration: &Decl) -> Option<SourceSpan> {
+fn declaration_node_span(file: &ParsedModule, declaration: &Decl) -> Option<SourceSpan> {
     let mut spans = file
         .parsed
         .source_map
         .iter()
         .filter_map(|(id, span)| match file.parsed.source_map.role(id) {
-            Some(AstNodeRole::Declaration(keyword)) if keyword == &declaration.keyword => {
+            Some(AstNodeRole::Declaration(keyword)) if *keyword == declaration.keyword => {
                 Some(span)
             }
             _ => None,
@@ -1753,7 +1723,7 @@ fn declaration_preorder<'a>(declarations: &'a [Decl], visit: &mut impl FnMut(&'a
     }
 }
 
-fn root_span(file: &ProjectFile) -> SourceSpan {
+fn root_span(file: &ParsedModule) -> SourceSpan {
     file.parsed
         .source_map
         .iter()

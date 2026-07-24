@@ -13,9 +13,9 @@ mod diagnostic;
 mod expand;
 pub mod interchange;
 mod loader;
+pub mod module_graph;
 mod physical_type;
 pub mod print;
-pub mod project;
 pub mod resolve;
 mod semantic_schema;
 mod source;
@@ -37,17 +37,19 @@ pub use expand::{
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
 };
+pub use module_graph::{
+    AmbientDataItem, AvailableNativeModule, ModuleDependency, ModuleDependencyRole,
+    ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadFailure, ModuleGraphLoadLimits,
+    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleImportEdge, ModuleRoot,
+    ParsedModule, ParsedModuleGraph, ResolvedImportTarget, SourceModuleId, resolve_import_target,
+    resolve_relative_origin,
+};
 pub use physical_type::{
     IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, PhysicalValueError, TimeUnit,
 };
-pub use project::{
-    AmbientDataDeclaration, DefinitionKind, ImportEdge, ParsedProject, ProjectDependency,
-    ProjectDependencyRole, ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt,
-    ProjectLoadFailure, ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot,
-};
 pub use resolve::{
     DECLARATION_KEYWORDS, DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind,
-    DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
+    DefinitionKind, DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
     GeneratedStateOrigin, HelperClass, MarkId, ParamId, ResolveAttempt, ResolveFailure,
     ResolvedActionRoute, ResolvedBinding, ResolvedCatalogTable, ResolvedDeclaration,
     ResolvedDimension, ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface,

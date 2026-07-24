@@ -10,7 +10,7 @@ use avenger_lang_analysis::{
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
-    ByteSpan, ContentVersion, InMemorySourceLoader, LoadedSource, ProjectRoot, SourceOrigin,
+    ByteSpan, ContentVersion, InMemorySourceLoader, LoadedSource, ModuleRoot, SourceOrigin,
     SourceSpan,
 };
 use sha2::{Digest, Sha256};
@@ -603,7 +603,7 @@ async fn inline_definition_uses_the_compilers_canonical_expansion() {
             WorkspaceSnapshot {
                 generation: AnalysisGeneration::new(1),
                 project_root: root,
-                roots: vec![ProjectRoot::chart(chart_origin.clone())],
+                roots: vec![ModuleRoot::requested(chart_origin.clone())],
                 open_documents: BTreeMap::from([
                     (
                         chart_origin.clone(),
@@ -687,7 +687,7 @@ chart cartesian as chart {
             WorkspaceSnapshot {
                 generation: AnalysisGeneration::new(1),
                 project_root: root,
-                roots: vec![ProjectRoot::chart(chart_origin.clone())],
+                roots: vec![ModuleRoot::requested(chart_origin.clone())],
                 open_documents: BTreeMap::from([(
                     chart_origin.clone(),
                     DocumentSnapshot::new(chart_origin.clone(), revision.clone(), chart),

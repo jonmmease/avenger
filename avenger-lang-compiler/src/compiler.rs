@@ -9,14 +9,15 @@ use avenger_chart_lang_registry::{
     ResolvedValue as NativeResolvedValue, builtins,
 };
 use avenger_lang_core::{
-    DataCapabilities, DeclarationId, Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider,
-    ExpansionSourceMap, ImportCapabilities, ParsedProject, ProjectDependencyRole, ProjectFileId,
-    ProjectFileKind, ProjectLoadAttempt, ProjectLoadRequest, ProjectLoader, ProjectRoot,
-    ResolvedDeclaration, ResolvedProject, ResolvedTarget, ResolvedValue, SourceFile, SourceId,
-    SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
+    AvailableNativeModule, DataCapabilities, DeclarationId, Diagnostic, EmptyEnvironmentProvider,
+    EnvironmentProvider, ExpansionSourceMap, ImportCapabilities, ModuleDependencyRole,
+    ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadRequest, ModuleGraphLoader,
+    ModuleRoot, ParsedModuleGraph, ResolvedDeclaration, ResolvedProject, ResolvedTarget,
+    ResolvedValue, SourceFile, SourceId, SourceLabel, SourceLoader, SourceLoaderError, SourceMap,
+    SourceModuleId, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
     expand_project_with_limits,
-    project::{normalize_path, resolve_import_origin},
+    module_graph::{normalize_path, resolve_relative_origin},
     resolve_project as resolve_semantics, sort_diagnostics,
 };
 use datafusion::logical_expr::col;
@@ -389,7 +390,7 @@ impl Compiler {
 
     async fn compile_resolved_project(
         &self,
-        parsed: &ParsedProject,
+        parsed: &ParsedModuleGraph,
         project: &ResolvedProject,
         dependencies: &DiscoveredDependencySet,
         generation: u64,
@@ -551,7 +552,7 @@ impl Compiler {
     /// discovery. Editor hosts use this with a snapshot source-loader overlay.
     pub async fn analyze_project_roots(
         &self,
-        roots: Vec<ProjectRoot>,
+        roots: Vec<ModuleRoot>,
         generation: u64,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let attempt = self.load_project_roots_attempt(roots).await;
@@ -572,7 +573,7 @@ impl Compiler {
 
     async fn finish_project_analysis(
         &self,
-        parsed: &ParsedProject,
+        parsed: &ParsedModuleGraph,
         project: &ResolvedProject,
         dependencies: &DiscoveredDependencySet,
         environment: &crate::CompileEnvironment,
@@ -772,17 +773,20 @@ impl Compiler {
                     diagnostics: failure.diagnostics,
                     sources: project.sources.clone(),
                 })?;
-        let root = project.chart_roots.first().ok_or_else(|| CompileFailure {
-            diagnostics: vec![Diagnostic::error(
-                "AVENGER-EXPAND-003",
-                "source expansion requires one chart root",
-                SourceLabel::new(
-                    SourceSpan::empty(SourceId::new(0), 0),
-                    "the loaded project has no chart root",
-                ),
-            )],
-            sources: project.sources.clone(),
-        })?;
+        let root = project
+            .requested_modules
+            .first()
+            .ok_or_else(|| CompileFailure {
+                diagnostics: vec![Diagnostic::error(
+                    "AVENGER-EXPAND-003",
+                    "source expansion requires one chart root",
+                    SourceLabel::new(
+                        SourceSpan::empty(SourceId::new(0), 0),
+                        "the loaded project has no chart root",
+                    ),
+                )],
+                sources: project.sources.clone(),
+            })?;
         let text = expanded
             .texts
             .get(root)
@@ -838,7 +842,7 @@ impl Compiler {
     pub async fn load_file_project_attempt(
         &self,
         path: impl AsRef<Path>,
-    ) -> CompileAttempt<ParsedProject> {
+    ) -> CompileAttempt<ParsedModuleGraph> {
         let chart = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
         let ambient = if self.options.project_root.exists() {
             match discover_avenger_files(&self.options.project_root, self.options.limits.project) {
@@ -851,11 +855,11 @@ impl Compiler {
         } else {
             Vec::new()
         };
-        let mut roots = vec![ProjectRoot::chart(SourceOrigin::File(chart))];
+        let mut roots = vec![ModuleRoot::requested(SourceOrigin::File(chart))];
         roots.extend(
             ambient
                 .into_iter()
-                .map(|path| ProjectRoot::data(SourceOrigin::File(path))),
+                .map(|path| ModuleRoot::ambient_data(SourceOrigin::File(path))),
         );
         self.load_project_roots_attempt(roots).await
     }
@@ -865,7 +869,7 @@ impl Compiler {
     pub async fn load_project_graph_attempt(
         &self,
         root: impl AsRef<Path>,
-    ) -> CompileAttempt<ParsedProject> {
+    ) -> CompileAttempt<ParsedModuleGraph> {
         let root = canonicalize_if_exists(&self.resolve_path(root.as_ref()));
         let files = match discover_avenger_files(&root, self.options.limits.project) {
             Ok(files) => files,
@@ -875,9 +879,9 @@ impl Compiler {
             .into_iter()
             .filter_map(|path| {
                 if is_data_path(&path) {
-                    Some(ProjectRoot::data(SourceOrigin::File(path)))
+                    Some(ModuleRoot::ambient_data(SourceOrigin::File(path)))
                 } else if is_chart_path(&path) {
-                    Some(ProjectRoot::chart(SourceOrigin::File(path)))
+                    Some(ModuleRoot::requested(SourceOrigin::File(path)))
                 } else {
                     None
                 }
@@ -885,7 +889,7 @@ impl Compiler {
             .collect::<Vec<_>>();
         if roots
             .iter()
-            .all(|root| root.role != ProjectDependencyRole::RootChart)
+            .all(|root| root.role != ModuleDependencyRole::RequestedModule)
         {
             let source = SourceFile::new(SourceId::new(0), SourceOrigin::File(root.clone()), "");
             let mut sources = SourceMap::default();
@@ -912,11 +916,34 @@ impl Compiler {
     /// the project directory.
     pub async fn load_project_roots_attempt(
         &self,
-        roots: Vec<ProjectRoot>,
-    ) -> CompileAttempt<ParsedProject> {
-        let request = ProjectLoadRequest {
+        roots: Vec<ModuleRoot>,
+    ) -> CompileAttempt<ParsedModuleGraph> {
+        let request = ModuleGraphLoadRequest {
             project_root: normalize_path(&self.options.project_root),
             roots,
+            native_modules: self
+                .host
+                .authoring_schema()
+                .modules
+                .iter()
+                .filter_map(|(id, _)| {
+                    self.options
+                        .native_registry
+                        .native_module(id)
+                        .map(|(_, registered)| {
+                            (
+                                id.clone(),
+                                AvailableNativeModule {
+                                    schema_profile: registered.schema_profile.as_str().to_owned(),
+                                    implementation_profile: registered
+                                        .implementation_profile
+                                        .as_str()
+                                        .to_owned(),
+                                },
+                            )
+                        })
+                })
+                .collect(),
             capabilities: self.options.import_capabilities.clone(),
             schema_version: "avenger-ast-core-1".to_owned(),
             registry_version: self
@@ -927,10 +954,10 @@ impl Compiler {
                 .to_owned(),
             limits: self.options.limits.project,
         };
-        let ProjectLoadAttempt {
+        let ModuleGraphLoadAttempt {
             result,
             dependencies,
-        } = ProjectLoader::new(self.options.source_loader.as_ref())
+        } = ModuleGraphLoader::new(self.options.source_loader.as_ref())
             .load(request)
             .await;
         let mut dependencies = compiler_dependencies(dependencies);
@@ -959,7 +986,7 @@ impl Compiler {
 
     fn resolve_parsed_project_attempt(
         &self,
-        attempt: CompileAttempt<ParsedProject>,
+        attempt: CompileAttempt<ParsedModuleGraph>,
     ) -> CompileAttempt<ResolvedProject> {
         let dependencies = attempt.dependencies;
         let result = attempt.result.and_then(|project| {
@@ -1212,7 +1239,7 @@ impl CompilerBuilder {
     pub fn build(self) -> Result<Compiler, CompilerBuildError> {
         let project_root = self
             .project_root
-            .ok_or(CompilerBuildError::MissingProjectRoot)?;
+            .ok_or(CompilerBuildError::MissingModuleRoot)?;
         let project_root =
             std::fs::canonicalize(&project_root).unwrap_or_else(|_| normalize_path(&project_root));
         let registry = match self.native_registry {
@@ -1265,7 +1292,7 @@ impl CompilerBuilder {
 #[derive(Debug, thiserror::Error)]
 pub enum CompilerBuildError {
     #[error("compiler project root is required")]
-    MissingProjectRoot,
+    MissingModuleRoot,
     #[error(transparent)]
     Registry(#[from] RegistryError),
     #[error(transparent)]
@@ -1291,11 +1318,14 @@ fn canonicalize_if_exists(path: &Path) -> PathBuf {
 }
 
 fn compiler_dependencies(
-    dependencies: Vec<avenger_lang_core::ProjectDependency>,
+    dependencies: Vec<avenger_lang_core::ModuleDependency>,
 ) -> DiscoveredDependencySet {
     let mut result = DiscoveredDependencySet::default();
     for dependency in dependencies {
-        let requested_origin = dependency.requested_origin;
+        let requested_origin = match dependency.requested {
+            ModuleDependencyTarget::Source(origin) => origin,
+            ModuleDependencyTarget::Native(_) => continue,
+        };
         let canonical_origin = dependency
             .canonical_origin
             .unwrap_or_else(|| requested_origin.clone());
@@ -1304,9 +1334,9 @@ fn compiler_dependencies(
             _ => None,
         };
         let role = match dependency.role {
-            ProjectDependencyRole::RootChart => DependencyRole::RootChart,
-            ProjectDependencyRole::Import => DependencyRole::Import,
-            ProjectDependencyRole::DataConfiguration => DependencyRole::DataConfiguration,
+            ModuleDependencyRole::RequestedModule => DependencyRole::RootChart,
+            ModuleDependencyRole::Import => DependencyRole::Import,
+            ModuleDependencyRole::AmbientDataRoot => DependencyRole::DataConfiguration,
         };
         result.insert(CompiledDependency {
             role,
@@ -1372,7 +1402,7 @@ fn static_glob_root(path: &Path) -> Option<PathBuf> {
 }
 
 fn resolve_parsed_project(
-    project: ParsedProject,
+    project: ParsedModuleGraph,
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
     expansion_limits: avenger_lang_core::ExpansionLimits,
 ) -> Result<ResolvedProject, CompileFailure> {
@@ -1412,7 +1442,7 @@ fn resolve_parsed_project(
 
 fn discover_avenger_files(
     root: &Path,
-    limits: avenger_lang_core::ProjectLoadLimits,
+    limits: avenger_lang_core::ModuleGraphLoadLimits,
 ) -> Result<Vec<PathBuf>, std::io::Error> {
     if !root.exists() {
         return Err(std::io::Error::new(
@@ -1516,7 +1546,7 @@ fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T>
 }
 
 fn discover_local_resources(
-    project: &ParsedProject,
+    project: &ParsedModuleGraph,
     project_root: &Path,
     import_capabilities: &ImportCapabilities,
     data_capabilities: &DataCapabilities,
@@ -1531,7 +1561,7 @@ fn discover_local_resources(
         budget: ResourceFingerprintBudget::default(),
         dependencies,
     };
-    for file in project.files.values() {
+    for file in project.source_modules.values() {
         for item in &file.parsed.ast.items {
             discover_declaration_resources(
                 &item.declaration,
@@ -1613,16 +1643,16 @@ fn discover_resource(
     let origin = if path.split_once("://").is_some() {
         SourceOrigin::Http(path.to_owned())
     } else {
-        resolve_import_origin(declaring_origin, path, context.project_root).map_err(|message| {
-            CompileFailure {
+        resolve_relative_origin(declaring_origin, path, context.project_root).map_err(
+            |message| CompileFailure {
                 diagnostics: vec![Diagnostic::error(
                     "AVENGER-PROJECT-018",
                     "invalid local data resource",
                     SourceLabel::new(SourceSpan::empty(source, 0), message),
                 )],
                 sources: SourceMap::default(),
-            }
-        })?
+            },
+        )?
     };
     let role = match origin {
         SourceOrigin::Http(_) => DependencyRole::RemoteResource,
@@ -1929,11 +1959,11 @@ fn resource_failure(source: SourceId, message: &str, label: String) -> CompileFa
 }
 
 fn source_dependency_fingerprints(
-    project: &ParsedProject,
+    project: &ParsedModuleGraph,
     dependencies: &DiscoveredDependencySet,
-) -> BTreeMap<ProjectFileId, DependencyFingerprint> {
+) -> BTreeMap<SourceModuleId, DependencyFingerprint> {
     project
-        .files
+        .source_modules
         .iter()
         .map(|(id, file)| {
             let mut parts = vec![
@@ -1986,7 +2016,7 @@ fn compiler_options_fingerprint(options: &CompilerOptions) -> String {
 fn chart_file<'a>(
     project: &'a ResolvedProject,
     chart: &DeclarationId,
-) -> Option<&'a ProjectFileId> {
+) -> Option<&'a SourceModuleId> {
     project.files.iter().find_map(|(file_id, file)| {
         file.roots
             .iter()
@@ -2004,27 +2034,19 @@ fn declaration_contains(declaration: &ResolvedDeclaration, target: &DeclarationI
 }
 
 fn definition_closure_fingerprint(
-    project: &ParsedProject,
-    root: &ProjectFileId,
-    sources: &BTreeMap<ProjectFileId, DependencyFingerprint>,
+    project: &ParsedModuleGraph,
+    root: &SourceModuleId,
+    sources: &BTreeMap<SourceModuleId, DependencyFingerprint>,
 ) -> DependencyFingerprint {
-    let source_to_file = project
-        .files
-        .iter()
-        .map(|(id, file)| (file.source, id))
-        .collect::<BTreeMap<_, _>>();
-    let mut adjacency = BTreeMap::<ProjectFileId, BTreeSet<ProjectFileId>>::new();
+    let mut adjacency = BTreeMap::<SourceModuleId, BTreeSet<SourceModuleId>>::new();
     for edge in &project.imports {
-        let (Some(importer), Some(imported)) = (
-            source_to_file.get(&edge.importer),
-            source_to_file.get(&edge.imported),
-        ) else {
+        let avenger_lang_core::ModuleId::Source(imported) = &edge.imported else {
             continue;
         };
         adjacency
-            .entry((*importer).clone())
+            .entry(edge.importer.clone())
             .or_default()
-            .insert((*imported).clone());
+            .insert(imported.clone());
     }
     let mut pending = vec![root.clone()];
     let mut included = BTreeSet::new();
@@ -2033,11 +2055,7 @@ fn definition_closure_fingerprint(
             continue;
         }
         for imported in adjacency.get(&file).into_iter().flatten() {
-            let include = project
-                .files
-                .get(imported)
-                .is_some_and(|file| matches!(file.kind, ProjectFileKind::Definition(_)));
-            if include {
+            if project.source_modules.contains_key(imported) {
                 pending.push(imported.clone());
             }
         }
@@ -2157,7 +2175,7 @@ fn collect_chart_catalog_dependencies(
 
 fn dependency_fingerprint_layers(
     options: &CompilerOptions,
-    parsed: &ParsedProject,
+    parsed: &ParsedModuleGraph,
     resolved: &ResolvedProject,
     dependencies: &DiscoveredDependencySet,
     catalog: &CatalogAnalysis,
