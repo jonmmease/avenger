@@ -58,8 +58,29 @@ pub struct Cli {
 enum Command {
     /// Display a chart in a native window and hot reload local changes.
     Watch(WatchArgs),
+    /// Flatten source-module dependencies into one canonical Avenger module.
+    Bundle(BundleArgs),
     /// Run the Avenger language server over standard input/output.
     Lsp(LspArgs),
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct BundleArgs {
+    /// Avenger source module to bundle.
+    #[arg(value_name = "MODULE")]
+    module: PathBuf,
+
+    /// Bundle only this named chart and its reachable closure.
+    #[arg(long, value_name = "NAME")]
+    chart: Option<String>,
+
+    /// Write the bundle to a file instead of standard output.
+    #[arg(short, long, value_name = "FILE")]
+    output: Option<PathBuf>,
+
+    /// Override the project/capability root (defaults to the module directory).
+    #[arg(long, value_name = "DIR")]
+    project_root: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -142,6 +163,8 @@ pub enum CliError {
     Compiler(String),
     #[error("initial chart compilation failed")]
     InitialCompile,
+    #[error("bundle compilation failed: {0}")]
+    BundleCompile(CompileFailure),
     #[error("failed to prepare chart application: {0}")]
     App(String),
     #[error("failed to initialize filesystem watcher: {0}")]
@@ -260,6 +283,7 @@ pub fn run_cli(cli: Cli) -> Result<(), CliError> {
     init_tracing();
     match cli.command {
         Command::Watch(args) => run_watch(args),
+        Command::Bundle(args) => run_bundle(args),
         Command::Lsp(args) => run_lsp(args),
     }
 }
@@ -318,6 +342,56 @@ fn run_lsp(args: LspArgs) -> Result<(), CliError> {
         .enable_all()
         .build()?
         .block_on(avenger_lsp::run_stdio_with_config(config));
+    Ok(())
+}
+
+fn run_bundle(args: BundleArgs) -> Result<(), CliError> {
+    let module = canonical_chart_path(&args.module)?;
+    let project_root = canonical_project_root(args.project_root.as_deref(), &module)?;
+    if !module.starts_with(&project_root) {
+        return Err(CliError::InvalidArguments(format!(
+            "module '{}' is outside project root '{}'",
+            module.display(),
+            project_root.display()
+        )));
+    }
+    if let Some(output) = &args.output {
+        let output = if output.is_absolute() {
+            output.clone()
+        } else {
+            std::env::current_dir()?.join(output)
+        };
+        if output == module || fs::canonicalize(&output).ok().as_ref() == Some(&module) {
+            return Err(CliError::InvalidArguments(
+                "bundle output must not overwrite the input module".to_owned(),
+            ));
+        }
+    }
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .map_err(|error| CliError::Compiler(error.to_string()))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let bundle = if let Some(chart) = args.chart.as_deref() {
+        runtime.block_on(compiler.bundle_chart(&module, Some(chart)))
+    } else {
+        runtime.block_on(compiler.bundle_module(&module))
+    }
+    .map_err(CliError::BundleCompile)?;
+    if let Some(output) = args.output {
+        if let Some(parent) = output.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(output, bundle.text)?;
+    } else {
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(bundle.text.as_bytes())?;
+        stdout.flush()?;
+    }
     Ok(())
 }
 
@@ -1596,6 +1670,56 @@ mod tests {
         assert_eq!(args.debounce_ms, 25);
         assert_eq!(args.scale, 2.0);
         assert!(args.no_cache);
+    }
+
+    #[test]
+    fn bundle_command_parses_module_chart_and_output() {
+        let cli = Cli::try_parse_from([
+            "avenger",
+            "bundle",
+            "charts.avenger",
+            "--chart",
+            "summary",
+            "-o",
+            "dist/summary.avenger",
+        ])
+        .unwrap();
+        let Command::Bundle(args) = cli.command else {
+            panic!("expected bundle command");
+        };
+        assert_eq!(args.module, PathBuf::from("charts.avenger"));
+        assert_eq!(args.chart.as_deref(), Some("summary"));
+        assert_eq!(args.output, Some(PathBuf::from("dist/summary.avenger")));
+    }
+
+    #[test]
+    fn bundle_writes_standalone_source_and_refuses_input_overwrite() {
+        let project = tempfile::tempdir().unwrap();
+        let module = project.path().join("chart.avenger");
+        fs::write(
+            &module,
+            "avenger 1; chart cartesian as chart { data: { values: [{ x: 1; y: 2; }]; } mark symbol { x: \"x\"; y: \"y\"; } }",
+        )
+        .unwrap();
+        let output = project.path().join("dist/bundle.avenger");
+        run_bundle(BundleArgs {
+            module: module.clone(),
+            chart: None,
+            output: Some(output.clone()),
+            project_root: Some(project.path().to_path_buf()),
+        })
+        .unwrap();
+        let bundled = fs::read_to_string(output).unwrap();
+        assert!(bundled.contains("chart cartesian as chart"));
+
+        let error = run_bundle(BundleArgs {
+            module: module.clone(),
+            chart: None,
+            output: Some(module),
+            project_root: Some(project.path().to_path_buf()),
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("must not overwrite"));
     }
 
     #[test]

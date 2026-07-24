@@ -27,15 +27,15 @@ pub use avenger_lang_compiler::{
     TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
-    AmbientDataItem, AvailableNativeModule, ByteSpan, ContentVersion, DataCapabilities,
-    DefinitionKind, Diagnostic, DiagnosticCode, DiagnosticSeverity, EmptyEnvironmentProvider,
-    EnvironmentProvider, ExpansionLimits, ImportCapabilities, InMemorySourceLoader, LANGUAGE_MAJOR,
-    LineIndex, LoadedSource, MapEnvironmentProvider, ModuleDependency, ModuleDependencyRole,
-    ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadFailure, ModuleGraphLoadLimits,
-    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleImportEdge, ModuleRoot,
-    ParsedModule, ParsedModuleGraph, ResolveAttempt, ResolveFailure, ResolvedModuleGraph,
-    SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap, SourceModuleId, SourceOrigin,
-    SourceSpan,
+    AmbientDataItem, AvailableNativeModule, BundleFailure, BundleTarget, BundledSource, ByteSpan,
+    ContentVersion, DataCapabilities, DefinitionKind, Diagnostic, DiagnosticCode,
+    DiagnosticSeverity, EmptyEnvironmentProvider, EnvironmentProvider, ExpansionLimits,
+    ImportCapabilities, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
+    MapEnvironmentProvider, ModuleDependency, ModuleDependencyRole, ModuleDependencyTarget,
+    ModuleGraphLoadAttempt, ModuleGraphLoadFailure, ModuleGraphLoadLimits, ModuleGraphLoadRequest,
+    ModuleGraphLoader, ModuleId, ModuleImportEdge, ModuleRoot, ParsedModule, ParsedModuleGraph,
+    ResolveAttempt, ResolveFailure, ResolvedModuleGraph, SourceFile, SourceId, SourceLabel,
+    SourceLoader, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
 };
 pub use avenger_lang_core::{sql::SqlParseLimits, syntax::SyntaxLimits};
 

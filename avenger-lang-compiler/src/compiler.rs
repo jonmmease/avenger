@@ -9,15 +9,15 @@ use avenger_chart_lang_registry::{
     ResolvedValue as NativeResolvedValue, builtins,
 };
 use avenger_lang_core::{
-    AvailableNativeModule, ChartEntrypointId, ChartSelector, DataCapabilities, DeclarationId,
-    Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider, ExpansionSourceMap,
-    ImportCapabilities, ModuleDependencyRole, ModuleDependencyTarget, ModuleGraphLoadAttempt,
-    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleRoot, ParsedModuleGraph,
-    ResolvedDeclaration, ResolvedKindBinding, ResolvedModuleGraph, ResolvedRelationTarget,
-    ResolvedTarget, ResolvedValue, SourceId, SourceLabel, SourceLoader, SourceLoaderError,
-    SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
+    AvailableNativeModule, BundleTarget, BundledSource, ChartEntrypointId, ChartSelector,
+    DataCapabilities, DeclarationId, Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider,
+    ExpansionSourceMap, ImportCapabilities, ModuleDependencyRole, ModuleDependencyTarget,
+    ModuleGraphLoadAttempt, ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleRoot,
+    ParsedModuleGraph, ResolvedDeclaration, ResolvedKindBinding, ResolvedModuleGraph,
+    ResolvedRelationTarget, ResolvedTarget, ResolvedValue, SourceId, SourceLabel, SourceLoader,
+    SourceLoaderError, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
-    expand_module_graph_with_limits,
+    bundle_module_graph, expand_module_graph_with_limits,
     module_graph::{normalize_path, resolve_relative_origin},
     resolve_module_graph as resolve_semantics, sort_diagnostics,
 };
@@ -417,6 +417,55 @@ impl Compiler {
         path: impl AsRef<Path>,
     ) -> Result<CompiledModule, CompileFailure> {
         self.compile_module_attempt(path).await.result
+    }
+
+    /// Flatten one selected chart and its reachable source-item closure into a
+    /// canonical single source module.
+    pub async fn bundle_chart(
+        &self,
+        path: impl AsRef<Path>,
+        selector: Option<&str>,
+    ) -> Result<BundledSource, CompileFailure> {
+        let attempt = self.load_module_graph_attempt(path).await;
+        let parsed = attempt.result?;
+        let resolved = resolve_semantics(&parsed, self.host.authoring_schema())
+            .result
+            .map_err(|failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+                sources: parsed.sources.clone(),
+            })?;
+        let entrypoint = select_chart_entrypoint(&parsed, &resolved, selector)?;
+        bundle_module_graph(&parsed, &resolved, BundleTarget::Chart(entrypoint)).map_err(
+            |failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+                sources: failure.sources,
+            },
+        )
+    }
+
+    /// Flatten the complete public/private interface of the requested module
+    /// and every source item it reaches.
+    pub async fn bundle_module(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<BundledSource, CompileFailure> {
+        let attempt = self.load_module_graph_attempt(path).await;
+        let parsed = attempt.result?;
+        let requested = parsed.requested_modules.first().cloned().ok_or_else(|| {
+            module_root_failure(&parsed.sources, "the loaded graph has no requested module")
+        })?;
+        let resolved = resolve_semantics(&parsed, self.host.authoring_schema())
+            .result
+            .map_err(|failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+                sources: parsed.sources.clone(),
+            })?;
+        bundle_module_graph(&parsed, &resolved, BundleTarget::Module(requested)).map_err(
+            |failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+                sources: failure.sources,
+            },
+        )
     }
 
     async fn compile_resolved_module(

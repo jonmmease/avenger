@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ast;
+mod bundle;
 mod capabilities;
 mod diagnostic;
 mod expand;
@@ -22,6 +23,7 @@ mod source;
 pub mod sql;
 pub mod syntax;
 
+pub use bundle::{BundleFailure, BundleTarget, BundledSource, bundle_module_graph};
 pub use capabilities::{
     DataCapabilities, EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities,
     MapEnvironmentProvider,
