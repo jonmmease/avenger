@@ -123,9 +123,9 @@ impl DefaultSourceLoader {
             return Err(SourceLoaderError::CapabilityDenied(origin));
         }
         let (canonical_path, text) = match path {
-            "marks/error_bar" | "marks/error_bar.mark.avenger" => (
-                "marks/error_bar.mark.avenger",
-                include_str!("../stdlib/marks/error_bar.mark.avenger"),
+            "marks/error_bar" => (
+                "marks/error_bar.avenger",
+                include_str!("../stdlib/marks/error_bar.avenger"),
             ),
             _ => return Err(SourceLoaderError::NotFound(origin)),
         };

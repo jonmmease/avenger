@@ -1,5 +1,5 @@
 error[AVENGER-PROJECT-015]: source could not be loaded
  --> memory:chart.avenger:1:12
-   1 | avenger 1; import 'missing.mark.avenger'; chart cartesian as chart {}
-     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source not found: memory:missing.mark.avenger
-  = via memory:chart.avenger: imports missing.mark.avenger
+   1 | avenger 1; import 'missing.avenger'; chart cartesian as chart {}
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source not found: memory:missing.avenger
+  = via memory:chart.avenger: imports missing.avenger

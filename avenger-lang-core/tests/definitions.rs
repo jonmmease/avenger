@@ -45,8 +45,8 @@ async fn definitions_validate_closed_match_block_exposure_parts_and_function_cla
             "chart.avenger",
             r#"
 avenger 1;
-import 'summary.mark.avenger';
-import 'rolling.transform.avenger';
+import { summary } from 'summary.avenger';
+import { rolling } from 'rolling.avenger';
 chart cartesian as chart {
   transform rolling as rolled { measure: "value"; agg: avg; }
   mark summary as result {
@@ -60,10 +60,10 @@ chart cartesian as chart {
 "#,
         ),
         (
-            "summary.mark.avenger",
+            "summary.avenger",
             r#"
 avenger 1;
-define mark summary {
+export define mark summary {
   slot expr measure;
   slot enum mode { values: [show, hide]; default: show; }
   slot block annotations { exposes: [point]; default: { } }
@@ -77,10 +77,10 @@ define mark summary {
 "#,
         ),
         (
-            "rolling.transform.avenger",
+            "rolling.avenger",
             r#"
 avenger 1;
-define transform rolling {
+export define transform rolling {
   slot expr measure;
   slot function agg { class: aggregate; default: avg; }
   output value;
@@ -100,13 +100,13 @@ async fn definitions_reject_incomplete_matches_invalid_splices_exposure_data_and
     let project = project(&[
         (
             "chart.avenger",
-            "avenger 1; import 'broken.mark.avenger'; chart cartesian { mark broken { mode: a; } }",
+            "avenger 1; import { broken } from 'broken.avenger'; chart cartesian { mark broken { mode: a; } }",
         ),
         (
-            "broken.mark.avenger",
+            "broken.avenger",
             r#"
 avenger 1;
-define mark broken {
+export define mark broken {
   slot enum mode { values: [a, b]; default: a; }
   slot block content { exposes: [missing]; default: { } }
   mark group { data: { values: []; } }
@@ -147,8 +147,8 @@ async fn definitions_reject_wrong_function_class_and_anonymous_defined_tool() {
             "chart.avenger",
             r#"
 avenger 1;
-import 'rolling.transform.avenger';
-import 'picker.tool.avenger';
+import { rolling } from 'rolling.avenger';
+import { picker } from 'picker.avenger';
 chart cartesian {
   param boolean as state { value: true; }
   mark symbol as points { x: "x"; y: "y"; }
@@ -159,10 +159,10 @@ chart cartesian {
 "#,
         ),
         (
-            "rolling.transform.avenger",
+            "rolling.avenger",
             r#"
 avenger 1;
-define transform rolling {
+export define transform rolling {
   slot function agg { class: aggregate; }
   slot number window;
   output value;
@@ -171,10 +171,10 @@ define transform rolling {
 "#,
         ),
         (
-            "picker.tool.avenger",
+            "picker.avenger",
             r#"
 avenger 1;
-define tool picker {
+export define tool picker {
   slot ref target { kind: mark; }
   on click { target: mark target; set cursor = pointer; }
 }
@@ -218,17 +218,17 @@ async fn definitions_reject_recursive_import_graphs() {
     let loader = InMemorySourceLoader::default()
         .with_source(LoadedSource::new(
             SourceOrigin::Memory("chart.avenger".to_owned()),
-            "avenger 1; import 'a.mark.avenger'; chart cartesian { mark a { } }",
+            "avenger 1; import { a } from 'a.avenger'; chart cartesian { mark a { } }",
             ContentVersion::new("definitions-v1"),
         ))
         .with_source(LoadedSource::new(
-            SourceOrigin::Memory("a.mark.avenger".to_owned()),
-            "avenger 1; import 'b.mark.avenger'; define mark a { mark b { } }",
+            SourceOrigin::Memory("a.avenger".to_owned()),
+            "avenger 1; import { b } from 'b.avenger'; export define mark a { mark b { } }",
             ContentVersion::new("definitions-v1"),
         ))
         .with_source(LoadedSource::new(
-            SourceOrigin::Memory("b.mark.avenger".to_owned()),
-            "avenger 1; import 'a.mark.avenger'; define mark b { mark a { } }",
+            SourceOrigin::Memory("b.avenger".to_owned()),
+            "avenger 1; import { a } from 'a.avenger'; export define mark b { mark a { } }",
             ContentVersion::new("definitions-v1"),
         ));
     let failure = ModuleGraphLoader::new(&loader)
@@ -246,7 +246,7 @@ async fn definitions_reject_recursive_import_graphs() {
         .await
         .result
         .unwrap_err();
-    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-013");
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-MODULE-013");
     assert!(failure.diagnostics[0].trace.len() >= 2);
 }
 
@@ -257,10 +257,10 @@ async fn definitions_reject_ambient_capture_private_access_export_collisions_and
             "chart.avenger",
             r#"
 avenger 1;
-import 'capturing.mark.avenger';
-import 'private_component.mark.avenger';
-import 'colliding.mark.avenger';
-import 'output_transform.transform.avenger';
+import { capturing } from 'capturing.avenger';
+import { private_component } from 'private_component.avenger';
+import { colliding } from 'colliding.avenger';
+import { output_transform } from 'output_transform.avenger';
 chart cartesian as chart {
   param boolean as ambient { value: true; }
   mark capturing as captured { }
@@ -274,28 +274,28 @@ chart cartesian as chart {
 "#,
         ),
         (
-            "capturing.mark.avenger",
+            "capturing.avenger",
             r#"
 avenger 1;
-define mark capturing {
+export define mark capturing {
   mark symbol as glyph { x: "x"; y: "y"; visible: $ambient; }
 }
 "#,
         ),
         (
-            "private_component.mark.avenger",
+            "private_component.avenger",
             r#"
 avenger 1;
-define mark private_component {
+export define mark private_component {
   mark symbol as hidden { x: "x"; y: "y"; }
 }
 "#,
         ),
         (
-            "colliding.mark.avenger",
+            "colliding.avenger",
             r#"
 avenger 1;
-define mark colliding {
+export define mark colliding {
   export first as duplicate;
   export second as duplicate;
   mark symbol as first { x: "x"; y: "y"; }
@@ -304,10 +304,10 @@ define mark colliding {
 "#,
         ),
         (
-            "output_transform.transform.avenger",
+            "output_transform.avenger",
             r#"
 avenger 1;
-define transform output_transform {
+export define transform output_transform {
   output value;
   transform sql { query: SELECT *, 1 AS value FROM input; }
 }
@@ -347,7 +347,7 @@ async fn definition_block_content_is_validated_at_its_expanded_splice_site() {
             "chart.avenger",
             r#"
 avenger 1;
-import 'shell.mark.avenger';
+import { shell } from 'shell.avenger';
 chart cartesian {
   mark shell {
     content: {
@@ -358,10 +358,10 @@ chart cartesian {
 "#,
         ),
         (
-            "shell.mark.avenger",
+            "shell.avenger",
             r#"
 avenger 1;
-define mark shell {
+export define mark shell {
   slot block content;
   mark symbol { x: "x"; y: "y"; content; }
 }
@@ -391,7 +391,7 @@ async fn expansion_inlines_mark_slots_channels_matches_blocks_parts_and_exports(
             "chart.avenger",
             r#"
 avenger 1;
-import 'summary.mark.avenger';
+import { summary } from 'summary.avenger';
 chart cartesian as chart {
   mark summary as result {
     band_axis: y;
@@ -429,10 +429,10 @@ chart cartesian as chart {
 "#,
         ),
         (
-            "summary.mark.avenger",
+            "summary.avenger",
             r#"
 avenger 1;
-define mark summary {
+export define mark summary {
   slot channel band_axis { default: x; }
   slot channel value_axis { default: y; }
   slot expr measure;
@@ -464,7 +464,7 @@ define mark summary {
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
-    assert!(!text.contains("import 'summary.mark.avenger'"));
+    assert!(!text.contains("import { summary } from 'summary.avenger'"));
     assert!(!text.contains("mark summary"));
     assert!(!text.contains("match mode"));
     assert!(!text.contains("annotations;"));
@@ -494,7 +494,7 @@ async fn definition_marks_expand_inside_legend_overlay_mark_blocks() {
             "chart.avenger",
             r#"
 avenger 1;
-import 'band.mark.avenger';
+import { band } from 'band.avenger';
 chart cartesian as chart {
   data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
   mark symbol as points {
@@ -512,10 +512,10 @@ chart cartesian as chart {
 "#,
         ),
         (
-            "band.mark.avenger",
+            "band.avenger",
             r#"
 avenger 1;
-define mark band {
+export define mark band {
   mark rect {
     x: 0.0;
     x2: 1.0;
@@ -550,7 +550,7 @@ async fn expansion_alpha_renames_private_state_without_capturing_caller_block_bi
             "chart.avenger",
             r#"
 avenger 1;
-import 'shell.mark.avenger';
+import { shell } from 'shell.avenger';
 chart cartesian as chart {
   param boolean as enabled { value: false; }
   mark shell as instance {
@@ -567,10 +567,10 @@ chart cartesian as chart {
 "#,
         ),
         (
-            "shell.mark.avenger",
+            "shell.avenger",
             r#"
 avenger 1;
-define mark shell {
+export define mark shell {
   slot block content { exposes: [inside]; default: { } }
   export inside;
   param boolean as enabled { value: true; }
@@ -599,7 +599,7 @@ define mark shell {
     let root_param = expanded
         .params
         .values()
-        .find(|param| param.source_name == "enabled")
+        .find(|param| param.source_name == "enabled" && param.definition_local_seed.is_none())
         .expect("caller param");
     let internal = expanded
         .params
@@ -637,7 +637,7 @@ async fn definition_state_migration_tracks_source_binders_not_public_export_alia
     let original = expanded_param_identity(
         r#"
 avenger 1;
-define mark shell {
+export define mark shell {
   export local as exposed;
   param boolean as local { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $local; }
@@ -649,7 +649,7 @@ define mark shell {
     let public_alias_renamed = expanded_param_identity(
         r#"
 avenger 1;
-define mark shell {
+export define mark shell {
   export local as renamed_export;
   param boolean as local { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $local; }
@@ -661,7 +661,7 @@ define mark shell {
     let source_binder_renamed = expanded_param_identity(
         r#"
 avenger 1;
-define mark shell {
+export define mark shell {
   export renamed_state as exposed;
   param boolean as renamed_state { value: true; }
   mark symbol { x: "x"; y: "y"; visible: $renamed_state; }
@@ -682,13 +682,13 @@ async fn expanded_param_identity(definition: &str, export_alias: &str) -> (Strin
             "chart.avenger",
             r#"
 avenger 1;
-import 'shell.mark.avenger';
+import { shell } from 'shell.avenger';
 chart cartesian as chart {
   mark shell as instance { }
 }
 "#,
         ),
-        ("shell.mark.avenger", definition),
+        ("shell.avenger", definition),
     ])
     .await;
     let resolved = resolve_module_graph(&project, &bootstrap_schema())
@@ -740,7 +740,7 @@ async fn expansion_inlines_transform_functions_lists_outputs_and_intermediates()
             "chart.avenger",
             r#"
 avenger 1;
-import 'rolling.transform.avenger';
+import { rolling } from 'rolling.avenger';
 chart cartesian {
   transform rolling as rolled {
     measure: "value";
@@ -752,10 +752,10 @@ chart cartesian {
 "#,
         ),
         (
-            "rolling.transform.avenger",
+            "rolling.avenger",
             r#"
 avenger 1;
-define transform rolling {
+export define transform rolling {
   slot expr measure;
   slot expr_list keys;
   slot function agg { class: aggregate; }
@@ -801,7 +801,7 @@ async fn expansion_inlines_tool_state_events_references_and_exports() {
             "chart.avenger",
             r#"
 avenger 1;
-import 'hover.tool.avenger';
+import { hover } from 'hover.avenger';
 chart cartesian {
   mark symbol as points { x: "x"; y: "y"; }
   tool hover as highlighter { target: points; }
@@ -809,10 +809,10 @@ chart cartesian {
 "#,
         ),
         (
-            "hover.tool.avenger",
+            "hover.avenger",
             r#"
 avenger 1;
-define tool hover {
+export define tool hover {
   slot ref target { kind: mark; }
   export hovered;
   param selection as hovered { empty: none; }

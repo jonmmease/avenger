@@ -79,11 +79,11 @@ fn syntax_limits_bound_sql_tokens_and_recursion() {
 #[tokio::test]
 async fn expansion_limits_bound_declarations_depth_and_output() {
     let chart = SourceOrigin::Memory("chart.avenger".into());
-    let definition = SourceOrigin::Memory("badge.mark.avenger".into());
+    let definition = SourceOrigin::Memory("badge.avenger".into());
     let loader = InMemorySourceLoader::default()
         .with_source(LoadedSource::new(
             chart.clone(),
-            "avenger 1; import { badge } from './badge.mark.avenger'; chart cartesian as chart { mark badge as badge {} }",
+            "avenger 1; import { badge } from './badge.avenger'; chart cartesian as chart { mark badge as badge {} }",
             ContentVersion::new("limits-v1"),
         ))
         .with_source(LoadedSource::new(

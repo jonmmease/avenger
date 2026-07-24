@@ -1,0 +1,21 @@
+avenger 1;
+
+export define tool cursor_tool {
+  slot ref target { kind: mark; }
+  on mark_mouse_enter {
+    target: mark target;
+    set cursor = pointer;
+  }
+}
+
+export define mark dot {
+  export glyph;
+  mark symbol as glyph {
+    x: "x" { scale: linear { domain: [0.0, 2.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 4.0]; } }
+  }
+}
+
+export define transform pass {
+  transform filter { predicate: true; }
+}

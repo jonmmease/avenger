@@ -41,7 +41,7 @@ adapter. Keep stdout and stderr for the acceptance record.
   Each produces one successful latest-generation reload.
 - [ ] Save three or more times inside the debounce interval. The final content
   appears without stale intermediate installation or an event backlog.
-- [ ] Edit `marks/badge.mark.avenger` and `data/rows.csv`; both reload.
+- [ ] Edit `marks/badge.avenger` and `data/rows.csv`; both reload.
 - [ ] Add `theme css from 'theme.css';` inside the chart, create the CSS file,
   then edit it. The external theme is reported as a dependency and reloads.
 - [ ] Add an import whose file is missing. One diagnostic batch appears on

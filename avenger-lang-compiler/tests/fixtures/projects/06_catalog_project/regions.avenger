@@ -1,6 +1,6 @@
 avenger 1;
 
-import { regions } from 'catalog.data.avenger';
+import { regions } from 'data.avenger';
 
 chart cartesian as regions {
   data: { table: 'regions'; }

@@ -18,6 +18,7 @@ use crate::{
 };
 
 const MARK_BLOCK_PATH_SEGMENT: usize = usize::MAX;
+const SPLICED_BLOCK_PATH_SEGMENT: usize = usize::MAX - 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExpansionLimits {
@@ -565,15 +566,12 @@ impl Expander<'_> {
         context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        if let Some(ResolvedKindBinding::Definition(definition)) = self
-            .resolved_declaration(owner, path)
-            .and_then(|resolved| resolved.kind_binding.as_ref())
-        {
+        if let Some(definition) = self.definition_binding(owner, declaration, path) {
             return self.instantiate_definition(
                 owner,
                 declaration,
                 path,
-                definition.clone(),
+                definition,
                 context,
                 origin,
             );
@@ -754,7 +752,7 @@ impl Expander<'_> {
                     &block.owner,
                     &supplied.props,
                     &supplied.children,
-                    &[],
+                    &[SPLICED_BLOCK_PATH_SEGMENT],
                     None,
                     inside_private,
                     Some(&ExpansionContext {
@@ -1322,6 +1320,90 @@ impl Expander<'_> {
     ) -> Option<&crate::resolve::ResolvedDeclaration> {
         let roots = &self.resolved.source_modules.get(owner)?.roots;
         resolved_declaration_at(roots, path)
+    }
+
+    /// Return the reusable definition bound to a declaration.
+    ///
+    /// Most declarations have a resolved-tree path. Declarations supplied
+    /// through a definition's block slot deliberately do not: their body is
+    /// validated only after it is spliced into the expanded chart. Resolve
+    /// those declarations against the caller module's already-built binding
+    /// environment instead of accidentally treating their local block index
+    /// as a module-item path.
+    fn definition_binding(
+        &self,
+        owner: &SourceModuleId,
+        declaration: &Decl,
+        path: &[usize],
+    ) -> Option<ModuleItemId> {
+        if let Some(ResolvedKindBinding::Definition(definition)) = self
+            .resolved_declaration(owner, path)
+            .and_then(|resolved| resolved.kind_binding.as_ref())
+        {
+            return Some(definition.clone());
+        }
+
+        let kind = declaration.kind.as_ref()?;
+        let category = match declaration.keyword.as_str() {
+            "mark" => BindingCategory::NativeKind(
+                avenger_chart_schema::NativeKindNamespace::Mark,
+            ),
+            "tool" => BindingCategory::NativeKind(
+                avenger_chart_schema::NativeKindNamespace::Tool,
+            ),
+            "transform" => BindingCategory::NativeKind(
+                avenger_chart_schema::NativeKindNamespace::Transform,
+            ),
+            _ => return None,
+        };
+        let environment = &self.resolved.source_modules.get(owner)?.local_bindings;
+        let export = match kind.segments() {
+            [name] => environment.local.get(&(category, name.to_string()))?,
+            [namespace, member] => {
+                let module = environment.namespaces.get(namespace.as_str())?;
+                let index = match module {
+                    ModuleId::Source(module) => {
+                        &self.resolved.source_modules.get(module)?.exports
+                    }
+                    ModuleId::Native(_) => return None,
+                };
+                index
+                    .exports
+                    .get(member.as_str())
+                    .filter(|export| export.category == category)?
+            }
+            _ => return None,
+        };
+        let ModuleId::Source(module) = &export.module else {
+            return None;
+        };
+        self.resolved
+            .definitions
+            .iter()
+            .find_map(|(id, definition)| {
+                (id.module == *module
+                    && definition.source_name == export.name
+                    && matches!(
+                        (definition.kind, category),
+                        (
+                            DefinitionKind::Mark,
+                            BindingCategory::NativeKind(
+                                avenger_chart_schema::NativeKindNamespace::Mark
+                            )
+                        ) | (
+                            DefinitionKind::Tool,
+                            BindingCategory::NativeKind(
+                                avenger_chart_schema::NativeKindNamespace::Tool
+                            )
+                        ) | (
+                            DefinitionKind::Transform,
+                            BindingCategory::NativeKind(
+                                avenger_chart_schema::NativeKindNamespace::Transform
+                            )
+                        )
+                    ))
+                    .then(|| id.clone())
+            })
     }
 
     fn declaration_source_span(&self, owner: &SourceModuleId, declaration: &Decl) -> SourceSpan {

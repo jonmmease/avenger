@@ -1,0 +1,9 @@
+avenger 1;
+
+catalog memory as vega {
+    schema tables as public {
+        table csv as movies {
+            path: './movies.csv';
+        }
+    }
+}

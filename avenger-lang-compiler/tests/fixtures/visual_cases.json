@@ -74,7 +74,7 @@
       "expectation": "visual",
       "sources": [
         "04_custom_error_bar/chart.avenger",
-        "04_custom_error_bar/error_bar.mark.avenger"
+        "04_custom_error_bar/error_bar.avenger"
       ],
       "review": "reviewed"
     },
@@ -83,7 +83,7 @@
       "expectation": "visual",
       "sources": [
         "05_custom_tool/chart.avenger",
-        "05_custom_tool/inspect_points.tool.avenger"
+        "05_custom_tool/inspect_points.avenger"
       ],
       "review": "reviewed"
     },
@@ -92,7 +92,7 @@
       "expectation": "visual",
       "sources": [
         "05_custom_transform_pipeline/chart.avenger",
-        "05_custom_transform_pipeline/summarize.transform.avenger"
+        "05_custom_transform_pipeline/summarize.avenger"
       ],
       "review": "reviewed"
     },
@@ -101,7 +101,7 @@
       "expectation": "diagnostic",
       "sources": [
         "05_definition_lowering_error/chart.avenger",
-        "05_definition_lowering_error/broken.transform.avenger"
+        "05_definition_lowering_error/broken.avenger"
       ]
     },
     {
@@ -109,9 +109,7 @@
       "expectation": "visual",
       "sources": [
         "05_definition_widget_adjacency/chart.avenger",
-        "05_definition_widget_adjacency/cursor_tool.tool.avenger",
-        "05_definition_widget_adjacency/dot.mark.avenger",
-        "05_definition_widget_adjacency/pass.transform.avenger"
+        "05_definition_widget_adjacency/library.avenger"
       ],
       "review": "reviewed"
     },
@@ -120,7 +118,7 @@
       "expectation": "visual",
       "sources": [
         "06_catalog_project/movies.avenger",
-        "06_catalog_project/catalog.data.avenger"
+        "06_catalog_project/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -145,8 +143,7 @@
       "expectation": "visual",
       "sources": [
         "08_multi_chart_project/cartesian.avenger",
-        "08_multi_chart_project/pass.transform.avenger",
-        "08_multi_chart_project/shared.data.avenger"
+        "08_multi_chart_project/shared.avenger"
       ],
       "review": "reviewed"
     },
@@ -323,7 +320,7 @@
       "expectation": "visual",
       "sources": [
         "phase9-files/chart.avenger",
-        "phase9-files/catalog.data.avenger"
+        "phase9-files/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -332,7 +329,7 @@
       "expectation": "visual",
       "sources": [
         "phase9-pack/chart.avenger",
-        "phase9-pack/vega.data.avenger"
+        "phase9-pack/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -341,7 +338,7 @@
       "expectation": "visual",
       "sources": [
         "phase9-parameterized/chart.avenger",
-        "phase9-parameterized/catalog.data.avenger"
+        "phase9-parameterized/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -351,7 +348,7 @@
       "host": "provider_mocks",
       "sources": [
         "phase9-providers/chart.avenger",
-        "phase9-providers/catalog.data.avenger"
+        "phase9-providers/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -360,7 +357,7 @@
       "expectation": "visual",
       "sources": [
         "phase9-schema-chain/chart.avenger",
-        "phase9-schema-chain/catalog.data.avenger"
+        "phase9-schema-chain/data.avenger"
       ],
       "review": "reviewed"
     },
@@ -369,8 +366,8 @@
       "expectation": "visual",
       "sources": [
         "relative-import/charts/chart.avenger",
-        "relative-import/catalog.data.avenger",
-        "relative-import/marks/badge.mark.avenger"
+        "relative-import/data.avenger",
+        "relative-import/marks/badge.avenger"
       ],
       "review": "reviewed"
     },

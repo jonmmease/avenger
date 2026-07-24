@@ -724,12 +724,12 @@ mod tests {
     #[test]
     fn ast_interchange_canonical_json_sorts_every_object() {
         let file = decode_json(
-            r#"{"root":{"props":{"z":{"num":"2"},"a":{"num":"1"}},"decl":"chart","kind":"cartesian"},"version":1}"#,
+            r#"{"items":[{"exported":false,"declaration":{"props":{"z":{"num":"2"},"a":{"num":"1"}},"decl":"chart","kind":"cartesian"}}],"version":1}"#,
         )
         .unwrap();
         assert_eq!(
             canonical_json(&file).unwrap(),
-            r#"{"root":{"decl":"chart","kind":"cartesian","props":{"a":{"num":"1"},"z":{"num":"2"}}},"version":1}"#
+            r#"{"items":[{"declaration":{"decl":"chart","kind":"cartesian","props":{"a":{"num":"1"},"z":{"num":"2"}}},"exported":false}],"version":1}"#
         );
     }
 

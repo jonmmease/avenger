@@ -808,7 +808,7 @@ async fn resolve_imported_definition_exports_are_typed_and_instance_scoped() {
                 "chart.avenger",
                 r#"
 avenger 1;
-import 'controller.tool.avenger';
+import { controller } from 'controller.avenger';
 chart cartesian as chart {
   tool controller as first {}
   tool controller as second {}
@@ -817,10 +817,10 @@ chart cartesian as chart {
 "#,
             ),
             (
-                "controller.tool.avenger",
+                "controller.avenger",
                 r#"
 avenger 1;
-define tool controller {
+export define tool controller {
   param int64 as threshold { value: 0; }
   export threshold as value;
 }
@@ -879,7 +879,7 @@ async fn resolve_definition_templates_keep_logical_channels_and_slot_bindings_ty
                 "chart.avenger",
                 r#"
 avenger 1;
-import 'point_pair.mark.avenger';
+import { point_pair } from 'point_pair.avenger';
 chart cartesian as chart {
   mark point_pair as pair { horizontal_value: "x"; vertical_value: "y"; }
   on click { target: mark pair.point; }
@@ -887,10 +887,10 @@ chart cartesian as chart {
 "#,
             ),
             (
-                "point_pair.mark.avenger",
+                "point_pair.avenger",
                 r#"
 avenger 1;
-define mark point_pair {
+export define mark point_pair {
   slot channel horizontal { default: x; }
   slot channel vertical { default: y; }
   slot expr horizontal_value;
@@ -963,19 +963,19 @@ async fn resolve_definition_import_dag_orders_dependencies_before_dependents() {
         &[
             (
                 "chart.avenger",
-                "avenger 1; import 'high.tool.avenger'; chart cartesian as chart { tool high as high {} }",
+                "avenger 1; import { high } from 'high.avenger'; chart cartesian as chart { tool high as high {} }",
             ),
             (
-                "high.tool.avenger",
+                "high.avenger",
                 r#"
 avenger 1;
-import 'base.tool.avenger';
-define tool high { tool base as inner {} }
+import { base } from 'base.avenger';
+export define tool high { tool base as inner {} }
 "#,
             ),
             (
-                "base.tool.avenger",
-                "avenger 1; define tool base { param int64 as state { value: 0; } }",
+                "base.avenger",
+                "avenger 1; export define tool base { param int64 as state { value: 0; } }",
             ),
         ],
         "chart.avenger",
@@ -1000,7 +1000,7 @@ async fn resolve_definition_outputs_are_typed_and_require_bound_instances() {
                 "chart.avenger",
                 r#"
 avenger 1;
-import 'project.transform.avenger';
+import { project } from 'project.avenger';
 chart cartesian as chart {
   transform project as projected { measure: "x"; }
   mark symbol { x: projected.result; y: "y"; }
@@ -1008,10 +1008,10 @@ chart cartesian as chart {
 "#,
             ),
             (
-                "project.transform.avenger",
+                "project.avenger",
                 r#"
 avenger 1;
-define transform project {
+export define transform project {
   slot expr measure;
   output measure as result;
 }
@@ -1055,11 +1055,11 @@ define transform project {
         &[
             (
                 "chart.avenger",
-                "avenger 1; import 'project.transform.avenger'; chart cartesian as chart { transform project { measure: \"x\"; } }",
+                "avenger 1; import { project } from 'project.avenger'; chart cartesian as chart { transform project { measure: \"x\"; } }",
             ),
             (
-                "project.transform.avenger",
-                "avenger 1; define transform project { slot expr measure; output measure as result; }",
+                "project.avenger",
+                "avenger 1; export define transform project { slot expr measure; output measure as result; }",
             ),
         ],
         "chart.avenger",
@@ -1250,15 +1250,15 @@ async fn resolve_imported_definition_diagnostics_retain_import_trace() {
                 "chart.avenger",
                 r#"
 avenger 1;
-import 'broken.mark.avenger';
+import { broken } from 'broken.avenger';
 chart cartesian as chart { mark broken { value: "x"; } }
 "#,
             ),
             (
-                "broken.mark.avenger",
+                "broken.avenger",
                 r#"
 avenger 1;
-define mark broken {
+export define mark broken {
   slot expr later;
   slot enum mode { values: [a, b]; default: missing; }
   mark group {}
@@ -1349,7 +1349,7 @@ async fn resolve_legend_overlay_uses_private_cartesian_mark_pipeline() {
                 "chart.avenger",
                 r#"
 avenger 1;
-import 'band.mark.avenger';
+import { band } from 'band.avenger';
 chart cartesian as chart {
   data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
   mark symbol as points {
@@ -1377,10 +1377,10 @@ chart cartesian as chart {
 "#,
             ),
             (
-                "band.mark.avenger",
+                "band.avenger",
                 r#"
 avenger 1;
-define mark band {
+export define mark band {
   mark rect {
     x: 0.0;
     x2: 1.0;
@@ -1614,13 +1614,13 @@ async fn resolve_table_dag_orders_relations_and_reports_cycles() {
         &[
             (
                 "tables.avenger",
-                "avenger 1; import 'catalog.data.avenger'; chart cartesian as tables {}",
+                "avenger 1; import { vega } from 'data.avenger'; chart cartesian as tables {}",
             ),
             (
-                "catalog.data.avenger",
+                "data.avenger",
                 r#"
 avenger 1;
-schema tables as vega {
+export schema tables as vega {
   table csv as base { path: 'base.csv'; }
   table sql as derived { sql: SELECT * FROM vega.base; }
 }
@@ -1638,21 +1638,21 @@ schema tables as vega {
     let cyclic = project(
         &[
             (
-                "cycle.avenger",
-                "avenger 1; import 'cycle.data.avenger'; chart cartesian as cycle {}",
+                "cycle-root.avenger",
+                "avenger 1; import { vega } from 'cycle.avenger'; chart cartesian as cycle {}",
             ),
             (
-                "cycle.data.avenger",
+                "cycle.avenger",
                 r#"
 avenger 1;
-schema tables as vega {
+export schema tables as vega {
   table sql as a { sql: SELECT * FROM vega.b; }
   table sql as b { sql: SELECT * FROM vega.a; }
 }
 "#,
             ),
         ],
-        "cycle.avenger",
+        "cycle-root.avenger",
     )
     .await;
     let failure = resolve_module_graph(&cyclic, &bootstrap_schema())
@@ -1809,13 +1809,13 @@ async fn resolve_catalog_table_params_are_owned_literal_and_self_contained() {
         &[
             (
                 "chart.avenger",
-                "avenger 1; import 'views.data.avenger'; chart cartesian as chart {}",
+                "avenger 1; import { local } from 'views.avenger'; chart cartesian as chart {}",
             ),
             (
-                "views.data.avenger",
+                "views.avenger",
                 r#"
 avenger 1;
-schema tables as local {
+export schema tables as local {
   table parquet as base { path: 'base.parquet'; }
   table sql as filtered {
     param int64 as minimum { value: 10; }
@@ -1842,13 +1842,13 @@ schema tables as local {
         &[
             (
                 "chart.avenger",
-                "avenger 1; import 'bad.data.avenger'; chart cartesian as chart {}",
+                "avenger 1; import { local } from 'bad.avenger'; chart cartesian as chart {}",
             ),
             (
-                "bad.data.avenger",
+                "bad.avenger",
                 r#"
 avenger 1;
-schema tables as local {
+export schema tables as local {
   table sql as bad {
     param int64 as first { value: 1; }
     param int64 as second { value: $first; }

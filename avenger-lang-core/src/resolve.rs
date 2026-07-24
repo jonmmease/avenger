@@ -5910,8 +5910,23 @@ impl<'a> Resolver<'a> {
                 let sql = query.canonical_sql();
                 let references =
                     self.resolve_sql_paths(scope, query_paths(query.ast()), span, false);
+                let store_placeholders = query
+                    .bindings()
+                    .iter()
+                    .filter(|binding| binding.kind == BindingKind::Store)
+                    .map(|binding| binding.synthetic_identifier.as_str())
+                    .collect::<BTreeSet<_>>();
+                let relation_paths = relation_paths(query.ast())
+                    .into_iter()
+                    .filter(|path| {
+                        !matches!(
+                            path.as_slice(),
+                            [name] if store_placeholders.contains(name.as_str())
+                        )
+                    })
+                    .collect();
                 let relations =
-                    self.resolve_query_relations(scope, relation_paths(query.ast()), span, owner);
+                    self.resolve_query_relations(scope, relation_paths, span, owner);
                 let helpers = self.resolve_helpers(
                     scope,
                     query_helper_calls(query.ast()),

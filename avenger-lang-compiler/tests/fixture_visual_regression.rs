@@ -238,7 +238,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
 
     let owned = owners.into_keys().collect::<BTreeSet<_>>();
     let discovered = discovered_sources();
-    assert_eq!(owned.len(), 62, "reviewed fixture inventory changed");
+    assert_eq!(owned.len(), 59, "reviewed fixture inventory changed");
     assert_eq!(
         owned, discovered,
         "update visual_cases.json for fixture drift"

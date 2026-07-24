@@ -1,6 +1,6 @@
 avenger 1;
 
-import 'pass.transform.avenger';
+import { pass, shared } from 'shared.avenger';
 
 chart cartesian as cartesian {
   param float64 as point_size { value: 64.0; }

@@ -1,6 +1,6 @@
 avenger 1;
 
-import { inspect_points } from 'inspect_points.tool.avenger';
+import { inspect_points } from 'inspect_points.avenger';
 
 chart cartesian as chart {
   data: {

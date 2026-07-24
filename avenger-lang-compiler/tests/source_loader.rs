@@ -115,7 +115,7 @@ async fn source_loader_loads_versioned_bundled_std_definition() {
         project
             .source_modules
             .keys()
-            .any(|id| id.as_str() == "std:marks/error_bar.mark.avenger")
+            .any(|id| id.as_str() == "std:marks/error_bar.avenger")
     );
     assert!(attempt.dependencies.iter().any(|dependency| {
         dependency
@@ -130,7 +130,7 @@ async fn source_loader_missing_import_keeps_watch_anchor_and_repairs() {
     let root = fixture_dir("repair");
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { badge } from 'nested/badge.mark.avenger'; chart cartesian as chart {}",
+        "avenger 1; import { badge } from 'nested/badge.avenger'; chart cartesian as chart {}",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler.load_module_graph_attempt("chart.avenger").await;
@@ -138,7 +138,7 @@ async fn source_loader_missing_import_keeps_watch_anchor_and_repairs() {
     let rendered = failed.result.as_ref().unwrap_err().render();
     assert!(rendered.contains("chart.avenger:"), "{rendered}");
     assert!(
-        rendered.contains("from 'nested/badge.mark.avenger'"),
+        rendered.contains("from 'nested/badge.avenger'"),
         "{rendered}"
     );
     let missing = failed
@@ -148,7 +148,7 @@ async fn source_loader_missing_import_keeps_watch_anchor_and_repairs() {
             dependency
                 .requested_origin
                 .display_name()
-                .ends_with("nested/badge.mark.avenger")
+                .ends_with("nested/badge.avenger")
         })
         .unwrap();
     assert_eq!(
@@ -158,7 +158,7 @@ async fn source_loader_missing_import_keeps_watch_anchor_and_repairs() {
     assert!(missing.content_version.is_none());
 
     write(
-        root.join("nested/badge.mark.avenger"),
+        root.join("nested/badge.avenger"),
         "avenger 1; export define mark badge { mark symbol as glyph {} }",
     );
     assert!(
@@ -177,12 +177,12 @@ async fn source_loader_rejects_path_escape_and_ignores_filename_roles() {
     let root = parent.join("project");
     fs::create_dir_all(&root).unwrap();
     write(
-        parent.join("outside.mark.avenger"),
+        parent.join("outside.avenger"),
         "avenger 1; define mark outside { mark symbol {} }",
     );
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { outside } from '../outside.mark.avenger'; chart cartesian as chart {}",
+        "avenger 1; import { outside } from '../outside.avenger'; chart cartesian as chart {}",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler.load_module_graph_attempt("chart.avenger").await;
@@ -196,15 +196,15 @@ async fn source_loader_rejects_path_escape_and_ignores_filename_roles() {
         dependency
             .requested_origin
             .display_name()
-            .ends_with("outside.mark.avenger")
+            .ends_with("outside.avenger")
     }));
 
     write(
-        root.join("wrong.mark.avenger"),
+        root.join("wrong.avenger"),
         "avenger 1; chart cartesian as wrong {}",
     );
     let loaded = compiler
-        .load_module_graph_attempt("wrong.mark.avenger")
+        .load_module_graph_attempt("wrong.avenger")
         .await
         .result
         .unwrap();
@@ -221,17 +221,17 @@ async fn source_loader_rejects_symlink_escape() {
     let root = parent.join("project");
     fs::create_dir_all(&root).unwrap();
     write(
-        parent.join("outside.mark.avenger"),
+        parent.join("outside.avenger"),
         "avenger 1; define mark outside { mark symbol {} }",
     );
     symlink(
-        parent.join("outside.mark.avenger"),
-        root.join("linked.mark.avenger"),
+        parent.join("outside.avenger"),
+        root.join("linked.avenger"),
     )
     .unwrap();
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { outside } from 'linked.mark.avenger'; chart cartesian as chart {}",
+        "avenger 1; import { outside } from 'linked.avenger'; chart cartesian as chart {}",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler.load_module_graph_attempt("chart.avenger").await;
@@ -252,19 +252,19 @@ async fn source_loader_rejects_duplicate_ambient_catalog_paths() {
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("a.data.avenger"),
+        root.join("a.avenger"),
         "avenger 1; schema tables as samples { table csv as rows { path: 'a.csv'; } }",
     );
     write(
-        root.join("b.data.avenger"),
+        root.join("b.avenger"),
         "avenger 1; schema tables as samples { table csv as other { path: 'b.csv'; } }",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler
         .load_module_roots_attempt(vec![
             ModuleRoot::requested(SourceOrigin::File(root.join("chart.avenger"))),
-            ModuleRoot::ambient_data(SourceOrigin::File(root.join("a.data.avenger"))),
-            ModuleRoot::ambient_data(SourceOrigin::File(root.join("b.data.avenger"))),
+            ModuleRoot::ambient_data(SourceOrigin::File(root.join("a.avenger"))),
+            ModuleRoot::ambient_data(SourceOrigin::File(root.join("b.avenger"))),
         ])
         .await
         .result
@@ -278,10 +278,10 @@ async fn source_loader_reports_malformed_transitive_source_with_prefix() {
     let root = fixture_dir("malformed-transitive");
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { bad } from 'bad.mark.avenger'; chart cartesian as chart {}",
+        "avenger 1; import { bad } from 'bad.avenger'; chart cartesian as chart {}",
     );
     write(
-        root.join("bad.mark.avenger"),
+        root.join("bad.avenger"),
         "avenger 1; define mark bad {",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
@@ -311,12 +311,12 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         "avenger 1; table csv as rows { path: 'nested/rows.csv'; }",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await;
     assert_eq!(
         failed.result.unwrap_err().diagnostics[0].code.as_str(),
@@ -340,7 +340,7 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
 
     write(root.join("nested/rows.csv"), "x\n1\n");
     let repaired = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await;
     assert!(repaired.result.is_ok());
     let repaired_fingerprint = repaired.result.as_ref().unwrap().fingerprint.clone();
@@ -363,7 +363,7 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
     );
     write(root.join("nested/rows.csv"), "x\n2\n");
     let changed = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap();
@@ -379,7 +379,7 @@ async fn source_loader_directory_and_glob_fingerprints_track_content_and_members
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         r#"avenger 1;
 schema tables as local {
   table csv as directory { path: 'parts'; }
@@ -389,13 +389,13 @@ schema tables as local {
     write(root.join("parts/one.csv"), "x\n1\n");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let first = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap()
         .fingerprint;
     let stable = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap()
@@ -404,7 +404,7 @@ schema tables as local {
 
     write(root.join("parts/one.csv"), "x\n2\n");
     let content_changed = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap()
@@ -413,7 +413,7 @@ schema tables as local {
 
     write(root.join("parts/two.csv"), "x\n3\n");
     let membership_changed = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap()
@@ -447,12 +447,12 @@ async fn source_loader_records_remote_and_glob_table_resources_without_providers
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         "avenger 1; table parquet as remote { path: 's3://bucket/rows.parquet'; } table csv as local { path: 'data/*.csv'; }",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let attempt = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await;
     assert!(attempt.result.is_ok());
     assert!(attempt.dependencies.iter().any(|dependency| {
@@ -477,7 +477,7 @@ async fn compiler_enforces_local_resource_file_size_limit() {
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         "avenger 1; table csv as rows { path: 'rows.csv'; }",
     );
     write(root.join("rows.csv"), "value\n12345\n");
@@ -494,7 +494,7 @@ async fn compiler_enforces_local_resource_file_size_limit() {
         .build()
         .unwrap();
     let failure = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap_err();
@@ -516,7 +516,7 @@ async fn compiler_enforces_aggregate_local_resource_budget() {
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         "avenger 1; table csv as one { path: 'one.csv'; } table csv as two { path: 'two.csv'; }",
     );
     write(root.join("one.csv"), "1234");
@@ -534,7 +534,7 @@ async fn compiler_enforces_aggregate_local_resource_budget() {
         .build()
         .unwrap();
     let failure = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap_err();
@@ -553,10 +553,10 @@ async fn compiler_applies_syntax_and_expansion_limits() {
     let root = fixture_dir("compiler-language-limits");
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { badge } from 'badge.mark.avenger'; chart cartesian as chart { mark badge {} }",
+        "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { mark badge {} }",
     );
     write(
-        root.join("badge.mark.avenger"),
+        root.join("badge.avenger"),
         "avenger 1; export define mark badge { mark symbol as glyph {} }",
     );
 
@@ -606,10 +606,10 @@ async fn expanded_chart_resolves_external_theme_against_authored_file() {
     let root = fixture_dir("expanded-external-theme");
     write(
         root.join("chart.avenger"),
-        "avenger 1; import { badge } from 'badge.mark.avenger'; chart cartesian as chart { theme css from 'theme.css'; mark badge {} }",
+        "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { theme css from 'theme.css'; mark badge {} }",
     );
     write(
-        root.join("badge.mark.avenger"),
+        root.join("badge.avenger"),
         "avenger 1; export define mark badge { mark symbol as glyph {} }",
     );
     write(root.join("theme.css"), "mark { opacity: 0.8; }");
@@ -637,7 +637,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
         "avenger 1; chart cartesian as chart {}",
     );
     write(
-        root.join("catalog.data.avenger"),
+        root.join("data.avenger"),
         "avenger 1; table parquet as rows { path: 'data'; }",
     );
     write(root.join("data/one.bin"), "1234");
@@ -676,7 +676,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
             .build()
             .unwrap();
         let failure = compiler
-            .load_module_graph_attempt("catalog.data.avenger")
+            .load_module_graph_attempt("data.avenger")
             .await
             .result
             .unwrap_err();
@@ -699,7 +699,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
         .build()
         .unwrap();
     let failure = compiler
-        .load_module_graph_attempt("catalog.data.avenger")
+        .load_module_graph_attempt("data.avenger")
         .await
         .result
         .unwrap_err();

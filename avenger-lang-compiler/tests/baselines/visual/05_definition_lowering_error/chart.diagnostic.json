@@ -20,8 +20,8 @@
         "span": {
           "source": 0,
           "range": {
-            "start": 132,
-            "end": 162
+            "start": 122,
+            "end": 152
           }
         },
         "message": "while expanding this definition instance"

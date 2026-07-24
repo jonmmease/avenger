@@ -2133,7 +2133,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     assert_expansion_baseline("04_custom_error_bar.avenger", &expanded.text);
 
     for removed in [
-        "import { error_bar } from 'error_bar.mark.avenger';",
+        "import { error_bar } from 'error_bar.avenger';",
         "mark error_bar as errors",
         "slot expr",
         "define mark",
@@ -2350,7 +2350,7 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
     for removed in [
-        "import 'summarize.transform.avenger'",
+        "import 'summarize.avenger'",
         "transform summarize as summary",
         "define transform",
         "__summarize_doubled",
@@ -2497,7 +2497,7 @@ async fn expansion_lowering_diagnostics_remap_to_definition_with_instance_trace(
             source
                 .origin
                 .display_name()
-                .ends_with("broken.transform.avenger")
+                .ends_with("broken.avenger")
                 .then_some(*id)
         })
         .expect("definition source id");

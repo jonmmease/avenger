@@ -1,6 +1,6 @@
 avenger 1;
 
-import { error_bar } from 'error_bar.mark.avenger';
+import { error_bar } from 'error_bar.avenger';
 
 chart cartesian as chart {
   data: {

@@ -237,7 +237,7 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
     let root = project_fixture("06_catalog_project");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let analysis = compiler
-        .analyze_module(root.join("catalog.data.avenger"))
+        .analyze_module(root.join("data.avenger"))
         .await
         .unwrap();
     let tables = analysis
@@ -351,7 +351,7 @@ async fn catalog_default_and_host_generation_environments_are_analysis_and_artif
         .build()
         .unwrap();
 
-    let catalog = root.join("catalog.data.avenger");
+    let catalog = root.join("data.avenger");
     let default_analysis = default.analyze_module(&catalog).await.unwrap();
     let host_analysis = host.analyze_module(&catalog).await.unwrap();
     let snapshot = |analysis: &avenger_lang_compiler::ModuleAnalysis| {

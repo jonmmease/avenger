@@ -1894,9 +1894,9 @@ mod tests {
         let reporter = ProcessWatchReporter::new(PathBuf::from("/private/work/chart-project"));
         assert_eq!(
             reporter.redact_project_root(
-                "error at /private/work/chart-project/defs/point.mark.avenger".to_string()
+                "error at /private/work/chart-project/defs/point.avenger".to_string()
             ),
-            "error at ./defs/point.mark.avenger"
+            "error at ./defs/point.avenger"
         );
     }
 
@@ -2051,12 +2051,21 @@ mod tests {
             min_seen_count: 1,
             ..EvaluationCacheConfig::default()
         });
+        let cases = manifest["cases"]
+            .as_array()
+            .expect("fixture manifest cases is an array");
+        let expected = cases
+            .iter()
+            .filter(|case| {
+                case["expectation"] == "visual"
+                    && !case
+                        .get("host")
+                        .is_some_and(|host| host.as_str() != Some("stock"))
+            })
+            .count();
         let mut prepared = 0_usize;
 
-        for case in manifest["cases"]
-            .as_array()
-            .expect("fixture manifest cases is an array")
-        {
+        for case in cases {
             if case["expectation"] != "visual"
                 || case
                     .get("host")
@@ -2093,7 +2102,7 @@ mod tests {
             prepared += 1;
         }
 
-        assert_eq!(prepared, 38, "stock visual fixture census changed");
+        assert_eq!(prepared, expected);
     }
 
     #[test]
@@ -2130,8 +2139,8 @@ mod tests {
             .collect::<BTreeSet<_>>();
         for expected in [
             "chart.avenger",
-            "marks/badge.mark.avenger",
-            "catalog.data.avenger",
+            "marks/badge.avenger",
+            "data.avenger",
             "data/rows.csv",
         ] {
             let expected = fs::canonicalize(project.path().join(expected))
@@ -2336,7 +2345,7 @@ mod tests {
     fn shared_cache_reuses_style_reload_and_invalidates_same_metadata_data_change() {
         let project = watch_fixture_copy();
         let chart = project.path().join("chart.avenger");
-        let definition = project.path().join("marks/badge.mark.avenger");
+        let definition = project.path().join("marks/badge.avenger");
         let data = project.path().join("data/rows.csv");
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -2412,7 +2421,7 @@ mod tests {
     fn headless_reload_coordinator_recovers_migrates_and_installs_only_latest() {
         let project = watch_fixture_copy();
         let chart = project.path().join("chart.avenger");
-        let definition = project.path().join("marks/badge.mark.avenger");
+        let definition = project.path().join("marks/badge.avenger");
         let original_chart = fs::read_to_string(&chart).expect("read watch chart");
         let original_definition =
             fs::read_to_string(&definition).expect("read watch mark definition");

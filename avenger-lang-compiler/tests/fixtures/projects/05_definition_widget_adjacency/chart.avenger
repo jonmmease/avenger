@@ -1,8 +1,6 @@
 avenger 1;
 
-import { dot } from 'dot.mark.avenger';
-import { pass } from 'pass.transform.avenger';
-import { cursor_tool } from 'cursor_tool.tool.avenger';
+import { cursor_tool, dot, pass } from 'library.avenger';
 
 chart cartesian as chart {
   data: { values: [{ x: 1.0; y: 2.0; }]; }

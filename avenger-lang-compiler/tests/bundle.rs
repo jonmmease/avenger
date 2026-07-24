@@ -16,7 +16,7 @@ async fn selected_chart_bundle_is_standalone_and_deterministic() {
     let second = compiler.bundle_chart("chart.avenger", None).await.unwrap();
     assert_eq!(first.text, second.text);
     assert!(!first.text.contains(" from '"));
-    assert!(!first.text.contains("error_bar.mark.avenger"));
+    assert!(!first.text.contains("error_bar.avenger"));
     assert!(first.text.contains("define mark __av_"));
     assert!(first.text.contains("mark __av_"));
 
@@ -71,7 +71,7 @@ async fn dataset_bundle_rewrites_imported_sql_relations() {
     let root = fixture("phase9-pack");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let bundle = compiler.bundle_chart("chart.avenger", None).await.unwrap();
-    assert!(!bundle.text.contains("vega.data.avenger"));
+    assert!(!bundle.text.contains("data.avenger"));
     assert!(bundle.text.contains("table inline as movies"));
     assert!(bundle.text.contains("table sql as popular"));
 

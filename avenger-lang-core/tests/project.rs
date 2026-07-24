@@ -186,7 +186,7 @@ async fn native_modules_are_registry_leaves_and_never_loaded_as_source() {
 
 #[tokio::test]
 async fn basename_segments_have_no_semantic_role() {
-    let root = SourceOrigin::Memory("dashboard.mark.data.avenger".into());
+    let root = SourceOrigin::Memory("dashboard.avenger".into());
     let loader = InMemorySourceLoader::default().with_source(source(
         root.clone(),
         "avenger 1;\
