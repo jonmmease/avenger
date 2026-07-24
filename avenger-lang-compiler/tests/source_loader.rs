@@ -224,11 +224,7 @@ async fn source_loader_rejects_symlink_escape() {
         parent.join("outside.avenger"),
         "avenger 1; define mark outside { mark symbol {} }",
     );
-    symlink(
-        parent.join("outside.avenger"),
-        root.join("linked.avenger"),
-    )
-    .unwrap();
+    symlink(parent.join("outside.avenger"), root.join("linked.avenger")).unwrap();
     write(
         root.join("chart.avenger"),
         "avenger 1; import { outside } from 'linked.avenger'; chart cartesian as chart {}",
@@ -280,10 +276,7 @@ async fn source_loader_reports_malformed_transitive_source_with_prefix() {
         root.join("chart.avenger"),
         "avenger 1; import { bad } from 'bad.avenger'; chart cartesian as chart {}",
     );
-    write(
-        root.join("bad.avenger"),
-        "avenger 1; define mark bad {",
-    );
+    write(root.join("bad.avenger"), "avenger 1; define mark bad {");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let attempt = compiler.load_module_graph_attempt("chart.avenger").await;
     let failure = attempt.result.unwrap_err();
@@ -315,9 +308,7 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
         "avenger 1; table csv as rows { path: 'nested/rows.csv'; }",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let failed = compiler
-        .load_module_graph_attempt("data.avenger")
-        .await;
+    let failed = compiler.load_module_graph_attempt("data.avenger").await;
     assert_eq!(
         failed.result.unwrap_err().diagnostics[0].code.as_str(),
         "AVENGER-PROJECT-019"
@@ -339,9 +330,7 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
     assert!(missing.content_version.is_none());
 
     write(root.join("nested/rows.csv"), "x\n1\n");
-    let repaired = compiler
-        .load_module_graph_attempt("data.avenger")
-        .await;
+    let repaired = compiler.load_module_graph_attempt("data.avenger").await;
     assert!(repaired.result.is_ok());
     let repaired_fingerprint = repaired.result.as_ref().unwrap().fingerprint.clone();
     let resource = repaired
@@ -451,9 +440,7 @@ async fn source_loader_records_remote_and_glob_table_resources_without_providers
         "avenger 1; table parquet as remote { path: 's3://bucket/rows.parquet'; } table csv as local { path: 'data/*.csv'; }",
     );
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let attempt = compiler
-        .load_module_graph_attempt("data.avenger")
-        .await;
+    let attempt = compiler.load_module_graph_attempt("data.avenger").await;
     assert!(attempt.result.is_ok());
     assert!(attempt.dependencies.iter().any(|dependency| {
         dependency.role == DependencyRole::RemoteResource

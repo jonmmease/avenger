@@ -325,22 +325,19 @@ impl WorkspaceAnalysis {
                 if selector.is_none() && !singleton {
                     return None;
                 }
-                let selection_span = item
-                    .chart_name
-                    .as_ref()
-                    .or(item.name.as_ref())
-                    .map_or_else(
-                        || {
-                            item.keyword
-                                .as_ref()
-                                .map_or(item.declaration_span, |keyword| keyword.span)
-                        },
-                        |name| name.span,
-                    );
+                let selection_span = item.chart_name.as_ref().or(item.name.as_ref()).map_or_else(
+                    || {
+                        item.keyword
+                            .as_ref()
+                            .map_or(item.declaration_span, |keyword| keyword.span)
+                    },
+                    |name| name.span,
+                );
                 Some(ChartRunnable {
-                    label: selector
-                        .as_ref()
-                        .map_or_else(|| "Run chart".to_owned(), |name| format!("Run chart {name}")),
+                    label: selector.as_ref().map_or_else(
+                        || "Run chart".to_owned(),
+                        |name| format!("Run chart {name}"),
+                    ),
                     selector,
                     span: item.declaration_span,
                     selection_span,

@@ -9,9 +9,14 @@ The server provides incremental UTF-8/UTF-16 document synchronization,
 tolerant and semantic diagnostics, document symbols, structural and
 DataFusion-backed SQL/expression completion, hover, definition/references,
 document highlights, strict-valid formatting, semantic tokens, safe rename,
-quick fixes, definition refactors, and remote-import pinning. Ordinary editor
-analysis is schema-only and never scans table data, creates a physical plan, or
-calls `collect()`.
+workspace symbols, per-chart code lenses, quick fixes, definition refactors,
+and remote-import pinning. Ordinary editor analysis is schema-only and never
+scans table data, creates a physical plan, or calls `collect()`.
+
+Every `.avenger` file is analyzed as an ordinary source module. Imports and
+exports, not basename suffixes, determine visibility and category. Named and
+namespace import completion, navigation, and rename preserve the producer
+export identity separately from each consumer's local spelling.
 
 Declaration intelligence follows the canonical unified surface: physical Arrow
 types are completed and highlighted in param/field headers; stores and
@@ -31,6 +36,12 @@ cargo run --release -p avenger-lang-cli --bin avenger -- lsp
 The process speaks JSON-RPC over stdin/stdout. Standard output is reserved for
 LSP framing; human-readable warnings go to stderr and `window/logMessage`.
 `RUST_LOG` controls tracing without printing source or data values by default.
+
+The optional `initializationOptions.ambientModules` array contains file paths
+relative to each workspace root (or absolute `file:` URIs). Those modules must
+contain data declarations only and are the sole source of ambient datasets;
+ordinary workspace discovery never infers ambient visibility. The same object
+may be sent through `workspace/didChangeConfiguration`.
 
 Resource controls are CLI arguments:
 
@@ -67,12 +78,19 @@ action data and can lazily resolve the `edit` property.
 Formatting is intentionally unavailable for invalid source. Rename is limited
 to authored, collision-free identities with complete references. Extraction
 is offered for a named group only when it can create a sibling
-`<name>.mark.avenger` safely; external scalar references become `slot expr`
+`<name>.avenger` safely; external scalar references become `slot expr`
 inputs, while unsupported free references suppress the action. Inline uses the
 compiler's canonical single-instance expansion. Pin-import fetches only after
 the user chooses the action, validates that the result is an Avenger
 definition, and inserts the exact SHA-256. HTTP remains disabled for ordinary
 project analysis.
+
+Each valid named chart receives an `avenger.watchChart` code lens whose single
+argument is `{ "moduleUri": "...", "chart": "..." }`. An anonymous singleton
+receives the same command with `chart: null`; an ambiguous anonymous chart
+receives no lens. The command is intentionally client-owned so an editor can
+choose how to launch and supervise the watch process. Tree-sitter gutter tasks
+remain Zed's primary launch surface.
 
 ## Testing
 

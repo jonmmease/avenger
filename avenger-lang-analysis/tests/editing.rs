@@ -512,10 +512,7 @@ fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
         "'"
     );
 
-    let pinned = source.replace(
-        "badge.avenger'",
-        "badge.avenger' sha256 'abc'",
-    );
+    let pinned = source.replace("badge.avenger'", "badge.avenger' sha256 'abc'");
     let (analysis, origin, revision) = workspace_analysis(&pinned);
     assert!(
         analysis
@@ -915,10 +912,6 @@ chart cartesian as chart {
         extracted.replace_range(edit.span.range.as_range(), &edit.new_text);
     }
     std::fs::write(&chart_path, extracted).unwrap();
-    std::fs::write(
-        chart_path.with_file_name("cluster.avenger"),
-        definition,
-    )
-    .unwrap();
+    std::fs::write(chart_path.with_file_name("cluster.avenger"), definition).unwrap();
     compiler.check_module(&chart_path).await.unwrap();
 }

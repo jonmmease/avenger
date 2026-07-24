@@ -251,10 +251,10 @@ pub(crate) fn rename(
     }
 
     let mut replacements = BTreeMap::<SourceOrigin, BTreeMap<SourceSpan, String>>::new();
-    let declaration_replacement = unaliased_import_name(analysis, symbol)
-        .map_or_else(|| new_name.to_owned(), |imported| {
-            format!("{imported} as {new_name}")
-        });
+    let declaration_replacement = unaliased_import_name(analysis, symbol).map_or_else(
+        || new_name.to_owned(),
+        |imported| format!("{imported} as {new_name}"),
+    );
     replacements
         .entry(symbol.origin.clone())
         .or_default()
@@ -281,12 +281,7 @@ pub(crate) fn rename(
         }
     }
     if symbol.keyword == "import" {
-        add_local_import_reference_replacements(
-            analysis,
-            symbol,
-            new_name,
-            &mut replacements,
-        )?;
+        add_local_import_reference_replacements(analysis, symbol, new_name, &mut replacements)?;
     }
     if symbol.exported && symbol.parent.is_none() {
         add_export_import_replacements(analysis, symbol, new_name, &mut replacements)?;
@@ -302,10 +297,7 @@ pub(crate) fn rename(
         };
         let mut edits = replacements
             .into_iter()
-            .map(|(span, new_text)| SourceTextEdit {
-                span,
-                new_text,
-            })
+            .map(|(span, new_text)| SourceTextEdit { span, new_text })
             .collect::<Vec<_>>();
         edits.sort_by_key(|edit| edit.span.range.start);
         sources.insert(
@@ -322,24 +314,23 @@ pub(crate) fn rename(
     })
 }
 
-fn unaliased_import_name(
-    analysis: &WorkspaceAnalysis,
-    symbol: &IndexedSymbol,
-) -> Option<String> {
+fn unaliased_import_name(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol) -> Option<String> {
     if symbol.keyword != "import" {
         return None;
     }
-    let strict = analysis.syntax.get(&symbol.origin)?.parsed.strict.as_ref()?;
-    for (import, syntax) in strict
-        .ast
-        .imports
-        .iter()
-        .zip(&strict.module_syntax.imports)
-    {
-        let (ImportClause::Named(specifiers), ImportClauseSyntax::Named {
-            specifiers: spans,
-            ..
-        }) = (&import.clause, &syntax.clause)
+    let strict = analysis
+        .syntax
+        .get(&symbol.origin)?
+        .parsed
+        .strict
+        .as_ref()?;
+    for (import, syntax) in strict.ast.imports.iter().zip(&strict.module_syntax.imports) {
+        let (
+            ImportClause::Named(specifiers),
+            ImportClauseSyntax::Named {
+                specifiers: spans, ..
+            },
+        ) = (&import.clause, &syntax.clause)
         else {
             continue;
         };
@@ -365,19 +356,17 @@ fn add_export_import_replacements(
         let Some(strict) = syntax.parsed.strict.as_ref() else {
             continue;
         };
-        for (import, import_syntax) in strict
-            .ast
-            .imports
-            .iter()
-            .zip(&strict.module_syntax.imports)
+        for (import, import_syntax) in strict.ast.imports.iter().zip(&strict.module_syntax.imports)
         {
             if resolve_import_origin(importer, &import.source).as_ref() != Some(&symbol.origin) {
                 continue;
             }
-            let (ImportClause::Named(specifiers), ImportClauseSyntax::Named {
-                specifiers: spans,
-                ..
-            }) = (&import.clause, &import_syntax.clause)
+            let (
+                ImportClause::Named(specifiers),
+                ImportClauseSyntax::Named {
+                    specifiers: spans, ..
+                },
+            ) = (&import.clause, &import_syntax.clause)
             else {
                 continue;
             };
@@ -428,8 +417,7 @@ fn is_named_import_reference(
             let (
                 ImportClause::Named(specifiers),
                 ImportClauseSyntax::Named {
-                    specifiers: spans,
-                    ..
+                    specifiers: spans, ..
                 },
             ) = (&import.clause, &syntax.clause)
             else {
@@ -465,8 +453,7 @@ fn add_local_import_reference_replacements(
             let (
                 ImportClause::Named(specifiers),
                 ImportClauseSyntax::Named {
-                    specifiers: spans,
-                    ..
+                    specifiers: spans, ..
                 },
             ) = (&import.clause, &syntax.clause)
             else {
@@ -493,9 +480,7 @@ fn add_local_import_reference_replacements(
             .symbols
             .iter()
             .find(|candidate| {
-                candidate.parent.is_none()
-                    && candidate.exported
-                    && candidate.name == imported_name
+                candidate.parent.is_none() && candidate.exported && candidate.name == imported_name
             })
             .map(|candidate| candidate.identity.clone())
     });

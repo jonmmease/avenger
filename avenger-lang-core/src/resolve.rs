@@ -5925,8 +5925,7 @@ impl<'a> Resolver<'a> {
                         )
                     })
                     .collect();
-                let relations =
-                    self.resolve_query_relations(scope, relation_paths, span, owner);
+                let relations = self.resolve_query_relations(scope, relation_paths, span, owner);
                 let helpers = self.resolve_helpers(
                     scope,
                     query_helper_calls(query.ast()),

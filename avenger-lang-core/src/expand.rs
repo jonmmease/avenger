@@ -1345,15 +1345,11 @@ impl Expander<'_> {
 
         let kind = declaration.kind.as_ref()?;
         let category = match declaration.keyword.as_str() {
-            "mark" => BindingCategory::NativeKind(
-                avenger_chart_schema::NativeKindNamespace::Mark,
-            ),
-            "tool" => BindingCategory::NativeKind(
-                avenger_chart_schema::NativeKindNamespace::Tool,
-            ),
-            "transform" => BindingCategory::NativeKind(
-                avenger_chart_schema::NativeKindNamespace::Transform,
-            ),
+            "mark" => BindingCategory::NativeKind(avenger_chart_schema::NativeKindNamespace::Mark),
+            "tool" => BindingCategory::NativeKind(avenger_chart_schema::NativeKindNamespace::Tool),
+            "transform" => {
+                BindingCategory::NativeKind(avenger_chart_schema::NativeKindNamespace::Transform)
+            }
             _ => return None,
         };
         let environment = &self.resolved.source_modules.get(owner)?.local_bindings;
@@ -1362,9 +1358,7 @@ impl Expander<'_> {
             [namespace, member] => {
                 let module = environment.namespaces.get(namespace.as_str())?;
                 let index = match module {
-                    ModuleId::Source(module) => {
-                        &self.resolved.source_modules.get(module)?.exports
-                    }
+                    ModuleId::Source(module) => &self.resolved.source_modules.get(module)?.exports,
                     ModuleId::Native(_) => return None,
                 };
                 index
@@ -1402,7 +1396,7 @@ impl Expander<'_> {
                             )
                         )
                     ))
-                    .then(|| id.clone())
+                .then(|| id.clone())
             })
     }
 

@@ -42,6 +42,7 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server, jsonrpc, ls_t
 
 const SERVER_NAME: &str = "avenger-lsp";
 const PIN_IMPORT_ACTION_KIND: &str = "source.pinImport";
+const WATCH_CHART_COMMAND: &str = "avenger.watchChart";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +139,14 @@ struct ServerState {
 #[derive(Clone)]
 struct Workspace {
     service: AnalysisService,
+    ambient_modules: BTreeSet<SourceOrigin>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AvengerSettings {
+    #[serde(default)]
+    ambient_modules: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -785,10 +794,15 @@ impl LanguageServer for Backend {
             roots.push(PathBuf::from(root_path));
         }
 
+        let settings = params
+            .initialization_options
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
         let mut workspaces = BTreeMap::new();
         for root in roots.into_iter().take(self.inner.config.max_workspaces) {
             let root = normalize_existing_path(root);
-            match Workspace::new(root.clone()) {
+            match Workspace::with_settings(root.clone(), &settings) {
                 Ok(workspace) => {
                     workspaces.insert(root, workspace);
                 }
@@ -832,6 +846,10 @@ impl LanguageServer for Backend {
                     .into(),
                 ),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
                 completion_provider: Some(tower_lsp_server::ls_types::CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
@@ -1001,6 +1019,21 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let settings =
+            serde_json::from_value::<AvengerSettings>(params.settings).unwrap_or_default();
+        let roots = {
+            let mut state = self.inner.state.write().await;
+            for (root, workspace) in &mut state.workspaces {
+                workspace.ambient_modules = configured_ambient_modules(root, &settings);
+            }
+            state.workspaces.keys().cloned().collect::<Vec<_>>()
+        };
+        for root in roots {
+            self.schedule_semantic(root).await;
+        }
+    }
+
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
@@ -1032,6 +1065,109 @@ impl LanguageServer for Backend {
             );
             Ok(Some(DocumentSymbolResponse::Flat(symbols)))
         }
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> jsonrpc::Result<Option<WorkspaceSymbolResponse>> {
+        let _permit = self.request_permit().await?;
+        let state = self.inner.state.read().await;
+        let query = params.query.to_ascii_lowercase();
+        let mut symbols = BTreeMap::new();
+        for analysis in state.semantic_analysis.values() {
+            for (origin, document) in &analysis.semantic_index.documents {
+                let Some(uri) = uri_for_origin(origin) else {
+                    continue;
+                };
+                let Some(text) = source_text_for_origin(analysis, origin) else {
+                    continue;
+                };
+                let positions = PositionIndex::new(text, state.position_encoding);
+                for symbol in document
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.parent.is_none() && symbol.keyword != "import")
+                    .filter(|symbol| {
+                        query.is_empty()
+                            || symbol.name.to_ascii_lowercase().contains(&query)
+                            || symbol.keyword.to_ascii_lowercase().contains(&query)
+                            || origin.canonical_uri().to_ascii_lowercase().contains(&query)
+                    })
+                {
+                    let Ok(range) = positions.lsp_range(symbol.selection_span.range.as_range())
+                    else {
+                        continue;
+                    };
+                    symbols
+                        .entry((
+                            origin.clone(),
+                            symbol.selection_span.range.start,
+                            symbol.name.clone(),
+                        ))
+                        .or_insert_with(|| {
+                            #[allow(deprecated)]
+                            SymbolInformation {
+                                name: symbol.name.clone(),
+                                kind: symbol_kind(symbol.kind),
+                                tags: None,
+                                deprecated: None,
+                                location: Location::new(uri.clone(), range),
+                                container_name: Some(format!(
+                                    "{} · {}",
+                                    origin.canonical_uri(),
+                                    symbol.keyword
+                                )),
+                            }
+                        });
+                }
+            }
+        }
+        Ok(Some(WorkspaceSymbolResponse::Flat(
+            symbols.into_values().collect(),
+        )))
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> jsonrpc::Result<Option<Vec<CodeLens>>> {
+        let _permit = self.request_permit().await?;
+        let uri = params.text_document.uri;
+        let Some((document, analysis, request, _)) =
+            self.query_snapshot(&uri, Position::new(0, 0)).await
+        else {
+            return Ok(None);
+        };
+        let Ok(result) = analysis.chart_runnables(
+            &DocumentRequest {
+                source: request.source,
+                source_revision: request.source_revision,
+            },
+            &AnalysisCancellation::default(),
+        ) else {
+            return Ok(None);
+        };
+        let lenses = result
+            .runnables
+            .into_iter()
+            .filter_map(|runnable| {
+                let range = document
+                    .positions
+                    .lsp_range(runnable.selection_span.range.as_range())
+                    .ok()?;
+                Some(CodeLens {
+                    range,
+                    command: Some(Command::new(
+                        runnable.label,
+                        WATCH_CHART_COMMAND.to_owned(),
+                        Some(vec![serde_json::json!({
+                            "moduleUri": uri.as_str(),
+                            "chart": runnable.selector,
+                        })]),
+                    )),
+                    data: None,
+                })
+            })
+            .collect();
+        Ok(Some(lenses))
     }
 
     async fn formatting(
@@ -1579,9 +1715,17 @@ impl LanguageServer for Backend {
 
 impl Workspace {
     fn new(path: PathBuf) -> Result<Self, avenger_lang_compiler::CompilerBuildError> {
+        Self::with_settings(path, &AvengerSettings::default())
+    }
+
+    fn with_settings(
+        path: PathBuf,
+        settings: &AvengerSettings,
+    ) -> Result<Self, avenger_lang_compiler::CompilerBuildError> {
         let compiler = Compiler::builder().project_root(&path).build()?;
         Ok(Self {
             service: AnalysisService::new(compiler),
+            ambient_modules: configured_ambient_modules(&path, settings),
         })
     }
 }
@@ -1675,17 +1819,19 @@ fn semantic_input(state: &ServerState, workspace_root: &Path) -> Option<Semantic
             ),
         );
     }
+    origins.extend(workspace.ambient_modules.iter().cloned());
     let roots = origins
         .iter()
-        .filter_map(|origin| match origin {
-            SourceOrigin::File(path) if is_data_path(path) => {
-                Some(ModuleRoot::ambient_data(origin.clone()))
-            }
-            SourceOrigin::File(path) if is_chart_path(path) => {
-                Some(ModuleRoot::requested(origin.clone()))
-            }
-            _ => None,
-        })
+        .filter(|origin| !workspace.ambient_modules.contains(*origin))
+        .cloned()
+        .map(ModuleRoot::requested)
+        .chain(
+            workspace
+                .ambient_modules
+                .iter()
+                .cloned()
+                .map(ModuleRoot::ambient_data),
+        )
         .collect();
     let generation = AnalysisGeneration::new(
         state
@@ -1714,6 +1860,31 @@ fn semantic_input(state: &ServerState, workspace_root: &Path) -> Option<Semantic
         },
         versions,
     })
+}
+
+fn configured_ambient_modules(
+    workspace_root: &Path,
+    settings: &AvengerSettings,
+) -> BTreeSet<SourceOrigin> {
+    settings
+        .ambient_modules
+        .iter()
+        .filter_map(|configured| {
+            if configured.starts_with("file:") {
+                return Uri::from_str(configured)
+                    .ok()?
+                    .to_file_path()
+                    .map(|path| SourceOrigin::File(normalize_existing_path(path.into_owned())));
+            }
+            let path = Path::new(configured);
+            let path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                workspace_root.join(path)
+            };
+            Some(SourceOrigin::File(normalize_existing_path(path)))
+        })
+        .collect()
 }
 
 fn scan_avenger_files(root: &Path) -> BTreeSet<SourceOrigin> {
@@ -1832,21 +2003,6 @@ fn rename_error(error: RenameError) -> jsonrpc::Error {
 
 fn origin_is_in_workspace(origin: &SourceOrigin, workspace_root: &Path) -> bool {
     matches!(origin, SourceOrigin::File(path) if path.starts_with(workspace_root))
-}
-
-fn is_data_path(path: &Path) -> bool {
-    path.to_string_lossy().ends_with(".data.avenger")
-}
-
-fn is_definition_path(path: &Path) -> bool {
-    let path = path.to_string_lossy();
-    path.ends_with(".mark.avenger")
-        || path.ends_with(".tool.avenger")
-        || path.ends_with(".transform.avenger")
-}
-
-fn is_chart_path(path: &Path) -> bool {
-    path.to_string_lossy().ends_with(".avenger") && !is_data_path(path) && !is_definition_path(path)
 }
 
 fn semantic_diagnostics(
@@ -2195,6 +2351,8 @@ mod tests {
         assert!(result.capabilities.document_formatting_provider.is_some());
         assert!(result.capabilities.semantic_tokens_provider.is_some());
         assert!(result.capabilities.rename_provider.is_some());
+        assert!(result.capabilities.workspace_symbol_provider.is_some());
+        assert!(result.capabilities.code_lens_provider.is_some());
         assert_eq!(
             result.server_info.as_ref().map(|info| info.name.as_str()),
             Some("avenger-lsp")
@@ -2210,6 +2368,260 @@ mod tests {
             .expect("shutdown service call")
             .expect("shutdown response");
         assert!(response.is_ok());
+    }
+
+    #[tokio::test]
+    async fn chart_code_lenses_and_workspace_symbols_use_module_item_identity() {
+        let project = tempdir().unwrap();
+        let module = project.path().join("dashboard.avenger");
+        let text = r#"avenger 1;
+
+export define mark badge {
+  mark symbol {}
+}
+
+chart cartesian as overview {
+  mark badge {}
+}
+
+chart cartesian as detail {
+  mark badge {}
+}
+"#;
+        fs::write(&module, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let module_uri = Uri::from_file_path(&module).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {},
+                    "workspaceFolders": [{ "uri": root_uri, "name": "module" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": module_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _syntax = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let response = call(
+            &mut service,
+            Request::build("textDocument/codeLens")
+                .id(2)
+                .params(json!({ "textDocument": { "uri": module_uri } }))
+                .finish(),
+        )
+        .await
+        .expect("code lens response");
+        let lenses: Vec<CodeLens> =
+            serde_json::from_value(serde_json::to_value(response.result().unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(lenses.len(), 2);
+        let selectors = lenses
+            .iter()
+            .map(|lens| {
+                let command = lens.command.as_ref().unwrap();
+                assert_eq!(command.command, "avenger.watchChart");
+                let payload = command.arguments.as_ref().unwrap()[0].as_object().unwrap();
+                assert_eq!(payload["moduleUri"].as_str(), Some(module_uri.as_str()));
+                payload["chart"].as_str().unwrap().to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(selectors, ["overview", "detail"]);
+
+        let _semantic = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let response = call(
+            &mut service,
+            Request::build("workspace/symbol")
+                .id(3)
+                .params(json!({ "query": "badge" }))
+                .finish(),
+        )
+        .await
+        .expect("workspace symbol response");
+        let symbols: WorkspaceSymbolResponse =
+            serde_json::from_value(serde_json::to_value(response.result().unwrap()).unwrap())
+                .unwrap();
+        let WorkspaceSymbolResponse::Flat(symbols) = symbols else {
+            panic!("expected flat workspace symbols");
+        };
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "badge");
+        assert!(
+            symbols[0]
+                .container_name
+                .as_deref()
+                .is_some_and(|context| context.contains("define"))
+        );
+    }
+
+    #[tokio::test]
+    async fn exported_rename_preserves_each_importers_local_spelling() {
+        let project = tempdir().unwrap();
+        let library = project.path().join("library.avenger");
+        let direct = project.path().join("direct.avenger");
+        let aliased = project.path().join("aliased.avenger");
+        let qualified = project.path().join("qualified.avenger");
+        let library_text = "avenger 1; export define mark badge { mark symbol {} }";
+        fs::write(&library, library_text).unwrap();
+        fs::write(
+            &direct,
+            "avenger 1; import { badge } from 'library.avenger'; chart cartesian { mark badge {} }",
+        )
+        .unwrap();
+        fs::write(
+            &aliased,
+            "avenger 1; import { badge as b } from 'library.avenger'; chart cartesian { mark b {} }",
+        )
+        .unwrap();
+        fs::write(
+            &qualified,
+            "avenger 1; import * as defs from 'library.avenger'; chart cartesian { mark defs.badge {} }",
+        )
+        .unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let library_uri = Uri::from_file_path(&library).unwrap();
+        let captured = Arc::new(StdMutex::new(None::<Backend>));
+        let captured_factory = Arc::clone(&captured);
+        let (mut service, mut socket) = LspService::new(move |client| {
+            let backend = Backend::new(client);
+            *captured_factory.lock().expect("capture backend") = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "workspace": {
+                            "workspaceEdit": { "documentChanges": true }
+                        }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "rename" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": library_uri,
+                        "languageId": "avenger",
+                        "version": 7,
+                        "text": library_text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _syntax = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let backend = captured
+            .lock()
+            .expect("captured backend")
+            .clone()
+            .expect("backend");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if !backend
+                    .inner
+                    .state
+                    .read()
+                    .await
+                    .semantic_analysis
+                    .is_empty()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("semantic analysis timeout");
+
+        let response = call(
+            &mut service,
+            Request::build("textDocument/rename")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": library_uri },
+                    "position": {
+                        "line": 0,
+                        "character": library_text.find("badge").unwrap() + 1
+                    },
+                    "newName": "status_badge"
+                }))
+                .finish(),
+        )
+        .await
+        .expect("rename response");
+        let edit: WorkspaceEdit =
+            serde_json::from_value(serde_json::to_value(response.result().unwrap()).unwrap())
+                .unwrap();
+        let Some(DocumentChanges::Edits(documents)) = edit.document_changes else {
+            panic!("expected versioned document edits");
+        };
+        assert_eq!(documents.len(), 4);
+        let edits = documents
+            .iter()
+            .map(|document| {
+                (
+                    document.text_document.uri.clone(),
+                    document
+                        .edits
+                        .iter()
+                        .filter_map(|edit| match edit {
+                            OneOf::Left(edit) => Some(edit.new_text.clone()),
+                            OneOf::Right(edit) => Some(edit.text_edit.new_text.clone()),
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let canonical_uri =
+            |path: &std::path::Path| Uri::from_file_path(fs::canonicalize(path).unwrap()).unwrap();
+        assert!(
+            edits[&canonical_uri(&direct)]
+                .iter()
+                .any(|text| text == "status_badge as badge")
+        );
+        assert!(
+            edits[&canonical_uri(&aliased)]
+                .iter()
+                .any(|text| text == "status_badge")
+        );
+        assert!(
+            edits[&canonical_uri(&qualified)]
+                .iter()
+                .any(|text| text == "status_badge")
+        );
     }
 
     #[tokio::test]
@@ -2970,15 +3382,15 @@ mod tests {
         let project = tempdir().unwrap();
         let root = fs::canonicalize(project.path()).unwrap();
         let chart = root.join("chart.avenger");
-        let remote_url = "https://example.test/badge.mark.avenger";
+        let remote_url = "https://example.test/badge.avenger";
         let text = format!(
-            "avenger 1; import '{remote_url}'; chart cartesian as chart {{ mark group as cluster {{ mark symbol {{}} }} }}"
+            "avenger 1; import {{ badge }} from '{remote_url}'; chart cartesian as chart {{ mark group as cluster {{ mark symbol {{}} }} }}"
         );
         fs::write(&chart, &text).unwrap();
         let root_uri = Uri::from_file_path(&root).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
         let remote_origin = SourceOrigin::Http(remote_url.to_owned());
-        let remote_definition = "avenger 1; define mark badge { mark symbol {} }";
+        let remote_definition = "avenger 1; export define mark badge { mark symbol {} }";
         let loader = avenger_lang_core::InMemorySourceLoader::default().with_source(
             avenger_lang_core::LoadedSource::new(
                 remote_origin,
@@ -3032,6 +3444,7 @@ mod tests {
             root.clone(),
             Workspace {
                 service: AnalysisService::new(compiler),
+                ambient_modules: Default::default(),
             },
         );
         call(
@@ -3170,11 +3583,11 @@ mod tests {
     async fn transcript_inline_definition_returns_a_versioned_compiler_expansion() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let definition = project.path().join("badge.mark.avenger");
-        let text = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
+        let definition = project.path().join("badge.avenger");
+        let text = "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { mark badge as imported {} }";
         fs::write(
             &definition,
-            "avenger 1; define mark badge { mark symbol as body {} }",
+            "avenger 1; export define mark badge { mark symbol as body {} }",
         )
         .unwrap();
         fs::write(&chart, text).unwrap();
@@ -3434,10 +3847,10 @@ mod tests {
         }
 
         let project = tempdir().unwrap();
-        let data = project.path().join("catalog.data.avenger");
+        let data = project.path().join("data.avenger");
         let chart = project.path().join("chart.avenger");
         let valid = r#"avenger 1;
-schema tables as vega {
+export schema tables as vega {
   table inline as movies {
     values: [{ title: 'A'; rating: 8.5; }];
   }
@@ -3471,6 +3884,9 @@ chart cartesian as chart {
                     "capabilities": {
                         "general": { "positionEncodings": ["utf-8"] },
                         "textDocument": { "completion": { "completionItem": {} } }
+                    },
+                    "initializationOptions": {
+                        "ambientModules": ["data.avenger"]
                     },
                     "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
                 }))
@@ -3592,7 +4008,7 @@ chart cartesian as chart {
     }
 
     #[tokio::test]
-    async fn transcript_transform_sql_completion_uses_discovered_data_roots() {
+    async fn transcript_transform_sql_completion_uses_explicit_data_imports() {
         fn position(text: &str, offset: usize) -> serde_json::Value {
             let prefix = &text[..offset];
             let line = prefix.bytes().filter(|byte| *byte == b'\n').count();
@@ -3603,18 +4019,19 @@ chart cartesian as chart {
         }
 
         let project = tempdir().unwrap();
-        let data = project.path().join("catalog.data.avenger");
-        let definition = project.path().join("dot.mark.avenger");
+        let data = project.path().join("data.avenger");
+        let definition = project.path().join("dot.avenger");
         let chart = project.path().join("chart.avenger");
         let data_text = r#"avenger 1;
-schema tables as vega {
+export schema tables as vega {
   table inline as movies {
     values: [{ title: 'A'; rating: 8.5; }];
   }
 }
 "#;
         let chart_text = r#"avenger 1;
-import 'dot.mark.avenger';
+import { vega } from 'data.avenger';
+import { dot } from 'dot.avenger';
 chart cartesian as chart {
   data: { table: 'vega.movies'; }
   transform sql as rows {
@@ -3626,7 +4043,11 @@ chart cartesian as chart {
 }
 "#;
         fs::write(&data, data_text).unwrap();
-        fs::write(&definition, "avenger 1; define mark dot { mark symbol {} }").unwrap();
+        fs::write(
+            &definition,
+            "avenger 1; export define mark dot { mark symbol {} }",
+        )
+        .unwrap();
         fs::write(&chart, chart_text).unwrap();
 
         let root_uri = Uri::from_file_path(project.path()).unwrap();

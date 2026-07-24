@@ -205,9 +205,6 @@ impl WorkspaceSemanticIndex {
                         .get(importer)
                         .into_iter()
                         .flat_map(|document| &document.symbols)
-                        .filter(|declaration| {
-                            declaration.native_kind.as_deref() == Some(path.as_str())
-                        })
                         .filter_map(|declaration| {
                             let header = declaration_header(
                                 analysis,
@@ -215,13 +212,16 @@ impl WorkspaceSemanticIndex {
                                 &declaration.keyword,
                                 Some(&declaration.name),
                             );
-                            header.native_kind_span.map(|span| IndexedReference {
-                                name: path.clone(),
-                                origin: importer.clone(),
-                                span,
-                                target_identity: None,
-                                value_kind,
-                            })
+                            (header.native_kind.as_deref() == Some(path.as_str()))
+                                .then_some(header.native_kind_span)
+                                .flatten()
+                                .map(|span| IndexedReference {
+                                    name: path.clone(),
+                                    origin: importer.clone(),
+                                    span,
+                                    target_identity: None,
+                                    value_kind,
+                                })
                         })
                         .collect::<Vec<_>>();
                     if let Some(document) = self.documents.get_mut(importer) {
@@ -1235,9 +1235,9 @@ fn completion_kind_for_value(value_kind: IndexedValueKind) -> CompletionKind {
     match value_kind {
         IndexedValueKind::Table => CompletionKind::Table,
         IndexedValueKind::Field => CompletionKind::Field,
-        IndexedValueKind::Scalar
-        | IndexedValueKind::Selection
-        | IndexedValueKind::Output => CompletionKind::Variable,
+        IndexedValueKind::Scalar | IndexedValueKind::Selection | IndexedValueKind::Output => {
+            CompletionKind::Variable
+        }
         _ => CompletionKind::Declaration,
     }
 }
@@ -1568,17 +1568,11 @@ impl<'a> QueryContext<'a> {
                 ));
             }
         } else if let Some(import) = scan_imports(syntax).into_iter().find(|import| {
-            import.member_span.is_some_and(|span| {
-                span.range.start <= cursor && cursor <= span.range.end
-            })
+            import
+                .member_span
+                .is_some_and(|span| span.range.start <= cursor && cursor <= span.range.end)
         }) {
-            self.complete_import_members(
-                &request.source,
-                &import,
-                prefix,
-                replacement,
-                &mut items,
-            );
+            self.complete_import_members(&request.source, &import, prefix, replacement, &mut items);
         } else if let Some(import_prefix) = import_prefix(text, cursor) {
             self.complete_imports(import_prefix, replacement, &mut items);
         } else if prefix.starts_with('$') {
