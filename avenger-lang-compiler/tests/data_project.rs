@@ -25,23 +25,17 @@ async fn data_failure(data: &str) -> CompileFailure {
         .strip_prefix("avenger 1;")
         .expect("diagnostic fixture starts with the language version");
     let data = format!("avenger 1; schema tables as test {{ {declarations} }}");
-    let loader = InMemorySourceLoader::default()
-        .with_source(LoadedSource::new(
-            SourceOrigin::File("/project/chart.avenger".into()),
-            "avenger 1; import 'catalog.data.avenger'; chart cartesian as chart {}",
-            ContentVersion::new("chart-v1"),
-        ))
-        .with_source(LoadedSource::new(
-            SourceOrigin::File("/project/catalog.data.avenger".into()),
-            data,
-            ContentVersion::new("catalog-v1"),
-        ));
+    let loader = InMemorySourceLoader::default().with_source(LoadedSource::new(
+        SourceOrigin::File("/project/data.avenger".into()),
+        data,
+        ContentVersion::new("data-v1"),
+    ));
     Compiler::builder()
         .project_root("/project")
         .source_loader(Arc::new(loader) as Arc<dyn SourceLoader>)
         .build()
         .unwrap()
-        .compile_chart("chart.avenger", None)
+        .analyze_module("data.avenger")
         .await
         .unwrap_err()
 }
@@ -50,7 +44,7 @@ async fn data_failure(data: &str) -> CompileFailure {
 async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without_execution() {
     let root = project_fixture("phase9-schema-chain");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_module(&root).await.unwrap();
+    let analysis = compiler.analyze_module("chart.avenger").await.unwrap();
     let tables = analysis
         .datasets
         .iter()
@@ -158,7 +152,7 @@ async fn data_project_reports_catalog_dag_argument_capability_and_option_failure
             "unknown table",
             r#"avenger 1;
                table sql as derived { sql: SELECT * FROM missing; }"#,
-            "AVENGER-DATA-031",
+            "AVENGER-DATA-106",
         ),
         (
             "dependency cycle",
@@ -265,7 +259,7 @@ async fn data_project_validates_file_options_before_provider_planning() {
         ("invented: true;", "AVENGER-DATA-046"),
     ] {
         fs::write(
-            root.join("catalog.data.avenger"),
+            root.join("data.avenger"),
             format!(
                 "avenger 1; schema tables as test {{ \
                  table csv as rows {{ path: 'rows.csv'; options: {{ {options} }} }} }}"
@@ -276,7 +270,7 @@ async fn data_project_validates_file_options_before_provider_planning() {
             .project_root(&root)
             .build()
             .unwrap()
-            .analyze_module(&root)
+            .analyze_module(root.join("data.avenger"))
             .await
             .unwrap_err();
         assert_eq!(failure.diagnostics[0].code.as_str(), expected);

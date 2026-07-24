@@ -1515,8 +1515,7 @@ impl NativeRegistryBuilder {
             "avenger-native-builtins-{}-{:x}",
             self.language_major,
             Sha256::digest(
-                serde_json::to_vec(&(snapshot.version, &snapshot.profile_label, builtin_schemas))
-                    .map_err(|error| {
+                serde_json::to_vec(&(snapshot.version, builtin_schemas)).map_err(|error| {
                     RegistryError::Schema(avenger_chart_schema::SchemaError::Serialize(error))
                 })?
             )

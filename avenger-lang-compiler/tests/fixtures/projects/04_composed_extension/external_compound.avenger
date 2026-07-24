@@ -1,6 +1,8 @@
 avenger 1;
 
+import * as acme from 'native:com.acme.compiler-fixture@1';
+
 chart cartesian as external_compound {
   data: { values: [{ value: 2.0; }]; }
-  mark external_mean_point as mean_point {}
+  mark acme.mean_point as mean_point {}
 }

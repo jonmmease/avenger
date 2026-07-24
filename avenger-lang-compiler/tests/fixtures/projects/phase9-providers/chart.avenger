@@ -1,3 +1,5 @@
 avenger 1;
 
+import { local, warehouse } from './catalog.data.avenger';
+
 chart cartesian as chart {}

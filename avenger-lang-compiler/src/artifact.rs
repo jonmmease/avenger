@@ -230,7 +230,7 @@ impl CompiledChartArtifact {
     /// majors and native registry profiles before deserializing trait objects.
     pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactSerializationError> {
         let header = SerializedArtifactHeader {
-            id: self.id.clone(),
+            id: SerializedChartEntrypointId::from(&self.id),
             name: self.name.clone(),
             source: self.source,
             interface: self.interface.clone(),
@@ -264,7 +264,7 @@ impl CompiledChartArtifact {
         let compiled = bincode::deserialize(compiled)
             .map_err(|error| ArtifactSerializationError::Decode(error.to_string()))?;
         Ok(Self {
-            id: header.id,
+            id: header.id.into(),
             name: header.name,
             source: header.source,
             compiled: Arc::new(compiled),
@@ -281,12 +281,45 @@ const ARTIFACT_PREFIX_LEN: usize = ARTIFACT_MAGIC.len() + 2 + 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SerializedArtifactHeader {
-    id: ChartEntrypointId,
+    id: SerializedChartEntrypointId,
     name: Option<String>,
     source: SourceId,
     interface: CompiledChartInterface,
     native_requirements: NativeRequirementSet,
     dependency_fingerprint: DependencyFingerprint,
+}
+
+/// Bincode transport shape for the semantically richer, JSON-tagged public
+/// selector enum. Bincode cannot decode Serde's internally tagged enum
+/// representation, so the artifact envelope stores the equivalent optional
+/// chart name directly.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SerializedChartEntrypointId {
+    module: SourceModuleId,
+    chart: Option<String>,
+}
+
+impl From<&ChartEntrypointId> for SerializedChartEntrypointId {
+    fn from(value: &ChartEntrypointId) -> Self {
+        Self {
+            module: value.module.clone(),
+            chart: match &value.selector {
+                ChartSelector::Anonymous => None,
+                ChartSelector::Named(name) => Some(name.clone()),
+            },
+        }
+    }
+}
+
+impl From<SerializedChartEntrypointId> for ChartEntrypointId {
+    fn from(value: SerializedChartEntrypointId) -> Self {
+        Self {
+            module: value.module,
+            selector: value
+                .chart
+                .map_or(ChartSelector::Anonymous, ChartSelector::Named),
+        }
+    }
 }
 
 fn decode_artifact_parts(

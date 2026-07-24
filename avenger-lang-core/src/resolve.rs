@@ -4148,7 +4148,7 @@ impl<'a> Resolver<'a> {
                 ancestry: Vec::new(),
                 runtime_target: runtime_target(declaration, &declaration_id(file, path)),
             });
-        let coordinate = declaration_coordinate(declaration, inherited_coordinate);
+        let mut coordinate = declaration_coordinate(declaration, inherited_coordinate);
         let parent = parent_declaration(file, path);
         self.validate_placement(declaration, parent, info.span);
         self.validate_visibility(file, path, declaration, info.span);
@@ -4156,6 +4156,11 @@ impl<'a> Resolver<'a> {
         let in_definition = inside_definition(file, path);
         let kind_binding =
             self.kind_binding(file, declaration, coordinate.as_deref(), in_definition);
+        if let Some(ResolvedKindBinding::Native { implementation, .. }) = &kind_binding
+            && implementation.namespace == NativeKindNamespace::Coordinate
+        {
+            coordinate = Some(implementation.kind.clone());
+        }
         let native_schema =
             self.native_schema(declaration, coordinate.as_deref(), kind_binding.as_ref());
         let definition_schema = declaration
@@ -4439,7 +4444,12 @@ impl<'a> Resolver<'a> {
             source: file.source,
             span: info.span,
             keyword: declaration.keyword.to_string(),
-            kind: declaration.kind.as_ref().map(ToString::to_string),
+            kind: match &kind_binding {
+                Some(ResolvedKindBinding::Native { implementation, .. }) => {
+                    Some(implementation.kind.clone())
+                }
+                _ => declaration.kind.as_ref().map(ToString::to_string),
+            },
             kind_binding,
             name: declaration.name.as_ref().map(ToString::to_string),
             visibility: declaration.visibility,
@@ -4715,6 +4725,17 @@ impl<'a> Resolver<'a> {
             "resource" => NativeKindKey::new(NativeKindNamespace::Resource, simple.as_str()),
             _ => return None,
         };
+        if self.registry.modules.values().any(|module| {
+            module
+                .exports
+                .values()
+                .any(|export| export.implementation == key)
+        }) {
+            // Host-native declarations participate in authoring only through
+            // an explicit named or namespace import. Installation alone must
+            // never make an unqualified kind visible.
+            return None;
+        }
         Some(ResolvedKindBinding::Builtin(key))
     }
 

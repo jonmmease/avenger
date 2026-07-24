@@ -376,10 +376,11 @@
     },
     {
       "root": "stdlib/chart.avenger",
-      "expectation": "diagnostic",
+      "expectation": "visual",
       "sources": [
         "stdlib/chart.avenger"
-      ]
+      ],
+      "review": "intentional_blank"
     }
   ]
 }

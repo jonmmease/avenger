@@ -1,5 +1,7 @@
 avenger 1;
 
-chart external_isometric as external_coordinate {
-  mark external_cube as cube {}
+import * as acme from 'native:com.acme.compiler-fixture@1';
+
+chart acme.isometric as external_coordinate {
+  mark acme.cube as cube {}
 }

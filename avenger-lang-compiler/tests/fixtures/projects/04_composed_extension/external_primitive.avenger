@@ -1,5 +1,7 @@
 avenger 1;
 
+import * as acme from 'native:com.acme.compiler-fixture@1';
+
 chart cartesian as external_primitive {
-  mark external_hexbin as bins {}
+  mark acme.hexbin as bins {}
 }

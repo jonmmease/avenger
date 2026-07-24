@@ -183,7 +183,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
             .iter()
             .filter(|case| case.expectation == FixtureExpectation::Visual)
             .count(),
-        43
+        44
     );
 
     let mut owners = BTreeMap::new();
@@ -291,11 +291,11 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
         )),
         (FixtureExpectation::Visual, Ok(generation)) => {
             if case.host == FixtureHost::ProviderMocks
-                && (MOCK_ICEBERG_CREATES.load(Ordering::SeqCst) == 0
-                    || MOCK_DELTA_CREATES.load(Ordering::SeqCst) == 0)
+                && (MOCK_ICEBERG_CREATES.load(Ordering::SeqCst) != 0
+                    || MOCK_DELTA_CREATES.load(Ordering::SeqCst) != 0)
             {
                 return Err(format!(
-                    "provider fixture must instantiate both catalog and table factories; got iceberg={}, delta={}",
+                    "unused provider imports must not instantiate factories; got iceberg={}, delta={}",
                     MOCK_ICEBERG_CREATES.load(Ordering::SeqCst),
                     MOCK_DELTA_CREATES.load(Ordering::SeqCst)
                 ));
@@ -997,7 +997,7 @@ fn composed_registry() -> Arc<NativeRegistry> {
     builtins::register_bootstrap_builtins(&mut builder).unwrap();
     let mut module = builder
         .native_module(
-            NativeModuleId::new("native:com.acme.visual-regression@1").unwrap(),
+            NativeModuleId::new("native:com.acme.compiler-fixture@1").unwrap(),
             "Visual regression downstream-extension fixture.",
             NativeModuleImplementationProfileId::new("visual-regression-rust-v1").unwrap(),
         )

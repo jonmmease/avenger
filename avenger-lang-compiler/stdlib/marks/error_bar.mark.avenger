@@ -4,7 +4,7 @@ export define mark error_bar {
   slot channel x;
   slot channel y;
 
-  private mark rule {
+  mark rule {
     x: channel(x);
     y: channel(y);
   }

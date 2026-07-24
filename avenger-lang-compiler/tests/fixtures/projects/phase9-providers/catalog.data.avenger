@@ -1,6 +1,6 @@
 avenger 1;
 
-catalog iceberg as warehouse {
+export catalog iceberg as warehouse {
   uri: 'https://catalog.example.invalid';
   token: env 'ICEBERG_TOKEN';
   schema namespace as analytics {
@@ -8,7 +8,7 @@ catalog iceberg as warehouse {
   }
 }
 
-schema tables as local {
+export schema tables as local {
   table delta as events {
     uri: 's3://warehouse/events';
   }

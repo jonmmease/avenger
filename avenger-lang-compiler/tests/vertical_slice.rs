@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
 use avenger_chart::prelude::{
     Cartesian, CompiledWidget, FacetColumn, FacetColumnSubplotChannels, IntoPlotMark, Subplot,
@@ -259,7 +259,10 @@ async fn vertical_slice_sql_aggregate_pipeline_propagates_schema_and_evaluates()
         .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
-    let analysis = compiler.analyze_module(&root).await.unwrap();
+    let analysis = compiler
+        .analyze_module(root.join("chart.avenger"))
+        .await
+        .unwrap();
     let sql_schema = analysis
         .datasets
         .iter()
@@ -834,18 +837,18 @@ async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() 
 #[tokio::test]
 async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
     let root = fixture("09_native_coordinate_families");
-    let project = Compiler::builder()
-        .project_root(&root)
-        .build()
-        .unwrap()
-        .compile_module(&root)
-        .await
-        .unwrap();
-    assert_eq!(project.charts.len(), 8);
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let mut charts = BTreeMap::new();
     for chart in [
         "polar", "parallel", "geo", "treemap", "concat", "repeat", "facet", "subplot",
     ] {
-        assert!(project.chart(chart).is_some(), "missing {chart} fixture");
+        charts.insert(
+            chart,
+            compiler
+                .compile_chart(root.join(format!("{chart}.avenger")), None)
+                .await
+                .unwrap(),
+        );
     }
     for (chart, expected) in [
         ("polar", "CompiledPolarSymbol"),
@@ -857,14 +860,13 @@ async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
         ("facet", "FacetWrap"),
         ("subplot", "CompiledPositionedSubplot"),
     ] {
-        let json = serde_json::to_string(project.chart(chart).unwrap().compiled_plot()).unwrap();
+        let json = serde_json::to_string(charts[chart].compiled_plot()).unwrap();
         assert!(
             json.contains(expected),
             "{chart}: missing {expected}: {json}"
         );
     }
-    let parallel =
-        serde_json::to_value(project.chart("parallel").unwrap().compiled_plot()).unwrap();
+    let parallel = serde_json::to_value(charts["parallel"].compiled_plot()).unwrap();
     assert_eq!(
         parallel["coord_transform"]["order"],
         serde_json::json!(["horsepower", "mileage"]),
@@ -1944,7 +1946,9 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
     let cases = [
         (
             "unsupported coordinate/mark pair",
-            r#"avenger 1; chart external_isometric as chart { mark symbol as point {} }"#,
+            r#"avenger 1;
+            import * as acme from 'native:com.acme.compiler-fixture@1';
+            chart acme.isometric as chart { mark symbol as point {} }"#,
             Some(composed_registry()),
             "symbol",
         ),
@@ -1968,7 +1972,9 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
         ),
         (
             "registered lowerer failure",
-            r#"avenger 1; chart cartesian as chart { mark failing_external_mark as point {} }"#,
+            r#"avenger 1;
+            import * as acme from 'native:com.acme.compiler-fixture@1';
+            chart cartesian as chart { mark acme.failing_mark as point {} }"#,
             Some(composed_registry()),
             "intentional downstream lowerer failure",
         ),
@@ -1998,64 +2004,73 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
     assert_ne!(stock.profile_id(), composed.profile_id());
 
     let root = fixture("04_composed_extension");
-    let project = Compiler::builder()
+    let compiler = Compiler::builder()
         .project_root(&root)
         .native_registry(composed.clone())
         .build()
-        .unwrap()
-        .compile_module(&root)
-        .await
         .unwrap();
-    assert_eq!(project.charts.len(), 4);
+    let mut charts = BTreeMap::new();
+    for chart in [
+        "external_primitive",
+        "external_compound",
+        "external_coordinate",
+        "mixed_coordinates",
+    ] {
+        charts.insert(
+            chart,
+            compiler
+                .compile_chart(root.join(format!("{chart}.avenger")), None)
+                .await
+                .unwrap(),
+        );
+    }
     assert_eq!(
-        project
-            .chart("external_primitive")
-            .unwrap()
-            .compiled_plot()
-            .marks()[0]
-            .mark_type(),
+        charts["external_primitive"].compiled_plot().marks()[0].mark_type(),
         "hexbin"
     );
     assert!(
-        !project
-            .chart("external_compound")
-            .unwrap()
+        !charts["external_compound"]
             .compiled_plot()
             .marks()
             .is_empty()
     );
     assert_eq!(
-        project
-            .chart("external_coordinate")
-            .unwrap()
-            .compiled_plot()
-            .marks()[0]
-            .mark_type(),
+        charts["external_coordinate"].compiled_plot().marks()[0].mark_type(),
         "cube"
     );
     assert_eq!(
-        project
-            .chart("mixed_coordinates")
-            .unwrap()
-            .compiled_plot()
-            .marks()
-            .len(),
+        charts["mixed_coordinates"].compiled_plot().marks().len(),
         2,
         "both built-in and custom child plots cross the erased child boundary"
     );
 
-    let stock_failure = Compiler::builder()
+    let stock_compiler = Compiler::builder()
         .project_root(&root)
         .native_registry(stock.clone())
         .build()
-        .unwrap()
-        .compile_module(&root)
-        .await
-        .expect_err("stock registry must reject downstream kinds");
-    assert!(stock_failure.diagnostics.iter().all(|diagnostic| {
-        diagnostic.code.as_str() == "AVENGER-RESOLVE-020"
-            && !diagnostic.primary.span.range.is_empty()
-    }));
+        .unwrap();
+    let mut stock_diagnostics = Vec::new();
+    for chart in [
+        "external_primitive",
+        "external_compound",
+        "external_coordinate",
+        "mixed_coordinates",
+    ] {
+        stock_diagnostics.extend(
+            stock_compiler
+                .compile_chart(root.join(format!("{chart}.avenger")), None)
+                .await
+                .expect_err("stock registry must reject downstream kinds")
+                .diagnostics,
+        );
+    }
+    assert!(
+        stock_diagnostics.iter().all(|diagnostic| {
+            diagnostic.code.as_str() == "AVENGER-MODULE-016"
+                && !diagnostic.primary.span.range.is_empty()
+        }),
+        "{stock_diagnostics:#?}"
+    );
 
     let schema = CompilerBuilder::default()
         .project_root(&root)
@@ -2093,14 +2108,18 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
         );
     }
 
-    let artifact = project.chart("external_primitive").unwrap();
+    let artifact = &charts["external_primitive"];
     let bytes = artifact.to_bytes().unwrap();
     let decoded = CompiledChartArtifact::from_bytes(&bytes, &composed).unwrap();
     assert_eq!(decoded.compiled_plot().marks()[0].mark_type(), "hexbin");
-    assert!(matches!(
-        CompiledChartArtifact::from_bytes(&bytes, &stock),
-        Err(ArtifactSerializationError::MissingNativeModule { .. })
-    ));
+    let stock_error = CompiledChartArtifact::from_bytes(&bytes, &stock).unwrap_err();
+    assert!(
+        matches!(
+            stock_error,
+            ArtifactSerializationError::MissingNativeModule { .. }
+        ),
+        "{stock_error:?}"
+    );
 }
 
 #[tokio::test]
@@ -2355,7 +2374,10 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
     );
     assert_eq!(artifact.interface, expanded_artifact.interface);
 
-    let analysis = compiler.analyze_module(&root).await.unwrap();
+    let analysis = compiler
+        .analyze_module(root.join("chart.avenger"))
+        .await
+        .unwrap();
     let public_schema = analysis
         .datasets
         .iter()
