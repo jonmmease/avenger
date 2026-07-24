@@ -2,10 +2,14 @@
 
 #![allow(clippy::result_large_err)]
 
-use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::ControlFlow,
+    sync::Arc,
+};
 
 use avenger_lang_core::{
-    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
+    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, ModuleItemId, PhysicalType,
     ResolvedCatalogTable, ResolvedDeclaration, ResolvedModuleGraph, ResolvedQuery,
     ResolvedRelationId, ResolvedRelationTarget, ResolvedValue, SourceLabel, SourceOrigin,
     module_graph::normalize_path,
@@ -47,6 +51,9 @@ pub(crate) struct CatalogOptions<'a> {
     pub environment_provider: &'a dyn EnvironmentProvider,
     pub catalog_factories: &'a CatalogFactoryRegistry,
     pub table_factories: &'a TableFactoryRegistry,
+    /// When present, initialize only providers owned by these reachable
+    /// top-level module items. `None` is the eager editor/checking mode.
+    pub reachable_items: Option<&'a BTreeSet<ModuleItemId>>,
 }
 
 pub(crate) async fn register_and_analyze_catalog(
@@ -74,6 +81,7 @@ pub(crate) async fn register_and_analyze_catalog(
         project,
         context,
         &external_fingerprints,
+        &options,
         &mut datasets,
         &mut lineage,
         &mut dataset_fingerprints,
@@ -84,6 +92,9 @@ pub(crate) async fn register_and_analyze_catalog(
         let Some(table) = table_by_id.get(id).copied() else {
             continue;
         };
+        if !item_is_reachable(&table.relation.defining_item, &options) {
+            continue;
+        }
         let declaration = declarations.get(id).copied().ok_or_else(|| {
             catalog_diagnostic(table, "AVENGER-DATA-001", "catalog declaration is missing")
         })?;
@@ -217,7 +228,13 @@ async fn register_external_catalogs(
     for declaration in project
         .source_modules
         .values()
-        .flat_map(|file| file.roots.iter())
+        .flat_map(|file| {
+            file.item_order
+                .iter()
+                .zip(&file.roots)
+                .filter(|(item, _)| item_is_reachable(item, options))
+                .map(|(_, declaration)| declaration)
+        })
         .filter(|declaration| declaration.keyword == "catalog")
     {
         let Some(name) = declaration.name.as_deref() else {
@@ -420,6 +437,7 @@ async fn analyze_external_catalogs(
     project: &ResolvedModuleGraph,
     context: &SessionContext,
     external_fingerprints: &BTreeMap<String, String>,
+    options: &CatalogOptions<'_>,
     datasets: &mut DatasetSchemaIndex,
     lineage: &mut DatasetLineageIndex,
     dataset_fingerprints: &mut BTreeMap<DatasetStageId, DependencyFingerprint>,
@@ -427,7 +445,13 @@ async fn analyze_external_catalogs(
     for declaration in project
         .source_modules
         .values()
-        .flat_map(|file| file.roots.iter())
+        .flat_map(|file| {
+            file.item_order
+                .iter()
+                .zip(&file.roots)
+                .filter(|(item, _)| item_is_reachable(item, options))
+                .map(|(_, declaration)| declaration)
+        })
         .filter(|declaration| declaration.keyword == "catalog")
     {
         let kind = declaration.kind.as_deref().unwrap_or("schemas");
@@ -532,6 +556,12 @@ async fn analyze_external_catalogs(
         }
     }
     Ok(())
+}
+
+fn item_is_reachable(item: &ModuleItemId, options: &CatalogOptions<'_>) -> bool {
+    options
+        .reachable_items
+        .is_none_or(|reachable| reachable.contains(item))
 }
 
 async fn create_table_provider(

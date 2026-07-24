@@ -196,6 +196,27 @@ impl TableFactory for CountingFactory {
     }
 }
 
+struct CreateCountingFactory(Arc<AtomicUsize>);
+
+#[async_trait]
+impl TableFactory for CreateCountingFactory {
+    async fn create(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Arc<dyn TableProvider>, TableFactoryError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("x", DataType::Int64, false),
+            Field::new("y", DataType::Int64, false),
+        ]));
+        Ok(Arc::new(
+            MemTable::try_new(schema, vec![Vec::new()])
+                .map_err(|error| TableFactoryError::Message(error.to_string()))?,
+        ))
+    }
+}
+
 fn provider_registries(
     iceberg_snapshot: &'static str,
     delta_snapshot: &'static str,
@@ -575,5 +596,59 @@ async fn catalog_session_materialization_is_lazy_and_reused_within_one_generatio
         scans.load(Ordering::SeqCst),
         1,
         "the source provider is loaded once per session"
+    );
+}
+
+#[tokio::test]
+async fn selected_chart_initializes_only_reachable_table_providers() {
+    let loader = InMemorySourceLoader::default()
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/chart.avenger".into()),
+            "avenger 1;\
+             import { used } from './used.avenger';\
+             import { unused } from './unused.avenger';\
+             chart cartesian as chart {\
+               data: { table: 'used'; }\
+               mark symbol { x: 'x'; y: 'y'; }\
+             }",
+            ContentVersion::new("chart-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/used.avenger".into()),
+            "avenger 1; export table counting as used {}",
+            ContentVersion::new("used-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/unused.avenger".into()),
+            "avenger 1; export table counting as unused {}",
+            ContentVersion::new("unused-v1"),
+        ));
+    let creates = Arc::new(AtomicUsize::new(0));
+    let mut factories = TableFactoryRegistry::default();
+    factories
+        .register(
+            "counting",
+            Arc::new(CreateCountingFactory(Arc::clone(&creates))),
+        )
+        .unwrap();
+    let compiler = Compiler::builder()
+        .project_root("/project")
+        .source_loader(Arc::new(loader) as Arc<dyn SourceLoader>)
+        .table_factories(factories)
+        .build()
+        .unwrap();
+
+    compiler.compile_chart("chart.avenger", None).await.unwrap();
+    assert_eq!(
+        creates.load(Ordering::SeqCst),
+        1,
+        "the unused imported table must not request credentials or construct a provider"
+    );
+
+    compiler.analyze_module("chart.avenger").await.unwrap();
+    assert_eq!(
+        creates.load(Ordering::SeqCst),
+        3,
+        "editor/check analysis remains eager so both imported schemas are available"
     );
 }

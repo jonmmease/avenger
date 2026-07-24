@@ -309,7 +309,12 @@ impl Compiler {
                     Ok(entrypoint) => {
                         async {
                             let (environment, catalog) = self
-                                .analyze_resolved_project(&project, generation, &dependencies)
+                                .analyze_resolved_project(
+                                    &project,
+                                    generation,
+                                    &dependencies,
+                                    Some(&project.entrypoints[&entrypoint].reachable_items),
+                                )
                                 .await?;
                             let fingerprints = dependency_fingerprint_layers(
                                 &self.options,
@@ -476,8 +481,14 @@ impl Compiler {
         dependencies: &DiscoveredDependencySet,
         generation: u64,
     ) -> Result<CompiledModule, CompileFailure> {
+        let reachable_items = project
+            .entrypoints
+            .iter()
+            .filter(|(entrypoint, _)| &entrypoint.module == requested)
+            .flat_map(|(_, entrypoint)| entrypoint.reachable_items.iter().cloned())
+            .collect::<BTreeSet<_>>();
         let (environment, catalog) = self
-            .analyze_resolved_project(project, generation, dependencies)
+            .analyze_resolved_project(project, generation, dependencies, Some(&reachable_items))
             .await?;
         let analysis = self
             .finish_project_analysis(parsed, project, dependencies, &environment, &catalog)
@@ -640,7 +651,7 @@ impl Compiler {
             })
             .result?;
         let (environment, catalog) = self
-            .analyze_resolved_project(&project, 0, &dependencies)
+            .analyze_resolved_project(&project, 0, &dependencies, None)
             .await?;
         self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
             .await
@@ -663,7 +674,7 @@ impl Compiler {
             })
             .result?;
         let (environment, catalog) = self
-            .analyze_resolved_project(&project, generation, &dependencies)
+            .analyze_resolved_project(&project, generation, &dependencies, None)
             .await?;
         self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
             .await
@@ -1115,6 +1126,7 @@ impl Compiler {
         project: &ResolvedModuleGraph,
         generation: u64,
         dependencies: &DiscoveredDependencySet,
+        reachable_items: Option<&BTreeSet<avenger_lang_core::ModuleItemId>>,
     ) -> Result<(crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
         let request = CompileEnvironmentRequest {
             generation,
@@ -1147,6 +1159,7 @@ impl Compiler {
                 environment_provider: self.options.environment.as_ref(),
                 catalog_factories: &self.options.catalog_factories,
                 table_factories: &self.options.table_factories,
+                reachable_items,
             },
         )
         .await
