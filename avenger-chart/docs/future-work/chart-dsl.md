@@ -129,15 +129,6 @@ content updated to the adopted rules, and the
 audit's inventory method and fixture plan. Every one of the 97 baseline
 categories (892 deduped scenarios) has a syntax home in this document.
 
-Adopted 2026-07-09: **filename-as-name** for the one-item file kinds —
-the file stem is the canonical name, imports bind it, in-file `as`
-binders are optional-and-validated, data catalogs (the plural kind) are
-exempt and keep declared names, and one *public* item per file remains
-the law (private nested defines recorded as the future pressure valve).
-No dbt-style `ref()` sigil: queries are planned, not templated, so bare
-table names are semantically resolved and SQL qualification is the
-explicit form.
-
 Adopted 2026-07-09: **`data:` is a property, not a declaration.** The
 earlier `data as <name>` chart declaration is retired; a chart, group, or
 mark sets its data context with an anonymous source block —
@@ -166,6 +157,26 @@ property of a standard legend; there is no `container` declaration family.
 Definition channels are `slot channel`,
 expression adjustment is `adjust expr`, and nested Arrow struct fields are
 type-first `field(<type>, '<name>')` constructors.
+
+Adopted 2026-07-24: **every `.avenger` source file is a static module**.
+A module contains an ordered mixture of chart entrypoints, reusable
+mark/tool/transform definitions, and table/schema/catalog declarations.
+Items are private unless prefixed by top-level `export`; imports always use
+an explicit named or namespace clause; filenames and basename segments have
+no semantic naming, category, discovery, or ambient-data role. One chart may
+be anonymous, while every chart in a multi-chart module must be named.
+Module-local lookup is category-aware, export names are module-globally
+unique, definitions retain defining-module hygiene, and module/source graphs
+are acyclic. Defined marks cannot capture datasets directly or transitively;
+defined transforms may explicitly depend on non-`input` relations and carry
+those provider/capability dependencies. Native extensions are imported
+schema-described `native:` modules already supplied by the host. Source
+modules may be bundled into one ordinary import-free module through
+deterministic private alpha-renaming and bound-reference rewriting. This
+decision is source-breaking and supersedes every older filename-as-name,
+one-public-item-per-file, plain-import, specialized-suffix, and
+collection-style-bundling statement that remains in historical examples
+pending their mechanical migration.
 
 ## Design Principles
 
@@ -233,68 +244,207 @@ type-first `field(<type>, '<name>')` constructors.
   lowered chart; compiled-chart decompilation is outside the implementation
   plan below.
 
-## Source Header And Versioning
+## Source Modules, Imports, And Versioning
 
-Every file begins with a version pragma, optionally followed by imports:
+Every UTF-8 source module begins with one language-version pragma, followed by
+all imports and then one or more module items:
 
 ```avenger
 avenger 1;
 
-import 'lib/error_bar.mark.avenger';
-import 'lib/wheel_zoom.tool.avenger' as co_zoom;
+import {
+  confidence_band,
+  summarize as aggregate_summary,
+} from './statistics.avenger';
+
+import * as acme
+  from 'native:com.acme.avenger.visuals@1';
+
+table parquet as observations {
+  path: './observations.parquet';
+}
+
+define transform prepare {
+  transform aggregate_summary {}
+}
+
+export define mark interval {
+  mark confidence_band {}
+}
+
+chart cartesian as summary {
+  data: { table: 'observations'; }
+  transform prepare {}
+  mark interval {}
+}
+
+chart acme.isometric as density {
+  data: { table: 'observations'; }
+  mark acme.hexbin {}
+}
 ```
 
-The version names the language dialect, not the library release. Parsers
-reject files whose major version they do not support. Files are UTF-8.
+The version names the language dialect, not a library release. Parsers reject
+unsupported majors. Imports must precede every module item. Items may appear
+in any order and are predeclared before bodies are resolved, but the resulting
+item dependency graph must be acyclic. Empty and import-only modules are
+invalid.
 
-**A file contains exactly one thing, and the file name is its name**
-(adopted 2026-07-09). After the header, a file holds either one `chart`
-declaration (a chart file — data, params, stores, and all other resources
-live inside the chart's body), one `define` declaration (a definition
-file: a compound mark, tool, or transform). A project is a
-collection of such files. Within this language layer, imports target
-definitions and data resources; chart files are compilation roots rather than
-chart dependencies.
-The definition kind is normative from the file's content; the
-conventional extensions mirror it: `.avenger` for charts,
-and `.mark.avenger`, `.tool.avenger`, `.transform.avenger` for definitions.
+### Module items
 
-For these one-item kinds, **the file stem is the canonical name** (the
-dbt-model / single-file-component rule): recognized suffixes strip (the
-kind extensions above plus a trailing `@version` tag, which remains
-naming-not-mechanism), and imports bind that name — so an import line is
-self-documenting without fetching the file. Consequences:
+The only top-level item categories are:
 
-- The declaration's `as` binder is **optional, and when present must
-  match the stem** (Java's validation move): drift between file name and
-  in-file name is impossible, while `define mark error_bar` stays
-  greppable for authors who want the name in the text.
-- A stem that is not a valid bare identifier (hyphens, content-addressed
-  URL names) requires `as` on the *import*; `as` also remains the rename
-  and collision-resolution mechanism as before.
-- Every chart file is therefore importable — the former
-  anonymous-charts-are-private file rule dissolves (anonymous
-  *declarations* inside bodies remain private everywhere).
-- The interchange `File` struct carries a loader-populated `name` field,
-  since JSON consumers without filesystem context still need it; printing
-  never emits a binder the source didn't have, preserving the round-trip
-  laws.
+```avenger
+chart cartesian as scatter { ... }
 
-The one plural file kind is exempt: a data catalog names things inside
-itself (it is configuration, not an item — the dbt `sources.yml`
-counterpart to the one-per-file models), and importable packs bind their
-single declared catalog or schema root, whose in-file presence is load-bearing
-for the pack's internal chains. **One public item per file is the law**; if
-definition clusters ever make file sprawl hurt, the designated pressure
-valve is *private nested defines* (helpers visible only to the file's
-single export — imports, naming, expansion, and the gallery untouched),
-currently forbidden by the no-nested-definitions hygiene rule and listed under
-[Post-v1 Considerations](#post-v1-considerations-non-blocking) — never multiple exports.
-Themes are not definitions — a theme is a plain `.css` file, referenced with
-`theme css from` and fetched/pinned like any import. The one plural file
-kind is the data catalog (`.data.avenger`) — host configuration naming the
-tables available to charts, inherently a set (see
-[Data Catalogs](#data-catalogs)).
+define mark error_bar { ... }
+define tool inspect { ... }
+define transform summarize { ... }
+
+table parquet as observations { ... }
+schema tables as samples { ... }
+catalog iceberg as warehouse { ... }
+```
+
+`define` introduces a reusable kind and is valid only for marks, tools, and
+transforms. Charts and datasets are concrete values or entrypoints, so
+`define chart`, `define table`, `define schema`, and `define catalog` are
+invalid. Primitive mark/transform instances, params, stores, selections,
+events, widgets, and views remain nested declarations rather than module
+items. Custom widget definitions remain unsupported.
+
+Every definition and dataset item is named. A module may contain zero, one,
+or many charts:
+
+- a sole chart may be anonymous or named;
+- when there is more than one chart, every chart must be named;
+- an exported chart must be named;
+- every top-level chart is directly selectable from its defining module,
+  regardless of export visibility.
+
+The identity of a named chart is its canonical module identity plus its
+authored name. An unnamed singleton uses a distinguished singleton identity.
+Each compiled entrypoint owns independent runtime params, stores, selections,
+cursor state, event transactions, migration keys, and inspector state.
+
+### Exports
+
+Module items are private by default. Prefix an item with `export` to make its
+existing name importable:
+
+```avenger
+export define mark error_bar { ... }
+export define transform summarize { ... }
+export table parquet as observations { ... }
+export schema tables as samples { ... }
+export catalog iceberg as warehouse { ... }
+export chart cartesian as scatter { ... }
+```
+
+Module-local resolution has a separate collision-checked namespace for each
+authoring-schema kind category, plus chart, data-binding, and namespace-alias
+categories. Same-spelled locals in distinct semantic categories may coexist.
+Exports instead use one globally unique name namespace within the producer
+module, so a named import is unambiguous before its category is known.
+
+An exported item carries its private transitive dependencies without exposing
+their names. References within that closure stay bound in the defining module
+and never re-resolve in the consumer. Component `export` declarations inside
+a definition remain a separate instance-interface mechanism.
+
+### Imports
+
+Every import has an explicit clause. Named imports bind selected exports:
+
+```avenger
+import {
+  confidence_band as band,
+  error_bar,
+} from './intervals.avenger';
+```
+
+The source name precedes `as`; the optional second name is the consumer-local
+alias. The shorthand `import { error_bar }` materializes the same spelling as
+both exported and local name.
+
+A namespace import binds one lexical module alias containing exactly that
+module's public export table:
+
+```avenger
+import * as intervals from './intervals.avenger';
+
+chart cartesian {
+  mark intervals.error_bar {}
+}
+```
+
+Named imports retain their semantic category. Namespace member lookup is
+filtered by the expected category at its use site. Private items are never
+members. A namespace alias is reserved across all local categories.
+
+Plain, default, side-effect, empty-clause, dynamic, conditional, and re-export
+forms are invalid. Imports name exact relative, `std:`, `native:`, or HTTP
+origins; there is no package search, version range, directory index, or
+implicit suffix resolution:
+
+```avenger
+import { error_bar } from './intervals.avenger';
+import { country_names } from 'std:datasets';
+import * as acme from 'native:com.acme.avenger.visuals@1';
+import { error_bar }
+  from 'https://charts.example.dev/intervals.avenger'
+  sha256 '9f2ab34c...';
+```
+
+`sha256` pins the complete source module bytes. Each transitive source import
+carries its own pin. A `native:` import never fetches code; it selects an exact
+schema-described module already registered by the host and records that
+module's schema and implementation profile.
+
+### Source filenames and ambient data
+
+`.avenger` is the sole source suffix. The basename describes the module's
+purpose and never determines an item name, category, import binding, chart
+entrypoint, or ambient-data role. Basenames may contain dots, so
+`legacy.mark.avenger` is syntactically an ordinary source path, but `.mark`
+has no meaning.
+
+Ambient datasets are a host/project-root policy, not a filename convention.
+An explicitly designated ambient module may contain only data declarations
+and imports needed by those declarations, and contributes only its exported
+datasets. An ordinary mixed module is never discovered or activated merely
+because of its path.
+
+### Module and item closure
+
+Source import graphs and resolved item dependency graphs are acyclic. An
+exported definition retains its private helpers. A defined mark may not
+directly or transitively capture a table, schema, or catalog; it receives its
+row relation from each use site. A defined transform may join its reserved
+`input` relation to explicitly resolved module-local, imported standard, or
+ambient datasets. Every non-`input` relation becomes a visible provider,
+capability, provenance, and activation dependency. Using such a transform
+transitively inside a defined mark is invalid.
+
+Table/schema/catalog paths resolve to stable relation identities in the
+defining module. A namespace qualifier such as `samples` in
+`samples.warehouse.analytics.orders` is consumed by language resolution and
+does not occupy a DataFusion catalog segment. The compiler rewrites resolved
+relations to internal table identities before DataFusion planning while
+preserving authored paths for diagnostics and tooling.
+
+### Single-file bundling
+
+Bundling does not add a nested module declaration. A bundler loads and resolves
+the ordinary module graph, selects a chart or root interface, copies the
+reachable source items once, deterministically alpha-renames private lexical
+bindings, rewrites all bound kind/helper/data/SQL references, removes imports
+and unreachable items, and emits one ordinary import-free `.avenger` module.
+
+Bundling preserves root export names, chart selectors, params, stores,
+selections, cursors, public component/target aliases, field and SQL aliases,
+explicit IDs, and presentation metadata. The generated module has a new
+source-module identity and needs no manifest or source map to compile.
 
 ## Names, Strings, And Columns
 

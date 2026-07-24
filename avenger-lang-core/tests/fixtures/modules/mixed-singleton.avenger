@@ -1,0 +1,20 @@
+avenger 1;
+
+table inline as observations {
+  values: [
+    { x: 1.0; y: 2.0; },
+    { x: 2.0; y: 3.0; },
+  ];
+}
+
+define mark local_point {
+  mark symbol {
+    x: "x";
+    y: "y";
+  }
+}
+
+chart cartesian {
+  data: { table: 'observations'; }
+  mark local_point as points {}
+}

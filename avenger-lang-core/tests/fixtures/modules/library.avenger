@@ -1,0 +1,25 @@
+avenger 1;
+
+define transform private_identity {
+  transform sql {
+    query:
+      FROM input
+      SELECT *;
+  }
+}
+
+export define mark library_point {
+  transform private_identity {}
+
+  mark symbol {
+    x: "x";
+    y: "y";
+  }
+}
+
+export table inline as example_rows {
+  values: [
+    { x: 1.0; y: 2.0; },
+    { x: 2.0; y: 3.0; },
+  ];
+}

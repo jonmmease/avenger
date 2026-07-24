@@ -1,0 +1,26 @@
+avenger 1;
+
+table inline as observations {
+  values: [
+    { category: 'A'; x: 1.0; y: 2.0; },
+    { category: 'B'; x: 2.0; y: 3.0; },
+  ];
+}
+
+chart cartesian as scatter {
+  data: { table: 'observations'; }
+
+  mark symbol as points {
+    x: "x";
+    y: "y";
+  }
+}
+
+chart cartesian as bars {
+  data: { table: 'observations'; }
+
+  mark rect as bars {
+    x: "category";
+    y: "y";
+  }
+}
