@@ -71,6 +71,10 @@ semantic_id!(DefinitionLocalSeed);
 pub struct DeclarationKey(String);
 
 impl DeclarationKey {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -80,6 +84,12 @@ impl DeclarationKey {
 pub struct ModuleItemId {
     pub module: SourceModuleId,
     pub declaration: DeclarationKey,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ResolvedRelationId {
+    pub defining_item: ModuleItemId,
+    pub nested_path: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -311,7 +321,7 @@ pub struct ResolvedProject {
     /// Catalog tables keyed by their declaration-local SQL path. Import aliases
     /// are applied when a project analysis environment exposes a data pack;
     /// queries inside the pack continue to use these local paths.
-    pub catalog_tables: BTreeMap<String, ResolvedCatalogTable>,
+    pub catalog_tables: BTreeMap<ResolvedRelationId, ResolvedCatalogTable>,
     pub table_order: Vec<DeclarationId>,
     pub definition_import_order: Vec<ModuleItemId>,
     /// Empty for ordinary projects; populated by the compiler when imported
@@ -334,6 +344,7 @@ impl ResolvedProject {
 /// tooling. The compiler attaches providers and exact Arrow schemas later.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedCatalogTable {
+    pub relation: ResolvedRelationId,
     pub id: DeclarationId,
     pub file: SourceModuleId,
     pub source: SourceId,
@@ -400,6 +411,7 @@ pub struct ResolvedChartEntrypoint {
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
     pub public_targets: BTreeMap<String, ResolvedTarget>,
     pub param_default_order: Vec<ParamId>,
+    pub reachable_items: BTreeSet<ModuleItemId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -415,6 +427,7 @@ pub struct ResolvedDeclaration {
     pub coordinate: Option<String>,
     pub component_kind: Option<String>,
     pub properties: BTreeMap<String, ResolvedValue>,
+    pub relation_references: Vec<ResolvedRelationReference>,
     /// Definition-authored logical channel property names retain their bound
     /// interface identity until Phase 7 substitutes an instance mapping.
     pub property_channels: BTreeMap<String, ResolvedTarget>,
@@ -608,6 +621,20 @@ pub struct ResolvedQuery {
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
     pub references: Vec<ResolvedSqlReference>,
+    pub relations: Vec<ResolvedRelationReference>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedRelationReference {
+    pub authored_path: Vec<String>,
+    pub target: ResolvedRelationTarget,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "relation", content = "identity")]
+pub enum ResolvedRelationTarget {
+    Relation(ResolvedRelationId),
+    Input,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -692,6 +719,7 @@ struct ScopeId(usize);
 #[derive(Clone, Debug, Default)]
 struct Scope {
     parent: Option<ScopeId>,
+    module: Option<SourceModuleId>,
     owner: Option<DeclarationId>,
     label: String,
     state_symbols: BTreeMap<String, StateSymbol>,
@@ -782,7 +810,8 @@ struct Resolver<'a> {
     selections: BTreeMap<SelectionId, ResolvedSelection>,
     param_dependencies: BTreeMap<ParamId, BTreeSet<ParamId>>,
     table_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
-    table_names: BTreeMap<String, DeclarationId>,
+    relation_names: BTreeMap<(SourceModuleId, Vec<String>), ResolvedRelationId>,
+    relation_declarations: BTreeMap<ResolvedRelationId, DeclarationId>,
 }
 
 impl<'a> Resolver<'a> {
@@ -803,7 +832,8 @@ impl<'a> Resolver<'a> {
             selections: BTreeMap::new(),
             param_dependencies: BTreeMap::new(),
             table_dependencies: BTreeMap::new(),
-            table_names: BTreeMap::new(),
+            relation_names: BTreeMap::new(),
+            relation_declarations: BTreeMap::new(),
         }
     }
 
@@ -924,8 +954,9 @@ impl<'a> Resolver<'a> {
                 )
             })
             .collect();
-        let entrypoints = self.resolved_entrypoints(&files, &param_default_order);
         let item_dependencies = self.build_item_dependency_graph(&files);
+        let entrypoints =
+            self.resolved_entrypoints(&files, &param_default_order, &item_dependencies);
         sort_diagnostics(&mut self.diagnostics, &self.project.sources);
         if !self.diagnostics.is_empty() {
             return ResolveAttempt {
@@ -967,6 +998,7 @@ impl<'a> Resolver<'a> {
         &self,
         files: &BTreeMap<SourceModuleId, ResolvedFile>,
         param_default_order: &[ParamId],
+        item_dependencies: &ItemDependencyGraph,
     ) -> BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint> {
         let mut entrypoints = BTreeMap::new();
         for (module_id, file) in files {
@@ -1034,13 +1066,23 @@ impl<'a> Resolver<'a> {
                     id.clone(),
                     ResolvedChartEntrypoint {
                         id,
-                        item,
+                        item: item.clone(),
                         declaration: chart.id.clone(),
                         params,
                         stores,
                         selections,
                         public_targets,
                         param_default_order: owned_param_order,
+                        reachable_items: std::iter::once(item.clone())
+                            .chain(
+                                item_dependencies
+                                    .transitive_closures
+                                    .get(&item)
+                                    .into_iter()
+                                    .flatten()
+                                    .cloned(),
+                            )
+                            .collect(),
                     },
                 );
             }
@@ -1131,9 +1173,82 @@ impl<'a> Resolver<'a> {
                 (item.clone(), closure)
             })
             .collect();
-        ItemDependencyGraph {
+        let graph = ItemDependencyGraph {
             edges,
             transitive_closures,
+        };
+        self.validate_definition_data_isolation(&graph, &adjacency);
+        graph
+    }
+
+    fn validate_definition_data_isolation(
+        &mut self,
+        graph: &ItemDependencyGraph,
+        adjacency: &BTreeMap<ModuleItemId, BTreeSet<ModuleItemId>>,
+    ) {
+        let definitions = self.definitions.clone();
+        for (item, definition) in definitions {
+            if !matches!(definition.kind, DefinitionKind::Mark | DefinitionKind::Tool) {
+                continue;
+            }
+            let Some(data) = graph
+                .transitive_closures
+                .get(&item)
+                .into_iter()
+                .flatten()
+                .find(|dependency| {
+                    self.module_index
+                        .items
+                        .get(*dependency)
+                        .is_some_and(|binding| binding.category == BindingCategory::Data)
+                })
+                .cloned()
+            else {
+                continue;
+            };
+            let path = dependency_path(&item, &data, adjacency);
+            let site = path
+                .windows(2)
+                .find_map(|pair| {
+                    graph
+                        .edges
+                        .iter()
+                        .find(|edge| edge.from == pair[0] && edge.to == pair[1])
+                        .map(|edge| edge.site)
+                })
+                .unwrap_or_else(|| {
+                    self.module_index
+                        .items
+                        .get(&item)
+                        .and_then(|binding| {
+                            self.declarations
+                                .values()
+                                .find(|info| info.id == binding.declaration)
+                        })
+                        .map_or_else(|| SourceSpan::empty(SourceId::new(0), 0), |info| info.span)
+                });
+            self.error(
+                "AVENGER-RESOLVE-280",
+                match definition.kind {
+                    DefinitionKind::Mark => "defined marks cannot capture datasets",
+                    DefinitionKind::Tool => "defined tools cannot capture datasets",
+                    DefinitionKind::Transform => unreachable!(),
+                },
+                site,
+                format!(
+                    "dependency path: {}",
+                    path.iter()
+                        .map(|item| {
+                            self.module_index
+                                .items
+                                .get(item)
+                                .and_then(|binding| binding.name.clone())
+                                .unwrap_or_else(|| module_item_display(item))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                ),
+            );
         }
     }
 
@@ -2157,6 +2272,7 @@ impl<'a> Resolver<'a> {
     fn predeclare_project(&mut self) {
         for (file_id, file) in &self.project.source_modules {
             let file_scope = self.new_scope(None, format!("file:{}", file_id.as_str()));
+            self.scopes[file_scope.0].module = Some(file_id.clone());
             for (index, declaration) in module_declarations(file) {
                 self.predeclare_declaration(file, declaration, vec![index], file_scope, Vec::new());
             }
@@ -2164,17 +2280,25 @@ impl<'a> Resolver<'a> {
     }
 
     fn build_table_dependencies(&mut self) {
-        for file in self.project.source_modules.values() {
+        for (module_id, file) in &self.project.source_modules {
             for (index, declaration) in module_declarations(file) {
-                self.collect_table_names(file, declaration, &[index], &[]);
+                let Some(item) = self
+                    .module_index
+                    .item_at
+                    .get(&(module_id.clone(), index))
+                    .cloned()
+                else {
+                    continue;
+                };
+                self.collect_relation_names(file, declaration, &[index], &[], &item);
             }
         }
         let entries = self
-            .table_names
+            .relation_declarations
             .iter()
-            .map(|(name, id)| (name.clone(), id.clone()))
+            .map(|(relation, id)| (relation.clone(), id.clone()))
             .collect::<Vec<_>>();
-        for (name, id) in entries {
+        for (relation, id) in entries {
             self.table_dependencies.entry(id.clone()).or_default();
             let relations = {
                 let Some((_, declaration)) = self.declaration_source(&id) else {
@@ -2185,23 +2309,46 @@ impl<'a> Resolver<'a> {
                 };
                 relation_paths(query.ast())
             };
-            let prefix = name
-                .rsplit_once('.')
-                .map_or("", |(prefix, _)| prefix)
-                .to_owned();
-            for relation in relations {
-                let relation = relation.join(".");
-                let qualified = if relation.contains('.') || prefix.is_empty() {
-                    relation.clone()
-                } else {
-                    format!("{prefix}.{relation}")
-                };
-                if let Some(dependency) = self
-                    .table_names
-                    .get(&qualified)
-                    .or_else(|| self.table_names.get(&relation))
-                    .cloned()
-                {
+            let prefix = relation
+                .nested_path
+                .split_last()
+                .map_or(&[][..], |(_, prefix)| prefix);
+            for authored in relations {
+                let mut candidates = Vec::new();
+                if authored.len() == 1 {
+                    let mut relative = vec![
+                        self.module_index
+                            .items
+                            .get(&relation.defining_item)
+                            .and_then(|item| item.name.clone())
+                            .unwrap_or_default(),
+                    ];
+                    relative.extend(prefix.iter().cloned());
+                    relative.extend(authored.iter().cloned());
+                    candidates.push(relative);
+                }
+                candidates.push(authored.clone());
+                let dependency = candidates.into_iter().find_map(|path| {
+                    self.resolve_relation_path(
+                        &relation.defining_item.module,
+                        &path,
+                        false,
+                        self.declarations
+                            .values()
+                            .find(|info| info.id == id)
+                            .map_or_else(
+                                || SourceSpan::empty(SourceId::new(0), 0),
+                                |info| info.span,
+                            ),
+                    )
+                    .and_then(|target| match target {
+                        ResolvedRelationTarget::Relation(id) => {
+                            self.relation_declarations.get(&id).cloned()
+                        }
+                        ResolvedRelationTarget::Input => None,
+                    })
+                });
+                if let Some(dependency) = dependency {
                     self.table_dependencies
                         .entry(id.clone())
                         .or_default()
@@ -2211,12 +2358,13 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn collect_table_names(
+    fn collect_relation_names(
         &mut self,
         file: &ParsedModule,
         declaration: &Decl,
         path: &[usize],
         prefix: &[String],
+        item: &ModuleItemId,
     ) {
         let mut nested_prefix = prefix.to_vec();
         if matches!(declaration.keyword.as_str(), "catalog" | "schema")
@@ -2229,22 +2377,196 @@ impl<'a> Resolver<'a> {
         {
             let mut table_path = nested_prefix.clone();
             table_path.push(name.to_string());
-            let qualified = table_path.join(".");
             let id = declaration_id(file, path);
-            if self.table_names.insert(qualified.clone(), id).is_some() {
+            let relation = ResolvedRelationId {
+                defining_item: item.clone(),
+                nested_path: table_path.iter().skip(1).cloned().collect(),
+            };
+            if self
+                .relation_names
+                .insert((file.id.clone(), table_path.clone()), relation.clone())
+                .is_some()
+            {
                 self.error(
                     "AVENGER-RESOLVE-102",
                     "duplicate catalog table path",
                     declaration_span(file, path).unwrap_or_else(|| root_span(file)),
-                    format!("table `{qualified}` is declared more than once"),
+                    format!(
+                        "table `{}` is declared more than once",
+                        table_path.join(".")
+                    ),
                 );
             }
+            self.relation_declarations.insert(relation, id);
         }
         for (index, child) in declaration.children.iter().enumerate() {
             let mut child_path = path.to_vec();
             child_path.push(index);
-            self.collect_table_names(file, child, &child_path, &nested_prefix);
+            self.collect_relation_names(file, child, &child_path, &nested_prefix, item);
         }
+    }
+
+    fn resolve_relation_path(
+        &mut self,
+        module: &SourceModuleId,
+        path: &[String],
+        allow_input: bool,
+        span: SourceSpan,
+    ) -> Option<ResolvedRelationTarget> {
+        let first = path.first()?;
+        if first == "input" {
+            if allow_input && path.len() == 1 {
+                return Some(ResolvedRelationTarget::Input);
+            }
+            self.error(
+                "AVENGER-DATA-100",
+                "`input` is only available inside transform definitions",
+                span,
+                "`input` must be the complete relation name in a transform-definition query",
+            );
+            return None;
+        }
+
+        let environment = self
+            .module_index
+            .environments
+            .get(module)
+            .cloned()
+            .unwrap_or_default();
+        let (item, nested_path) = if let Some(imported_module) = environment.namespaces.get(first) {
+            let Some(member) = path.get(1) else {
+                self.error(
+                    "AVENGER-DATA-101",
+                    "module namespace is not a relation",
+                    span,
+                    format!("select an exported dataset from `{first}`"),
+                );
+                return None;
+            };
+            let Some(export) = self
+                .module_index
+                .exports
+                .get(imported_module)
+                .and_then(|exports| exports.exports.get(member))
+                .cloned()
+            else {
+                self.error(
+                    "AVENGER-DATA-102",
+                    "module-qualified relation is not exported",
+                    span,
+                    format!("`{first}.{member}` does not name an exported dataset"),
+                );
+                return None;
+            };
+            if export.category != BindingCategory::Data {
+                self.error(
+                    "AVENGER-DATA-103",
+                    "module member is not a dataset",
+                    span,
+                    format!("`{first}.{member}` is in the wrong binding category"),
+                );
+                return None;
+            }
+            let Some(item) = self.source_item_for_export(&export) else {
+                self.error(
+                    "AVENGER-DATA-104",
+                    "native modules cannot export dataset values",
+                    span,
+                    format!("`{first}.{member}` has no source dataset identity"),
+                );
+                return None;
+            };
+            (item, path[2..].to_vec())
+        } else if let Some(export) = environment
+            .local
+            .get(&(BindingCategory::Data, first.clone()))
+            .cloned()
+        {
+            let Some(item) = self.source_item_for_export(&export).or_else(|| {
+                self.module_index
+                    .local_items
+                    .get(&(module.clone(), BindingCategory::Data, first.clone()))
+                    .cloned()
+            }) else {
+                self.error(
+                    "AVENGER-DATA-105",
+                    "dataset binding has no source identity",
+                    span,
+                    format!("`{first}` cannot be planned as a relation"),
+                );
+                return None;
+            };
+            (item, path[1..].to_vec())
+        } else {
+            let ambient = self
+                .project
+                .ambient_data_modules
+                .iter()
+                .filter_map(|ambient_module| {
+                    self.module_index
+                        .exports
+                        .get(&ModuleId::Source(ambient_module.clone()))
+                        .and_then(|exports| exports.exports.get(first))
+                        .filter(|export| export.category == BindingCategory::Data)
+                        .and_then(|export| self.source_item_for_export(export))
+                })
+                .collect::<Vec<_>>();
+            match ambient.as_slice() {
+                [item] => (item.clone(), path[1..].to_vec()),
+                [] => {
+                    self.error(
+                        "AVENGER-DATA-106",
+                        "unknown relation",
+                        span,
+                        format!(
+                            "`{}` is not a local, imported, standard, or ambient dataset",
+                            path.join(".")
+                        ),
+                    );
+                    return None;
+                }
+                _ => {
+                    self.error(
+                        "AVENGER-DATA-107",
+                        "ambient relation is ambiguous",
+                        span,
+                        format!("`{first}` is exported by more than one ambient module"),
+                    );
+                    return None;
+                }
+            }
+        };
+
+        let relation = ResolvedRelationId {
+            defining_item: item,
+            nested_path,
+        };
+        if !self.relation_declarations.contains_key(&relation) {
+            self.error(
+                "AVENGER-DATA-108",
+                "dataset path does not name a table",
+                span,
+                format!("`{}` does not resolve to a concrete table", path.join(".")),
+            );
+            return None;
+        }
+        Some(ResolvedRelationTarget::Relation(relation))
+    }
+
+    fn source_item_for_export(&self, export: &ModuleExportId) -> Option<ModuleItemId> {
+        let ModuleId::Source(module) = &export.module else {
+            return None;
+        };
+        self.module_index
+            .source_export_items
+            .get(&(module.clone(), export.name.clone()))
+            .cloned()
+            .or_else(|| {
+                self.module_index
+                    .local_items
+                    .get(&(module.clone(), export.category, export.name.clone()))
+                    .cloned()
+            })
     }
 
     fn declaration_source(&self, id: &DeclarationId) -> Option<(&ParsedModule, &Decl)> {
@@ -2663,8 +2985,10 @@ impl<'a> Resolver<'a> {
 
     fn new_scope(&mut self, parent: Option<ScopeId>, label: String) -> ScopeId {
         let id = ScopeId(self.scopes.len());
+        let module = parent.and_then(|parent| self.scopes[parent.0].module.clone());
         self.scopes.push(Scope {
             parent,
+            module,
             label,
             ..Scope::default()
         });
@@ -3321,6 +3645,43 @@ impl<'a> Resolver<'a> {
         output.sort_by(|left, right| left.authored_path.cmp(&right.authored_path));
         output.dedup_by(|left, right| left.authored_path == right.authored_path);
         output
+    }
+
+    fn resolve_query_relations(
+        &mut self,
+        scope: ScopeId,
+        paths: Vec<Vec<String>>,
+        span: SourceSpan,
+    ) -> Vec<ResolvedRelationReference> {
+        let Some(module) = self.scopes[scope.0].module.clone() else {
+            return Vec::new();
+        };
+        let allow_input = self.scope_is_transform_definition(scope);
+        paths
+            .into_iter()
+            .filter_map(|authored_path| {
+                self.resolve_relation_path(&module, &authored_path, allow_input, span)
+                    .map(|target| ResolvedRelationReference {
+                        authored_path,
+                        target,
+                    })
+            })
+            .collect()
+    }
+
+    fn scope_is_transform_definition(&self, scope: ScopeId) -> bool {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(owner) = &self.scopes[id.0].owner
+                && self.definitions.values().any(|definition| {
+                    definition.kind == DefinitionKind::Transform && &definition.declaration == owner
+                })
+            {
+                return true;
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        false
     }
 
     fn resolve_helpers(
@@ -3997,6 +4358,8 @@ impl<'a> Resolver<'a> {
         } else {
             (None, None)
         };
+        let relation_references =
+            self.declaration_relation_references(&file.id, &properties, info.span);
         ResolvedDeclaration {
             id: info.id.clone(),
             source: file.source,
@@ -4013,6 +4376,7 @@ impl<'a> Resolver<'a> {
                 .and_then(value_atom)
                 .map(str::to_owned),
             properties,
+            relation_references,
             property_channels,
             children,
             runtime_target: info.runtime_target,
@@ -4024,6 +4388,92 @@ impl<'a> Resolver<'a> {
             transform_outputs,
             event_binding,
             state_lvalue: None,
+        }
+    }
+
+    fn declaration_relation_references(
+        &mut self,
+        module: &SourceModuleId,
+        properties: &BTreeMap<String, ResolvedValue>,
+        span: SourceSpan,
+    ) -> Vec<ResolvedRelationReference> {
+        let mut references = Vec::new();
+        for (name, value) in properties {
+            self.collect_property_relation_references(
+                module,
+                Some(name),
+                value,
+                span,
+                &mut references,
+            );
+        }
+        references.sort_by(|left, right| {
+            left.authored_path
+                .cmp(&right.authored_path)
+                .then(format!("{:?}", left.target).cmp(&format!("{:?}", right.target)))
+        });
+        references.dedup();
+        references
+    }
+
+    fn collect_property_relation_references(
+        &mut self,
+        module: &SourceModuleId,
+        property: Option<&str>,
+        value: &ResolvedValue,
+        span: SourceSpan,
+        output: &mut Vec<ResolvedRelationReference>,
+    ) {
+        if property == Some("table")
+            && let ResolvedValue::String(path) = value
+        {
+            let authored_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
+            if let Some(target) = self.resolve_relation_path(module, &authored_path, false, span) {
+                output.push(ResolvedRelationReference {
+                    authored_path,
+                    target,
+                });
+            }
+            return;
+        }
+        match value {
+            ResolvedValue::Query(query) => output.extend(query.relations.iter().cloned()),
+            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+                self.collect_property_relation_references(module, property, value, span, output)
+            }
+            ResolvedValue::Array(values) => {
+                for value in values {
+                    self.collect_property_relation_references(module, None, value, span, output);
+                }
+            }
+            ResolvedValue::Object {
+                head,
+                properties,
+                children,
+                ..
+            } => {
+                if let Some(head) = head {
+                    self.collect_property_relation_references(module, None, head, span, output);
+                }
+                for (name, value) in properties {
+                    self.collect_property_relation_references(
+                        module,
+                        Some(name),
+                        value,
+                        span,
+                        output,
+                    );
+                }
+                for child in children {
+                    output.extend(child.relation_references.iter().cloned());
+                }
+            }
+            ResolvedValue::Call { args, .. } => {
+                for value in args {
+                    self.collect_property_relation_references(module, None, value, span, output);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -5365,6 +5815,8 @@ impl<'a> Resolver<'a> {
                 let sql = query.canonical_sql();
                 let references =
                     self.resolve_sql_paths(scope, query_paths(query.ast()), span, false);
+                let relations =
+                    self.resolve_query_relations(scope, relation_paths(query.ast()), span);
                 let helpers = self.resolve_helpers(
                     scope,
                     query_helper_calls(query.ast()),
@@ -5377,6 +5829,7 @@ impl<'a> Resolver<'a> {
                     sql,
                     bindings,
                     references,
+                    relations,
                 })
             }
             Value::Binding { kind, path, time } => self
@@ -5702,6 +6155,7 @@ impl<'a> Resolver<'a> {
                 .and_then(value_atom)
                 .map(str::to_owned),
             properties,
+            relation_references: Vec::new(),
             property_channels: BTreeMap::new(),
             children: declaration
                 .children
@@ -8021,16 +8475,29 @@ impl<'a> Resolver<'a> {
     }
 
     fn table_display_name(&self, id: &DeclarationId) -> String {
-        self.table_names
+        self.relation_declarations
             .iter()
-            .find_map(|(name, candidate)| (candidate == id).then_some(name.clone()))
+            .find_map(|(relation, candidate)| {
+                (candidate == id).then(|| {
+                    let root = self
+                        .module_index
+                        .items
+                        .get(&relation.defining_item)
+                        .and_then(|item| item.name.clone())
+                        .unwrap_or_else(|| "<data>".to_owned());
+                    std::iter::once(root)
+                        .chain(relation.nested_path.iter().cloned())
+                        .collect::<Vec<_>>()
+                        .join(".")
+                })
+            })
             .unwrap_or_else(|| id.as_str().to_owned())
     }
 
-    fn resolved_catalog_tables(&self) -> BTreeMap<String, ResolvedCatalogTable> {
-        self.table_names
+    fn resolved_catalog_tables(&self) -> BTreeMap<ResolvedRelationId, ResolvedCatalogTable> {
+        self.relation_declarations
             .iter()
-            .filter_map(|(name, id)| {
+            .filter_map(|(relation, id)| {
                 let ((file_id, _), info) =
                     self.declarations.iter().find(|(_, info)| &info.id == id)?;
                 let (_, declaration) = self.declaration_source(id)?;
@@ -8041,13 +8508,22 @@ impl<'a> Resolver<'a> {
                     .map(|param| param.id.clone())
                     .collect::<Vec<_>>();
                 Some((
-                    name.clone(),
+                    relation.clone(),
                     ResolvedCatalogTable {
+                        relation: relation.clone(),
                         id: id.clone(),
                         file: file_id.clone(),
                         source: info.span.source,
                         span: info.span,
-                        path: name.split('.').map(str::to_owned).collect(),
+                        path: std::iter::once(
+                            self.module_index
+                                .items
+                                .get(&relation.defining_item)
+                                .and_then(|item| item.name.clone())
+                                .unwrap_or_else(|| "<data>".to_owned()),
+                        )
+                        .chain(relation.nested_path.iter().cloned())
+                        .collect(),
                         kind: declaration
                             .kind
                             .as_ref()
@@ -8263,6 +8739,16 @@ fn collect_item_dependencies(
             site: declaration.span,
         });
     }
+    for reference in &declaration.relation_references {
+        if let ResolvedRelationTarget::Relation(relation) = &reference.target {
+            output.push(ItemDependencyEdge {
+                from: from.clone(),
+                to: relation.defining_item.clone(),
+                cause: ItemDependencyCause::RelationUse,
+                site: declaration.span,
+            });
+        }
+    }
     for value in declaration.properties.values() {
         collect_item_dependencies_from_value(value, from, output);
     }
@@ -8317,6 +8803,35 @@ fn collect_item_closure(
     for dependency in adjacency.get(item).into_iter().flatten() {
         collect_item_closure(dependency, adjacency, closure);
     }
+}
+
+fn dependency_path(
+    start: &ModuleItemId,
+    target: &ModuleItemId,
+    adjacency: &BTreeMap<ModuleItemId, BTreeSet<ModuleItemId>>,
+) -> Vec<ModuleItemId> {
+    let mut pending = std::collections::VecDeque::from([start.clone()]);
+    let mut parent = BTreeMap::<ModuleItemId, ModuleItemId>::new();
+    let mut visited = BTreeSet::from([start.clone()]);
+    while let Some(item) = pending.pop_front() {
+        if &item == target {
+            let mut path = vec![item.clone()];
+            let mut cursor = item;
+            while let Some(previous) = parent.get(&cursor).cloned() {
+                path.push(previous.clone());
+                cursor = previous;
+            }
+            path.reverse();
+            return path;
+        }
+        for dependency in adjacency.get(&item).into_iter().flatten() {
+            if visited.insert(dependency.clone()) {
+                parent.insert(dependency.clone(), item.clone());
+                pending.push_back(dependency.clone());
+            }
+        }
+    }
+    vec![start.clone(), target.clone()]
 }
 
 fn module_item_display(item: &ModuleItemId) -> String {
@@ -9635,6 +10150,7 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             bindings: Vec::new(),
             helpers: helpers_in_sql(&value.canonical_sql()),
             references: Vec::new(),
+            relations: Vec::new(),
         }),
         Value::Binding { kind, path, time } => ResolvedValue::Binding(ResolvedBinding {
             target: ResolvedTarget::Declaration(DeclarationId("unresolved".to_owned())),
@@ -10558,31 +11074,49 @@ fn helper_argument_path(expression: &Expr) -> Option<Vec<String>> {
 
 fn relation_paths(query: &sqlparser::ast::Query) -> Vec<Vec<String>> {
     #[derive(Default)]
-    struct Relations(Vec<Vec<String>>);
+    struct Relations {
+        paths: Vec<Vec<String>>,
+        ctes: BTreeSet<String>,
+    }
 
     impl Visitor for Relations {
         type Break = ();
+
+        fn pre_visit_query(
+            &mut self,
+            query: &sqlparser::ast::Query,
+        ) -> std::ops::ControlFlow<Self::Break> {
+            if let Some(with) = &query.with {
+                self.ctes.extend(
+                    with.cte_tables
+                        .iter()
+                        .map(|cte| cte.alias.name.value.clone()),
+                );
+            }
+            std::ops::ControlFlow::Continue(())
+        }
 
         fn pre_visit_relation(
             &mut self,
             relation: &ObjectName,
         ) -> std::ops::ControlFlow<Self::Break> {
-            self.0.push(
-                relation
-                    .0
-                    .iter()
-                    .filter_map(|part| part.as_ident())
-                    .map(|identifier| identifier.value.clone())
-                    .collect(),
-            );
+            let path = relation
+                .0
+                .iter()
+                .filter_map(|part| part.as_ident())
+                .map(|identifier| identifier.value.clone())
+                .collect::<Vec<_>>();
+            if !(path.len() == 1 && self.ctes.contains(&path[0])) {
+                self.paths.push(path);
+            }
             std::ops::ControlFlow::Continue(())
         }
     }
 
     let mut relations = Relations::default();
     let _ = query.visit(&mut relations);
-    relations.0.retain(|path| !path.is_empty());
-    relations.0
+    relations.paths.retain(|path| !path.is_empty());
+    relations.paths
 }
 
 #[derive(Default)]

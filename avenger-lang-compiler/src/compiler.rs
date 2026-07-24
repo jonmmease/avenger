@@ -12,9 +12,9 @@ use avenger_lang_core::{
     AvailableNativeModule, DataCapabilities, DeclarationId, Diagnostic, EmptyEnvironmentProvider,
     EnvironmentProvider, ExpansionSourceMap, ImportCapabilities, ModuleDependencyRole,
     ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadRequest, ModuleGraphLoader,
-    ModuleRoot, ParsedModuleGraph, ResolvedDeclaration, ResolvedProject, ResolvedTarget,
-    ResolvedValue, SourceFile, SourceId, SourceLabel, SourceLoader, SourceLoaderError, SourceMap,
-    SourceModuleId, SourceOrigin, SourceSpan,
+    ModuleRoot, ParsedModuleGraph, ResolvedDeclaration, ResolvedProject, ResolvedRelationTarget,
+    ResolvedTarget, ResolvedValue, SourceFile, SourceId, SourceLabel, SourceLoader,
+    SourceLoaderError, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
     expand_project_with_limits,
     module_graph::{normalize_path, resolve_relative_origin},
@@ -2092,9 +2092,6 @@ fn collect_chart_catalog_dependencies(
         match value {
             ResolvedValue::String(name) if property == Some("table") => {
                 names.insert(name.clone());
-                if let Some(table) = crate::catalog::resolved_table_for_name(project, name) {
-                    tables.insert(table.id.clone());
-                }
             }
             ResolvedValue::Binding(binding) => visit_target(&binding.target, tables),
             ResolvedValue::Reference(reference) => visit_target(&reference.target, tables),
@@ -2108,6 +2105,14 @@ fn collect_chart_catalog_dependencies(
                 for reference in &query.references {
                     names.insert(reference.authored_path.join("."));
                     visit_target(&reference.target, tables);
+                }
+                for reference in &query.relations {
+                    names.insert(reference.authored_path.join("."));
+                    if let ResolvedRelationTarget::Relation(relation) = &reference.target
+                        && let Some(table) = project.catalog_tables.get(relation)
+                    {
+                        tables.insert(table.id.clone());
+                    }
                 }
             }
             ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
@@ -2144,6 +2149,14 @@ fn collect_chart_catalog_dependencies(
         tables: &mut BTreeSet<DeclarationId>,
         names: &mut BTreeSet<String>,
     ) {
+        for reference in &declaration.relation_references {
+            names.insert(reference.authored_path.join("."));
+            if let ResolvedRelationTarget::Relation(relation) = &reference.target
+                && let Some(table) = project.catalog_tables.get(relation)
+            {
+                tables.insert(table.id.clone());
+            }
+        }
         for (name, value) in &declaration.properties {
             visit_value(project, Some(name), value, tables, names);
         }

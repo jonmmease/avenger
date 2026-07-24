@@ -360,3 +360,107 @@ async fn imported_bindings_are_checked_in_the_expected_category() {
             .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-020")
     );
 }
+
+#[tokio::test]
+async fn relation_references_resolve_through_namespaces_and_drive_chart_closures() {
+    let graph = load(
+        &[
+            (
+                "root.avenger",
+                "avenger 1;\
+                 import * as data from './library.avenger';\
+                 table sql as derived { sql: SELECT * FROM data.movies; }\
+                 chart cartesian { data: { table: 'derived'; } }",
+            ),
+            (
+                "library.avenger",
+                "avenger 1; export table memory as movies {}",
+            ),
+        ],
+        "root.avenger",
+        BTreeMap::new(),
+    )
+    .await;
+
+    let resolved = resolve_project(&graph, &bootstrap_schema()).result.unwrap();
+    assert_eq!(resolved.catalog_tables.len(), 2);
+    let derived = resolved
+        .module_items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("derived"))
+        .unwrap();
+    let movies = resolved
+        .module_items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("movies"))
+        .unwrap();
+    let chart = resolved.entrypoints.values().next().unwrap();
+    assert!(chart.reachable_items.contains(&derived.id));
+    assert!(chart.reachable_items.contains(&movies.id));
+    assert!(resolved.item_dependencies.edges.iter().any(|edge| {
+        edge.from == derived.id
+            && edge.to == movies.id
+            && edge.cause == avenger_lang_core::ItemDependencyCause::RelationUse
+    }));
+}
+
+#[tokio::test]
+async fn transform_definitions_may_join_input_but_mark_definitions_cannot_capture_data() {
+    let valid = load(
+        &[
+            (
+                "root.avenger",
+                "avenger 1;\
+                 import { movies } from './library.avenger';\
+                 define transform enrich {\
+                   output value;\
+                   transform sql { query: SELECT * FROM input JOIN movies USING (id); }\
+                 }",
+            ),
+            (
+                "library.avenger",
+                "avenger 1; export table memory as movies {}",
+            ),
+        ],
+        "root.avenger",
+        BTreeMap::new(),
+    )
+    .await;
+    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let enrich = resolved
+        .module_items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("enrich"))
+        .unwrap();
+    let movies = resolved
+        .module_items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("movies"))
+        .unwrap();
+    assert!(resolved.item_dependencies.edges.iter().any(|edge| {
+        edge.from == enrich.id
+            && edge.to == movies.id
+            && edge.cause == avenger_lang_core::ItemDependencyCause::RelationUse
+    }));
+
+    let invalid = load(
+        &[(
+            "root.avenger",
+            "avenger 1;\
+             table memory as rows {}\
+             define mark captured { mark symbol { data: { table: 'rows'; } } }",
+        )],
+        "root.avenger",
+        BTreeMap::new(),
+    )
+    .await;
+    let failure = resolve_project(&invalid, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-280")
+    );
+}

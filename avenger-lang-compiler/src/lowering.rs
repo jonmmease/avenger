@@ -50,9 +50,9 @@ use avenger_lang_core::{
     PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding, ResolvedDeclaration,
     ResolvedEventScope, ResolvedEventSurface, ResolvedExpression, ResolvedHelperArgument,
     ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery,
-    ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference,
-    ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader,
-    SourceSpan, StateSharing, StoreId, TimeUnit,
+    ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
+    ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel,
+    SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
     ast::{BindingTime, Visibility},
     module_graph::resolve_relative_origin,
 };
@@ -4563,7 +4563,7 @@ impl<'a> ProjectLowerer<'a> {
             })?;
             sql = sql.replace(&binding_spelling(binding), &format!("${}", param.name));
         }
-        crate::catalog::expand_chart_sql(self.project, &sql)
+        crate::catalog::expand_chart_sql(self.project, query, &sql)
             .map_err(|error| lowerer_error(declaration, error))
     }
 
@@ -4713,6 +4713,25 @@ impl<'a> ProjectLowerer<'a> {
                                 "data table name must be a string",
                             ));
                         };
+                        let authored_path = table.split('.').map(str::to_owned).collect::<Vec<_>>();
+                        let relation = declaration
+                            .relation_references
+                            .iter()
+                            .find(|reference| reference.authored_path == authored_path)
+                            .ok_or_else(|| {
+                                lowerer_error(
+                                    declaration,
+                                    format!(
+                                        "data table `{table}` has no resolved relation identity"
+                                    ),
+                                )
+                            })?;
+                        let ResolvedRelationTarget::Relation(relation_id) = &relation.target else {
+                            return Err(lowerer_error(
+                                declaration,
+                                "`input` cannot be used as a chart data source",
+                            ));
+                        };
                         let arguments = properties
                             .iter()
                             .filter(|(name, _)| *name != "table")
@@ -4723,13 +4742,22 @@ impl<'a> ProjectLowerer<'a> {
                             .collect::<Result<Vec<_>, _>>()?;
                         if arguments.is_empty() {
                             self.context
-                                .table(table.as_str())
+                                .table(crate::catalog::internal_relation_name(relation_id))
                                 .await
                                 .map_err(|error| lowerer_error(declaration, error.to_string()))
                         } else {
                             let sql = format!("SELECT * FROM {table}({})", arguments.join(", "));
-                            let sql = crate::catalog::expand_chart_sql(self.project, &sql)
-                                .map_err(|error| lowerer_error(declaration, error))?;
+                            let mut invocation = ResolvedQuery {
+                                sql: sql.clone(),
+                                bindings: Vec::new(),
+                                helpers: Vec::new(),
+                                references: Vec::new(),
+                                relations: vec![relation.clone()],
+                            };
+                            invocation.relations[0].authored_path = authored_path;
+                            let sql =
+                                crate::catalog::expand_chart_sql(self.project, &invocation, &sql)
+                                    .map_err(|error| lowerer_error(declaration, error))?;
                             self.context
                                 .sql(&sql)
                                 .await

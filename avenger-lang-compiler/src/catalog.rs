@@ -6,8 +6,8 @@ use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 
 use avenger_lang_core::{
     DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
-    ResolvedCatalogTable, ResolvedDeclaration, ResolvedProject, ResolvedValue, SourceLabel,
-    SourceOrigin, module_graph::normalize_path,
+    ResolvedCatalogTable, ResolvedDeclaration, ResolvedProject, ResolvedQuery, ResolvedRelationId,
+    ResolvedRelationTarget, ResolvedValue, SourceLabel, SourceOrigin, module_graph::normalize_path,
 };
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
@@ -124,11 +124,12 @@ pub(crate) async fn register_and_analyze_catalog(
                 ));
             }
         }
-        register_table(context, &table.path, Arc::clone(&provider))
+        let internal_path = vec![internal_relation_name(&table.relation)];
+        register_table(context, &internal_path, Arc::clone(&provider))
             .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-002", message))?;
         providers.insert(id.clone(), provider);
 
-        let reference = table_reference(&table.path)
+        let reference = table_reference(&internal_path)
             .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-003", message))?;
         let dataframe = context
             .table(reference)
@@ -193,65 +194,6 @@ pub(crate) async fn register_and_analyze_catalog(
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         stages.insert(id.clone(), stage);
         table_fingerprints.insert(id.clone(), table_fingerprint);
-    }
-
-    // Imported packs keep their declaration-local registrations for planning
-    // internal chains, then gain chart-facing aliases by replacing the pack's
-    // single schema/catalog root with the import binding.
-    for (alias, table) in imported_table_aliases(project) {
-        if project.catalog_tables.contains_key(&alias) {
-            continue;
-        }
-        let Some(provider) = providers.get(&table.id).cloned() else {
-            continue;
-        };
-        let path = alias.split('.').map(str::to_owned).collect::<Vec<_>>();
-        register_table(context, &path, provider)
-            .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-006", message))?;
-        let reference = table_reference(&path)
-            .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-003", message))?;
-        let dataframe = context
-            .table(reference)
-            .await
-            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-004", error.to_string()))?;
-        let dataset_id =
-            ProjectDatasetId::new(format!("catalog:{}:alias:{}", table.id.as_str(), alias));
-        let stage = DatasetStageId::new(dataset_id.clone(), 0);
-        datasets
-            .insert(AnalyzedDataset {
-                id: dataset_id.clone(),
-                stage: stage.clone(),
-                provenance: DatasetProvenance {
-                    declaration_span: table.span,
-                    stage_span: table.span,
-                    stage_kind: if table.kind == "sql" {
-                        DatasetStageKind::SqlView
-                    } else {
-                        DatasetStageKind::CatalogTable
-                    },
-                },
-                qualified_path: Some(path),
-                qualified_name: Some(alias),
-                columns: dataframe
-                    .schema()
-                    .iter()
-                    .map(|(qualifier, field)| AnalyzedColumn {
-                        name: field.name().clone(),
-                        qualifier: qualifier.map(ToString::to_string),
-                        data_type: field.data_type().clone(),
-                        nullable: field.is_nullable(),
-                    })
-                    .collect(),
-                schema: Arc::new(dataframe.schema().as_arrow().clone()),
-                logical_plan_fingerprint: None,
-            })
-            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
-        if let Some(fingerprint) = table_fingerprints.get(&table.id).cloned() {
-            dataset_fingerprints.insert(stage.clone(), fingerprint);
-        }
-        lineage
-            .insert(stage, DatasetLineage::default())
-            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
     }
 
     let dependency_fingerprint =
@@ -460,6 +402,19 @@ fn hash_parts<'a>(domain: &str, parts: impl IntoIterator<Item = &'a str>) -> Str
     format!("sha256:{:x}", hasher.finalize())
 }
 
+pub(crate) fn internal_relation_name(relation: &ResolvedRelationId) -> String {
+    let nested = relation.nested_path.join(".");
+    let digest = hash_parts(
+        "avenger-internal-relation-v1",
+        [
+            relation.defining_item.module.as_str(),
+            relation.defining_item.declaration.as_str(),
+            nested.as_str(),
+        ],
+    );
+    format!("__avenger_rel_{}", digest.trim_start_matches("sha256:"))
+}
+
 async fn analyze_external_catalogs(
     project: &ResolvedProject,
     context: &SessionContext,
@@ -603,10 +558,9 @@ async fn create_table_provider(
                         "`table sql` requires a query-valued `sql:` property",
                     )
                 })?;
-            let sql =
-                expand_catalog_sql(project, &query.sql, Some(table), true).map_err(|message| {
-                    declaration_diagnostic(declaration, "AVENGER-DATA-050", message)
-                })?;
+            let sql = expand_catalog_sql(project, query, Some(table), true).map_err(|message| {
+                declaration_diagnostic(declaration, "AVENGER-DATA-050", message)
+            })?;
             context
                 .sql(&sql)
                 .await
@@ -1034,12 +988,26 @@ fn ensure_schema(
 
 /// Expand Avenger parameterized table invocations into ordinary derived SQL
 /// tables before handing the canonical query to DataFusion's parser.
-pub(crate) fn expand_chart_sql(project: &ResolvedProject, sql: &str) -> Result<String, String> {
-    expand_catalog_sql(project, sql, None, false)
+pub(crate) fn expand_chart_sql(
+    project: &ResolvedProject,
+    query: &ResolvedQuery,
+    sql: &str,
+) -> Result<String, String> {
+    expand_catalog_sql_with_sql(project, query, sql, None, false)
 }
 
 fn expand_catalog_sql(
     project: &ResolvedProject,
+    query: &ResolvedQuery,
+    caller: Option<&ResolvedCatalogTable>,
+    bind_caller_defaults: bool,
+) -> Result<String, String> {
+    expand_catalog_sql_with_sql(project, query, &query.sql, caller, bind_caller_defaults)
+}
+
+fn expand_catalog_sql_with_sql(
+    project: &ResolvedProject,
+    query: &ResolvedQuery,
     sql: &str,
     caller: Option<&ResolvedCatalogTable>,
     bind_caller_defaults: bool,
@@ -1049,12 +1017,10 @@ fn expand_catalog_sql(
         let bindings = default_param_expressions(project, caller)?;
         substitute_query_params(&mut statement, &bindings)?;
     }
-    let prefix = caller
-        .map(|table| &table.path[..table.path.len().saturating_sub(1)])
-        .unwrap_or(&[]);
+    let relation_map = query_relation_map(query);
     let mut expander = TableFunctionExpander {
         project,
-        prefix,
+        relations: &relation_map,
         error: None,
     };
     if let ControlFlow::Break(()) = statement.visit(&mut expander) {
@@ -1062,6 +1028,7 @@ fn expand_catalog_sql(
             .error
             .unwrap_or_else(|| "table-function expansion stopped".to_owned()));
     }
+    rewrite_query_relations(&mut statement, &relation_map);
     Ok(statement.to_string())
 }
 
@@ -1076,9 +1043,51 @@ fn parse_query_statement(sql: &str) -> Result<Statement, String> {
     Ok(statement.clone())
 }
 
+fn query_relation_map(query: &ResolvedQuery) -> BTreeMap<Vec<String>, ResolvedRelationId> {
+    query
+        .relations
+        .iter()
+        .filter_map(|reference| match &reference.target {
+            ResolvedRelationTarget::Relation(relation) => {
+                Some((reference.authored_path.clone(), relation.clone()))
+            }
+            ResolvedRelationTarget::Input => None,
+        })
+        .collect()
+}
+
+fn object_name_path(name: &ObjectName) -> Vec<String> {
+    name.0
+        .iter()
+        .filter_map(|part| part.as_ident())
+        .map(|identifier| identifier.value.clone())
+        .collect()
+}
+
+fn rewrite_query_relations(
+    statement: &mut Statement,
+    relations: &BTreeMap<Vec<String>, ResolvedRelationId>,
+) {
+    struct Rewriter<'a>(&'a BTreeMap<Vec<String>, ResolvedRelationId>);
+
+    impl VisitorMut for Rewriter<'_> {
+        type Break = ();
+
+        fn pre_visit_relation(&mut self, relation: &mut ObjectName) -> ControlFlow<Self::Break> {
+            if let Some(target) = self.0.get(&object_name_path(relation)) {
+                *relation =
+                    ObjectName::from(vec![Ident::with_quote('"', internal_relation_name(target))]);
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    let _ = statement.visit(&mut Rewriter(relations));
+}
+
 struct TableFunctionExpander<'a> {
     project: &'a ResolvedProject,
-    prefix: &'a [String],
+    relations: &'a BTreeMap<Vec<String>, ResolvedRelationId>,
     error: Option<String>,
 }
 
@@ -1095,16 +1104,20 @@ impl VisitorMut for TableFunctionExpander<'_> {
         else {
             return ControlFlow::Continue(());
         };
-        let authored_name = name.to_string();
-        let Some(table) = resolve_table_name(self.project, self.prefix, &authored_name) else {
+        let authored_path = object_name_path(name);
+        let Some(relation) = self.relations.get(&authored_path) else {
             // DataFusion may own ordinary table functions; only Avenger table
             // declarations are rewritten here.
             return ControlFlow::Continue(());
         };
+        let Some(table) = self.project.catalog_tables.get(relation) else {
+            self.error = Some(format!(
+                "resolved relation `{}` is unavailable",
+                authored_path.join(".")
+            ));
+            return ControlFlow::Break(());
+        };
         let Some(arguments) = args else {
-            if !authored_name.contains('.') && table.path.len() > 1 {
-                *name = ObjectName::from(table.path.iter().map(Ident::new).collect::<Vec<_>>());
-            }
             return ControlFlow::Continue(());
         };
         let alias = alias.clone();
@@ -1192,10 +1205,10 @@ fn instantiate_table_query(
 
     let mut statement = parse_query_statement(&query.sql)?;
     substitute_query_params(&mut statement, &bindings)?;
-    let prefix = &table.path[..table.path.len().saturating_sub(1)];
+    let relation_map = query_relation_map(query);
     let mut expander = TableFunctionExpander {
         project,
-        prefix,
+        relations: &relation_map,
         error: None,
     };
     if let ControlFlow::Break(()) = statement.visit(&mut expander) {
@@ -1203,70 +1216,11 @@ fn instantiate_table_query(
             .error
             .unwrap_or_else(|| "nested table-function expansion stopped".to_owned()));
     }
+    rewrite_query_relations(&mut statement, &relation_map);
     match statement {
         Statement::Query(query) => Ok(*query),
         _ => unreachable!(),
     }
-}
-
-fn resolve_table_name<'a>(
-    project: &'a ResolvedProject,
-    prefix: &[String],
-    name: &str,
-) -> Option<&'a ResolvedCatalogTable> {
-    let normalized = name
-        .split('.')
-        .map(|component| component.trim_matches('"'))
-        .collect::<Vec<_>>()
-        .join(".");
-    if !normalized.contains('.') && !prefix.is_empty() {
-        let qualified = format!("{}.{}", prefix.join("."), normalized);
-        if let Some(table) = project.catalog_tables.get(&qualified) {
-            return Some(table);
-        }
-    }
-    project
-        .catalog_tables
-        .get(&normalized)
-        .or_else(|| imported_table_aliases(project).get(&normalized).copied())
-}
-
-pub(crate) fn resolved_table_for_name<'a>(
-    project: &'a ResolvedProject,
-    name: &str,
-) -> Option<&'a ResolvedCatalogTable> {
-    resolve_table_name(project, &[], name)
-}
-
-fn imported_table_aliases(project: &ResolvedProject) -> BTreeMap<String, &ResolvedCatalogTable> {
-    let mut result = BTreeMap::new();
-    for importer in project.files.values() {
-        for (binding, imported_file) in &importer.imports {
-            let Some(file) = project.files.get(imported_file) else {
-                continue;
-            };
-            let root_name = file
-                .roots
-                .iter()
-                .find(|root| matches!(root.keyword.as_str(), "schema" | "catalog"))
-                .and_then(|root| root.name.as_deref());
-            let Some(root_name) = root_name else {
-                continue;
-            };
-            for table in project
-                .catalog_tables
-                .values()
-                .filter(|table| &table.file == imported_file)
-            {
-                if table.path.first().is_some_and(|root| root == root_name) {
-                    let mut path = table.path.clone();
-                    path[0] = binding.clone();
-                    result.insert(path.join("."), table);
-                }
-            }
-        }
-    }
-    result
 }
 
 fn default_param_expressions(
@@ -1531,4 +1485,34 @@ fn declaration_diagnostic(
         "catalog provider configuration failed",
         SourceLabel::new(declaration.span, message),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_lang_core::{DeclarationKey, ModuleItemId, SourceModuleId};
+
+    #[test]
+    fn semantic_relations_rewrite_to_one_quoted_internal_name() {
+        let relation = ResolvedRelationId {
+            defining_item: ModuleItemId {
+                module: SourceModuleId::new("sha256:module"),
+                declaration: DeclarationKey::new("item"),
+            },
+            nested_path: vec!["schema".to_owned(), "movies".to_owned()],
+        };
+        let mut statement = parse_query_statement("SELECT m.title FROM data.movies AS m").unwrap();
+        rewrite_query_relations(
+            &mut statement,
+            &BTreeMap::from([(
+                vec!["data".to_owned(), "movies".to_owned()],
+                relation.clone(),
+            )]),
+        );
+        let sql = statement.to_string();
+        assert!(sql.contains(&format!("\"{}\"", internal_relation_name(&relation))));
+        assert!(sql.contains("AS m"));
+        assert!(sql.contains("m.title"));
+        assert!(!sql.contains("data.movies"));
+    }
 }
