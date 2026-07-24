@@ -1,6 +1,6 @@
 avenger 1;
 
-schema tables as vega {
+export schema tables as vega {
   table inline as movies {
     values: [
       { title: 'A'; rating: 8.5; },

@@ -660,7 +660,7 @@ async fn inline_definition_uses_the_compilers_canonical_expansion() {
     let mut inlined = chart.to_owned();
     inlined.replace_range(edit.span.range.as_range(), &edit.new_text);
     std::fs::write(&chart_path, inlined).unwrap();
-    compiler.check_project(&chart_path).await.unwrap();
+    compiler.check_module(&chart_path).await.unwrap();
 }
 
 #[tokio::test]
@@ -745,5 +745,5 @@ chart cartesian as chart {
         definition,
     )
     .unwrap();
-    compiler.check_project(&chart_path).await.unwrap();
+    compiler.check_module(&chart_path).await.unwrap();
 }

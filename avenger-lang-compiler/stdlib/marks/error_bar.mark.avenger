@@ -1,6 +1,6 @@
 avenger 1;
 
-define mark error_bar {
+export define mark error_bar {
   slot channel x;
   slot channel y;
 

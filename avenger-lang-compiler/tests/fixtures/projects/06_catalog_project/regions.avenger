@@ -1,5 +1,7 @@
 avenger 1;
 
+import { regions } from 'catalog.data.avenger';
+
 chart cartesian as regions {
   data: { table: 'regions'; }
   mark symbol {

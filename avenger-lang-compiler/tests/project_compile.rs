@@ -13,7 +13,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use async_trait::async_trait;
 use avenger_lang_compiler::{
     CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
-    CompileEnvironmentRequest, Compiler, ProjectCompilationMode, TableFactory, TableFactoryError,
+    CompileEnvironmentRequest, Compiler, ModuleCompilationMode, TableFactory, TableFactoryError,
     TableFactoryRegistry,
 };
 use datafusion::datasource::{TableProvider, memory::MemTable};
@@ -78,7 +78,7 @@ fn copy_tree(source: &Path, destination: &Path) {
 }
 
 fn named_artifacts(
-    project: &avenger_lang_compiler::CompiledProject,
+    project: &avenger_lang_compiler::CompiledModule,
 ) -> BTreeMap<String, &avenger_lang_compiler::CompiledChartArtifact> {
     project
         .charts
@@ -88,7 +88,7 @@ fn named_artifacts(
                 chart
                     .name
                     .clone()
-                    .unwrap_or_else(|| chart.id.as_str().to_owned()),
+                    .unwrap_or_else(|| format!("{:?}", chart.id.selector)),
                 chart,
             )
         })
@@ -106,8 +106,8 @@ fn same_compiled_plot(
 async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() {
     let root = fixture();
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let cold = compiler.compile_project(&root).await.unwrap();
-    let warm = compiler.compile_project(&root).await.unwrap();
+    let cold = compiler.compile_module(&root).await.unwrap();
+    let warm = compiler.compile_module(&root).await.unwrap();
 
     assert_eq!(
         cold.charts
@@ -116,10 +116,10 @@ async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() 
             .collect::<Vec<_>>(),
         ["cartesian", "geo", "polar"]
     );
-    assert_eq!(cold.project_fingerprint, warm.project_fingerprint);
+    assert_eq!(cold.module_fingerprint, warm.module_fingerprint);
     assert_eq!(cold.dependency_fingerprints, warm.dependency_fingerprints);
-    let analysis = compiler.analyze_project(&root).await.unwrap();
-    assert_eq!(cold.project_fingerprint, analysis.project_fingerprint);
+    let analysis = compiler.analyze_module(&root).await.unwrap();
+    assert_eq!(cold.module_fingerprint, analysis.module_fingerprint);
     assert_eq!(
         cold.dependency_fingerprints,
         analysis.dependency_fingerprints
@@ -163,7 +163,7 @@ async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
         .project_root(&project.0)
         .build()
         .unwrap();
-    let before = compiler.compile_project(&project.0).await.unwrap();
+    let before = compiler.compile_module(&project.0).await.unwrap();
     let chart = project.0.join("cartesian.avenger");
     fs::write(
         &chart,
@@ -172,7 +172,7 @@ async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
             .replace("value: 64.0", "value: 96.0"),
     )
     .unwrap();
-    let after = compiler.compile_project(&project.0).await.unwrap();
+    let after = compiler.compile_module(&project.0).await.unwrap();
     let before = named_artifacts(&before);
     let after = named_artifacts(&after);
 
@@ -193,7 +193,7 @@ async fn project_compile_shared_definition_edit_invalidates_only_importers() {
         .project_root(&project.0)
         .build()
         .unwrap();
-    let before = compiler.compile_project(&project.0).await.unwrap();
+    let before = compiler.compile_module(&project.0).await.unwrap();
     let definition = project.0.join("pass.transform.avenger");
     fs::write(
         &definition,
@@ -202,7 +202,7 @@ async fn project_compile_shared_definition_edit_invalidates_only_importers() {
             .replace("predicate: true", "predicate: true AND true"),
     )
     .unwrap();
-    let after = compiler.compile_project(&project.0).await.unwrap();
+    let after = compiler.compile_module(&project.0).await.unwrap();
     let before = named_artifacts(&before);
     let after = named_artifacts(&after);
 
@@ -218,7 +218,7 @@ async fn project_compile_shared_catalog_edit_invalidates_only_data_dependents() 
         .project_root(&project.0)
         .build()
         .unwrap();
-    let before = compiler.compile_project(&project.0).await.unwrap();
+    let before = compiler.compile_module(&project.0).await.unwrap();
     let catalog = project.0.join("shared.data.avenger");
     fs::write(
         &catalog,
@@ -227,7 +227,7 @@ async fn project_compile_shared_catalog_edit_invalidates_only_data_dependents() 
             .replace("y: 2.0", "y: 2.25"),
     )
     .unwrap();
-    let after = compiler.compile_project(&project.0).await.unwrap();
+    let after = compiler.compile_module(&project.0).await.unwrap();
     let before = named_artifacts(&before);
     let after = named_artifacts(&after);
 
@@ -243,7 +243,7 @@ async fn project_compile_reuses_dataset_schema_across_unrelated_chart_edit() {
         .project_root(&project.0)
         .build()
         .unwrap();
-    let before = compiler.analyze_project(&project.0).await.unwrap();
+    let before = compiler.analyze_module(&project.0).await.unwrap();
     assert_eq!(
         before.dependency_fingerprints.datasets.len(),
         before.datasets.iter().count(),
@@ -271,7 +271,7 @@ async fn project_compile_reuses_dataset_schema_across_unrelated_chart_edit() {
             .replace("value: 80.0", "value: 88.0"),
     )
     .unwrap();
-    let after = compiler.analyze_project(&project.0).await.unwrap();
+    let after = compiler.analyze_module(&project.0).await.unwrap();
     let reused = after
         .datasets
         .iter()
@@ -289,21 +289,21 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
     let root = fixture();
     let sequential = Compiler::builder()
         .project_root(&root)
-        .project_compilation_mode(ProjectCompilationMode::Sequential)
+        .project_compilation_mode(ModuleCompilationMode::Sequential)
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .unwrap();
     let parallel = Compiler::builder()
         .project_root(&root)
-        .project_compilation_mode(ProjectCompilationMode::Parallel)
+        .project_compilation_mode(ModuleCompilationMode::Parallel)
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .unwrap();
-    assert_eq!(sequential.project_fingerprint, parallel.project_fingerprint);
+    assert_eq!(sequential.module_fingerprint, parallel.module_fingerprint);
     assert_eq!(
         sequential.dependency_fingerprints,
         parallel.dependency_fingerprints
@@ -337,7 +337,7 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
                 .project_compilation_mode(mode)
                 .build()
                 .unwrap()
-                .compile_project(&root)
+                .compile_module(&root)
                 .await
                 .unwrap_err()
                 .diagnostics
@@ -352,8 +352,8 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
                 .collect::<Vec<_>>()
         }
     };
-    let sequential = diagnostics(ProjectCompilationMode::Sequential).await;
-    let parallel = diagnostics(ProjectCompilationMode::Parallel).await;
+    let sequential = diagnostics(ModuleCompilationMode::Sequential).await;
+    let parallel = diagnostics(ModuleCompilationMode::Parallel).await;
     assert_eq!(sequential.len(), 2);
     assert_eq!(sequential, parallel);
 }
@@ -382,14 +382,14 @@ async fn project_compile_environment_snapshot_participates_in_every_chart_key() 
                 .environment_factory(Arc::new(FingerprintedEnvironmentFactory(fingerprint)))
                 .build()
                 .unwrap()
-                .compile_project(&root)
+                .compile_module(&root)
                 .await
                 .unwrap()
         }
     };
     let first = compile("environment-snapshot-a").await;
     let second = compile("environment-snapshot-b").await;
-    assert_ne!(first.project_fingerprint, second.project_fingerprint);
+    assert_ne!(first.module_fingerprint, second.module_fingerprint);
     assert_ne!(
         first.dependency_fingerprints.compile_environment,
         second.dependency_fingerprints.compile_environment
@@ -464,7 +464,7 @@ async fn project_compile_cancellation_publishes_no_partial_analysis_or_artifacts
         .unwrap();
 
     {
-        let compile = compiler.compile_project(&project.0);
+        let compile = compiler.compile_module(&project.0);
         tokio::pin!(compile);
         tokio::select! {
             _ = entered.notified() => {}
@@ -478,7 +478,7 @@ async fn project_compile_cancellation_publishes_no_partial_analysis_or_artifacts
 
     released.store(true, Ordering::SeqCst);
     release.notify_waiters();
-    let completed = compiler.compile_project(&project.0).await.unwrap();
+    let completed = compiler.compile_module(&project.0).await.unwrap();
     assert_eq!(completed.charts.len(), 1);
     assert_eq!(compiler.cache_snapshot().chart_artifacts, 1);
 }
@@ -490,7 +490,7 @@ async fn project_compile_interfaces_match_reviewed_snapshot() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .unwrap();
     let interfaces = project

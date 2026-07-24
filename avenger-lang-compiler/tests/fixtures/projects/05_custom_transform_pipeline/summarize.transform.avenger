@@ -1,6 +1,6 @@
 avenger 1;
 
-define transform summarize {
+export define transform summarize {
   slot expr measure;
   output doubled;
   output adjusted;

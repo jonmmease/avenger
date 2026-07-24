@@ -300,15 +300,15 @@ pub struct DefinitionChannel {
 }
 
 #[derive(Clone, Debug)]
-pub struct ResolvedProject {
+pub struct ResolvedModuleGraph {
     pub language_major: u32,
     pub registry_schema_major: u32,
     pub registry_schema_minor: u32,
     pub registry_profile_label: String,
     pub source_fingerprint: String,
     pub sources: SourceMap,
-    pub files: BTreeMap<SourceModuleId, ResolvedFile>,
-    pub module_items: BTreeMap<ModuleItemId, ResolvedModuleItem>,
+    pub source_modules: BTreeMap<SourceModuleId, ResolvedModule>,
+    pub items: BTreeMap<ModuleItemId, ResolvedModuleItem>,
     pub entrypoints: BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint>,
     pub item_dependencies: ItemDependencyGraph,
     pub charts: Vec<DeclarationId>,
@@ -329,7 +329,7 @@ pub struct ResolvedProject {
     pub expansion_source_map: ExpansionSourceMap,
 }
 
-impl ResolvedProject {
+impl ResolvedModuleGraph {
     /// Find the authored source for a declaration span, including declarations
     /// reparsed from canonical definition-expanded source.
     pub fn authored_source(&self, span: SourceSpan) -> Option<&SourceFile> {
@@ -356,7 +356,7 @@ pub struct ResolvedCatalogTable {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResolvedFile {
+pub struct ResolvedModule {
     pub id: SourceModuleId,
     pub source: SourceId,
     pub imports: BTreeMap<String, SourceModuleId>,
@@ -701,11 +701,11 @@ pub struct ResolveFailure {
 
 #[derive(Clone, Debug)]
 pub struct ResolveAttempt {
-    pub result: Result<ResolvedProject, ResolveFailure>,
+    pub result: Result<ResolvedModuleGraph, ResolveFailure>,
 }
 
 /// Resolve a parsed project against one immutable authoring registry snapshot.
-pub fn resolve_project(
+pub fn resolve_module_graph(
     project: &ParsedModuleGraph,
     registry: &NativeSchemaSnapshot,
 ) -> ResolveAttempt {
@@ -870,7 +870,7 @@ impl<'a> Resolver<'a> {
                 .collect();
             files.insert(
                 file_id.clone(),
-                ResolvedFile {
+                ResolvedModule {
                     id: file_id.clone(),
                     source: file.source,
                     imports: self.imports.get(file_id).cloned().unwrap_or_default(),
@@ -968,15 +968,15 @@ impl<'a> Resolver<'a> {
         }
 
         ResolveAttempt {
-            result: Ok(ResolvedProject {
+            result: Ok(ResolvedModuleGraph {
                 language_major: LANGUAGE_MAJOR,
                 registry_schema_major: self.registry.version.major,
                 registry_schema_minor: self.registry.version.minor,
                 registry_profile_label: self.registry.profile_label.clone(),
                 source_fingerprint: self.project.fingerprint.clone(),
                 sources: self.project.sources.clone(),
-                files,
-                module_items,
+                source_modules: files,
+                items: module_items,
                 entrypoints,
                 item_dependencies,
                 charts,
@@ -996,7 +996,7 @@ impl<'a> Resolver<'a> {
 
     fn resolved_entrypoints(
         &self,
-        files: &BTreeMap<SourceModuleId, ResolvedFile>,
+        files: &BTreeMap<SourceModuleId, ResolvedModule>,
         param_default_order: &[ParamId],
         item_dependencies: &ItemDependencyGraph,
     ) -> BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint> {
@@ -1092,7 +1092,7 @@ impl<'a> Resolver<'a> {
 
     fn build_item_dependency_graph(
         &mut self,
-        files: &BTreeMap<SourceModuleId, ResolvedFile>,
+        files: &BTreeMap<SourceModuleId, ResolvedModule>,
     ) -> ItemDependencyGraph {
         let mut edges = Vec::new();
         for (module_id, file) in files {
@@ -1108,6 +1108,10 @@ impl<'a> Resolver<'a> {
                 collect_item_dependencies(declaration, &from, &mut edges);
             }
         }
+        // Nested tables in one schema/catalog item may refer to one another.
+        // Those are dependencies inside a single construction unit, not an
+        // item-level cycle.
+        edges.retain(|edge| edge.from != edge.to);
         edges.sort_by(|left, right| {
             left.from
                 .cmp(&right.from)
@@ -1252,7 +1256,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn prune_unused_lazy_exports(&mut self, files: &mut BTreeMap<SourceModuleId, ResolvedFile>) {
+    fn prune_unused_lazy_exports(&mut self, files: &mut BTreeMap<SourceModuleId, ResolvedModule>) {
         let mut used = BTreeSet::new();
         for file in files.values() {
             for root in &file.roots {
@@ -3652,15 +3656,35 @@ impl<'a> Resolver<'a> {
         scope: ScopeId,
         paths: Vec<Vec<String>>,
         span: SourceSpan,
+        owner: &Decl,
     ) -> Vec<ResolvedRelationReference> {
         let Some(module) = self.scopes[scope.0].module.clone() else {
             return Vec::new();
         };
-        let allow_input = self.scope_is_transform_definition(scope);
+        let allow_input =
+            owner.keyword.as_str() == "transform" || self.scope_allows_input_relation(scope);
         paths
             .into_iter()
             .filter_map(|authored_path| {
-                self.resolve_relation_path(&module, &authored_path, allow_input, span)
+                let relative = (authored_path.len() == 1)
+                    .then(|| self.current_relation_context(scope))
+                    .flatten()
+                    .and_then(|current| {
+                        let mut nested_path = current.nested_path;
+                        nested_path.pop();
+                        nested_path.extend(authored_path.iter().cloned());
+                        let candidate = ResolvedRelationId {
+                            defining_item: current.defining_item,
+                            nested_path,
+                        };
+                        self.relation_declarations
+                            .contains_key(&candidate)
+                            .then_some(ResolvedRelationTarget::Relation(candidate))
+                    });
+                relative
+                    .or_else(|| {
+                        self.resolve_relation_path(&module, &authored_path, allow_input, span)
+                    })
                     .map(|target| ResolvedRelationReference {
                         authored_path,
                         target,
@@ -3669,7 +3693,23 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    fn scope_is_transform_definition(&self, scope: ScopeId) -> bool {
+    fn current_relation_context(&self, scope: ScopeId) -> Option<ResolvedRelationId> {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(owner) = &self.scopes[id.0].owner
+                && let Some((relation, _)) = self
+                    .relation_declarations
+                    .iter()
+                    .find(|(_, declaration)| *declaration == owner)
+            {
+                return Some(relation.clone());
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        None
+    }
+
+    fn scope_allows_input_relation(&self, scope: ScopeId) -> bool {
         let mut cursor = Some(scope);
         while let Some(id) = cursor {
             if let Some(owner) = &self.scopes[id.0].owner
@@ -3677,6 +3717,17 @@ impl<'a> Resolver<'a> {
                     definition.kind == DefinitionKind::Transform && &definition.declaration == owner
                 })
             {
+                return true;
+            }
+            if let Some(owner) = &self.scopes[id.0].owner
+                && self
+                    .declaration_source(owner)
+                    .is_some_and(|(_, declaration)| declaration.keyword.as_str() == "transform")
+            {
+                // Definition expansion emits the exact transform pipeline at
+                // the instantiation site. Its virtual `input` relation must
+                // remain valid after the defining `define transform` wrapper
+                // is no longer present in source.
                 return true;
             }
             cursor = self.scopes[id.0].parent;
@@ -5816,7 +5867,7 @@ impl<'a> Resolver<'a> {
                 let references =
                     self.resolve_sql_paths(scope, query_paths(query.ast()), span, false);
                 let relations =
-                    self.resolve_query_relations(scope, relation_paths(query.ast()), span);
+                    self.resolve_query_relations(scope, relation_paths(query.ast()), span, owner);
                 let helpers = self.resolve_helpers(
                     scope,
                     query_helper_calls(query.ast()),
@@ -10333,7 +10384,7 @@ fn owns_lexical_scope(declaration: &Decl) -> bool {
 fn is_instance_boundary(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "tool" | "widget" | "mark" | "view" | "cell" | "plot"
+        "chart" | "define" | "tool" | "widget" | "mark" | "view" | "cell" | "plot"
     )
 }
 

@@ -1,6 +1,6 @@
 avenger 1;
 
-schema tables as files {
+export schema tables as files {
   table csv as rows { path: 'data/rows.csv'; }
   table json as events { path: 'data/events.json'; }
   table parquet as iris { path: 'data/iris.parquet'; }

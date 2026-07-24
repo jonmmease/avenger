@@ -2,7 +2,7 @@ use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
     ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, PhysicalType, SourceFile, SourceId,
-    SourceOrigin, ast::Value, resolve_project, semantic_json_schema, syntax::parse_file,
+    SourceOrigin, ast::Value, resolve_module_graph, semantic_json_schema, syntax::parse_file,
 };
 use std::{fs, path::PathBuf};
 
@@ -280,7 +280,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
     ];
     for (expected, source) in corpus {
         let project = semantic_project(source).await;
-        let semantic_valid = resolve_project(&project, &registry).result.is_ok();
+        let semantic_valid = resolve_module_graph(&project, &registry).result.is_ok();
         let file = project
             .source_modules
             .values()

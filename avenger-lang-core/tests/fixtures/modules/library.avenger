@@ -11,7 +11,7 @@ define transform private_identity {
 export define mark library_point {
   transform private_identity {}
 
-  mark symbol {
+  mark symbol as point {
     x: "x";
     y: "y";
   }

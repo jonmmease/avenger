@@ -2,7 +2,7 @@ use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
     ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, ResolvedDeclaration, ResolvedTarget,
-    ResolvedValue, SourceOrigin, expand_project, resolve_project,
+    ResolvedValue, SourceOrigin, expand_module_graph, resolve_module_graph,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -90,7 +90,7 @@ define transform rolling {
         ),
     ])
     .await;
-    resolve_project(&project, &bootstrap_schema())
+    resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -120,7 +120,7 @@ define mark broken {
         ),
     ])
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -182,7 +182,7 @@ define tool picker {
         ),
     ])
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -201,7 +201,7 @@ async fn definitions_require_explicit_imports() {
         "avenger 1; chart cartesian { mark unimported_definition { } }",
     )])
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(failure.diagnostics.iter().any(|diagnostic| {
@@ -315,7 +315,7 @@ define transform output_transform {
         ),
     ])
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -369,11 +369,11 @@ define mark shell {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .expect("caller block resolution is deferred until expansion");
-    let expanded = expand_project(&project, &resolved).unwrap();
-    let failure = resolve_project(&expanded.project, &bootstrap_schema())
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let failure = resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -457,10 +457,10 @@ define mark summary {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let expanded = expand_project(&project, &resolved).unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
@@ -482,7 +482,7 @@ define mark summary {
     assert!(text.contains("widget slider as threshold"), "{text}");
     assert!(!expanded.source_map.mappings.is_empty());
 
-    resolve_project(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -528,17 +528,17 @@ define mark band {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let expanded = expand_project(&project, &resolved).unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
     assert!(text.contains("overlay: {"), "{text}");
     assert!(text.contains("mark group as imported_band"), "{text}");
     assert!(text.contains("component_kind: band;"), "{text}");
-    resolve_project(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -581,11 +581,11 @@ define mark shell {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let first = expand_project(&project, &resolved).unwrap();
-    let second = expand_project(&project, &resolved).unwrap();
+    let first = expand_module_graph(&project, &resolved).unwrap();
+    let second = expand_module_graph(&project, &resolved).unwrap();
     assert_eq!(first.texts, second.texts);
     let chart = project.requested_modules.first().unwrap();
     let text = first.texts.get(chart).unwrap();
@@ -593,7 +593,7 @@ define mark shell {
     assert!(text.contains("visible: $__av_"), "{text}");
     assert!(text.contains("visible: $enabled;"), "{text}");
 
-    let expanded = resolve_project(&first.project, &bootstrap_schema())
+    let expanded = resolve_module_graph(&first.project, &bootstrap_schema())
         .result
         .unwrap();
     let root_param = expanded
@@ -620,7 +620,7 @@ define mark shell {
     assert!(internal.iter().all(|param| root_param.id != param.id));
 
     let caller_mark = expanded
-        .files
+        .source_modules
         .values()
         .flat_map(|file| file.roots.iter())
         .find_map(|root| find_resolved_declaration(root, "caller_mark"))
@@ -691,11 +691,11 @@ chart cartesian as chart {
         ("shell.mark.avenger", definition),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let expanded = expand_project(&project, &resolved).unwrap();
-    let resolved = resolve_project(&expanded.project, &bootstrap_schema())
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let resolved = resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();
     let param = resolved
@@ -771,10 +771,10 @@ define transform rolling {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let expanded = expand_project(&project, &resolved).unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
@@ -789,7 +789,7 @@ define transform rolling {
     assert!(text.contains("_private"), "{text}");
     assert!(!text.contains("__rolling_private"), "{text}");
 
-    resolve_project(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -825,10 +825,10 @@ define tool hover {
         ),
     ])
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let expanded = expand_project(&project, &resolved).unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
@@ -839,7 +839,7 @@ define tool hover {
     assert!(text.contains("set __av_"), "{text}");
     assert!(text.contains("target: mark points;"), "{text}");
 
-    resolve_project(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.project, &bootstrap_schema())
         .result
         .unwrap();
 }

@@ -215,7 +215,7 @@ fn provider_registries(
 async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_execution() {
     let root = project_fixture("06_catalog_project");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let tables = analysis
         .datasets
         .iter()
@@ -283,7 +283,7 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
 async fn catalog_project_compiles_two_charts_against_one_registered_catalog() {
     let root = project_fixture("06_catalog_project");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let project = compiler.compile_project(&root).await.unwrap();
+    let project = compiler.compile_module(&root).await.unwrap();
     assert_eq!(project.charts.len(), 2);
 }
 
@@ -293,7 +293,7 @@ async fn catalog_project_compiles_and_evaluates_each_chart_in_its_retained_gener
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     for (generation, chart) in [(1, "movies.avenger"), (2, "regions.avenger")] {
         let compiled = compiler
-            .compile_file_generation_attempt(chart, generation)
+            .compile_chart_generation_attempt(chart, None, generation)
             .await
             .result
             .unwrap();
@@ -320,9 +320,9 @@ async fn catalog_default_and_host_generation_environments_are_analysis_and_artif
         .build()
         .unwrap();
 
-    let default_analysis = default.analyze_project(&root).await.unwrap();
-    let host_analysis = host.analyze_project(&root).await.unwrap();
-    let snapshot = |analysis: &avenger_lang_compiler::ProjectAnalysis| {
+    let default_analysis = default.analyze_module(&root).await.unwrap();
+    let host_analysis = host.analyze_module(&root).await.unwrap();
+    let snapshot = |analysis: &avenger_lang_compiler::ModuleAnalysis| {
         analysis
             .datasets
             .iter()
@@ -341,15 +341,15 @@ async fn catalog_default_and_host_generation_environments_are_analysis_and_artif
     };
     assert_eq!(snapshot(&default_analysis), snapshot(&host_analysis));
     assert_eq!(
-        default_analysis.project_fingerprint,
-        host_analysis.project_fingerprint
+        default_analysis.module_fingerprint,
+        host_analysis.module_fingerprint
     );
 
-    let default_project = default.compile_project(&root).await.unwrap();
-    let host_project = host.compile_project(&root).await.unwrap();
+    let default_project = default.compile_module(&root).await.unwrap();
+    let host_project = host.compile_module(&root).await.unwrap();
     assert_eq!(
-        default_project.project_fingerprint,
-        host_project.project_fingerprint
+        default_project.module_fingerprint,
+        host_project.module_fingerprint
     );
     for (id, default_chart) in &default_project.charts {
         let host_chart = &host_project.charts[id];
@@ -372,7 +372,7 @@ async fn catalog_default_and_host_generation_environments_are_analysis_and_artif
 async fn catalog_parameterized_tables_bind_defaults_named_args_and_forwarding() {
     let root = project_fixture("phase9-parameterized");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let forwarded = analysis
         .datasets
         .iter()
@@ -392,7 +392,7 @@ async fn catalog_parameterized_tables_bind_defaults_named_args_and_forwarding() 
         DataType::Struct(_)
     ));
 
-    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    let artifact = compiler.compile_chart("chart.avenger", None).await.unwrap();
     assert!(artifact.interface.params.contains_key("selected"));
 }
 
@@ -400,7 +400,7 @@ async fn catalog_parameterized_tables_bind_defaults_named_args_and_forwarding() 
 async fn catalog_pack_alias_retargets_public_paths_without_capturing_internal_chains() {
     let root = project_fixture("phase9-pack");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let names = analysis
         .datasets
         .iter()
@@ -408,14 +408,14 @@ async fn catalog_pack_alias_retargets_public_paths_without_capturing_internal_ch
         .collect::<std::collections::BTreeSet<_>>();
     assert!(names.contains("samples.movies"));
     assert!(names.contains("samples.popular"));
-    compiler.compile_file("chart.avenger").await.unwrap();
+    compiler.compile_chart("chart.avenger", None).await.unwrap();
 }
 
 #[tokio::test]
 async fn catalog_file_providers_expose_csv_json_parquet_directory_glob_and_ipc_schemas() {
     let root = project_fixture("phase9-files");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let names = analysis
         .datasets
         .iter()
@@ -431,7 +431,7 @@ async fn catalog_file_providers_expose_csv_json_parquet_directory_glob_and_ipc_s
     ] {
         assert!(names.contains(expected), "missing schema for {expected}");
     }
-    compiler.compile_file("chart.avenger").await.unwrap();
+    compiler.compile_chart("chart.avenger", None).await.unwrap();
 }
 
 #[tokio::test]
@@ -439,7 +439,7 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     let root = project_fixture("phase9-providers");
 
     let denied = Compiler::builder().project_root(&root).build().unwrap();
-    let failure = denied.analyze_project(&root).await.unwrap_err();
+    let failure = denied.analyze_module(&root).await.unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-DATA-020");
 
     let (catalog_factories, table_factories) =
@@ -454,7 +454,7 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
         )])))
         .build()
         .unwrap();
-    let failure = denied_environment.analyze_project(&root).await.unwrap_err();
+    let failure = denied_environment.analyze_module(&root).await.unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-DATA-060");
 
     let (catalog_factories, table_factories) =
@@ -475,7 +475,7 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
         )])))
         .build()
         .unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let names = analysis
         .datasets
         .iter()
@@ -484,10 +484,10 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     assert!(names.contains("warehouse.analytics.remote_events"));
     assert!(names.contains("local.events"));
 
-    let project = compiler.compile_project(&root).await.unwrap();
+    let project = compiler.compile_module(&root).await.unwrap();
     assert_eq!(
-        project.project_fingerprint.as_str(),
-        analysis.project_fingerprint.as_str()
+        project.module_fingerprint.as_str(),
+        analysis.module_fingerprint.as_str()
     );
     assert!(project.charts.values().all(|chart| {
         analysis
@@ -515,12 +515,12 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
         )])))
         .build()
         .unwrap()
-        .analyze_project(&root)
+        .analyze_module(&root)
         .await
         .unwrap();
     assert_ne!(
-        changed.project_fingerprint.as_str(),
-        analysis.project_fingerprint.as_str()
+        changed.module_fingerprint.as_str(),
+        analysis.module_fingerprint.as_str()
     );
 }
 
@@ -549,7 +549,7 @@ async fn catalog_session_materialization_is_lazy_and_reused_within_one_generatio
         .table_factories(factories)
         .build()
         .unwrap()
-        .compile_file_generation_attempt("chart.avenger", 9)
+        .compile_chart_generation_attempt("chart.avenger", None, 9)
         .await
         .result
         .unwrap();

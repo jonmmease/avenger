@@ -70290,7 +70290,7 @@
           "type": "string"
         },
         "kind": {
-          "$ref": "#/$defs/name"
+          "$ref": "#/$defs/qualifiedName"
         },
         "name": {
           "$ref": "#/$defs/name"
@@ -70313,20 +70313,174 @@
     "import": {
       "additionalProperties": false,
       "properties": {
-        "as": {
-          "$ref": "#/$defs/name"
-        },
-        "import": {
-          "minLength": 1,
-          "type": "string"
+        "clause": {
+          "$ref": "#/$defs/importClause"
         },
         "sha256": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
-        "import"
+        "source",
+        "clause"
+      ],
+      "type": "object"
+    },
+    "importClause": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "named": {
+              "items": {
+                "$ref": "#/$defs/importSpecifier"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "namespace": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "namespace"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "importSpecifier": {
+      "additionalProperties": false,
+      "properties": {
+        "imported": {
+          "$ref": "#/$defs/name"
+        },
+        "local": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "imported",
+        "local"
+      ],
+      "type": "object"
+    },
+    "moduleItem": {
+      "additionalProperties": false,
+      "properties": {
+        "declaration": {
+          "oneOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/decl"
+                },
+                {
+                  "not": {
+                    "required": [
+                      "visibility"
+                    ]
+                  },
+                  "properties": {
+                    "decl": {
+                      "const": "chart"
+                    },
+                    "kind": {
+                      "$ref": "#/$defs/qualifiedName"
+                    }
+                  },
+                  "required": [
+                    "decl",
+                    "kind"
+                  ]
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/decl"
+                },
+                {
+                  "not": {
+                    "required": [
+                      "visibility"
+                    ]
+                  },
+                  "properties": {
+                    "decl": {
+                      "const": "define"
+                    },
+                    "kind": {
+                      "enum": [
+                        "mark",
+                        "tool",
+                        "transform"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decl",
+                    "kind",
+                    "name"
+                  ]
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/decl"
+                },
+                {
+                  "not": {
+                    "required": [
+                      "visibility"
+                    ]
+                  },
+                  "properties": {
+                    "decl": {
+                      "enum": [
+                        "table",
+                        "schema",
+                        "catalog"
+                      ]
+                    },
+                    "kind": {
+                      "$ref": "#/$defs/qualifiedName"
+                    }
+                  },
+                  "required": [
+                    "decl",
+                    "kind",
+                    "name"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "exported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exported",
+        "declaration"
       ],
       "type": "object"
     },
@@ -70342,6 +70496,10 @@
         "$ref": "#/$defs/name"
       },
       "type": "object"
+    },
+    "qualifiedName": {
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*(?:\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*)*$",
+      "type": "string"
     },
     "ref": {
       "additionalProperties": false,
@@ -70457,22 +70615,12 @@
       },
       "type": "array"
     },
-    "name": {
-      "$ref": "#/$defs/name"
-    },
-    "root": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/decl"
-        },
-        {
-          "items": {
-            "$ref": "#/$defs/decl"
-          },
-          "minItems": 1,
-          "type": "array"
-        }
-      ]
+    "items": {
+      "items": {
+        "$ref": "#/$defs/moduleItem"
+      },
+      "minItems": 1,
+      "type": "array"
     },
     "version": {
       "const": 1
@@ -70480,7 +70628,7 @@
   },
   "required": [
     "version",
-    "root"
+    "items"
   ],
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",

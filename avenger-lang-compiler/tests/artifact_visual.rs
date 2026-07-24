@@ -2,9 +2,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use avenger_chart::prelude::*;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_lang_compiler::{
-    CompiledChartArtifact, Compiler, DependencyFingerprint, ProjectChartId,
-};
+use avenger_lang_compiler::{CompiledChartArtifact, Compiler, DependencyFingerprint};
+use avenger_lang_core::{ChartEntrypointId, ChartSelector, SourceModuleId};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{
     arrow::{
@@ -51,11 +50,14 @@ async fn vertical_slice_hello_scatter_matches_direct_rust_and_existing_baseline(
     let compiled = Arc::new(plot.compile(&context).await.unwrap());
     let registry = avenger_chart_lang_registry::builtins::bootstrap_registry().unwrap();
     let mut artifact = CompiledChartArtifact::new(
-        ProjectChartId::new("existing-simple-scatter"),
+        ChartEntrypointId {
+            module: SourceModuleId::new("test:existing-simple-scatter"),
+            selector: ChartSelector::Named("existing-simple-scatter".to_owned()),
+        },
         Some("Existing simple scatter visual fixture".to_string()),
         avenger_lang_core::SourceId::new(0),
         compiled,
-        registry.profile_id().clone(),
+        avenger_lang_compiler::NativeRequirementSet::builtin_only(&registry),
         DependencyFingerprint::new("existing-simple-scatter"),
     );
     artifact.interface.public_targets.insert(
@@ -79,7 +81,7 @@ async fn vertical_slice_hello_scatter_matches_direct_rust_and_existing_baseline(
         .project_root(&fixture)
         .build()
         .unwrap()
-        .compile_file(fixture.join("chart.avenger"))
+        .compile_chart(fixture.join("chart.avenger"), None)
         .await
         .unwrap();
     let dsl_evaluated = dsl_artifact

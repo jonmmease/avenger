@@ -18,17 +18,18 @@ mod source_loader;
 pub use analysis::{
     AnalyzedColumn, AnalyzedDataset, ColumnLineage, DatasetLineage, DatasetLineageIndex,
     DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, FunctionInventory,
-    ProjectAnalysis, ProjectDatasetId, physical_type_to_arrow,
+    ModuleAnalysis, ModuleDatasetId, physical_type_to_arrow,
 };
 pub use artifact::{
     ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,
-    CompiledChartArtifact, CompiledChartInterface, CompiledProject, DependencyFingerprint,
-    InterfaceStateBinding, ProjectChartId, ProjectDependencyFingerprints, ProjectFingerprint,
+    CompiledChartArtifact, CompiledChartInterface, CompiledModule, DependencyFingerprint,
+    InterfaceStateBinding, ModuleDependencyFingerprints, ModuleFingerprint,
+    NativeModuleRequirement, NativeRequirementSet,
 };
 pub use compiler::{
     CompileAttempt, CompileFailure, CompiledChartGeneration, CompiledDependency, Compiler,
     CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, DependencyRole,
-    DiscoveredDependencySet, ExpandedSource, ProjectCompilationMode,
+    DiscoveredDependencySet, ExpandedSource, ModuleCompilationMode,
 };
 pub use options::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,

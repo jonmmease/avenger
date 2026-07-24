@@ -1,13 +1,13 @@
 avenger 1;
 
-table inline as regions {
+export table inline as regions {
   values: [
     { region: 'east'; value: 3; },
     { region: 'west'; value: 5; },
   ];
 }
 
-schema tables as vega {
+export schema tables as vega {
   table inline as movies {
     values: [
       { title: 'A'; rating: 8.5; year: 2020; },

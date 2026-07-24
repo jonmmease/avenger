@@ -5,7 +5,7 @@ use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits,
     ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, ResolvedSelectionCombine,
     ResolvedSelectionEmpty, ResolvedTarget, ResolvedValue, SourceOrigin, render_diagnostics,
-    resolve_project,
+    resolve_module_graph,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -88,7 +88,7 @@ chart cartesian as chart {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     assert_eq!(resolved.params.len(), 2);
@@ -96,7 +96,7 @@ chart cartesian as chart {
     assert!(resolved.public_targets.contains_key("chart.points.dots"));
     assert!(
         resolved
-            .files
+            .source_modules
             .values()
             .all(|file| { file.roots.iter().all(|root| !contains_invalid(root)) })
     );
@@ -120,11 +120,11 @@ chart cartesian {
         "configured_channel.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     let chart = resolved
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .find(|declaration| declaration.keyword == "chart")
@@ -173,11 +173,11 @@ chart cartesian {
         "configured_aggregate_channel.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     let chart = resolved
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .find(|declaration| declaration.keyword == "chart")
@@ -213,7 +213,7 @@ chart facet_wrap {
     )
     .await;
     assert!(
-        resolve_project(&configured, &bootstrap_schema())
+        resolve_module_graph(&configured, &bootstrap_schema())
             .result
             .is_ok()
     );
@@ -232,7 +232,7 @@ chart facet_wrap {
         "typed_facet.avenger",
     )
     .await;
-    let failure = resolve_project(&typed, &bootstrap_schema())
+    let failure = resolve_module_graph(&typed, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -252,7 +252,7 @@ async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
     ] {
         let source = format!("avenger 1; chart cartesian {{ {declarations} }}");
         let project = project(&[("duplicate.avenger", &source)], "duplicate.avenger").await;
-        let failure = resolve_project(&project, &bootstrap_schema())
+        let failure = resolve_module_graph(&project, &bootstrap_schema())
             .result
             .unwrap_err();
         assert!(
@@ -280,7 +280,7 @@ chart cartesian {
         "shadowed.avenger",
     )
     .await;
-    let failure = resolve_project(&shadowed, &bootstrap_schema())
+    let failure = resolve_module_graph(&shadowed, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -300,7 +300,7 @@ chart cartesian {
         "cursor.avenger",
     )
     .await;
-    let failure = resolve_project(&cursor, &bootstrap_schema())
+    let failure = resolve_module_graph(&cursor, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -335,10 +335,12 @@ chart cartesian as namespaces {
         "namespaces.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     assert_eq!(resolved.params.len(), 1);
     assert_eq!(resolved.selections.len(), 1);
-    let event = &resolved.files.values().next().unwrap().roots[0].children[3];
+    let event = &resolved.source_modules.values().next().unwrap().roots[0].children[3];
     assert!(event.public_path.is_none());
     assert!(matches!(
         event.event_binding.as_ref().unwrap().targets.as_slice(),
@@ -371,7 +373,7 @@ chart cartesian {
         "duplicate_namespaces.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -407,7 +409,7 @@ chart cartesian as widgets {
         "widgets.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
     let generated = resolved
@@ -449,7 +451,7 @@ chart cartesian as tools {
         "tools.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
     let generated = resolved
@@ -497,7 +499,9 @@ chart cartesian as chart {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     assert_eq!(
         resolved.params.len(),
         1,
@@ -507,7 +511,7 @@ chart cartesian as chart {
         resolved.public_targets.get("chart.choice.control"),
         Some(ResolvedTarget::Part { alias, .. }) if alias == "control"
     ));
-    let widget = &resolved.files.values().next().unwrap().roots[0].children[1];
+    let widget = &resolved.source_modules.values().next().unwrap().roots[0].children[1];
     assert!(matches!(
         widget.exports.get("value"),
         Some(ResolvedTarget::Param(id)) if resolved.params.contains_key(id)
@@ -538,7 +542,7 @@ chart cartesian {
         "invalid.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -580,7 +584,7 @@ chart cartesian as contracts {
         "contracts.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid_shape_and_placement, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid_shape_and_placement, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -612,7 +616,7 @@ chart cartesian as contracts {
     registry
         .entries
         .insert(polar_schema.key.clone(), polar_schema);
-    let failure = resolve_project(&polar, &registry).result.unwrap_err();
+    let failure = resolve_module_graph(&polar, &registry).result.unwrap_err();
     assert!(
         failure
             .diagnostics
@@ -643,7 +647,9 @@ chart cartesian as chart {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     assert!(resolved.public_targets.contains_key("chart.controls.value"));
     assert!(resolved.public_targets.contains_key("chart.visible"));
     assert!(
@@ -670,7 +676,7 @@ chart cartesian {
         "shadow.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -698,7 +704,7 @@ chart cartesian as exports {
         "exports.avenger",
     )
     .await;
-    let failure = resolve_project(&duplicate_exports, &bootstrap_schema())
+    let failure = resolve_module_graph(&duplicate_exports, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -724,7 +730,9 @@ chart cartesian {
         "selection.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     let selection = resolved.selections.values().next().unwrap();
     assert_eq!(selection.empty, ResolvedSelectionEmpty::All);
     assert_eq!(selection.combine, ResolvedSelectionCombine::Intersect);
@@ -742,7 +750,7 @@ chart cartesian {
         "bad_selection.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -773,7 +781,7 @@ chart cartesian {
         "invalid.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -822,11 +830,11 @@ define tool controller {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
     let chart = resolved
-        .files
+        .source_modules
         .values()
         .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
@@ -902,12 +910,12 @@ define mark point_pair {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
 
     let definition_file = resolved
-        .files
+        .source_modules
         .values()
         .find(|file| file.roots.iter().any(|root| root.keyword == "define"))
         .unwrap();
@@ -934,7 +942,7 @@ define mark point_pair {
     ));
 
     let chart_file = resolved
-        .files
+        .source_modules
         .values()
         .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
@@ -973,7 +981,7 @@ define tool high { tool base as inner {} }
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
     let names = resolved
@@ -1013,7 +1021,7 @@ define transform project {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     let definition = resolved.definitions.values().next().unwrap();
@@ -1024,7 +1032,7 @@ define transform project {
         ))) if name == "measure"
     ));
     let chart = resolved
-        .files
+        .source_modules
         .values()
         .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap();
@@ -1057,7 +1065,7 @@ define transform project {
         "chart.avenger",
     )
     .await;
-    let failure = resolve_project(&unbound, &bootstrap_schema())
+    let failure = resolve_module_graph(&unbound, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -1090,9 +1098,11 @@ chart cartesian as chart {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     assert!(!resolved.public_targets.contains_key("chart.owner.viewport"));
-    let view = &resolved.files.values().next().unwrap().roots[0].children[0].children[0];
+    let view = &resolved.source_modules.values().next().unwrap().roots[0].children[0].children[0];
     let predicate = view.children[0].properties.get("predicate").unwrap();
     assert!(matches!(
         predicate,
@@ -1126,7 +1136,7 @@ chart cartesian {
         "outside.avenger",
     )
     .await;
-    let failure = resolve_project(&outside, &bootstrap_schema())
+    let failure = resolve_module_graph(&outside, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -1161,7 +1171,7 @@ chart cartesian {
         "invalid_views.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -1178,7 +1188,7 @@ chart cartesian {
 async fn resolve_named_runtime_ids_ignore_irrelevant_sibling_order() {
     async fn identities(source: &str) -> (String, String, String) {
         let project = project(&[("stable.avenger", source)], "stable.avenger").await;
-        let resolved = resolve_project(&project, &bootstrap_schema())
+        let resolved = resolve_module_graph(&project, &bootstrap_schema())
             .result
             .unwrap();
         let param = resolved
@@ -1259,7 +1269,7 @@ define mark broken {
         "chart.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let diagnostic = failure
@@ -1297,10 +1307,10 @@ chart cartesian as provenance {
         "provenance.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let root = &resolved.files.values().next().unwrap().roots[0];
+    let root = &resolved.source_modules.values().next().unwrap().roots[0];
     let component = &root.children[0];
     let widget = &root.children[1];
     let generated_state = resolved
@@ -1385,11 +1395,11 @@ define mark band {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
     let chart = &resolved
-        .files
+        .source_modules
         .values()
         .find(|file| file.roots.iter().any(|root| root.keyword == "chart"))
         .unwrap()
@@ -1447,7 +1457,7 @@ async fn resolve_legend_overlay_rejects_empty_properties_and_non_mark_children()
             "avenger 1; chart cartesian {{ mark symbol {{ fill: 1.0 {{ legend: {{ {overlay} }} }} }} }}"
         );
         let project = project(&[("chart.avenger", &source)], "chart.avenger").await;
-        let failure = resolve_project(&project, &bootstrap_schema())
+        let failure = resolve_module_graph(&project, &bootstrap_schema())
             .result
             .unwrap_err();
         assert!(
@@ -1483,10 +1493,10 @@ chart cartesian as pipeline {
         "pipeline.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
-    let root = &resolved.files.values().next().unwrap().roots[0];
+    let root = &resolved.source_modules.values().next().unwrap().roots[0];
     let transform = &root.children[0];
     assert!(transform.transform_outputs.contains_key("total"));
     let mark = &root.children[1];
@@ -1517,7 +1527,7 @@ chart cartesian as future {
         "future.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -1552,8 +1562,10 @@ chart cartesian as pipeline {
         "pipeline.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
-    let pipeline = &resolved.files.values().next().unwrap().roots[0].children[0];
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let pipeline = &resolved.source_modules.values().next().unwrap().roots[0].children[0];
     let handle = pipeline.transform_outputs.get("final").unwrap();
     assert_eq!(handle.ordinal, 0);
     let output = &pipeline.children[0];
@@ -1585,7 +1597,7 @@ chart cartesian {
         "duplicate.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -1618,7 +1630,7 @@ schema tables as vega {
         "tables.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     assert_eq!(resolved.table_order.len(), 2);
@@ -1643,7 +1655,7 @@ schema tables as vega {
         "cycle.avenger",
     )
     .await;
-    let failure = resolve_project(&cyclic, &bootstrap_schema())
+    let failure = resolve_module_graph(&cyclic, &bootstrap_schema())
         .result
         .unwrap_err();
     let cycle = failure
@@ -1674,8 +1686,11 @@ chart cartesian as bindings {
         "bindings.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
-    let query = &resolved.files.values().next().unwrap().roots[0].children[2].properties["query"];
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let query =
+        &resolved.source_modules.values().next().unwrap().roots[0].children[2].properties["query"];
     let avenger_lang_core::ResolvedValue::Query(query) = query else {
         panic!("resolved SQL query")
     };
@@ -1707,7 +1722,7 @@ chart cartesian as wrong_bindings {
         "wrong_bindings.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert_eq!(
@@ -1746,7 +1761,9 @@ chart cartesian as state {
         "state.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     let store = resolved.stores.values().next().unwrap();
     assert!(matches!(
         store.rows[0].get("payload"),
@@ -1772,7 +1789,7 @@ chart cartesian as bad_state {
         "bad_state.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -1811,7 +1828,9 @@ schema tables as local {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     let table_param = resolved
         .params
         .values()
@@ -1842,7 +1861,7 @@ schema tables as local {
         "chart.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -1880,10 +1899,10 @@ chart cartesian as events {
         "events.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
-    let event = &resolved.files.values().next().unwrap().roots[0].children[2];
+    let event = &resolved.source_modules.values().next().unwrap().roots[0].children[2];
     assert!(event.migration_key.is_some());
     assert!(event.public_path.is_none());
     assert_eq!(event.children.len(), 2);
@@ -1918,7 +1937,7 @@ chart cartesian as bad_events {
         "bad_events.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -1952,8 +1971,10 @@ chart cartesian as helpers {
         "helpers.avenger",
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
-    let root = &resolved.files.values().next().unwrap().roots[0];
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let root = &resolved.source_modules.values().next().unwrap().roots[0];
     let avenger_lang_core::ResolvedValue::Expression(x) = &root.children[2].properties["x"] else {
         panic!("mark channel expression")
     };
@@ -2002,7 +2023,7 @@ chart cartesian as bad_helpers {
         "bad_helpers.avenger",
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert_eq!(
@@ -2056,10 +2077,10 @@ chart cartesian as events {
         "events.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap();
-    let event = &resolved.files.values().next().unwrap().roots[0].children[5];
+    let event = &resolved.source_modules.values().next().unwrap().roots[0].children[5];
     let binding = event.event_binding.as_ref().unwrap();
     assert_eq!(binding.targets.len(), 2);
     assert!(matches!(
@@ -2132,7 +2153,7 @@ chart cartesian as bad_scene_targets {
         "bad_scene_targets.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure
@@ -2168,7 +2189,7 @@ chart cartesian as bad_events {
         "bad_events.avenger",
     )
     .await;
-    let failure = resolve_project(&project, &bootstrap_schema())
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
         .result
         .unwrap_err();
     let codes = failure

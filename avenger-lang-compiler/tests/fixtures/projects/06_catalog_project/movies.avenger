@@ -1,5 +1,7 @@
 avenger 1;
 
+import { vega } from 'catalog.data.avenger';
+
 chart cartesian as movies {
   data: { table: 'vega.popular'; }
   mark symbol {

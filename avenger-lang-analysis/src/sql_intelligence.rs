@@ -3,7 +3,7 @@
 //! The strict Avenger SQL frontend remains the language authority. This module
 //! deliberately owns only the bounded, cursor-oriented recovery needed while
 //! an author is editing an incomplete island. Stable relation schemas come
-//! from `ProjectAnalysis`; expressions are validated with DataFusion's logical
+//! from `ModuleAnalysis`; expressions are validated with DataFusion's logical
 //! expression planner and are never executed.
 
 use std::{
@@ -16,7 +16,7 @@ use std::{
 };
 
 use arrow::datatypes::DataType;
-use avenger_lang_compiler::{AnalyzedDataset, ProjectAnalysis, physical_type_to_arrow};
+use avenger_lang_compiler::{AnalyzedDataset, ModuleAnalysis, physical_type_to_arrow};
 use avenger_lang_core::{
     ByteSpan, PhysicalType, SourceOrigin, SourceSpan,
     ast::{SqlExpression, SqlQuery},
@@ -453,7 +453,7 @@ pub(crate) fn complete_sql(
 fn sql_cache_key(
     request: &PositionRequest,
     island: SourceSpan,
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
     context: Option<&DatasetContext>,
 ) -> String {
     let mut hash = Sha256::new();
@@ -465,7 +465,7 @@ fn sql_cache_key(
     hash.update(island.range.end.to_le_bytes());
     hash.update(request.byte_offset.to_le_bytes());
     if let Some(project) = project {
-        hash.update(project.project_fingerprint.as_str().as_bytes());
+        hash.update(project.module_fingerprint.as_str().as_bytes());
     }
     if let Some(context) = context {
         hash.update(context.stage.dataset.as_str().as_bytes());
@@ -479,7 +479,7 @@ fn project_at<'a>(
     cursor: usize,
     roots: &'a BTreeMap<String, RootAnalysis>,
     contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
-) -> (Option<&'a ProjectAnalysis>, Option<&'a DatasetContext>) {
+) -> (Option<&'a ModuleAnalysis>, Option<&'a DatasetContext>) {
     let context = contexts
         .iter()
         .find(|(candidate, _)| same_origin(candidate, origin))
@@ -833,7 +833,7 @@ fn build_repaired_sql(authored: &str, cursor: usize, strategy: SqlRepairStrategy
     RepairedSql { text, generated }
 }
 
-fn relation_catalog(project: &ProjectAnalysis) -> Vec<RelationMetadata> {
+fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
     project
         .datasets
         .iter()
@@ -897,7 +897,7 @@ fn build_query_scope(
     cursor: usize,
     active_depth: usize,
     catalog: &[RelationMetadata],
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
     context: Option<&DatasetContext>,
 ) -> QueryScope {
     let mut scope = QueryScope {
@@ -1346,7 +1346,7 @@ fn projection_aliases(
 }
 
 fn input_dataset<'a>(
-    project: &'a ProjectAnalysis,
+    project: &'a ModuleAnalysis,
     context: Option<&DatasetContext>,
     cursor: usize,
 ) -> Option<&'a AnalyzedDataset> {
@@ -1418,7 +1418,7 @@ fn complete_qualifier(
     scope: &QueryScope,
     catalog: &[RelationMetadata],
     document: Option<&DocumentSemanticIndex>,
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
     cursor: usize,
     output: &mut Vec<CompletionItem>,
 ) -> bool {
@@ -1637,7 +1637,7 @@ fn complete_columns(
 fn table_binding_relations(
     document: Option<&DocumentSemanticIndex>,
     cursor: usize,
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
 ) -> Vec<RelationMetadata> {
     let Some(document) = document else {
         return Vec::new();
@@ -1683,7 +1683,7 @@ fn table_binding_relations(
 fn binding_struct_fields<'a>(
     qualifier: &str,
     document: Option<&DocumentSemanticIndex>,
-    project: Option<&'a ProjectAnalysis>,
+    project: Option<&'a ModuleAnalysis>,
     cursor: usize,
 ) -> Option<&'a [avenger_lang_core::PhysicalField]> {
     let mut parts = qualifier.trim_start_matches('$').split('.');
@@ -1842,7 +1842,7 @@ fn complete_table_bindings(
     replacement: SourceSpan,
     document: Option<&DocumentSemanticIndex>,
     cursor: usize,
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
     output: &mut Vec<CompletionItem>,
 ) {
     let typed = prefix.trim_start_matches('$');
@@ -1941,7 +1941,7 @@ fn complete_temporal_qualifiers(
 fn complete_functions(
     prefix: &str,
     replacement: SourceSpan,
-    project: Option<&ProjectAnalysis>,
+    project: Option<&ModuleAnalysis>,
     output: &mut Vec<CompletionItem>,
 ) {
     let inventories = project.into_iter().flat_map(|project| {

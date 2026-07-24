@@ -1,6 +1,6 @@
 avenger 1;
 
-import 'summarize.transform.avenger';
+import { summarize } from 'summarize.transform.avenger';
 
 chart cartesian as chart {
   data: {

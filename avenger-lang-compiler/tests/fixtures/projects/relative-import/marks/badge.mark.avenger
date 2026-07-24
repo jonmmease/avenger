@@ -1,6 +1,6 @@
 avenger 1;
 
-define mark badge {
+export define mark badge {
   mark symbol as glyph {
     x: "x" { scale: linear { domain: [0.0, 2.0]; } }
     y: "y" { scale: linear { domain: [0.0, 4.0]; } }

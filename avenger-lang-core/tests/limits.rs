@@ -1,7 +1,7 @@
 use avenger_lang_core::{
     ContentVersion, ExpansionLimits, ImportCapabilities, InMemorySourceLoader, LoadedSource,
     ModuleGraphLoadLimits, ModuleGraphLoadRequest, ModuleGraphLoader, ModuleRoot, SourceFile,
-    SourceId, SourceOrigin, expand_project_with_limits, resolve_project,
+    SourceId, SourceOrigin, expand_module_graph_with_limits, resolve_module_graph,
     sql::SqlParseLimits,
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
@@ -108,7 +108,7 @@ async fn expansion_limits_bound_declarations_depth_and_output() {
         "../../avenger-chart-lang-registry/snapshots/bootstrap-schema.json"
     ))
     .unwrap();
-    let resolved = resolve_project(&project, &schema).result.unwrap();
+    let resolved = resolve_module_graph(&project, &schema).result.unwrap();
 
     for (limits, code) in [
         (
@@ -140,7 +140,7 @@ async fn expansion_limits_bound_declarations_depth_and_output() {
             "AVENGER-EXPAND-008",
         ),
     ] {
-        let failure = expand_project_with_limits(&project, &resolved, limits).unwrap_err();
+        let failure = expand_module_graph_with_limits(&project, &resolved, limits).unwrap_err();
         assert_eq!(failure.diagnostics[0].code.as_str(), code);
     }
 }

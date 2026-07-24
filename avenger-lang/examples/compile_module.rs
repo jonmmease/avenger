@@ -16,17 +16,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .ok_or("chart source has no parent directory")?;
     let compiler = Compiler::builder().project_root(project_root).build()?;
-    // The module-oriented compiler API replaces this transitional `compile_file`
-    // call in Phase 8 of the module-system implementation.
-    let artifact = compiler.compile_file(&absolute).await?;
+    let artifact = compiler.compile_chart(&absolute, None).await?;
     let evaluated = artifact
         .compiled_plot()
         .evaluate(&SessionContext::new(), None)
         .await?;
     println!(
         "compiled {} with registry profile {} into a {}x{} scene with {} root groups",
-        artifact.id.as_str(),
-        artifact.native_registry_profile.as_str(),
+        format!("{:?}", artifact.id.selector),
+        artifact.native_requirements.fingerprint(),
         evaluated.scene_graph.width,
         evaluated.scene_graph.height,
         evaluated.scene_graph.groups().len(),

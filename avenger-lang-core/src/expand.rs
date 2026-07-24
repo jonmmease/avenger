@@ -11,7 +11,8 @@ use crate::{
     module_graph::{ModuleId, ParsedModule, ParsedModuleGraph, SourceModuleId},
     print::print_file,
     resolve::{
-        DefinitionKind, DefinitionSchema, ModuleItemId, ResolvedKindBinding, ResolvedProject,
+        BindingCategory, DefinitionKind, DefinitionSchema, ModuleItemId, ResolvedKindBinding,
+        ResolvedModuleGraph,
     },
     syntax::{SyntaxLimits, parse_file_with_limits},
 };
@@ -139,8 +140,26 @@ fn push_trace(trace: &mut Vec<ExpansionOrImportFrame>, span: SourceSpan, message
     }
 }
 
+fn import_clause_is_subset(
+    retained: &crate::ast::ImportClause,
+    original: &crate::ast::ImportClause,
+) -> bool {
+    match (retained, original) {
+        (crate::ast::ImportClause::Named(retained), crate::ast::ImportClause::Named(original)) => {
+            retained
+                .iter()
+                .all(|specifier| original.contains(specifier))
+        }
+        (
+            crate::ast::ImportClause::Namespace(retained),
+            crate::ast::ImportClause::Namespace(original),
+        ) => retained == original,
+        _ => false,
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct ExpandedProject {
+pub struct ExpandedModuleGraph {
     pub project: ParsedModuleGraph,
     pub texts: BTreeMap<SourceModuleId, String>,
     pub source_map: ExpansionSourceMap,
@@ -183,18 +202,18 @@ struct ExpansionContext {
     instantiation_span: SourceSpan,
 }
 
-pub fn expand_project(
+pub fn expand_module_graph(
     project: &ParsedModuleGraph,
-    resolved: &ResolvedProject,
-) -> Result<ExpandedProject, ExpansionFailure> {
-    expand_project_with_limits(project, resolved, ExpansionLimits::default())
+    resolved: &ResolvedModuleGraph,
+) -> Result<ExpandedModuleGraph, ExpansionFailure> {
+    expand_module_graph_with_limits(project, resolved, ExpansionLimits::default())
 }
 
-pub fn expand_project_with_limits(
+pub fn expand_module_graph_with_limits(
     project: &ParsedModuleGraph,
-    resolved: &ResolvedProject,
+    resolved: &ResolvedModuleGraph,
     limits: ExpansionLimits,
-) -> Result<ExpandedProject, ExpansionFailure> {
+) -> Result<ExpandedModuleGraph, ExpansionFailure> {
     let mut expander = Expander {
         project,
         resolved,
@@ -210,7 +229,7 @@ pub fn expand_project_with_limits(
 
 struct Expander<'a> {
     project: &'a ParsedModuleGraph,
-    resolved: &'a ResolvedProject,
+    resolved: &'a ResolvedModuleGraph,
     limits: ExpansionLimits,
     diagnostics: Vec<Diagnostic>,
     pending_origins: BTreeMap<SourceModuleId, Vec<PendingOrigin>>,
@@ -220,7 +239,7 @@ struct Expander<'a> {
 }
 
 impl Expander<'_> {
-    fn expand(&mut self) -> Result<ExpandedProject, ExpansionFailure> {
+    fn expand(&mut self) -> Result<ExpandedModuleGraph, ExpansionFailure> {
         let mut next_source = self
             .project
             .sources
@@ -273,7 +292,7 @@ impl Expander<'_> {
                 .collect();
             let ast = File {
                 version: module.parsed.ast.version,
-                imports: module.parsed.ast.imports.clone(),
+                imports: self.expanded_imports(module_id, &module.parsed.ast.imports),
                 items,
             };
             let text = print_file(&ast);
@@ -376,14 +395,25 @@ impl Expander<'_> {
             .project
             .imports
             .iter()
-            .cloned()
-            .map(|mut edge| {
+            .filter_map(|edge| {
+                let import = source_modules
+                    .get(&edge.importer)?
+                    .parsed
+                    .ast
+                    .imports
+                    .iter()
+                    .find(|import| {
+                        import.source == edge.specifier
+                            && import_clause_is_subset(&import.clause, &edge.clause)
+                    })?;
+                let mut edge = edge.clone();
+                edge.clause = import.clause.clone();
                 edge.importer_source = source_ids[&edge.importer];
                 edge.imported_source = match &edge.imported {
                     ModuleId::Source(id) => Some(source_ids[id]),
                     ModuleId::Native(_) => None,
                 };
-                edge
+                Some(edge)
             })
             .collect::<Vec<_>>();
         let mut source_map = ExpansionSourceMap::default();
@@ -415,7 +445,7 @@ impl Expander<'_> {
         }
         source_map.mappings.sort_by_key(|mapping| mapping.expanded);
 
-        Ok(ExpandedProject {
+        Ok(ExpandedModuleGraph {
             project: ParsedModuleGraph {
                 sources,
                 source_modules,
@@ -429,6 +459,63 @@ impl Expander<'_> {
             texts,
             source_map,
         })
+    }
+
+    fn expanded_imports(
+        &self,
+        module: &SourceModuleId,
+        imports: &[crate::ast::Import],
+    ) -> Vec<crate::ast::Import> {
+        let Some(environment) = self
+            .resolved
+            .source_modules
+            .get(module)
+            .map(|module| &module.local_bindings)
+        else {
+            return imports.to_vec();
+        };
+        imports
+            .iter()
+            .filter_map(|import| {
+                let crate::ast::ImportClause::Named(specifiers) = &import.clause else {
+                    return Some(import.clone());
+                };
+                let retained = specifiers
+                    .iter()
+                    .filter(|specifier| {
+                        ![
+                            avenger_chart_schema::NativeKindNamespace::Mark,
+                            avenger_chart_schema::NativeKindNamespace::Tool,
+                            avenger_chart_schema::NativeKindNamespace::Transform,
+                        ]
+                        .into_iter()
+                        .any(|namespace| {
+                            let category = BindingCategory::NativeKind(namespace);
+                            let Some(export) = environment
+                                .local
+                                .get(&(category, specifier.local.to_string()))
+                            else {
+                                return false;
+                            };
+                            let crate::module_graph::ModuleId::Source(source) = &export.module
+                            else {
+                                return false;
+                            };
+                            self.resolved.definitions.values().any(|definition| {
+                                definition.item.module == *source
+                                    && definition.source_name == export.name
+                            })
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (!retained.is_empty()).then(|| {
+                    let mut import = import.clone();
+                    import.clause = crate::ast::ImportClause::Named(retained);
+                    import
+                })
+            })
+            .collect()
     }
 
     fn expand_declaration(
@@ -736,16 +823,16 @@ impl Expander<'_> {
         let Some(schema) = self.resolved.definitions.get(&definition_id) else {
             return instance.clone();
         };
-        let Some(template_index) =
-            self.resolved
-                .files
-                .get(&definition_id.module)
-                .and_then(|module| {
-                    module
-                        .roots
-                        .iter()
-                        .position(|declaration| declaration.id == schema.declaration)
-                })
+        let Some(template_index) = self
+            .resolved
+            .source_modules
+            .get(&definition_id.module)
+            .and_then(|module| {
+                module
+                    .roots
+                    .iter()
+                    .position(|declaration| declaration.id == schema.declaration)
+            })
         else {
             return instance.clone();
         };
@@ -1233,7 +1320,7 @@ impl Expander<'_> {
         owner: &SourceModuleId,
         path: &[usize],
     ) -> Option<&crate::resolve::ResolvedDeclaration> {
-        let roots = &self.resolved.files.get(owner)?.roots;
+        let roots = &self.resolved.source_modules.get(owner)?.roots;
         resolved_declaration_at(roots, path)
     }
 

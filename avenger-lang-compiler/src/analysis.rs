@@ -6,14 +6,14 @@ use avenger_chart_lang_registry::NativeRegistryProfileId;
 use avenger_lang_core::{SourceMap, SourceSpan};
 use serde::{Deserialize, Serialize};
 
-use crate::{ProjectDependencyFingerprints, ProjectFingerprint};
+use crate::{ModuleDependencyFingerprints, ModuleFingerprint};
 
 /// Stable compiler identity for one project dataset declaration.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ProjectDatasetId(String);
+pub struct ModuleDatasetId(String);
 
-impl ProjectDatasetId {
+impl ModuleDatasetId {
     pub fn new(stable_identity: impl Into<String>) -> Self {
         Self(stable_identity.into())
     }
@@ -26,12 +26,12 @@ impl ProjectDatasetId {
 /// Stable identity for the source or a transform stage of a dataset.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DatasetStageId {
-    pub dataset: ProjectDatasetId,
+    pub dataset: ModuleDatasetId,
     pub ordinal: u32,
 }
 
 impl DatasetStageId {
-    pub fn new(dataset: ProjectDatasetId, ordinal: u32) -> Self {
+    pub fn new(dataset: ModuleDatasetId, ordinal: u32) -> Self {
         Self { dataset, ordinal }
     }
 }
@@ -54,7 +54,7 @@ pub struct DatasetProvenance {
 
 #[derive(Clone)]
 pub struct AnalyzedDataset {
-    pub id: ProjectDatasetId,
+    pub id: ModuleDatasetId,
     pub stage: DatasetStageId,
     pub provenance: DatasetProvenance,
     /// SQL-visible relation or stage name when one exists.
@@ -116,7 +116,7 @@ impl DatasetSchemaIndex {
         self.stages.get(stage)
     }
 
-    pub fn stages_for(&self, dataset: &ProjectDatasetId) -> impl Iterator<Item = &AnalyzedDataset> {
+    pub fn stages_for(&self, dataset: &ModuleDatasetId) -> impl Iterator<Item = &AnalyzedDataset> {
         self.stages
             .values()
             .filter(move |stage| &stage.id == dataset)
@@ -169,13 +169,13 @@ impl DatasetLineageIndex {
 /// Immutable, execution-free project analysis. It deliberately contains no
 /// mutable DataFusion `SessionContext`.
 #[derive(Clone, Debug)]
-pub struct ProjectAnalysis {
+pub struct ModuleAnalysis {
     pub sources: SourceMap,
     pub datasets: DatasetSchemaIndex,
     pub lineage: DatasetLineageIndex,
     pub native_registry_profile: NativeRegistryProfileId,
-    pub project_fingerprint: ProjectFingerprint,
-    pub dependency_fingerprints: ProjectDependencyFingerprints,
+    pub module_fingerprint: ModuleFingerprint,
+    pub dependency_fingerprints: ModuleDependencyFingerprints,
     pub functions: FunctionInventory,
     pub physical_type_constructors: Vec<String>,
     /// The immutable semantic model that produced this analysis.
@@ -183,7 +183,7 @@ pub struct ProjectAnalysis {
     /// Editor hosts use this to build symbol, scope, and reference indexes
     /// without reimplementing resolver semantics. It contains no DataFusion
     /// session or executable plan and is shared cheaply with cached analyses.
-    pub resolved_project: Option<Arc<avenger_lang_core::ResolvedProject>>,
+    pub resolved_project: Option<Arc<avenger_lang_core::ResolvedModuleGraph>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -193,19 +193,19 @@ pub struct FunctionInventory {
     pub window: Vec<String>,
 }
 
-impl ProjectAnalysis {
+impl ModuleAnalysis {
     pub fn empty(
         sources: SourceMap,
         native_registry_profile: NativeRegistryProfileId,
-        project_fingerprint: ProjectFingerprint,
+        module_fingerprint: ModuleFingerprint,
     ) -> Self {
         Self {
             sources,
             datasets: DatasetSchemaIndex::default(),
             lineage: DatasetLineageIndex::default(),
             native_registry_profile,
-            project_fingerprint,
-            dependency_fingerprints: ProjectDependencyFingerprints::default(),
+            module_fingerprint,
+            dependency_fingerprints: ModuleDependencyFingerprints::default(),
             functions: FunctionInventory::default(),
             physical_type_constructors: physical_type_constructors(),
             resolved_project: None,

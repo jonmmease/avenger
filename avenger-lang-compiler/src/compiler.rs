@@ -9,16 +9,17 @@ use avenger_chart_lang_registry::{
     ResolvedValue as NativeResolvedValue, builtins,
 };
 use avenger_lang_core::{
-    AvailableNativeModule, DataCapabilities, DeclarationId, Diagnostic, EmptyEnvironmentProvider,
-    EnvironmentProvider, ExpansionSourceMap, ImportCapabilities, ModuleDependencyRole,
-    ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadRequest, ModuleGraphLoader,
-    ModuleRoot, ParsedModuleGraph, ResolvedDeclaration, ResolvedProject, ResolvedRelationTarget,
-    ResolvedTarget, ResolvedValue, SourceFile, SourceId, SourceLabel, SourceLoader,
-    SourceLoaderError, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
+    AvailableNativeModule, ChartEntrypointId, ChartSelector, DataCapabilities, DeclarationId,
+    Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider, ExpansionSourceMap,
+    ImportCapabilities, ModuleDependencyRole, ModuleDependencyTarget, ModuleGraphLoadAttempt,
+    ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleRoot, ParsedModuleGraph,
+    ResolvedDeclaration, ResolvedKindBinding, ResolvedModuleGraph, ResolvedRelationTarget,
+    ResolvedTarget, ResolvedValue, SourceId, SourceLabel, SourceLoader, SourceLoaderError,
+    SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
-    expand_project_with_limits,
+    expand_module_graph_with_limits,
     module_graph::{normalize_path, resolve_relative_origin},
-    resolve_project as resolve_semantics, sort_diagnostics,
+    resolve_module_graph as resolve_semantics, sort_diagnostics,
 };
 use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
@@ -26,16 +27,17 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AnalyzedDataset, ArtifactCacheKey, CatalogFactoryRegistry, CompileEnvironmentFactory,
     CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompiledChartArtifact,
-    CompiledProject, CompilerLimits, CompilerOptions, DatasetLineage, DatasetProvenance,
+    CompiledModule, CompilerLimits, CompilerOptions, DatasetLineage, DatasetProvenance,
     DatasetStageId, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
-    LanguageHost, LocalResourceLimits, ProjectAnalysis, ProjectChartId, ProjectDatasetId,
-    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactoryRegistry,
+    LanguageHost, LocalResourceLimits, ModuleAnalysis, ModuleDatasetId,
+    ModuleDependencyFingerprints, ModuleFingerprint, NativeRequirementSet, SourceLoaderLimits,
+    TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
-    lowering::{LoweredProject, analyze_chart_datasets, lower_project, lower_project_chart},
+    lowering::{analyze_chart_datasets, lower_project_chart},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ProjectCompilationMode {
+pub enum ModuleCompilationMode {
     Sequential,
     #[default]
     Parallel,
@@ -55,7 +57,7 @@ pub struct CompilerCacheSnapshot {
 #[derive(Default)]
 struct ArtifactCache {
     artifacts: BTreeMap<ArtifactCacheKey, CompiledChartArtifact>,
-    chart_keys: BTreeMap<ProjectChartId, ArtifactCacheKey>,
+    chart_keys: BTreeMap<ChartEntrypointId, ArtifactCacheKey>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -185,11 +187,11 @@ pub struct ExpandedSource {
 pub struct Compiler {
     options: Arc<CompilerOptions>,
     host: LanguageHost,
-    resolved_project_cache: Arc<Mutex<BTreeMap<String, ResolvedProject>>>,
-    analysis_cache: Arc<Mutex<BTreeMap<String, ProjectAnalysis>>>,
+    resolved_project_cache: Arc<Mutex<BTreeMap<String, ResolvedModuleGraph>>>,
+    analysis_cache: Arc<Mutex<BTreeMap<String, ModuleAnalysis>>>,
     dataset_analysis_cache: Arc<Mutex<BTreeMap<String, AnalyzedDataset>>>,
     artifact_cache: Arc<Mutex<ArtifactCache>>,
-    project_compilation_mode: ProjectCompilationMode,
+    project_compilation_mode: ModuleCompilationMode,
 }
 
 impl Compiler {
@@ -273,67 +275,82 @@ impl Compiler {
         fork
     }
 
-    pub async fn compile_file_attempt(
+    pub async fn compile_chart_attempt(
         &self,
         path: impl AsRef<Path>,
+        selector: Option<&str>,
     ) -> CompileAttempt<CompiledChartArtifact> {
-        let attempt = self.compile_file_generation_attempt(path, 0).await;
+        let attempt = self
+            .compile_chart_generation_attempt(path, selector, 0)
+            .await;
         CompileAttempt {
             result: attempt.result.map(|generation| generation.artifact),
             dependencies: attempt.dependencies,
         }
     }
 
-    pub async fn compile_file_generation_attempt(
+    pub async fn compile_chart_generation_attempt(
         &self,
         path: impl AsRef<Path>,
+        selector: Option<&str>,
         generation: u64,
     ) -> CompileAttempt<CompiledChartGeneration> {
-        let attempt = self.load_file_project_attempt(path).await;
+        let attempt = self.load_module_graph_attempt(path).await;
         let dependencies = attempt.dependencies;
         let result = match attempt.result {
             Ok(parsed) => match self
-                .resolve_parsed_project_attempt(CompileAttempt {
+                .resolve_parsed_module_graph_attempt(CompileAttempt {
                     result: Ok(parsed.clone()),
                     dependencies: dependencies.clone(),
                 })
                 .result
             {
-                Ok(project) => self
-                    .lower_resolved_project(&project, generation, &dependencies)
-                    .await
-                    .and_then(|(mut lowered, environment, catalog)| {
-                        if lowered.charts.len() != 1 {
-                            return Err(CompileFailure {
-                                diagnostics: vec![Diagnostic::error(
-                                    "AVENGER-LOWER-003",
-                                    "compile_file requires exactly one chart",
-                                    SourceLabel::new(
-                                        SourceSpan::empty(SourceId::new(0), 0),
-                                        format!("resolved {} charts", lowered.charts.len()),
-                                    ),
-                                )],
+                Ok(project) => match select_chart_entrypoint(&parsed, &project, selector) {
+                    Ok(entrypoint) => {
+                        async {
+                            let (environment, catalog) = self
+                                .analyze_resolved_project(&project, generation, &dependencies)
+                                .await?;
+                            let fingerprints = dependency_fingerprint_layers(
+                                &self.options,
+                                &parsed,
+                                &project,
+                                &dependencies,
+                                &catalog,
+                                &environment,
+                            );
+                            let lowered = lower_project_chart(
+                                &project,
+                                &entrypoint,
+                                self.options.native_registry.as_ref(),
+                                environment.session_context(),
+                                self.options.source_loader.as_ref(),
+                                &self.options.import_capabilities,
+                            )
+                            .await
+                            .map_err(|diagnostics| CompileFailure {
+                                diagnostics,
                                 sources: project.sources.clone(),
-                            });
+                            })?;
+                            let mut artifact = lowered.artifact;
+                            artifact.native_requirements = native_requirements_for_entrypoint(
+                                &project,
+                                &entrypoint,
+                                self.options.native_registry.as_ref(),
+                            );
+                            if let Some(fingerprint) = fingerprints.charts.get(&artifact.id) {
+                                artifact.dependency_fingerprint = fingerprint.clone();
+                            }
+                            Ok(CompiledChartGeneration {
+                                generation,
+                                artifact,
+                                environment,
+                            })
                         }
-                        let fingerprints = dependency_fingerprint_layers(
-                            &self.options,
-                            &parsed,
-                            &project,
-                            &dependencies,
-                            &catalog,
-                            &environment,
-                        );
-                        let mut artifact = lowered.charts.remove(0).artifact;
-                        if let Some(fingerprint) = fingerprints.charts.get(&artifact.id) {
-                            artifact.dependency_fingerprint = fingerprint.clone();
-                        }
-                        Ok(CompiledChartGeneration {
-                            generation,
-                            artifact,
-                            environment,
-                        })
-                    }),
+                        .await
+                    }
+                    Err(error) => Err(error),
+                },
                 Err(error) => Err(error),
             },
             Err(error) => Err(error),
@@ -344,32 +361,46 @@ impl Compiler {
         }
     }
 
-    pub async fn compile_file(
+    pub async fn compile_chart(
         &self,
         path: impl AsRef<Path>,
+        selector: Option<&str>,
     ) -> Result<CompiledChartArtifact, CompileFailure> {
-        self.compile_file_attempt(path).await.result
+        self.compile_chart_attempt(path, selector).await.result
     }
 
-    pub async fn compile_project_attempt(
+    pub async fn compile_module_attempt(
         &self,
-        root: impl AsRef<Path>,
-    ) -> CompileAttempt<CompiledProject> {
-        let attempt = self.load_project_graph_attempt(root).await;
+        path: impl AsRef<Path>,
+    ) -> CompileAttempt<CompiledModule> {
+        let attempt = self.load_module_graph_attempt(path).await;
         let dependencies = attempt.dependencies;
         let result = match attempt.result {
             Ok(parsed) => {
+                let requested = parsed.requested_modules.first().cloned();
                 let resolved = self
-                    .resolve_parsed_project_attempt(CompileAttempt {
+                    .resolve_parsed_module_graph_attempt(CompileAttempt {
                         result: Ok(parsed.clone()),
                         dependencies: dependencies.clone(),
                     })
                     .result;
                 match resolved {
-                    Ok(resolved) => {
-                        self.compile_resolved_project(&parsed, &resolved, &dependencies, 0)
+                    Ok(resolved) => match requested {
+                        Some(requested) => {
+                            self.compile_resolved_module(
+                                &parsed,
+                                &resolved,
+                                &requested,
+                                &dependencies,
+                                0,
+                            )
                             .await
-                    }
+                        }
+                        None => Err(module_root_failure(
+                            &resolved.sources,
+                            "the loaded graph has no requested module",
+                        )),
+                    },
                     Err(error) => Err(error),
                 }
             }
@@ -381,20 +412,21 @@ impl Compiler {
         }
     }
 
-    pub async fn compile_project(
+    pub async fn compile_module(
         &self,
-        root: impl AsRef<Path>,
-    ) -> Result<CompiledProject, CompileFailure> {
-        self.compile_project_attempt(root).await.result
+        path: impl AsRef<Path>,
+    ) -> Result<CompiledModule, CompileFailure> {
+        self.compile_module_attempt(path).await.result
     }
 
-    async fn compile_resolved_project(
+    async fn compile_resolved_module(
         &self,
         parsed: &ParsedModuleGraph,
-        project: &ResolvedProject,
+        project: &ResolvedModuleGraph,
+        requested: &SourceModuleId,
         dependencies: &DiscoveredDependencySet,
         generation: u64,
-    ) -> Result<CompiledProject, CompileFailure> {
+    ) -> Result<CompiledModule, CompileFailure> {
         let (environment, catalog) = self
             .analyze_resolved_project(project, generation, dependencies)
             .await?;
@@ -402,37 +434,44 @@ impl Compiler {
             .finish_project_analysis(parsed, project, dependencies, &environment, &catalog)
             .await?;
         let fingerprints = analysis.dependency_fingerprints.clone();
-        let project_fingerprint = analysis.project_fingerprint;
-        let profile = self.options.native_registry.profile_id();
-        let mut artifacts = BTreeMap::<ProjectChartId, CompiledChartArtifact>::new();
-        let mut misses = Vec::<(DeclarationId, ProjectChartId, ArtifactCacheKey)>::new();
+        let module_fingerprint = analysis.module_fingerprint;
+        let mut artifacts = BTreeMap::<ChartEntrypointId, CompiledChartArtifact>::new();
+        let mut misses = Vec::<(ChartEntrypointId, NativeRequirementSet, ArtifactCacheKey)>::new();
         {
             let cache = self
                 .artifact_cache
                 .lock()
                 .expect("artifact cache lock poisoned");
-            for chart in &project.charts {
-                let public_id = ProjectChartId::new(chart.as_str());
+            for public_id in project
+                .entrypoints
+                .keys()
+                .filter(|entrypoint| &entrypoint.module == requested)
+            {
                 let fingerprint = fingerprints
                     .charts
-                    .get(&public_id)
+                    .get(public_id)
                     .cloned()
                     .unwrap_or_default();
-                let key = ArtifactCacheKey::new(profile, fingerprint);
+                let requirements = native_requirements_for_entrypoint(
+                    project,
+                    public_id,
+                    self.options.native_registry.as_ref(),
+                );
+                let key = ArtifactCacheKey::new(&requirements, fingerprint);
                 if let Some(artifact) = cache.artifacts.get(&key).cloned() {
-                    artifacts.insert(public_id, artifact);
+                    artifacts.insert(public_id.clone(), artifact);
                 } else {
-                    misses.push((chart.clone(), public_id, key));
+                    misses.push((public_id.clone(), requirements, key));
                 }
             }
         }
 
-        let lower_one = |chart: DeclarationId| {
+        let lower_one = |entrypoint: ChartEntrypointId| {
             let chart_environment = environment.fork();
             async move {
                 lower_project_chart(
                     project,
-                    &chart,
+                    &entrypoint,
                     self.options.native_registry.as_ref(),
                     chart_environment.session_context(),
                     self.options.source_loader.as_ref(),
@@ -442,16 +481,18 @@ impl Compiler {
             }
         };
         let results = match self.project_compilation_mode {
-            ProjectCompilationMode::Sequential => {
+            ModuleCompilationMode::Sequential => {
                 let mut results = Vec::with_capacity(misses.len());
-                for (chart, _, _) in &misses {
-                    results.push(lower_one(chart.clone()).await);
+                for (entrypoint, _, _) in &misses {
+                    results.push(lower_one(entrypoint.clone()).await);
                 }
                 results
             }
-            ProjectCompilationMode::Parallel => {
+            ModuleCompilationMode::Parallel => {
                 futures::future::join_all(
-                    misses.iter().map(|(chart, _, _)| lower_one(chart.clone())),
+                    misses
+                        .iter()
+                        .map(|(entrypoint, _, _)| lower_one(entrypoint.clone())),
                 )
                 .await
             }
@@ -459,9 +500,10 @@ impl Compiler {
 
         let mut completed = Vec::new();
         let mut diagnostics = Vec::new();
-        for ((_, public_id, key), result) in misses.into_iter().zip(results) {
+        for ((public_id, requirements, key), result) in misses.into_iter().zip(results) {
             match result {
                 Ok(mut chart) => {
+                    chart.artifact.native_requirements = requirements;
                     chart.artifact.dependency_fingerprint = key.dependency_fingerprint.clone();
                     artifacts.insert(public_id.clone(), chart.artifact.clone());
                     completed.push((public_id, key, chart.artifact));
@@ -486,9 +528,10 @@ impl Compiler {
                 .lock()
                 .expect("artifact cache lock poisoned");
             let current_ids = project
-                .charts
-                .iter()
-                .map(|id| ProjectChartId::new(id.as_str()))
+                .entrypoints
+                .keys()
+                .filter(|entrypoint| &entrypoint.module == requested)
+                .cloned()
                 .collect::<BTreeSet<_>>();
             let removed = cache
                 .chart_keys
@@ -512,31 +555,37 @@ impl Compiler {
         }
 
         let charts = project
-            .charts
-            .iter()
-            .filter_map(|id| {
-                let id = ProjectChartId::new(id.as_str());
-                artifacts.remove(&id).map(|artifact| (id, artifact))
-            })
-            .collect();
-        Ok(CompiledProject {
+            .entrypoints
+            .keys()
+            .filter(|entrypoint| &entrypoint.module == requested)
+            .filter_map(|id| artifacts.remove(id).map(|artifact| (id.clone(), artifact)))
+            .collect::<indexmap::IndexMap<_, _>>();
+        let native_requirements = NativeRequirementSet::union(
+            charts
+                .values()
+                .map(|artifact| &artifact.native_requirements),
+        )
+        .unwrap_or_else(|| {
+            NativeRequirementSet::builtin_only(self.options.native_registry.as_ref())
+        });
+        Ok(CompiledModule {
             charts,
             sources: project.sources.clone(),
-            native_registry_profile: profile.clone(),
-            project_fingerprint,
+            native_requirements,
+            module_fingerprint,
             dependency_fingerprints: fingerprints,
         })
     }
 
-    pub async fn analyze_project(
+    pub async fn analyze_module(
         &self,
-        root: impl AsRef<Path>,
-    ) -> Result<ProjectAnalysis, CompileFailure> {
-        let attempt = self.load_project_graph_attempt(root).await;
+        path: impl AsRef<Path>,
+    ) -> Result<ModuleAnalysis, CompileFailure> {
+        let attempt = self.load_module_graph_attempt(path).await;
         let dependencies = attempt.dependencies;
         let parsed = attempt.result?;
         let project = self
-            .resolve_parsed_project_attempt(CompileAttempt {
+            .resolve_parsed_module_graph_attempt(CompileAttempt {
                 result: Ok(parsed.clone()),
                 dependencies: dependencies.clone(),
             })
@@ -550,16 +599,16 @@ impl Compiler {
 
     /// Analyze an explicit immutable root inventory without filesystem
     /// discovery. Editor hosts use this with a snapshot source-loader overlay.
-    pub async fn analyze_project_roots(
+    pub async fn analyze_module_roots(
         &self,
         roots: Vec<ModuleRoot>,
         generation: u64,
-    ) -> Result<ProjectAnalysis, CompileFailure> {
-        let attempt = self.load_project_roots_attempt(roots).await;
+    ) -> Result<ModuleAnalysis, CompileFailure> {
+        let attempt = self.load_module_roots_attempt(roots).await;
         let dependencies = attempt.dependencies;
         let parsed = attempt.result?;
         let project = self
-            .resolve_parsed_project_attempt(CompileAttempt {
+            .resolve_parsed_module_graph_attempt(CompileAttempt {
                 result: Ok(parsed.clone()),
                 dependencies: dependencies.clone(),
             })
@@ -574,11 +623,11 @@ impl Compiler {
     async fn finish_project_analysis(
         &self,
         parsed: &ParsedModuleGraph,
-        project: &ResolvedProject,
+        project: &ResolvedModuleGraph,
         dependencies: &DiscoveredDependencySet,
         environment: &crate::CompileEnvironment,
         catalog: &CatalogAnalysis,
-    ) -> Result<ProjectAnalysis, CompileFailure> {
+    ) -> Result<ModuleAnalysis, CompileFailure> {
         let mut fingerprints = dependency_fingerprint_layers(
             &self.options,
             parsed,
@@ -587,11 +636,11 @@ impl Compiler {
             catalog,
             environment,
         );
-        let project_fingerprint = project_fingerprint_from_layers(&fingerprints);
+        let module_fingerprint = project_fingerprint_from_layers(&fingerprints);
         let analysis_cache_key = format!(
             "{}\0{}",
             self.options.native_registry.profile_id().as_str(),
-            project_fingerprint.as_str()
+            module_fingerprint.as_str()
         );
         if let Some(cached) = self
             .analysis_cache
@@ -602,10 +651,10 @@ impl Compiler {
         {
             return Ok(cached);
         }
-        let mut analysis = ProjectAnalysis::empty(
+        let mut analysis = ModuleAnalysis::empty(
             project.sources.clone(),
             self.options.native_registry.profile_id().clone(),
-            project_fingerprint,
+            module_fingerprint,
         );
         analysis.resolved_project = Some(Arc::new(project.clone()));
         let state = environment.session_context().state();
@@ -655,7 +704,7 @@ impl Compiler {
         let mut ordinals = BTreeMap::new();
         let mut previous = BTreeMap::new();
         for dataset in chart_datasets {
-            let id = ProjectDatasetId::new(format!("chart:{}", dataset.dataset.as_str()));
+            let id = ModuleDatasetId::new(format!("chart:{}", dataset.dataset.as_str()));
             let ordinal = ordinals.entry(dataset.dataset.clone()).or_insert(0_u32);
             let stage = DatasetStageId::new(id.clone(), *ordinal);
             *ordinal += 1;
@@ -749,18 +798,15 @@ impl Compiler {
         }
     }
 
-    pub async fn check_project(&self, root: impl AsRef<Path>) -> Result<(), CompileFailure> {
-        self.resolve_project_graph_attempt(root)
-            .await
-            .result
-            .map(|_| ())
+    pub async fn check_module(&self, path: impl AsRef<Path>) -> Result<(), CompileFailure> {
+        self.resolve_module_attempt(path).await.result.map(|_| ())
     }
 
     pub async fn expand_file(
         &self,
         path: impl AsRef<Path>,
     ) -> Result<ExpandedSource, CompileFailure> {
-        let project = self.load_file_project_attempt(path).await.result?;
+        let project = self.load_module_graph_attempt(path).await.result?;
         let resolved = resolve_semantics(&project, self.host.authoring_schema())
             .result
             .map_err(|failure| CompileFailure {
@@ -768,7 +814,7 @@ impl Compiler {
                 sources: project.sources.clone(),
             })?;
         let expanded =
-            expand_project_with_limits(&project, &resolved, self.options.limits.expansion)
+            expand_module_graph_with_limits(&project, &resolved, self.options.limits.expansion)
                 .map_err(|failure| CompileFailure {
                     diagnostics: failure.diagnostics,
                     sources: project.sources.clone(),
@@ -811,110 +857,36 @@ impl Compiler {
 
     /// Phase 4 frontend seam: load and semantically resolve one chart and its
     /// complete dependency closure without constructing native chart objects.
-    pub async fn resolve_file_project_attempt(
+    pub async fn resolve_module_attempt(
         &self,
         path: impl AsRef<Path>,
-    ) -> CompileAttempt<ResolvedProject> {
-        let attempt = self.load_file_project_attempt(path).await;
-        self.resolve_parsed_project_attempt(attempt)
+    ) -> CompileAttempt<ResolvedModuleGraph> {
+        let attempt = self.load_module_graph_attempt(path).await;
+        self.resolve_parsed_module_graph_attempt(attempt)
     }
 
     /// Convenience wrapper for callers that do not need dependency metadata.
-    pub async fn resolve_file_project(
+    pub async fn resolve_module(
         &self,
         path: impl AsRef<Path>,
-    ) -> Result<ResolvedProject, CompileFailure> {
-        self.resolve_file_project_attempt(path).await.result
-    }
-
-    /// Phase 4 frontend seam: discover and semantically resolve every chart
-    /// root and ambient data file below a project directory.
-    pub async fn resolve_project_graph_attempt(
-        &self,
-        root: impl AsRef<Path>,
-    ) -> CompileAttempt<ResolvedProject> {
-        let attempt = self.load_project_graph_attempt(root).await;
-        self.resolve_parsed_project_attempt(attempt)
+    ) -> Result<ResolvedModuleGraph, CompileFailure> {
+        self.resolve_module_attempt(path).await.result
     }
 
     /// Phase 3 frontend seam: load one chart and its complete import/data
     /// closure without performing semantic validation or lowering.
-    pub async fn load_file_project_attempt(
+    pub async fn load_module_graph_attempt(
         &self,
         path: impl AsRef<Path>,
     ) -> CompileAttempt<ParsedModuleGraph> {
-        let chart = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
-        let ambient = if self.options.project_root.exists() {
-            match discover_avenger_files(&self.options.project_root, self.options.limits.project) {
-                Ok(files) => files
-                    .into_iter()
-                    .filter(|path| is_data_path(path))
-                    .collect::<Vec<_>>(),
-                Err(error) => return discovery_failure(&self.options.project_root, error),
-            }
-        } else {
-            Vec::new()
-        };
-        let mut roots = vec![ModuleRoot::requested(SourceOrigin::File(chart))];
-        roots.extend(
-            ambient
-                .into_iter()
-                .map(|path| ModuleRoot::ambient_data(SourceOrigin::File(path))),
-        );
-        self.load_project_roots_attempt(roots).await
+        let module = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
+        self.load_module_roots_attempt(vec![ModuleRoot::requested(SourceOrigin::File(module))])
+            .await
     }
 
-    /// Phase 3 frontend seam: discover all chart roots and ambient data files
-    /// below a directory, then load their shared import closure once.
-    pub async fn load_project_graph_attempt(
-        &self,
-        root: impl AsRef<Path>,
-    ) -> CompileAttempt<ParsedModuleGraph> {
-        let root = canonicalize_if_exists(&self.resolve_path(root.as_ref()));
-        let files = match discover_avenger_files(&root, self.options.limits.project) {
-            Ok(files) => files,
-            Err(error) => return discovery_failure(&root, error),
-        };
-        let roots = files
-            .into_iter()
-            .filter_map(|path| {
-                if is_data_path(&path) {
-                    Some(ModuleRoot::ambient_data(SourceOrigin::File(path)))
-                } else if is_chart_path(&path) {
-                    Some(ModuleRoot::requested(SourceOrigin::File(path)))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        if roots
-            .iter()
-            .all(|root| root.role != ModuleDependencyRole::RequestedModule)
-        {
-            let source = SourceFile::new(SourceId::new(0), SourceOrigin::File(root.clone()), "");
-            let mut sources = SourceMap::default();
-            sources.insert(source).expect("fresh source id");
-            return CompileAttempt {
-                result: Err(CompileFailure {
-                    diagnostics: vec![Diagnostic::error(
-                        "AVENGER-PROJECT-016",
-                        "project contains no chart roots",
-                        SourceLabel::new(
-                            SourceSpan::empty(SourceId::new(0), 0),
-                            "add a .avenger chart file",
-                        ),
-                    )],
-                    sources,
-                }),
-                dependencies: DiscoveredDependencySet::default(),
-            };
-        }
-        self.load_project_roots_attempt(roots).await
-    }
-
-    /// Load an explicit root inventory and its import closure without scanning
-    /// the project directory.
-    pub async fn load_project_roots_attempt(
+    /// Load an explicit module-root inventory and its import closure without
+    /// scanning a directory or inferring module roles from filenames.
+    pub async fn load_module_roots_attempt(
         &self,
         roots: Vec<ModuleRoot>,
     ) -> CompileAttempt<ParsedModuleGraph> {
@@ -984,10 +956,10 @@ impl Compiler {
         }
     }
 
-    fn resolve_parsed_project_attempt(
+    fn resolve_parsed_module_graph_attempt(
         &self,
         attempt: CompileAttempt<ParsedModuleGraph>,
-    ) -> CompileAttempt<ResolvedProject> {
+    ) -> CompileAttempt<ResolvedModuleGraph> {
         let dependencies = attempt.dependencies;
         let result = attempt.result.and_then(|project| {
             if let Some(cached) = self
@@ -1000,7 +972,7 @@ impl Compiler {
                 return Ok(cached);
             }
             let fingerprint = project.fingerprint.clone();
-            let resolved = resolve_parsed_project(
+            let resolved = resolve_parsed_module_graph(
                 project,
                 self.host.authoring_schema(),
                 self.options.limits.expansion,
@@ -1058,11 +1030,14 @@ impl Compiler {
             .map_err(|error| phase_zero_failure(error.to_string()))?;
 
         Ok(CompiledChartArtifact::new(
-            ProjectChartId::new("phase0-example"),
+            ChartEntrypointId {
+                module: SourceModuleId::new("programmatic:phase0-example"),
+                selector: ChartSelector::Named("phase0-example".to_owned()),
+            },
             Some("Phase 0 programmatic example".to_string()),
             SourceId::new(0),
             Arc::new(compiled),
-            self.options.native_registry.profile_id().clone(),
+            NativeRequirementSet::builtin_only(self.options.native_registry.as_ref()),
             DependencyFingerprint::new("phase0-programmatic"),
         ))
     }
@@ -1070,11 +1045,11 @@ impl Compiler {
     /// Temporary Phase 0 analysis artifact used to prove registry-profile
     /// propagation before project parsing and DataFusion planning land.
     #[doc(hidden)]
-    pub fn analyze_phase0_empty(&self) -> ProjectAnalysis {
-        ProjectAnalysis::empty(
+    pub fn analyze_phase0_empty(&self) -> ModuleAnalysis {
+        ModuleAnalysis::empty(
             SourceMap::default(),
             self.options.native_registry.profile_id().clone(),
-            ProjectFingerprint::new("phase0-empty-analysis"),
+            ModuleFingerprint::new("phase0-empty-analysis"),
         )
     }
 
@@ -1086,37 +1061,9 @@ impl Compiler {
         }
     }
 
-    async fn lower_resolved_project(
-        &self,
-        project: &ResolvedProject,
-        generation: u64,
-        dependencies: &DiscoveredDependencySet,
-    ) -> Result<(LoweredProject, crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
-        let (environment, catalog) = self
-            .analyze_resolved_project(project, generation, dependencies)
-            .await?;
-        let mut lowered = lower_project(
-            project,
-            self.options.native_registry.as_ref(),
-            environment.session_context(),
-            self.options.source_loader.as_ref(),
-            &self.options.import_capabilities,
-        )
-        .await
-        .map_err(|diagnostics| CompileFailure {
-            diagnostics,
-            sources: project.sources.clone(),
-        })?;
-        for chart in &mut lowered.charts {
-            chart.artifact.dependency_fingerprint =
-                DependencyFingerprint::new(catalog.dependency_fingerprint.clone());
-        }
-        Ok((lowered, environment, catalog))
-    }
-
     async fn analyze_resolved_project(
         &self,
-        project: &ResolvedProject,
+        project: &ResolvedModuleGraph,
         generation: u64,
         dependencies: &DiscoveredDependencySet,
     ) -> Result<(crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
@@ -1173,7 +1120,7 @@ pub struct CompilerBuilder {
     catalog_factories: CatalogFactoryRegistry,
     table_factories: TableFactoryRegistry,
     environment_factory: Option<Arc<dyn CompileEnvironmentFactory>>,
-    project_compilation_mode: ProjectCompilationMode,
+    project_compilation_mode: ModuleCompilationMode,
     limits: CompilerLimits,
 }
 
@@ -1226,7 +1173,7 @@ impl CompilerBuilder {
         self
     }
 
-    pub fn project_compilation_mode(mut self, mode: ProjectCompilationMode) -> Self {
+    pub fn project_compilation_mode(mut self, mode: ModuleCompilationMode) -> Self {
         self.project_compilation_mode = mode;
         self
     }
@@ -1401,11 +1348,11 @@ fn static_glob_root(path: &Path) -> Option<PathBuf> {
     found_pattern.then_some(root)
 }
 
-fn resolve_parsed_project(
+fn resolve_parsed_module_graph(
     project: ParsedModuleGraph,
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
     expansion_limits: avenger_lang_core::ExpansionLimits,
-) -> Result<ResolvedProject, CompileFailure> {
+) -> Result<ResolvedModuleGraph, CompileFailure> {
     let sources = project.sources.clone();
     let resolved = resolve_semantics(&project, schema)
         .result
@@ -1416,13 +1363,12 @@ fn resolve_parsed_project(
     if resolved.definitions.is_empty() {
         return Ok(resolved);
     }
-    let expanded =
-        expand_project_with_limits(&project, &resolved, expansion_limits).map_err(|failure| {
-            CompileFailure {
-                diagnostics: failure.diagnostics,
-                sources: sources.clone(),
-            }
-        })?;
+    let expanded = expand_module_graph_with_limits(&project, &resolved, expansion_limits).map_err(
+        |failure| CompileFailure {
+            diagnostics: failure.diagnostics,
+            sources: sources.clone(),
+        },
+    )?;
     match resolve_semantics(&expanded.project, schema).result {
         Ok(mut resolved) => {
             resolved.expansion_source_map = expanded.source_map;
@@ -1437,111 +1383,6 @@ fn resolve_parsed_project(
                 sources: expanded.project.sources,
             })
         }
-    }
-}
-
-fn discover_avenger_files(
-    root: &Path,
-    limits: avenger_lang_core::ModuleGraphLoadLimits,
-) -> Result<Vec<PathBuf>, std::io::Error> {
-    if !root.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("{} does not exist", root.display()),
-        ));
-    }
-    if root.is_file() {
-        return Ok(vec![normalize_path(root)]);
-    }
-    let mut pending = vec![(root.to_path_buf(), 0_usize)];
-    let mut files = Vec::new();
-    let mut visited_entries = 0_usize;
-    while let Some((directory, depth)) = pending.pop() {
-        let mut entries = Vec::new();
-        for entry in std::fs::read_dir(&directory)? {
-            visited_entries = visited_entries.checked_add(1).ok_or_else(|| {
-                resource_limit_error("project directory entry count overflowed".to_string())
-            })?;
-            if visited_entries > limits.max_project_directory_entries {
-                return Err(resource_limit_error(format!(
-                    "project discovery exceeds {} directory entries",
-                    limits.max_project_directory_entries
-                )));
-            }
-            entries.push(entry?);
-        }
-        entries.sort_by_key(std::fs::DirEntry::path);
-        for entry in entries.into_iter().rev() {
-            let file_type = entry.file_type()?;
-            let path = entry.path();
-            if file_type.is_dir() {
-                if depth >= limits.max_project_directory_depth {
-                    return Err(resource_limit_error(format!(
-                        "project directory depth exceeds {} at `{}`",
-                        limits.max_project_directory_depth,
-                        path.display()
-                    )));
-                }
-                pending.push((path, depth + 1));
-            } else if file_type.is_file() && path.to_string_lossy().ends_with(".avenger") {
-                if files.len() >= limits.max_sources {
-                    return Err(resource_limit_error(format!(
-                        "project discovery exceeds {} Avenger source files",
-                        limits.max_sources
-                    )));
-                }
-                files.push(normalize_path(&path));
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-fn is_data_path(path: &Path) -> bool {
-    path.to_string_lossy().ends_with(".data.avenger")
-}
-
-fn is_definition_path(path: &Path) -> bool {
-    let path = path.to_string_lossy();
-    path.ends_with(".mark.avenger")
-        || path.ends_with(".tool.avenger")
-        || path.ends_with(".transform.avenger")
-}
-
-fn is_chart_path(path: &Path) -> bool {
-    path.to_string_lossy().ends_with(".avenger") && !is_data_path(path) && !is_definition_path(path)
-}
-
-fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T> {
-    let mut sources = SourceMap::default();
-    sources
-        .insert(SourceFile::new(
-            SourceId::new(0),
-            SourceOrigin::File(root.to_path_buf()),
-            "",
-        ))
-        .expect("fresh source id");
-    CompileAttempt {
-        result: Err(CompileFailure {
-            diagnostics: vec![Diagnostic::error(
-                "AVENGER-PROJECT-017",
-                "project discovery failed",
-                SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
-            )],
-            sources,
-        }),
-        dependencies: {
-            let mut dependencies = DiscoveredDependencySet::default();
-            dependencies.insert(CompiledDependency {
-                role: DependencyRole::LocalResource,
-                requested_origin: SourceOrigin::File(root.to_path_buf()),
-                canonical_origin: SourceOrigin::File(root.to_path_buf()),
-                content_version: None,
-                nearest_existing_parent: nearest_existing_parent(root),
-            });
-            dependencies
-        },
     }
 }
 
@@ -2014,15 +1855,201 @@ fn compiler_options_fingerprint(options: &CompilerOptions) -> String {
 }
 
 fn chart_file<'a>(
-    project: &'a ResolvedProject,
+    project: &'a ResolvedModuleGraph,
     chart: &DeclarationId,
 ) -> Option<&'a SourceModuleId> {
-    project.files.iter().find_map(|(file_id, file)| {
+    project.source_modules.iter().find_map(|(file_id, file)| {
         file.roots
             .iter()
             .any(|root| declaration_contains(root, chart))
             .then_some(file_id)
     })
+}
+
+fn select_chart_entrypoint(
+    parsed: &ParsedModuleGraph,
+    resolved: &ResolvedModuleGraph,
+    selector: Option<&str>,
+) -> Result<ChartEntrypointId, CompileFailure> {
+    let Some(requested) = parsed.requested_modules.first() else {
+        return Err(module_root_failure(
+            &resolved.sources,
+            "the loaded graph has no requested module",
+        ));
+    };
+    let candidates = resolved
+        .entrypoints
+        .keys()
+        .filter(|entrypoint| &entrypoint.module == requested)
+        .cloned()
+        .collect::<Vec<_>>();
+    let source = resolved
+        .source_modules
+        .get(requested)
+        .map(|module| module.source)
+        .unwrap_or_else(|| SourceId::new(0));
+    let span = SourceSpan::empty(source, 0);
+    if let Some(selector) = selector {
+        if let Some(entrypoint) = candidates.iter().find(|entrypoint| {
+            matches!(&entrypoint.selector, ChartSelector::Named(name) if name == selector)
+        }) {
+            return Ok(entrypoint.clone());
+        }
+        let available = candidates
+            .iter()
+            .filter_map(|entrypoint| match &entrypoint.selector {
+                ChartSelector::Named(name) => Some(name.as_str()),
+                ChartSelector::Anonymous => None,
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(CompileFailure {
+            diagnostics: vec![Diagnostic::error(
+                "AVENGER-RESOLVE-241",
+                "chart selector does not match an entrypoint",
+                SourceLabel::new(
+                    span,
+                    if available.is_empty() {
+                        format!("the requested module has no named chart `{selector}`")
+                    } else {
+                        format!("no chart is named `{selector}`; available charts: {available}")
+                    },
+                ),
+            )],
+            sources: resolved.sources.clone(),
+        });
+    }
+    match candidates.as_slice() {
+        [entrypoint] => Ok(entrypoint.clone()),
+        [] => Err(CompileFailure {
+            diagnostics: vec![Diagnostic::error(
+                "AVENGER-RESOLVE-240",
+                "requested module has no chart entrypoint",
+                SourceLabel::new(span, "add a chart or compile this module as a library"),
+            )],
+            sources: resolved.sources.clone(),
+        }),
+        _ => {
+            let available = candidates
+                .iter()
+                .filter_map(|entrypoint| match &entrypoint.selector {
+                    ChartSelector::Named(name) => Some(name.as_str()),
+                    ChartSelector::Anonymous => None,
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(CompileFailure {
+                diagnostics: vec![Diagnostic::error(
+                    "AVENGER-RESOLVE-242",
+                    "chart selector is required",
+                    SourceLabel::new(
+                        span,
+                        format!("choose one of the module's charts: {available}"),
+                    ),
+                )],
+                sources: resolved.sources.clone(),
+            })
+        }
+    }
+}
+
+fn native_requirements_for_entrypoint(
+    resolved: &ResolvedModuleGraph,
+    entrypoint: &ChartEntrypointId,
+    registry: &NativeRegistry,
+) -> NativeRequirementSet {
+    fn visit(
+        declaration: &ResolvedDeclaration,
+        modules: &mut BTreeSet<avenger_chart_schema::NativeModuleId>,
+    ) {
+        if let Some(ResolvedKindBinding::Native { export, .. }) = &declaration.kind_binding
+            && let ModuleId::Native(module) = &export.module
+        {
+            modules.insert(module.clone());
+        }
+        for child in &declaration.children {
+            visit(child, modules);
+        }
+        for value in declaration.properties.values() {
+            visit_value(value, modules);
+        }
+    }
+
+    fn visit_value(
+        value: &ResolvedValue,
+        modules: &mut BTreeSet<avenger_chart_schema::NativeModuleId>,
+    ) {
+        match value {
+            ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
+                for value in values {
+                    visit_value(value, modules);
+                }
+            }
+            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+                visit_value(value, modules);
+            }
+            ResolvedValue::Object {
+                head,
+                properties,
+                children,
+                ..
+            } => {
+                if let Some(head) = head {
+                    visit_value(head, modules);
+                }
+                for value in properties.values() {
+                    visit_value(value, modules);
+                }
+                for child in children {
+                    visit(child, modules);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut modules = BTreeSet::new();
+    if let Some(entrypoint) = resolved.entrypoints.get(entrypoint)
+        && let Some(chart) = find_resolved_declaration(resolved, &entrypoint.declaration)
+    {
+        visit(chart, &mut modules);
+    }
+    NativeRequirementSet::from_modules(registry, modules)
+        .expect("resolved native module requirements are installed in the compiler host")
+}
+
+fn find_resolved_declaration<'a>(
+    resolved: &'a ResolvedModuleGraph,
+    id: &DeclarationId,
+) -> Option<&'a ResolvedDeclaration> {
+    fn find<'a>(
+        declaration: &'a ResolvedDeclaration,
+        id: &DeclarationId,
+    ) -> Option<&'a ResolvedDeclaration> {
+        if &declaration.id == id {
+            return Some(declaration);
+        }
+        declaration
+            .children
+            .iter()
+            .find_map(|child| find(child, id))
+    }
+    resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+        .find_map(|root| find(root, id))
+}
+
+fn module_root_failure(sources: &SourceMap, message: impl Into<String>) -> CompileFailure {
+    CompileFailure {
+        diagnostics: vec![Diagnostic::error(
+            "AVENGER-MODULE-049",
+            "requested module is unavailable",
+            SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), message),
+        )],
+        sources: sources.clone(),
+    }
 }
 
 fn declaration_contains(declaration: &ResolvedDeclaration, target: &DeclarationId) -> bool {
@@ -2074,7 +2101,7 @@ fn definition_closure_fingerprint(
 }
 
 fn collect_chart_catalog_dependencies(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     chart: &ResolvedDeclaration,
 ) -> (BTreeSet<DeclarationId>, BTreeSet<String>) {
     fn visit_target(target: &ResolvedTarget, tables: &mut BTreeSet<DeclarationId>) {
@@ -2083,7 +2110,7 @@ fn collect_chart_catalog_dependencies(
         }
     }
     fn visit_value(
-        project: &ResolvedProject,
+        project: &ResolvedModuleGraph,
         property: Option<&str>,
         value: &ResolvedValue,
         tables: &mut BTreeSet<DeclarationId>,
@@ -2144,7 +2171,7 @@ fn collect_chart_catalog_dependencies(
         }
     }
     fn visit_declaration(
-        project: &ResolvedProject,
+        project: &ResolvedModuleGraph,
         declaration: &ResolvedDeclaration,
         tables: &mut BTreeSet<DeclarationId>,
         names: &mut BTreeSet<String>,
@@ -2189,44 +2216,43 @@ fn collect_chart_catalog_dependencies(
 fn dependency_fingerprint_layers(
     options: &CompilerOptions,
     parsed: &ParsedModuleGraph,
-    resolved: &ResolvedProject,
+    resolved: &ResolvedModuleGraph,
     dependencies: &DiscoveredDependencySet,
     catalog: &CatalogAnalysis,
     environment: &crate::CompileEnvironment,
-) -> ProjectDependencyFingerprints {
+) -> ModuleDependencyFingerprints {
     let sources = source_dependency_fingerprints(parsed, dependencies);
-    let mut result = ProjectDependencyFingerprints {
+    let mut result = ModuleDependencyFingerprints {
         sources,
         datasets: catalog.dataset_fingerprints.clone(),
         data_catalog: DependencyFingerprint::new(catalog.dependency_fingerprint.clone()),
         compile_environment: DependencyFingerprint::new(
             environment.dependency_fingerprint().to_owned(),
         ),
-        ..ProjectDependencyFingerprints::default()
+        ..ModuleDependencyFingerprints::default()
     };
     let compiler_options = compiler_options_fingerprint(options);
     let declarations = resolved
-        .files
+        .source_modules
         .values()
         .flat_map(|file| file.roots.iter())
         .flat_map(declarations_depth_first)
         .map(|declaration| (declaration.id.clone(), declaration))
         .collect::<BTreeMap<_, _>>();
-    for chart_id in &resolved.charts {
-        let public_id = ProjectChartId::new(chart_id.as_str());
-        let definition = chart_file(resolved, chart_id)
+    for (entrypoint_id, entrypoint) in &resolved.entrypoints {
+        let definition = chart_file(resolved, &entrypoint.declaration)
             .map(|file| definition_closure_fingerprint(parsed, file, &result.sources))
             .unwrap_or_default();
         result
             .definition_closures
-            .insert(public_id.clone(), definition.clone());
+            .insert(entrypoint_id.clone(), definition.clone());
         let mut parts = vec![
-            public_id.as_str().to_owned(),
+            serde_json::to_string(entrypoint_id).unwrap_or_default(),
             definition.as_str().to_owned(),
             compiler_options.clone(),
             environment.dependency_fingerprint().to_owned(),
         ];
-        if let Some(chart) = declarations.get(chart_id) {
+        if let Some(chart) = declarations.get(&entrypoint.declaration) {
             parts.push(serde_json::to_string(chart).unwrap_or_default());
             let (tables, names) = collect_chart_catalog_dependencies(resolved, chart);
             for table in tables {
@@ -2247,7 +2273,7 @@ fn dependency_fingerprint_layers(
             }
         }
         result.charts.insert(
-            public_id,
+            entrypoint_id.clone(),
             DependencyFingerprint::new(stable_hash(
                 "avenger-chart-artifact-v1",
                 parts.iter().map(String::as_str),
@@ -2271,8 +2297,8 @@ fn declarations_depth_first(
 }
 
 fn project_fingerprint_from_layers(
-    fingerprints: &ProjectDependencyFingerprints,
-) -> ProjectFingerprint {
+    fingerprints: &ModuleDependencyFingerprints,
+) -> ModuleFingerprint {
     let mut parts = Vec::new();
     for (source, fingerprint) in &fingerprints.sources {
         parts.push(source.as_str().to_owned());
@@ -2281,11 +2307,11 @@ fn project_fingerprint_from_layers(
     parts.push(fingerprints.data_catalog.as_str().to_owned());
     parts.push(fingerprints.compile_environment.as_str().to_owned());
     for (chart, fingerprint) in &fingerprints.charts {
-        parts.push(chart.as_str().to_owned());
+        parts.push(serde_json::to_string(chart).unwrap_or_default());
         parts.push(fingerprint.as_str().to_owned());
     }
-    ProjectFingerprint::new(stable_hash(
-        "avenger-compiled-project-v1",
+    ModuleFingerprint::new(stable_hash(
+        "avenger-compiled-module-v2",
         parts.iter().map(String::as_str),
     ))
 }

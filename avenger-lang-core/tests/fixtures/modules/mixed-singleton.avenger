@@ -8,7 +8,7 @@ table inline as observations {
 }
 
 define mark local_point {
-  mark symbol {
+  mark symbol as point {
     x: "x";
     y: "y";
   }

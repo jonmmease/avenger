@@ -1,6 +1,6 @@
 avenger 1;
 
-schema tables as analytics {
+export schema tables as analytics {
   table inline as rows {
     values: [
       {

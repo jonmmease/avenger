@@ -275,7 +275,7 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
     }
     let compiler = compiler_for(case)?;
     let result = compiler
-        .compile_file_generation_attempt(fixtures_dir().join(&case.root), 0)
+        .compile_chart_generation_attempt(fixtures_dir().join(&case.root), None, 0)
         .await
         .result;
 

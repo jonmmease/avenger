@@ -7,7 +7,7 @@ async fn project_analysis_indexes_chart_sources_and_each_transform_stage() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let mut chart_datasets = analysis
         .datasets
         .iter()

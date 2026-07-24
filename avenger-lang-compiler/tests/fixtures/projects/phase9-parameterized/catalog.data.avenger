@@ -1,6 +1,6 @@
 avenger 1;
 
-schema tables as local {
+export schema tables as local {
   table inline as trips {
     values: [
       { borough: 'Manhattan'; fare: 12; },

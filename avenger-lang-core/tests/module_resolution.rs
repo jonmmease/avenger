@@ -6,7 +6,7 @@ use avenger_chart_schema::{
 use avenger_lang_core::{
     AvailableNativeModule, BindingCategory, ChartSelector, ContentVersion, ImportCapabilities,
     InMemorySourceLoader, LoadedSource, ModuleGraphLoadLimits, ModuleGraphLoadRequest,
-    ModuleGraphLoader, ModuleRoot, ResolvedKindBinding, SourceOrigin, resolve_project,
+    ModuleGraphLoader, ModuleRoot, ResolvedKindBinding, SourceOrigin, resolve_module_graph,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -71,11 +71,13 @@ async fn local_and_imported_definitions_resolve_by_item_and_category() {
         BTreeMap::new(),
     )
     .await;
-    let resolved = resolve_project(&graph, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&graph, &bootstrap_schema())
+        .result
+        .unwrap();
 
     assert_eq!(resolved.definitions.len(), 4);
     let root = resolved
-        .files
+        .source_modules
         .values()
         .find(|module| module.roots.iter().any(|item| item.keyword == "chart"))
         .unwrap();
@@ -96,7 +98,7 @@ async fn local_and_imported_definitions_resolve_by_item_and_category() {
         chart.children[2].kind_binding,
         Some(ResolvedKindBinding::Definition(_))
     ));
-    assert_eq!(resolved.module_items.len(), 5);
+    assert_eq!(resolved.items.len(), 5);
 }
 
 #[tokio::test]
@@ -120,7 +122,7 @@ async fn private_exports_and_wrong_names_fail_at_the_import() {
         BTreeMap::new(),
     )
     .await;
-    let failure = resolve_project(&graph, &bootstrap_schema())
+    let failure = resolve_module_graph(&graph, &bootstrap_schema())
         .result
         .unwrap_err();
     assert_eq!(
@@ -165,9 +167,9 @@ async fn namespace_imports_bind_native_exports_but_unimported_modules_are_invisi
         available,
     )
     .await;
-    let resolved = resolve_project(&imported, &schema).result.unwrap();
+    let resolved = resolve_module_graph(&imported, &schema).result.unwrap();
     let mark = &resolved
-        .files
+        .source_modules
         .values()
         .next()
         .unwrap()
@@ -190,7 +192,9 @@ async fn namespace_imports_bind_native_exports_but_unimported_modules_are_invisi
         BTreeMap::new(),
     )
     .await;
-    let failure = resolve_project(&unimported, &schema).result.unwrap_err();
+    let failure = resolve_module_graph(&unimported, &schema)
+        .result
+        .unwrap_err();
     assert!(
         failure
             .diagnostics
@@ -210,7 +214,7 @@ async fn chart_naming_and_export_collision_rules_are_eager() {
         BTreeMap::new(),
     )
     .await;
-    let failure = resolve_project(&unnamed, &bootstrap_schema())
+    let failure = resolve_module_graph(&unnamed, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -231,7 +235,7 @@ async fn chart_naming_and_export_collision_rules_are_eager() {
         BTreeMap::new(),
     )
     .await;
-    let failure = resolve_project(&duplicate_export, &bootstrap_schema())
+    let failure = resolve_module_graph(&duplicate_export, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -256,7 +260,9 @@ async fn chart_entrypoints_own_state_and_private_siblings_do_not_change_item_ide
         BTreeMap::new(),
     )
     .await;
-    let first_resolved = resolve_project(&first, &bootstrap_schema()).result.unwrap();
+    let first_resolved = resolve_module_graph(&first, &bootstrap_schema())
+        .result
+        .unwrap();
     assert_eq!(first_resolved.entrypoints.len(), 2);
     assert!(first_resolved.entrypoints.iter().all(|(id, chart)| {
         matches!(id.selector, ChartSelector::Named(_))
@@ -264,7 +270,7 @@ async fn chart_entrypoints_own_state_and_private_siblings_do_not_change_item_ide
             && chart.stores.is_empty()
     }));
     let badge_id = first_resolved
-        .module_items
+        .items
         .values()
         .find(|item| {
             item.category
@@ -288,11 +294,11 @@ async fn chart_entrypoints_own_state_and_private_siblings_do_not_change_item_ide
         BTreeMap::new(),
     )
     .await;
-    let second_resolved = resolve_project(&second, &bootstrap_schema())
+    let second_resolved = resolve_module_graph(&second, &bootstrap_schema())
         .result
         .unwrap();
     let second_badge_id = second_resolved
-        .module_items
+        .items
         .values()
         .find(|item| item.source_name.as_deref() == Some("badge"))
         .unwrap()
@@ -316,7 +322,7 @@ async fn definition_dependency_cycles_report_the_complete_item_path() {
     )
     .await;
 
-    let failure = resolve_project(&graph, &bootstrap_schema())
+    let failure = resolve_module_graph(&graph, &bootstrap_schema())
         .result
         .unwrap_err();
     let diagnostic = failure
@@ -350,7 +356,7 @@ async fn imported_bindings_are_checked_in_the_expected_category() {
     )
     .await;
 
-    let failure = resolve_project(&graph, &bootstrap_schema())
+    let failure = resolve_module_graph(&graph, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -382,15 +388,17 @@ async fn relation_references_resolve_through_namespaces_and_drive_chart_closures
     )
     .await;
 
-    let resolved = resolve_project(&graph, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&graph, &bootstrap_schema())
+        .result
+        .unwrap();
     assert_eq!(resolved.catalog_tables.len(), 2);
     let derived = resolved
-        .module_items
+        .items
         .values()
         .find(|item| item.source_name.as_deref() == Some("derived"))
         .unwrap();
     let movies = resolved
-        .module_items
+        .items
         .values()
         .find(|item| item.source_name.as_deref() == Some("movies"))
         .unwrap();
@@ -426,14 +434,16 @@ async fn transform_definitions_may_join_input_but_mark_definitions_cannot_captur
         BTreeMap::new(),
     )
     .await;
-    let resolved = resolve_project(&valid, &bootstrap_schema()).result.unwrap();
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
     let enrich = resolved
-        .module_items
+        .items
         .values()
         .find(|item| item.source_name.as_deref() == Some("enrich"))
         .unwrap();
     let movies = resolved
-        .module_items
+        .items
         .values()
         .find(|item| item.source_name.as_deref() == Some("movies"))
         .unwrap();
@@ -454,7 +464,7 @@ async fn transform_definitions_may_join_input_but_mark_definitions_cannot_captur
         BTreeMap::new(),
     )
     .await;
-    let failure = resolve_project(&invalid, &bootstrap_schema())
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(

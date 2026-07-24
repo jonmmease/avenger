@@ -31,8 +31,8 @@ pub use diagnostic::{
     render_diagnostics, sort_diagnostics,
 };
 pub use expand::{
-    ExpandedProject, ExpansionFailure, ExpansionLimits, ExpansionMapping, ExpansionSourceMap,
-    expand_project, expand_project_with_limits,
+    ExpandedModuleGraph, ExpansionFailure, ExpansionLimits, ExpansionMapping, ExpansionSourceMap,
+    expand_module_graph, expand_module_graph_with_limits,
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
@@ -56,13 +56,13 @@ pub use resolve::{
     ModuleItemId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,
     ResolvedCatalogTable, ResolvedChartEntrypoint, ResolvedDeclaration, ResolvedDimension,
     ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
-    ResolvedFile, ResolvedHelper, ResolvedHelperArgument, ResolvedImport, ResolvedKindBinding,
-    ResolvedModuleItem, ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedPart,
-    ResolvedProject, ResolvedQuery, ResolvedReference, ResolvedRelationId,
+    ResolvedHelper, ResolvedHelperArgument, ResolvedImport, ResolvedKindBinding, ResolvedModule,
+    ResolvedModuleGraph, ResolvedModuleItem, ResolvedOutputHandle, ResolvedOutputShape,
+    ResolvedParam, ResolvedPart, ResolvedQuery, ResolvedReference, ResolvedRelationId,
     ResolvedRelationReference, ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine,
     ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
     ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
-    WidgetId, allowed_child_declarations, placement_allowed, resolve_project,
+    WidgetId, allowed_child_declarations, placement_allowed, resolve_module_graph,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

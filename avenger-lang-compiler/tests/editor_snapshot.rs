@@ -48,16 +48,16 @@ async fn explicit_roots_use_snapshot_loaders_generations_and_shared_caches() {
         .unwrap();
     let roots = vec![ModuleRoot::requested(origin.clone())];
     let before = compiler
-        .analyze_project_roots(roots.clone(), 41)
+        .analyze_module_roots(roots.clone(), 41)
         .await
         .unwrap();
 
     let overlay =
         Arc::new(InMemorySourceLoader::default().with_source(source(&origin, "after", "v2")));
     let fork = compiler.fork_with_source_loader(overlay);
-    let after = fork.analyze_project_roots(roots, 42).await.unwrap();
+    let after = fork.analyze_module_roots(roots, 42).await.unwrap();
 
-    assert_ne!(before.project_fingerprint, after.project_fingerprint);
+    assert_ne!(before.module_fingerprint, after.module_fingerprint);
     assert_eq!(*environments.generations.lock().unwrap(), vec![41, 42]);
     assert!(compiler.cache_snapshot().resolved_projects >= 2);
     assert_eq!(compiler.cache_snapshot(), fork.cache_snapshot());

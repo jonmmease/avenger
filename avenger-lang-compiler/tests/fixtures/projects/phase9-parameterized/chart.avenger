@@ -1,5 +1,7 @@
 avenger 1;
 
+import { local } from 'catalog.data.avenger';
+
 chart cartesian as chart {
   param utf8 as selected { value: 'Manhattan'; }
   data: {

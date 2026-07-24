@@ -1,6 +1,6 @@
 avenger 1;
 
-define mark error_bar {
+export define mark error_bar {
   slot channel category_axis { default: x; }
   slot channel value_axis { default: y; }
   slot expr category;

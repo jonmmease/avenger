@@ -46,13 +46,14 @@ use avenger_chart_lang_registry::{
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
-    DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit, ParamId,
-    PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding, ResolvedDeclaration,
-    ResolvedEventScope, ResolvedEventSurface, ResolvedExpression, ResolvedHelperArgument,
-    ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery,
-    ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
-    ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel,
-    SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
+    ChartEntrypointId, DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit,
+    ParamId, PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding,
+    ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
+    ResolvedHelperArgument, ResolvedModuleGraph, ResolvedOutputHandle, ResolvedOutputShape,
+    ResolvedParam, ResolvedQuery, ResolvedRelationTarget, ResolvedSelection,
+    ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
+    ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader, SourceSpan,
+    StateSharing, StoreId, TimeUnit,
     ast::{BindingTime, Visibility},
     module_graph::resolve_relative_origin,
 };
@@ -68,13 +69,7 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 
-use crate::{CompiledChartArtifact, DependencyFingerprint, ProjectChartId};
-
-pub(crate) struct LoweredProject {
-    pub charts: Vec<LoweredChart>,
-    #[allow(dead_code)]
-    pub analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
-}
+use crate::{CompiledChartArtifact, DependencyFingerprint, NativeRequirementSet};
 
 pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
@@ -98,39 +93,20 @@ type ToolBehaviorFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<ResolvedToolBehavior, Diagnostic>> + 'a>,
 >;
 
-pub(crate) async fn lower_project(
-    project: &ResolvedProject,
-    registry: &NativeRegistry,
-    context: &SessionContext,
-    source_loader: &dyn SourceLoader,
-    capabilities: &ImportCapabilities,
-) -> Result<LoweredProject, Vec<Diagnostic>> {
-    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
-    match lowerer.lower().await {
-        Ok(project) => Ok(project),
-        Err(mut diagnostic) => {
-            project
-                .expansion_source_map
-                .remap_diagnostic(&mut diagnostic);
-            Err(vec![diagnostic])
-        }
-    }
-}
-
 /// Lower one chart root in a chart-local session cloned from the project's
 /// analyzed catalog generation. This is the unit used by Phase 10's
 /// deterministic sequential/parallel scheduler and artifact cache.
 pub(crate) async fn lower_project_chart(
-    project: &ResolvedProject,
-    chart_id: &DeclarationId,
+    project: &ResolvedModuleGraph,
+    entrypoint_id: &ChartEntrypointId,
     registry: &NativeRegistry,
     context: &SessionContext,
     source_loader: &dyn SourceLoader,
     capabilities: &ImportCapabilities,
 ) -> Result<LoweredChart, Vec<Diagnostic>> {
     let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
-    let result = match lowerer.lower_state() {
-        Ok(()) => lowerer.lower_one(chart_id).await,
+    let result = match lowerer.lower_entrypoint_state(entrypoint_id) {
+        Ok(()) => lowerer.lower_one(entrypoint_id).await,
         Err(diagnostic) => Err(diagnostic),
     };
     match result {
@@ -148,23 +124,25 @@ pub(crate) async fn lower_project_chart(
 /// native chart. Native transforms are asked only for their logical planning
 /// contract and must not create physical plans or execute scans.
 pub(crate) async fn analyze_chart_datasets(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     registry: &NativeRegistry,
     context: &SessionContext,
     source_loader: &dyn SourceLoader,
     capabilities: &ImportCapabilities,
 ) -> Result<Vec<ChartDatasetAnalysis>, Vec<Diagnostic>> {
-    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
-    if let Err(mut diagnostic) = lowerer.lower_state() {
-        project
-            .expansion_source_map
-            .remap_diagnostic(&mut diagnostic);
-        return Err(vec![diagnostic]);
-    }
     let mut analysis = Vec::new();
     let mut diagnostics = Vec::new();
-    for chart_id in &project.charts {
-        let Some(chart) = find_declaration(project, chart_id) else {
+    for (entrypoint_id, entrypoint) in &project.entrypoints {
+        let mut lowerer =
+            ProjectLowerer::new(project, registry, context, source_loader, capabilities);
+        if let Err(mut diagnostic) = lowerer.lower_entrypoint_state(entrypoint_id) {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            diagnostics.push(diagnostic);
+            continue;
+        }
+        let Some(chart) = find_declaration(project, &entrypoint.declaration) else {
             continue;
         };
         lowerer.active_chart_id = Some(chart.id.clone());
@@ -179,8 +157,6 @@ pub(crate) async fn analyze_chart_datasets(
             diagnostics.push(diagnostic);
         }
     }
-    lowerer.active_chart_id = None;
-    lowerer.active_chart_path = None;
     if diagnostics.is_empty() {
         Ok(analysis)
     } else {
@@ -189,7 +165,7 @@ pub(crate) async fn analyze_chart_datasets(
 }
 
 struct ProjectLowerer<'a> {
-    project: &'a ResolvedProject,
+    project: &'a ResolvedModuleGraph,
     registry: &'a NativeRegistry,
     context: &'a SessionContext,
     source_loader: &'a dyn SourceLoader,
@@ -210,7 +186,7 @@ struct ProjectLowerer<'a> {
 
 impl<'a> ProjectLowerer<'a> {
     fn new(
-        project: &'a ResolvedProject,
+        project: &'a ResolvedModuleGraph,
         registry: &'a NativeRegistry,
         context: &'a SessionContext,
         source_loader: &'a dyn SourceLoader,
@@ -237,29 +213,27 @@ impl<'a> ProjectLowerer<'a> {
         }
     }
 
-    async fn lower(&mut self) -> Result<LoweredProject, Diagnostic> {
-        self.lower_state()?;
-        let mut charts = Vec::new();
-        for chart_id in &self.project.charts {
-            charts.push(self.lower_one(chart_id).await?);
-        }
-        self.active_chart_path = None;
-        self.active_chart_id = None;
-        Ok(LoweredProject {
-            charts,
-            analysis_schemas: std::mem::take(&mut self.analysis_schemas),
-        })
-    }
-
-    async fn lower_one(&mut self, chart_id: &DeclarationId) -> Result<LoweredChart, Diagnostic> {
-        let declaration = find_declaration(self.project, chart_id).ok_or_else(|| {
+    async fn lower_one(
+        &mut self,
+        entrypoint_id: &ChartEntrypointId,
+    ) -> Result<LoweredChart, Diagnostic> {
+        let entrypoint = self.project.entrypoints.get(entrypoint_id).ok_or_else(|| {
             diagnostic(
                 SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
                 "AVENGER-LOWER-001",
-                "resolved chart declaration is missing",
-                chart_id.to_string(),
+                "resolved chart entrypoint is missing",
+                format!("{entrypoint_id:?}"),
             )
         })?;
+        let declaration =
+            find_declaration(self.project, &entrypoint.declaration).ok_or_else(|| {
+                diagnostic(
+                    SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
+                    "AVENGER-LOWER-001",
+                    "resolved chart declaration is missing",
+                    entrypoint.declaration.to_string(),
+                )
+            })?;
         self.active_chart_path = declaration
             .public_path
             .clone()
@@ -272,11 +246,11 @@ impl<'a> ProjectLowerer<'a> {
             .await
             .map_err(|error| lowerer_error(declaration, error.to_string()))?;
         let mut artifact = CompiledChartArtifact::new(
-            ProjectChartId::new(declaration.id.as_str()),
+            entrypoint_id.clone(),
             declaration.name.clone(),
             declaration.source,
             Arc::new(compiled),
-            self.registry.profile_id().clone(),
+            NativeRequirementSet::builtin_only(self.registry),
             DependencyFingerprint::new(self.project.source_fingerprint.clone()),
         );
         self.enrich_interface(&mut artifact, declaration);
@@ -285,20 +259,31 @@ impl<'a> ProjectLowerer<'a> {
         Ok(LoweredChart { artifact })
     }
 
-    fn lower_state(&mut self) -> Result<(), Diagnostic> {
-        for id in &self.project.param_default_order {
+    fn lower_entrypoint_state(
+        &mut self,
+        entrypoint_id: &ChartEntrypointId,
+    ) -> Result<(), Diagnostic> {
+        let entrypoint = self.project.entrypoints.get(entrypoint_id).ok_or_else(|| {
+            diagnostic(
+                SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
+                "AVENGER-LOWER-001",
+                "resolved chart entrypoint is missing",
+                format!("{entrypoint_id:?}"),
+            )
+        })?;
+        for id in &entrypoint.param_default_order {
             self.lower_param(id)?;
         }
         // Native tool/widget exports have schema-provided defaults and do not
         // participate in the authored param-default DAG. They still need the
         // exact same typed parameter representation before their paired
         // lowerers run.
-        for id in self.project.params.keys() {
+        for id in entrypoint.params.keys() {
             if !self.params.contains_key(id) {
                 self.lower_param(id)?;
             }
         }
-        for (id, store) in &self.project.stores {
+        for (id, store) in &entrypoint.stores {
             let lowered = self.lower_store(store)?;
             let table_name = format!("__avenger_store_binding_{}", id.as_str());
             let schema = Arc::new(Schema::new(
@@ -320,7 +305,7 @@ impl<'a> ProjectLowerer<'a> {
             self.store_table_names.insert(id.clone(), table_name);
             self.stores.insert(id.clone(), lowered);
         }
-        for (id, selection) in &self.project.selections {
+        for (id, selection) in &entrypoint.selections {
             self.selections
                 .insert(id.clone(), self.lower_selection(selection));
         }
@@ -1794,7 +1779,7 @@ impl<'a> ProjectLowerer<'a> {
         let chart_path = chart.public_path.as_deref().or(chart.name.as_deref());
         if let Some(path) = self
             .project
-            .files
+            .source_modules
             .values()
             .flat_map(|file| file.roots.iter())
             .flat_map(declarations_depth_first)
@@ -3006,7 +2991,7 @@ impl<'a> ProjectLowerer<'a> {
         let mut component_aliases = Vec::new();
         for owner in self
             .project
-            .files
+            .source_modules
             .values()
             .flat_map(|file| file.roots.iter())
             .flat_map(declarations_depth_first)
@@ -4969,9 +4954,9 @@ fn logical_plan_fingerprint(data: &DataFrame) -> String {
     format!("sha256:{:x}", Sha256::digest(plan.as_bytes()))
 }
 
-fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {
+fn widget_owned_params(project: &ResolvedModuleGraph) -> BTreeSet<ParamId> {
     project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
@@ -4988,9 +4973,9 @@ fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {
         .collect()
 }
 
-fn native_owned_selections(project: &ResolvedProject) -> BTreeSet<SelectionId> {
+fn native_owned_selections(project: &ResolvedModuleGraph) -> BTreeSet<SelectionId> {
     project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
@@ -5016,11 +5001,11 @@ fn declarations_depth_first(root: &ResolvedDeclaration) -> Vec<&ResolvedDeclarat
 }
 
 fn find_declaration<'a>(
-    project: &'a ResolvedProject,
+    project: &'a ResolvedModuleGraph,
     id: &DeclarationId,
 ) -> Option<&'a ResolvedDeclaration> {
     project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
@@ -5130,11 +5115,11 @@ fn validate_legend_overlay_mark(declaration: &ResolvedDeclaration) -> Result<(),
 }
 
 fn find_declaration_by_target<'a>(
-    project: &'a ResolvedProject,
+    project: &'a ResolvedModuleGraph,
     target: &ResolvedTarget,
 ) -> Option<&'a ResolvedDeclaration> {
     project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
@@ -5813,7 +5798,7 @@ fn lowerer_error(declaration: &ResolvedDeclaration, message: impl Into<String>) 
 
 fn lowerer_error_at(
     declaration: DeclarationId,
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     message: impl Into<String>,
 ) -> Diagnostic {
     let message = message.into();

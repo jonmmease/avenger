@@ -1,6 +1,6 @@
 avenger 1;
 
-define tool inspect_points {
+export define tool inspect_points {
   slot ref target { kind: mark; }
   export enabled;
   export hovered;

@@ -6,8 +6,9 @@ use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 
 use avenger_lang_core::{
     DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
-    ResolvedCatalogTable, ResolvedDeclaration, ResolvedProject, ResolvedQuery, ResolvedRelationId,
-    ResolvedRelationTarget, ResolvedValue, SourceLabel, SourceOrigin, module_graph::normalize_path,
+    ResolvedCatalogTable, ResolvedDeclaration, ResolvedModuleGraph, ResolvedQuery,
+    ResolvedRelationId, ResolvedRelationTarget, ResolvedValue, SourceLabel, SourceOrigin,
+    module_graph::normalize_path,
 };
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
@@ -29,7 +30,7 @@ use sqlparser::{
 use crate::{
     AnalyzedColumn, AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironment, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    DependencyFingerprint, ProjectDatasetId, TableFactoryRegistry, lowering::physical_data_type,
+    DependencyFingerprint, ModuleDatasetId, TableFactoryRegistry, lowering::physical_data_type,
 };
 
 pub(crate) struct CatalogAnalysis {
@@ -49,7 +50,7 @@ pub(crate) struct CatalogOptions<'a> {
 }
 
 pub(crate) async fn register_and_analyze_catalog(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     environment: &CompileEnvironment,
     options: CatalogOptions<'_>,
 ) -> Result<CatalogAnalysis, Diagnostic> {
@@ -135,7 +136,7 @@ pub(crate) async fn register_and_analyze_catalog(
             .table(reference)
             .await
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-004", error.to_string()))?;
-        let dataset_id = ProjectDatasetId::new(format!("catalog:{}", table.id.as_str()));
+        let dataset_id = ModuleDatasetId::new(format!("catalog:{}", table.id.as_str()));
         let stage = DatasetStageId::new(dataset_id.clone(), 0);
         let columns = dataframe
             .schema()
@@ -208,13 +209,13 @@ pub(crate) async fn register_and_analyze_catalog(
 }
 
 async fn register_external_catalogs(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     environment: &CompileEnvironment,
     options: &CatalogOptions<'_>,
 ) -> Result<BTreeMap<String, String>, Diagnostic> {
     let mut fingerprints = BTreeMap::new();
     for declaration in project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| file.roots.iter())
         .filter(|declaration| declaration.keyword == "catalog")
@@ -338,7 +339,7 @@ fn external_catalog_fingerprint(
 }
 
 fn table_dependency_fingerprint(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     declaration: &ResolvedDeclaration,
     table: &ResolvedCatalogTable,
     dependencies: &BTreeMap<DeclarationId, DependencyFingerprint>,
@@ -416,7 +417,7 @@ pub(crate) fn internal_relation_name(relation: &ResolvedRelationId) -> String {
 }
 
 async fn analyze_external_catalogs(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     context: &SessionContext,
     external_fingerprints: &BTreeMap<String, String>,
     datasets: &mut DatasetSchemaIndex,
@@ -424,7 +425,7 @@ async fn analyze_external_catalogs(
     dataset_fingerprints: &mut BTreeMap<DatasetStageId, DependencyFingerprint>,
 ) -> Result<(), Diagnostic> {
     for declaration in project
-        .files
+        .source_modules
         .values()
         .flat_map(|file| file.roots.iter())
         .filter(|declaration| declaration.keyword == "catalog")
@@ -477,7 +478,7 @@ async fn analyze_external_catalogs(
                         )
                     })?;
                 let qualified = format!("{catalog_name}.{schema_name}.{table_name}");
-                let dataset_id = ProjectDatasetId::new(format!("provider:{qualified}"));
+                let dataset_id = ModuleDatasetId::new(format!("provider:{qualified}"));
                 let stage = DatasetStageId::new(dataset_id.clone(), 0);
                 datasets
                     .insert(AnalyzedDataset {
@@ -534,7 +535,7 @@ async fn analyze_external_catalogs(
 }
 
 async fn create_table_provider(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     declaration: &ResolvedDeclaration,
     table: &ResolvedCatalogTable,
     environment: &CompileEnvironment,
@@ -855,7 +856,7 @@ impl TableProvider for SessionMaterializedTable {
 }
 
 fn table_path(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     declaration: &ResolvedDeclaration,
     options: &CatalogOptions<'_>,
 ) -> Result<String, Diagnostic> {
@@ -989,7 +990,7 @@ fn ensure_schema(
 /// Expand Avenger parameterized table invocations into ordinary derived SQL
 /// tables before handing the canonical query to DataFusion's parser.
 pub(crate) fn expand_chart_sql(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     query: &ResolvedQuery,
     sql: &str,
 ) -> Result<String, String> {
@@ -997,7 +998,7 @@ pub(crate) fn expand_chart_sql(
 }
 
 fn expand_catalog_sql(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     query: &ResolvedQuery,
     caller: Option<&ResolvedCatalogTable>,
     bind_caller_defaults: bool,
@@ -1006,7 +1007,7 @@ fn expand_catalog_sql(
 }
 
 fn expand_catalog_sql_with_sql(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     query: &ResolvedQuery,
     sql: &str,
     caller: Option<&ResolvedCatalogTable>,
@@ -1086,7 +1087,7 @@ fn rewrite_query_relations(
 }
 
 struct TableFunctionExpander<'a> {
-    project: &'a ResolvedProject,
+    project: &'a ResolvedModuleGraph,
     relations: &'a BTreeMap<Vec<String>, ResolvedRelationId>,
     error: Option<String>,
 }
@@ -1141,7 +1142,7 @@ impl VisitorMut for TableFunctionExpander<'_> {
 }
 
 fn instantiate_table_query(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     table: &ResolvedCatalogTable,
     arguments: &[FunctionArg],
 ) -> Result<sqlparser::ast::Query, String> {
@@ -1224,7 +1225,7 @@ fn instantiate_table_query(
 }
 
 fn default_param_expressions(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     table: &ResolvedCatalogTable,
 ) -> Result<BTreeMap<String, SqlExpr>, String> {
     table
@@ -1446,7 +1447,9 @@ fn resolved_json(
     })
 }
 
-fn declaration_index(project: &ResolvedProject) -> BTreeMap<DeclarationId, &ResolvedDeclaration> {
+fn declaration_index(
+    project: &ResolvedModuleGraph,
+) -> BTreeMap<DeclarationId, &ResolvedDeclaration> {
     fn visit<'a>(
         declaration: &'a ResolvedDeclaration,
         result: &mut BTreeMap<DeclarationId, &'a ResolvedDeclaration>,
@@ -1457,7 +1460,7 @@ fn declaration_index(project: &ResolvedProject) -> BTreeMap<DeclarationId, &Reso
         }
     }
     let mut result = BTreeMap::new();
-    for root in project.files.values().flat_map(|file| &file.roots) {
+    for root in project.source_modules.values().flat_map(|file| &file.roots) {
         visit(root, &mut result);
     }
     result

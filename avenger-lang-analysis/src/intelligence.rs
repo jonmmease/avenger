@@ -8,7 +8,7 @@ use avenger_chart_schema::{
     ValueShape,
 };
 use avenger_lang_core::{
-    ByteSpan, ResolvedDeclaration, ResolvedProject, ResolvedTarget, SourceFile, SourceId,
+    ByteSpan, ResolvedDeclaration, ResolvedModuleGraph, ResolvedTarget, SourceFile, SourceId,
     SourceOrigin, SourceSpan, allowed_child_declarations,
     ast::Visibility,
     sql::{LosslessTokenKind, TokenClass},
@@ -207,9 +207,9 @@ impl WorkspaceSemanticIndex {
         }
     }
 
-    fn enrich_from_resolved(&mut self, project: &ResolvedProject) {
+    fn enrich_from_resolved(&mut self, project: &ResolvedModuleGraph) {
         let mut declarations = BTreeMap::new();
-        for file in project.files.values() {
+        for file in project.source_modules.values() {
             collect_resolved_declarations(&file.roots, &mut declarations);
         }
 
@@ -303,7 +303,7 @@ impl WorkspaceSemanticIndex {
                     target,
                 });
         }
-        for file in project.files.values() {
+        for file in project.source_modules.values() {
             let Some(importer) = project
                 .sources
                 .get(file.source)
@@ -914,7 +914,7 @@ fn target_metadata(target: &ResolvedTarget) -> (IndexedValueKind, String, Option
 }
 
 fn target_declaration_identity(
-    project: &ResolvedProject,
+    project: &ResolvedModuleGraph,
     target: &ResolvedTarget,
     declarations: &BTreeMap<String, &ResolvedDeclaration>,
 ) -> Option<String> {

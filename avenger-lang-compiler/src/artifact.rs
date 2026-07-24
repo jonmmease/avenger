@@ -2,8 +2,11 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart_core::StateMigrationKey;
-use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryProfileId};
-use avenger_lang_core::{SourceId, SourceMap, SourceModuleId};
+use avenger_chart_lang_registry::{
+    NativeBuiltinProfileId, NativeModuleId, NativeModuleImplementationProfileId,
+    NativeModuleSchemaProfileId, NativeRegistry,
+};
+use avenger_lang_core::{ChartEntrypointId, ChartSelector, SourceId, SourceMap, SourceModuleId};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -27,27 +30,119 @@ macro_rules! string_id {
     };
 }
 
-string_id!(ProjectChartId);
-string_id!(ProjectFingerprint);
+string_id!(ModuleFingerprint);
 string_id!(DependencyFingerprint);
 
 /// Reviewed fingerprint layers used by project analysis and incremental chart
 /// compilation. These values describe immutable inputs; they never retain a
 /// DataFusion session or provider registry.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProjectDependencyFingerprints {
+pub struct ModuleDependencyFingerprints {
     pub sources: BTreeMap<SourceModuleId, DependencyFingerprint>,
-    pub definition_closures: BTreeMap<ProjectChartId, DependencyFingerprint>,
+    pub definition_closures: BTreeMap<ChartEntrypointId, DependencyFingerprint>,
     pub datasets: BTreeMap<crate::DatasetStageId, DependencyFingerprint>,
     pub data_catalog: DependencyFingerprint,
     pub compile_environment: DependencyFingerprint,
-    pub charts: BTreeMap<ProjectChartId, DependencyFingerprint>,
+    pub charts: BTreeMap<ChartEntrypointId, DependencyFingerprint>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceStateBinding {
     pub runtime_id: String,
     pub migration_key: Option<StateMigrationKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeModuleRequirement {
+    pub schema_profile: NativeModuleSchemaProfileId,
+    pub implementation_profile: NativeModuleImplementationProfileId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeRequirementSet {
+    pub builtin_profile: NativeBuiltinProfileId,
+    pub modules: BTreeMap<NativeModuleId, NativeModuleRequirement>,
+}
+
+impl NativeRequirementSet {
+    pub fn builtin_only(registry: &NativeRegistry) -> Self {
+        Self {
+            builtin_profile: registry.builtin_profile_id().clone(),
+            modules: BTreeMap::new(),
+        }
+    }
+
+    pub fn from_modules(
+        registry: &NativeRegistry,
+        modules: impl IntoIterator<Item = NativeModuleId>,
+    ) -> Result<Self, ArtifactSerializationError> {
+        let mut requirements = Self::builtin_only(registry);
+        for id in modules {
+            let (_, registered) = registry.native_module(&id).ok_or_else(|| {
+                ArtifactSerializationError::MissingNativeModule {
+                    module: id.as_str().to_owned(),
+                }
+            })?;
+            requirements.modules.insert(
+                id,
+                NativeModuleRequirement {
+                    schema_profile: registered.schema_profile.clone(),
+                    implementation_profile: registered.implementation_profile.clone(),
+                },
+            );
+        }
+        Ok(requirements)
+    }
+
+    pub fn validate(&self, registry: &NativeRegistry) -> Result<(), ArtifactSerializationError> {
+        if &self.builtin_profile != registry.builtin_profile_id() {
+            return Err(ArtifactSerializationError::BuiltinProfileMismatch {
+                artifact: self.builtin_profile.as_str().to_owned(),
+                host: registry.builtin_profile_id().as_str().to_owned(),
+            });
+        }
+        for (id, requirement) in &self.modules {
+            let (_, installed) = registry.native_module(id).ok_or_else(|| {
+                ArtifactSerializationError::MissingNativeModule {
+                    module: id.as_str().to_owned(),
+                }
+            })?;
+            if installed.schema_profile != requirement.schema_profile {
+                return Err(ArtifactSerializationError::NativeModuleSchemaMismatch {
+                    module: id.as_str().to_owned(),
+                    artifact: requirement.schema_profile.as_str().to_owned(),
+                    host: installed.schema_profile.as_str().to_owned(),
+                });
+            }
+            if installed.implementation_profile != requirement.implementation_profile {
+                return Err(
+                    ArtifactSerializationError::NativeModuleImplementationMismatch {
+                        module: id.as_str().to_owned(),
+                        artifact: requirement.implementation_profile.as_str().to_owned(),
+                        host: installed.implementation_profile.as_str().to_owned(),
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let bytes = serde_json::to_vec(self).expect("native requirements serialize");
+        format!("sha256:{:x}", Sha256::digest(bytes))
+    }
+
+    pub fn union<'a>(sets: impl IntoIterator<Item = &'a Self>) -> Option<Self> {
+        let mut sets = sets.into_iter();
+        let first = sets.next()?.clone();
+        let mut result = first;
+        for set in sets {
+            debug_assert_eq!(result.builtin_profile, set.builtin_profile);
+            result.modules.extend(set.modules.clone());
+        }
+        Some(result)
+    }
 }
 
 /// Public host-binding surface retained alongside the compiled plot.
@@ -96,22 +191,22 @@ impl CompiledChartInterface {
 
 #[derive(Clone)]
 pub struct CompiledChartArtifact {
-    pub id: ProjectChartId,
+    pub id: ChartEntrypointId,
     pub name: Option<String>,
     pub source: SourceId,
     pub compiled: Arc<CompiledPlot>,
     pub interface: CompiledChartInterface,
-    pub native_registry_profile: NativeRegistryProfileId,
+    pub native_requirements: NativeRequirementSet,
     pub dependency_fingerprint: DependencyFingerprint,
 }
 
 impl CompiledChartArtifact {
     pub fn new(
-        id: ProjectChartId,
+        id: ChartEntrypointId,
         name: Option<String>,
         source: SourceId,
         compiled: Arc<CompiledPlot>,
-        native_registry_profile: NativeRegistryProfileId,
+        native_requirements: NativeRequirementSet,
         dependency_fingerprint: DependencyFingerprint,
     ) -> Self {
         let interface = CompiledChartInterface::from_compiled(&compiled);
@@ -121,7 +216,7 @@ impl CompiledChartArtifact {
             source,
             compiled,
             interface,
-            native_registry_profile,
+            native_requirements,
             dependency_fingerprint,
         }
     }
@@ -139,7 +234,7 @@ impl CompiledChartArtifact {
             name: self.name.clone(),
             source: self.source,
             interface: self.interface.clone(),
-            native_registry_profile: self.native_registry_profile.clone(),
+            native_requirements: self.native_requirements.clone(),
             dependency_fingerprint: self.dependency_fingerprint.clone(),
         };
         let header = bincode::serialize(&header)
@@ -165,12 +260,7 @@ impl CompiledChartArtifact {
         registry: &NativeRegistry,
     ) -> Result<Self, ArtifactSerializationError> {
         let (header, compiled) = decode_artifact_parts(bytes)?;
-        if &header.native_registry_profile != registry.profile_id() {
-            return Err(ArtifactSerializationError::RegistryProfileMismatch {
-                artifact: header.native_registry_profile.as_str().to_string(),
-                host: registry.profile_id().as_str().to_string(),
-            });
-        }
+        header.native_requirements.validate(registry)?;
         let compiled = bincode::deserialize(compiled)
             .map_err(|error| ArtifactSerializationError::Decode(error.to_string()))?;
         Ok(Self {
@@ -179,23 +269,23 @@ impl CompiledChartArtifact {
             source: header.source,
             compiled: Arc::new(compiled),
             interface: header.interface,
-            native_registry_profile: header.native_registry_profile,
+            native_requirements: header.native_requirements,
             dependency_fingerprint: header.dependency_fingerprint,
         })
     }
 }
 
-pub const COMPILED_ARTIFACT_FORMAT_MAJOR: u16 = 1;
+pub const COMPILED_ARTIFACT_FORMAT_MAJOR: u16 = 2;
 const ARTIFACT_MAGIC: [u8; 8] = *b"AVNGRART";
 const ARTIFACT_PREFIX_LEN: usize = ARTIFACT_MAGIC.len() + 2 + 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SerializedArtifactHeader {
-    id: ProjectChartId,
+    id: ChartEntrypointId,
     name: Option<String>,
     source: SourceId,
     interface: CompiledChartInterface,
-    native_registry_profile: NativeRegistryProfileId,
+    native_requirements: NativeRequirementSet,
     dependency_fingerprint: DependencyFingerprint,
 }
 
@@ -242,8 +332,26 @@ pub enum ArtifactSerializationError {
     InvalidMagic,
     #[error("unsupported compiled artifact format major {found}; host supports {supported}")]
     UnsupportedFormatMajor { found: u16, supported: u16 },
-    #[error("artifact native registry profile '{artifact}' does not match host profile '{host}'")]
-    RegistryProfileMismatch { artifact: String, host: String },
+    #[error("artifact built-in profile '{artifact}' does not match host profile '{host}'")]
+    BuiltinProfileMismatch { artifact: String, host: String },
+    #[error("artifact requires unavailable native module '{module}'")]
+    MissingNativeModule { module: String },
+    #[error(
+        "artifact native module '{module}' schema profile '{artifact}' does not match host '{host}'"
+    )]
+    NativeModuleSchemaMismatch {
+        module: String,
+        artifact: String,
+        host: String,
+    },
+    #[error(
+        "artifact native module '{module}' implementation profile '{artifact}' does not match host '{host}'"
+    )]
+    NativeModuleImplementationMismatch {
+        module: String,
+        artifact: String,
+        host: String,
+    },
     #[error("failed to encode compiled artifact: {0}")]
     Encode(String),
     #[error("failed to decode compiled artifact: {0}")]
@@ -257,25 +365,27 @@ impl fmt::Debug for CompiledChartArtifact {
             .field("name", &self.name)
             .field("source", &self.source)
             .field("interface", &self.interface)
-            .field("native_registry_profile", &self.native_registry_profile)
+            .field("native_requirements", &self.native_requirements)
             .field("dependency_fingerprint", &self.dependency_fingerprint)
             .finish_non_exhaustive()
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct CompiledProject {
-    pub charts: IndexMap<ProjectChartId, CompiledChartArtifact>,
+pub struct CompiledModule {
+    pub charts: IndexMap<ChartEntrypointId, CompiledChartArtifact>,
     pub sources: SourceMap,
-    pub native_registry_profile: NativeRegistryProfileId,
-    pub project_fingerprint: ProjectFingerprint,
-    pub dependency_fingerprints: ProjectDependencyFingerprints,
+    pub native_requirements: NativeRequirementSet,
+    pub module_fingerprint: ModuleFingerprint,
+    pub dependency_fingerprints: ModuleDependencyFingerprints,
 }
 
-impl CompiledProject {
+impl CompiledModule {
     pub fn chart(&self, name: &str) -> Option<&CompiledChartArtifact> {
         self.charts.iter().find_map(|(id, chart)| {
-            (id.as_str() == name || chart.name.as_deref() == Some(name)).then_some(chart)
+            (matches!(&id.selector, ChartSelector::Named(selector) if selector == name)
+                || chart.name.as_deref() == Some(name))
+            .then_some(chart)
         })
     }
 }
@@ -283,17 +393,17 @@ impl CompiledProject {
 /// Cache identity always includes the immutable native-registry profile.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ArtifactCacheKey {
-    pub native_registry_profile: String,
+    pub native_requirements: String,
     pub dependency_fingerprint: DependencyFingerprint,
 }
 
 impl ArtifactCacheKey {
     pub fn new(
-        native_registry_profile: &NativeRegistryProfileId,
+        native_requirements: &NativeRequirementSet,
         dependency_fingerprint: DependencyFingerprint,
     ) -> Self {
         Self {
-            native_registry_profile: native_registry_profile.as_str().to_string(),
+            native_requirements: native_requirements.fingerprint(),
             dependency_fingerprint,
         }
     }

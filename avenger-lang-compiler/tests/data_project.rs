@@ -41,7 +41,7 @@ async fn data_failure(data: &str) -> CompileFailure {
         .source_loader(Arc::new(loader) as Arc<dyn SourceLoader>)
         .build()
         .unwrap()
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap_err()
 }
@@ -50,7 +50,7 @@ async fn data_failure(data: &str) -> CompileFailure {
 async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without_execution() {
     let root = project_fixture("phase9-schema-chain");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let tables = analysis
         .datasets
         .iter()
@@ -142,7 +142,7 @@ async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without
         );
     }
 
-    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    let artifact = compiler.compile_chart("chart.avenger", None).await.unwrap();
     assert_eq!(
         artifact.dependency_fingerprint.as_str(),
         analysis.dependency_fingerprints.charts[&artifact.id].as_str(),
@@ -276,7 +276,7 @@ async fn data_project_validates_file_options_before_provider_planning() {
             .project_root(&root)
             .build()
             .unwrap()
-            .analyze_project(&root)
+            .analyze_module(&root)
             .await
             .unwrap_err();
         assert_eq!(failure.diagnostics[0].code.as_str(), expected);

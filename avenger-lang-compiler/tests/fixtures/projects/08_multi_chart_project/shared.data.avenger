@@ -1,6 +1,6 @@
 avenger 1;
 
-schema tables as shared {
+export schema tables as shared {
   table inline as points {
     values: [
       { x: 1.0; y: 2.0; theta: 0.4; radius: 1.5; },

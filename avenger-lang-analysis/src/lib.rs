@@ -27,7 +27,7 @@ use std::{
 
 use async_trait::async_trait;
 use avenger_lang_compiler::{
-    CompileFailure, Compiler, DatasetStageId, DatasetStageKind, ProjectAnalysis,
+    CompileFailure, Compiler, DatasetStageId, DatasetStageKind, ModuleAnalysis,
 };
 use avenger_lang_core::{
     ContentVersion, Diagnostic, ImportCapabilities, LineIndex, LoadedSource, ModuleRoot,
@@ -65,7 +65,7 @@ pub struct WorkspaceSnapshot {
 #[derive(Clone, Debug)]
 pub struct RootAnalysis {
     pub root: ModuleRoot,
-    pub result: Result<ProjectAnalysis, CompileFailure>,
+    pub result: Result<ModuleAnalysis, CompileFailure>,
 }
 
 #[derive(Clone, Debug)]
@@ -417,7 +417,7 @@ impl AnalysisService {
             cancellation.check()?;
             let mut closure_roots = vec![root.clone()];
             closure_roots.extend(data_roots.iter().cloned());
-            let analysis = compiler.analyze_project_roots(closure_roots, snapshot.generation.get());
+            let analysis = compiler.analyze_module_roots(closure_roots, snapshot.generation.get());
             pin_mut!(analysis);
             let cancelled = cancellation.cancelled();
             pin_mut!(cancelled);

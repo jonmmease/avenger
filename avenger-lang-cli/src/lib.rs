@@ -99,9 +99,13 @@ pub struct LspArgs {
 
 #[derive(Clone, Debug, Args)]
 pub struct WatchArgs {
-    /// Avenger chart source file.
-    #[arg(value_name = "CHART")]
-    chart: PathBuf,
+    /// Avenger source module.
+    #[arg(value_name = "MODULE")]
+    module: PathBuf,
+
+    /// Named chart entrypoint. Required when the module contains multiple charts.
+    #[arg(long, value_name = "NAME")]
+    chart: Option<String>,
 
     /// Override the project/capability root (defaults to the chart directory).
     #[arg(long, value_name = "DIR")]
@@ -323,7 +327,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
             "--scale must be a finite value greater than zero".to_string(),
         ));
     }
-    let chart = canonical_chart_path(&args.chart)?;
+    let chart = canonical_chart_path(&args.module)?;
     let project_root = canonical_project_root(args.project_root.as_deref(), &chart)?;
     if !chart.starts_with(&project_root) {
         return Err(CliError::InvalidArguments(format!(
@@ -348,7 +352,11 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         .enable_all()
         .build()?;
     let initial_started = Instant::now();
-    let attempt = worker_runtime.block_on(compiler.compile_file_generation_attempt(&chart, 1));
+    let attempt = worker_runtime.block_on(compiler.compile_chart_generation_attempt(
+        &chart,
+        args.chart.as_deref(),
+        1,
+    ));
     let initial_dependencies = attempt.dependencies.clone();
     let compiled = match attempt.result {
         Ok(compiled) => compiled,
@@ -414,6 +422,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
 
     let reload_worker = spawn_reload_worker(ReloadWorker {
         chart,
+        chart_selector: args.chart,
         project_root,
         compiler,
         runtime: worker_runtime,
@@ -529,6 +538,7 @@ trait WatchCompiler: Send + Sync + 'static {
     fn compile_generation<'a>(
         &'a self,
         chart: &'a Path,
+        selector: Option<&'a str>,
         generation: u64,
     ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>>;
 }
@@ -537,9 +547,10 @@ impl WatchCompiler for Compiler {
     fn compile_generation<'a>(
         &'a self,
         chart: &'a Path,
+        selector: Option<&'a str>,
         generation: u64,
     ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>> {
-        Box::pin(self.compile_file_generation_attempt(chart, generation))
+        Box::pin(self.compile_chart_generation_attempt(chart, selector, generation))
     }
 }
 
@@ -612,6 +623,7 @@ impl WatchReporter for ProcessWatchReporter {
 
 struct ReloadWorker<C = Compiler, H = HostUpdateSender<ChartAppState>, R = ProcessWatchReporter> {
     chart: PathBuf,
+    chart_selector: Option<String>,
     project_root: PathBuf,
     compiler: C,
     runtime: tokio::runtime::Runtime,
@@ -804,7 +816,11 @@ where
                     worker_stopping.as_ref(),
                     worker
                         .compiler
-                        .compile_generation(&worker.chart, generation),
+                        .compile_generation(
+                            &worker.chart,
+                            worker.chart_selector.as_deref(),
+                            generation,
+                        ),
                 ) else {
                     break;
                 };
@@ -1363,7 +1379,8 @@ mod tests {
         DiscoveredDependencySet,
         ChartResizeBinding,
     ) {
-        let attempt = runtime.block_on(compiler.compile_file_generation_attempt(chart, generation));
+        let attempt =
+            runtime.block_on(compiler.compile_chart_generation_attempt(chart, None, generation));
         let dependencies = attempt.dependencies;
         let compiled = attempt
             .result
@@ -1404,6 +1421,7 @@ mod tests {
         fn compile_generation<'a>(
             &'a self,
             _chart: &'a Path,
+            _selector: Option<&'a str>,
             generation: u64,
         ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>> {
             let step = self
@@ -1573,7 +1591,8 @@ mod tests {
         let Command::Watch(args) = cli.command else {
             panic!("expected watch command");
         };
-        assert_eq!(args.chart, PathBuf::from("chart.avenger"));
+        assert_eq!(args.module, PathBuf::from("chart.avenger"));
+        assert_eq!(args.chart, None);
         assert_eq!(args.debounce_ms, 25);
         assert_eq!(args.scale, 2.0);
         assert!(args.no_cache);
@@ -1936,7 +1955,7 @@ mod tests {
                 .build()
                 .unwrap_or_else(|error| panic!("build compiler for {root}: {error}"));
             let generation = runtime
-                .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+                .block_on(compiler.compile_chart_generation_attempt(&chart, None, 1))
                 .result
                 .unwrap_or_else(|failure| panic!("compile {root}: {:#?}", failure.diagnostics));
             let context = generation.environment.session_context_arc();
@@ -1950,7 +1969,7 @@ mod tests {
             prepared += 1;
         }
 
-        assert_eq!(prepared, 37, "stock visual fixture census changed");
+        assert_eq!(prepared, 38, "stock visual fixture census changed");
     }
 
     #[test]
@@ -2015,7 +2034,7 @@ mod tests {
             .build()
             .expect("build interactive acceptance compiler");
         let first = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 1))
             .result
             .expect("compile interactive acceptance fixture");
         let plot = first.artifact.compiled_plot();
@@ -2117,7 +2136,7 @@ mod tests {
         let snapshot = runtime.block_on(first_bundle.app.app_state_mut().snapshot_state());
 
         let second = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 2))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 2))
             .result
             .expect("compile replacement acceptance fixture");
         let (mut second_bundle, migration) = runtime
@@ -2282,7 +2301,8 @@ mod tests {
             .build()
             .expect("build reload fixture compiler");
 
-        let initial_attempt = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 1));
+        let initial_attempt =
+            runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 1));
         let initial_dependencies = initial_attempt.dependencies.clone();
         let initial = initial_attempt.result.expect("compile initial chart");
         let mut initial_bundle = runtime
@@ -2305,15 +2325,15 @@ mod tests {
             original_definition.replace("#7c3aed", "#dc2626"),
         )
         .expect("prepare styled generation");
-        let success = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 2));
+        let success = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 2));
 
         fs::write(&chart, "avenger 1; chart cartesian as broken {")
             .expect("prepare broken generation");
-        let failure = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 3));
+        let failure = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 3));
         assert!(failure.result.is_err());
 
         fs::write(&chart, &original_chart).expect("restore valid generation");
-        let repaired = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 5));
+        let repaired = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 5));
         assert!(repaired.result.is_ok());
         let newest = repaired.clone();
 
@@ -2353,6 +2373,7 @@ mod tests {
         let reporter = FakeWatchReporter::default();
         let handle = spawn_reload_worker(ReloadWorker {
             chart: chart.clone(),
+            chart_selector: None,
             project_root: project.path().to_path_buf(),
             compiler: fake_compiler,
             runtime,
@@ -2452,7 +2473,7 @@ mod tests {
             .expect("build fixture compiler");
 
         let first = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 1))
             .result
             .expect("compile first generation");
         let mut first_bundle = runtime
@@ -2476,7 +2497,7 @@ mod tests {
         let snapshot = runtime.block_on(first_state.snapshot_state());
 
         let second = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 2))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 2))
             .result
             .expect("compile second generation");
         let (mut second_bundle, report) = runtime
@@ -2515,7 +2536,7 @@ mod tests {
             .expect("build widget fixture compiler");
 
         let first = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 1))
             .result
             .expect("compile first widget generation");
         let mut first_bundle = runtime
@@ -2547,7 +2568,7 @@ mod tests {
         let snapshot = runtime.block_on(first_state.snapshot_state());
 
         let second = runtime
-            .block_on(compiler.compile_file_generation_attempt(&chart, 2))
+            .block_on(compiler.compile_chart_generation_attempt(&chart, None, 2))
             .result
             .expect("compile second widget generation");
         let (mut second_bundle, report) = runtime

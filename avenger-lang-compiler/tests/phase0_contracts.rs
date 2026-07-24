@@ -13,7 +13,7 @@ use avenger_chart_schema::{
 use avenger_lang_compiler::{
     AnalyzedDataset, ArtifactCacheKey, CompileEnvironment, CompileEnvironmentError,
     CompileEnvironmentFactory, CompileEnvironmentRequest, Compiler, DatasetProvenance,
-    DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DependencyFingerprint, ProjectDatasetId,
+    DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DependencyFingerprint, ModuleDatasetId,
 };
 use avenger_lang_core::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceFile, SourceId, SourceLoader,
@@ -124,17 +124,19 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
         .unwrap();
     let artifact = compiler.compile_phase0_example().await.unwrap();
     let analysis = compiler.analyze_phase0_empty();
-    assert_eq!(&artifact.native_registry_profile, left.profile_id());
+    assert_eq!(
+        &artifact.native_requirements.builtin_profile,
+        left.builtin_profile_id()
+    );
+    assert!(artifact.native_requirements.modules.is_empty());
     assert_eq!(&analysis.native_registry_profile, left.profile_id());
 
+    let requirements = avenger_lang_compiler::NativeRequirementSet::builtin_only(&left);
     let cache_key = ArtifactCacheKey::new(
-        left.profile_id(),
+        &requirements,
         DependencyFingerprint::new("fixture-dependencies"),
     );
-    assert_eq!(
-        cache_key.native_registry_profile,
-        left.profile_id().as_str()
-    );
+    assert_eq!(cache_key.native_requirements, requirements.fingerprint());
 
     let extended = Arc::new(extended);
     let custom_compiler = Compiler::builder()
@@ -144,8 +146,8 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
         .unwrap();
     let custom_artifact = custom_compiler.compile_phase0_example().await.unwrap();
     assert_eq!(
-        &custom_artifact.native_registry_profile,
-        extended.profile_id()
+        custom_artifact.native_requirements,
+        artifact.native_requirements
     );
 }
 
@@ -157,11 +159,14 @@ async fn programmatic_registry_chart_uses_the_public_artifact_wrapper() {
         .unwrap();
     let artifact = compiler.compile_phase0_example().await.unwrap();
 
-    assert_eq!(artifact.id.as_str(), "phase0-example");
+    assert!(matches!(
+        artifact.id.selector,
+        avenger_lang_core::ChartSelector::Named(ref name) if name == "phase0-example"
+    ));
     assert_eq!(artifact.compiled_plot().marks().len(), 1);
     assert_eq!(
-        &artifact.native_registry_profile,
-        compiler.options().native_registry.profile_id()
+        &artifact.native_requirements.builtin_profile,
+        compiler.options().native_registry.builtin_profile_id()
     );
 
     let context = datafusion::prelude::SessionContext::new();
@@ -189,7 +194,7 @@ async fn compile_attempt_retains_discovered_dependencies_on_success() {
         .build()
         .unwrap();
 
-    let attempt = compiler.compile_file_attempt("chart.avenger").await;
+    let attempt = compiler.compile_chart_attempt("chart.avenger", None).await;
     let artifact = attempt.result.unwrap();
     assert_eq!(artifact.name.as_deref(), Some("chart"));
     let dependencies = attempt.dependencies.iter().collect::<Vec<_>>();
@@ -237,7 +242,7 @@ async fn generation_compile_retains_its_environment_and_generation() {
         .unwrap();
 
     let compiled = compiler
-        .compile_file_generation_attempt("chart.avenger", 42)
+        .compile_chart_generation_attempt("chart.avenger", None, 42)
         .await
         .result
         .unwrap();
@@ -263,7 +268,7 @@ async fn generation_compile_retains_its_environment_and_generation() {
     ));
 
     let next = compiler
-        .compile_file_generation_attempt("chart.avenger", 43)
+        .compile_chart_generation_attempt("chart.avenger", None, 43)
         .await
         .result
         .unwrap();
@@ -290,7 +295,7 @@ async fn generation_environment_receives_immutable_local_resource_versions() {
         .unwrap();
 
     compiler
-        .compile_file_generation_attempt(root.join("chart.avenger"), 9)
+        .compile_chart_generation_attempt(root.join("chart.avenger"), None, 9)
         .await
         .result
         .expect("compile local-file fixture");
@@ -321,7 +326,7 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
     let mut sources = SourceMap::default();
     sources.insert(source).unwrap();
 
-    let dataset = ProjectDatasetId::new("memory:data.avenger#movies");
+    let dataset = ModuleDatasetId::new("memory:data.avenger#movies");
     let stage = DatasetStageId::new(dataset.clone(), 0);
     let schema = Arc::new(Schema::new(vec![Field::new(
         "release_date",

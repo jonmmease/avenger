@@ -18,12 +18,12 @@ pub use avenger_lang_compiler::{
     CatalogFactoryError, CatalogFactoryRegistry, CompileAttempt, CompileEnvironment,
     CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest,
     CompileEnvironmentResourceVersion, CompileFailure, CompiledChartArtifact,
-    CompiledChartGeneration, CompiledChartInterface, CompiledDependency, CompiledProject, Compiler,
+    CompiledChartGeneration, CompiledChartInterface, CompiledDependency, CompiledModule, Compiler,
     CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, CompilerLimits, CompilerOptions,
     DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
     DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost,
-    LocalResourceLimits, ProjectAnalysis, ProjectChartId, ProjectCompilationMode, ProjectDatasetId,
-    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactory,
+    LocalResourceLimits, ModuleAnalysis, ModuleCompilationMode, ModuleDatasetId,
+    ModuleDependencyFingerprints, ModuleFingerprint, SourceLoaderLimits, TableFactory,
     TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
@@ -33,8 +33,9 @@ pub use avenger_lang_core::{
     LineIndex, LoadedSource, MapEnvironmentProvider, ModuleDependency, ModuleDependencyRole,
     ModuleDependencyTarget, ModuleGraphLoadAttempt, ModuleGraphLoadFailure, ModuleGraphLoadLimits,
     ModuleGraphLoadRequest, ModuleGraphLoader, ModuleId, ModuleImportEdge, ModuleRoot,
-    ParsedModule, ParsedModuleGraph, ResolveAttempt, ResolveFailure, ResolvedProject, SourceFile,
-    SourceId, SourceLabel, SourceLoader, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
+    ParsedModule, ParsedModuleGraph, ResolveAttempt, ResolveFailure, ResolvedModuleGraph,
+    SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap, SourceModuleId, SourceOrigin,
+    SourceSpan,
 };
 pub use avenger_lang_core::{sql::SqlParseLimits, syntax::SyntaxLimits};
 

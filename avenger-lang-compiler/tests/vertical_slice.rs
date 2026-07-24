@@ -256,10 +256,10 @@ async fn vertical_slice_sql_aggregate_pipeline_propagates_schema_and_evaluates()
     let root = fixture("02_sql_pipeline");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let artifact = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let sql_schema = analysis
         .datasets
         .iter()
@@ -320,7 +320,7 @@ chart cartesian as chart {
   }
 }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let evaluated = artifact
@@ -358,7 +358,7 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -386,7 +386,7 @@ async fn native_surface_bare_channel_literals_scale_and_value_literals_bypass() 
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -417,7 +417,7 @@ async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -496,7 +496,7 @@ async fn native_surface_statistical_compound_marks_lower_with_public_parts() {
         .expect("violin schema");
     assert!(violin.parts.contains_key("body"));
 
-    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    let artifact = compiler.compile_chart("chart.avenger", None).await.unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
     assert!(json.contains("summary.box"), "{json}");
     assert!(json.contains("distribution.body"), "{json}");
@@ -525,7 +525,7 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let behavior = artifact
@@ -560,7 +560,7 @@ chart cartesian as chart {
   mark symbol as points { x: "x"; y: "y"; details: [id]; }
 }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
 
@@ -638,7 +638,7 @@ async fn native_surface_concat_cells_lower_as_mixed_coordinate_subplots() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(artifact.compiled_plot().marks().len(), 2);
@@ -675,7 +675,7 @@ async fn native_surface_vconcat_grid_and_wrap_lower_through_registered_packs() {
             }}"#
         );
         let artifact = source_compiler(&source, None)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
         let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -729,7 +729,7 @@ async fn native_surface_facets_lower_configured_dimensions_and_nested_cells() {
             }}"#
         );
         let artifact = source_compiler(&source, None)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
         let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -763,7 +763,7 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
           }
         }"#;
     let artifact = source_compiler(grid, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -780,7 +780,7 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
           }
         }"#;
     let artifact = source_compiler(wrap, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -820,7 +820,7 @@ async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() 
             }}"#
         );
         let artifact = source_compiler(&source, None)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
         let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -838,7 +838,7 @@ async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .unwrap();
     assert_eq!(project.charts.len(), 8);
@@ -902,14 +902,14 @@ chart parallel as chart {
   }
 }"#;
     source_compiler(valid, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
 
     let unbound = valid.replace("second: {}", "second: {}\n    unbound: {} ");
     assert!(
         source_compiler(&unbound, None)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .is_err(),
         "a configured frame id must be bound by at least one parallel mark"
@@ -921,7 +921,7 @@ chart parallel as chart {
     );
     assert!(
         source_compiler(&invalid_order, None)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .is_err(),
         "explicit order must exactly match discovered dimension ids"
@@ -935,7 +935,7 @@ async fn native_surface_store_backed_mark_uses_runtime_relation_without_metadata
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("store_backed.avenger"))
+        .compile_chart(root.join("store_backed.avenger"), None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -973,7 +973,7 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let evaluated = artifact
@@ -1001,7 +1001,7 @@ async fn direct_canvas_params_remain_available_for_host_resize_binding() {
           mark symbol { x: "x"; y: "y"; }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
 
@@ -1030,7 +1030,7 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
           mark symbol { x: "x"; y: "y"; }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -1063,7 +1063,7 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -1078,7 +1078,7 @@ async fn native_surface_component_exports_preserve_parts_without_private_paths()
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("theme_parts.avenger"))
+        .compile_chart(root.join("theme_parts.avenger"), None)
         .await
         .unwrap();
 
@@ -1135,7 +1135,7 @@ async fn native_surface_public_routing_hoists_and_exports_exact_targets() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("public_routing.avenger"))
+        .compile_chart(root.join("public_routing.avenger"), None)
         .await
         .unwrap();
 
@@ -1175,7 +1175,7 @@ async fn native_surface_mark_adjustments_and_derived_marks_lower_in_order() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("mark_effects.avenger"))
+        .compile_chart(root.join("mark_effects.avenger"), None)
         .await
         .unwrap();
 
@@ -1221,7 +1221,7 @@ async fn vertical_slice_widget_is_opaque_and_exported_state_drives_the_mark() {
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
 
@@ -1320,7 +1320,7 @@ async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contrac
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(artifact.compiled_plot().widgets().len(), 6);
@@ -1371,7 +1371,7 @@ async fn native_surface_button_actions_preserve_order_and_shared_state_targets()
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let bindings = artifact.compiled_plot().param_change_bindings();
@@ -1418,7 +1418,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
             .project_root(&root)
             .build()
             .unwrap()
-            .compile_file(root.join(format!("{file}.avenger")))
+            .compile_chart(root.join(format!("{file}.avenger")), None)
             .await
             .unwrap_or_else(|failure| panic!("{file} failed: {:?}", failure.diagnostics));
         let [attachment] = artifact.compiled_plot().widgets() else {
@@ -1454,7 +1454,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("radio_button_list.avenger"))
+        .compile_chart(root.join("radio_button_list.avenger"), None)
         .await
         .unwrap();
     assert!(radio.interface.params.contains_key("choice_state"));
@@ -1468,7 +1468,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .replace("    order_by: [\"rank\", \"value\"];\n", "")
         .replace("chart zerod as radio_button_list", "chart zerod as chart");
     let failure = source_compiler(&relational_without_order, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap_err();
     let diagnostics = format!("{:?}", failure.diagnostics);
@@ -1481,7 +1481,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("checkbox.avenger"))
+        .compile_chart(root.join("checkbox.avenger"), None)
         .await
         .unwrap();
     assert!(checkbox.interface.params.contains_key("enabled_state"));
@@ -1491,7 +1491,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("checkbox_list.avenger"))
+        .compile_chart(root.join("checkbox_list.avenger"), None)
         .await
         .unwrap();
     assert!(checkbox_list.interface.selections.contains_key("regions"));
@@ -1509,7 +1509,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("slider.avenger"))
+        .compile_chart(root.join("slider.avenger"), None)
         .await
         .unwrap();
     assert!(slider.interface.params.contains_key("threshold_state"));
@@ -1519,7 +1519,7 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("text_input.avenger"))
+        .compile_chart(root.join("text_input.avenger"), None)
         .await
         .unwrap();
     assert!(text.interface.params.contains_key("query_state"));
@@ -1560,7 +1560,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -1598,7 +1598,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
           }"#,
     );
     let mark_artifact = source_compiler(&mark_owned, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let mark_json = serde_json::to_string(mark_artifact.compiled_plot()).unwrap();
@@ -1616,7 +1616,7 @@ async fn native_surface_inline_view_raster_fixture_preserves_materialization_con
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -1654,7 +1654,7 @@ async fn native_surface_geo_tile_resources_lower_through_typed_references() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
@@ -1732,7 +1732,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let bindings = artifact.compiled_plot().event_bindings();
@@ -1815,7 +1815,7 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
           }
         }"#;
     let artifact = source_compiler(source, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     let defaults = artifact.compiled_plot().get_default_params();
@@ -1842,7 +1842,7 @@ async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() 
         .project_root(&root)
         .build()
         .unwrap()
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let compiled = match Arc::try_unwrap(artifact.compiled) {
@@ -1903,7 +1903,7 @@ async fn native_surface_text_input_editing_exports_are_reference_driven() {
           }
         }"#;
     let unused = source_compiler(unused, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert!(unused.interface.params.contains_key("query__value"));
@@ -1920,7 +1920,7 @@ async fn native_surface_text_input_editing_exports_are_reference_driven() {
           }
         }"#;
     let referenced = source_compiler(referenced, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert!(referenced.interface.params.contains_key("query__value"));
@@ -1976,7 +1976,7 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
 
     for (case, source, registry, expected) in cases {
         let failure = source_compiler(source, registry)
-            .compile_file("chart.avenger")
+            .compile_chart("chart.avenger", None)
             .await
             .expect_err(case);
         let diagnostic = failure.diagnostics.first().expect("one diagnostic");
@@ -2003,7 +2003,7 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
         .native_registry(composed.clone())
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .unwrap();
     assert_eq!(project.charts.len(), 4);
@@ -2049,7 +2049,7 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
         .native_registry(stock.clone())
         .build()
         .unwrap()
-        .compile_project(&root)
+        .compile_module(&root)
         .await
         .expect_err("stock registry must reject downstream kinds");
     assert!(stock_failure.diagnostics.iter().all(|diagnostic| {
@@ -2099,7 +2099,7 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
     assert_eq!(decoded.compiled_plot().marks()[0].mark_type(), "hexbin");
     assert!(matches!(
         CompiledChartArtifact::from_bytes(&bytes, &stock),
-        Err(ArtifactSerializationError::RegistryProfileMismatch { .. })
+        Err(ArtifactSerializationError::MissingNativeModule { .. })
     ));
 }
 
@@ -2114,7 +2114,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     assert_expansion_baseline("04_custom_error_bar.avenger", &expanded.text);
 
     for removed in [
-        "import 'error_bar.mark.avenger'",
+        "import { error_bar } from 'error_bar.mark.avenger';",
         "mark error_bar as errors",
         "slot expr",
         "define mark",
@@ -2147,11 +2147,11 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     }));
 
     let artifact = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let expanded_artifact = source_compiler(&expanded.text, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(
@@ -2231,11 +2231,11 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
     assert!(set_param < set_selection, "{}", expanded.text);
 
     let artifact = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let expanded_artifact = source_compiler(&expanded.text, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(
@@ -2342,11 +2342,11 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
     }
 
     let artifact = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let expanded_artifact = source_compiler(&expanded.text, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(
@@ -2355,7 +2355,7 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
     );
     assert_eq!(artifact.interface, expanded_artifact.interface);
 
-    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let analysis = compiler.analyze_module(&root).await.unwrap();
     let public_schema = analysis
         .datasets
         .iter()
@@ -2422,11 +2422,11 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
     }
 
     let artifact = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
     let expanded_artifact = source_compiler(&expanded.text, None)
-        .compile_file("chart.avenger")
+        .compile_chart("chart.avenger", None)
         .await
         .unwrap();
     assert_eq!(
@@ -2492,7 +2492,7 @@ async fn expansion_lowering_diagnostics_remap_to_definition_with_instance_trace(
         .expect("chart source id");
 
     let failure = compiler
-        .compile_file(root.join("chart.avenger"))
+        .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap_err();
     let diagnostic = failure.diagnostics.first().expect("lowering diagnostic");
