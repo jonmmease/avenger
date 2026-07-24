@@ -20,8 +20,8 @@ pub enum ParseMode {
 
 #[derive(Clone, Debug)]
 pub enum ParseModeOutput {
-    Strict(ParsedFile),
-    Tolerant(TolerantParsedFile),
+    Strict(Box<ParsedFile>),
+    Tolerant(Box<TolerantParsedFile>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -193,8 +193,12 @@ pub fn parse_file_with_mode(
     mode: ParseMode,
 ) -> Result<ParseModeOutput, ParseError> {
     match mode {
-        ParseMode::Strict => parse_file(source).map(ParseModeOutput::Strict),
-        ParseMode::Tolerant => Ok(ParseModeOutput::Tolerant(parse_file_tolerant(source))),
+        ParseMode::Strict => parse_file(source)
+            .map(Box::new)
+            .map(ParseModeOutput::Strict),
+        ParseMode::Tolerant => Ok(ParseModeOutput::Tolerant(Box::new(parse_file_tolerant(
+            source,
+        )))),
     }
 }
 
@@ -354,11 +358,7 @@ impl<'a> ModuleSyntaxScanner<'a> {
             end_position += 1;
         }
         let complete = matches!(self.token(end_position).token(), Some(Token::SemiColon));
-        let exclusive_end = if complete {
-            end_position + 1
-        } else {
-            end_position + 1
-        };
+        let exclusive_end = end_position + 1;
         let end = self.token(end_position).span().range.end;
         let span = self.span(self.token(start).span().range.start, end);
 
@@ -902,22 +902,20 @@ impl<'a> TolerantTreeBuilder<'a> {
             }
 
             if self.at_statement_boundary(position) {
-                let declaration_position = if self
+                let has_declaration_prefix = self
                     .word_at(position)
                     .is_some_and(|word| matches!(word, "public" | "private"))
-                {
-                    position + 1
-                } else if self.word_at(position).is_some_and(|word| word == "export")
-                    && self
-                        .token_at_significant_opt(position + 1)
-                        .is_some_and(|token| {
-                            self.module_item_owners
-                                .contains_key(&token.span().range.start)
-                                || self
-                                    .word_at(position + 1)
-                                    .is_some_and(is_top_level_item_keyword)
-                        })
-                {
+                    || (self.word_at(position).is_some_and(|word| word == "export")
+                        && self
+                            .token_at_significant_opt(position + 1)
+                            .is_some_and(|token| {
+                                self.module_item_owners
+                                    .contains_key(&token.span().range.start)
+                                    || self
+                                        .word_at(position + 1)
+                                        .is_some_and(is_top_level_item_keyword)
+                            }));
+                let declaration_position = if has_declaration_prefix {
                     position + 1
                 } else {
                     position
@@ -1054,35 +1052,35 @@ impl<'a> TolerantTreeBuilder<'a> {
                     self.pending_delimiter_owners
                         .insert(body_position, property);
                 }
-                if value_start <= value_end {
-                    if let (Some(first), Some(last)) = (
+                if value_start <= value_end
+                    && let (Some(first), Some(last)) = (
                         self.token_at_significant_opt(value_start),
                         self.token_at_significant_opt(value_end),
-                    ) {
-                        let island_end = if matches!(last.token(), Some(Token::SemiColon)) {
-                            last.span().range.start
-                        } else {
-                            last.span().range.end
-                        };
-                        if first.span().range.start <= island_end {
-                            self.push_node(
-                                Some(property),
-                                SourceSpan {
-                                    source: self.source.id,
-                                    range: ByteSpan {
-                                        start: first.span().range.start,
-                                        end: island_end,
-                                    },
+                    )
+                {
+                    let island_end = if matches!(last.token(), Some(Token::SemiColon)) {
+                        last.span().range.start
+                    } else {
+                        last.span().range.end
+                    };
+                    if first.span().range.start <= island_end {
+                        self.push_node(
+                            Some(property),
+                            SourceSpan {
+                                source: self.source.id,
+                                range: ByteSpan {
+                                    start: first.span().range.start,
+                                    end: island_end,
                                 },
-                                TolerantSyntaxNodeKind::SqlIsland {
-                                    context: if name.eq_ignore_ascii_case("sql") {
-                                        SqlIslandContext::QueryProperty
-                                    } else {
-                                        SqlIslandContext::PropertyExpression
-                                    },
+                            },
+                            TolerantSyntaxNodeKind::SqlIsland {
+                                context: if name.eq_ignore_ascii_case("sql") {
+                                    SqlIslandContext::QueryProperty
+                                } else {
+                                    SqlIslandContext::PropertyExpression
                                 },
-                            );
-                        }
+                            },
+                        );
                     }
                 }
                 if !self

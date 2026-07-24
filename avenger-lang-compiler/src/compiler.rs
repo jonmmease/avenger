@@ -957,8 +957,8 @@ impl Compiler {
                 .host
                 .authoring_schema()
                 .modules
-                .iter()
-                .filter_map(|(id, _)| {
+                .keys()
+                .filter_map(|id| {
                     self.options
                         .native_registry
                         .native_module(id)

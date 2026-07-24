@@ -2058,9 +2058,9 @@ mod tests {
             .iter()
             .filter(|case| {
                 case["expectation"] == "visual"
-                    && !case
+                    && case
                         .get("host")
-                        .is_some_and(|host| host.as_str() != Some("stock"))
+                        .is_none_or(|host| host.as_str() == Some("stock"))
             })
             .count();
         let mut prepared = 0_usize;

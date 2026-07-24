@@ -14,14 +14,14 @@ chart cartesian as chart {
   transform pipeline as summary {
     output doubled;
     output adjusted;
-    transform sql as __av_a8bdb82c0d82_calculate {
-      query: SELECT *, "value" * 2.0 AS __summary_a8bdb82c0d82_doubled, "value" * 3.0 AS __summary_a8bdb82c0d82_tripled FROM input;
+    transform sql as __av_6f177da9e72b_calculate {
+      query: SELECT *, "value" * 2.0 AS __summary_6f177da9e72b_doubled, "value" * 3.0 AS __summary_6f177da9e72b_tripled FROM input;
     }
     transform filter {
       predicate: true;
     }
-    transform sql as __av_a8bdb82c0d82_finalize {
-      query: SELECT *, __summary_a8bdb82c0d82_doubled AS doubled, __summary_a8bdb82c0d82_tripled + 1.0 AS adjusted, 99.0 AS __summary_a8bdb82c0d82_scratch FROM input;
+    transform sql as __av_6f177da9e72b_finalize {
+      query: SELECT *, __summary_6f177da9e72b_doubled AS doubled, __summary_6f177da9e72b_tripled + 1.0 AS adjusted, 99.0 AS __summary_6f177da9e72b_scratch FROM input;
     }
   }
   transform sql {

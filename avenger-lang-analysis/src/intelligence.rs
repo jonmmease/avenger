@@ -3886,10 +3886,10 @@ fn import_prefix(text: &str, cursor: usize) -> Option<&str> {
         .rev()
         .find(|(_, character)| matches!(character, '\'' | '"'))?;
     let before = &import[..quote_start];
-    if !before
+    if before
         .split_whitespace()
         .last()
-        .is_some_and(|word| word == "from")
+        .is_none_or(|word| word != "from")
     {
         return None;
     }

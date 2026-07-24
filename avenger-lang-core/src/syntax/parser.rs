@@ -2225,7 +2225,7 @@ chart cartesian as example {
         );
         assert_eq!(parsed.module_syntax.qualified_kinds[0].segments.len(), 2);
         assert_eq!(parsed.module_syntax.imports.len(), 2);
-        assert_eq!(parsed.module_syntax.imports[0].sha256.is_some(), true);
+        assert!(parsed.module_syntax.imports[0].sha256.is_some());
         assert!(matches!(
             &parsed.ast.imports[1].clause,
             ImportClause::Namespace(name) if name.as_str() == "native"

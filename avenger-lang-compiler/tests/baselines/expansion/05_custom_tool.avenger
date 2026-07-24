@@ -15,39 +15,39 @@ chart cartesian as chart {
   }
   tool behavior as inspector {
     component_kind: inspect_points;
-    export __av_9208499af4a7_enabled as enabled;
-    export __av_9208499af4a7_hovered as hovered;
-    export __av_9208499af4a7_chrome_layer.__av_9208499af4a7_chrome as chrome;
-    private param boolean as __av_9208499af4a7_enabled {
+    export __av_d485012cfe02_enabled as enabled;
+    export __av_d485012cfe02_hovered as hovered;
+    export __av_d485012cfe02_chrome_layer.__av_d485012cfe02_chrome as chrome;
+    private param boolean as __av_d485012cfe02_enabled {
       value: true;
     }
-    private param list(float64) as __av_9208499af4a7_x_domain {
+    private param list(float64) as __av_d485012cfe02_x_domain {
       value: NULL;
     }
-    private param selection as __av_9208499af4a7_hovered {
+    private param selection as __av_d485012cfe02_hovered {
       empty: none;
     }
-    private param selection as __av_9208499af4a7_nested_selected {
+    private param selection as __av_d485012cfe02_nested_selected {
       empty: none;
     }
     scale_edit {
       channel: x;
-      raw_domain: $__av_9208499af4a7_x_domain;
+      raw_domain: $__av_d485012cfe02_x_domain;
     }
-    private tool point_selection as __av_9208499af4a7_nested {
+    private tool point_selection as __av_d485012cfe02_nested {
       fields: [id];
-      selection: __av_9208499af4a7_nested_selected;
+      selection: __av_d485012cfe02_nested_selected;
     }
     on click {
       target: mark points;
-      set __av_9208499af4a7_enabled = NOT $__av_9208499af4a7_enabled;
-      set __av_9208499af4a7_hovered = clear;
+      set __av_d485012cfe02_enabled = NOT $__av_d485012cfe02_enabled;
+      set __av_d485012cfe02_hovered = clear;
     }
-    private mark group as __av_9208499af4a7_chrome_layer {
-      private mark symbol as __av_9208499af4a7_chrome {
+    private mark group as __av_d485012cfe02_chrome_layer {
+      private mark symbol as __av_d485012cfe02_chrome {
         fill: value '#dc2626';
         size: value 24;
-        visible: $__av_9208499af4a7_enabled;
+        visible: $__av_d485012cfe02_enabled;
         x: "x";
         y: "y";
       }

@@ -2597,9 +2597,9 @@ chart cartesian as detail {
                     document
                         .edits
                         .iter()
-                        .filter_map(|edit| match edit {
-                            OneOf::Left(edit) => Some(edit.new_text.clone()),
-                            OneOf::Right(edit) => Some(edit.text_edit.new_text.clone()),
+                        .map(|edit| match edit {
+                            OneOf::Left(edit) => edit.new_text.clone(),
+                            OneOf::Right(edit) => edit.text_edit.new_text.clone(),
                         })
                         .collect::<Vec<_>>(),
                 )

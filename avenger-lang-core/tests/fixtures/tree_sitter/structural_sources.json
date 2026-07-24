@@ -44,19 +44,19 @@
     },
     {
       "path": "avenger-lang-compiler/tests/baselines/expansion/04_custom_error_bar.avenger",
-      "sha256": "53123331ccfac7b490f3f6e39c6036c3952190f2f970ec50763222b7dab3cc2a",
+      "sha256": "f5a10802bb966c04e3cf3a9ca865960dda2f2e3c32b9c093ded5ec3c8b4fb2be",
       "classification": "canonical_valid",
       "root": "chart"
     },
     {
       "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_tool.avenger",
-      "sha256": "23fb30a59646bf677651c3baf5385020b65d9cb65f4dd9678ef80f488ae34cb9",
+      "sha256": "42e630f238c489d4d63d70b48bcee0051787f06a7685a3b06dd631f9c3ccbb64",
       "classification": "canonical_valid",
       "root": "chart"
     },
     {
       "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_transform_pipeline.avenger",
-      "sha256": "345ea3fa7d43ce14d6de2a776363247d94812593a55b71bb74b4e522d26878b1",
+      "sha256": "56ab74cf44e4504f9cc19e38bf85275e635cd40772236c45c7cf53abdabbaab3",
       "classification": "canonical_valid",
       "root": "chart"
     },
