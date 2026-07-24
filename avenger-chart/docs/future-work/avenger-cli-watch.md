@@ -21,6 +21,8 @@ The initial user-facing command is:
 
 ```sh
 avenger watch path/to/chart.avenger
+# For a multi-chart module:
+avenger watch path/to/dashboard.avenger --chart overview
 ```
 
 It compiles one Avenger chart, displays it in a native winit/wgpu window, and
@@ -126,16 +128,18 @@ hardening/acceptance matrix below.
 The required invocation is:
 
 ```text
-avenger watch [OPTIONS] <CHART>
+avenger watch [OPTIONS] <MODULE>
 ```
 
-`CHART` must resolve to one local chart root whose source file is named
-`*.avenger`. Definition and `.data.avenger` roots are not valid entry points.
+`MODULE` must resolve to one local `*.avenger` source module. The command
+selects its anonymous/named singleton chart automatically; a module with
+multiple charts requires `--chart <NAME>`.
 
 Initial options:
 
 ```text
 --project-root <DIR>       Override the default project/capability root
+--chart <NAME>             Select a named chart entrypoint
 --debounce-ms <MILLIS>     Filesystem event quiet period (default: 100)
 --scale <FACTOR>           Window render scale override
 --cache-memory-mb <MB>     Physical cache memory budget
@@ -219,9 +223,8 @@ not only syntactic `import` statements.
 
 The compiler must classify and return local dependencies such as:
 
-- the root chart source;
-- relative mark/tool/transform definition imports;
-- locally imported dataset packs and `.data.avenger` files;
+- the requested source module;
+- relative source-module imports, including definitions and data;
 - CSV, JSON, Parquet, Arrow/IPC, or other file-backed tables;
 - directories and glob roots whose matching file set affects a table;
 - local theme CSS files;
@@ -268,7 +271,7 @@ missing dependencies that may be created later.
 After every compile attempt, the effective watch set is:
 
 ```text
-root chart
+requested module
 union last successful dependency closure
 union local dependencies and missing-path parents discovered by latest attempt
 ```
@@ -649,7 +652,7 @@ Use monotonically increasing reload generations.
 - Keep rendering and interaction responsive while the background compile runs.
 - On reload failure, the last-good chart remains fully interactive.
 
-The initial command opens exactly one chart in exactly one window. Project
+The command opens exactly one selected chart in exactly one window. Module
 galleries, multiple chart tabs, and multiple windows are later work.
 
 ## Diagnostics and Logging
@@ -731,7 +734,7 @@ generation contexts sharing one cache, and a fake host installer.
 
 Required scenarios:
 
-1. Edit the root chart and install a new scene.
+1. Edit the selected chart's defining module and install a new scene.
 2. Edit a relative definition and reload.
 3. Edit a local theme/resource and reload/invalidate the resource.
 4. Edit CSV/Parquet data and produce new values without stale cache hits.
@@ -788,7 +791,7 @@ Add a small project under:
 ```text
 avenger-lang-cli/tests/fixtures/watch_project/
   chart.avenger
-  marks/error_bar.mark.avenger
+  marks/components.avenger
   data/data.csv
   theme.css
 ```
@@ -848,7 +851,7 @@ tests pass; check a phase gate only after all tasks in that phase are complete.
 ### Phase 1 — Compile and display one static chart
 
 - [x] Create the cached context before compilation with the watch cache profile.
-- [x] Compile one chart through `avenger_lang::Compiler`.
+- [x] Compile one selected chart entrypoint through `avenger_lang::Compiler`.
 - [x] Build the initial generation's `ChartRuntimeResources` and
   `ChartAppBundle`.
 - [x] Open the native winit window with correct title, scene sizing, and scale.

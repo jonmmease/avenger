@@ -176,7 +176,7 @@ fn blessing_enabled() -> bool {
 fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
     let manifest = load_manifest();
     assert_eq!(manifest.schema_version, 1);
-    assert_eq!(manifest.cases.len(), 45, "one case per chart root");
+    assert_eq!(manifest.cases.len(), 45, "one case per selected chart");
     assert_eq!(
         manifest
             .cases
@@ -208,7 +208,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
         );
         assert!(
             case.sources.contains(&case.root),
-            "case {} must own its chart root",
+            "case {} must own its requested module",
             case.root
         );
         for source in &case.sources {

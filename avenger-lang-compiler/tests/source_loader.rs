@@ -412,7 +412,7 @@ schema tables as local {
 }
 
 #[tokio::test]
-async fn source_loader_failed_root_parse_keeps_root_dependency() {
+async fn source_loader_failed_requested_module_parse_keeps_dependency() {
     let root = fixture_dir("bad-root");
     write(
         root.join("chart.avenger"),

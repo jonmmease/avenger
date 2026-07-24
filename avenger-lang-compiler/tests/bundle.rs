@@ -87,7 +87,7 @@ async fn dataset_bundle_rewrites_imported_sql_relations() {
 }
 
 #[tokio::test]
-async fn module_bundle_preserves_all_root_charts_while_chart_bundle_prunes_siblings() {
+async fn module_bundle_preserves_all_entrypoints_while_chart_bundle_prunes_siblings() {
     let root = tempfile::tempdir().unwrap();
     fs::write(
         root.path().join("library.avenger"),

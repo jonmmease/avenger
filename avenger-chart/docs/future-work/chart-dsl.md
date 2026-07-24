@@ -50,22 +50,20 @@ relations are valid in SQL `FROM`, selections retain typed references, and
 target-first `set <path>` resolution selects the update algebra; scalar params
 put their exact physical Arrow type in the header and require `value:`, while
 store and selection are reserved param types with category-specific bodies;
-registry-free distribution — imports are uniform (`std:`, relative, URL) in
-every file however obtained, relative imports resolve against the
-importer's location, the transitive closure of exact hash-pinned files is
-fetched with no version resolution, integrity is inline (`sha256` on the
-import, Merkle-pinning the closure with no lockfile), one definition per
-file (chart files plus mark/tool/transform definition files — imports bind
-exactly one name, and collection-style bundling cannot exist; themes are
-plain CSS files, fetched and pinned like imports; a project is a
-manifest-less directory whose root is the default capability boundary, with
-every relative resource resolving against its declaring file; `.data.avenger`
-catalog files configure a DataFusion-shaped catalog/schema/table hierarchy —
-provider-backed catalogs with explicit schema projections, inline `catalog
-schemas` and `schema tables` containers, and individually bound tables —
-ambient by default and
-importable as pinned single-root dataset packs by data files and charts
-(never definitions), with credentials via capability-gated `env`
+registry-free distribution — imports are uniform (`std:`, `native:`, relative,
+URL) in every module however obtained, relative imports resolve against the
+importer's location, and named or namespace clauses bind explicit exports
+rather than filenames; the transitive closure of exact hash-pinned source
+modules is fetched with no version resolution and inline `sha256` integrity
+(Merkle-pinning the closure with no lockfile); one `.avenger` module may mix
+charts, mark/tool/transform definitions, and DataFusion-shaped
+catalog/schema/table declarations, while ambient datasets remain an explicit
+host policy rather than a filename role; themes are plain CSS files fetched
+and pinned like other resources; a project is a manifest-less directory whose
+root is the default capability boundary, with every relative resource
+resolving against its declaring module; provider-backed catalogs use explicit
+schema projections, inline `catalog schemas` and `schema tables` containers,
+and individually bound tables, with credentials via capability-gated `env`
 values and `.env`, and catalog-level SQL views spelled
 `table sql` — logical by default, materialized per session by opt-in, and
 parameterized by scalar `param` declarations with required `value:` initializers,
@@ -173,15 +171,14 @@ those provider/capability dependencies. Native extensions are imported
 schema-described `native:` modules already supplied by the host. Source
 modules may be bundled into one ordinary import-free module through
 deterministic private alpha-renaming and bound-reference rewriting. This
-decision is source-breaking and supersedes every older filename-as-name,
+decision is source-breaking and replaces the earlier filename-as-name,
 one-public-item-per-file, plain-import, specialized-suffix, and
-collection-style-bundling statement that remains in historical examples
-pending their mechanical migration.
+collection-style-bundling designs.
 
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
-- Use block-structured declarations for charts, containers, marks, transforms,
+- Use block-structured declarations for charts, marks, transforms,
   interactions, tools, widgets, and other chart objects.
 - Use `as` for a named instance or a genuine source-to-alias mapping:
   `mark group as manual_box_plot`, `mark rule as median`, and
@@ -436,15 +433,30 @@ preserving authored paths for diagnostics and tooling.
 ### Single-file bundling
 
 Bundling does not add a nested module declaration. A bundler loads and resolves
-the ordinary module graph, selects a chart or root interface, copies the
+the ordinary module graph, selects a chart entrypoint or module interface, copies the
 reachable source items once, deterministically alpha-renames private lexical
 bindings, rewrites all bound kind/helper/data/SQL references, removes imports
 and unreachable items, and emits one ordinary import-free `.avenger` module.
 
-Bundling preserves root export names, chart selectors, params, stores,
+Bundling preserves selected export names, chart selectors, params, stores,
 selections, cursors, public component/target aliases, field and SQL aliases,
 explicit IDs, and presentation metadata. The generated module has a new
 source-module identity and needs no manifest or source map to compile.
+
+Private lexical names may be alpha-renamed only with all of their resolved
+references. Their spelling must never implicitly determine rendered titles,
+labels, legend text, accessibility text, scene names, event targets,
+interaction keys, state-migration keys, provider capabilities, layout,
+dataflow, or cache identity. Presentation defaults may derive from semantic
+data names such as columns because those names are not private lexical
+bindings. Export names, chart selectors, explicitly host-visible state names,
+public target aliases, explicit IDs, and component provenance are observable
+and therefore are never subject to unrestricted renaming.
+
+An imported item retains the producer's module/item/export identity alongside
+the consumer-local alias. Import renaming changes only the lexical spelling;
+it does not change definition identity, inferred presentation, navigation
+provenance, or cache keys.
 
 ## Names, Strings, And Columns
 
@@ -1240,7 +1252,7 @@ definition's documentation carries proven examples:
 -- |
 -- | ```avenger
 -- | avenger 1;
--- | import 'error_bar.mark.avenger';
+-- | import { error_bar } from './error_bar.avenger';
 -- | chart cartesian {
 -- |   data: { sql: SELECT * FROM 'examples/sales.csv'; }
 -- |   mark error_bar { category: "region"; measure: "amount"; }
@@ -1477,14 +1489,16 @@ canonical grammar should start with object bodies.
 
 ## Data Catalogs
 
-A data file (`.data.avenger`) configures the relations available to the
-project's charts. Its namespace is deliberately the same three-level hierarchy
-used by DataFusion: a catalog contains schemas, and a schema contains tables.
-By default the file is **ambient host configuration**: charts reference
-relations by name and stay environment-independent, so swapping the data file
-retargets every chart against a different environment without touching one.
-Definitions can never declare or import data — a library can never smuggle a
-connection.
+`table`, `schema`, and `catalog` are ordinary module items and may appear
+beside charts and definitions. Their namespace is deliberately the same
+three-level hierarchy used by DataFusion: a catalog contains schemas, and a
+schema contains tables. A chart uses module-local data directly or imports an
+exported relation by name or namespace. Separately, a host may explicitly
+designate one or more data-only modules as **ambient configuration** so charts
+can remain environment-independent and a deployment can retarget them without
+editing source. No filename or suffix makes a module ambient. Defined marks
+may not capture data; defined transforms may name explicit data dependencies,
+which remain visible in their resolved capability and activation closure.
 
 ```avenger
 avenger 1;
@@ -1567,9 +1581,10 @@ Kinds identify the provider at the level being declared:
   is a capability (`--allow-env[=VAR]`), and the CLI loads a project-root
   `.env` file (gitignored by `avenger new`) before resolving them. A lint
   warns when a secret-shaped property carries a string literal.
-- All `.data.avenger` files in the project load and merge (collisions at the
-  same catalog, schema, or table path are errors); `--catalog <file>` restricts
-  the session to specific files — the dev/prod switch.
+- Ambient modules are loaded only when the host explicitly designates them.
+  Their exported data items merge into the analysis environment; collisions
+  at the same catalog, schema, or table path are errors. A CLI option such as
+  `--catalog <module>` may select those modules as the dev/prod switch.
 - Inline `data:` blocks inside charts remain for chart-owned files (the
   chart-package pattern); the catalog is for shared, named, and remote
   tables.
@@ -1597,7 +1612,7 @@ qualified (`FROM vega.cars`). Everything a top-level `table` can do is
 unchanged inside a schema — file kinds, `table sql`, params, `materialize:`,
 and chains.
 
-When a data file needs to define multiple schemas beneath one non-default
+When a module needs to define multiple schemas beneath one non-default
 catalog, `catalog schemas` supplies the missing level explicitly:
 
 ```avenger
@@ -1689,10 +1704,9 @@ table sql as daily_totals {
   `collect()` merely to answer a schema question. The compiler retains source
   spans, stable dataset IDs, stage identities, and lineage around those
   schemas because DataFusion does not provide DSL provenance by itself.
-- A view that outgrows the catalog can graduate to its own importable
-  file: a data file declaring exactly one name is importable, and a
-  single `table sql` qualifies — the dbt-model promotion path, with no
-  new machinery.
+- A view that outgrows its module can graduate to an exported `table sql` in
+  another module and be imported explicitly — the dbt-model promotion path,
+  with no new machinery.
 - There is deliberately no `ref()` sigil for table references. dbt needs
   one because it templates SQL strings without parsing them; here every
   query is planned (sqlparser-rs/DataFusion), so bare names are
@@ -1723,7 +1737,7 @@ table sql as borough_trips {
 This is the language's two-mechanism law stated once: **`param` is a
 runtime value placeholder — the plan is stable and values rebind; `slot`
 is expansion-time structural substitution — it shapes the plan** (columns,
-function names, declaration blocks) and exists only in `define` files.
+function names, declaration blocks) and exists only in `define` declarations.
 `match` is the litmus test: it branches over enum slots because selecting
 structure is an expansion-time act, so a param can never drive a `match`.
 Mode-like runtime variation stays inside the query as ordinary SQL over
@@ -1803,7 +1817,7 @@ table sql as zoned_trips {
 
 - **A table-function argument accepts exactly what a scalar binding accepts**: a
   scalar literal or a param `$binding` visible in the calling scope — the calling
-  table's own params here, the chart's params in chart files. Forwarding
+  table's own params here, the chart's params in chart scopes. Forwarding
   composes placeholders: the inlined plan carries the outer placeholder,
   so an entire chain still plans once and rebinds at execution —
   `zoned_trips(borough => 'Queens')` reaches through to the `borough_trips`
@@ -1819,32 +1833,27 @@ table sql as zoned_trips {
   materialized link fingerprints its fully-inlined upstream plan, bound
   params, and source snapshot identities, so an upstream edit or a new
   binding re-materializes exactly the links it affects.
-- **Chains survive distribution.** Names inside an imported data file
-  resolve in that file's own namespace before the import's `as` prefix
-  applies, so a pack's internal chains (`FROM cars` inside the vega pack)
-  keep pointing at the pack's own tables — project-local names never
-  capture them.
+- **Chains survive distribution.** Names inside an imported module resolve
+  against that module's lexical bindings before exports are bound in the
+  consumer, so a pack's internal chains (`FROM cars` inside the Vega module)
+  keep pointing at the pack's own tables — consumer-local names never capture
+  them.
 
 ### Dataset Packs
 
-Data files are also importable — the same fetch-pin machinery as every
-other import. Two importers exist, for two modes of chart:
+Dataset packs are ordinary source modules whose public interface consists of
+exported tables, schemas, or catalogs. They use exactly the same explicit
+imports and fetch-pin machinery as definitions and mixed modules. A portable
+chart imports the data it needs; a deployment may instead supply an explicitly
+configured ambient module.
 
-- **Data files import data files** (catalog composition): the project's data
-  configuration pulls in a published pack — one line binding its catalog or
-  schema.
-- **Chart files may import data files** (the portable mode): a tutorial or
-  example chart carries its data reference and runs anywhere. Deployed
-  charts should prefer ambient tables; portability is a choice, not the
-  default.
-
-A pack is a data file organized as one `schema tables` declaration:
+A pack may export one schema containing several tables:
 
 ```avenger
--- vega-datasets@2.11.data.avenger, published on a CDN
+-- vega-datasets.avenger, published on a CDN
 avenger 1;
 
-schema tables as vega {
+export schema tables as vega {
   table json as cars   { path: 'data/cars.json'; }
   table csv  as stocks { path: 'data/stocks.csv'; }
 }
@@ -1853,8 +1862,8 @@ schema tables as vega {
 ```avenger
 avenger 1;
 
-import 'https://cdn.example.com/vega-datasets@2.11.data.avenger'
-  sha256 '4c1e...';                 -- binds the pack's schema: vega
+import { vega } from 'https://cdn.example.com/vega-datasets.avenger'
+  sha256 '4c1e...';
 
 chart cartesian as cars_scatter {
   data: { table: 'vega.cars'; }
@@ -1867,23 +1876,18 @@ chart cartesian as cars_scatter {
 }
 ```
 
-A dataset pack is nothing special: a `.data.avenger` file at a URL, hash
-pinned, publishable and vendorable like any definition — the natural home
-for well-known teaching data (the Vega sample datasets as `parquet`/`json`
-tables over CDN URLs), and what doc-comment examples import to be runnable
-in any project. Collisions between imported packs and the ambient catalog
-are errors, like every other name collision.
+A dataset pack is nothing special: it is a `.avenger` module at a URL,
+hash-pinned, publishable, and vendorable like any other module. It is the
+natural home for well-known teaching data and what runnable documentation
+examples import. Collisions between imported relations and ambient relations
+are ordinary binding or catalog-path errors.
 
 Three rules make packs behave predictably:
 
-- **A pack is one name.** A published data file wraps its tables in a
-  single `schema tables` declaration (or wraps schemas in one `catalog
-  schemas` declaration), so a data-file import binds exactly one name — the
-  same rule as every other import — and `as` optionally renames that root
-  (`vega` → `v`). Multi-name data files are not
-  importable: they are the project's own ambient catalog, merged by the
-  directory, never by imports.
-- **Relative `path:` values resolve against the data file's own location**
+- **Exports are explicit.** A pack may export one or many data items. Consumers
+  use named imports (`import { vega as samples } ...`) or a namespace import;
+  private helpers remain bound in the producer.
+- **Relative `path:` values resolve against the module's own location**
   — a filesystem path locally, the URL base when fetched (the same
   ES-modules rule imports use) — so a pack published beside its data files
   on a CDN just works.
@@ -3653,7 +3657,7 @@ defined-kind instance supplies the pair from its kind plus export alias; an
 expanded ordinary group preserves the same information with
 `component_kind:` plus its component-boundary mark exports. The matcher compares
 strings. Rust never learns specific kinds — a
-third-party `candlestick.mark.avenger` is themable as
+third-party `candlestick` definition is themable as
 `candlestick::part(wick)` with no engine changes.
 
 An example chart body:
@@ -3973,11 +3977,11 @@ chart zerod as badge {
 
 ## Imports And Definitions
 
-Reuse crosses files through `import` and `define`, one definition per
-file: a file is either a chart or a single parameterized mark, tool,
-or transform definition. A project is a collection of such files, and
-other projects import its definition files. An import binds exactly one
-name — the definition's declared name, or a rename via `as`.
+Reuse crosses module boundaries through explicit named or namespace imports.
+A module may contain any number of private or exported mark, tool, and
+transform definitions alongside charts and data items. A consumer imports
+only the producer's explicit exports; the source filename never creates a
+binding.
 
 Definitions are the language's custom extension tier, alongside native
 built-in kinds registered by the host. A `define mark` builds a custom
@@ -3993,10 +3997,10 @@ form.
 ### Defining A Compound Mark
 
 ```avenger
--- lib/error_bar.mark.avenger
+-- lib/statistics.avenger
 avenger 1;
 
-define mark error_bar {
+export define mark error_bar {
   slot expr category;
   slot expr measure;
   slot number cap_width { default: 0.3; }
@@ -4049,8 +4053,9 @@ the compact empty-body form.
 An `enum` slot declares a non-empty, duplicate-free `values:` array and any
 default must be a member. A `function` slot declares one of `class: scalar;`,
 `class: aggregate;`, `class: window;`, or `class: table;`. A `ref` slot's
-`kind:` is one of `mark`, `group`, `param`, `selection`, `store`, `tool`,
-`widget`, or `resource`. Inline views are lexical scopes, not reference values. A `block` slot accepts a
+`kind:` is one of `mark`, `param`, `selection`, `store`, `tool`, `widget`, or
+`resource`; `mark group` uses the ordinary `mark` reference category. Inline
+views are lexical scopes, not reference values. A `block` slot accepts a
 declaration body at its splice point, with optional `default:` and `exposes:`;
 the splice position's authoring schema still determines which child
 declarations are legal there.
@@ -4309,7 +4314,7 @@ their registered schema, but the two implementations are independent:
 ```avenger
 avenger 1;
 
-import 'lib/error_bar.mark.avenger';
+import { error_bar } from './lib/statistics.avenger';
 
 chart cartesian as sales_errors {
   data: { table: 'sales'; }
@@ -4486,10 +4491,10 @@ example of the custom surface, not a required implementation of the native
 definitions, preconfiguring them through slots:
 
 ```avenger
--- lib/wheel_zoom.tool.avenger
+-- lib/tools.avenger
 avenger 1;
 
-define tool wheel_zoom {
+export define tool wheel_zoom {
   slot number base { default: 1.05; }
 
   param list(float64) as x_domain { value: NULL; }
@@ -4505,10 +4510,7 @@ define tool wheel_zoom {
 ```
 
 ```avenger
--- lib/hover_highlight.tool.avenger
-avenger 1;
-
-define tool hover_highlight {
+export define tool hover_highlight {
   slot ref target { kind: mark; }
   export hovered;
 
@@ -4537,8 +4539,7 @@ define tool hover_highlight {
 ```avenger
 avenger 1;
 
-import 'lib/wheel_zoom.tool.avenger';
-import 'lib/hover_highlight.tool.avenger';
+import { hover_highlight, wheel_zoom } from './lib/tools.avenger';
 
 chart cartesian as explorer {
   data: { table: 'cars'; }
@@ -4642,10 +4643,10 @@ stage and has an opaque compiler identity. A pipeline with any `output`
 declaration requires a binder, as shown above.
 
 ```avenger
--- lib/share_within.transform.avenger
+-- lib/transforms.avenger
 avenger 1;
 
-define transform share_within {
+export define transform share_within {
   slot expr measure;
   slot expr_list partition_keys;
   output share;
@@ -4659,10 +4660,7 @@ define transform share_within {
 ```
 
 ```avenger
--- lib/binned_counts.transform.avenger
-avenger 1;
-
-define transform binned_counts {
+export define transform binned_counts {
   slot expr field;
   slot number maxbins { default: 30; }
   output b.start as start;
@@ -4684,7 +4682,7 @@ define transform binned_counts {
 ```avenger
 avenger 1;
 
-import 'lib/share_within.transform.avenger';
+import { share_within } from './lib/transforms.avenger';
 
 chart cartesian as region_shares {
   data: { table: 'sales'; }
@@ -4965,32 +4963,31 @@ else branches.
 
 ### The Standard Library
 
-The host may bundle reusable DSL-authored definitions through the `std:`
-scheme — one definition per file, imported individually, with no privileged
-semantics beyond distribution. This definition library is separate from the
-native built-in registry: built-in marks, tools, and transforms require no
-import, while `std:` supplies optional custom compositions and examples.
-There is no requirement that a native built-in have a corresponding standard
-definition or that the two be behaviorally equivalent:
+The host may bundle reusable DSL-authored modules through the `std:` scheme,
+with no privileged semantics beyond distribution. This definition library is
+separate from the native built-in registry: core built-in marks, tools, and
+transforms require no import, while `std:` supplies optional custom
+compositions and examples. There is no requirement that a native built-in
+have a corresponding standard definition or that the two be behaviorally
+equivalent:
 
 ```avenger
 avenger 1;
 
-import 'std:marks/error_bar';
-import 'std:marks/trend_panel';
-import 'std:tools/hover_highlight';
-import 'std:transforms/share_within';
+import { error_bar, trend_panel } from 'std:marks';
+import { hover_highlight } from 'std:tools';
+import { share_within } from 'std:transforms';
 ```
 
-- `std:marks/`, `std:tools/`, and `std:transforms/` hold bundled definitions
+- `std:marks`, `std:tools`, and `std:transforms` expose bundled definitions
   that are useful as reusable compositions, examples, or starting points.
   Their exact inventory is not the native built-in inventory.
   `std:transforms/` definitions are pipelines over built-in stages and
   `transform sql`; `std:themes/` holds plain CSS files
   (`light.css`, `dark.css`, ...) referenced with
   `theme css from 'std:themes/dark.css';` rather than imported.
-- Definition-library imports are explicit and per-definition; there is no
-  implicit prelude.
+- Definition-library imports are explicit named or namespace imports; there
+  is no implicit prelude.
   Decompilation emits the imports it needs.
 - `std:` resolution is host-provided (bundled resources, no filesystem
   capability required) and versioned with the language: `avenger 1` pins
@@ -5030,12 +5027,13 @@ recorded so the boundary holds under pressure:
 A project is a directory of files — there is no manifest. Two rules are
 normative; everything else is convention.
 
-- **All relative resources resolve against the declaring file**: imports,
-  `theme css from` paths, and data file paths inside SQL alike. A chart at
+- **All relative resources resolve against the declaring module**: imports,
+  `theme css from` paths, and data paths inside SQL alike. A chart at
   `charts/regional/chart.avenger` reading `FROM 'regions.parquet'` means its
   sibling file, regardless of the working directory the host compiles from
-  (the host rebases data paths before execution). Only charts are affected —
-  definitions declare neither data nor themes.
+  (the host rebases data paths before execution). The rule applies to every
+  module item; semantic restrictions separately prevent `define mark`
+  declarations from capturing data or themes.
 - **The project root is the default capability boundary.** The root is
   whatever the host is given (or discovers, such as the VCS root). By
   default a chart may read files within the project; absolute paths, paths
@@ -5055,32 +5053,29 @@ sales-analytics/                  -- project root
       chart.avenger
       chart.png
       regions.parquet
-  marks/
-    trend_panel.mark.avenger
-    error_bar.mark.avenger
-  tools/
-    wheel_zoom.tool.avenger
-  transforms/
-    share_within.transform.avenger
+  lib/
+    marks.avenger                 -- may export several mark definitions
+    interactions.avenger          -- tools and supporting definitions
+    transforms.avenger
   themes/
     corporate.css
-  catalog.data.avenger            -- named tables: iceberg/delta/files (see Data Catalogs)
-  .env                            -- credentials, gitignored
-  data/                           -- shared data files
+  data/
+    catalog.avenger               -- exported catalog/schema/table items
     orders.parquet
+  .env                            -- credentials, gitignored
 ```
 
 Directory names carry no semantics — imports are explicit paths — so
 by-kind directories, per-chart packages (a subdirectory holding one chart
-plus its co-located data, the natural unit to archive or share), and flat
-layouts are all equally valid. Definition files under `marks/`, `tools/`,
-and `transforms/` are the project's importable surface for other projects.
+plus its co-located data), mixed feature modules, and flat layouts are all
+equally valid. A module's explicit `export` items, not its path, are its
+importable surface for other projects.
 
-Every chart file doubles as an example: its blessed baseline is a sibling
-`.png` (the spec+image pair), which makes charts simultaneously the
-project's test suite (`avenger test`) and its documentation gallery
-(`avenger doc`) — and lets git forges show the rendered image next to the
-source.
+Every chart entrypoint may double as an example. A host can associate each
+entrypoint with a blessed `.png`, using the chart selector as part of the
+baseline identity when one module contains several charts. Those
+source+entrypoint+image triples form the project's test suite (`avenger test`)
+and documentation gallery (`avenger doc`).
 
 ### Distribution And The Ecosystem
 
@@ -5088,17 +5083,19 @@ Import paths take three source forms:
 
 | Form | Example | Resolution |
 | --- | --- | --- |
-| Standard definition library | `import 'std:marks/error_bar';` | bundled with the language, versioned by the pragma |
-| Relative path | `import 'lib/trend_panel.mark.avenger';` | files in the project, relative to the importer |
-| URL | `import 'https://charts.example.dev/error_bars@1.2.0.avenger';` | fetched once, hash-verified, cached |
+| Standard library | `import { error_bar } from 'std:marks';` | bundled with the language, versioned by the pragma |
+| Relative path | `import { trend_panel } from './lib/marks.avenger';` | exact module path, relative to the importer |
+| URL | `import { error_bar } from 'https://charts.example.dev/intervals.avenger' sha256 '9f2a...';` | fetched once, hash-verified, cached |
+| Native host module | `import * as acme from 'native:com.acme.visuals@1';` | selects an exact schema-described capability registered by the host |
 
-The distribution model is deliberately lightweight, built on one structural
-fact: **there is no diamond-dependency problem.** Nothing crosses a
-definition boundary except the language-level channel vocabulary and
-explicitly exported, instance-namespaced names, so two copies of a library
-at different versions expand to independent structures that cannot collide.
-Duplicates are harmless; therefore vendoring is safe; therefore no version
-resolver needs to exist.
+The distribution model is deliberately lightweight. Every dependency names an
+exact module origin, imports bind explicit exports, and the loaded graph is
+acyclic. The loader therefore fetches and verifies a closure rather than
+solving package versions. Two distinct module origins or content identities
+remain distinct even when they export the same spelling; consumer aliases and
+namespace imports resolve any local collision. Defined-kind instances expand
+into independent instance-scoped structures, so vendored copies do not create
+runtime symbol collisions.
 
 Rules:
 
@@ -5118,8 +5115,9 @@ Rules:
   content hash in the import itself:
 
   ```avenger
-  import 'https://charts.example.dev/error_bars@1.2.0.avenger'
-    sha256 '9f2ab34c...' as eb;
+  import { error_bar as eb }
+    from 'https://charts.example.dev/intervals.avenger'
+    sha256 '9f2ab34c...';
   ```
 
   Because imports are uniform, a published library's own URL imports carry
@@ -5156,29 +5154,25 @@ Rules:
   also improves trust-on-first-use review: the URL and hash change together
   in a one-line diff where reviews actually happen, rather than in lockfile
   churn.
-- **Flattening is a courtesy, not a requirement.** With one definition per
-  file there is nothing to collect — `avenger expand` (see below) is the
-  only flattening, and unexpanded sources at raw URLs are fully importable.
+- **Bundling is a deterministic linker operation, not a source restriction.**
+  `avenger bundle` copies one selected module or chart closure into an
+  ordinary import-free module, alpha-renames private bindings, and rewrites
+  already-resolved references. `avenger expand` is the separate
+  inline-definition operation described below.
 - **Versioning is convention.** `@1.2.0` in a filename or URL is naming, not
   mechanism; the language checks only the `avenger` major version of the
   imported file. Authors who want upgrades re-point the URL and re-pin.
-- **Publishing is putting files somewhere.** There is no registry, account,
+- **Publishing is putting modules somewhere.** There is no registry, account,
   or publish step; a raw-file URL on any host (including a Git forge at a
-  pinned tag) is a published library. Copying a definition into your own
-  file with an attribution comment remains a first-class alternative —
-  harmless by the no-diamond property, reviewable because definitions are
-  small declarative text.
+  pinned tag) is a published module. Vendoring selected exports into a local
+  module with attribution remains a first-class alternative.
 
 ### Expansion
 
-One definition per file eliminates collection-style bundling outright — a
-multi-definition file cannot exist, so there is no inlining operation and
-none of the linker work it would need (reconciling kind names across
-origins). Distribution is the closure of single-definition files, each
-hash-pinned. The one flattening that remains is the one with no
-name-reconciliation problem:
-
-`avenger expand` is **source-level inline-definition expansion**: every imported definition
+`avenger bundle` and `avenger expand` are independent. Bundling links a
+resolved source-item closure into one ordinary module while preserving the
+selected public interface. `avenger expand` is **source-level
+inline-definition expansion**: every reachable defined-kind
 instantiation is replaced by its expansion — slots substituted, `match` arms
 resolved, channel slots renamed, block slots spliced, part overrides
 merged. Native built-in marks, tools, and transforms remain native declarations;
@@ -5206,8 +5200,8 @@ their owning view bodies. State references inside the component remain lexical,
 and group/behavior exports provide the only external qualified aliases. The compiler assigns opaque unique symbol ids after
 resolution, but those ids are never printed as DSL names and cannot collide
 with caller-authored identifiers.
-The output contains no imports needed solely for expanded definitions —
-`std:` definition imports included — and no `define`, `slot` (including
+The output removes imports and private source items needed solely for expanded
+definitions — `std:` definitions included — and contains no `define`, `slot` (including
 `slot channel`), `match`, or `exposes` constructs from those expansions.
 Resolved `export`
 declarations remain because they are ordinary group interface declarations,
@@ -5219,9 +5213,9 @@ remain. `component_kind: error_bar;` on the instance group and `export ... as
 bar;` together preserve `error_bar::part(bar)` after the definition import is
 gone. The equivalence property below forces this to be right, since a themed
 chart whose expansion lost either fact would compile differently.
-Expansion has no name-reconciliation problem at all: the definition
-namespace — where any collection operation's conflicts would live — is
-deleted, and every remaining name is instance-scoped by construction
+Definition expansion has no name-reconciliation problem: each expanded
+definition namespace is deleted, and every remaining name is instance-scoped
+by construction
 (mark groups and tool behaviors retain lexical instance boundaries, exported
 state qualifies through public aliases, and generated intermediate columns use
 opaque resolved identities), so two versions of the same library expand side by side
@@ -5278,7 +5272,7 @@ produce identical results (see
 
 Expansion also surfaces as language-server code actions at finer
 granularity — expand one instantiation at the cursor, or extract a
-selection into a new definition file (see
+selection into a new or existing definition module (see
 [Language Server](#language-server)).
 
 What this trades away, consciously: automatic dedup and one-command upgrade
@@ -5385,23 +5379,18 @@ read top-to-bottom and avoids a second dependency scheduler in macro expansion.
   channel slots),
   splice-point data columns, and only the internal handles declared by
   `exposes`.
-- **Native kind names are reserved within their kind namespace.** An import
-  that would bind the name of a native mark, tool, or transform must use `as`
-  to choose a distinct name. Imported definitions never silently shadow
-  native kinds, which keeps parsing, decompilation, and expansion
-  deterministic.
-- `import 'path';` binds exactly one name — **the file stem** (filename-
-  as-name, adopted 2026-07-09; a matching in-file binder is optional and
-  validated); `import 'path' as eb2;` renames it, which is also how two
-  same-named items from different sources coexist, and is *required* when
-  the stem is not a valid bare identifier. (A data file is importable only
-  when it declares exactly one name — in practice a `schema tables` or
-  `catalog schemas` root; data declarations keep their declared names; see
-  [Dataset Packs](#dataset-packs).) Two imports binding the same name are
-  an error at the import lines. Only the file's single item is importable;
-  there is no transitive re-export.
+- **Native and source imports obey the same category collision rules.** A
+  named import enters the semantic category of the exported item and may not
+  collide with an existing same-category binding; the consumer may rename it
+  with `as`. A namespace alias is reserved across all categories. Imports
+  never silently shadow core or native kinds.
+- Every import has an explicit clause. `import { error_bar as eb } from
+  './intervals.avenger';` binds one selected export; `import * as intervals
+  from './intervals.avenger';` binds the producer's complete public export
+  table under one namespace. Filenames create no bindings. Plain, default,
+  side-effect, dynamic, conditional, and re-export forms are invalid.
 - Import paths resolve relative to the importing file (filesystem path
-  locally, URL base when fetched), and the imported file's `avenger` major
+  locally, URL base when fetched), and the imported module's `avenger` major
   version must match. Source forms, closure fetching, and hash pinning are
   specified in
   [Distribution And The Ecosystem](#distribution-and-the-ecosystem);
@@ -5452,11 +5441,10 @@ rewrites value-binding paths, bare qualified names, and reserved helper
 functions.
 
 ```ebnf
-file          = version , { import } , ( chart | define | data_file ) ;
-data_file     = data_bind , { data_bind } ;
-                     (* .data.avenger: catalog config. Data files import
-                        only data files; chart files may import data files
-                        (portable mode); definition files may not. *)
+file          = version , { import } , module_item , { module_item } ;
+module_item   = [ "export" ] , ( chart | define | data_bind ) ;
+                     (* top-level export is module visibility; child export
+                        declarations remain component-interface aliases *)
 data_bind     = catalog_bind | schema_bind | table_bind ;
 catalog_bind  = "catalog" , ident , bind , body ;
                      (* catalog schemas as samples; schema children are
@@ -5470,11 +5458,16 @@ table_bind    = "table" , ident , bind , body ;
                      (* table parquet as orders; param children are
                         schema-valid on table sql only *)
 version       = "avenger" , number , ";" ;
-import        = "import" , string , [ "sha256" , string ] ,
-                [ "as" , ident ] , ";" ;
+import        = "import" , import_clause , "from" , string ,
+                [ "sha256" , string ] , ";" ;
+import_clause = named_import | namespace_import ;
+named_import  = "{" , import_spec , { "," , import_spec } , [ "," ] , "}" ;
+import_spec   = ident , [ "as" , ident ] ;
+namespace_import
+              = "*" , "as" , ident ;
 
 chart         = "chart" , kind , [ bind ] , body ;
-kind          = ident ;             (* imports bind one name; `as` renames *)
+kind          = qual ;              (* unqualified or namespace-qualified *)
 bind          = "as" , ident ;
 
 define        = "define" , ( "mark" | "tool" | "transform" ) ,
@@ -5563,8 +5556,7 @@ state_action  = qual ,
                 ( sql_expr , ";" | ident , ( body | ";" ) ) ;
 cursor_action = "cursor" , "=" , sql_expr , ";" ;
 typed_ref     = ref_kind , qual , ";" ;
-ref_kind      = "mark" | "group" | "selection"
-              | "tool" | "widget" | "resource" ;
+ref_kind      = "mark" | "selection" | "tool" | "widget" | "resource" ;
 
 property      = ident , ":" , value ;
 value         = body                                 (* anonymous object *)
@@ -5964,7 +5956,7 @@ temporary DSL-only runtime representations while that prerequisite is open.
    fixtures remain native and are not rewritten as definitions, and widget
    declarations remain untouched because widgets have no definition form.
 
-6. **Data catalogs.** `.data.avenger` files, catalog/schema/table bindings,
+6. **Data catalogs.** Module-level catalog/schema/table bindings,
    `table sql` views with params and table-function calls, and
    `avenger tables`. URL-based dataset packs wait for distribution.
 
@@ -5988,8 +5980,8 @@ The authoring loop:
 | Command | Purpose |
 | --- | --- |
 | `avenger check [paths]` | Parse, resolve, validate (strict mode). `--locked` for CI; static by default, `--data` also validates against live schemas. |
-| `avenger render <chart> -o out.png` | Compile and render (`.png`/`.svg`/`.pdf`); `--param k=v` overrides; `--watch`. |
-| `avenger watch <chart>` | Open one native chart window with dependency-aware hot reload while editing in another editor; preserves compatible state and the physical-plan cache across reloads. Project/gallery mode is deferred. |
+| `avenger render <module> [--chart name] -o out.png` | Compile and render one named or singleton chart entrypoint (`.png`/`.svg`/`.pdf`); `--param k=v` overrides; `--watch`. |
+| `avenger watch <module> [--chart name]` | Open one native chart window with dependency-aware hot reload while editing in another editor; preserves compatible state and the physical-plan cache across reloads. `--chart` is required when the module has multiple charts. |
 | `avenger editor [chart\|project]` | The full native playground: collapsible file browser + editor + live chart, one window — see below. |
 | `avenger fmt [paths]` | Canonical formatter; `--check` for CI. Shares one printer with `expand` output and decompilation. |
 
@@ -5997,21 +5989,22 @@ Imports and distribution (the mutating verbs):
 
 | Command | Purpose |
 | --- | --- |
-| `avenger add <url\|std:path> [file] [--as name]` | Fetch, verify, and insert a pinned import. |
+| `avenger add <url\|std:path> (--import export [--as local]\|--namespace alias) [module]` | Fetch, verify, and insert an explicit pinned named or namespace import. |
 | `avenger pin [paths] [--print]` | Pin unpinned URL imports. |
 | `avenger update [name\|--all]` | Re-fetch mutable-URL imports and refresh hashes — a deliberate re-pin, surfaced as a diff. |
-| `avenger vendor <import>` | Copy a remote definition file into the project and rewrite the import to relative. |
+| `avenger vendor <import>` | Copy a remote source module into the project and rewrite the import to a relative specifier. |
 
 Flattening, introspection, and testing:
 
 | Command | Purpose |
 | --- | --- |
-| `avenger expand <file> [-o out]` | Source-level inline-definition expansion; concrete definition instantiations become editable ordinary groups with visibility, exports, and component provenance, while native built-in kinds and semantic resource imports remain. |
+| `avenger bundle <module> [--chart name] [-o out]` | Link the selected module interface or chart-item closure into one ordinary import-free source module with deterministic private alpha-renaming. |
+| `avenger expand <module> [-o out]` | Source-level inline-definition expansion; concrete definition instantiations become editable ordinary groups with visibility, exports, and component provenance, while native built-in kinds and semantic resource imports remain. |
 | `avenger info [path]` | The doc-query surface over the entire language schema — native built-ins and imported definitions alike, `--format json` throughout. Bare `info` lists namespaces (marks, transforms, tools, scales, helpers, events); drill by path: `info marks --coord geo`, `info mark rect`, `info mark rect.x` (one channel's option suffixes), `info transform bin`, `info std:marks/error_bar` or any file/URL (slots, parts, outputs, doc comments — inspect before importing). |
 | `avenger schema [--format json\|json-schema]` | The entire machine-readable language schema in one dump — `json` for tooling and big-context agents that load the reference once, `json-schema` to compile it into the generated full validator for the AST interchange form (the frozen core schema ships with the spec). |
 | `avenger doc [-o dir] [--open] [--single-page]` | Generate the project's documentation site from three sources it already has — see below. |
-| `avenger deps <chart>` | The import closure as a tree with pin status and origins; the supply-chain review. |
-| `avenger table <chart> --at <alias\|mark>` | Print the data context at a named point in the pipeline; anonymous transforms have opaque compiler identities and are inspected through a following named stage/mark or an editor source-position action. |
+| `avenger deps <module> [--chart name]` | The selected module or chart-item closure as a tree with pin status, private item dependencies, and origins. |
+| `avenger table <module> [--chart name] --at <alias\|mark>` | Print the data context at a named point in the selected chart pipeline; anonymous transforms have opaque compiler identities and are inspected through a following named stage/mark or an editor source-position action. |
 | `avenger tables [--format json]` | List the catalog's resolved table names and schemas (`table sql` views included) — the source for column completion and the first thing an agent should read. |
 | `avenger ast <file>` | Convert between the two encodings: `.avenger` text to interchange JSON, or interchange JSON back to canonical text (byte-identical to `avenger fmt`). |
 | `avenger test [--bless]` | Every chart is an example: compile, render, and fuzzy-perceptually compare each chart against its sibling `.png` baseline (exact matching is brittle across GPUs; threshold configurable). Failures emit actual and diff images; a missing baseline fails with a hint; `--bless` (re)generates baselines for all or changed charts. Also compiles doc-comment examples (visual doctests). |
@@ -6053,7 +6046,7 @@ browser, editor, live chart, diagnostics, schema docs (`info` inline), and
 the project gallery. `avenger watch` is the one-chart preview window with your
 own editor filling the editing role. Both `watch` and `editor` share two
 hot-reload semantics: reloads are import-graph-aware
-(saving a definition file, theme, or data file reloads every chart whose
+(saving an imported module, theme, or local data resource reloads every chart whose
 closure includes it), and session state survives recompiles — params,
 stores, selections, and view domains carry over where names still match, so
 a zoomed viewport stays put while a color is tweaked. Scope is deliberately
@@ -6066,9 +6059,10 @@ serious project work pairs a real editor with `avenger lsp` and
 1. **README.md** at the project root becomes the front-page prose
    (CommonMark; `--readme <path>` overrides). Links to project files rewrite
    to their documentation targets: a link to
-   `marks/error_bar.mark.avenger` points at that definition's reference
-   section, and a link to `charts/revenue_trend.avenger` becomes its gallery
-   entry, image included.
+   `lib/marks.avenger#error_bar` points at that exported definition's
+   reference section, and a link to
+   `charts/revenue_trend.avenger#summary` becomes that chart entrypoint's
+   gallery entry, image included.
 2. **The chart gallery**, built from blessed baselines and each chart's
    `-- |` blurb — no rendering at doc time, so output is deterministic and
    by construction in sync with what `avenger test` verified.
@@ -6119,7 +6113,8 @@ examples plus explicit invariants, not from grammars.
   aliases, slots — never columns.
 - Helper arguments: DSL-space names bare (`channel(x)`, `event_coord(x)`),
   data-space names as strings (`datum('id')`).
-- `avenger 1;` first; one chart or one define per file; `;` terminates a
+- `avenger 1;` first; imports precede a non-empty ordered module-item list;
+  a multi-chart module names every chart; `;` terminates a
   property unless a `{ }` config block follows; channel config attaches
   after the value (`x: "hp" { axis: { title: 'HP'; } }`).
 - No loops or conditionals: repetition is data (`fold`, `repeat`,
@@ -6161,7 +6156,7 @@ The recommended implementation path is:
 3. Lower schema-validated native declarations through registry entries that
    pair their normative authoring schema with an erased Rust lowerer. The
    registry, not a second DSL-specific kind switch, constructs the Rust
-   authoring objects. A chart file's root
+   authoring objects. A selected chart entrypoint
    lowers to `Chart` (document furnishings — title/subtitle, theme,
    canvas, locales, state declarations) wrapping a `Plot`; nested
    positions (cells, embedded plots) lower to bare `Plot`s inside their
@@ -6187,8 +6182,9 @@ DSL AST or source map.
 Step 1 of the lowering model names "a stable DSL AST". The source header laws
 are intentionally contextual, but they normalize to the same declaration
 record — keyword, optional kind, optional semantic name, properties, and
-ordered children. The tree therefore needs six generic node types, not a node
-type per language feature:
+ordered children. Module items and import clauses wrap that generic
+declaration tree; the AST still does not need one node type per language
+feature:
 
 The parser maintains two deliberately separate representations:
 
@@ -6207,16 +6203,35 @@ may populate the same map with host-frame provenance.
 ```rust
 struct File {
     version: u32,                    // the `avenger 1;` pragma
-    name: Option<Name>,              // filename-derived canonical name (loader-populated;
-                                     // None for plural data catalogs)
-    imports: Vec<Import>,            // source, sha256 pin, rename
-    root: Root,                      // Chart(Decl) | Define(Decl) | Data(Vec<Decl>)
+    imports: Vec<Import>,
+    items: Vec<ModuleItem>,          // non-empty, in authored source order
+}
+
+struct ModuleItem {
+    exported: bool,                  // top-level module visibility
+    declaration: Decl,               // chart | define | table | schema | catalog
+}
+
+struct Import {
+    source: String,
+    sha256: Option<String>,
+    clause: ImportClause,
+}
+
+enum ImportClause {
+    Named(Vec<ImportSpecifier>),
+    Namespace(Name),
+}
+
+struct ImportSpecifier {
+    imported: Name,
+    local: Name,                     // equal when source uses shorthand
 }
 
 struct Decl {
     visibility: Visibility,              // default | private | public
     keyword: Keyword,                // chart | mark | transform | table | param | on | ...
-    kind: Option<Name>,              // symbol, sql, parquet, cartesian, ...
+    kind: Option<QualifiedName>,     // symbol, acme.hexbin, sql, parquet, ...
     name: Option<Name>,              // instance binder, declared-member name, or keyed-entry id
     props: PropertyMap<Name, Value>, // unique unordered semantic map
     children: Vec<Decl>,             // one semantic cross-kind order
@@ -6329,8 +6344,9 @@ Serde over these nodes defines the interchange form. Four rules:
   `call` — pinned by the core schema below. The `block` tag carries the
   optional head beside `props` and `children`
   (`{"block": {"head": {"col": "amount"}, "props": ...}}`); a typed
-  object is simply a `block` whose head is an `atom`. Imports encode as
-  `{"import": "<specifier>", "sha256": "...", "as": "..."}`.
+  object is simply a `block` whose head is an `atom`. Imports encode their
+  `source`, optional `sha256`, and explicit named or namespace `clause`;
+  module items encode `exported` plus their generic `declaration`.
   The prefix tags have deliberately distinct payload shapes: `value` and
   `pattern` contain another value, `dim` contains one two-segment dotted name,
   `env` contains a non-empty string, and `none` is exactly `true`. A one-segment binding path uses the compact string payload; a qualified path
@@ -6406,10 +6422,9 @@ Interchange JSON carries content and doc comments; provenance and trivia
 stay out (exact-source recovery preserves the original text or a source
 map, as the lowering model notes). The `version` field carries the pragma,
 so the JSON is exactly as versioned as the text — the same major-version
-gate applies to both. The optional top-level `name` carries the loader-derived
-canonical file name when source context is available. A pathless parse leaves
-it absent; loading a named one-item file validates or supplies it, while plural
-data-catalog files keep it absent.
+gate applies to both. Source origins, filenames, and module identities remain
+external source-map metadata; they are never derived semantic fields in
+interchange JSON.
 
 ### The Core Schema
 
@@ -6445,37 +6460,121 @@ reject malformed trees early and cheaply.
   "type": "object",
   "properties": {
     "version": { "const": 1 },
-    "name": { "$ref": "#/$defs/name" },
     "imports": { "type": "array", "items": { "$ref": "#/$defs/import" } },
-    "root": {
-      "oneOf": [
-        { "$ref": "#/$defs/decl" },
-        { "type": "array", "items": { "$ref": "#/$defs/decl" }, "minItems": 1 }
-      ]
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/moduleItem" },
+      "minItems": 1
     }
   },
-  "required": ["version", "root"],
+  "required": ["version", "items"],
   "additionalProperties": false,
   "$defs": {
     "name": {
       "type": "string",
-      "pattern": "^(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*$"
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$"
+    },
+    "qualifiedName": {
+      "type": "string",
+      "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*(?:\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*)*$"
+    },
+    "moduleItem": {
+      "type": "object",
+      "properties": {
+        "exported": { "type": "boolean" },
+        "declaration": {
+          "oneOf": [
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "const": "chart" },
+                    "kind": { "$ref": "#/$defs/qualifiedName" }
+                  },
+                  "required": ["decl", "kind"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "const": "define" },
+                    "kind": { "enum": ["mark", "tool", "transform"] }
+                  },
+                  "required": ["decl", "kind", "name"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                  "properties": {
+                    "decl": { "enum": ["table", "schema", "catalog"] },
+                    "kind": { "$ref": "#/$defs/qualifiedName" }
+                  },
+                  "required": ["decl", "kind", "name"],
+                  "not": { "required": ["visibility"] }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "required": ["exported", "declaration"],
+      "additionalProperties": false
     },
     "import": {
       "type": "object",
       "properties": {
-        "import": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "as": { "$ref": "#/$defs/name" }
+        "clause": { "$ref": "#/$defs/importClause" }
       },
-      "required": ["import"],
+      "required": ["source", "clause"],
+      "additionalProperties": false
+    },
+    "importClause": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/importSpecifier" },
+              "minItems": 1
+            }
+          },
+          "required": ["named"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "namespace": { "$ref": "#/$defs/name" } },
+          "required": ["namespace"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "importSpecifier": {
+      "type": "object",
+      "properties": {
+        "imported": { "$ref": "#/$defs/name" },
+        "local": { "$ref": "#/$defs/name" }
+      },
+      "required": ["imported", "local"],
       "additionalProperties": false
     },
     "decl": {
       "type": "object",
       "properties": {
         "decl": { "$ref": "#/$defs/name" },
-        "kind": { "$ref": "#/$defs/name" },
+        "kind": { "$ref": "#/$defs/qualifiedName" },
         "name": { "$ref": "#/$defs/name" },
         "visibility": { "enum": ["private", "public"] },
         "doc": { "type": "string" },
@@ -6523,7 +6622,7 @@ reject malformed trees early and cheaply.
         "value": { "$ref": "#/$defs/value" },
         "dim": {
           "type": "string",
-          "pattern": "^(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*\\.(?:_|\\p{Alphabetic})(?:_|\\p{Alphabetic}|[0-9])*$"
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$"
         },
         "ref": { "$ref": "#/$defs/ref" },
         "pattern": { "$ref": "#/$defs/value" },
@@ -6547,7 +6646,7 @@ reject malformed trees early and cheaply.
       "type": "object",
       "properties": {
         "kind": {
-          "enum": ["mark", "group", "selection", "tool", "widget", "resource"]
+          "enum": ["mark", "selection", "tool", "widget", "resource"]
         },
         "path": {
           "type": "array",
@@ -6591,7 +6690,8 @@ The instance corpus for this schema includes accept/reject and bidirectional
 round-trip cases for every one of the fourteen tags, including exact `num`
 spelling, two-segment `dim`, string `env`, boolean-true `none`, compact and
 qualified binding paths, and headed/headless blocks. It also covers well-formed
-chart, data, and define files, optional loader-supplied `name`, and rejects
+single- and multi-chart modules, mixed data/definition modules, named and
+namespace imports, and rejects
 plain JSON numbers, two-key tagged objects, unknown tags, provenance fields,
 invalid tag payload shapes, duplicate members, and malformed hashes. It belongs
 to the same conformance corpus that pins the formatter.
@@ -6956,7 +7056,7 @@ motivates the syntax guarantee.
 
 The first combined grammar can parse declarations, property blocks, inherited
 SQL expression/query nodes, comments, strings, params, and channel references.
-The excerpt below is schematic: it names root/import/data and body rules omitted
+The excerpt below is schematic: it names module/import and body rules omitted
 for space. The peer Tree-sitter/Zed implementation plan owns the complete
 stable node contract, base revision/synchronization contract, and corpus. A
 sketch:
@@ -6971,12 +7071,48 @@ module.exports = grammar(AvengerSql, {
     source_file: $ => seq(
       $.version_directive,
       repeat($.import_statement),
-      choice($.chart_declaration, $.definition_root, $.data_root),
+      repeat1($._module_item),
     ),
 
     version_directive: $ => seq("avenger", $.number, ";"),
 
-    definition_root: $ => seq(
+    _module_item: $ => choice(
+      $._module_declaration,
+      seq("export", $._module_declaration),
+    ),
+
+    _module_declaration: $ => choice(
+      $.chart_declaration,
+      $.definition_declaration,
+      $.catalog_declaration,
+      $.schema_declaration,
+      $.table_declaration,
+    ),
+
+    import_statement: $ => seq(
+      "import",
+      choice(
+        seq(
+          "{",
+          $.import_specifier,
+          repeat(seq(",", $.import_specifier)),
+          optional(","),
+          "}",
+        ),
+        seq("*", "as", field("local", $.identifier)),
+      ),
+      "from",
+      field("source", $.single_quoted_string),
+      optional(seq("sha256", field("hash", $.single_quoted_string))),
+      ";",
+    ),
+
+    import_specifier: $ => seq(
+      field("imported", $.identifier),
+      optional(seq("as", field("local", $.identifier))),
+    ),
+
+    definition_declaration: $ => seq(
       "define",
       choice("mark", "tool", "transform"),
       field("name", $.identifier),
@@ -7036,21 +7172,21 @@ module.exports = grammar(AvengerSql, {
 
     chart_declaration: $ => seq(
       "chart",
-      field("coordinate", $.identifier),
+      field("coordinate", $.qualified_name),
       optional($.as_clause),
       $.declaration_block,
     ),
 
     mark_declaration: $ => seq(
       "mark",
-      field("kind", choice($.identifier, alias($.keyword_group, $.identifier))),
+      field("kind", $.qualified_name),
       optional($.as_clause),
       $.mixed_block,
     ),
 
     transform_declaration: $ => seq(
       "transform",
-      field("kind", $.identifier),
+      field("kind", $.qualified_name),
       optional($.as_clause),
       $.mixed_block,
     ),
@@ -7064,21 +7200,21 @@ module.exports = grammar(AvengerSql, {
 
     tool_declaration: $ => seq(
       "tool",
-      field("kind", $.identifier),
+      field("kind", $.qualified_name),
       optional($.as_clause),
       choice($.mixed_block, ";"),
     ),
 
     widget_declaration: $ => seq(
       "widget",
-      field("kind", $.identifier),
+      field("kind", $.qualified_name),
       $.as_clause,
       $.property_block,
     ),
 
     view_declaration: $ => seq(
       "view",
-      field("kind", $.identifier),
+      field("kind", $.qualified_name),
       optional($.as_clause),
       $.mixed_block,
     ),
@@ -7924,9 +8060,10 @@ The LSP can offer:
   pipeline` expansion — slots substituted, `match` resolved, channels renamed — the
   "eject from the library" workflow and the fastest way to see what a
   construct lowers to), the inverse **extract definition** (select a group,
-  create a new definition file with slots inferred from the selection's
-  free names, replace the selection with an instantiation, and add the
-  import), and **pin import** (fetch an unpinned URL import and insert its
+  create or choose a definition module, add a definition with slots inferred
+  from the selection's free names, replace the selection with an
+  instantiation, and add a named import when crossing a module boundary), and
+  **pin import** (fetch an unpinned URL import and insert its
   `sha256`, the quickfix paired with the dev-mode warning).
 - Import authoring is completion-driven: `std:` and project-relative paths
   complete inside import strings, and pasting a URL triggers
@@ -8267,12 +8404,10 @@ may revisit it with usage evidence.
   declaration/property forms.
 - V1 chart dependencies are the importable definition and data resources
   specified above; it does not add named chart-local data declarations.
-- V1 forbids private nested defines. They remain the designated pressure valve
-  if one-item file sprawl ever hurts: a helper `define` visible only to the file's
-  single export (one *public* item per file stays the law; imports,
-  naming, expansion, and the gallery untouched).
-- V1 requires explicit per-definition imports
-  (`import 'std:marks/error_bar';`) and has no automatic prelude.
+- V1 forbids nested `define` declarations. Private top-level definitions in
+  the same module provide helpers without becoming importable.
+- V1 requires explicit named or namespace imports
+  (`import { error_bar } from 'std:marks';`) and has no automatic prelude.
 - V1 has no `pkg:` scheme. A future naming/discovery layer may sit over the
   fetch-pin-cache mechanism — a community index of URLs first, a real
   registry later, or no registry at all.

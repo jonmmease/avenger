@@ -12,6 +12,7 @@ From the workspace:
 ```sh
 cargo build --release -p avenger-lang-cli
 target/release/avenger watch path/to/chart.avenger
+target/release/avenger watch path/to/dashboard.avenger --chart overview
 ```
 
 During development, Cargo can launch the binary directly:
@@ -21,13 +22,16 @@ cargo run --release -p avenger-lang-cli -- watch \
   scratch/watch-playground/chart.avenger
 ```
 
-The argument must be a local `*.avenger` chart root. Its containing directory
+The argument must be a local `*.avenger` source module. A named or anonymous
+singleton chart is selected automatically; use `--chart <NAME>` when the
+module contains multiple chart entrypoints. The module's containing directory
 is the default project and capability root.
 
 ```text
-avenger watch [OPTIONS] <CHART>
+avenger watch [OPTIONS] <MODULE>
 
 --project-root <DIR>       Override the project/capability root
+--chart <NAME>             Select a named chart entrypoint
 --debounce-ms <MILLIS>     Filesystem quiet period (default: 100)
 --scale <FACTOR>           Positive finite native render scale (default: 1)
 --cache-memory-mb <MB>     Physical-result cache budget (default: 256)
@@ -66,9 +70,9 @@ snapshot, capability, test, and security contracts.
 
 ## Reload behavior
 
-The compiler supplies the dependency closure. The watcher follows the chart
-root, relative definitions/imports, catalog and schema files, local table
-files, and reported directory/glob roots. Failed attempts contribute their
+The compiler supplies the selected chart-item closure. The watcher follows the
+requested module, relative source imports, local table files, and reported
+directory/glob roots. Failed attempts contribute their
 newly discovered and missing-path anchors while the last-good closure remains
 watched; a successful install replaces that union with its exact closure.
 Atomic editor saves, remove/recreate, and descendant changes under reported

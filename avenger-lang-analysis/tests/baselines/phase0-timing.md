@@ -6,7 +6,7 @@ CI thresholds.
 | Operation | Cold | Warm | Note |
 | --- | ---: | ---: | --- |
 | tolerant syntax | 1.054 ms | p50 65.334 µs; p95 76.666 µs | `valid_chart.avenger`, 500 warm samples, release build. |
-| immutable project analysis | 1.091 ms | p50 130.666 µs; p95 145.750 µs | One explicit chart root, fresh session/generation, 100 warm samples, release build. |
+| immutable module analysis | 1.091 ms | p50 130.666 µs; p95 145.750 µs | One explicit requested module, fresh session/generation, 100 warm samples, release build. |
 | completion | n/a | n/a | Providers begin in Phase 5. |
 
 The remaining explicit pre-implementation rows prevent scaffold/build time
