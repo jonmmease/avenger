@@ -1,6 +1,6 @@
 avenger 1;
 
-import 'definitions.avenger' as defs;
+import * as defs from 'definitions.avenger';
 
 chart cartesian as chart {
     mark defs.badge as badge {}

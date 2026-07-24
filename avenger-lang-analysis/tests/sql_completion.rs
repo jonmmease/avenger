@@ -20,7 +20,7 @@ fn data_source(query: &str) -> String {
     format!(
         r#"avenger 1;
 
-schema tables as vega {{
+export schema tables as vega {{
   table inline as movies {{
     values: [
       {{ id: 1; title: 'A'; category: 'drama'; rating: 8.5; }},
@@ -44,6 +44,8 @@ schema tables as vega {{
 fn chart_source(expression: &str) -> String {
     format!(
         r#"avenger 1;
+
+import {{ vega }} from 'data.avenger';
 
 chart cartesian as chart {{
   data: {{ table: 'vega.movies'; }}
@@ -88,7 +90,7 @@ async fn fixture() -> Fixture {
     // Keep the directory alive for the duration of the test process. The
     // compiler reads through the immutable in-memory snapshot, not disk.
     let _ = Box::leak(Box::new(directory));
-    let data = SourceOrigin::File(project_root.join("catalog.data.avenger"));
+    let data = SourceOrigin::File(project_root.join("data.avenger"));
     let chart = SourceOrigin::File(project_root.join("chart.avenger"));
     let data_text = data_source("SELECT id, title, category, rating FROM vega.movies");
     let chart_text = chart_source("rating");
@@ -106,10 +108,7 @@ async fn fixture() -> Fixture {
     let snapshot = WorkspaceSnapshot {
         generation: AnalysisGeneration::new(1),
         project_root,
-        roots: vec![
-            ModuleRoot::ambient_data(data.clone()),
-            ModuleRoot::requested(chart.clone()),
-        ],
+        roots: vec![ModuleRoot::requested(chart.clone())],
         open_documents: BTreeMap::from([
             (
                 data.clone(),

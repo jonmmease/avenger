@@ -65,6 +65,7 @@ pub struct IndexedSymbol {
     pub keyword: String,
     pub native_kind: Option<String>,
     pub visibility: Visibility,
+    pub exported: bool,
     pub detail: Option<String>,
     pub documentation: Option<String>,
 }
@@ -111,7 +112,6 @@ impl WorkspaceSemanticIndex {
                 .documents
                 .insert(origin.clone(), build_document_index(origin, analysis));
         }
-        index.install_tolerant_imports(syntax);
         for root in semantic_roots.values() {
             let Ok(analysis) = &root.result else {
                 continue;
@@ -121,36 +121,58 @@ impl WorkspaceSemanticIndex {
             };
             index.enrich_from_resolved(project);
         }
+        // Install syntax-derived import bindings after semantic enrichment so
+        // imported-name references point at the final declaration identities.
+        // The same pass remains the complete fallback for malformed modules
+        // that have no current resolved graph.
+        index.install_tolerant_imports(syntax);
         index.resolve_lexical_references();
         index
     }
 
     fn install_tolerant_imports(&mut self, syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>) {
         for (importer, analysis) in syntax {
-            for (specifier, alias) in scan_imports(analysis) {
-                let Some(imported) = resolve_local_import(importer, &specifier) else {
+            for import in scan_imports(analysis) {
+                let Some(imported) = resolve_local_import(importer, &import.source) else {
                     continue;
                 };
                 let Some(symbols) = self.documents.get(&imported).map(|document| {
                     document
                         .symbols
                         .iter()
-                        .filter(|symbol| symbol.keyword == "define")
+                        .filter(|symbol| symbol.parent.is_none() && symbol.exported)
                         .cloned()
                         .collect::<Vec<_>>()
                 }) else {
                     continue;
                 };
-                for symbol in symbols {
-                    let path = alias.as_ref().map_or_else(
-                        || symbol.name.clone(),
-                        |alias| format!("{alias}.{}", symbol.name),
-                    );
-                    let value_kind = match symbol.native_kind.as_deref() {
-                        Some("mark") => IndexedValueKind::Mark,
-                        Some("tool") => IndexedValueKind::Tool,
-                        _ => IndexedValueKind::Declaration,
-                    };
+
+                let bindings = match &import.clause {
+                    ScannedImportClause::Named(specifiers) => specifiers
+                        .iter()
+                        .filter_map(|specifier| {
+                            symbols
+                                .iter()
+                                .find(|symbol| symbol.name == specifier.imported)
+                                .cloned()
+                                .map(|symbol| {
+                                    (
+                                        specifier.local.clone(),
+                                        symbol,
+                                        (specifier.imported_span != specifier.local_span)
+                                            .then_some(specifier.imported_span),
+                                    )
+                                })
+                        })
+                        .collect::<Vec<_>>(),
+                    ScannedImportClause::Namespace { local, .. } => symbols
+                        .iter()
+                        .cloned()
+                        .map(|symbol| (format!("{local}.{}", symbol.name), symbol, None))
+                        .collect::<Vec<_>>(),
+                };
+                for (path, symbol, imported_span) in bindings {
+                    let value_kind = imported_symbol_value_kind(&symbol);
                     self.public_references
                         .entry((importer.clone(), path.clone()))
                         .or_insert_with(|| IndexedBinding {
@@ -166,6 +188,17 @@ impl WorkspaceSemanticIndex {
                                 selection_span: symbol.selection_span,
                             }),
                         });
+                    if let Some(span) = imported_span
+                        && let Some(document) = self.documents.get_mut(importer)
+                    {
+                        document.references.push(IndexedReference {
+                            name: symbol.name.clone(),
+                            origin: importer.clone(),
+                            span,
+                            target_identity: Some(symbol.identity.clone()),
+                            value_kind,
+                        });
+                    }
 
                     let header_references = self
                         .documents
@@ -525,12 +558,25 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         let TolerantSyntaxNodeKind::Declaration { keyword, name } = &node.kind else {
             continue;
         };
-        let header = declaration_header(syntax, node.span, keyword, name.as_deref());
+        let mut header = declaration_header(syntax, node.span, keyword, name.as_deref());
         let parent = parent_declaration(&syntax.parsed.nodes, node.parent).and_then(|parent_id| {
             declaration_nodes
                 .iter()
                 .position(|candidate| candidate.id == parent_id)
         });
+        if parent.is_none() {
+            header.exported = syntax
+                .parsed
+                .module_syntax
+                .items
+                .iter()
+                .find(|item| {
+                    item.declaration_span.range.start == node.span.range.start
+                        || (item.declaration_span.range.start <= node.span.range.start
+                            && node.span.range.end <= item.declaration_span.range.end)
+                })
+                .is_some_and(|item| item.exported);
+        }
         let ordinal = output.symbols.len();
         let selection_span = header.name_span.unwrap_or_else(|| {
             header
@@ -560,6 +606,7 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
             keyword: keyword.clone(),
             native_kind,
             visibility: header.visibility,
+            exported: header.exported,
             detail: Some(keyword.clone()),
             documentation: header.documentation.clone(),
         });
@@ -609,6 +656,7 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
             keyword: "import".to_owned(),
             native_kind: None,
             visibility: Visibility::Default,
+            exported: false,
             detail: Some("import alias".to_owned()),
             documentation: None,
         });
@@ -663,6 +711,7 @@ struct DeclarationHeader {
     keyword_span: Option<SourceSpan>,
     name_span: Option<SourceSpan>,
     visibility: Visibility,
+    exported: bool,
     documentation: Option<String>,
 }
 
@@ -683,6 +732,9 @@ fn declaration_header(
         })
         .unwrap_or(0);
     output.keyword_span = tokens.get(keyword_index).map(|token| token.span);
+    output.exported = tokens[..keyword_index]
+        .iter()
+        .any(|token| token.word() == Some("export"));
     if keyword_index > 0 {
         output.visibility = match tokens[keyword_index - 1].word() {
             Some("private") => Visibility::Private,
@@ -1001,7 +1053,32 @@ fn significant_tokens<'a>(
         .collect()
 }
 
-fn scan_imports(syntax: &SyntaxAnalysis) -> Vec<(String, Option<String>)> {
+#[derive(Clone, Debug)]
+struct ScannedImportSpecifier {
+    imported: String,
+    local: String,
+    imported_span: SourceSpan,
+    local_span: SourceSpan,
+}
+
+#[derive(Clone, Debug)]
+enum ScannedImportClause {
+    Named(Vec<ScannedImportSpecifier>),
+    Namespace {
+        local: String,
+        local_span: SourceSpan,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct ScannedImport {
+    source: String,
+    declaration_span: SourceSpan,
+    member_span: Option<SourceSpan>,
+    clause: ScannedImportClause,
+}
+
+fn scan_imports(syntax: &SyntaxAnalysis) -> Vec<ScannedImport> {
     let tokens = significant_tokens(syntax, None);
     let mut output = Vec::new();
     let mut index = 0;
@@ -1010,70 +1087,159 @@ fn scan_imports(syntax: &SyntaxAnalysis) -> Vec<(String, Option<String>)> {
             index += 1;
             continue;
         }
-        let Some(source) = tokens.get(index + 1) else {
-            break;
-        };
-        let Some(specifier) = unquote(source.raw) else {
-            index += 1;
+        let end = tokens[index + 1..]
+            .iter()
+            .position(|token| matches!(token.token, Some(Token::SemiColon)))
+            .map_or(tokens.len(), |offset| index + 1 + offset);
+        let statement = &tokens[index..end];
+        let source_index = statement
+            .iter()
+            .position(|token| token.word() == Some("from"))
+            .and_then(|from| statement.get(from + 1).map(|_| from + 1));
+        let Some(source_token) = source_index.and_then(|source| statement.get(source)) else {
+            index = end.saturating_add(1);
             continue;
         };
-        let mut alias = None;
-        let mut next = index + 2;
-        while next < tokens.len() && !matches!(tokens[next].token, Some(Token::SemiColon)) {
-            if tokens[next].word() == Some("as") {
-                alias = tokens
-                    .get(next + 1)
-                    .and_then(SigToken::word)
-                    .map(str::to_owned);
-                break;
+        let Some(source) = unquote(source_token.raw) else {
+            index = end.saturating_add(1);
+            continue;
+        };
+
+        let mut member_span = None;
+        let clause = if statement
+            .get(1)
+            .is_some_and(|token| matches!(token.token, Some(Token::LBrace)))
+        {
+            let member_end = statement
+                .iter()
+                .position(|token| matches!(token.token, Some(Token::RBrace)))
+                .map_or(source_token.span.range.start, |close| {
+                    statement[close].span.range.start
+                });
+            member_span = Some(SourceSpan {
+                source: statement[1].span.source,
+                range: ByteSpan {
+                    start: statement[1].span.range.end,
+                    end: member_end,
+                },
+            });
+            let mut specifiers = Vec::new();
+            let mut cursor = 2;
+            while cursor < statement.len()
+                && !matches!(statement[cursor].token, Some(Token::RBrace))
+            {
+                let Some(imported) = statement[cursor].word() else {
+                    cursor += 1;
+                    continue;
+                };
+                if matches!(imported, "as" | "from") {
+                    cursor += 1;
+                    continue;
+                }
+                let imported_span = statement[cursor].span;
+                let mut local = imported.to_owned();
+                let mut local_span = imported_span;
+                if statement.get(cursor + 1).and_then(SigToken::word) == Some("as")
+                    && let Some(alias) = statement.get(cursor + 2)
+                    && let Some(alias_name) = alias.word()
+                {
+                    local = alias_name.to_owned();
+                    local_span = alias.span;
+                    cursor += 2;
+                }
+                specifiers.push(ScannedImportSpecifier {
+                    imported: imported.to_owned(),
+                    local,
+                    imported_span,
+                    local_span,
+                });
+                cursor += 1;
             }
-            next += 1;
-        }
-        output.push((specifier.to_owned(), alias));
-        index = next.saturating_add(1);
+            ScannedImportClause::Named(specifiers)
+        } else if statement
+            .get(1)
+            .is_some_and(|token| matches!(token.token, Some(Token::Mul)))
+        {
+            let Some(alias) = statement
+                .iter()
+                .position(|token| token.word() == Some("as"))
+                .and_then(|as_index| statement.get(as_index + 1))
+            else {
+                index = end.saturating_add(1);
+                continue;
+            };
+            let Some(local) = alias.word() else {
+                index = end.saturating_add(1);
+                continue;
+            };
+            ScannedImportClause::Namespace {
+                local: local.to_owned(),
+                local_span: alias.span,
+            }
+        } else {
+            index = end.saturating_add(1);
+            continue;
+        };
+
+        let end_span = tokens
+            .get(end)
+            .map_or(source_token.span.range.end, |token| token.span.range.end);
+        output.push(ScannedImport {
+            source: source.to_owned(),
+            declaration_span: SourceSpan {
+                source: tokens[index].span.source,
+                range: ByteSpan {
+                    start: tokens[index].span.range.start,
+                    end: end_span,
+                },
+            },
+            member_span,
+            clause,
+        });
+        index = end.saturating_add(1);
     }
     output
 }
 
 fn scan_import_aliases(syntax: &SyntaxAnalysis) -> Vec<(String, SourceSpan, SourceSpan)> {
-    let tokens = significant_tokens(syntax, None);
-    let mut output = Vec::new();
-    let mut index = 0;
-    while index < tokens.len() {
-        if tokens[index].word() != Some("import") {
-            index += 1;
-            continue;
-        }
-        let start = tokens[index].span;
-        let mut next = index + 1;
-        while next < tokens.len() && !matches!(tokens[next].token, Some(Token::SemiColon)) {
-            if tokens[next].word() == Some("as")
-                && let Some(alias) = tokens.get(next + 1)
-                && let Some(name) = alias.word()
-            {
-                let end = tokens
-                    .iter()
-                    .skip(next + 2)
-                    .find(|token| matches!(token.token, Some(Token::SemiColon)))
-                    .map_or(alias.span.range.end, |token| token.span.range.end);
-                output.push((
-                    name.to_owned(),
-                    alias.span,
-                    SourceSpan {
-                        source: start.source,
-                        range: ByteSpan {
-                            start: start.range.start,
-                            end,
-                        },
-                    },
-                ));
-                break;
+    scan_imports(syntax)
+        .into_iter()
+        .flat_map(|import| match import.clause {
+            ScannedImportClause::Named(specifiers) => specifiers
+                .into_iter()
+                .map(|specifier| {
+                    (
+                        specifier.local,
+                        specifier.local_span,
+                        import.declaration_span,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            ScannedImportClause::Namespace { local, local_span } => {
+                vec![(local, local_span, import.declaration_span)]
             }
-            next += 1;
-        }
-        index = next.saturating_add(1);
+        })
+        .collect()
+}
+
+fn imported_symbol_value_kind(symbol: &IndexedSymbol) -> IndexedValueKind {
+    match (symbol.keyword.as_str(), symbol.native_kind.as_deref()) {
+        ("define", Some("mark")) => IndexedValueKind::Mark,
+        ("define", Some("tool")) => IndexedValueKind::Tool,
+        ("catalog" | "schema" | "table", _) => IndexedValueKind::Table,
+        _ => symbol.value_kind,
     }
-    output
+}
+
+fn completion_kind_for_value(value_kind: IndexedValueKind) -> CompletionKind {
+    match value_kind {
+        IndexedValueKind::Table => CompletionKind::Table,
+        IndexedValueKind::Field => CompletionKind::Field,
+        IndexedValueKind::Scalar
+        | IndexedValueKind::Selection
+        | IndexedValueKind::Output => CompletionKind::Variable,
+        _ => CompletionKind::Declaration,
+    }
 }
 
 fn unquote(value: &str) -> Option<&str> {
@@ -1401,6 +1567,18 @@ impl<'a> QueryContext<'a> {
                     "00",
                 ));
             }
+        } else if let Some(import) = scan_imports(syntax).into_iter().find(|import| {
+            import.member_span.is_some_and(|span| {
+                span.range.start <= cursor && cursor <= span.range.end
+            })
+        }) {
+            self.complete_import_members(
+                &request.source,
+                &import,
+                prefix,
+                replacement,
+                &mut items,
+            );
         } else if let Some(import_prefix) = import_prefix(text, cursor) {
             self.complete_imports(import_prefix, replacement, &mut items);
         } else if prefix.starts_with('$') {
@@ -2259,7 +2437,9 @@ impl<'a> QueryContext<'a> {
         let keywords: Vec<&str> = if let Some(parent) = parent {
             allowed_child_declarations(&parent.keyword).collect()
         } else {
-            vec!["import", "chart", "define", "catalog", "schema", "table"]
+            vec![
+                "import", "export", "chart", "define", "catalog", "schema", "table",
+            ]
         };
         for keyword in keywords {
             if keyword == "mark" && candidate_matches("mark group", prefix) {
@@ -2343,7 +2523,7 @@ impl<'a> QueryContext<'a> {
                 ));
             }
         }
-        for standard in ["std:marks", "std:tools", "std:transforms"] {
+        for standard in ["std:marks/error_bar"] {
             if candidate_matches(standard, prefix) {
                 output.push(item(
                     standard.to_owned(),
@@ -2357,6 +2537,91 @@ impl<'a> QueryContext<'a> {
                     "20",
                 ));
             }
+        }
+        for module in self.registry.modules.keys() {
+            let module = module.as_str();
+            if candidate_matches(module, prefix) {
+                output.push(item(
+                    module.to_owned(),
+                    replacement,
+                    module.to_owned(),
+                    CompletionKind::Module,
+                    Some("host-provided native module".to_owned()),
+                    None,
+                    CompletionOrigin::AuthoringSchema,
+                    false,
+                    "30",
+                ));
+            }
+        }
+    }
+
+    fn complete_import_members(
+        &self,
+        importer: &SourceOrigin,
+        import: &ScannedImport,
+        prefix: &str,
+        replacement: SourceSpan,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        let already_imported = match &import.clause {
+            ScannedImportClause::Named(specifiers) => specifiers
+                .iter()
+                .map(|specifier| specifier.imported.as_str())
+                .collect::<BTreeSet<_>>(),
+            ScannedImportClause::Namespace { .. } => return,
+        };
+        if let Some(imported) = resolve_local_import(importer, &import.source)
+            && let Some(document) = self.index.documents.get(&imported)
+        {
+            for symbol in document
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.parent.is_none() && symbol.exported)
+                .filter(|symbol| !already_imported.contains(symbol.name.as_str()))
+                .filter(|symbol| candidate_matches(&symbol.name, prefix))
+            {
+                output.push(item(
+                    symbol.name.clone(),
+                    replacement,
+                    symbol.name.clone(),
+                    completion_kind_for_value(imported_symbol_value_kind(symbol)),
+                    Some(format!("exported {}", symbol.keyword)),
+                    symbol.documentation.clone(),
+                    CompletionOrigin::LexicalScope,
+                    false,
+                    "10",
+                ));
+            }
+            return;
+        }
+
+        let Ok(module_id) = avenger_chart_schema::NativeModuleId::new(import.source.clone()) else {
+            return;
+        };
+        let Some(module) = self.registry.modules.get(&module_id) else {
+            return;
+        };
+        for (name, export) in &module.exports {
+            if already_imported.contains(name.as_str()) || !candidate_matches(name, prefix) {
+                continue;
+            }
+            let value_kind = match export.category {
+                NativeKindNamespace::Mark => IndexedValueKind::Mark,
+                NativeKindNamespace::Tool => IndexedValueKind::Tool,
+                _ => IndexedValueKind::Declaration,
+            };
+            output.push(item(
+                name.clone(),
+                replacement,
+                name.clone(),
+                completion_kind_for_value(value_kind),
+                Some(format!("native {:?} export", export.category).to_ascii_lowercase()),
+                Some(export.docs.clone()),
+                CompletionOrigin::AuthoringSchema,
+                false,
+                "20",
+            ));
         }
     }
 
@@ -3617,13 +3882,24 @@ fn is_completion_character(character: char) -> bool {
 
 fn import_prefix(text: &str, cursor: usize) -> Option<&str> {
     let prefix = &text[..cursor.min(text.len())];
-    let line = prefix.rsplit_once('\n').map_or(prefix, |(_, line)| line);
-    let import = line.trim_start().strip_prefix("import")?.trim_start();
-    let quote = import.chars().next()?;
-    if !matches!(quote, '\'' | '"') {
+    let statement = prefix
+        .rsplit_once(';')
+        .map_or(prefix, |(_, statement)| statement)
+        .trim_start();
+    let import = statement.strip_prefix("import")?;
+    let (quote_start, quote) = import
+        .char_indices()
+        .rev()
+        .find(|(_, character)| matches!(character, '\'' | '"'))?;
+    let before = &import[..quote_start];
+    if !before
+        .split_whitespace()
+        .last()
+        .is_some_and(|word| word == "from")
+    {
         return None;
     }
-    let value = &import[quote.len_utf8()..];
+    let value = &import[quote_start + quote.len_utf8()..];
     (!value.contains(quote)).then_some(value)
 }
 
@@ -4118,8 +4394,8 @@ mod tests {
 
     #[test]
     fn tolerant_imports_complete_and_navigate_qualified_definitions() {
-        let chart_text = "avenger 1; import 'definitions.avenger' as defs; chart cartesian as chart { mark defs.badge as badge {} }";
-        let definition_text = "avenger 1; define mark badge { mark symbol {} }";
+        let chart_text = "avenger 1; import * as defs from 'definitions.avenger'; chart cartesian as chart { mark defs.badge as badge {} }";
+        let definition_text = "avenger 1; export define mark badge { mark symbol {} }";
         let chart_origin = SourceOrigin::Memory("multi/chart.avenger".to_owned());
         let definition_origin = SourceOrigin::Memory("multi/definitions.avenger".to_owned());
         let chart = analyze_syntax(&DocumentSnapshot::new(
@@ -4184,11 +4460,11 @@ mod tests {
     }
 
     #[test]
-    fn tolerant_imports_navigate_file_stem_definition_bindings() {
-        let chart_text = "avenger 1; import 'dot.mark.avenger'; chart cartesian as chart { mark dot as points {} }";
-        let definition_text = "avenger 1; define mark dot { mark symbol {} }";
+    fn tolerant_named_imports_navigate_exported_definition_bindings() {
+        let chart_text = "avenger 1; import { dot } from 'dot.avenger'; chart cartesian as chart { mark dot as points {} }";
+        let definition_text = "avenger 1; export define mark dot { mark symbol {} }";
         let chart_origin = SourceOrigin::Memory("multi/chart.avenger".to_owned());
-        let definition_origin = SourceOrigin::Memory("multi/dot.mark.avenger".to_owned());
+        let definition_origin = SourceOrigin::Memory("multi/dot.avenger".to_owned());
         let chart = analyze_syntax(&DocumentSnapshot::new(
             chart_origin.clone(),
             SourceRevision::from_text(chart_text),
@@ -4234,16 +4510,16 @@ mod tests {
 
     #[test]
     fn tolerant_import_bindings_are_scoped_to_each_importer() {
-        let chart_text = "avenger 1; import 'dot.mark.avenger'; chart cartesian as chart { mark dot as points {} }";
-        let definition_text = "avenger 1; define mark dot { mark symbol {} }";
+        let chart_text = "avenger 1; import { dot } from 'dot.avenger'; chart cartesian as chart { mark dot as points {} }";
+        let definition_text = "avenger 1; export define mark dot { mark symbol {} }";
         let origins = [
             (
                 SourceOrigin::Memory("multi/a/chart.avenger".to_owned()),
-                SourceOrigin::Memory("multi/a/dot.mark.avenger".to_owned()),
+                SourceOrigin::Memory("multi/a/dot.avenger".to_owned()),
             ),
             (
                 SourceOrigin::Memory("multi/b/chart.avenger".to_owned()),
-                SourceOrigin::Memory("multi/b/dot.mark.avenger".to_owned()),
+                SourceOrigin::Memory("multi/b/dot.avenger".to_owned()),
             ),
         ];
         let mut syntax = BTreeMap::new();

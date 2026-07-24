@@ -5,9 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use avenger_chart_schema::ValueShape;
 use avenger_lang_core::{
     ByteSpan, SourceFile, SourceId, SourceOrigin, SourceSpan,
-    ast::Name,
+    ast::{ImportClause, Name},
+    module_graph::normalize_path,
     sql::{LosslessTokenKind, TokenClass},
-    syntax::{format_source, parse_file},
+    syntax::{ImportClauseSyntax, format_source, parse_file},
 };
 use sqlparser::tokenizer::Token;
 
@@ -249,40 +250,61 @@ pub(crate) fn rename(
         return Err(RenameError::IncompleteReferences);
     }
 
-    let mut spans = BTreeMap::<SourceOrigin, BTreeSet<SourceSpan>>::new();
-    spans
+    let mut replacements = BTreeMap::<SourceOrigin, BTreeMap<SourceSpan, String>>::new();
+    let declaration_replacement = unaliased_import_name(analysis, symbol)
+        .map_or_else(|| new_name.to_owned(), |imported| {
+            format!("{imported} as {new_name}")
+        });
+    replacements
         .entry(symbol.origin.clone())
         .or_default()
-        .insert(symbol.selection_span);
+        .insert(symbol.selection_span, declaration_replacement);
     for document in analysis.semantic_index.documents.values() {
         for reference in document
             .references
             .iter()
             .filter(|reference| reference.target_identity.as_deref() == Some(&symbol.identity))
         {
+            if symbol.exported
+                && symbol.parent.is_none()
+                && is_named_import_reference(analysis, symbol, reference)
+            {
+                continue;
+            }
             let Some(span) = reference_name_span(analysis, reference, &symbol.name) else {
                 return Err(RenameError::IncompleteReferences);
             };
-            spans
+            replacements
                 .entry(reference.origin.clone())
                 .or_default()
-                .insert(span);
+                .insert(span, new_name.to_owned());
         }
+    }
+    if symbol.keyword == "import" {
+        add_local_import_reference_replacements(
+            analysis,
+            symbol,
+            new_name,
+            &mut replacements,
+        )?;
+    }
+    if symbol.exported && symbol.parent.is_none() {
+        add_export_import_replacements(analysis, symbol, new_name, &mut replacements)?;
     }
     cancellation
         .check()
         .map_err(|_| AnalysisQueryError::Cancelled)?;
 
     let mut sources = BTreeMap::new();
-    for (origin, spans) in spans {
+    for (origin, replacements) in replacements {
         let Some(syntax) = analysis.syntax.get(&origin) else {
             return Err(RenameError::IncompleteReferences);
         };
-        let mut edits = spans
+        let mut edits = replacements
             .into_iter()
-            .map(|span| SourceTextEdit {
+            .map(|(span, new_text)| SourceTextEdit {
                 span,
-                new_text: new_name.to_owned(),
+                new_text,
             })
             .collect::<Vec<_>>();
         edits.sort_by_key(|edit| edit.span.range.start);
@@ -298,6 +320,222 @@ pub(crate) fn rename(
         sources,
         create_files: BTreeMap::new(),
     })
+}
+
+fn unaliased_import_name(
+    analysis: &WorkspaceAnalysis,
+    symbol: &IndexedSymbol,
+) -> Option<String> {
+    if symbol.keyword != "import" {
+        return None;
+    }
+    let strict = analysis.syntax.get(&symbol.origin)?.parsed.strict.as_ref()?;
+    for (import, syntax) in strict
+        .ast
+        .imports
+        .iter()
+        .zip(&strict.module_syntax.imports)
+    {
+        let (ImportClause::Named(specifiers), ImportClauseSyntax::Named {
+            specifiers: spans,
+            ..
+        }) = (&import.clause, &syntax.clause)
+        else {
+            continue;
+        };
+        for (specifier, spans) in specifiers.iter().zip(spans) {
+            if spans.local.range == symbol.selection_span.range
+                && spans.alias_keyword.is_none()
+                && specifier.imported == specifier.local
+            {
+                return Some(specifier.imported.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn add_export_import_replacements(
+    analysis: &WorkspaceAnalysis,
+    symbol: &IndexedSymbol,
+    new_name: &str,
+    replacements: &mut BTreeMap<SourceOrigin, BTreeMap<SourceSpan, String>>,
+) -> Result<(), RenameError> {
+    for (importer, syntax) in &analysis.syntax {
+        let Some(strict) = syntax.parsed.strict.as_ref() else {
+            continue;
+        };
+        for (import, import_syntax) in strict
+            .ast
+            .imports
+            .iter()
+            .zip(&strict.module_syntax.imports)
+        {
+            if resolve_import_origin(importer, &import.source).as_ref() != Some(&symbol.origin) {
+                continue;
+            }
+            let (ImportClause::Named(specifiers), ImportClauseSyntax::Named {
+                specifiers: spans,
+                ..
+            }) = (&import.clause, &import_syntax.clause)
+            else {
+                continue;
+            };
+            for (specifier, spans) in specifiers.iter().zip(spans) {
+                if specifier.imported.as_str() != symbol.name {
+                    continue;
+                }
+                let replacement = if spans.alias_keyword.is_none() {
+                    format!("{new_name} as {}", specifier.local)
+                } else {
+                    new_name.to_owned()
+                };
+                let prior = replacements
+                    .entry(importer.clone())
+                    .or_default()
+                    .insert(spans.imported, replacement.clone());
+                if prior.is_some_and(|prior| prior != replacement) {
+                    return Err(RenameError::IncompleteReferences);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_named_import_reference(
+    analysis: &WorkspaceAnalysis,
+    symbol: &IndexedSymbol,
+    reference: &IndexedReference,
+) -> bool {
+    let Some(strict) = analysis
+        .syntax
+        .get(&reference.origin)
+        .and_then(|syntax| syntax.parsed.strict.as_ref())
+    else {
+        return false;
+    };
+    strict
+        .ast
+        .imports
+        .iter()
+        .zip(&strict.module_syntax.imports)
+        .filter(|(import, _)| {
+            resolve_import_origin(&reference.origin, &import.source).as_ref()
+                == Some(&symbol.origin)
+        })
+        .any(|(import, syntax)| {
+            let (
+                ImportClause::Named(specifiers),
+                ImportClauseSyntax::Named {
+                    specifiers: spans,
+                    ..
+                },
+            ) = (&import.clause, &syntax.clause)
+            else {
+                return false;
+            };
+            specifiers.iter().zip(spans).any(|(specifier, spans)| {
+                specifier.imported.as_str() == symbol.name
+                    && (reference.name == specifier.local.as_str()
+                        || reference.span == spans.imported)
+            })
+        })
+}
+
+fn add_local_import_reference_replacements(
+    analysis: &WorkspaceAnalysis,
+    symbol: &IndexedSymbol,
+    new_name: &str,
+    replacements: &mut BTreeMap<SourceOrigin, BTreeMap<SourceSpan, String>>,
+) -> Result<(), RenameError> {
+    let Some(strict) = analysis
+        .syntax
+        .get(&symbol.origin)
+        .and_then(|syntax| syntax.parsed.strict.as_ref())
+    else {
+        return Ok(());
+    };
+    let local = strict
+        .ast
+        .imports
+        .iter()
+        .zip(&strict.module_syntax.imports)
+        .find_map(|(import, syntax)| {
+            let (
+                ImportClause::Named(specifiers),
+                ImportClauseSyntax::Named {
+                    specifiers: spans,
+                    ..
+                },
+            ) = (&import.clause, &syntax.clause)
+            else {
+                return None;
+            };
+            specifiers.iter().zip(spans).find_map(|(specifier, spans)| {
+                (spans.local.range == symbol.selection_span.range).then(|| {
+                    (
+                        specifier.local.to_string(),
+                        resolve_import_origin(&symbol.origin, &import.source),
+                        specifier.imported.to_string(),
+                    )
+                })
+            })
+        });
+    let Some((local, imported_origin, imported_name)) = local else {
+        return Ok(());
+    };
+    let target_identity = imported_origin.and_then(|origin| {
+        analysis
+            .semantic_index
+            .documents
+            .get(&origin)?
+            .symbols
+            .iter()
+            .find(|candidate| {
+                candidate.parent.is_none()
+                    && candidate.exported
+                    && candidate.name == imported_name
+            })
+            .map(|candidate| candidate.identity.clone())
+    });
+    let Some(document) = analysis.semantic_index.documents.get(&symbol.origin) else {
+        return Ok(());
+    };
+    for reference in document.references.iter().filter(|reference| {
+        reference.name == local
+            && target_identity
+                .as_deref()
+                .is_some_and(|identity| reference.target_identity.as_deref() == Some(identity))
+    }) {
+        let Some(span) = reference_name_span(analysis, reference, &local) else {
+            return Err(RenameError::IncompleteReferences);
+        };
+        replacements
+            .entry(symbol.origin.clone())
+            .or_default()
+            .insert(span, new_name.to_owned());
+    }
+    Ok(())
+}
+
+fn resolve_import_origin(importer: &SourceOrigin, source: &str) -> Option<SourceOrigin> {
+    match importer {
+        SourceOrigin::File(path) => Some(SourceOrigin::File(normalize_path(
+            &path.parent()?.join(source),
+        ))),
+        SourceOrigin::Memory(path) => Some(SourceOrigin::Memory(
+            normalize_path(&std::path::Path::new(path).parent()?.join(source))
+                .to_string_lossy()
+                .into_owned(),
+        )),
+        SourceOrigin::Std(path) => Some(SourceOrigin::Std(
+            normalize_path(&std::path::Path::new(path).parent()?.join(source))
+                .to_string_lossy()
+                .into_owned(),
+        )),
+        SourceOrigin::Http(_) => None,
+    }
 }
 
 pub(crate) fn code_actions(
@@ -503,7 +741,7 @@ fn extract_definition_action(
     if Name::new(group.name.clone()).is_err() {
         return;
     }
-    let definition_path = source_path.with_file_name(format!("{}.mark.avenger", group.name));
+    let definition_path = source_path.with_file_name(format!("{}.avenger", group.name));
     if definition_path.exists() {
         return;
     }
@@ -603,7 +841,7 @@ fn extract_definition_action(
         .map(|name| format!("  slot expr {name};\n"))
         .collect::<String>();
     let raw_definition = format!(
-        "avenger 1;\n\ndefine mark {} {{\n{}{definition_body}\n}}\n",
+        "avenger 1;\n\nexport define mark {} {{\n{}{definition_body}\n}}\n",
         group.name, slots
     );
     let definition_file =
@@ -638,7 +876,11 @@ fn extract_definition_action(
     let Some(definition_file_name) = definition_path.file_name() else {
         return;
     };
-    let import = format!("\nimport '{}';", definition_file_name.to_string_lossy());
+    let import = format!(
+        "\nimport {{ {} }} from '{}';",
+        group.name,
+        definition_file_name.to_string_lossy()
+    );
 
     let mut candidate = text.to_owned();
     candidate.replace_range(group.declaration_span.range.as_range(), &replacement);
@@ -1130,7 +1372,10 @@ fn renameable_kind(kind: IndexedValueKind, keyword: &str) -> bool {
     matches!(
         kind,
         IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
-    ) || matches!(keyword, "define" | "import")
+    ) || matches!(
+        keyword,
+        "chart" | "define" | "catalog" | "schema" | "table" | "import"
+    )
 }
 
 fn references_are_complete(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol) -> bool {
@@ -1140,7 +1385,12 @@ fn references_are_complete(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol)
         .values()
         .flat_map(|document| &document.references)
         .filter(|reference| reference.target_identity.as_deref() == Some(&symbol.identity))
-        .all(|reference| reference_name_span(analysis, reference, &symbol.name).is_some())
+        .all(|reference| {
+            reference_name_span(analysis, reference, &symbol.name).is_some()
+                || (symbol.exported
+                    && symbol.parent.is_none()
+                    && is_named_import_reference(analysis, symbol, reference))
+        })
 }
 
 fn rename_span_at_cursor(

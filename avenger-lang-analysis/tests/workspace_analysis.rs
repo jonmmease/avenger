@@ -97,14 +97,14 @@ async fn unsaved_new_imports_participate_in_the_exact_snapshot_closure() {
     let directory = tempfile::tempdir().unwrap();
     let project_root = std::fs::canonicalize(directory.path()).unwrap();
     let chart = SourceOrigin::File(project_root.join("chart.avenger"));
-    let badge = SourceOrigin::File(project_root.join("badge.mark.avenger"));
+    let badge = SourceOrigin::File(project_root.join("badge.avenger"));
     let compiler = Compiler::builder()
         .project_root(&project_root)
         .source_loader(Arc::new(InMemorySourceLoader::default()))
         .build()
         .unwrap();
-    let chart_text = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
-    let badge_text = "avenger 1; define mark badge { mark symbol {} }";
+    let chart_text = "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { mark badge as imported {} }";
+    let badge_text = "avenger 1; export define mark badge { mark symbol {} }";
     let snapshot = WorkspaceSnapshot {
         generation: AnalysisGeneration::new(9),
         project_root,

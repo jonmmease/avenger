@@ -286,6 +286,73 @@ impl WorkspaceAnalysis {
         )
         .references(request, include_declaration, cancellation)
     }
+
+    pub fn chart_runnables(
+        &self,
+        request: &DocumentRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<ChartRunnablesResult, AnalysisQueryError> {
+        cancellation
+            .check()
+            .map_err(|_| AnalysisQueryError::Cancelled)?;
+        let syntax = self
+            .syntax
+            .get(&request.source)
+            .ok_or(AnalysisQueryError::UnknownSource)?;
+        if syntax.revision != request.source_revision {
+            return Err(AnalysisQueryError::StaleRevision);
+        }
+        let chart_items = syntax
+            .parsed
+            .module_syntax
+            .items
+            .iter()
+            .filter(|item| {
+                item.keyword
+                    .as_ref()
+                    .is_some_and(|keyword| keyword.text.eq_ignore_ascii_case("chart"))
+            })
+            .collect::<Vec<_>>();
+        let singleton = chart_items.len() == 1;
+        let runnables = chart_items
+            .into_iter()
+            .filter_map(|item| {
+                let selector = item
+                    .chart_name
+                    .as_ref()
+                    .or(item.name.as_ref())
+                    .map(|name| name.text.clone());
+                if selector.is_none() && !singleton {
+                    return None;
+                }
+                let selection_span = item
+                    .chart_name
+                    .as_ref()
+                    .or(item.name.as_ref())
+                    .map_or_else(
+                        || {
+                            item.keyword
+                                .as_ref()
+                                .map_or(item.declaration_span, |keyword| keyword.span)
+                        },
+                        |name| name.span,
+                    );
+                Some(ChartRunnable {
+                    label: selector
+                        .as_ref()
+                        .map_or_else(|| "Run chart".to_owned(), |name| format!("Run chart {name}")),
+                    selector,
+                    span: item.declaration_span,
+                    selection_span,
+                })
+            })
+            .collect();
+        Ok(ChartRunnablesResult {
+            runnables,
+            generation: self.generation,
+            source_revision: request.source_revision.clone(),
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -740,6 +807,21 @@ pub struct DocumentSymbol {
     pub span: SourceSpan,
     pub selection_span: SourceSpan,
     pub children: Vec<DocumentSymbol>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChartRunnable {
+    pub label: String,
+    pub selector: Option<String>,
+    pub span: SourceSpan,
+    pub selection_span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChartRunnablesResult {
+    pub runnables: Vec<ChartRunnable>,
+    pub generation: AnalysisGeneration,
+    pub source_revision: SourceRevision,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

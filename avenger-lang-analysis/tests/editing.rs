@@ -221,6 +221,61 @@ chart cartesian {
 }
 
 #[test]
+fn chart_runnables_carry_exact_selectors_and_reject_ambiguous_anonymous_charts() {
+    let source = r#"avenger 1;
+
+chart cartesian as first {}
+chart polar as second {}
+"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let result = analysis
+        .chart_runnables(
+            &DocumentRequest {
+                source: origin,
+                source_revision: revision,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result
+            .runnables
+            .iter()
+            .map(|runnable| runnable.selector.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("first"), Some("second")]
+    );
+
+    let anonymous = "avenger 1; chart cartesian {}";
+    let (analysis, origin, revision) = workspace_analysis(anonymous);
+    let result = analysis
+        .chart_runnables(
+            &DocumentRequest {
+                source: origin,
+                source_revision: revision,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(result.runnables.len(), 1);
+    assert_eq!(result.runnables[0].selector, None);
+
+    let ambiguous = "avenger 1; chart cartesian {} chart polar as named {}";
+    let (analysis, origin, revision) = workspace_analysis(ambiguous);
+    let result = analysis
+        .chart_runnables(
+            &DocumentRequest {
+                source: origin,
+                source_revision: revision,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(result.runnables.len(), 1);
+    assert_eq!(result.runnables[0].selector.as_deref(), Some("named"));
+}
+
+#[test]
 fn references_prefer_the_nearest_lexical_binding_when_names_repeat() {
     let source = r#"avenger 1;
 
@@ -430,7 +485,7 @@ chart cartesian as chart {
 
 #[test]
 fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
-    let source = "avenger 1; import 'https://example.test/badge.mark.avenger' as defs; chart cartesian as chart {}";
+    let source = "avenger 1; import * as defs from 'https://example.test/badge.avenger'; chart cartesian as chart {}";
     let (analysis, origin, revision) = workspace_analysis(source);
     let start = source.find("https://").unwrap();
     let target = analysis
@@ -441,7 +496,7 @@ fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
                     source: analysis.syntax[&origin].parsed.tokens.source(),
                     range: ByteSpan {
                         start,
-                        end: start + "https://example.test/badge.mark.avenger".len(),
+                        end: start + "https://example.test/badge.avenger".len(),
                     },
                 },
                 source_revision: revision,
@@ -451,13 +506,16 @@ fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
         )
         .unwrap()
         .expect("pin target");
-    assert_eq!(target.url, "https://example.test/badge.mark.avenger");
+    assert_eq!(target.url, "https://example.test/badge.avenger");
     assert_eq!(
         &source[target.insertion_span.range.start - 1..target.insertion_span.range.start],
         "'"
     );
 
-    let pinned = source.replace(" as defs", " sha256 'abc' as defs");
+    let pinned = source.replace(
+        "badge.avenger'",
+        "badge.avenger' sha256 'abc'",
+    );
     let (analysis, origin, revision) = workspace_analysis(&pinned);
     assert!(
         analysis
@@ -484,9 +542,9 @@ fn pin_import_target_is_offered_only_for_unpinned_remote_imports() {
 #[tokio::test]
 async fn explicit_pin_fetch_hashes_only_valid_remote_definitions() {
     let directory = tempfile::tempdir().unwrap();
-    let url = "https://example.test/badge.mark.avenger";
+    let url = "https://example.test/badge.avenger";
     let origin = SourceOrigin::Http(url.to_owned());
-    let definition = "avenger 1; define mark badge { mark symbol {} }";
+    let definition = "avenger 1; export define mark badge { mark symbol {} }";
     let loader = InMemorySourceLoader::default().with_source(LoadedSource::new(
         origin.clone(),
         definition,
@@ -519,10 +577,10 @@ async fn explicit_pin_fetch_hashes_only_valid_remote_definitions() {
 
 #[test]
 fn rename_covers_import_aliases_and_cross_file_definition_references() {
-    let definition_origin = SourceOrigin::Memory("editing/badge.mark.avenger".to_owned());
+    let definition_origin = SourceOrigin::Memory("editing/badge.avenger".to_owned());
     let chart_origin = SourceOrigin::Memory("editing/chart.avenger".to_owned());
-    let definition = "avenger 1; define mark badge { mark symbol {} }";
-    let chart = "avenger 1; import 'badge.mark.avenger' as defs; chart cartesian as chart { mark defs.badge as imported {} }";
+    let definition = "avenger 1; export define mark badge { mark symbol {} }";
+    let chart = "avenger 1; import * as defs from 'badge.avenger'; chart cartesian as chart { mark defs.badge as imported {} }";
     let definition_revision = SourceRevision::from_text(definition);
     let chart_revision = SourceRevision::from_text(chart);
     let syntax = BTreeMap::from([
@@ -583,15 +641,132 @@ fn rename_covers_import_aliases_and_cross_file_definition_references() {
     assert_eq!(definition_edit.sources[&chart_origin].edits.len(), 1);
 }
 
+#[test]
+fn rename_preserves_local_import_bindings_across_export_changes() {
+    let definition_origin = SourceOrigin::Memory("editing/library.avenger".to_owned());
+    let direct_origin = SourceOrigin::Memory("editing/direct.avenger".to_owned());
+    let alias_origin = SourceOrigin::Memory("editing/alias.avenger".to_owned());
+    let namespace_origin = SourceOrigin::Memory("editing/namespace.avenger".to_owned());
+    let definition = "avenger 1; export define mark badge { mark symbol {} }";
+    let direct = "avenger 1; import { badge } from 'library.avenger'; chart cartesian { mark badge as direct {} }";
+    let alias = "avenger 1; import { badge as b } from 'library.avenger'; chart cartesian { mark b as aliased {} }";
+    let namespace = "avenger 1; import * as defs from 'library.avenger'; chart cartesian { mark defs.badge as qualified {} }";
+    let sources = [
+        (definition_origin.clone(), definition),
+        (direct_origin.clone(), direct),
+        (alias_origin.clone(), alias),
+        (namespace_origin.clone(), namespace),
+    ];
+    let syntax = sources
+        .iter()
+        .map(|(origin, text)| {
+            (
+                origin.clone(),
+                analyze_syntax(&DocumentSnapshot::new(
+                    origin.clone(),
+                    SourceRevision::from_text(text),
+                    *text,
+                )),
+            )
+        })
+        .collect();
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(3),
+        PathBuf::from("editing"),
+        sources.iter().map(|(origin, _)| origin.clone()).collect(),
+        syntax,
+        test_registry(),
+    );
+
+    let edit = analysis
+        .rename(
+            &PositionRequest {
+                source: definition_origin.clone(),
+                byte_offset: definition.find("badge").unwrap() + 1,
+                source_revision: SourceRevision::from_text(definition),
+            },
+            "status_badge",
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let apply = |origin: &SourceOrigin, source: &str| {
+        let mut output = source.to_owned();
+        for edit in edit.sources[origin].edits.iter().rev() {
+            output.replace_range(edit.span.range.as_range(), &edit.new_text);
+        }
+        output
+    };
+    assert!(apply(&definition_origin, definition).contains("define mark status_badge"));
+    let renamed_direct = apply(&direct_origin, direct);
+    assert!(renamed_direct.contains("import { status_badge as badge }"));
+    assert!(renamed_direct.contains("mark badge as direct"));
+    let renamed_alias = apply(&alias_origin, alias);
+    assert!(renamed_alias.contains("import { status_badge as b }"));
+    assert!(renamed_alias.contains("mark b as aliased"));
+    let renamed_namespace = apply(&namespace_origin, namespace);
+    assert!(renamed_namespace.contains("mark defs.status_badge as qualified"));
+}
+
+#[test]
+fn rename_of_unaliased_import_introduces_an_explicit_local_alias() {
+    let definition_origin = SourceOrigin::Memory("editing/library.avenger".to_owned());
+    let chart_origin = SourceOrigin::Memory("editing/chart.avenger".to_owned());
+    let definition = "avenger 1; export define mark badge { mark symbol {} }";
+    let chart = "avenger 1; import { badge } from 'library.avenger'; chart cartesian { mark badge as direct {} }";
+    let syntax = BTreeMap::from([
+        (
+            definition_origin.clone(),
+            analyze_syntax(&DocumentSnapshot::new(
+                definition_origin.clone(),
+                SourceRevision::from_text(definition),
+                definition,
+            )),
+        ),
+        (
+            chart_origin.clone(),
+            analyze_syntax(&DocumentSnapshot::new(
+                chart_origin.clone(),
+                SourceRevision::from_text(chart),
+                chart,
+            )),
+        ),
+    ]);
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(4),
+        PathBuf::from("editing"),
+        vec![definition_origin, chart_origin.clone()],
+        syntax,
+        test_registry(),
+    );
+    let edit = analysis
+        .rename(
+            &PositionRequest {
+                source: chart_origin.clone(),
+                byte_offset: chart.find("badge").unwrap() + 1,
+                source_revision: SourceRevision::from_text(chart),
+            },
+            "marker",
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(edit.sources.len(), 1);
+    let mut renamed = chart.to_owned();
+    for edit in edit.sources[&chart_origin].edits.iter().rev() {
+        renamed.replace_range(edit.span.range.as_range(), &edit.new_text);
+    }
+    assert!(renamed.contains("import { badge as marker }"));
+    assert!(renamed.contains("mark marker as direct"));
+}
+
 #[tokio::test]
 async fn inline_definition_uses_the_compilers_canonical_expansion() {
     let directory = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(directory.path()).unwrap();
     let chart_path = root.join("chart.avenger");
-    let definition_path = root.join("badge.mark.avenger");
-    let chart = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
+    let definition_path = root.join("badge.avenger");
+    let chart = "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { mark badge as imported {} }";
     let definition =
-        "avenger 1; define mark badge { mark symbol as body { x: value 1; y: value 2; } }";
+        "avenger 1; export define mark badge { mark symbol as body { x: value 1; y: value 2; } }";
     std::fs::write(&chart_path, chart).unwrap();
     std::fs::write(&definition_path, definition).unwrap();
     let chart_origin = SourceOrigin::File(chart_path.clone());
@@ -726,9 +901,9 @@ chart cartesian as chart {
         .iter()
         .find(|action| action.kind == CodeActionKind::RefactorExtract)
         .expect("extract definition action");
-    let definition_origin = SourceOrigin::File(chart_path.with_file_name("cluster.mark.avenger"));
+    let definition_origin = SourceOrigin::File(chart_path.with_file_name("cluster.avenger"));
     let definition = &action.edit.create_files[&definition_origin];
-    assert!(definition.contains("define mark cluster"));
+    assert!(definition.contains("export define mark cluster"));
     assert!(definition.contains("slot expr point_size"));
     assert!(definition.contains("size: point_size"));
     assert!(definition.contains("-- keep this authored explanation"));
@@ -741,7 +916,7 @@ chart cartesian as chart {
     }
     std::fs::write(&chart_path, extracted).unwrap();
     std::fs::write(
-        chart_path.with_file_name("cluster.mark.avenger"),
+        chart_path.with_file_name("cluster.avenger"),
         definition,
     )
     .unwrap();

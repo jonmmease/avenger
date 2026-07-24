@@ -76,7 +76,7 @@ fn frozen_corpus_covers_the_required_editing_shapes() {
         "expression.cursor.avenger",
         "sql_from_first.cursor.avenger",
         "import_chart.avenger",
-        "schema.data.avenger",
+        "schema.avenger",
         "multi_file/chart.avenger",
         "multi_file/definitions.avenger",
     ] {
