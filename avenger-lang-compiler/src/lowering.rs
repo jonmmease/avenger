@@ -93,8 +93,8 @@ type ToolBehaviorFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<ResolvedToolBehavior, Diagnostic>> + 'a>,
 >;
 
-/// Lower one chart root in a chart-local session cloned from the project's
-/// analyzed catalog generation. This is the unit used by Phase 10's
+/// Lower one chart entrypoint in a chart-local session cloned from the
+/// module graph's analyzed catalog generation. This is the unit used by the
 /// deterministic sequential/parallel scheduler and artifact cache.
 pub(crate) async fn lower_project_chart(
     project: &ResolvedModuleGraph,

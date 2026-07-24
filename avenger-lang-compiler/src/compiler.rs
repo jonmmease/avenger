@@ -63,7 +63,7 @@ struct ArtifactCache {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyRole {
-    RootChart,
+    RequestedModule,
     Import,
     DataConfiguration,
     LocalResource,
@@ -862,7 +862,7 @@ impl Compiler {
         self.resolve_module_attempt(path).await.result.map(|_| ())
     }
 
-    pub async fn expand_file(
+    pub async fn expand_module(
         &self,
         path: impl AsRef<Path>,
     ) -> Result<ExpandedSource, CompileFailure> {
@@ -885,10 +885,10 @@ impl Compiler {
             .ok_or_else(|| CompileFailure {
                 diagnostics: vec![Diagnostic::error(
                     "AVENGER-EXPAND-003",
-                    "source expansion requires one chart root",
+                    "source expansion requires one requested module",
                     SourceLabel::new(
                         SourceSpan::empty(SourceId::new(0), 0),
-                        "the loaded project has no chart root",
+                        "the loaded graph has no requested module",
                     ),
                 )],
                 sources: project.sources.clone(),
@@ -900,7 +900,7 @@ impl Compiler {
             .ok_or_else(|| CompileFailure {
                 diagnostics: vec![Diagnostic::error(
                     "AVENGER-EXPAND-004",
-                    "expanded chart source is missing",
+                    "expanded module source is missing",
                     SourceLabel::new(
                         SourceSpan::empty(SourceId::new(0), 0),
                         format!("no expansion was emitted for `{}`", root.as_str()),
@@ -915,8 +915,8 @@ impl Compiler {
         })
     }
 
-    /// Phase 4 frontend seam: load and semantically resolve one chart and its
-    /// complete dependency closure without constructing native chart objects.
+    /// Load and semantically resolve one requested module and its complete
+    /// dependency closure without constructing native chart objects.
     pub async fn resolve_module_attempt(
         &self,
         path: impl AsRef<Path>,
@@ -933,8 +933,8 @@ impl Compiler {
         self.resolve_module_attempt(path).await.result
     }
 
-    /// Phase 3 frontend seam: load one chart and its complete import/data
-    /// closure without performing semantic validation or lowering.
+    /// Load one requested module and its complete import/data closure without
+    /// performing semantic validation or lowering.
     pub async fn load_module_graph_attempt(
         &self,
         path: impl AsRef<Path>,
@@ -1344,7 +1344,7 @@ fn compiler_dependencies(
             _ => None,
         };
         let role = match dependency.role {
-            ModuleDependencyRole::RequestedModule => DependencyRole::RootChart,
+            ModuleDependencyRole::RequestedModule => DependencyRole::RequestedModule,
             ModuleDependencyRole::Import => DependencyRole::Import,
             ModuleDependencyRole::AmbientDataRoot => DependencyRole::DataConfiguration,
         };

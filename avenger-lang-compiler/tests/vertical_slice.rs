@@ -2127,7 +2127,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     let root = fixture("04_custom_error_bar");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let expanded = compiler
-        .expand_file(root.join("chart.avenger"))
+        .expand_module(root.join("chart.avenger"))
         .await
         .unwrap();
     assert_expansion_baseline("04_custom_error_bar.avenger", &expanded.text);
@@ -2227,7 +2227,7 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
     let root = fixture("05_custom_tool");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let expanded = compiler
-        .expand_file(root.join("chart.avenger"))
+        .expand_module(root.join("chart.avenger"))
         .await
         .unwrap();
     assert_expansion_baseline("05_custom_tool.avenger", &expanded.text);
@@ -2334,7 +2334,7 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
     let root = fixture("05_custom_transform_pipeline");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let expanded = compiler
-        .expand_file(root.join("chart.avenger"))
+        .expand_module(root.join("chart.avenger"))
         .await
         .unwrap();
     assert_expansion_baseline("05_custom_transform_pipeline.avenger", &expanded.text);
@@ -2427,7 +2427,7 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
     let root = fixture("05_definition_widget_adjacency");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let expanded = compiler
-        .expand_file(root.join("chart.avenger"))
+        .expand_module(root.join("chart.avenger"))
         .await
         .unwrap();
     for retained in [
@@ -2487,7 +2487,7 @@ async fn expansion_lowering_diagnostics_remap_to_definition_with_instance_trace(
     let root = fixture("05_definition_lowering_error");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let expanded = compiler
-        .expand_file(root.join("chart.avenger"))
+        .expand_module(root.join("chart.avenger"))
         .await
         .unwrap();
     let definition_source = expanded

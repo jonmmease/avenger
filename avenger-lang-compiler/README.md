@@ -8,21 +8,24 @@ the public `avenger-lang` facade depends on both.
 
 ## Current API map
 
-- `Compiler::load_file_project_attempt()` loads one chart plus ambient data and
-  its import closure; `load_project_graph_attempt()` deterministically
-  discovers all project charts and ambient data files. Both retain dependency
-  candidates, versions, and watch anchors on failure.
+- `Compiler::load_module_graph_attempt()` loads an ordinary source module and
+  its explicit import closure. `Compiler::compile_chart_attempt()` selects one
+  named or singleton chart entrypoint from that graph, while
+  `Compiler::compile_module_attempt()` compiles every chart entrypoint in the
+  requested module. All retain dependency candidates, versions, and watch
+  anchors on failure.
 - `DefaultSourceLoader` enforces the project-root boundary, canonicalizes
   filesystem and redirect origins, rejects symlink escapes, serves versioned
   bundled `std:` definitions, and bounds capability-gated HTTP reads.
-- `compile_file_attempt()` and `compile_project_attempt()` use the same project
-  graph, typed semantic resolution, canonical definition expansion, and
-  asynchronous schema-paired native-registry lowering.
+- Module-graph compilation uses typed semantic resolution, canonical
+  definition expansion, and asynchronous schema-paired native-registry
+  lowering for every selected chart entrypoint.
 - Project fingerprints include verified language-source content, the AST
   schema/native-registry versions, and discovered local resource versions.
-- `expand_file()` returns valid canonical ordinary DSL plus an expansion source
-  map. Imported custom mark, tool, and transform definitions lower through the
-  same group, behavior, and pipeline paths as handwritten ordinary DSL.
+- `expand_module()` returns valid canonical ordinary DSL plus an expansion
+  source map. Imported custom mark, tool, and transform definitions lower
+  through the same group, behavior, and pipeline paths as handwritten
+  ordinary DSL.
 - Definition expansion provides typed slots and defaults, channels, closed
   matches, caller block splicing, private alpha-renaming, exact exports,
   migration metadata, and macro-style diagnostic traces. Built-in widgets are
@@ -45,7 +48,6 @@ The earlier bootstrap API remains in place:
 - Compiled Rust params retain an explicit physical Arrow type derived from
   their `ScalarValue` default. The DSL declares its type and default separately
   and validates both before lowering.
-- `compile_phase0_example()` and `analyze_phase0_empty()` remain hidden
-  compatibility harnesses. Phase 5's real `compile_file()` and
-  `compile_project()` paths now produce the same artifact and analysis
-  contracts from DSL input.
+- `compile_phase0_example()` and `analyze_phase0_empty()` remain hidden test
+  harnesses. The public module-graph APIs produce the real artifact and
+  analysis contracts from DSL input.
