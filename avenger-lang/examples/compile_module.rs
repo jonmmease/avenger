@@ -22,8 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .evaluate(&SessionContext::new(), None)
         .await?;
     println!(
-        "compiled {} with registry profile {} into a {}x{} scene with {} root groups",
-        format!("{:?}", artifact.id.selector),
+        "compiled {:?} with registry profile {} into a {}x{} scene with {} root groups",
+        artifact.id.selector,
         artifact.native_requirements.fingerprint(),
         evaluated.scene_graph.width,
         evaluated.scene_graph.height,
