@@ -35,6 +35,7 @@ const TAXI_ARROW_URL: &str = "data/nyc_taxi_1m.arrow";
 const TAXI_TABLE: &str = "taxi_pickups";
 const TAXI_BATCH_ROWS: usize = 8192;
 const TAXI_POINT_COUNT: usize = 1_000_000;
+#[allow(clippy::approx_constant)] // These decimals are authored color channels, not math constants.
 const RASTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]

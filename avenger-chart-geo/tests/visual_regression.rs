@@ -1914,6 +1914,7 @@ mod phase6 {
     /// The synthetic-cluster density raster mark shared by the raster
     /// visual tests: 3857-framed `Rasterize2D` over static CONUS extents
     /// with a fixed sqrt fill ramp.
+    #[allow(clippy::approx_constant)] // The decimals below are RGB channels, not math constants.
     fn synthetic_density_raster_mark() -> avenger_chart_geo::UniformRaster2D<Geo> {
         use avenger_chart::channel::LegendableChannel;
         use avenger_chart::prelude::{Rasterize2D, Sqrt, SqrtScaleExt};
