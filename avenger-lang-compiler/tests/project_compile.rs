@@ -10,11 +10,13 @@ use std::{
 
 use arrow::datatypes::{DataType, Field, Schema};
 use async_trait::async_trait;
+use avenger_common::canvas::CanvasDimensions;
 use avenger_lang_compiler::{
     CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
     CompileEnvironmentRequest, Compiler, ModuleCompilationMode, TableFactory, TableFactoryError,
     TableFactoryRegistry,
 };
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::datasource::{TableProvider, memory::MemTable};
 use datafusion::prelude::SessionContext;
 use tokio::sync::Notify;
@@ -374,6 +376,108 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
     let parallel = diagnostics(ModuleCompilationMode::Parallel).await;
     assert_eq!(sequential.len(), 2);
     assert_eq!(sequential, parallel);
+}
+
+#[tokio::test]
+async fn private_lexical_renames_preserve_compiled_behavior_and_state_identity() {
+    let project = TempProject::empty();
+    fs::write(
+        project.0.join("marks.avenger"),
+        r#"avenger 1;
+export define mark badge {
+  mark symbol as glyph { x: "x"; y: "y"; }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        project.0.join("data.avenger"),
+        r#"avenger 1;
+export table inline as observations {
+  values: [{ x: 1.0; y: 2.0; }];
+}
+"#,
+    )
+    .unwrap();
+    let source = |mark_alias: &str, data_alias: &str, private_mark: &str, private_table: &str| {
+        format!(
+            r#"avenger 1;
+import {{ badge as {mark_alias} }} from './marks.avenger';
+import * as {data_alias} from './data.avenger';
+
+define mark {private_mark} {{
+  mark {mark_alias} as nested {{}}
+}}
+
+table sql as {private_table} {{
+  sql: SELECT * FROM {data_alias}.observations;
+}}
+
+chart cartesian as chart {{
+  data: {{ table: '{private_table}'; }}
+  param float64 as point_size {{ value: 64.0; }}
+  mark {private_mark} as points {{}}
+  mark symbol as state_probe {{
+    x: "x";
+    y: "y";
+    size: $point_size;
+    visible: value false;
+  }}
+}}
+"#
+        )
+    };
+    let module = module_path(&project.0);
+    fs::write(
+        &module,
+        source("local_badge", "data_pack", "private_badge", "private_rows"),
+    )
+    .unwrap();
+
+    let compiler = Compiler::builder()
+        .project_root(&project.0)
+        .build()
+        .unwrap();
+    let before = compiler
+        .compile_chart(&module, Some("chart"))
+        .await
+        .unwrap();
+
+    fs::write(
+        &module,
+        source(
+            "renamed_badge",
+            "renamed_data",
+            "renamed_private_badge",
+            "renamed_private_rows",
+        ),
+    )
+    .unwrap();
+    let after = compiler
+        .compile_chart(&module, Some("chart"))
+        .await
+        .unwrap();
+
+    assert_eq!(before.interface, after.interface);
+    assert_eq!(before.native_requirements, after.native_requirements);
+    assert_eq!(render(&before).await, render(&after).await);
+}
+
+async fn render(artifact: &avenger_lang_compiler::CompiledChartArtifact) -> image::RgbaImage {
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    let dimensions = CanvasDimensions {
+        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
+        scale: 1.0,
+    };
+    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
+        .await
+        .unwrap();
+    canvas.set_scene(&evaluated.scene_graph).unwrap();
+    canvas.render().await.unwrap()
 }
 
 struct FingerprintedEnvironmentFactory(String);

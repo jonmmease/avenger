@@ -484,28 +484,32 @@ impl Expander<'_> {
                 let retained = specifiers
                     .iter()
                     .filter(|specifier| {
-                        ![
+                        let imported_definition = [
                             avenger_chart_schema::NativeKindNamespace::Mark,
                             avenger_chart_schema::NativeKindNamespace::Tool,
                             avenger_chart_schema::NativeKindNamespace::Transform,
                         ]
                         .into_iter()
-                        .any(|namespace| {
+                        .find_map(|namespace| {
                             let category = BindingCategory::NativeKind(namespace);
-                            let Some(export) = environment
+                            let export = environment
                                 .local
-                                .get(&(category, specifier.local.to_string()))
-                            else {
-                                return false;
-                            };
+                                .get(&(category, specifier.local.to_string()))?;
                             let crate::module_graph::ModuleId::Source(source) = &export.module
                             else {
-                                return false;
+                                return None;
                             };
-                            self.resolved.definitions.values().any(|definition| {
-                                definition.item.module == *source
-                                    && definition.source_name == export.name
-                            })
+                            self.resolved
+                                .definitions
+                                .values()
+                                .find(|definition| {
+                                    definition.item.module == *source
+                                        && definition.source_name == export.name
+                                })
+                                .map(|definition| definition.item.clone())
+                        });
+                        imported_definition.is_none_or(|definition| {
+                            self.retained_item_uses_definition(module, &definition)
                         })
                     })
                     .cloned()
@@ -517,6 +521,28 @@ impl Expander<'_> {
                 })
             })
             .collect()
+    }
+
+    fn retained_item_uses_definition(
+        &self,
+        module: &SourceModuleId,
+        definition: &ModuleItemId,
+    ) -> bool {
+        self.resolved
+            .source_modules
+            .get(module)
+            .into_iter()
+            .flat_map(|module| module.item_order.iter().zip(&module.roots))
+            .filter(|(_, declaration)| declaration.keyword != "chart")
+            .any(|(item, _)| {
+                item == definition
+                    || self
+                        .resolved
+                        .item_dependencies
+                        .transitive_closures
+                        .get(item)
+                        .is_some_and(|closure| closure.contains(definition))
+            })
     }
 
     fn expand_declaration(
