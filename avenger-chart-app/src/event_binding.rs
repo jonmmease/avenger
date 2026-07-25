@@ -3581,12 +3581,27 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                         ChartEventAssignmentScope::Current => current_scope.as_ref(),
                         ChartEventAssignmentScope::Start => start_scope.as_ref(),
                     };
-                    let Some(owner_path) = assignment_owner_path_for_surface(
+                    let owner_path = match assignment_owner_path_for_surface(
                         assignment.sharing,
                         assignment_scope,
                         legend_surface_match,
-                    ) else {
-                        continue;
+                    ) {
+                        Some(owner_path) => owner_path,
+                        None => {
+                            app.event_metrics.evaluation_errors += 1;
+                            tracing::warn!(
+                                target: "avenger_chart_app::event_binding",
+                                binding = self.runtime.binding_index,
+                                store = %assignment.store_name,
+                                store_id = %assignment.runtime_id,
+                                sharing = ?assignment.sharing,
+                                assignment_scope = ?assignment.scope,
+                                surface = ?self.runtime.surface_target,
+                                "non-shared store action has no routed owner"
+                            );
+                            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                            return failed_event_status();
+                        }
                     };
                     let Some(update) = store_state_update_from_values(
                         &assignment.update,
@@ -4892,8 +4907,9 @@ fn assignment_value_is_writable(value: &ScalarValue, default_value: &ScalarValue
 
 /// Resolve the owner path an assignment should write, given the routed scope.
 ///
-/// `Shared` params always write the root path. Non-shared params require a
-/// routed scope; without one, returns `None` so the caller skips the write.
+/// `Shared` state always writes the root path. Non-shared state requires a
+/// routed scope; without one, returns `None` for the action-specific caller to
+/// handle.
 fn assignment_owner_path(
     sharing: CoordinationScope,
     scope: Option<&EvaluatedInteractionScope>,
@@ -15070,15 +15086,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unrouted_free_store_write_is_a_committed_noop() {
+    async fn unrouted_free_store_write_fails_and_rolls_back_prior_actions() {
         use datafusion::arrow::datatypes::DataType;
 
         let ctx = SessionContext::new();
-        let binding = ChartEventBinding::on(ChartEventType::CursorMoved).set_store(
-            "rows",
-            StoreUpdate::insert_rows([StoreRow::new().field("id", lit("unrouted"))]),
-        );
+        let value = Param::new("value", ScalarValue::Int64(Some(1)));
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(&value, lit(2_i64))
+            .set_store(
+                "rows",
+                StoreUpdate::insert_rows([StoreRow::new().field("id", lit("unrouted"))]),
+            );
         let compiled = Chart::<Cartesian>::new()
+            .param(value)
             .store(
                 Store::empty("rows")
                     .field("id", DataType::Utf8, false)
@@ -15119,8 +15139,13 @@ mod tests {
             )
             .await;
 
-        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(status.admission, Some(EventAdmission::Failed));
         assert!(!status.rerender);
+        assert_eq!(
+            state.params().await.get("value"),
+            Some(&ScalarValue::Int64(Some(1))),
+            "the earlier param action must roll back with the unrouted store write"
+        );
         let runtime = state.runtime.lock().await;
         let rows = runtime.session.store_rows_for_diagnostics("rows");
         assert_eq!(rows.len(), 1, "only the root seed instance exists");

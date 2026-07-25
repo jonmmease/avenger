@@ -2535,8 +2535,8 @@ existing concrete owner instance of the target declaration, then applies the
 RHS to only the owner selected by `at current|start`. Without it, other owner
 instances remain unchanged. Later actions see the resulting working state, and
 failure rolls back both the removals and the write. Removed scalar-param owners
-fall back to the declared `value:`; removed store owners are empty and declared
-initial rows are not reseeded. The modifier is invalid for selections, whose
+fall back to the declared `value:`; removed store owners lazily fall back to
+their declared initial rows. The modifier is invalid for selections, whose
 update kinds already distinguish all-clause and in-scope operations. It is
 redundant for `sharing: shared` and earns a warning. This is the DSL spelling
 of Rust's `replace_scoped_values` assignment behavior.
@@ -2864,18 +2864,27 @@ key remains `(declaration identity, owner path)`, so hoisting does not alter
 facet sharing or component-instance isolation.
 
 Reads and event writes use the same owner-path calculation. A scalar param with
-no written value at its resolved owner uses its declared initial `value:`. Store initial
-rows seed only the root instance; an as-yet unwritten non-root `free` or
-`level(n)` store instance is empty. A non-shared event write with no routed
-facet scope is a no-op rather than an implicit root write. Store revisions and
-materialization keys are per concrete `(store, owner_path)` instance. For a
-raw-domain param, validation additionally requires its sharing to be at least as
-broad as the scale domain it controls; native tools may explicitly select a
-scope or mirror the target scale's sharing.
+no written value at its resolved owner uses its declared initial `value:`.
+Declared store rows are likewise the immutable authored baseline for every
+owner. The root instance is seeded eagerly; an as-yet unwritten non-root
+`free` or `level(n)` owner reads those rows lazily at revision zero. Its first
+effective mutation materializes that owner's rows and advances its revision;
+an update equal to the authored baseline remains revision zero. Store revisions
+and materialization keys are per concrete `(store, owner_path)` instance.
 
-> Before implementation, reconsider whether declared store initial rows should
-> lazily seed every scoped store instance, and whether an unrouted non-shared
-> write should be a runtime error instead of a no-op.
+An admitted non-shared store action must have a routed interaction scope for
+its selected `at current` or `at start` surface. If no owner can be derived, the
+binding fails with a diagnostic naming the store, sharing mode, assignment
+surface, and event surface. The whole transaction rolls back, and failed
+admission does not advance consumption, throttling, or `previous` state. This
+never silently redirects a misrouted write to the root. Shared stores and
+compiler-owned root surfaces always select the root. An evaluated unfaceted
+plot scope also resolves `free` and `level(n)` to the root through ordinary
+root saturation, so unfaceted interactions remain valid.
+
+For a raw-domain param, validation additionally requires its sharing to be at
+least as broad as the scale domain it controls; native tools may explicitly
+select a scope or mirror the target scale's sharing.
 
 Chart/component params are predeclared within their lexical scope, so defaults
 may form an acyclic forward-reference graph:
@@ -5854,18 +5863,19 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    keyword-adjacent spellings cannot drift. Runtime fixtures also pin
    default/current versus captured-start target routing, mixed target routes in
    one transaction, invalid `at start` outside `between:`, redundant shared-
-   target warnings, and no-op missing routes. Cross-owner fixtures pin that
+   target warnings, and failed missing routes. Cross-owner fixtures pin that
    ordered visibility is keyed by concrete `(binding, owner)`, ordinary reads
    remain current-routed after an `at start` write, temporal reads remain frozen,
    RHS store scans remain current-routed, and an `at start` store primitive
    internally sees its target owner's pre-action working rows. They cover
    `replacing scopes`
    removal-before-write ordering, later-action visibility, rollback, param-
-   initializer fallback, empty non-reseeded stores, invalid selection use, and the
+   initializer fallback, lazy store-row fallback, invalid selection use, and the
    redundant-shared warning. Sharing fixtures
    pin logical owner paths for `free`/`level(n)`/`shared`, root saturation,
-   per-owner scalar-param initial values and store revisions, root-only store initial rows,
-   and no-op unrouted non-shared writes. Store-relation fixtures assert that
+   per-owner scalar-param initial values, lazy per-owner store initial rows and
+   revisions, and atomic failure for unrouted non-shared store writes.
+   Store-relation fixtures assert that
    `SELECT *` and schema tooling expose only declared fields, authored access to
    the reserved metadata prefix fails, and hidden revision metadata still
    invalidates physical-cache entries.

@@ -1480,7 +1480,8 @@ impl ScopedStoreState {
                 owner_path: owner_path.clone(),
             })
             .map(|table| (table.rows.clone(), table.revision))
-            .unwrap_or_else(|| (Vec::new(), 0));
+            .map(Ok)
+            .unwrap_or_else(|| spec.initial_rows().map(|rows| (rows, 0)))?;
         let instances = [(owner_path, rows.0, rows.1)];
 
         let cache_key = StoreMaterializationKey {
@@ -1610,11 +1611,12 @@ impl ScopedStoreState {
                 store_id,
                 owner_path: assignment.owner_path,
             };
+            let initial_rows = spec.initial_rows()?;
             let table = self
                 .instances
                 .entry(key)
                 .or_insert_with(|| MutableStoreTable {
-                    rows: Vec::new(),
+                    rows: initial_rows,
                     revision: 0,
                 });
             let changed = apply_store_update(&spec, table, assignment.update)?;
@@ -1631,11 +1633,13 @@ impl ScopedStoreState {
                     table.revision = original.revision.saturating_add(1);
                     any_changed = true;
                 }
-                None if !table.rows.is_empty() => {
-                    table.revision = 1;
-                    any_changed = true;
+                None => {
+                    let initial_rows = self.specs[&key.store_id].initial_rows()?;
+                    if table.rows != initial_rows {
+                        table.revision = 1;
+                        any_changed = true;
+                    }
                 }
-                None => {}
             }
         }
         if any_changed {
@@ -11036,7 +11040,7 @@ mod tests {
         use std::sync::Arc;
 
         use datafusion::arrow::{
-            array::{Float64Array, StringArray},
+            array::{Float64Array, StringArray, UInt64Array},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         };
@@ -11065,7 +11069,7 @@ mod tests {
         );
 
         assert_eq!(compiled.store_specs().len(), 1);
-        let session = compiled.instantiate(ctx);
+        let mut session = compiled.instantiate(ctx);
         let diagnostics = session.store_rows_for_diagnostics("brush_boxes");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].0, Vec::<ScalarValue>::new());
@@ -11084,7 +11088,7 @@ mod tests {
         owner_paths.insert(1u8, owner_path.clone());
         assert_eq!(
             session.store_owner_path_for_diagnostics("brush_boxes", &owner_paths),
-            Some(owner_path)
+            Some(owner_path.clone())
         );
         assert_eq!(
             session.store_owner_path_for_diagnostics("brush_boxes", &HashMap::new()),
@@ -11093,6 +11097,94 @@ mod tests {
         assert_eq!(
             session.store_owner_path_for_diagnostics("missing", &owner_paths),
             None
+        );
+
+        let scoped_batch = session
+            .scoped_stores
+            .materialize_store_data(&StoreData::new("brush_boxes"), &owner_paths)?;
+        assert_eq!(scoped_batch.num_rows(), 1);
+        assert_eq!(
+            scoped_batch
+                .column_by_name("id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0),
+            "box-a",
+            "a fresh non-root owner reads the declared rows"
+        );
+        assert_eq!(
+            scoped_batch
+                .column_by_name(STORE_REVISION_COLUMN)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .value(0),
+            0,
+            "authored rows start at revision zero"
+        );
+
+        let mut inserted = StoreRowValue::new();
+        inserted.insert(
+            "id".to_string(),
+            ScalarValue::Utf8(Some("box-b".to_string())),
+        );
+        inserted.insert("x0".to_string(), ScalarValue::Float64(Some(2.5)));
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: owner_path.clone(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::InsertRows {
+                rows: vec![inserted],
+            },
+        }])?;
+        let scoped_rows = session
+            .store_rows_for_diagnostics("brush_boxes")
+            .into_iter()
+            .find(|(path, _)| path == &owner_path)
+            .expect("materialized non-root owner");
+        assert_eq!(
+            scoped_rows.1.len(),
+            2,
+            "the first mutation starts from the authored rows"
+        );
+        let scoped_revision = session
+            .scoped_stores
+            .revision_fingerprint()
+            .into_iter()
+            .find(|(_, path, _)| !path.is_empty())
+            .map(|(_, _, revision)| revision)
+            .expect("non-root revision");
+        assert_eq!(scoped_revision, 1, "the first mutation advances revision");
+
+        let cleared_owner = vec![ScalarValue::Utf8(Some("row-b".to_string()))];
+        session.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: cleared_owner.clone(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::Clear,
+        }])?;
+        let cleared_rows = session
+            .store_rows_for_diagnostics("brush_boxes")
+            .into_iter()
+            .find(|(path, _)| path == &cleared_owner)
+            .expect("cleared non-root owner");
+        assert!(
+            cleared_rows.1.is_empty(),
+            "clear applies to the virtual authored rows"
+        );
+        let cleared_revision = session
+            .scoped_stores
+            .revision_fingerprint()
+            .into_iter()
+            .find(|(_, path, _)| path == &vec![format!("{:?}", cleared_owner[0])])
+            .map(|(_, _, revision)| revision)
+            .expect("cleared non-root revision");
+        assert_eq!(
+            cleared_revision, 1,
+            "clearing authored rows is the owner's first mutation"
         );
         Ok(())
     }
@@ -11204,6 +11296,7 @@ mod tests {
         )?;
         let store = Store::from_record_batch("rows", initial)
             .primary_key(["id"])
+            .sharing(CoordinationScope::Free)
             .migration_key(StateMigrationKey::from_compiler_identity("store:rows"));
         let compiled = Arc::new(
             crate::plot::Chart::<Cartesian>::new()
@@ -11302,6 +11395,60 @@ mod tests {
             migrated_again.store_rows_for_diagnostics("rows")[0].1[0]["id"],
             ScalarValue::Utf8(Some("runtime".to_string())),
             "the store mutation revision must survive more than one reload"
+        );
+
+        let owner_path = vec![ScalarValue::Utf8(Some("facet-a".to_string()))];
+        let owner_paths = HashMap::from([(0_u8, owner_path.clone())]);
+        let source = store_migration_session("old-scoped-default", 10.0).await?;
+        let snapshot = source.snapshot_state();
+        let mut refreshed = store_migration_session("new-scoped-default", 20.0).await?;
+        refreshed.restore_state(&snapshot);
+        let refreshed_batch = refreshed
+            .scoped_stores
+            .materialize_store_data(&StoreData::new("rows"), &owner_paths)?;
+        assert_eq!(
+            refreshed_batch
+                .column_by_name("id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0),
+            "new-scoped-default",
+            "an untouched virtual owner must read the new generation's authored rows"
+        );
+
+        let mut modified = store_migration_session("old-scoped-default", 10.0).await?;
+        let mut scoped_runtime_row = StoreRowValue::new();
+        scoped_runtime_row.insert(
+            "id".to_string(),
+            ScalarValue::Utf8(Some("scoped-runtime".to_string())),
+        );
+        scoped_runtime_row.insert("x".to_string(), ScalarValue::Float64(Some(99.0)));
+        modified.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "rows".to_string(),
+            owner_path: owner_path.clone(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::ReplaceRows {
+                rows: vec![scoped_runtime_row],
+            },
+        }])?;
+        let snapshot = modified.snapshot_state();
+        let mut migrated = store_migration_session("new-scoped-default", 20.0).await?;
+        migrated.restore_state(&snapshot);
+        let migrated_batch = migrated
+            .scoped_stores
+            .materialize_store_data(&StoreData::new("rows"), &owner_paths)?;
+        assert_eq!(
+            migrated_batch
+                .column_by_name("id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0),
+            "scoped-runtime",
+            "a modified non-root owner must migrate across reload"
         );
         Ok(())
     }
