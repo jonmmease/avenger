@@ -4021,6 +4021,7 @@ chart cartesian as chart {
         let project = tempdir().unwrap();
         let data = project.path().join("data.avenger");
         let definition = project.path().join("dot.avenger");
+        let transform_definition = project.path().join("transforms.avenger");
         let chart = project.path().join("chart.avenger");
         let data_text = r#"avenger 1;
 export schema tables as vega {
@@ -4032,8 +4033,10 @@ export schema tables as vega {
         let chart_text = r#"avenger 1;
 import { vega } from 'data.avenger';
 import { dot } from 'dot.avenger';
+import { pass } from 'transforms.avenger';
 chart cartesian as chart {
   data: { table: 'vega.movies'; }
+  transform pass {}
   transform sql as rows {
     query:
       FROM vega.movies AS m
@@ -4048,11 +4051,18 @@ chart cartesian as chart {
             "avenger 1; export define mark dot { mark symbol {} }",
         )
         .unwrap();
+        fs::write(
+            &transform_definition,
+            "avenger 1; export define transform pass { transform filter { predicate: true; } }",
+        )
+        .unwrap();
         fs::write(&chart, chart_text).unwrap();
 
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
         let definition_uri = Uri::from_file_path(fs::canonicalize(&definition).unwrap()).unwrap();
+        let transform_definition_uri =
+            Uri::from_file_path(fs::canonicalize(&transform_definition).unwrap()).unwrap();
         let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Backend>));
         let captured_factory = std::sync::Arc::clone(&captured);
         let (mut service, _socket) = LspService::new(move |client| {
@@ -4173,6 +4183,30 @@ chart cartesian as chart {
         };
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].uri, definition_uri);
+
+        let transform_cursor = chart_text.find("transform pass").unwrap() + "transform p".len();
+        let transform_definition_response = call(
+            &mut service,
+            Request::build("textDocument/definition")
+                .id(4)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": position(chart_text, transform_cursor)
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let transform_definition_response: GotoDefinitionResponse = serde_json::from_value(
+            serde_json::to_value(transform_definition_response.result().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let GotoDefinitionResponse::Array(transform_locations) = transform_definition_response
+        else {
+            panic!("expected transform definition locations")
+        };
+        assert_eq!(transform_locations.len(), 1);
+        assert_eq!(transform_locations[0].uri, transform_definition_uri);
     }
 
     async fn call(

@@ -4503,6 +4503,56 @@ mod tests {
     }
 
     #[test]
+    fn tolerant_named_imports_navigate_exported_transform_bindings() {
+        let chart_text = "avenger 1; import { pass } from 'transforms.avenger'; chart cartesian as chart { transform pass {} }";
+        let definition_text =
+            "avenger 1; export define transform pass { transform filter { predicate: true; } }";
+        let chart_origin = SourceOrigin::Memory("multi/chart.avenger".to_owned());
+        let definition_origin = SourceOrigin::Memory("multi/transforms.avenger".to_owned());
+        let chart = analyze_syntax(&DocumentSnapshot::new(
+            chart_origin.clone(),
+            SourceRevision::from_text(chart_text),
+            chart_text,
+        ));
+        let definition = analyze_syntax(&DocumentSnapshot::new(
+            definition_origin.clone(),
+            SourceRevision::from_text(definition_text),
+            definition_text,
+        ));
+        let syntax = BTreeMap::from([
+            (chart_origin.clone(), chart),
+            (definition_origin.clone(), definition),
+        ]);
+        let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
+        let context = QueryContext::new(
+            AnalysisGeneration::new(1),
+            Path::new("/tmp"),
+            &[],
+            compiler.language_host().authoring_schema(),
+            &syntax,
+            &index,
+            &semantic_roots,
+            &dataset_contexts,
+        );
+        let reference_start = chart_text.find("transform pass").unwrap() + "transform ".len();
+        let navigation = context
+            .definition(
+                &PositionRequest {
+                    source: chart_origin,
+                    byte_offset: reference_start + 1,
+                    source_revision: SourceRevision::from_text(chart_text),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert_eq!(navigation.targets.len(), 1, "index: {index:#?}");
+        assert_eq!(navigation.targets[0].origin, definition_origin);
+    }
+
+    #[test]
     fn tolerant_import_bindings_are_scoped_to_each_importer() {
         let chart_text = "avenger 1; import { dot } from 'dot.avenger'; chart cartesian as chart { mark dot as points {} }";
         let definition_text = "avenger 1; export define mark dot { mark symbol {} }";
