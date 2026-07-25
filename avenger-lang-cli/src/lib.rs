@@ -137,7 +137,7 @@ pub struct WatchArgs {
     debounce_ms: u64,
 
     /// Native render scale.
-    #[arg(long, default_value_t = 1.0, value_name = "FACTOR")]
+    #[arg(long, default_value_t = 4.0, value_name = "FACTOR")]
     scale: f32,
 
     /// Physical-plan cache memory budget.
@@ -1670,6 +1670,15 @@ mod tests {
         assert_eq!(args.debounce_ms, 25);
         assert_eq!(args.scale, 2.0);
         assert!(args.no_cache);
+    }
+
+    #[test]
+    fn watch_command_defaults_to_four_x_native_render_scale() {
+        let cli = Cli::try_parse_from(["avenger", "watch", "chart.avenger"]).unwrap();
+        let Command::Watch(args) = cli.command else {
+            panic!("expected watch command");
+        };
+        assert_eq!(args.scale, 4.0);
     }
 
     #[test]

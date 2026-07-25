@@ -33,7 +33,7 @@ avenger watch [OPTIONS] <MODULE>
 --project-root <DIR>       Override the project/capability root
 --chart <NAME>             Select a named chart entrypoint
 --debounce-ms <MILLIS>     Filesystem quiet period (default: 100)
---scale <FACTOR>           Positive finite native render scale (default: 1)
+--scale <FACTOR>           Positive finite native render scale (default: 4)
 --cache-memory-mb <MB>     Physical-result cache budget (default: 256)
 --no-cache                 Disable physical-result caching
 --log-cache                Include process-wide cache deltas after reload
