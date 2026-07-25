@@ -409,6 +409,7 @@ pub struct ChartSessionSnapshot {
 struct ParamMigrationSnapshot {
     spec: CompiledParamSpec,
     values: Vec<(Vec<ScalarValue>, ScalarValue)>,
+    revision: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -2372,6 +2373,10 @@ impl PlotSession {
         scoped_params
             .set_root_params(program.get_default_params().clone())
             .expect("compiled parameter defaults must match their declared Arrow types");
+        // Seeding authored defaults establishes the initial state; it is not a
+        // runtime mutation that should win over defaults authored in a later
+        // hot-reload generation.
+        scoped_params.revisions.clear();
         let root_cache = scoped_params.root_effective_params();
         let scoped_selections = ScopedSelectionStore::new(program.selection_specs_by_id().clone());
         let scoped_stores = ScopedStoreState::new(program.store_specs_by_id().clone());
@@ -2707,6 +2712,12 @@ impl PlotSession {
                 ParamMigrationSnapshot {
                     spec: spec.clone(),
                     values,
+                    revision: self
+                        .scoped_params
+                        .revisions
+                        .get(runtime_id)
+                        .copied()
+                        .unwrap_or_default(),
                 },
             );
         }
@@ -2754,8 +2765,9 @@ impl PlotSession {
 
     /// Restore compatible state into a newly instantiated replacement session.
     ///
-    /// Incompatible, missing, or unkeyed declarations retain their new source
-    /// defaults. This operation never matches by source name or runtime ID.
+    /// Incompatible, missing, unkeyed, or still-unmodified declarations retain
+    /// their new source defaults. Runtime-modified compatible state is carried
+    /// forward. This operation never matches by source name or runtime ID.
     pub fn restore_state(&mut self, snapshot: &ChartSessionSnapshot) -> StateMigrationReport {
         let mut report = StateMigrationReport::default();
 
@@ -2777,32 +2789,36 @@ impl PlotSession {
                 report.params_reset += 1;
                 continue;
             };
+            if source.revision > 0 {
+                self.scoped_params
+                    .values
+                    .retain(|scoped, _| scoped.id != runtime_id);
+                for (owner_path, value) in &source.values {
+                    self.scoped_params.values.insert(
+                        ScopedParamKey {
+                            id: runtime_id.clone(),
+                            owner_path: owner_path.clone(),
+                        },
+                        value.clone(),
+                    );
+                }
+                if !source
+                    .values
+                    .iter()
+                    .any(|(owner_path, _)| owner_path.is_empty())
+                {
+                    self.scoped_params.values.insert(
+                        ScopedParamKey {
+                            id: runtime_id.clone(),
+                            owner_path: Vec::new(),
+                        },
+                        spec.default.clone(),
+                    );
+                }
+            }
             self.scoped_params
-                .values
-                .retain(|scoped, _| scoped.id != runtime_id);
-            for (owner_path, value) in &source.values {
-                self.scoped_params.values.insert(
-                    ScopedParamKey {
-                        id: runtime_id.clone(),
-                        owner_path: owner_path.clone(),
-                    },
-                    value.clone(),
-                );
-            }
-            if !source
-                .values
-                .iter()
-                .any(|(owner_path, _)| owner_path.is_empty())
-            {
-                self.scoped_params.values.insert(
-                    ScopedParamKey {
-                        id: runtime_id.clone(),
-                        owner_path: Vec::new(),
-                    },
-                    spec.default.clone(),
-                );
-            }
-            self.scoped_params.revisions.insert(runtime_id, 0);
+                .revisions
+                .insert(runtime_id, source.revision);
             report.params_migrated += 1;
         }
 
@@ -2826,10 +2842,10 @@ impl PlotSession {
                 report.stores_reset += 1;
                 continue;
             };
-            self.scoped_stores
-                .instances
-                .retain(|scoped, _| scoped.store_id != runtime_id);
             for (owner_path, rows, revision) in &source.instances {
+                if *revision == 0 {
+                    continue;
+                }
                 self.scoped_stores.instances.insert(
                     ScopedStoreKey {
                         store_id: runtime_id.clone(),
@@ -4315,8 +4331,12 @@ mod tests {
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{
-        arrow::array::{
-            Array, ArrayRef, Float64Array, ListArray, StringArray, StructArray, UInt64Array,
+        arrow::{
+            array::{
+                Array, ArrayRef, Float64Array, ListArray, StringArray, StructArray, UInt64Array,
+            },
+            datatypes::{Field, Schema},
+            record_batch::RecordBatch,
         },
         prelude::SessionContext,
         scalar::ScalarValue,
@@ -11165,6 +11185,125 @@ mod tests {
             .expect("selection spec")
             .migration_key = Some(StateMigrationKey::from_compiler_identity("selection:key"));
         Ok(session)
+    }
+
+    async fn store_migration_session(
+        initial_id: &str,
+        initial_x: f64,
+    ) -> Result<PlotSession, AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let initial = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Utf8, false),
+                Field::new("x", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![initial_id])),
+                Arc::new(Float64Array::from(vec![initial_x])),
+            ],
+        )?;
+        let store = Store::from_record_batch("rows", initial)
+            .primary_key(["id"])
+            .migration_key(StateMigrationKey::from_compiler_identity("store:rows"));
+        let compiled = Arc::new(
+            crate::plot::Chart::<Cartesian>::new()
+                .store(store)
+                .compile(&ctx)
+                .await?,
+        );
+        Ok(compiled.instantiate(ctx))
+    }
+
+    #[tokio::test]
+    async fn reload_migration_refreshes_authored_param_defaults_until_runtime_state_changes()
+    -> Result<(), AvengerChartError> {
+        let source = migration_session("value", ScalarValue::Int64(Some(1))).await?;
+        let snapshot = source.snapshot_state();
+
+        let mut refreshed = migration_session("value", ScalarValue::Int64(Some(2))).await?;
+        let report = refreshed.restore_state(&snapshot);
+        assert_eq!(report.params_migrated, 1);
+        assert_eq!(
+            refreshed.params()["value"],
+            ScalarValue::Int64(Some(2)),
+            "an untouched old default must not overwrite the newly authored default"
+        );
+
+        let mut modified = migration_session("value", ScalarValue::Int64(Some(1))).await?;
+        modified.apply_param_patch(IndexMap::from([(
+            "value".to_string(),
+            ScalarValue::Int64(Some(42)),
+        )]))?;
+        let snapshot = modified.snapshot_state();
+
+        let mut migrated = migration_session("value", ScalarValue::Int64(Some(3))).await?;
+        migrated.restore_state(&snapshot);
+        assert_eq!(
+            migrated.params()["value"],
+            ScalarValue::Int64(Some(42)),
+            "runtime-modified state must survive a newly authored default"
+        );
+
+        let snapshot = migrated.snapshot_state();
+        let mut migrated_again = migration_session("value", ScalarValue::Int64(Some(4))).await?;
+        migrated_again.restore_state(&snapshot);
+        assert_eq!(
+            migrated_again.params()["value"],
+            ScalarValue::Int64(Some(42)),
+            "the mutation revision must survive more than one reload"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reload_migration_refreshes_authored_store_rows_until_runtime_state_changes()
+    -> Result<(), AvengerChartError> {
+        let source = store_migration_session("old-default", 1.0).await?;
+        let snapshot = source.snapshot_state();
+
+        let mut refreshed = store_migration_session("new-default", 2.0).await?;
+        let report = refreshed.restore_state(&snapshot);
+        assert_eq!(report.stores_migrated, 1);
+        assert_eq!(
+            refreshed.store_rows_for_diagnostics("rows")[0].1[0]["id"],
+            ScalarValue::Utf8(Some("new-default".to_string())),
+            "untouched authored rows must refresh from the new generation"
+        );
+
+        let mut modified = store_migration_session("old-default", 1.0).await?;
+        let mut runtime_row = StoreRowValue::new();
+        runtime_row.insert(
+            "id".to_string(),
+            ScalarValue::Utf8(Some("runtime".to_string())),
+        );
+        runtime_row.insert("x".to_string(), ScalarValue::Float64(Some(42.0)));
+        modified.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "rows".to_string(),
+            owner_path: Vec::new(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::ReplaceRows {
+                rows: vec![runtime_row],
+            },
+        }])?;
+        let snapshot = modified.snapshot_state();
+
+        let mut migrated = store_migration_session("new-default", 2.0).await?;
+        migrated.restore_state(&snapshot);
+        assert_eq!(
+            migrated.store_rows_for_diagnostics("rows")[0].1[0]["id"],
+            ScalarValue::Utf8(Some("runtime".to_string())),
+            "runtime-modified store rows must survive the new authored default"
+        );
+
+        let snapshot = migrated.snapshot_state();
+        let mut migrated_again = store_migration_session("newer-default", 3.0).await?;
+        migrated_again.restore_state(&snapshot);
+        assert_eq!(
+            migrated_again.store_rows_for_diagnostics("rows")[0].1[0]["id"],
+            ScalarValue::Utf8(Some("runtime".to_string())),
+            "the store mutation revision must survive more than one reload"
+        );
+        Ok(())
     }
 
     #[tokio::test]

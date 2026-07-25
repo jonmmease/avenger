@@ -2154,6 +2154,101 @@ mod tests {
     }
 
     #[test]
+    fn chart_source_default_edits_are_visible_across_reload_migration() {
+        let project = tempfile::tempdir().expect("create temporary multi-chart project");
+        copy_directory(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../avenger-lang-compiler/tests/fixtures/modules/multi_chart"),
+            project.path(),
+        );
+        let chart = project.path().join("charts.avenger");
+        let original = fs::read_to_string(&chart).expect("read multi-chart source");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build default-edit runtime");
+        let compiler = Compiler::builder()
+            .project_root(project.path())
+            .build()
+            .expect("build multi-chart compiler");
+
+        let first = runtime
+            .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 1))
+            .result
+            .expect("compile first cartesian generation");
+        let mut first_bundle = runtime
+            .block_on(chart_avenger_app_with_default_runtime_resources(
+                first.artifact.compiled_plot().clone(),
+                first.environment.session_context_arc(),
+                ChartAppOptions::default(),
+            ))
+            .expect("prepare first cartesian generation");
+        let first_scene =
+            serde_json::to_value(first_bundle.app.scene_graph()).expect("serialize first scene");
+        let first_state = first_bundle.app.app_state_mut().clone();
+        let untouched_snapshot = runtime.block_on(first_state.snapshot_state());
+
+        fs::write(&chart, original.replace("value: 64.0;", "value: 256.0;"))
+            .expect("edit point-size default");
+        let second = runtime
+            .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 2))
+            .result
+            .expect("compile edited cartesian generation");
+        let (mut second_bundle, report) = runtime
+            .block_on(
+                chart_avenger_app_with_default_runtime_resources_and_snapshot(
+                    second.artifact.compiled_plot().clone(),
+                    second.environment.session_context_arc(),
+                    ChartAppOptions::default(),
+                    &untouched_snapshot,
+                ),
+            )
+            .expect("prepare edited cartesian generation");
+        let second_scene =
+            serde_json::to_value(second_bundle.app.scene_graph()).expect("serialize second scene");
+        let second_state = second_bundle.app.app_state_mut().clone();
+
+        assert_eq!(report.params_migrated, 1);
+        assert_eq!(
+            runtime.block_on(second_state.params())["point_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(256.0))
+        );
+        assert_ne!(
+            second_scene, first_scene,
+            "the reloaded scene must reflect the newly authored param default"
+        );
+
+        second_state
+            .set_param(
+                "point_size",
+                datafusion::scalar::ScalarValue::Float64(Some(321.0)),
+            )
+            .expect("modify runtime point size");
+        let modified_snapshot = runtime.block_on(second_state.snapshot_state());
+        fs::write(&chart, original.replace("value: 64.0;", "value: 512.0;"))
+            .expect("edit point-size default again");
+        let third = runtime
+            .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 3))
+            .result
+            .expect("compile third cartesian generation");
+        let (mut third_bundle, _) = runtime
+            .block_on(
+                chart_avenger_app_with_default_runtime_resources_and_snapshot(
+                    third.artifact.compiled_plot().clone(),
+                    third.environment.session_context_arc(),
+                    ChartAppOptions::default(),
+                    &modified_snapshot,
+                ),
+            )
+            .expect("prepare third cartesian generation");
+        assert_eq!(
+            runtime.block_on(third_bundle.app.app_state_mut().params())["point_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(321.0)),
+            "runtime-modified state must continue to win across reloads"
+        );
+    }
+
+    #[test]
     fn interactive_acceptance_fixture_prepares_visible_state_contracts() {
         let project_root =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/interactive_state");
