@@ -5,11 +5,18 @@ fn avenger() -> Command {
 }
 
 #[test]
-fn cli_help_documents_only_the_watch_surface() {
+fn cli_help_documents_the_module_commands_without_deferred_surfaces() {
     let output = avenger().arg("--help").output().expect("run avenger help");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("help is UTF-8");
-    assert!(stdout.contains("watch"));
+    for command in ["watch", "bundle", "lsp"] {
+        assert!(
+            stdout
+                .lines()
+                .any(|line| line.trim_start().starts_with(command)),
+            "missing implemented command {command}\n{stdout}"
+        );
+    }
     for deferred in ["render", "check", "fmt", "inspect", "serve"] {
         assert!(
             !stdout
@@ -52,7 +59,7 @@ fn initial_compile_failure_prints_one_stdout_batch_and_exits_one() {
 }
 
 #[test]
-fn invalid_chart_argument_exits_one_without_compiler_diagnostics() {
+fn invalid_module_argument_exits_one_without_compiler_diagnostics() {
     let output = avenger()
         .args(["watch", "chart.txt"])
         .output()
@@ -60,7 +67,10 @@ fn invalid_chart_argument_exits_one_without_compiler_diagnostics() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).expect("argument error is UTF-8");
-    assert!(stderr.contains("must end in .avenger"), "{stderr}");
+    assert!(
+        stderr.contains("module 'chart.txt' must end in .avenger"),
+        "{stderr}"
+    );
 }
 
 /// Run manually on a machine with a desktop session to exercise creation of

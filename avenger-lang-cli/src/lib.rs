@@ -346,7 +346,7 @@ fn run_lsp(args: LspArgs) -> Result<(), CliError> {
 }
 
 fn run_bundle(args: BundleArgs) -> Result<(), CliError> {
-    let module = canonical_chart_path(&args.module)?;
+    let module = canonical_module_path(&args.module)?;
     let project_root = canonical_project_root(args.project_root.as_deref(), &module)?;
     if !module.starts_with(&project_root) {
         return Err(CliError::InvalidArguments(format!(
@@ -401,12 +401,12 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
             "--scale must be a finite value greater than zero".to_string(),
         ));
     }
-    let chart = canonical_chart_path(&args.module)?;
-    let project_root = canonical_project_root(args.project_root.as_deref(), &chart)?;
-    if !chart.starts_with(&project_root) {
+    let module = canonical_module_path(&args.module)?;
+    let project_root = canonical_project_root(args.project_root.as_deref(), &module)?;
+    if !module.starts_with(&project_root) {
         return Err(CliError::InvalidArguments(format!(
-            "chart '{}' is outside project root '{}'",
-            chart.display(),
+            "module '{}' is outside project root '{}'",
+            module.display(),
             project_root.display()
         )));
     }
@@ -427,7 +427,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         .build()?;
     let initial_started = Instant::now();
     let attempt = worker_runtime.block_on(compiler.compile_chart_generation_attempt(
-        &chart,
+        &module,
         args.chart.as_deref(),
         1,
     ));
@@ -459,7 +459,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         .map_err(|error| CliError::App(error.to_string()))?;
     let displayed_state = bundle.app.app_state_mut().clone();
 
-    let title = normal_title(&chart);
+    let title = normal_title(&module);
     let window_options = bundle.configure_winit_options(
         WinitWgpuAvengerAppOptions::new(args.scale)
             .window_attributes(
@@ -486,16 +486,16 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         let _ = signal_host_updates.request_exit();
     })
     .map_err(|error| CliError::Signal(error.to_string()))?;
-    let dependency_count = dependency_watch_set(&chart, &initial_dependencies).len();
+    let dependency_count = dependency_watch_set(&module, &initial_dependencies).len();
     println!(
         "ready {} ({} local dependencies, {:.1} ms)",
-        project_relative_path(&project_root, &chart),
+        project_relative_path(&project_root, &module),
         dependency_count,
         initial_started.elapsed().as_secs_f64() * 1000.0
     );
 
     let reload_worker = spawn_reload_worker(ReloadWorker {
-        chart,
+        chart: module,
         chart_selector: args.chart,
         project_root,
         compiler,
@@ -564,29 +564,29 @@ fn chart_app_options_for_compiled(compiled: &avenger_chart::plot::CompiledPlot) 
     }
 }
 
-fn canonical_chart_path(path: &Path) -> Result<PathBuf, CliError> {
+fn canonical_module_path(path: &Path) -> Result<PathBuf, CliError> {
     if path.extension().and_then(|value| value.to_str()) != Some("avenger") {
         return Err(CliError::InvalidArguments(format!(
-            "chart '{}' must end in .avenger",
+            "module '{}' must end in .avenger",
             path.display()
         )));
     }
     let path = fs::canonicalize(path)?;
     if !path.is_file() {
         return Err(CliError::InvalidArguments(format!(
-            "chart '{}' is not a file",
+            "module '{}' is not a file",
             path.display()
         )));
     }
     Ok(path)
 }
 
-fn canonical_project_root(root: Option<&Path>, chart: &Path) -> Result<PathBuf, CliError> {
+fn canonical_project_root(root: Option<&Path>, module: &Path) -> Result<PathBuf, CliError> {
     let root = match root {
         Some(root) => fs::canonicalize(root)?,
-        None => chart
+        None => module
             .parent()
-            .ok_or_else(|| CliError::InvalidArguments("chart has no parent directory".into()))?
+            .ok_or_else(|| CliError::InvalidArguments("module has no parent directory".into()))?
             .to_path_buf(),
     };
     if !root.is_dir() {

@@ -144,6 +144,78 @@ chart cartesian as second {
 }
 
 #[tokio::test]
+async fn module_bundle_preserves_the_requested_modules_public_export_table() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("library.avenger"),
+        r#"avenger 1;
+define transform private_identity {
+  transform sql { query: SELECT * FROM input; }
+}
+export define mark badge {
+  transform private_identity {}
+  mark symbol as glyph { x: "x"; y: "y"; }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("module.avenger"),
+        r#"avenger 1;
+import { badge } from './library.avenger';
+
+export table inline as observations {
+  values: [{ x: 1.0; y: 2.0; }];
+}
+
+export chart cartesian as summary {
+  data: { table: 'observations'; }
+  mark badge as points {}
+}
+"#,
+    )
+    .unwrap();
+
+    let compiler = Compiler::builder()
+        .project_root(root.path())
+        .build()
+        .unwrap();
+    let original = compiler.compile_module("module.avenger").await.unwrap();
+    let bundle = compiler.bundle_module("module.avenger").await.unwrap();
+    assert!(!bundle.text.contains("import "));
+
+    let standalone = tempfile::tempdir().unwrap();
+    fs::write(standalone.path().join("module.avenger"), bundle.text).unwrap();
+    let bundled = Compiler::builder()
+        .project_root(standalone.path())
+        .build()
+        .unwrap()
+        .compile_module("module.avenger")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        original
+            .exports
+            .exports
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["observations", "summary"]
+    );
+    assert_eq!(
+        bundled
+            .exports
+            .exports
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["observations", "summary"]
+    );
+    assert_eq!(bundled.charts.len(), 1);
+}
+
+#[tokio::test]
 async fn bundle_alpha_renames_colliding_exports_and_private_helpers() {
     let root = tempfile::tempdir().unwrap();
     for (module, helper_kind) in [("left", "symbol"), ("right", "rect")] {

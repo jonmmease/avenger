@@ -373,7 +373,7 @@ export define mark shell {
         .result
         .expect("caller block resolution is deferred until expansion");
     let expanded = expand_module_graph(&project, &resolved).unwrap();
-    let failure = resolve_module_graph(&expanded.project, &bootstrap_schema())
+    let failure = resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap_err();
     assert!(
@@ -482,7 +482,7 @@ export define mark summary {
     assert!(text.contains("widget slider as threshold"), "{text}");
     assert!(!expanded.source_map.mappings.is_empty());
 
-    resolve_module_graph(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -538,7 +538,7 @@ export define mark band {
     assert!(text.contains("overlay: {"), "{text}");
     assert!(text.contains("mark group as imported_band"), "{text}");
     assert!(text.contains("component_kind: band;"), "{text}");
-    resolve_module_graph(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -593,7 +593,7 @@ export define mark shell {
     assert!(text.contains("visible: $__av_"), "{text}");
     assert!(text.contains("visible: $enabled;"), "{text}");
 
-    let expanded = resolve_module_graph(&first.project, &bootstrap_schema())
+    let expanded = resolve_module_graph(&first.module_graph, &bootstrap_schema())
         .result
         .unwrap();
     let root_param = expanded
@@ -695,7 +695,7 @@ chart cartesian as chart {
         .result
         .unwrap();
     let expanded = expand_module_graph(&project, &resolved).unwrap();
-    let resolved = resolve_module_graph(&expanded.project, &bootstrap_schema())
+    let resolved = resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
     let param = resolved
@@ -789,7 +789,7 @@ export define transform rolling {
     assert!(text.contains("_private"), "{text}");
     assert!(!text.contains("__rolling_private"), "{text}");
 
-    resolve_module_graph(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
 }
@@ -839,7 +839,7 @@ export define tool hover {
     assert!(text.contains("set __av_"), "{text}");
     assert!(text.contains("target: mark points;"), "{text}");
 
-    resolve_module_graph(&expanded.project, &bootstrap_schema())
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
 }

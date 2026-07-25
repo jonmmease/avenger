@@ -6,7 +6,9 @@ use avenger_chart_lang_registry::{
     NativeBuiltinProfileId, NativeModuleId, NativeModuleImplementationProfileId,
     NativeModuleSchemaProfileId, NativeRegistry,
 };
-use avenger_lang_core::{ChartEntrypointId, ChartSelector, SourceId, SourceMap, SourceModuleId};
+use avenger_lang_core::{
+    ChartEntrypointId, ChartSelector, ModuleExportIndex, SourceId, SourceMap, SourceModuleId,
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -407,6 +409,7 @@ impl fmt::Debug for CompiledChartArtifact {
 #[derive(Clone, Debug)]
 pub struct CompiledModule {
     pub charts: IndexMap<ChartEntrypointId, CompiledChartArtifact>,
+    pub exports: ModuleExportIndex,
     pub sources: SourceMap,
     pub native_requirements: NativeRequirementSet,
     pub module_fingerprint: ModuleFingerprint,

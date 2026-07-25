@@ -56,6 +56,11 @@ pub(crate) struct CatalogOptions<'a> {
     pub reachable_items: Option<&'a BTreeSet<ModuleItemId>>,
 }
 
+struct ExternalCatalogRegistration {
+    provider: Arc<dyn CatalogProvider>,
+    fingerprint: String,
+}
+
 pub(crate) async fn register_and_analyze_catalog(
     project: &ResolvedModuleGraph,
     environment: &CompileEnvironment,
@@ -76,15 +81,21 @@ pub(crate) async fn register_and_analyze_catalog(
     let mut lineage = DatasetLineageIndex::default();
     let mut dataset_fingerprints = BTreeMap::new();
     let mut table_fingerprints = BTreeMap::new();
+    let mut relation_stages = BTreeMap::new();
+    let mut relation_fingerprints = BTreeMap::new();
 
     analyze_external_catalogs(
         project,
         context,
         &external_fingerprints,
         &options,
-        &mut datasets,
-        &mut lineage,
-        &mut dataset_fingerprints,
+        ExternalCatalogAnalysisOutput {
+            datasets: &mut datasets,
+            lineage: &mut lineage,
+            dataset_fingerprints: &mut dataset_fingerprints,
+            relation_stages: &mut relation_stages,
+            relation_fingerprints: &mut relation_fingerprints,
+        },
     )
     .await?;
 
@@ -164,9 +175,12 @@ pub(crate) async fn register_and_analyze_catalog(
             project,
             declaration,
             table,
-            &table_fingerprints,
-            logical_plan_fingerprint.as_deref(),
-            provider_snapshot.as_deref(),
+            TableFingerprintInputs {
+                dependencies: &table_fingerprints,
+                relation_dependencies: &relation_fingerprints,
+                logical_plan: logical_plan_fingerprint.as_deref(),
+                provider_snapshot: provider_snapshot.as_deref(),
+            },
             &options,
         )?;
         datasets
@@ -190,11 +204,21 @@ pub(crate) async fn register_and_analyze_catalog(
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         dataset_fingerprints.insert(stage.clone(), table_fingerprint.clone());
-        let upstream_stages = table
+        let mut upstream_stages = table
             .dependencies
             .iter()
             .filter_map(|dependency| stages.get(dependency).cloned())
-            .collect();
+            .collect::<Vec<_>>();
+        if let Some(ResolvedValue::Query(query)) = declaration.properties.get("sql") {
+            upstream_stages.extend(query.relations.iter().filter_map(|reference| {
+                let ResolvedRelationTarget::Relation(relation) = &reference.target else {
+                    return None;
+                };
+                relation_stages.get(relation).cloned()
+            }));
+        }
+        upstream_stages.sort();
+        upstream_stages.dedup();
         lineage
             .insert(
                 stage.clone(),
@@ -204,7 +228,9 @@ pub(crate) async fn register_and_analyze_catalog(
                 },
             )
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
-        stages.insert(id.clone(), stage);
+        stages.insert(id.clone(), stage.clone());
+        relation_stages.insert(table.relation.clone(), stage);
+        relation_fingerprints.insert(table.relation.clone(), table_fingerprint.clone());
         table_fingerprints.insert(id.clone(), table_fingerprint);
     }
 
@@ -223,9 +249,9 @@ async fn register_external_catalogs(
     project: &ResolvedModuleGraph,
     environment: &CompileEnvironment,
     options: &CatalogOptions<'_>,
-) -> Result<BTreeMap<String, String>, Diagnostic> {
-    let mut fingerprints = BTreeMap::new();
-    for declaration in project
+) -> Result<BTreeMap<ModuleItemId, ExternalCatalogRegistration>, Diagnostic> {
+    let mut registrations = BTreeMap::new();
+    for (item, declaration) in project
         .source_modules
         .values()
         .flat_map(|file| {
@@ -233,16 +259,14 @@ async fn register_external_catalogs(
                 .iter()
                 .zip(&file.roots)
                 .filter(|(item, _)| item_is_reachable(item, options))
-                .map(|(_, declaration)| declaration)
         })
-        .filter(|declaration| declaration.keyword == "catalog")
+        .filter(|(_, declaration)| declaration.keyword == "catalog")
     {
-        let Some(name) = declaration.name.as_deref() else {
+        let Some(_) = declaration.name.as_deref() else {
             continue;
         };
         let kind = declaration.kind.as_deref().unwrap_or("schemas");
         if matches!(kind, "schemas" | "memory") {
-            ensure_catalog(environment.session_context(), name);
             continue;
         }
         let factory = options.catalog_factories.get(kind).ok_or_else(|| {
@@ -294,28 +318,20 @@ async fn register_external_catalogs(
             .map_err(|error| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-027", error.to_string())
             })?;
-        fingerprints.insert(
-            name.to_owned(),
-            external_catalog_fingerprint(
-                declaration,
-                &provider_options,
-                provider_fingerprint.as_deref(),
-                environment.dependency_fingerprint(),
-            ),
+        registrations.insert(
+            item.clone(),
+            ExternalCatalogRegistration {
+                provider,
+                fingerprint: external_catalog_fingerprint(
+                    declaration,
+                    &provider_options,
+                    provider_fingerprint.as_deref(),
+                    environment.dependency_fingerprint(),
+                ),
+            },
         );
-        if environment
-            .session_context()
-            .register_catalog(name, provider)
-            .is_some()
-        {
-            return Err(declaration_diagnostic(
-                declaration,
-                "AVENGER-DATA-022",
-                format!("catalog `{name}` is already registered in this generation"),
-            ));
-        }
     }
-    Ok(fingerprints)
+    Ok(registrations)
 }
 
 fn catalog_dependency_fingerprint(
@@ -355,13 +371,18 @@ fn external_catalog_fingerprint(
     )
 }
 
+struct TableFingerprintInputs<'a> {
+    dependencies: &'a BTreeMap<DeclarationId, DependencyFingerprint>,
+    relation_dependencies: &'a BTreeMap<ResolvedRelationId, DependencyFingerprint>,
+    logical_plan: Option<&'a str>,
+    provider_snapshot: Option<&'a str>,
+}
+
 fn table_dependency_fingerprint(
     project: &ResolvedModuleGraph,
     declaration: &ResolvedDeclaration,
     table: &ResolvedCatalogTable,
-    dependencies: &BTreeMap<DeclarationId, DependencyFingerprint>,
-    logical_plan: Option<&str>,
-    provider_snapshot: Option<&str>,
+    inputs: TableFingerprintInputs<'_>,
     options: &CatalogOptions<'_>,
 ) -> Result<DependencyFingerprint, Diagnostic> {
     let declaration_json = serde_json::to_string(declaration).map_err(|error| {
@@ -371,8 +392,8 @@ fn table_dependency_fingerprint(
         table.path.join("."),
         table.kind.clone(),
         declaration_json,
-        logical_plan.unwrap_or("").to_owned(),
-        provider_snapshot.unwrap_or("").to_owned(),
+        inputs.logical_plan.unwrap_or("").to_owned(),
+        inputs.provider_snapshot.unwrap_or("").to_owned(),
         options
             .capabilities
             .object_store_schemes
@@ -382,8 +403,18 @@ fn table_dependency_fingerprint(
             .join("\0"),
     ];
     for dependency in &table.dependencies {
-        if let Some(fingerprint) = dependencies.get(dependency) {
+        if let Some(fingerprint) = inputs.dependencies.get(dependency) {
             parts.push(fingerprint.as_str().to_owned());
+        }
+    }
+    if let Some(ResolvedValue::Query(query)) = declaration.properties.get("sql") {
+        for reference in &query.relations {
+            let ResolvedRelationTarget::Relation(relation) = &reference.target else {
+                continue;
+            };
+            if let Some(fingerprint) = inputs.relation_dependencies.get(relation) {
+                parts.push(fingerprint.as_str().to_owned());
+            }
         }
     }
     if matches!(
@@ -436,13 +467,11 @@ pub(crate) fn internal_relation_name(relation: &ResolvedRelationId) -> String {
 async fn analyze_external_catalogs(
     project: &ResolvedModuleGraph,
     context: &SessionContext,
-    external_fingerprints: &BTreeMap<String, String>,
+    external_catalogs: &BTreeMap<ModuleItemId, ExternalCatalogRegistration>,
     options: &CatalogOptions<'_>,
-    datasets: &mut DatasetSchemaIndex,
-    lineage: &mut DatasetLineageIndex,
-    dataset_fingerprints: &mut BTreeMap<DatasetStageId, DependencyFingerprint>,
+    output: ExternalCatalogAnalysisOutput<'_>,
 ) -> Result<(), Diagnostic> {
-    for declaration in project
+    for (item, declaration) in project
         .source_modules
         .values()
         .flat_map(|file| {
@@ -450,9 +479,8 @@ async fn analyze_external_catalogs(
                 .iter()
                 .zip(&file.roots)
                 .filter(|(item, _)| item_is_reachable(item, options))
-                .map(|(_, declaration)| declaration)
         })
-        .filter(|declaration| declaration.keyword == "catalog")
+        .filter(|(_, declaration)| declaration.keyword == "catalog")
     {
         let kind = declaration.kind.as_deref().unwrap_or("schemas");
         if matches!(kind, "schemas" | "memory") {
@@ -461,13 +489,14 @@ async fn analyze_external_catalogs(
         let Some(catalog_name) = declaration.name.as_deref() else {
             continue;
         };
-        let catalog = context.catalog(catalog_name).ok_or_else(|| {
+        let registration = external_catalogs.get(item).ok_or_else(|| {
             declaration_diagnostic(
                 declaration,
                 "AVENGER-DATA-023",
-                format!("catalog factory did not register `{catalog_name}`"),
+                format!("catalog factory did not create `{catalog_name}`"),
             )
         })?;
+        let catalog = &registration.provider;
         for projection in declaration
             .children
             .iter()
@@ -502,9 +531,25 @@ async fn analyze_external_catalogs(
                         )
                     })?;
                 let qualified = format!("{catalog_name}.{schema_name}.{table_name}");
-                let dataset_id = ModuleDatasetId::new(format!("provider:{qualified}"));
+                let relation = ResolvedRelationId {
+                    defining_item: item.clone(),
+                    nested_path: vec![schema_name.to_owned(), table_name.clone()],
+                };
+                register_table(
+                    context,
+                    &[internal_relation_name(&relation)],
+                    Arc::clone(&provider),
+                )
+                .map_err(|error| declaration_diagnostic(projection, "AVENGER-DATA-022", error))?;
+                let dataset_id = ModuleDatasetId::new(format!(
+                    "provider:{}:{}:{}",
+                    item.module.as_str(),
+                    item.declaration.as_str(),
+                    relation.nested_path.join(".")
+                ));
                 let stage = DatasetStageId::new(dataset_id.clone(), 0);
-                datasets
+                output
+                    .datasets
                     .insert(AnalyzedDataset {
                         id: dataset_id.clone(),
                         stage: stage.clone(),
@@ -536,18 +581,19 @@ async fn analyze_external_catalogs(
                     .map_err(|error| {
                         declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
                     })?;
-                let catalog_fingerprint = external_fingerprints
-                    .get(catalog_name)
-                    .map(String::as_str)
-                    .unwrap_or("external-catalog-without-provider-fingerprint");
-                dataset_fingerprints.insert(
-                    stage.clone(),
-                    DependencyFingerprint::new(hash_parts(
-                        "avenger-external-dataset-v1",
-                        [catalog_fingerprint, qualified.as_str()],
-                    )),
-                );
-                lineage
+                let fingerprint = DependencyFingerprint::new(hash_parts(
+                    "avenger-external-dataset-v1",
+                    [registration.fingerprint.as_str(), qualified.as_str()],
+                ));
+                output
+                    .dataset_fingerprints
+                    .insert(stage.clone(), fingerprint.clone());
+                output
+                    .relation_stages
+                    .insert(relation.clone(), stage.clone());
+                output.relation_fingerprints.insert(relation, fingerprint);
+                output
+                    .lineage
                     .insert(stage, DatasetLineage::default())
                     .map_err(|error| {
                         declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
@@ -556,6 +602,14 @@ async fn analyze_external_catalogs(
         }
     }
     Ok(())
+}
+
+struct ExternalCatalogAnalysisOutput<'a> {
+    datasets: &'a mut DatasetSchemaIndex,
+    lineage: &'a mut DatasetLineageIndex,
+    dataset_fingerprints: &'a mut BTreeMap<DatasetStageId, DependencyFingerprint>,
+    relation_stages: &'a mut BTreeMap<ResolvedRelationId, DatasetStageId>,
+    relation_fingerprints: &'a mut BTreeMap<ResolvedRelationId, DependencyFingerprint>,
 }
 
 fn item_is_reachable(item: &ModuleItemId, options: &CatalogOptions<'_>) -> bool {
@@ -589,6 +643,9 @@ async fn create_table_provider(
                         "`table sql` requires a query-valued `sql:` property",
                     )
                 })?;
+            ensure_query_relations_registered(context, query).map_err(|message| {
+                declaration_diagnostic(declaration, "AVENGER-DATA-108", message)
+            })?;
             let sql = expand_catalog_sql(project, query, Some(table), true).map_err(|message| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-050", message)
             })?;
@@ -1027,6 +1084,38 @@ pub(crate) fn expand_chart_sql(
     expand_catalog_sql_with_sql(project, query, sql, None, false)
 }
 
+pub(crate) fn ensure_query_relations_registered(
+    context: &SessionContext,
+    query: &ResolvedQuery,
+) -> Result<(), String> {
+    for reference in &query.relations {
+        let ResolvedRelationTarget::Relation(relation) = &reference.target else {
+            continue;
+        };
+        ensure_relation_registered(context, relation, &reference.authored_path)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_relation_registered(
+    context: &SessionContext,
+    relation: &ResolvedRelationId,
+    authored_path: &[String],
+) -> Result<(), String> {
+    let internal = internal_relation_name(relation);
+    if context
+        .table_exist(&internal)
+        .map_err(|error| error.to_string())?
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "dataset `{}` was not exposed by its provider",
+            authored_path.join(".")
+        ))
+    }
+}
+
 fn expand_catalog_sql(
     project: &ResolvedModuleGraph,
     query: &ResolvedQuery,
@@ -1141,15 +1230,15 @@ impl VisitorMut for TableFunctionExpander<'_> {
             // declarations are rewritten here.
             return ControlFlow::Continue(());
         };
+        let Some(arguments) = args else {
+            return ControlFlow::Continue(());
+        };
         let Some(table) = self.project.catalog_tables.get(relation) else {
             self.error = Some(format!(
-                "resolved relation `{}` is unavailable",
+                "resolved relation `{}` does not support table arguments",
                 authored_path.join(".")
             ));
             return ControlFlow::Break(());
-        };
-        let Some(arguments) = args else {
-            return ControlFlow::Continue(());
         };
         let alias = alias.clone();
         let arguments = arguments.clone();

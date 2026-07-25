@@ -634,7 +634,7 @@ fn inline_definition_action(
         let Ok(project) = &root.result else {
             continue;
         };
-        let Some(resolved) = project.resolved_project.as_deref() else {
+        let Some(resolved) = project.resolved_module_graph.as_deref() else {
             continue;
         };
         let Some(mapping) = resolved

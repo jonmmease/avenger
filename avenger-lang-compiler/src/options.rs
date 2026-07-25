@@ -239,7 +239,7 @@ pub struct CompilerOptions {
 /// Bounds used by project loading and local-resource fingerprinting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CompilerLimits {
-    pub project: ModuleGraphLoadLimits,
+    pub module_graph: ModuleGraphLoadLimits,
     pub resources: LocalResourceLimits,
     pub expansion: ExpansionLimits,
 }

@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::PathBuf,
     sync::{
         Arc,
@@ -552,6 +553,171 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     assert_ne!(
         changed.module_fingerprint.as_str(),
         analysis.module_fingerprint.as_str()
+    );
+}
+
+#[tokio::test]
+async fn namespace_qualified_deep_relations_are_rewritten_before_datafusion_planning() {
+    let project = tempfile::tempdir().unwrap();
+    fs::write(
+        project.path().join("data.avenger"),
+        r#"avenger 1;
+export catalog iceberg as warehouse {
+  uri: 'https://catalog.example.invalid';
+  token: env 'ICEBERG_TOKEN';
+  schema namespace as analytics {
+    path: ['organization', 'analytics'];
+  }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        project.path().join("charts.avenger"),
+        r#"avenger 1;
+import * as data from './data.avenger';
+
+table sql as selected {
+  sql:
+    SELECT provider_value
+    FROM data.warehouse.analytics.remote_events;
+}
+
+chart cartesian as chart {
+  data: { table: 'selected'; }
+}
+"#,
+    )
+    .unwrap();
+
+    let (catalog_factories, table_factories) =
+        provider_registries("iceberg-snapshot-1", "delta-version-7");
+    let mut capabilities = DataCapabilities::project();
+    capabilities.allow_environment = true;
+    capabilities
+        .environment_names
+        .insert("ICEBERG_TOKEN".to_owned());
+    let compiler = Compiler::builder()
+        .project_root(project.path())
+        .catalog_factories(catalog_factories)
+        .table_factories(table_factories)
+        .data_capabilities(capabilities)
+        .environment(Arc::new(MapEnvironmentProvider::new([(
+            "ICEBERG_TOKEN".to_owned(),
+            "fixture-token".to_owned(),
+        )])))
+        .build()
+        .unwrap();
+
+    let analysis = compiler.analyze_module("charts.avenger").await.unwrap();
+    let selected = analysis
+        .datasets
+        .iter()
+        .find_map(|(_, dataset)| {
+            (dataset.qualified_name.as_deref() == Some("selected")).then_some(dataset)
+        })
+        .expect("derived table analysis");
+    assert_eq!(selected.columns[0].name, "provider_value");
+    assert!(
+        analysis.datasets.iter().any(|(_, dataset)| {
+            dataset.qualified_name.as_deref() == Some("warehouse.analytics.remote_events")
+        }),
+        "tooling provenance must retain the defining module's catalog path"
+    );
+
+    let chart_path = project.path().join("charts.avenger");
+    fs::write(
+        &chart_path,
+        fs::read_to_string(&chart_path)
+            .unwrap()
+            .replace("remote_events", "missing_events"),
+    )
+    .unwrap();
+    let failure = compiler.analyze_module("charts.avenger").await.unwrap_err();
+    let diagnostic = failure
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_str() == "AVENGER-DATA-108")
+        .expect("provider relation diagnostic");
+    assert!(
+        diagnostic
+            .primary
+            .message
+            .contains("data.warehouse.analytics.missing_events"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[tokio::test]
+async fn same_spelled_external_catalogs_in_different_modules_remain_distinct() {
+    let project = tempfile::tempdir().unwrap();
+    let catalog = r#"avenger 1;
+export catalog iceberg as warehouse {
+  uri: 'https://catalog.example.invalid';
+  token: env 'ICEBERG_TOKEN';
+  schema namespace as analytics {
+    path: ['organization', 'analytics'];
+  }
+}
+"#;
+    fs::write(project.path().join("left.avenger"), catalog).unwrap();
+    fs::write(project.path().join("right.avenger"), catalog).unwrap();
+    fs::write(
+        project.path().join("charts.avenger"),
+        r#"avenger 1;
+import * as left from './left.avenger';
+import * as right from './right.avenger';
+
+table sql as paired {
+  sql:
+    SELECT l.provider_value AS left_value,
+           r.provider_value AS right_value
+    FROM left.warehouse.analytics.remote_events AS l
+    CROSS JOIN right.warehouse.analytics.remote_events AS r;
+}
+
+chart cartesian {
+  data: { table: 'paired'; }
+}
+"#,
+    )
+    .unwrap();
+
+    let (catalog_factories, table_factories) =
+        provider_registries("iceberg-snapshot-1", "delta-version-7");
+    let mut capabilities = DataCapabilities::project();
+    capabilities.allow_environment = true;
+    capabilities
+        .environment_names
+        .insert("ICEBERG_TOKEN".to_owned());
+    let analysis = Compiler::builder()
+        .project_root(project.path())
+        .catalog_factories(catalog_factories)
+        .table_factories(table_factories)
+        .data_capabilities(capabilities)
+        .environment(Arc::new(MapEnvironmentProvider::new([(
+            "ICEBERG_TOKEN".to_owned(),
+            "fixture-token".to_owned(),
+        )])))
+        .build()
+        .unwrap()
+        .analyze_module("charts.avenger")
+        .await
+        .unwrap();
+    let paired = analysis
+        .datasets
+        .iter()
+        .find_map(|(_, dataset)| {
+            (dataset.qualified_name.as_deref() == Some("paired")).then_some(dataset)
+        })
+        .expect("paired table analysis");
+    assert_eq!(
+        paired
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        ["left_value", "right_value"]
     );
 }
 

@@ -161,7 +161,7 @@ fn import_clause_is_subset(
 
 #[derive(Clone, Debug)]
 pub struct ExpandedModuleGraph {
-    pub project: ParsedModuleGraph,
+    pub module_graph: ParsedModuleGraph,
     pub texts: BTreeMap<SourceModuleId, String>,
     pub source_map: ExpansionSourceMap,
 }
@@ -204,19 +204,19 @@ struct ExpansionContext {
 }
 
 pub fn expand_module_graph(
-    project: &ParsedModuleGraph,
+    module_graph: &ParsedModuleGraph,
     resolved: &ResolvedModuleGraph,
 ) -> Result<ExpandedModuleGraph, ExpansionFailure> {
-    expand_module_graph_with_limits(project, resolved, ExpansionLimits::default())
+    expand_module_graph_with_limits(module_graph, resolved, ExpansionLimits::default())
 }
 
 pub fn expand_module_graph_with_limits(
-    project: &ParsedModuleGraph,
+    module_graph: &ParsedModuleGraph,
     resolved: &ResolvedModuleGraph,
     limits: ExpansionLimits,
 ) -> Result<ExpandedModuleGraph, ExpansionFailure> {
     let mut expander = Expander {
-        project,
+        module_graph,
         resolved,
         limits,
         diagnostics: Vec::new(),
@@ -229,7 +229,7 @@ pub fn expand_module_graph_with_limits(
 }
 
 struct Expander<'a> {
-    project: &'a ParsedModuleGraph,
+    module_graph: &'a ParsedModuleGraph,
     resolved: &'a ResolvedModuleGraph,
     limits: ExpansionLimits,
     diagnostics: Vec<Diagnostic>,
@@ -242,18 +242,18 @@ struct Expander<'a> {
 impl Expander<'_> {
     fn expand(&mut self) -> Result<ExpandedModuleGraph, ExpansionFailure> {
         let mut next_source = self
-            .project
+            .module_graph
             .sources
             .iter()
             .map(|(id, _)| id.get())
             .max()
             .unwrap_or(0)
             .saturating_add(1);
-        let mut sources = self.project.sources.clone();
+        let mut sources = self.module_graph.sources.clone();
         let mut source_modules = BTreeMap::new();
         let mut texts = BTreeMap::new();
 
-        for (module_id, module) in &self.project.source_modules {
+        for (module_id, module) in &self.module_graph.source_modules {
             if !module
                 .parsed
                 .ast
@@ -393,7 +393,7 @@ impl Expander<'_> {
             .map(|(id, module)| (id.clone(), module.source))
             .collect::<BTreeMap<_, _>>();
         let imports = self
-            .project
+            .module_graph
             .imports
             .iter()
             .filter_map(|edge| {
@@ -447,15 +447,15 @@ impl Expander<'_> {
         source_map.mappings.sort_by_key(|mapping| mapping.expanded);
 
         Ok(ExpandedModuleGraph {
-            project: ParsedModuleGraph {
+            module_graph: ParsedModuleGraph {
                 sources,
                 source_modules,
-                native_modules: self.project.native_modules.clone(),
+                native_modules: self.module_graph.native_modules.clone(),
                 imports,
-                requested_modules: self.project.requested_modules.clone(),
-                ambient_data_modules: self.project.ambient_data_modules.clone(),
-                ambient_catalog: self.project.ambient_catalog.clone(),
-                fingerprint: self.project.fingerprint.clone(),
+                requested_modules: self.module_graph.requested_modules.clone(),
+                ambient_data_modules: self.module_graph.ambient_data_modules.clone(),
+                ambient_catalog: self.module_graph.ambient_catalog.clone(),
+                fingerprint: self.module_graph.fingerprint.clone(),
             },
             texts,
             source_map,
@@ -815,7 +815,8 @@ impl Expander<'_> {
         outer_context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
-        let Some(definition_file) = self.project.source_modules.get(&definition_id.module) else {
+        let Some(definition_file) = self.module_graph.source_modules.get(&definition_id.module)
+        else {
             return instance.clone();
         };
         let Some(schema) = self.resolved.definitions.get(&definition_id) else {
@@ -846,7 +847,7 @@ impl Expander<'_> {
         let instance_identity = expansion_identity(
             schema.local_seed.as_str(),
             caller.as_str(),
-            &stable_expansion_path(self.project.source_modules.get(caller), instance_path),
+            &stable_expansion_path(self.module_graph.source_modules.get(caller), instance_path),
             outer_context.map_or("", |context| context.instance_name.as_str()),
         );
         let instance_name = format!("{source_instance_name}_{instance_identity}");
@@ -1401,11 +1402,11 @@ impl Expander<'_> {
     }
 
     fn declaration_source_span(&self, owner: &SourceModuleId, declaration: &Decl) -> SourceSpan {
-        self.project
+        self.module_graph
             .source_modules
             .get(owner)
             .and_then(|file| declaration_node_span(file, declaration))
-            .or_else(|| self.project.source_modules.get(owner).map(root_span))
+            .or_else(|| self.module_graph.source_modules.get(owner).map(root_span))
             .unwrap_or_else(|| SourceSpan::empty(SourceId::new(0), 0))
     }
 

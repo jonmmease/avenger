@@ -23,19 +23,20 @@ pub use avenger_lang_compiler::{
     DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
     DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost,
     LocalResourceLimits, ModuleAnalysis, ModuleCompilationMode, ModuleDatasetId,
-    ModuleDependencyFingerprints, ModuleFingerprint, SourceLoaderLimits, TableFactory,
-    TableFactoryError, TableFactoryRegistry,
+    ModuleDependencyFingerprints, ModuleFingerprint, NativeModuleRequirement, NativeRequirementSet,
+    SourceLoaderLimits, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
-    AmbientDataItem, AvailableNativeModule, BundleFailure, BundleTarget, BundledSource, ByteSpan,
-    ContentVersion, DataCapabilities, DefinitionKind, Diagnostic, DiagnosticCode,
-    DiagnosticSeverity, EmptyEnvironmentProvider, EnvironmentProvider, ExpansionLimits,
-    ImportCapabilities, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
-    MapEnvironmentProvider, ModuleDependency, ModuleDependencyRole, ModuleDependencyTarget,
-    ModuleGraphLoadAttempt, ModuleGraphLoadFailure, ModuleGraphLoadLimits, ModuleGraphLoadRequest,
-    ModuleGraphLoader, ModuleId, ModuleImportEdge, ModuleRoot, ParsedModule, ParsedModuleGraph,
-    ResolveAttempt, ResolveFailure, ResolvedModuleGraph, SourceFile, SourceId, SourceLabel,
-    SourceLoader, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
+    AmbientDataItem, AvailableNativeModule, BindingCategory, BundleFailure, BundleTarget,
+    BundledSource, ByteSpan, ChartEntrypointId, ChartSelector, ContentVersion, DataCapabilities,
+    DefinitionKind, Diagnostic, DiagnosticCode, DiagnosticSeverity, EmptyEnvironmentProvider,
+    EnvironmentProvider, ExpansionLimits, ImportCapabilities, InMemorySourceLoader, LANGUAGE_MAJOR,
+    LineIndex, LoadedSource, MapEnvironmentProvider, ModuleDependency, ModuleDependencyRole,
+    ModuleDependencyTarget, ModuleExportId, ModuleExportIndex, ModuleGraphLoadAttempt,
+    ModuleGraphLoadFailure, ModuleGraphLoadLimits, ModuleGraphLoadRequest, ModuleGraphLoader,
+    ModuleId, ModuleImportEdge, ModuleItemId, ModuleRoot, ParsedModule, ParsedModuleGraph,
+    ResolveAttempt, ResolveFailure, ResolvedModuleGraph, ResolvedRelationId, SourceFile, SourceId,
+    SourceLabel, SourceLoader, SourceMap, SourceModuleId, SourceOrigin, SourceSpan,
 };
 pub use avenger_lang_core::{sql::SqlParseLimits, syntax::SyntaxLimits};
 

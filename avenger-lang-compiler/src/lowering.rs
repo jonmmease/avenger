@@ -96,7 +96,7 @@ type ToolBehaviorFuture<'a> = std::pin::Pin<
 /// Lower one chart entrypoint in a chart-local session cloned from the
 /// module graph's analyzed catalog generation. This is the unit used by the
 /// deterministic sequential/parallel scheduler and artifact cache.
-pub(crate) async fn lower_project_chart(
+pub(crate) async fn lower_module_chart(
     project: &ResolvedModuleGraph,
     entrypoint_id: &ChartEntrypointId,
     registry: &NativeRegistry,
@@ -104,7 +104,7 @@ pub(crate) async fn lower_project_chart(
     source_loader: &dyn SourceLoader,
     capabilities: &ImportCapabilities,
 ) -> Result<LoweredChart, Vec<Diagnostic>> {
-    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
+    let mut lowerer = ModuleLowerer::new(project, registry, context, source_loader, capabilities);
     let result = match lowerer.lower_entrypoint_state(entrypoint_id) {
         Ok(()) => lowerer.lower_one(entrypoint_id).await,
         Err(diagnostic) => Err(diagnostic),
@@ -134,7 +134,7 @@ pub(crate) async fn analyze_chart_datasets(
     let mut diagnostics = Vec::new();
     for (entrypoint_id, entrypoint) in &project.entrypoints {
         let mut lowerer =
-            ProjectLowerer::new(project, registry, context, source_loader, capabilities);
+            ModuleLowerer::new(project, registry, context, source_loader, capabilities);
         if let Err(mut diagnostic) = lowerer.lower_entrypoint_state(entrypoint_id) {
             project
                 .expansion_source_map
@@ -164,7 +164,7 @@ pub(crate) async fn analyze_chart_datasets(
     }
 }
 
-struct ProjectLowerer<'a> {
+struct ModuleLowerer<'a> {
     project: &'a ResolvedModuleGraph,
     registry: &'a NativeRegistry,
     context: &'a SessionContext,
@@ -184,7 +184,7 @@ struct ProjectLowerer<'a> {
     active_chart_path: Option<String>,
 }
 
-impl<'a> ProjectLowerer<'a> {
+impl<'a> ModuleLowerer<'a> {
     fn new(
         project: &'a ResolvedModuleGraph,
         registry: &'a NativeRegistry,
@@ -4548,6 +4548,8 @@ impl<'a> ProjectLowerer<'a> {
             })?;
             sql = sql.replace(&binding_spelling(binding), &format!("${}", param.name));
         }
+        crate::catalog::ensure_query_relations_registered(self.context, query)
+            .map_err(|error| lowerer_error(declaration, error))?;
         crate::catalog::expand_chart_sql(self.project, query, &sql)
             .map_err(|error| lowerer_error(declaration, error))
     }
@@ -4726,6 +4728,12 @@ impl<'a> ProjectLowerer<'a> {
                             })
                             .collect::<Result<Vec<_>, _>>()?;
                         if arguments.is_empty() {
+                            crate::catalog::ensure_relation_registered(
+                                self.context,
+                                relation_id,
+                                &authored_path,
+                            )
+                            .map_err(|error| lowerer_error(declaration, error))?;
                             self.context
                                 .table(crate::catalog::internal_relation_name(relation_id))
                                 .await

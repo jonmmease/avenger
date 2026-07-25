@@ -471,7 +471,7 @@ async fn compiler_enforces_local_resource_file_size_limit() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ModuleGraphLoadLimits::default(),
+            module_graph: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_file_bytes: 4,
                 ..LocalResourceLimits::default()
@@ -511,7 +511,7 @@ async fn compiler_enforces_aggregate_local_resource_budget() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ModuleGraphLoadLimits::default(),
+            module_graph: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_total_bytes: 7,
                 ..LocalResourceLimits::default()
@@ -568,7 +568,7 @@ async fn compiler_applies_syntax_and_expansion_limits() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ModuleGraphLoadLimits {
+            module_graph: ModuleGraphLoadLimits {
                 syntax: avenger_lang_core::syntax::SyntaxLimits {
                     max_declarations: 0,
                     ..avenger_lang_core::syntax::SyntaxLimits::default()
@@ -656,7 +656,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
         let compiler = Compiler::builder()
             .project_root(&root)
             .limits(CompilerLimits {
-                project: ModuleGraphLoadLimits::default(),
+                module_graph: ModuleGraphLoadLimits::default(),
                 resources: limits,
                 ..CompilerLimits::default()
             })
@@ -676,7 +676,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
     let compiler = Compiler::builder()
         .project_root(&root)
         .limits(CompilerLimits {
-            project: ModuleGraphLoadLimits::default(),
+            module_graph: ModuleGraphLoadLimits::default(),
             resources: LocalResourceLimits {
                 max_directory_depth: 0,
                 ..LocalResourceLimits::default()

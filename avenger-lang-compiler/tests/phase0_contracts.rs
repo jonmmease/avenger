@@ -12,8 +12,9 @@ use avenger_chart_schema::{
 };
 use avenger_lang_compiler::{
     AnalyzedDataset, ArtifactCacheKey, CompileEnvironment, CompileEnvironmentError,
-    CompileEnvironmentFactory, CompileEnvironmentRequest, Compiler, DatasetProvenance,
-    DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DependencyFingerprint, ModuleDatasetId,
+    CompileEnvironmentFactory, CompileEnvironmentRequest, CompiledChartArtifact, Compiler,
+    DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DependencyFingerprint,
+    ModuleDatasetId,
 };
 use avenger_lang_core::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceFile, SourceId, SourceLoader,
@@ -139,6 +140,9 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
     assert_eq!(cache_key.native_requirements, requirements.fingerprint());
 
     let extended = Arc::new(extended);
+    let restored =
+        CompiledChartArtifact::from_bytes(&artifact.to_bytes().unwrap(), &extended).unwrap();
+    assert_eq!(restored.native_requirements, artifact.native_requirements);
     let custom_compiler = Compiler::builder()
         .project_root("/project")
         .native_registry(extended.clone())

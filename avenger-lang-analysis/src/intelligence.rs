@@ -116,7 +116,7 @@ impl WorkspaceSemanticIndex {
             let Ok(analysis) = &root.result else {
                 continue;
             };
-            let Some(project) = analysis.resolved_project.as_deref() else {
+            let Some(project) = analysis.resolved_module_graph.as_deref() else {
                 continue;
             };
             index.enrich_from_resolved(project);

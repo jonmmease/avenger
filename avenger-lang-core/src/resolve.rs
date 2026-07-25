@@ -2568,7 +2568,9 @@ impl<'a> Resolver<'a> {
             defining_item: item,
             nested_path,
         };
-        if !self.relation_declarations.contains_key(&relation) {
+        if !self.relation_declarations.contains_key(&relation)
+            && !self.provider_discovered_relation(&relation)
+        {
             self.error(
                 "AVENGER-DATA-108",
                 "dataset path does not name a table",
@@ -2578,6 +2580,25 @@ impl<'a> Resolver<'a> {
             return None;
         }
         Some(ResolvedRelationTarget::Relation(relation))
+    }
+
+    fn provider_discovered_relation(&self, relation: &ResolvedRelationId) -> bool {
+        if relation.nested_path.len() < 2 {
+            return false;
+        }
+        let declaration = self
+            .module_index
+            .items
+            .get(&relation.defining_item)
+            .and_then(|item| self.declaration_source(&item.declaration))
+            .map(|(_, declaration)| declaration);
+        declaration.is_some_and(|declaration| {
+            declaration.keyword.as_str() == "catalog"
+                && !matches!(
+                    declaration.kind.as_ref().map(|kind| kind.as_str()),
+                    None | Some("memory" | "schemas")
+                )
+        })
     }
 
     fn source_item_for_export(&self, export: &ModuleExportId) -> Option<ModuleItemId> {

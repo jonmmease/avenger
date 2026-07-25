@@ -183,7 +183,7 @@ pub struct ModuleAnalysis {
     /// Editor hosts use this to build symbol, scope, and reference indexes
     /// without reimplementing resolver semantics. It contains no DataFusion
     /// session or executable plan and is shared cheaply with cached analyses.
-    pub resolved_project: Option<Arc<avenger_lang_core::ResolvedModuleGraph>>,
+    pub resolved_module_graph: Option<Arc<avenger_lang_core::ResolvedModuleGraph>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -208,7 +208,7 @@ impl ModuleAnalysis {
             dependency_fingerprints: ModuleDependencyFingerprints::default(),
             functions: FunctionInventory::default(),
             physical_type_constructors: physical_type_constructors(),
-            resolved_project: None,
+            resolved_module_graph: None,
         }
     }
 }

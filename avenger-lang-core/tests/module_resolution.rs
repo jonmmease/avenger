@@ -473,4 +473,93 @@ async fn transform_definitions_may_join_input_but_mark_definitions_cannot_captur
             .iter()
             .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-280")
     );
+
+    let transitive = load(
+        &[(
+            "root.avenger",
+            "avenger 1;\
+             table memory as rows {}\
+             define transform enrich {\
+               output id;\
+               transform sql { query: SELECT * FROM input JOIN rows USING (id); }\
+             }\
+             define mark captured { transform enrich {} mark symbol {} }",
+        )],
+        "root.avenger",
+        BTreeMap::new(),
+    )
+    .await;
+    let failure = resolve_module_graph(&transitive, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let diagnostic = failure
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-280")
+        .expect("transitive dataset-capture diagnostic");
+    assert!(
+        diagnostic
+            .primary
+            .message
+            .contains("captured -> enrich -> rows"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[tokio::test]
+async fn transform_definitions_record_standard_dataset_dependencies() {
+    let root = SourceOrigin::Memory("root.avenger".to_owned());
+    let loader = InMemorySourceLoader::default()
+        .with_source(LoadedSource::new(
+            root.clone(),
+            r#"avenger 1;
+import { country_names } from 'std:datasets.avenger';
+export define transform attach_country_name {
+  output country_name;
+  transform sql {
+    query:
+      SELECT rows.*, countries.name AS country_name
+      FROM input AS rows
+      JOIN country_names AS countries
+        ON rows.country_code = countries.code;
+  }
+}"#,
+            ContentVersion::new("root-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::Std("datasets.avenger".to_owned()),
+            "avenger 1; export table memory as country_names {}",
+            ContentVersion::new("std-datasets-v1"),
+        ));
+    let graph = ModuleGraphLoader::new(&loader)
+        .load(ModuleGraphLoadRequest {
+            project_root: "/project".into(),
+            roots: vec![ModuleRoot::requested(root)],
+            native_modules: BTreeMap::new(),
+            capabilities: ImportCapabilities::in_memory("/project"),
+            schema_version: "semantic-v1".to_owned(),
+            registry_version: "bootstrap".to_owned(),
+            limits: ModuleGraphLoadLimits::default(),
+        })
+        .await
+        .result
+        .unwrap();
+    let resolved = resolve_module_graph(&graph, &bootstrap_schema())
+        .result
+        .unwrap();
+    let transform = resolved
+        .items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("attach_country_name"))
+        .expect("transform item");
+    let dataset = resolved
+        .items
+        .values()
+        .find(|item| item.source_name.as_deref() == Some("country_names"))
+        .expect("standard dataset item");
+    assert!(resolved.item_dependencies.edges.iter().any(|edge| {
+        edge.from == transform.id
+            && edge.to == dataset.id
+            && edge.cause == avenger_lang_core::ItemDependencyCause::RelationUse
+    }));
 }

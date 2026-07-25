@@ -138,7 +138,7 @@ async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() 
         );
     }
     let cache = compiler.cache_snapshot();
-    assert_eq!(cache.project_analyses, 1);
+    assert_eq!(cache.module_analyses, 1);
     assert_eq!(cache.chart_artifacts, 3);
     assert_eq!(cache.artifact_keys.len(), 3);
 
@@ -309,7 +309,7 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
     let root = fixture();
     let sequential = Compiler::builder()
         .project_root(&root)
-        .project_compilation_mode(ModuleCompilationMode::Sequential)
+        .module_compilation_mode(ModuleCompilationMode::Sequential)
         .build()
         .unwrap()
         .compile_module(module_path(&root))
@@ -317,7 +317,7 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
         .unwrap();
     let parallel = Compiler::builder()
         .project_root(&root)
-        .project_compilation_mode(ModuleCompilationMode::Parallel)
+        .module_compilation_mode(ModuleCompilationMode::Parallel)
         .build()
         .unwrap()
         .compile_module(module_path(&root))
@@ -352,7 +352,7 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
         async move {
             Compiler::builder()
                 .project_root(&root)
-                .project_compilation_mode(mode)
+                .module_compilation_mode(mode)
                 .build()
                 .unwrap()
                 .compile_module(module_path(&root))
@@ -493,7 +493,7 @@ async fn project_compile_cancellation_publishes_no_partial_analysis_or_artifacts
     }
     let cancelled = compiler.cache_snapshot();
     assert_eq!(cancelled.chart_artifacts, 0);
-    assert_eq!(cancelled.project_analyses, 0);
+    assert_eq!(cancelled.module_analyses, 0);
     assert_eq!(cancelled.dataset_analyses, 0);
 
     released.store(true, Ordering::SeqCst);

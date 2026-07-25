@@ -33,7 +33,7 @@ use crate::{
     ModuleDependencyFingerprints, ModuleFingerprint, NativeRequirementSet, SourceLoaderLimits,
     TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
-    lowering::{analyze_chart_datasets, lower_project_chart},
+    lowering::{analyze_chart_datasets, lower_module_chart},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,8 +47,8 @@ pub enum ModuleCompilationMode {
 /// tooling. It exposes immutable identities and counts, never cached sessions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompilerCacheSnapshot {
-    pub resolved_projects: usize,
-    pub project_analyses: usize,
+    pub resolved_module_graphs: usize,
+    pub module_analyses: usize,
     pub dataset_analyses: usize,
     pub chart_artifacts: usize,
     pub artifact_keys: Vec<ArtifactCacheKey>,
@@ -187,11 +187,11 @@ pub struct ExpandedSource {
 pub struct Compiler {
     options: Arc<CompilerOptions>,
     host: LanguageHost,
-    resolved_project_cache: Arc<Mutex<BTreeMap<String, ResolvedModuleGraph>>>,
+    resolved_module_graph_cache: Arc<Mutex<BTreeMap<String, ResolvedModuleGraph>>>,
     analysis_cache: Arc<Mutex<BTreeMap<String, ModuleAnalysis>>>,
     dataset_analysis_cache: Arc<Mutex<BTreeMap<String, AnalyzedDataset>>>,
     artifact_cache: Arc<Mutex<ArtifactCache>>,
-    project_compilation_mode: ModuleCompilationMode,
+    module_compilation_mode: ModuleCompilationMode,
 }
 
 impl Compiler {
@@ -213,12 +213,12 @@ impl Compiler {
             .lock()
             .expect("artifact cache lock poisoned");
         CompilerCacheSnapshot {
-            resolved_projects: self
-                .resolved_project_cache
+            resolved_module_graphs: self
+                .resolved_module_graph_cache
                 .lock()
-                .expect("resolved-project cache lock poisoned")
+                .expect("resolved-module-graph cache lock poisoned")
                 .len(),
-            project_analyses: self
+            module_analyses: self
                 .analysis_cache
                 .lock()
                 .expect("analysis cache lock poisoned")
@@ -236,15 +236,15 @@ impl Compiler {
     /// Bound the immutable frontend caches retained by long-lived editor hosts.
     ///
     /// Eviction affects performance only: every entry is content-addressed and
-    /// can be reconstructed from the next immutable project snapshot.
-    pub fn trim_editor_caches(&self, max_project_entries: usize, max_dataset_entries: usize) {
-        let max_project_entries = max_project_entries.max(1);
+    /// can be reconstructed from the next immutable module-graph snapshot.
+    pub fn trim_editor_caches(&self, max_module_entries: usize, max_dataset_entries: usize) {
+        let max_module_entries = max_module_entries.max(1);
         let max_dataset_entries = max_dataset_entries.max(1);
         let mut resolved = self
-            .resolved_project_cache
+            .resolved_module_graph_cache
             .lock()
-            .expect("resolved-project cache lock poisoned");
-        while resolved.len() > max_project_entries {
+            .expect("resolved-module-graph cache lock poisoned");
+        while resolved.len() > max_module_entries {
             resolved.pop_first();
         }
         drop(resolved);
@@ -252,7 +252,7 @@ impl Compiler {
             .analysis_cache
             .lock()
             .expect("analysis cache lock poisoned");
-        while analyses.len() > max_project_entries {
+        while analyses.len() > max_module_entries {
             analyses.pop_first();
         }
         drop(analyses);
@@ -309,7 +309,7 @@ impl Compiler {
                     Ok(entrypoint) => {
                         async {
                             let (environment, catalog) = self
-                                .analyze_resolved_project(
+                                .analyze_resolved_module_graph(
                                     &project,
                                     generation,
                                     &dependencies,
@@ -324,7 +324,7 @@ impl Compiler {
                                 &catalog,
                                 &environment,
                             );
-                            let lowered = lower_project_chart(
+                            let lowered = lower_module_chart(
                                 &project,
                                 &entrypoint,
                                 self.options.native_registry.as_ref(),
@@ -481,6 +481,19 @@ impl Compiler {
         dependencies: &DiscoveredDependencySet,
         generation: u64,
     ) -> Result<CompiledModule, CompileFailure> {
+        let exports = project
+            .source_modules
+            .get(requested)
+            .map(|module| module.exports.clone())
+            .ok_or_else(|| {
+                module_root_failure(
+                    &project.sources,
+                    format!(
+                        "requested source module `{}` is missing",
+                        requested.as_str()
+                    ),
+                )
+            })?;
         let reachable_items = project
             .entrypoints
             .iter()
@@ -488,10 +501,15 @@ impl Compiler {
             .flat_map(|(_, entrypoint)| entrypoint.reachable_items.iter().cloned())
             .collect::<BTreeSet<_>>();
         let (environment, catalog) = self
-            .analyze_resolved_project(project, generation, dependencies, Some(&reachable_items))
+            .analyze_resolved_module_graph(
+                project,
+                generation,
+                dependencies,
+                Some(&reachable_items),
+            )
             .await?;
         let analysis = self
-            .finish_project_analysis(parsed, project, dependencies, &environment, &catalog)
+            .finish_module_analysis(parsed, project, dependencies, &environment, &catalog)
             .await?;
         let fingerprints = analysis.dependency_fingerprints.clone();
         let module_fingerprint = analysis.module_fingerprint;
@@ -529,7 +547,7 @@ impl Compiler {
         let lower_one = |entrypoint: ChartEntrypointId| {
             let chart_environment = environment.fork();
             async move {
-                lower_project_chart(
+                lower_module_chart(
                     project,
                     &entrypoint,
                     self.options.native_registry.as_ref(),
@@ -540,7 +558,7 @@ impl Compiler {
                 .await
             }
         };
-        let results = match self.project_compilation_mode {
+        let results = match self.module_compilation_mode {
             ModuleCompilationMode::Sequential => {
                 let mut results = Vec::with_capacity(misses.len());
                 for (entrypoint, _, _) in &misses {
@@ -630,6 +648,7 @@ impl Compiler {
         });
         Ok(CompiledModule {
             charts,
+            exports,
             sources: project.sources.clone(),
             native_requirements,
             module_fingerprint,
@@ -651,9 +670,9 @@ impl Compiler {
             })
             .result?;
         let (environment, catalog) = self
-            .analyze_resolved_project(&project, 0, &dependencies, None)
+            .analyze_resolved_module_graph(&project, 0, &dependencies, None)
             .await?;
-        self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
+        self.finish_module_analysis(&parsed, &project, &dependencies, &environment, &catalog)
             .await
     }
 
@@ -674,13 +693,13 @@ impl Compiler {
             })
             .result?;
         let (environment, catalog) = self
-            .analyze_resolved_project(&project, generation, &dependencies, None)
+            .analyze_resolved_module_graph(&project, generation, &dependencies, None)
             .await?;
-        self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
+        self.finish_module_analysis(&parsed, &project, &dependencies, &environment, &catalog)
             .await
     }
 
-    async fn finish_project_analysis(
+    async fn finish_module_analysis(
         &self,
         parsed: &ParsedModuleGraph,
         project: &ResolvedModuleGraph,
@@ -716,7 +735,7 @@ impl Compiler {
             self.options.native_registry.profile_id().clone(),
             module_fingerprint,
         );
-        analysis.resolved_project = Some(Arc::new(project.clone()));
+        analysis.resolved_module_graph = Some(Arc::new(project.clone()));
         let state = environment.session_context().state();
         analysis.functions.scalar = state.scalar_functions().keys().cloned().collect();
         analysis.functions.aggregate = state.aggregate_functions().keys().cloned().collect();
@@ -910,7 +929,7 @@ impl Compiler {
             })?;
         Ok(ExpandedSource {
             text,
-            sources: expanded.project.sources,
+            sources: expanded.module_graph.sources,
             source_map: expanded.source_map,
         })
     }
@@ -984,7 +1003,7 @@ impl Compiler {
                 .profile_id()
                 .as_str()
                 .to_owned(),
-            limits: self.options.limits.project,
+            limits: self.options.limits.module_graph,
         };
         let ModuleGraphLoadAttempt {
             result,
@@ -1023,9 +1042,9 @@ impl Compiler {
         let dependencies = attempt.dependencies;
         let result = attempt.result.and_then(|project| {
             if let Some(cached) = self
-                .resolved_project_cache
+                .resolved_module_graph_cache
                 .lock()
-                .expect("resolved-project cache lock poisoned")
+                .expect("resolved-module-graph cache lock poisoned")
                 .get(&project.fingerprint)
                 .cloned()
             {
@@ -1037,9 +1056,9 @@ impl Compiler {
                 self.host.authoring_schema(),
                 self.options.limits.expansion,
             )?;
-            self.resolved_project_cache
+            self.resolved_module_graph_cache
                 .lock()
-                .expect("resolved-project cache lock poisoned")
+                .expect("resolved-module-graph cache lock poisoned")
                 .insert(fingerprint, resolved.clone());
             Ok(resolved)
         });
@@ -1122,7 +1141,7 @@ impl Compiler {
         std::fs::canonicalize(&resolved).unwrap_or_else(|_| normalize_path(&resolved))
     }
 
-    async fn analyze_resolved_project(
+    async fn analyze_resolved_module_graph(
         &self,
         project: &ResolvedModuleGraph,
         generation: u64,
@@ -1183,7 +1202,7 @@ pub struct CompilerBuilder {
     catalog_factories: CatalogFactoryRegistry,
     table_factories: TableFactoryRegistry,
     environment_factory: Option<Arc<dyn CompileEnvironmentFactory>>,
-    project_compilation_mode: ModuleCompilationMode,
+    module_compilation_mode: ModuleCompilationMode,
     limits: CompilerLimits,
 }
 
@@ -1236,8 +1255,8 @@ impl CompilerBuilder {
         self
     }
 
-    pub fn project_compilation_mode(mut self, mode: ModuleCompilationMode) -> Self {
-        self.project_compilation_mode = mode;
+    pub fn module_compilation_mode(mut self, mode: ModuleCompilationMode) -> Self {
+        self.module_compilation_mode = mode;
         self
     }
 
@@ -1261,7 +1280,7 @@ impl CompilerBuilder {
             DefaultSourceLoader::with_limits(
                 &project_root,
                 SourceLoaderLimits {
-                    max_source_bytes: limits.project.max_source_bytes,
+                    max_source_bytes: limits.module_graph.max_source_bytes,
                     max_redirects: 5,
                 },
             )
@@ -1290,11 +1309,11 @@ impl CompilerBuilder {
         Ok(Compiler {
             options: Arc::new(options),
             host: LanguageHost::new(registry),
-            resolved_project_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            resolved_module_graph_cache: Arc::new(Mutex::new(BTreeMap::new())),
             analysis_cache: Arc::new(Mutex::new(BTreeMap::new())),
             dataset_analysis_cache: Arc::new(Mutex::new(BTreeMap::new())),
             artifact_cache: Arc::new(Mutex::new(ArtifactCache::default())),
-            project_compilation_mode: self.project_compilation_mode,
+            module_compilation_mode: self.module_compilation_mode,
         })
     }
 }
@@ -1433,7 +1452,7 @@ fn resolve_parsed_module_graph(
             sources: sources.clone(),
         },
     )?;
-    match resolve_semantics(&expanded.project, schema).result {
+    match resolve_semantics(&expanded.module_graph, schema).result {
         Ok(mut resolved) => {
             resolved.expansion_source_map = expanded.source_map;
             resolved.authoring_items = authoring_items;
@@ -1445,7 +1464,7 @@ fn resolve_parsed_module_graph(
                 .remap_diagnostics(&mut failure.diagnostics);
             Err(CompileFailure {
                 diagnostics: failure.diagnostics,
-                sources: expanded.project.sources,
+                sources: expanded.module_graph.sources,
             })
         }
     }

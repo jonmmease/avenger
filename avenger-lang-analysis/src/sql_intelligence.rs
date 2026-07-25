@@ -1642,7 +1642,8 @@ fn table_binding_relations(
     let Some(document) = document else {
         return Vec::new();
     };
-    let Some(resolved) = project.and_then(|project| project.resolved_project.as_deref()) else {
+    let Some(resolved) = project.and_then(|project| project.resolved_module_graph.as_deref())
+    else {
         return Vec::new();
     };
     document
@@ -1697,7 +1698,7 @@ fn binding_struct_fields<'a>(
     }) {
         return None;
     }
-    let resolved = project?.resolved_project.as_deref()?;
+    let resolved = project?.resolved_module_graph.as_deref()?;
     let param = resolved
         .params
         .values()
@@ -1860,7 +1861,7 @@ fn complete_table_bindings(
         let label = format!("${}", symbol.name);
         let bucket = format!("00:{:020}", symbol.selection_span.range.start);
         let detail = project
-            .and_then(|project| project.resolved_project.as_deref())
+            .and_then(|project| project.resolved_module_graph.as_deref())
             .and_then(|resolved| {
                 resolved
                     .stores
