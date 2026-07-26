@@ -27,16 +27,15 @@ use avenger_chart::{
 use avenger_chart_core::{
     ChartAction, ChartEventBinding, ChartEventStream, ChartEventType,
     DataTransformExecutionContext, DataTransformStage, DerivedPrimitiveMarkSpec,
-    DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec, DerivedTextMarkSpec, Dodge,
-    ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment, Jitter,
-    MarkAdjustmentCompileContext, MarkAdjustmentSpec, MarkAdjustmentTransform, Nudge,
-    Param as ChartParam, PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
-    PatternLayerOperation, PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery,
-    SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery,
-    SelectionUpdate, StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow,
-    StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec,
-    ViewRef, WeekStart, event, item_bbox_column_name, item_channel_column_name,
-    item_data_column_name,
+    DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec, DerivedTextMarkSpec,
+    ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment,
+    MarkAdjustmentCompileContext, MarkAdjustmentSpec, Param as ChartParam, PatternAnchor,
+    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+    PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
+    SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
+    StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
+    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
+    item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
@@ -2643,6 +2642,33 @@ impl<'a> ModuleLowerer<'a> {
             if property_shape == Some(&ValueShape::MarkBlock) {
                 continue;
             }
+            // Adjustment output routing is validated against the outputs
+            // returned by the paired lowerer after native construction.
+            // Preserve its expression-shaped map for registry validation
+            // without asking DataFusion to resolve synthetic `binder.output`
+            // names against the chart-row schema.
+            if namespace == NativeKindNamespace::Adjust && name == "apply" {
+                let ResolvedValue::Object { properties, .. } = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "transform adjustment `apply:` must be a property block",
+                    ));
+                };
+                let mut routed = IndexMap::new();
+                for (channel, value) in properties {
+                    let output = adjustment_output_name(value, declaration).ok_or_else(|| {
+                        lowerer_error(
+                            declaration,
+                            format!("`apply.{channel}` must reference a bound adjustment output"),
+                        )
+                    })?;
+                    routed.insert(channel.clone(), NativeValue::Expr(col(output)));
+                }
+                native
+                    .properties
+                    .insert(name.clone(), NativeValue::Object(routed));
+                continue;
+            }
             // A mark declaration contains both encoding channels and ordinary
             // native properties (for example Text.syntax and raster
             // dimensions). The registry schema, not the `mark` keyword,
@@ -2820,85 +2846,14 @@ impl<'a> ModuleLowerer<'a> {
                 "transform adjustment requires a registered kind",
             )
         })?;
-        let axis = declaration
-            .properties
-            .get("axis")
-            .and_then(resolved_atom)
-            .unwrap_or("x");
+        let native = self.native_declaration(declaration, None, NativeKindNamespace::Adjust)?;
         let context = MarkAdjustmentCompileContext::new(stage_index);
-        let (compiled, outputs): (_, BTreeMap<&str, Expr>) = match kind {
-            "nudge" => {
-                let adjustment = Nudge::new(
-                    resolved_f32(declaration.properties.get("dx"), 0.0, declaration, "dx")?,
-                    resolved_f32(declaration.properties.get("dy"), 0.0, declaration, "dy")?,
-                );
-                let (compiled, output) = adjustment
-                    .compile(context)
-                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                (
-                    compiled,
-                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
-                )
-            }
-            "jitter" => {
-                let mut adjustment = match axis {
-                    "x" => Jitter::x(),
-                    "y" => Jitter::y(),
-                    _ => {
-                        return Err(lowerer_error(declaration, "jitter axis must be `x` or `y`"));
-                    }
-                };
-                adjustment = adjustment.width_px(resolved_f32(
-                    declaration.properties.get("width_px"),
-                    1.0,
-                    declaration,
-                    "width_px",
-                )?);
-                if let Some(seed) = declaration.properties.get("seed") {
-                    adjustment = adjustment.seed(resolved_u64(seed, declaration, "seed")?);
-                }
-                let (compiled, output) = adjustment
-                    .compile(context)
-                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                (
-                    compiled,
-                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
-                )
-            }
-            "dodge" => {
-                let mut adjustment = match axis {
-                    "x" => Dodge::x(),
-                    "y" => Dodge::y(),
-                    _ => {
-                        return Err(lowerer_error(declaration, "dodge axis must be `x` or `y`"));
-                    }
-                };
-                let by = declaration
-                    .properties
-                    .get("by")
-                    .and_then(resolved_atom)
-                    .ok_or_else(|| lowerer_error(declaration, "dodge requires `by:`"))?;
-                adjustment = adjustment.by(by).step_px(resolved_f32(
-                    declaration.properties.get("step_px"),
-                    1.0,
-                    declaration,
-                    "step_px",
-                )?);
-                let (compiled, output) = adjustment
-                    .compile(context)
-                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                (
-                    compiled,
-                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
-                )
-            }
-            _ => {
-                return Err(lowerer_error(
-                    declaration,
-                    format!("unknown mark adjustment transform `{kind}`"),
-                ));
-            }
-        };
+        let lowered = self
+            .registry
+            .lower_adjustment(&native, context)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        let compiled = lowered.transform;
+        let outputs = lowered.outputs;
         let apply = declaration
             .properties
             .get("apply")
@@ -5270,25 +5225,6 @@ fn resolved_f32(
             format!("property `{property}` must be a number"),
         )),
     }
-}
-
-fn resolved_u64(
-    value: &ResolvedValue,
-    declaration: &ResolvedDeclaration,
-    property: &str,
-) -> Result<u64, Diagnostic> {
-    let ResolvedValue::Number(value) = value else {
-        return Err(lowerer_error(
-            declaration,
-            format!("property `{property}` must be a non-negative integer"),
-        ));
-    };
-    value.parse::<u64>().map_err(|_| {
-        lowerer_error(
-            declaration,
-            format!("property `{property}` must be a non-negative integer"),
-        )
-    })
 }
 
 fn resolved_i32(

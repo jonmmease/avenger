@@ -279,6 +279,38 @@ A zero-dimensional coordinate system that places marks at the plot center.
 | `time` | property | false | Chart temporal defaults. |
 | `title` | property | false | Chart title expression. |
 
+## `Adjust.dodge`
+
+Separate items into pixel-spaced lanes according to a data field.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `apply` | property | true | Target mark channels mapped to outputs of this bound adjustment. |
+| `axis` | property | false | Displacement axis; defaults to x. |
+| `by` | property | true | Data field whose values define dodge lanes. |
+| `step_px` | property | false | Pixel distance between adjacent lanes; defaults to 1. |
+
+## `Adjust.jitter`
+
+Apply deterministic random displacement along one item-frame axis.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `apply` | property | true | Target mark channels mapped to outputs of this bound adjustment. |
+| `axis` | property | false | Displacement axis; defaults to x. |
+| `seed` | property | false | Optional non-negative deterministic random seed. |
+| `width_px` | property | false | Full displacement width in pixels; defaults to 1. |
+
+## `Adjust.nudge`
+
+Offset item-frame positions by fixed horizontal and vertical pixel distances.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `apply` | property | true | Target mark channels mapped to outputs of this bound adjustment. |
+| `dx` | property | false | Horizontal pixel offset; defaults to 0. |
+| `dy` | property | false | Vertical pixel offset; defaults to 0. |
+
 ## `Mark.cartesian.area`
 
 A filled Cartesian area mark.

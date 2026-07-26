@@ -561,6 +561,487 @@
           "if": {
             "properties": {
               "decl": {
+                "const": "adjust"
+              },
+              "kind": {
+                "const": "dodge"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "apply": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": [
+                            "string",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "num": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "num"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "col": {}
+                          },
+                          "required": [
+                            "col"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "atom": {}
+                          },
+                          "required": [
+                            "atom"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "binding": {}
+                          },
+                          "required": [
+                            "binding"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "expr": {}
+                          },
+                          "required": [
+                            "expr"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {}
+                          },
+                          "required": [
+                            "value"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "block": {}
+                          },
+                          "required": [
+                            "block"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "axis": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atom": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "atom"
+                    ],
+                    "type": "object"
+                  },
+                  "by": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "step_px": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "apply",
+                  "by"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "x-avenger-allowed-parents": [
+              "mark"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "adjust"
+              },
+              "kind": {
+                "const": "jitter"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "apply": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": [
+                            "string",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "num": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "num"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "col": {}
+                          },
+                          "required": [
+                            "col"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "atom": {}
+                          },
+                          "required": [
+                            "atom"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "binding": {}
+                          },
+                          "required": [
+                            "binding"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "expr": {}
+                          },
+                          "required": [
+                            "expr"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {}
+                          },
+                          "required": [
+                            "value"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "block": {}
+                          },
+                          "required": [
+                            "block"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "axis": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atom": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "atom"
+                    ],
+                    "type": "object"
+                  },
+                  "seed": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  },
+                  "width_px": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "apply"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "x-avenger-allowed-parents": [
+              "mark"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "adjust"
+              },
+              "kind": {
+                "const": "nudge"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "apply": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": [
+                            "string",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "num": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "num"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "col": {}
+                          },
+                          "required": [
+                            "col"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "atom": {}
+                          },
+                          "required": [
+                            "atom"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "binding": {}
+                          },
+                          "required": [
+                            "binding"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "expr": {}
+                          },
+                          "required": [
+                            "expr"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {}
+                          },
+                          "required": [
+                            "value"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "block": {}
+                          },
+                          "required": [
+                            "block"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "dx": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  },
+                  "dy": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "apply"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "x-avenger-allowed-parents": [
+              "mark"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
                 "const": "cell"
               },
               "kind": {
@@ -73990,6 +74471,224 @@
             "required": false,
             "shape": {
               "shape": "sql_expression"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "allowed_parents": [
+          "mark"
+        ],
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Separate items into pixel-spaced lanes according to a data field.",
+        "exports": {},
+        "key": {
+          "kind": "dodge",
+          "namespace": "adjust"
+        },
+        "outputs": {
+          "x": {
+            "docs": "Adjusted item-frame x position.",
+            "name": "x",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "y": {
+            "docs": "Adjusted item-frame y position.",
+            "name": "y",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
+        "parts": {},
+        "properties": {
+          "apply": {
+            "docs": "Target mark channels mapped to outputs of this bound adjustment.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "shape": "sql_expression"
+              },
+              "shape": "map"
+            }
+          },
+          "axis": {
+            "default": "x",
+            "docs": "Displacement axis; defaults to x.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "values": [
+                  {
+                    "docs": "Adjust along the x axis.",
+                    "value": "x"
+                  },
+                  {
+                    "docs": "Adjust along the y axis.",
+                    "value": "y"
+                  }
+                ]
+              },
+              "shape": "atom"
+            }
+          },
+          "by": {
+            "docs": "Data field whose values define dodge lanes.",
+            "required": true,
+            "shape": {
+              "shape": "identifier"
+            }
+          },
+          "step_px": {
+            "default": 1.0,
+            "docs": "Pixel distance between adjacent lanes; defaults to 1.",
+            "required": false,
+            "shape": {
+              "shape": "number"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "allowed_parents": [
+          "mark"
+        ],
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Apply deterministic random displacement along one item-frame axis.",
+        "exports": {},
+        "key": {
+          "kind": "jitter",
+          "namespace": "adjust"
+        },
+        "outputs": {
+          "x": {
+            "docs": "Adjusted item-frame x position.",
+            "name": "x",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "y": {
+            "docs": "Adjusted item-frame y position.",
+            "name": "y",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
+        "parts": {},
+        "properties": {
+          "apply": {
+            "docs": "Target mark channels mapped to outputs of this bound adjustment.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "shape": "sql_expression"
+              },
+              "shape": "map"
+            }
+          },
+          "axis": {
+            "default": "x",
+            "docs": "Displacement axis; defaults to x.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "values": [
+                  {
+                    "docs": "Adjust along the x axis.",
+                    "value": "x"
+                  },
+                  {
+                    "docs": "Adjust along the y axis.",
+                    "value": "y"
+                  }
+                ]
+              },
+              "shape": "atom"
+            }
+          },
+          "seed": {
+            "docs": "Optional non-negative deterministic random seed.",
+            "required": false,
+            "shape": {
+              "shape": "integer"
+            }
+          },
+          "width_px": {
+            "default": 1.0,
+            "docs": "Full displacement width in pixels; defaults to 1.",
+            "required": false,
+            "shape": {
+              "shape": "number"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "allowed_parents": [
+          "mark"
+        ],
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Offset item-frame positions by fixed horizontal and vertical pixel distances.",
+        "exports": {},
+        "key": {
+          "kind": "nudge",
+          "namespace": "adjust"
+        },
+        "outputs": {
+          "x": {
+            "docs": "Adjusted item-frame x position.",
+            "name": "x",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "y": {
+            "docs": "Adjusted item-frame y position.",
+            "name": "y",
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
+        "parts": {},
+        "properties": {
+          "apply": {
+            "docs": "Target mark channels mapped to outputs of this bound adjustment.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "shape": "sql_expression"
+              },
+              "shape": "map"
+            }
+          },
+          "dx": {
+            "default": 0.0,
+            "docs": "Horizontal pixel offset; defaults to 0.",
+            "required": false,
+            "shape": {
+              "shape": "number"
+            }
+          },
+          "dy": {
+            "default": 0.0,
+            "docs": "Vertical pixel offset; defaults to 0.",
+            "required": false,
+            "shape": {
+              "shape": "number"
             }
           }
         },

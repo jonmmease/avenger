@@ -4,17 +4,20 @@
 //! module owns the primitive builder lowering so every compatible coordinate
 //! uses the same implementation.
 
+use std::collections::BTreeMap;
+
 use avenger_chart_core::{
-    ChannelDescriptor, ChannelValue, CoordinateSystem, DefaultLogicalExprNodeExt, FacetDataScope,
-    GeometrySpace, IntoPlotMark, Mark, PatternChannelValue, PlotMark, ZeroDCoord,
+    ChannelDescriptor, ChannelValue, CoordinateSystem, DefaultLogicalExprNodeExt, Dodge,
+    FacetDataScope, GeometrySpace, IntoPlotMark, Jitter, Mark, MarkAdjustmentTransform, Nudge,
+    PatternChannelValue, PlotMark, ZeroDCoord,
 };
 use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, NativeLoweringError, NativeOutputValue, ResolvedDeclaration,
-    ResolvedValue,
+    AdjustmentLanguageDefinition, CoordinateLanguageDefinition, LoweredAdjustment,
+    NativeLoweringError, NativeOutputValue, ResolvedDeclaration, ResolvedValue,
 };
 use avenger_chart_schema::{
     BodyMode, ChannelSchema, ChildRule, EnumValueSchema, KindSchema, NativeKindKey,
-    NativeKindNamespace, PropertySchema, ValueShape,
+    NativeKindNamespace, PropertySchema, TransformOutputSchema, ValueShape,
 };
 use avenger_text::types::TextSyntaxMode;
 
@@ -22,6 +25,267 @@ use crate::{
     Area, Image, Line, PathMark, RasterPositionSpec, Rect, Rule, Symbol, Text, Trail,
     UniformRaster2D,
 };
+
+/// Registered transform adjustments shared by every primitive-mark family.
+///
+/// `adjust expr` remains a language-owned item-frame assignment block. These
+/// entries own every kind-bearing `adjust` declaration and make their schemas,
+/// outputs, and native lowering available through the ordinary registry.
+pub fn adjustment_definitions() -> Vec<AdjustmentLanguageDefinition> {
+    vec![
+        nudge_adjustment_definition(),
+        jitter_adjustment_definition(),
+        dodge_adjustment_definition(),
+    ]
+}
+
+fn adjustment_schema(kind: &str, docs: &str) -> KindSchema {
+    KindSchema::new(NativeKindKey::new(NativeKindNamespace::Adjust, kind), docs)
+        .allowed_parent("mark")
+        .property(
+            "apply",
+            PropertySchema::required(
+                ValueShape::Map(Box::new(ValueShape::SqlExpression)),
+                "Target mark channels mapped to outputs of this bound adjustment.",
+            ),
+        )
+        .output(TransformOutputSchema {
+            name: "x".to_string(),
+            shape: ValueShape::SqlExpression,
+            condition_property: None,
+            docs: "Adjusted item-frame x position.".to_string(),
+        })
+        .output(TransformOutputSchema {
+            name: "y".to_string(),
+            shape: ValueShape::SqlExpression,
+            condition_property: None,
+            docs: "Adjusted item-frame y position.".to_string(),
+        })
+}
+
+fn nudge_adjustment_definition() -> AdjustmentLanguageDefinition {
+    AdjustmentLanguageDefinition {
+        schema: adjustment_schema(
+            "nudge",
+            "Offset item-frame positions by fixed horizontal and vertical pixel distances.",
+        )
+        .property(
+            "dx",
+            PropertySchema::optional(
+                ValueShape::Number,
+                "Horizontal pixel offset; defaults to 0.",
+            )
+            .with_default(0.0),
+        )
+        .property(
+            "dy",
+            PropertySchema::optional(ValueShape::Number, "Vertical pixel offset; defaults to 0.")
+                .with_default(0.0),
+        ),
+        lowerer: |declaration, context| {
+            let adjustment = Nudge::new(
+                optional_f32(declaration, "dx", 0.0)?,
+                optional_f32(declaration, "dy", 0.0)?,
+            );
+            let (transform, output) = adjustment.compile(context)?;
+            Ok(LoweredAdjustment {
+                transform,
+                outputs: BTreeMap::from([
+                    ("x".to_string(), output.x()),
+                    ("y".to_string(), output.y()),
+                ]),
+            })
+        },
+    }
+}
+
+fn jitter_adjustment_definition() -> AdjustmentLanguageDefinition {
+    AdjustmentLanguageDefinition {
+        schema: adjustment_schema(
+            "jitter",
+            "Apply deterministic random displacement along one item-frame axis.",
+        )
+        .property(
+            "axis",
+            PropertySchema::optional(axis_shape(), "Displacement axis; defaults to x.")
+                .with_default("x"),
+        )
+        .property(
+            "width_px",
+            PropertySchema::optional(
+                ValueShape::Number,
+                "Full displacement width in pixels; defaults to 1.",
+            )
+            .with_default(1.0),
+        )
+        .property(
+            "seed",
+            PropertySchema::optional(
+                ValueShape::Integer,
+                "Optional non-negative deterministic random seed.",
+            ),
+        ),
+        lowerer: |declaration, context| {
+            let mut adjustment = match optional_string(declaration, "axis", "x")? {
+                "x" => Jitter::x(),
+                "y" => Jitter::y(),
+                axis => {
+                    return Err(adjustment_error(
+                        declaration,
+                        format!("axis must be `x` or `y`, found `{axis}`"),
+                    ));
+                }
+            };
+            adjustment = adjustment.width_px(optional_f32(declaration, "width_px", 1.0)?);
+            if let Some(seed) = optional_u64(declaration, "seed")? {
+                adjustment = adjustment.seed(seed);
+            }
+            let (transform, output) = adjustment.compile(context)?;
+            Ok(LoweredAdjustment {
+                transform,
+                outputs: BTreeMap::from([
+                    ("x".to_string(), output.x()),
+                    ("y".to_string(), output.y()),
+                ]),
+            })
+        },
+    }
+}
+
+fn dodge_adjustment_definition() -> AdjustmentLanguageDefinition {
+    AdjustmentLanguageDefinition {
+        schema: adjustment_schema(
+            "dodge",
+            "Separate items into pixel-spaced lanes according to a data field.",
+        )
+        .property(
+            "axis",
+            PropertySchema::optional(axis_shape(), "Displacement axis; defaults to x.")
+                .with_default("x"),
+        )
+        .property(
+            "by",
+            PropertySchema::required(
+                ValueShape::Identifier,
+                "Data field whose values define dodge lanes.",
+            ),
+        )
+        .property(
+            "step_px",
+            PropertySchema::optional(
+                ValueShape::Number,
+                "Pixel distance between adjacent lanes; defaults to 1.",
+            )
+            .with_default(1.0),
+        ),
+        lowerer: |declaration, context| {
+            let mut adjustment = match optional_string(declaration, "axis", "x")? {
+                "x" => Dodge::x(),
+                "y" => Dodge::y(),
+                axis => {
+                    return Err(adjustment_error(
+                        declaration,
+                        format!("axis must be `x` or `y`, found `{axis}`"),
+                    ));
+                }
+            };
+            adjustment = adjustment
+                .by(required_string(declaration, "by")?)
+                .step_px(optional_f32(declaration, "step_px", 1.0)?);
+            let (transform, output) = adjustment.compile(context)?;
+            Ok(LoweredAdjustment {
+                transform,
+                outputs: BTreeMap::from([
+                    ("x".to_string(), output.x()),
+                    ("y".to_string(), output.y()),
+                ]),
+            })
+        },
+    }
+}
+
+fn axis_shape() -> ValueShape {
+    ValueShape::Atom {
+        values: ["x", "y"]
+            .into_iter()
+            .map(|value| EnumValueSchema {
+                value: value.to_string(),
+                docs: format!("Adjust along the {value} axis."),
+            })
+            .collect(),
+    }
+}
+
+fn optional_f32(
+    declaration: &ResolvedDeclaration,
+    name: &str,
+    default: f32,
+) -> Result<f32, NativeLoweringError> {
+    match declaration.properties.get(name) {
+        None => Ok(default),
+        Some(ResolvedValue::Integer(value)) => Ok(*value as f32),
+        Some(ResolvedValue::Number(value)) => Ok(*value as f32),
+        Some(_) => Err(adjustment_error(
+            declaration,
+            format!("property `{name}` must be numeric"),
+        )),
+    }
+}
+
+fn optional_u64(
+    declaration: &ResolvedDeclaration,
+    name: &str,
+) -> Result<Option<u64>, NativeLoweringError> {
+    match declaration.properties.get(name) {
+        None => Ok(None),
+        Some(ResolvedValue::Integer(value)) if *value >= 0 => Ok(Some(*value as u64)),
+        Some(_) => Err(adjustment_error(
+            declaration,
+            format!("property `{name}` must be a non-negative integer"),
+        )),
+    }
+}
+
+fn optional_string<'a>(
+    declaration: &'a ResolvedDeclaration,
+    name: &str,
+    default: &'a str,
+) -> Result<&'a str, NativeLoweringError> {
+    match declaration.properties.get(name) {
+        None => Ok(default),
+        Some(ResolvedValue::String(value)) => Ok(value),
+        Some(_) => Err(adjustment_error(
+            declaration,
+            format!("property `{name}` must be an identifier"),
+        )),
+    }
+}
+
+fn required_string<'a>(
+    declaration: &'a ResolvedDeclaration,
+    name: &str,
+) -> Result<&'a str, NativeLoweringError> {
+    optional_string(declaration, name, "").and_then(|value| {
+        if value.is_empty() {
+            Err(adjustment_error(
+                declaration,
+                format!("property `{name}` is required"),
+            ))
+        } else {
+            Ok(value)
+        }
+    })
+}
+
+fn adjustment_error(
+    declaration: &ResolvedDeclaration,
+    message: impl Into<String>,
+) -> NativeLoweringError {
+    NativeLoweringError::Lowering {
+        kind: declaration.kind.clone(),
+        message: message.into(),
+    }
+}
 
 /// Build the common schema shell for a primitive mark from the coordinate
 /// owner's execution-channel inventory.

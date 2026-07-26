@@ -9,8 +9,9 @@
 use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart_core::{
-    ChannelExpr, ChannelValue, ChartAction, ChartTool, CompiledDataTransform, CoordinateSystem,
-    DataTransformCompileContext, DataTransformStage, Param, PatternChannelValue, PlotMark,
+    ChannelExpr, ChannelValue, ChartAction, ChartTool, CompiledDataTransform,
+    CompiledMarkAdjustmentTransform, CoordinateSystem, DataTransformCompileContext,
+    DataTransformStage, MarkAdjustmentCompileContext, Param, PatternChannelValue, PlotMark,
     PrimitiveMarkEffects, RasterDim, Selection, WidgetAttachment, WidgetItems,
 };
 use avenger_chart_schema::KindSchema;
@@ -181,6 +182,12 @@ pub struct LoweredTransform {
     pub outputs: BTreeMap<String, NativeOutputValue>,
 }
 
+/// Coordinate-independent result from a registered mark-adjustment lowerer.
+pub struct LoweredAdjustment {
+    pub transform: Box<dyn CompiledMarkAdjustmentTransform>,
+    pub outputs: BTreeMap<String, Expr>,
+}
+
 /// A typed native output handle preserved until its authoring use site.
 #[derive(Clone)]
 // Boxing `ChannelExpr` would change the public typed-output API.
@@ -261,6 +268,10 @@ pub type TransformPipelineLowerer = fn(
     IndexMap<String, Expr>,
     DataTransformCompileContext,
 ) -> Result<LoweredTransform, NativeLoweringError>;
+pub type AdjustmentLowerer = fn(
+    &ResolvedDeclaration,
+    MarkAdjustmentCompileContext,
+) -> Result<LoweredAdjustment, NativeLoweringError>;
 pub type WidgetLowerer = fn(&ResolvedDeclaration) -> Result<WidgetAttachment, NativeLoweringError>;
 pub type ObjectLowerer =
     fn(&ResolvedDeclaration) -> Result<Box<dyn Any + Send + Sync>, NativeLoweringError>;
@@ -353,6 +364,12 @@ pub struct TransformLanguageDefinition {
 pub struct TransformPipelineLanguageDefinition {
     pub schema: KindSchema,
     pub lowerer: TransformPipelineLowerer,
+}
+
+/// Owner-provided mark-adjustment schema and native lowerer.
+pub struct AdjustmentLanguageDefinition {
+    pub schema: KindSchema,
+    pub lowerer: AdjustmentLowerer,
 }
 
 pub struct WidgetLanguageDefinition {

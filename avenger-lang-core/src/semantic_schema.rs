@@ -125,7 +125,10 @@ fn native_body_schema(schema: &KindSchema, keyword: &str) -> Value {
     let mut then = json!({
         "properties": { "props": props },
     });
-    if schema.key.namespace.eq(&NativeKindNamespace::Widget) {
+    if matches!(
+        schema.key.namespace,
+        NativeKindNamespace::Widget | NativeKindNamespace::Adjust
+    ) {
         then["required"] = json!(["name"]);
     }
     if schema.body_mode == BodyMode::Properties {
@@ -634,6 +637,7 @@ fn value_ref() -> Value {
 fn namespace_keywords(namespace: NativeKindNamespace) -> &'static [&'static str] {
     match namespace {
         NativeKindNamespace::Coordinate => &["chart", "cell", "plot"],
+        NativeKindNamespace::Adjust => &["adjust"],
         NativeKindNamespace::Mark => &["mark"],
         NativeKindNamespace::Transform => &["transform"],
         NativeKindNamespace::Tool => &["tool"],

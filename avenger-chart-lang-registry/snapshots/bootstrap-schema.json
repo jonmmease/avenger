@@ -3451,6 +3451,224 @@
     },
     {
       "key": {
+        "namespace": "adjust",
+        "kind": "dodge"
+      },
+      "docs": "Separate items into pixel-spaced lanes according to a data field.",
+      "properties": {
+        "apply": {
+          "shape": {
+            "shape": "map",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "Target mark channels mapped to outputs of this bound adjustment."
+        },
+        "axis": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "x",
+                  "docs": "Adjust along the x axis."
+                },
+                {
+                  "value": "y",
+                  "docs": "Adjust along the y axis."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "default": "x",
+          "docs": "Displacement axis; defaults to x."
+        },
+        "by": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": true,
+          "docs": "Data field whose values define dodge lanes."
+        },
+        "step_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "default": 1.0,
+          "docs": "Pixel distance between adjacent lanes; defaults to 1."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "x": {
+          "name": "x",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame x position."
+        },
+        "y": {
+          "name": "y",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame y position."
+        }
+      },
+      "compatible_coordinates": [],
+      "allowed_parents": [
+        "mark"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "adjust",
+        "kind": "jitter"
+      },
+      "docs": "Apply deterministic random displacement along one item-frame axis.",
+      "properties": {
+        "apply": {
+          "shape": {
+            "shape": "map",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "Target mark channels mapped to outputs of this bound adjustment."
+        },
+        "axis": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "x",
+                  "docs": "Adjust along the x axis."
+                },
+                {
+                  "value": "y",
+                  "docs": "Adjust along the y axis."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "default": "x",
+          "docs": "Displacement axis; defaults to x."
+        },
+        "seed": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Optional non-negative deterministic random seed."
+        },
+        "width_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "default": 1.0,
+          "docs": "Full displacement width in pixels; defaults to 1."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "x": {
+          "name": "x",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame x position."
+        },
+        "y": {
+          "name": "y",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame y position."
+        }
+      },
+      "compatible_coordinates": [],
+      "allowed_parents": [
+        "mark"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "adjust",
+        "kind": "nudge"
+      },
+      "docs": "Offset item-frame positions by fixed horizontal and vertical pixel distances.",
+      "properties": {
+        "apply": {
+          "shape": {
+            "shape": "map",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "Target mark channels mapped to outputs of this bound adjustment."
+        },
+        "dx": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "default": 0.0,
+          "docs": "Horizontal pixel offset; defaults to 0."
+        },
+        "dy": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "default": 0.0,
+          "docs": "Vertical pixel offset; defaults to 0."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "x": {
+          "name": "x",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame x position."
+        },
+        "y": {
+          "name": "y",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Adjusted item-frame y position."
+        }
+      },
+      "compatible_coordinates": [],
+      "allowed_parents": [
+        "mark"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
         "namespace": "mark",
         "kind": "area",
         "coordinate": "cartesian"

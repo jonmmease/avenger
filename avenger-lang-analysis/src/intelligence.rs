@@ -773,6 +773,7 @@ fn declaration_header(
         "chart"
             | "plot"
             | "mark"
+            | "adjust"
             | "transform"
             | "tool"
             | "widget"
@@ -1795,6 +1796,19 @@ impl<'a> QueryContext<'a> {
                 "00",
             ));
         }
+        if namespace == NativeKindNamespace::Adjust && candidate_matches("expr", typed) {
+            output.push(item(
+                "expr".to_owned(),
+                replacement,
+                "expr".to_owned(),
+                CompletionKind::Declaration,
+                Some("language-owned adjustment".to_owned()),
+                Some("Assign mark channels directly with item-frame SQL expressions.".to_owned()),
+                CompletionOrigin::AuthoringSchema,
+                false,
+                "00",
+            ));
+        }
         for (key, schema) in &self.registry.entries {
             if key.namespace != namespace
                 || (overlay_mark && key.coordinate.as_deref() != Some("cartesian"))
@@ -1835,6 +1849,7 @@ impl<'a> QueryContext<'a> {
                 Some("mark") => NativeKindNamespace::Mark,
                 Some("tool") => NativeKindNamespace::Tool,
                 Some("transform") => NativeKindNamespace::Transform,
+                Some("adjust") => NativeKindNamespace::Adjust,
                 _ => continue,
             };
             if target_namespace != namespace || !candidate_matches(&reference.path, typed) {
@@ -2996,6 +3011,7 @@ fn chart_coordinate(index: &WorkspaceSemanticIndex, symbol: &IndexedSymbol) -> O
 fn namespace_for_keyword(keyword: &str) -> Option<NativeKindNamespace> {
     match keyword {
         "chart" | "plot" => Some(NativeKindNamespace::Coordinate),
+        "adjust" => Some(NativeKindNamespace::Adjust),
         "mark" => Some(NativeKindNamespace::Mark),
         "transform" => Some(NativeKindNamespace::Transform),
         "tool" => Some(NativeKindNamespace::Tool),
@@ -3403,7 +3419,6 @@ fn fixed_header_candidates(text: &str, cursor: usize) -> Option<&'static [&'stat
             "channel",
         ]),
         "variable" => Some(&["row", "column", "item"]),
-        "adjust" => Some(&["expr", "nudge", "jitter", "dodge"]),
         _ => None,
     }
 }

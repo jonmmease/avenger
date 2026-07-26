@@ -60,6 +60,22 @@ fn completion_labels(marked: &str) -> Vec<String> {
         .collect()
 }
 
+#[test]
+fn adjustment_completion_uses_the_registered_inventory_and_schema() {
+    let kinds = completion_labels("avenger 1; chart cartesian { mark symbol { adjust ⟦cursor⟧ } }");
+    for expected in ["expr", "nudge", "jitter", "dodge"] {
+        assert!(kinds.contains(&expected.to_string()), "{kinds:?}");
+    }
+
+    let properties = completion_labels(
+        "avenger 1; chart cartesian { mark symbol { adjust jitter as jittered { ⟦cursor⟧ } } }",
+    );
+    for expected in ["apply", "axis", "width_px", "seed"] {
+        assert!(properties.contains(&expected.to_string()), "{properties:?}");
+    }
+    assert!(!properties.contains(&"dx".to_string()), "{properties:?}");
+}
+
 fn compiler_fixture_files() -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
     fn collect(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
         let mut entries = fs::read_dir(directory)

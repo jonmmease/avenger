@@ -11,12 +11,13 @@ use async_trait::async_trait;
 use avenger_chart::{layout::LayoutSpec, plot::CompiledPlot, prelude::*};
 use avenger_chart_core::{
     CompiledDataTransform, CoordinateSystem, DataContext, DataTransformCompileContext,
-    DataTransformStage, MarkDataMode, SubplotChildPlotSpec,
+    DataTransformStage, MarkAdjustmentCompileContext, MarkDataMode, SubplotChildPlotSpec,
 };
 pub use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, LoweredTransform, MarkLanguageLowerer, NativeLoweringError,
-    NativeOutputValue, ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue,
-    TransformLanguageDefinition, TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
+    AdjustmentLanguageDefinition, CoordinateLanguageDefinition, LoweredAdjustment,
+    LoweredTransform, MarkLanguageLowerer, NativeLoweringError, NativeOutputValue,
+    ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition,
+    TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -345,6 +346,14 @@ pub type NativeTransformPipelineLowerer = Arc<
             IndexMap<String, Expr>,
             DataTransformCompileContext,
         ) -> Result<LoweredTransform, RegistryError>
+        + Send
+        + Sync,
+>;
+pub type NativeAdjustmentLowerer = Arc<
+    dyn Fn(
+            &ResolvedDeclaration,
+            MarkAdjustmentCompileContext,
+        ) -> Result<LoweredAdjustment, RegistryError>
         + Send
         + Sync,
 >;
@@ -980,6 +989,11 @@ struct TransformEntry {
     lowerer: TransformEntryLowerer,
 }
 
+struct AdjustmentEntry {
+    schema: KindSchema,
+    lowerer: NativeAdjustmentLowerer,
+}
+
 enum TransformEntryLowerer {
     Leaf(NativeTransformLowerer),
     Pipeline(NativeTransformPipelineLowerer),
@@ -1011,6 +1025,7 @@ pub struct NativeRegistryBuilder {
     language_major: u32,
     profile_label: String,
     coordinates: BTreeMap<String, Box<dyn ErasedCoordinatePack>>,
+    adjustments: BTreeMap<String, AdjustmentEntry>,
     transforms: BTreeMap<String, TransformEntry>,
     widgets: BTreeMap<String, WidgetEntry>,
     objects: BTreeMap<NativeKindKey, ObjectEntry>,
@@ -1026,6 +1041,7 @@ impl NativeRegistryBuilder {
             language_major,
             profile_label: profile_label.into(),
             coordinates: BTreeMap::new(),
+            adjustments: BTreeMap::new(),
             transforms: BTreeMap::new(),
             widgets: BTreeMap::new(),
             objects: BTreeMap::new(),
@@ -1280,6 +1296,40 @@ impl NativeRegistryBuilder {
         Ok(())
     }
 
+    pub fn register_adjustment(
+        &mut self,
+        schema: KindSchema,
+        lowerer: NativeAdjustmentLowerer,
+    ) -> Result<(), RegistryError> {
+        let kind = schema.key.kind.clone();
+        if schema.key.namespace != NativeKindNamespace::Adjust {
+            return Err(RegistryError::SchemaLowererMismatch(schema.key));
+        }
+        if self.adjustments.contains_key(&kind) {
+            return Err(RegistryError::DuplicateKind {
+                namespace: NativeKindNamespace::Adjust,
+                kind,
+            });
+        }
+        self.record_registration(std::iter::once(schema.key.clone()))?;
+        self.adjustments
+            .insert(kind, AdjustmentEntry { schema, lowerer });
+        Ok(())
+    }
+
+    pub fn register_adjustment_definition(
+        &mut self,
+        definition: AdjustmentLanguageDefinition,
+    ) -> Result<(), RegistryError> {
+        let lowerer = definition.lowerer;
+        self.register_adjustment(
+            definition.schema,
+            Arc::new(move |declaration, context| {
+                lowerer(declaration, context).map_err(RegistryError::from)
+            }),
+        )
+    }
+
     pub fn register_transform_definition(
         &mut self,
         definition: TransformLanguageDefinition,
@@ -1407,6 +1457,9 @@ impl NativeRegistryBuilder {
                 }
             }
         }
+        for entry in self.adjustments.values() {
+            insert_schema(&mut entries, entry.schema.clone())?;
+        }
         for entry in self.transforms.values() {
             insert_schema(&mut entries, entry.schema.clone())?;
         }
@@ -1530,6 +1583,7 @@ impl NativeRegistryBuilder {
                 .into_iter()
                 .map(|(kind, pack)| (kind, Arc::from(pack)))
                 .collect(),
+            adjustments: self.adjustments,
             transforms: self.transforms,
             widgets: self.widgets,
             objects: self.objects,
@@ -1645,6 +1699,7 @@ pub struct NativeRegistry {
     builtin_profile_id: NativeBuiltinProfileId,
     native_modules: BTreeMap<NativeModuleId, RegisteredNativeModule>,
     coordinates: BTreeMap<String, Arc<dyn ErasedCoordinatePack>>,
+    adjustments: BTreeMap<String, AdjustmentEntry>,
     transforms: BTreeMap<String, TransformEntry>,
     widgets: BTreeMap<String, WidgetEntry>,
     objects: BTreeMap<NativeKindKey, ObjectEntry>,
@@ -1773,6 +1828,22 @@ impl NativeRegistry {
                 expected: NativeTransformMode::Leaf,
             }),
         }
+    }
+
+    pub fn lower_adjustment(
+        &self,
+        declaration: &ResolvedDeclaration,
+        context: MarkAdjustmentCompileContext,
+    ) -> Result<LoweredAdjustment, RegistryError> {
+        let entry =
+            self.adjustments
+                .get(&declaration.kind)
+                .ok_or_else(|| RegistryError::UnknownKind {
+                    namespace: NativeKindNamespace::Adjust,
+                    kind: declaration.kind.clone(),
+                })?;
+        self.validate(&entry.schema.key, declaration)?;
+        (entry.lowerer)(declaration, context)
     }
 
     pub fn transform_mode(&self, kind: &str) -> Result<NativeTransformMode, RegistryError> {
@@ -2591,6 +2662,12 @@ mod tests {
             .map(|schema| schema.key)
             .chain(
                 registry
+                    .adjustments
+                    .values()
+                    .map(|entry| entry.schema.key.clone()),
+            )
+            .chain(
+                registry
                     .transforms
                     .values()
                     .map(|entry| entry.schema.key.clone()),
@@ -3204,6 +3281,36 @@ mod tests {
             .map(|key| key.kind.clone())
             .collect::<BTreeSet<_>>();
         assert_eq!(lowered, registered);
+    }
+
+    #[test]
+    fn native_surface_schema_generated_smoke_lowers_every_adjustment_kind() {
+        let registry = builtins::stock_registry().unwrap();
+        let schemas = registry
+            .snapshot()
+            .entries
+            .values()
+            .filter(|schema| schema.key.namespace == NativeKindNamespace::Adjust)
+            .collect::<Vec<_>>();
+
+        assert_eq!(schemas.len(), 3);
+        for (stage, schema) in schemas.into_iter().enumerate() {
+            let lowered = registry
+                .lower_adjustment(
+                    &schema_smoke_declaration(schema),
+                    MarkAdjustmentCompileContext::new(stage),
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "schema-generated {} adjustment smoke failed: {error}",
+                        schema.key.kind
+                    )
+                });
+            assert_eq!(
+                lowered.outputs.keys().cloned().collect::<BTreeSet<_>>(),
+                schema.outputs.keys().cloned().collect::<BTreeSet<_>>()
+            );
+        }
     }
 
     #[tokio::test]

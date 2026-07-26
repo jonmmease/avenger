@@ -27,6 +27,7 @@ impl SchemaVersion {
 #[serde(rename_all = "snake_case")]
 pub enum NativeKindNamespace {
     Coordinate,
+    Adjust,
     Mark,
     Transform,
     Tool,
@@ -50,6 +51,7 @@ pub struct NativeKindKey {
 /// Family-specific aliases make registry signatures self-documenting while
 /// preserving one compact schema representation.
 pub type CoordinateSchema = KindSchema;
+pub type AdjustSchema = KindSchema;
 pub type MarkSchema = KindSchema;
 pub type TransformSchema = KindSchema;
 pub type ToolSchema = KindSchema;
@@ -395,6 +397,11 @@ impl PropertySchema {
             default: None,
             docs: docs.into(),
         }
+    }
+
+    pub fn with_default(mut self, default: impl Into<serde_json::Value>) -> Self {
+        self.default = Some(default.into());
+        self
     }
 }
 

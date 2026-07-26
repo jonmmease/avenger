@@ -3916,8 +3916,12 @@ mark symbol as points {
 }
 ```
 
-`adjust nudge`, `adjust jitter`, and `adjust dodge` map to the built-in
-adjustment transforms. Derived marks are limited to `Symbol`, `Rule`,
+`adjust nudge`, `adjust jitter`, and `adjust dodge` are the stock registered
+`Adjust` kinds. Their registry entries own property validation, documented
+outputs, and native transform construction; `apply:` remains the generic
+language routing from a bound adjustment output to target mark channels.
+Third-party native modules may export additional registered adjustment kinds
+without changing the parser. Derived marks are limited to `Symbol`, `Rule`,
 `Rect`, and `Text`. Their property assignments are item-frame expressions,
 not ordinary mark-channel slots: they evaluate after the source item's
 channels have been scaled and assign the derived primitive's item-space
@@ -5951,6 +5955,20 @@ arrow_type    = ? one canonical physical Arrow type from Physical Arrow Types ? 
 ```
 
 Grammar notes:
+
+The exceptional structural and mark-effect kinds have the following normative
+ownership. “Registered” means the authoring schema and paired Rust lowerer are
+one entry in the native registry; “language core” means the structural resolver
+and compiler own semantics that cannot be expressed as an ordinary leaf
+lowerer.
+
+| Surface form | Inventory and schema owner | Body mode | Lowering owner |
+|---|---|---|---|
+| `mark group` | language core | mixed recursive mark/dataflow body | recursive `MarkGroup` compiler path |
+| `transform pipeline` | registered `Transform` entry | ordered child transforms plus outputs | registered pipeline assembler after generic child lowering |
+| `tool behavior` | language core | owned state, events, tools, and chrome marks | behavior-component compiler path |
+| `adjust expr` | language core | item-frame channel assignments | expression-adjustment compiler path |
+| `adjust nudge`, `adjust jitter`, `adjust dodge`, and imported extension adjustments | registered `Adjust` entries | property-only adjustment configuration plus `apply:` routing | paired adjustment lowerer followed by generic channel routing |
 
 - Named runtime/chart instances use `[visibility] <category> <type> [as
   <name>]`, subject to the containing schema's binder requirement. Declared
@@ -8457,18 +8475,18 @@ source.
 For native kinds, the in-process registry pairs each normative schema entry
 with an erased Rust lowerer for that same kind and coordinate context. The
 serializable schema crate remains dependency-light and contains metadata only;
-the facade-side lowering registry owns constructors for marks, transforms,
-tools, widgets, coordinates, scales, guides, and other native objects. Registry
-construction rejects duplicate entries, and CI checks schema channel/property
-inventories against the Rust implementations. A DSL frontend therefore cannot
-maintain a second native-kind switch whose behavior drifts from schema,
-documentation, or Rust authoring.
+the facade-side lowering registry owns constructors for marks, adjustments,
+transforms, tools, widgets, coordinates, scales, guides, and other native
+objects. Registry construction rejects duplicate entries, and CI checks schema
+channel/property inventories against the Rust implementations. A DSL frontend
+therefore cannot maintain a second native-kind switch whose behavior drifts
+from schema, documentation, or Rust authoring.
 
 The native registry is an injected, immutable host capability. The stock
 language facade provides the canonical built-in registry; a third-party Rust
 host may use the same public `NativeRegistryBuilder` to compose those entries
 with explicit registration functions for its own marks, compound marks,
-coordinates, transforms, tools, and opaque widget kinds. Built-ins and
+coordinates, adjustments, transforms, tools, and opaque widget kinds. Built-ins and
 extensions use the same schema-plus-lowerer entry types. Registry construction
 rejects duplicate keys, missing coordinate prerequisites, and
 schema/lowerer mismatches before project analysis begins.

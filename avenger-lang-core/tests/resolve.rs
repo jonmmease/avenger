@@ -801,6 +801,45 @@ chart cartesian {
 }
 
 #[tokio::test]
+async fn resolve_validates_registered_adjustment_schemas_and_binders() {
+    let project = project(
+        &[(
+            "invalid_adjustments.avenger",
+            r#"
+avenger 1;
+chart cartesian {
+  mark symbol {
+    x: "x";
+    y: "y";
+    adjust expr { x: item_channel(x); }
+    adjust nudge as nudged { dx: 1.0; }
+    adjust jitter {
+      bogus: true;
+      apply: { x: jittered.x; }
+    }
+  }
+}
+"#,
+        )],
+        "invalid_adjustments.avenger",
+    )
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let codes = failure
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(codes.contains(&"AVENGER-RESOLVE-021"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-022"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-168"));
+    assert!(!codes.contains(&"AVENGER-RESOLVE-020"));
+}
+
+#[tokio::test]
 async fn resolve_imported_definition_exports_are_typed_and_instance_scoped() {
     let project = project(
         &[

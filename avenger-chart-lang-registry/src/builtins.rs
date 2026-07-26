@@ -690,6 +690,7 @@ fn optional_usize(
 pub fn register_stock_noncoordinate_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
+    register_adjustments(builder)?;
     register_transforms(builder)?;
     register_widgets(builder)?;
     register_objects(builder)
@@ -736,6 +737,13 @@ fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), Regist
     builder.register_transform_pipeline_definition(
         avenger_chart_transforms::language::pipeline_definition(),
     )?;
+    Ok(())
+}
+
+fn register_adjustments(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    for definition in avenger_chart_marks::language::adjustment_definitions() {
+        builder.register_adjustment_definition(definition)?;
+    }
     Ok(())
 }
 

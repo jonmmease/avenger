@@ -4732,6 +4732,7 @@ impl<'a> Resolver<'a> {
                     return None;
                 }
             }
+            "adjust" => NativeKindKey::new(NativeKindNamespace::Adjust, simple.as_str()),
             "transform" => NativeKindKey::new(NativeKindNamespace::Transform, simple.as_str()),
             "tool" => NativeKindKey::new(NativeKindNamespace::Tool, simple.as_str()),
             "widget" => NativeKindKey::new(NativeKindNamespace::Widget, simple.as_str()),
@@ -4848,6 +4849,14 @@ impl<'a> Resolver<'a> {
                     format!("`{}` requires channel `{name}:`", schema.key.kind),
                 );
             }
+        }
+        if schema.key.namespace == NativeKindNamespace::Adjust && declaration.name.is_none() {
+            self.error(
+                "AVENGER-RESOLVE-168",
+                "transform adjustment requires a binder",
+                span,
+                "add `as <name>` so `apply:` can reference the adjustment's output handles",
+            );
         }
         if !schema.compatible_coordinates.is_empty()
             && let Some(coordinate) = coordinate
@@ -9140,14 +9149,23 @@ fn parent_declaration<'a>(file: &'a ParsedModule, path: &[usize]) -> Option<&'a 
 fn requires_registered_kind(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "cell" | "plot" | "view" | "mark" | "transform" | "tool" | "widget" | "resource"
+        "chart"
+            | "cell"
+            | "plot"
+            | "view"
+            | "mark"
+            | "adjust"
+            | "transform"
+            | "tool"
+            | "widget"
+            | "resource"
     ) && !is_mark_group(declaration)
         && !matches!(
             (
                 declaration.keyword.as_str(),
                 declaration.kind.as_ref().map(|kind| kind.as_str())
             ),
-            ("tool", Some("behavior"))
+            ("tool", Some("behavior")) | ("adjust", None)
         )
 }
 
@@ -9301,7 +9319,7 @@ fn core_property(declaration: &Decl, property: &str) -> bool {
         "mark" => matches!(property, "data"),
         "tool" => matches!(property, "id"),
         "widget" => false,
-        "transform" => false,
+        "transform" | "adjust" => false,
         _ => true,
     }
 }
@@ -10736,6 +10754,7 @@ fn declaration_kind_category(declaration: &Decl) -> Option<BindingCategory> {
         "chart" | "cell" | "plot" => NativeKindNamespace::Coordinate,
         "view" => NativeKindNamespace::View,
         "mark" => NativeKindNamespace::Mark,
+        "adjust" => NativeKindNamespace::Adjust,
         "transform" => NativeKindNamespace::Transform,
         "tool" => NativeKindNamespace::Tool,
         "widget" => NativeKindNamespace::Widget,
@@ -10755,6 +10774,7 @@ fn requires_module_item_name(declaration: &Decl) -> bool {
 fn binding_category_label(category: BindingCategory) -> &'static str {
     match category {
         BindingCategory::NativeKind(NativeKindNamespace::Coordinate) => "coordinate",
+        BindingCategory::NativeKind(NativeKindNamespace::Adjust) => "adjustment",
         BindingCategory::NativeKind(NativeKindNamespace::Mark) => "mark",
         BindingCategory::NativeKind(NativeKindNamespace::Transform) => "transform",
         BindingCategory::NativeKind(NativeKindNamespace::Tool) => "tool",
