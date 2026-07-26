@@ -4648,12 +4648,22 @@ chart cartesian as sales_errors {
   error, and an unknown property is an error — except the generic mark
   properties (`visible`, `details`, `zindex`, `facet_data_scope`,
   and `geometry_space`), which apply to the expansion root.
-- `part <name> { ... }` targets the mark explicitly exported under `<name>`; its
-  properties merge over the definition's, use site winning. Parts cover
-  open-ended styling so definitions do not need a slot per styleable
-  property. The same public-part surface serves theme part selectors
-  (`box_plot::part(median)`; see [Themes And CSS](#themes-and-css)) and
-  event targets — one declared surface, three consumers.
+- `part <name> { ... }` targets the mark explicitly exported under `<name>`.
+  Its body is property-only and may use every value form accepted by the
+  target mark property. In particular, a channel override may use a configured
+  channel block with ordered `when`/`otherwise` branches. A supplied property
+  replaces that property as one complete value; part overrides do not
+  recursively merge channel configuration, conditions, scale blocks, or guide
+  blocks with the definition's value. Thus the use site wins independently at
+  each property name.
+- A `part` body cannot contain direct child declarations such as `adjust`,
+  `derive`, transforms, marks, tools, event bindings, or widgets. Authors who
+  need structural customization must expose a block slot or define another
+  component. Parts cover open-ended property styling so definitions do not
+  need a slot per styleable property. The same public-part surface serves
+  theme part selectors (`box_plot::part(median)`; see
+  [Themes And CSS](#themes-and-css)) and event targets — one declared surface,
+  three consumers.
 - Definition bodies are private by default, including declarations at the
   definition's own level. When a definition instantiates another definition
   internally, the inner instance's parts and state are likewise not reachable
@@ -8783,8 +8793,11 @@ may revisit it with usage evidence.
 - V1 transform-definition outputs have fixed public names and never derive an
   output name from a slot.
 - V1 block slots have exactly one splice point; repeated stamping is excluded.
-- V1 `part` overrides merge style/configuration properties only; they cannot
-  attach `adjust`, `derive`, or other child effects to internal marks.
+- V1 `part` overrides are property-only. Configured channels and their
+  `when`/`otherwise` branches are valid property values, but each supplied
+  property replaces the definition's complete value rather than deep-merging
+  it. A part cannot attach `adjust`, `derive`, or any other child declaration
+  to an internal mark.
 - V1 uses reserved helper functions such as `event_coord(x)` and has no dotted
   sugar such as `event.coord.x`.
 - **An inline Rust macro** (recorded 2026-07-10; wanted): `chart!(r#"…"#)`

@@ -82,6 +82,113 @@ export define mark summary {
 }
 
 #[tokio::test]
+async fn definition_parts_replace_complete_configured_channel_values() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import { summary } from 'summary.avenger';
+chart cartesian as chart {
+  mark summary as result {
+    part point {
+      fill: "category" {
+        when {
+          predicate: true;
+          value: '#dc2626';
+        }
+        otherwise: {
+          value: '#94a3b8';
+        }
+      }
+    }
+  }
+}
+"#,
+        ),
+        (
+            "summary.avenger",
+            r#"
+avenger 1;
+export define mark summary {
+  export point;
+  mark symbol as point {
+    x: "x";
+    y: "y";
+    fill: "series" {
+      legend: {
+        title: 'Original';
+      }
+    }
+  }
+}
+"#,
+        ),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let chart = project.requested_modules.first().unwrap();
+    let text = expanded.texts.get(chart).unwrap();
+
+    assert!(text.contains("fill: \"category\" {"), "{text}");
+    assert!(text.contains("predicate: true;"), "{text}");
+    assert!(text.contains("otherwise: {"), "{text}");
+    assert!(!text.contains("\"series\""), "{text}");
+    assert!(!text.contains("title: 'Original';"), "{text}");
+
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
+        .result
+        .unwrap();
+}
+
+#[tokio::test]
+async fn definition_parts_reject_direct_child_declarations() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import { summary } from 'summary.avenger';
+chart cartesian as chart {
+  mark summary as result {
+    part point {
+      adjust expr {
+        size: 2.0;
+      }
+    }
+  }
+}
+"#,
+        ),
+        (
+            "summary.avenger",
+            r#"
+avenger 1;
+export define mark summary {
+  export point;
+  mark symbol as point { x: "x"; y: "y"; }
+}
+"#,
+        ),
+    ])
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+
+    assert!(failure.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_str() == "AVENGER-RESOLVE-167"
+            && diagnostic
+                .primary
+                .message
+                .contains("no direct child declarations")
+    }));
+}
+
+#[tokio::test]
 async fn definitions_reject_incomplete_matches_invalid_splices_exposure_data_and_themes() {
     let project = project(&[
         (

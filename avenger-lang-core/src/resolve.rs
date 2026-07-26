@@ -4989,6 +4989,14 @@ impl<'a> Resolver<'a> {
             .iter()
             .filter(|child| child.keyword.as_str() == "part")
         {
+            if !child.children.is_empty() {
+                self.error(
+                    "AVENGER-RESOLVE-167",
+                    "definition part override requires a property-only body",
+                    span,
+                    "`part` accepts configured property values, including channel conditions, but no direct child declarations",
+                );
+            }
             let Some(alias) = child.name.as_ref().map(ToString::to_string) else {
                 continue;
             };
