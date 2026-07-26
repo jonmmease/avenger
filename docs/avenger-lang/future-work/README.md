@@ -25,3 +25,14 @@ archived.
 | Document | Status |
 | --- | --- |
 | [project-manifest.md](project-manifest.md) | Future design: an optional `avenger.toml` that acts as a deterministic project-root marker and names chart entrypoints and ambient-data configurations. |
+
+## Follow-Up Todo
+
+- [ ] **AV-P1-08 — consolidate SQL-island boundaries.** Create one normative
+  `SQL Island Boundaries` section in the canonical DSL specification; make its
+  five-context boundary table, balancing and terminator rules, lone-identifier
+  typed-object rule, and quoted-column requirement authoritative. Rewrite the
+  current Block Modes account to point there, and keep the Rust
+  `SqlIslandContext` inventory, strict parser corpus, Tree-sitter corpus, and
+  editor recovery fixtures as executable mirrors. This is specification
+  consolidation and test hardening, not a syntax redesign.
