@@ -274,12 +274,31 @@ impl ChartTool<Geo> for GeoPanZoom {
             let box_y1 = self.overlay_param("box_y1");
             let overlay = Rect::<Geo>::new()
                 .unit_data()
-                .exclude_from_scale_domains()
                 .visible(ev::param(active.name.as_str()))
-                .with_channel_value("x", ChannelValue::from(box_x0.expr()).with_scale_name("x"))
-                .with_channel_value("y", ChannelValue::from(box_y0.expr()).with_scale_name("y"))
-                .with_channel_value("x2", ChannelValue::from(box_x1.expr()).with_scale_name("x"))
-                .with_channel_value("y2", ChannelValue::from(box_y1.expr()).with_scale_name("y"))
+                .with_channel_value(
+                    "x",
+                    ChannelValue::from(box_x0.expr())
+                        .with_scale_name("x")
+                        .exclude_from_scale_domain(),
+                )
+                .with_channel_value(
+                    "y",
+                    ChannelValue::from(box_y0.expr())
+                        .with_scale_name("y")
+                        .exclude_from_scale_domain(),
+                )
+                .with_channel_value(
+                    "x2",
+                    ChannelValue::from(box_x1.expr())
+                        .with_scale_name("x")
+                        .exclude_from_scale_domain(),
+                )
+                .with_channel_value(
+                    "y2",
+                    ChannelValue::from(box_y1.expr())
+                        .with_scale_name("y")
+                        .exclude_from_scale_domain(),
+                )
                 .fill("rgba(66, 133, 244, 0.08)")
                 .stroke("#4285f4")
                 .stroke_width(1.5)

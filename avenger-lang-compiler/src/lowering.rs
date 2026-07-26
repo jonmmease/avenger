@@ -21,7 +21,7 @@ use avenger_chart::{
     layout::LayoutSpec,
     prelude::{
         Auto, ChannelExpr, ChannelValue, ColorbarOverlay, LegendableChannelValue, Param, Scale,
-        ScaleChannelValue, Selection, Store, WidgetItemRow, WidgetItems,
+        ScaleChannelValue, ScaleDomainInference, Selection, Store, WidgetItemRow, WidgetItems,
     },
 };
 use avenger_chart_core::{
@@ -3682,6 +3682,27 @@ impl<'a> ModuleLowerer<'a> {
                 "scale" => self.apply_scale(channel, config, data, declaration)?,
                 "axis" => self.apply_axis(channel, config, data, declaration)?,
                 "legend" => self.apply_legend(channel, config, data, declaration)?,
+                "domain_contribution" => {
+                    let inference = match resolved_atom(config) {
+                        Some("infer") => ScaleDomainInference::Infer,
+                        Some("exclude") => ScaleDomainInference::Exclude,
+                        Some(value) => {
+                            return Err(lowerer_error(
+                                declaration,
+                                format!(
+                                    "`domain_contribution` must be `infer` or `exclude`, found `{value}`"
+                                ),
+                            ));
+                        }
+                        None => {
+                            return Err(lowerer_error(
+                                declaration,
+                                "`domain_contribution` must be `infer` or `exclude`",
+                            ));
+                        }
+                    };
+                    channel.with_scale_domain_inference(inference)
+                }
                 other => {
                     return Err(lowerer_error(
                         declaration,

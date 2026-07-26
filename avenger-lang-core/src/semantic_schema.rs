@@ -73,7 +73,6 @@ fn mark_group_body_schema() -> Value {
                     ("zindex".to_owned(), value_ref()),
                     ("facet_data_scope".to_owned(), value_ref()),
                     ("geometry_space".to_owned(), value_ref()),
-                    ("exclude_from_scale_domains".to_owned(), value_ref()),
                 ]),
                 Vec::new(),
                 true,

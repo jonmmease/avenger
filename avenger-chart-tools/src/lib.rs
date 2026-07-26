@@ -6,11 +6,11 @@ use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChannelConfig, ChartEventBinding, ChartEventStream, ChartEventType,
     ChartTool, CoordinateSystemCore, CoordinationScope, CursorStyle, DomainCoordination,
-    DomainCoordinationGroup, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
-    SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine,
-    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate,
-    ToolBehaviorExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit,
-    event as ev, repeat,
+    DomainCoordinationGroup, EmptySelectionBehavior, IntoExpr, Param, ScaleChannelConfig,
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryDatumField, Selection,
+    SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store,
+    StoreData, StoreRow, StoreUpdate, ToolBehaviorExpansion, ToolExpansionContext, ToolMetadata,
+    ToolParamSharing, ToolScaleEdit, event as ev, repeat,
 };
 use avenger_chart_marks::Rect;
 use datafusion::{
@@ -1055,11 +1055,22 @@ impl BoxSelection {
         let store_name = self.store_name();
         let mark = Rect::<Cartesian>::new()
             .data_store(StoreData::new(store_name))
-            .exclude_from_scale_domains()
-            .x_with(col("x_min"), |c| c.with_scale_name(&self.x_channel))
-            .x2_with(col("x_max"), |c| c.with_scale_name(&self.x_channel))
-            .y_with(col("y_min"), |c| c.with_scale_name(&self.y_channel))
-            .y2_with(col("y_max"), |c| c.with_scale_name(&self.y_channel))
+            .x_with(col("x_min"), |c| {
+                c.with_scale_name(&self.x_channel)
+                    .exclude_from_scale_domain()
+            })
+            .x2_with(col("x_max"), |c| {
+                c.with_scale_name(&self.x_channel)
+                    .exclude_from_scale_domain()
+            })
+            .y_with(col("y_min"), |c| {
+                c.with_scale_name(&self.y_channel)
+                    .exclude_from_scale_domain()
+            })
+            .y2_with(col("y_max"), |c| {
+                c.with_scale_name(&self.y_channel)
+                    .exclude_from_scale_domain()
+            })
             .fill("rgba(37, 99, 235, 0.10)")
             .stroke("#2563eb")
             .stroke_width(1.5)
@@ -1510,12 +1521,17 @@ impl ChartTool<Cartesian> for BoxZoom {
 
         let overlay = Rect::<Cartesian>::new()
             .unit_data()
-            .exclude_from_scale_domains()
             .visible(ev::param(&active))
-            .x(box_x0.expr())
-            .x2_with(box_x1.expr(), |c| c.with_scale_name(&self.x_channel))
-            .y(box_y0.expr())
-            .y2_with(box_y1.expr(), |c| c.with_scale_name(&self.y_channel))
+            .x_with(box_x0.expr(), |c| c.exclude_from_scale_domain())
+            .x2_with(box_x1.expr(), |c| {
+                c.with_scale_name(&self.x_channel)
+                    .exclude_from_scale_domain()
+            })
+            .y_with(box_y0.expr(), |c| c.exclude_from_scale_domain())
+            .y2_with(box_y1.expr(), |c| {
+                c.with_scale_name(&self.y_channel)
+                    .exclude_from_scale_domain()
+            })
             .fill("rgba(66, 133, 244, 0.08)")
             .stroke("#4285f4")
             .stroke_width(1.5)

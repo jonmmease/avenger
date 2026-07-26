@@ -145,6 +145,7 @@ pub fn resolve_known_derived_scalars_in_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => ChannelValue::Scaled {
             expr: resolve_node(expr)?,
             scale_name,
@@ -155,6 +156,7 @@ pub fn resolve_known_derived_scalars_in_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { expr } => ChannelValue::Value {
             expr: resolve_node(expr)?,
@@ -168,6 +170,7 @@ pub fn resolve_known_derived_scalars_in_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => ChannelValue::Conditional {
             conditions: conditions
                 .into_iter()
@@ -182,6 +185,7 @@ pub fn resolve_known_derived_scalars_in_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
     })
 }

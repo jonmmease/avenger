@@ -178,11 +178,7 @@ fn native_i32(value: &ResolvedValue, property: &str) -> Result<i32, RegistryErro
 fn is_common_subplot_property(name: &str) -> bool {
     matches!(
         name,
-        "visible"
-            | "details"
-            | "facet_data_scope"
-            | "geometry_space"
-            | "exclude_from_scale_domains"
+        "visible" | "details" | "facet_data_scope" | "geometry_space"
     )
 }
 

@@ -72,7 +72,6 @@ impl<C> Default for TreeRect<C> {
                 view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
-                exclude_from_scale_domains: false,
                 visible: None,
                 details: None,
                 zindex: None,
@@ -109,11 +108,6 @@ impl<C> TreeRect<C> {
 
     pub fn unit_data(mut self) -> Self {
         self.state.data_mode = MarkDataMode::Unit;
-        self
-    }
-
-    pub fn exclude_from_scale_domains(mut self) -> Self {
-        self.state.exclude_from_scale_domains = true;
         self
     }
 
@@ -318,7 +312,6 @@ impl<C> Default for TreeLabel<C> {
                 view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
-                exclude_from_scale_domains: true,
                 visible: None,
                 details: None,
                 zindex: None,
@@ -894,7 +887,6 @@ impl<C> Default for TreeHeader<C> {
                 view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
-                exclude_from_scale_domains: false,
                 visible: None,
                 details: None,
                 zindex: Some(40),

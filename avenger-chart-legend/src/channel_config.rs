@@ -46,6 +46,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
             ..
         } => ChannelValue::Scaled {
             expr,
@@ -57,6 +58,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Conditional {
             conditions,
@@ -66,6 +68,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
             ..
         } => ChannelValue::Conditional {
             conditions,
@@ -76,6 +79,7 @@ fn apply_legend_config(value: ChannelValue, legend_config: Legend) -> ChannelVal
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { .. } => value,
     }

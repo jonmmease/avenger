@@ -23,7 +23,6 @@ macro_rules! impl_mark_base {
                         view: None,
                         data_mode: $crate::MarkDataMode::Inherit,
                         facet_data_scope: $crate::FacetDataScope::FILTERED,
-                        exclude_from_scale_domains: false,
                         visible: None,
                         details: None,
                         zindex: None,
@@ -74,12 +73,6 @@ macro_rules! impl_mark_base {
             /// Render this mark once without inheriting plot or facet data.
             pub fn unit_data(mut self) -> Self {
                 self.state.data_mode = $crate::MarkDataMode::Unit;
-                self
-            }
-
-            /// Prevent this mark's channels from contributing to inferred scale domains.
-            pub fn exclude_from_scale_domains(mut self) -> Self {
-                self.state.exclude_from_scale_domains = true;
                 self
             }
 

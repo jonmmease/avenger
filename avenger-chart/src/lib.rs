@@ -188,6 +188,7 @@ mod serialization_tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: Default::default(),
         };
 
         // Serialize to JSON

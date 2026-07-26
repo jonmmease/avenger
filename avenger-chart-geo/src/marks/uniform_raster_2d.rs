@@ -874,7 +874,6 @@ mod tests {
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::FILTERED,
-            exclude_from_scale_domains: false,
             visible: None,
             details: None,
             zindex: None,

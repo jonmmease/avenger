@@ -404,19 +404,26 @@ async fn native_surface_bare_channel_literals_scale_and_value_literals_bypass() 
 }
 
 #[tokio::test]
-async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
+async fn native_surface_common_mark_state_and_channel_domain_policy_are_preserved() {
     let source = r#"avenger 1;
         chart cartesian as chart {
           data: { values: [{ x: 1.0; y: 2.0; category: 'A'; }]; }
           mark symbol as point {
-            x: "x";
+            x: "x" {
+              domain_contribution: exclude;
+              scale: linear {
+                domain: [0.0, 2.0];
+              }
+            }
             y: "y";
+            fill_pattern: "category" {
+              domain_contribution: exclude;
+            }
             visible: true;
             details: [x, category];
             zindex: 7;
             facet_data_scope: level(2);
             geometry_space: display;
-            exclude_from_scale_domains: true;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -427,7 +434,12 @@ async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
     assert!(json.contains("\"details\":[\"x\",\"category\"]"));
     assert!(json.contains("\"zindex\":7"));
     assert!(json.contains("\"geometry_space\":\"display\""));
-    assert!(json.contains("\"exclude_from_scale_domains\":true"));
+    assert_eq!(
+        json.matches("\"scale_domain_inference\":\"exclude\"")
+            .count(),
+        3,
+        "x plus the pattern channel and its scalar surrogate should preserve exclusion: {json}"
+    );
 }
 
 #[tokio::test]
@@ -1969,6 +1981,31 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
             }"#,
             None,
             "zero",
+        ),
+        (
+            "removed mark-wide domain exclusion",
+            r#"avenger 1; chart cartesian as chart {
+                data: { values: [{ x: 1.0; y: 2.0; }]; }
+                mark symbol as point {
+                    x: "x";
+                    y: "y";
+                    exclude_from_scale_domains: true;
+                }
+            }"#,
+            None,
+            "exclude_from_scale_domains",
+        ),
+        (
+            "invalid channel domain contribution",
+            r#"avenger 1; chart cartesian as chart {
+                data: { values: [{ x: 1.0; y: 2.0; }]; }
+                mark symbol as point {
+                    x: "x" { domain_contribution: maybe; }
+                    y: "y";
+                }
+            }"#,
+            None,
+            "domain_contribution",
         ),
         (
             "registered lowerer failure",

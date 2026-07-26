@@ -77,7 +77,6 @@ pub struct MarkState {
     // Faceting behavior for this mark
     pub facet_data_scope: FacetDataScope,
 
-    pub exclude_from_scale_domains: bool,
     pub visible: Option<LogicalExprNode>,
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
@@ -133,8 +132,6 @@ pub struct CompiledMarkState {
     pub facet_data_scope: FacetDataScope,
 
     #[serde(default)]
-    pub exclude_from_scale_domains: bool,
-    #[serde(default)]
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     pub visible: Option<LogicalExprNode>,
     pub details: Option<Vec<String>>,
@@ -179,7 +176,6 @@ impl CompiledMarkState {
             data_mode: state.data_mode,
             mark_index: 0,
             facet_data_scope: state.facet_data_scope,
-            exclude_from_scale_domains: state.exclude_from_scale_domains,
             visible: state.visible.clone(),
             details: state.details.clone(),
             zindex: state.zindex,
@@ -271,7 +267,6 @@ mod tests {
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::default(),
-            exclude_from_scale_domains: false,
             visible: None,
             details: None,
             zindex: None,

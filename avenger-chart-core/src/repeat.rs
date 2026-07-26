@@ -554,6 +554,7 @@ pub fn resolve_repeat_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => ChannelValue::Scaled {
             expr: resolve_expr_node(expr, ctx)?,
             scale_name,
@@ -564,6 +565,7 @@ pub fn resolve_repeat_channel_value(
             axis_config: resolve_axis_config(axis_config, ctx)?,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { expr } => ChannelValue::Value {
             expr: resolve_expr_node(expr, ctx)?,
@@ -577,6 +579,7 @@ pub fn resolve_repeat_channel_value(
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => {
             let conditions = conditions
                 .into_iter()
@@ -600,6 +603,7 @@ pub fn resolve_repeat_channel_value(
                 axis_config: resolve_axis_config(axis_config, ctx)?,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             }
         }
     };
@@ -619,6 +623,7 @@ pub fn resolve_repeat_pattern_channel_value(
             legend_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => PatternChannelValue::Scaled {
             expr: resolve_expr_node(expr, ctx)?,
             scale_name,
@@ -626,6 +631,7 @@ pub fn resolve_repeat_pattern_channel_value(
             legend_config: resolve_legend_config(legend_config, ctx)?,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         PatternChannelValue::Conditional {
             conditions,
@@ -634,6 +640,7 @@ pub fn resolve_repeat_pattern_channel_value(
             legend_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => {
             let proto = |expr: Expr| LogicalExprNode::from_default_expr(expr);
             let conditions = conditions
@@ -656,6 +663,7 @@ pub fn resolve_repeat_pattern_channel_value(
                 legend_config: resolve_legend_config(legend_config, ctx)?,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             }
         }
         PatternChannelValue::Value { pattern } => PatternChannelValue::Value { pattern },
@@ -1475,6 +1483,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Infer,
         };
         let resolved = resolve_repeat_channel_value(value, &context()).expect("resolve channel");
         let expr = resolved
@@ -1503,6 +1512,7 @@ mod tests {
             legend_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Exclude,
         };
         let resolved =
             resolve_repeat_pattern_channel_value(value, &context()).expect("resolve pattern");
@@ -1511,6 +1521,7 @@ mod tests {
             .expect("scale input");
         assert!(expr.to_string().contains("CASE"), "{expr}");
         assert!(expr.to_string().contains("a"), "{expr}");
+        assert!(!resolved.participates_in_scale_domain_inference());
     }
 
     #[test]
@@ -1537,6 +1548,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Infer,
         };
         let resolved = resolve_repeat_channel_value(value, &context()).expect("resolve channel");
         let scale_config = resolved.get_scale_config().expect("scale config");
@@ -1558,6 +1570,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Infer,
         };
         let resolved = resolve_repeat_channel_value(value, &context()).expect("resolve channel");
         let legend = resolved.get_legend_config().expect("legend config");

@@ -14,7 +14,9 @@
 //! # Example
 //!
 //! ```no_run
-//! use avenger_chart_core::{ChannelValue, DefaultLogicalExprNodeExt};
+//! use avenger_chart_core::{
+//!     ChannelValue, DefaultLogicalExprNodeExt, ScaleDomainInference,
+//! };
 //! use datafusion::prelude::*;
 //! use datafusion_proto::protobuf::LogicalExprNode;
 //! use indexmap::IndexMap;
@@ -32,6 +34,7 @@
 //!     axis_config: None,
 //!     domain_coordination: None,
 //!     transform_scope: None,
+//!     scale_domain_inference: ScaleDomainInference::Infer,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
@@ -43,6 +46,7 @@
 //!     axis_config: None,
 //!     domain_coordination: None,
 //!     transform_scope: None,
+//!     scale_domain_inference: ScaleDomainInference::Infer,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)
@@ -467,6 +471,7 @@ pub fn resolve_all_channel_refs(
                     axis_config,
                     domain_coordination,
                     transform_scope,
+                    scale_domain_inference,
                 } => {
                     let inherited_scale_name = scale_name.clone().or_else(|| {
                         inherited_scale_name_from_single_ref(name, expr, &resolved_channels, ctx)
@@ -490,6 +495,7 @@ pub fn resolve_all_channel_refs(
                         axis_config: axis_config.clone(),
                         domain_coordination: domain_coordination.clone(),
                         transform_scope: *transform_scope,
+                        scale_domain_inference: *scale_domain_inference,
                     }
                 }
                 ChannelValue::Value { expr } => {
@@ -507,6 +513,7 @@ pub fn resolve_all_channel_refs(
                     axis_config,
                     domain_coordination,
                     transform_scope,
+                    scale_domain_inference,
                 } => {
                     // Resolve channel references in conditions and otherwise
                     let resolved_conditions = conditions
@@ -552,6 +559,7 @@ pub fn resolve_all_channel_refs(
                         axis_config: axis_config.clone(),
                         domain_coordination: domain_coordination.clone(),
                         transform_scope: *transform_scope,
+                        scale_domain_inference: *scale_domain_inference,
                     }
                 }
             };
@@ -587,6 +595,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -602,6 +611,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -639,6 +649,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -653,6 +664,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -690,6 +702,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -704,6 +717,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -718,6 +732,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -750,6 +765,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -765,6 +781,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -780,6 +797,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -821,6 +839,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -851,6 +870,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -865,6 +885,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -902,6 +923,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -916,6 +938,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -954,6 +977,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -968,6 +992,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -983,6 +1008,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -1054,6 +1080,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -1069,6 +1096,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -1084,6 +1112,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -1099,6 +1128,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 
@@ -1127,6 +1157,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
         channels.insert(
@@ -1141,6 +1172,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         );
 

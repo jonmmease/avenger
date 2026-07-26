@@ -2071,6 +2071,7 @@ Configured channels attach a block to the value:
 
 ```avenger
 x: "amount" {
+  domain_contribution: infer;
   scale: linear {
     zero: true;
     nice: true;
@@ -2091,6 +2092,25 @@ fill: "region" {
   }
 }
 ```
+
+`domain_contribution` controls whether the scaled values from this channel
+participate in automatic scale-domain inference:
+
+- `infer` is the default;
+- `exclude` omits only this channel occurrence from automatic domain
+  collection.
+
+Exclusion does not disable the channel's scale. The channel still participates
+in scale type inference, scale and guide configuration, rendering, and any
+explicit or `raw_domain` domain. Other channels that resolve to the same scale
+continue to contribute normally, so primary and secondary position channels
+such as `x` and `x2` are controlled independently. A conditional channel has
+one `domain_contribution` policy for all of its scaled branches. Scaled pattern
+channels such as `fill_pattern` follow the same rule.
+
+An inferred scale whose only matching channels use
+`domain_contribution: exclude` is an error. Supply another contributing
+channel or configure an explicit or raw domain.
 
 Position-channel configuration lives in the same block:
 
@@ -3455,8 +3475,7 @@ encoding channels:
 - `zindex`: a signed 32-bit integer rendering order;
 - `facet_data_scope`: `filtered`, `broadcast`, or `level(n)` where `n` is from
   0 through 255;
-- `geometry_space`: `coordinate` (the default) or `display`;
-- `exclude_from_scale_domains`: a boolean, defaulting to `false`.
+- `geometry_space`: `coordinate` (the default) or `display`.
 
 `details` contains data-field names, not arbitrary scalar expressions.
 `geometry_space: coordinate` builds geometry in encoded coordinate space and
@@ -4343,8 +4362,7 @@ chart cartesian as sales_errors {
 - Properties bind slots by name; a missing slot without a default is an
   error, and an unknown property is an error — except the generic mark
   properties (`visible`, `details`, `zindex`, `facet_data_scope`,
-  `geometry_space`, and `exclude_from_scale_domains`), which apply to the
-  expansion root.
+  and `geometry_space`), which apply to the expansion root.
 - `part <name> { ... }` targets the mark explicitly exported under `<name>`; its
   properties merge over the definition's, use site winning. Parts cover
   open-ended styling so definitions do not need a slot per styleable

@@ -12370,11 +12370,10 @@ mod tests {
             Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .data_store(StoreData::new(PARALLEL_BRUSH_STORE))
-                    .exclude_from_scale_domains()
-                    .x(lit(0.0))
-                    .x2(lit(1.0))
-                    .y(col("value_min"))
-                    .y2(col("value_max"))
+                    .x_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                    .x2_with(lit(1.0), |c| c.exclude_from_scale_domain())
+                    .y_with(col("value_min"), |c| c.exclude_from_scale_domain())
+                    .y2_with(col("value_max"), |c| c.exclude_from_scale_domain())
                     .fill("rgba(37, 99, 235, 0.14)")
                     .stroke("#2563eb")
                     .stroke_width(1.4)
@@ -15584,11 +15583,10 @@ mod tests {
                 Rect::<Cartesian>::new()
                     .data_store(StoreData::new(REPEAT_BOX_STORE))
                     .transform_no_output(Filter::new(repeat::current_cell_predicate()), |mark| mark)
-                    .exclude_from_scale_domains()
-                    .x(col("x_min"))
-                    .x2(col("x_max"))
-                    .y(col("y_min"))
-                    .y2(col("y_max")),
+                    .x_with(col("x_min"), |c| c.exclude_from_scale_domain())
+                    .x2_with(col("x_max"), |c| c.exclude_from_scale_domain())
+                    .y_with(col("y_min"), |c| c.exclude_from_scale_domain())
+                    .y2_with(col("y_max"), |c| c.exclude_from_scale_domain()),
             )
             .event_binding(drag);
         let selected = Selection::new(REPEAT_BOX_SELECTION).predicate();

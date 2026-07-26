@@ -535,9 +535,6 @@
                   "details": {
                     "$ref": "#/$defs/value"
                   },
-                  "exclude_from_scale_domains": {
-                    "$ref": "#/$defs/value"
-                  },
                   "facet_data_scope": {
                     "$ref": "#/$defs/value"
                   },
@@ -18231,9 +18228,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -20011,9 +20005,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -21270,9 +21261,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -22115,9 +22103,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -23192,9 +23177,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -24436,9 +24418,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -25617,9 +25596,6 @@
                     },
                     "type": "object"
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -26550,9 +26526,6 @@
                     },
                     "type": "object"
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -27313,9 +27286,6 @@
                         "type": "array"
                       }
                     ]
-                  },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
                   },
                   "facet_data_scope": {
                     "oneOf": [
@@ -28606,9 +28576,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -29719,9 +29686,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -30750,9 +30714,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -31780,9 +31741,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -32465,9 +32423,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -33253,9 +33208,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -34366,9 +34318,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -35732,9 +35681,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -36664,9 +36610,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -37849,9 +37792,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -40519,9 +40459,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -43188,9 +43125,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -44132,9 +44066,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -44892,9 +44823,6 @@
                         "type": "array"
                       }
                     ]
-                  },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
                   },
                   "facet_data_scope": {
                     "oneOf": [
@@ -46273,9 +46201,6 @@
                       }
                     ]
                   },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
-                  },
                   "facet_data_scope": {
                     "oneOf": [
                       {
@@ -47199,9 +47124,6 @@
                         "type": "array"
                       }
                     ]
-                  },
-                  "exclude_from_scale_domains": {
-                    "type": "boolean"
                   },
                   "facet_data_scope": {
                     "oneOf": [
@@ -48161,9 +48083,6 @@
                           }
                         ]
                       },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
                       "facet_data_scope": {
                         "oneOf": [
                           {
@@ -48910,9 +48829,6 @@
                             "type": "array"
                           }
                         ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
                       },
                       "facet_data_scope": {
                         "oneOf": [
@@ -74237,13 +74153,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -74515,13 +74424,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -74673,13 +74575,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -74841,13 +74736,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -75027,13 +74915,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -75195,13 +75076,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -75346,13 +75220,6 @@
               "shape": "channel_map"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -75495,13 +75362,6 @@
             "required": true,
             "shape": {
               "shape": "channel_map"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -75673,13 +75533,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -75844,13 +75697,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -76019,13 +75865,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -76179,13 +76018,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -76295,13 +76127,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -76427,13 +76252,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -76614,13 +76432,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -76805,13 +76616,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -76972,13 +76776,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -77119,13 +76916,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -77439,13 +77229,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -77780,13 +77563,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -77983,13 +77759,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -78144,13 +77913,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -78312,13 +78074,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -78493,13 +78248,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -78722,13 +78470,6 @@
               "shape": "one_or_many"
             }
           },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
-            }
-          },
           "facet_data_scope": {
             "docs": "Facet visibility scope: filtered, broadcast, or level(n).",
             "required": false,
@@ -78875,13 +78616,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {
@@ -79038,13 +78772,6 @@
                 "shape": "identifier"
               },
               "shape": "one_or_many"
-            }
-          },
-          "exclude_from_scale_domains": {
-            "docs": "Exclude this mark's channels from inferred scale domains.",
-            "required": false,
-            "shape": {
-              "shape": "boolean"
             }
           },
           "facet_data_scope": {

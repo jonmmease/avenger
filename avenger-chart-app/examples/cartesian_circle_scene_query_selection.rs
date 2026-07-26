@@ -59,9 +59,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let selected = picked.predicate();
     let overlay = Symbol::<Cartesian>::new()
         .data_store(StoreData::new("selection_circle"))
-        .exclude_from_scale_domains()
-        .x(col("cx"))
-        .y(col("cy"))
+        .x_with(col("cx"), |c| c.exclude_from_scale_domain())
+        .y_with(col("cy"), |c| c.exclude_from_scale_domain())
         .size_with(col("size"), |c| c.no_scale())
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke("#2563eb")

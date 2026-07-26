@@ -156,7 +156,7 @@ pub use avenger_scenegraph::marks::pattern::{
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
 pub use avenger_chart_core::ChannelConfig;
-pub use avenger_chart_core::{Scale, ScaleChannelConfig, ScaleChannelValue};
+pub use avenger_chart_core::{Scale, ScaleChannelConfig, ScaleChannelValue, ScaleDomainInference};
 pub use avenger_chart_legend::{LegendableChannel, LegendableChannelValue};
 
 // Re-export channel configs for direct use

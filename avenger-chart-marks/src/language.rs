@@ -121,13 +121,6 @@ pub fn common_mark_schema(schema: KindSchema) -> KindSchema {
                 "Space in which the mark constructs geometry.",
             ),
         )
-        .property(
-            "exclude_from_scale_domains",
-            PropertySchema::optional(
-                ValueShape::Boolean,
-                "Exclude this mark's channels from inferred scale domains.",
-            ),
-        )
 }
 
 /// Build a primitive text schema, including the non-channel syntax property.
@@ -490,27 +483,13 @@ where
             }
         });
     }
-    if let Some(value) = declaration.properties.get("exclude_from_scale_domains") {
-        let ResolvedValue::Boolean(value) = value else {
-            return Err(invalid_common_property(
-                "exclude_from_scale_domains",
-                "boolean",
-            ));
-        };
-        state.exclude_from_scale_domains = *value;
-    }
     Ok(())
 }
 
 pub fn is_common_mark_property(name: &str) -> bool {
     matches!(
         name,
-        "visible"
-            | "details"
-            | "zindex"
-            | "facet_data_scope"
-            | "geometry_space"
-            | "exclude_from_scale_domains"
+        "visible" | "details" | "zindex" | "facet_data_scope" | "geometry_space"
     )
 }
 

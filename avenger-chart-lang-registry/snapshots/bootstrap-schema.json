@@ -3467,13 +3467,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -3793,13 +3786,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -3953,13 +3939,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -4112,13 +4091,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -4280,13 +4252,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -4465,13 +4430,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -4640,13 +4598,6 @@
           "required": true,
           "docs": "User-named dimension ids mapped to configured encoding channels."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -4791,13 +4742,6 @@
           "required": true,
           "docs": "User-named dimension ids mapped to configured encoding channels."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -4934,13 +4878,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -5111,13 +5048,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -5283,13 +5213,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -5457,13 +5380,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -5617,13 +5533,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -5749,13 +5658,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -5880,13 +5782,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -6053,13 +5948,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -6253,13 +6141,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -6410,13 +6291,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -6558,13 +6432,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -6898,13 +6765,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -7237,13 +7097,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -7440,13 +7293,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -7583,13 +7429,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -7772,13 +7611,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {
@@ -8000,13 +7832,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -8187,13 +8012,6 @@
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
         },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
-        },
         "facet_data_scope": {
           "shape": {
             "shape": "facet_data_scope"
@@ -8349,13 +8167,6 @@
           },
           "required": false,
           "docs": "Data field names retained for interaction details and path partitioning."
-        },
-        "exclude_from_scale_domains": {
-          "shape": {
-            "shape": "boolean"
-          },
-          "required": false,
-          "docs": "Exclude this mark's channels from inferred scale domains."
         },
         "facet_data_scope": {
           "shape": {

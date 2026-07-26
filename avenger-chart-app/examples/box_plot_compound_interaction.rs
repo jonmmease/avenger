@@ -64,9 +64,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             Text::new()
                 .id("outlier_tooltip")
                 .data_store(StoreData::new("outlier_tooltip"))
-                .exclude_from_scale_domains()
-                .x(col("x"))
-                .y_with(grouped_y(), configure_grouped_y)
+                .x_with(col("x"), |c| c.exclude_from_scale_domain())
+                .y_with(grouped_y(), |c| {
+                    configure_grouped_y(c).exclude_from_scale_domain()
+                })
                 .text(col("label"))
                 .align("right")
                 .baseline("middle")

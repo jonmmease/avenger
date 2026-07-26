@@ -1485,6 +1485,8 @@ where
 
     // Collect data expressions (and per-mark/per-override radius) for this scale
     let mut entries: Vec<(Arc<DataFrame>, Expr, Option<PreparedRadiusExpression>)> = Vec::new();
+    let mut saw_excluded_source = false;
+    let mut saw_included_source = false;
 
     // First, if the scale domain is DomainExprs from overrides, use those directly
     if let Some(domain) = scale.get_domain()
@@ -1514,9 +1516,6 @@ where
     // If overrides didn't provide DomainExprs, fall back to collecting from marks
     if entries.is_empty() {
         for prepared in prepared_marks {
-            if prepared.mark.state().exclude_from_scale_domains {
-                continue;
-            }
             let mark = &prepared.mark;
             let render_df = prepared
                 .dataframe
@@ -1541,6 +1540,14 @@ where
                 ) {
                     continue;
                 }
+                if !source
+                    .channel_value
+                    .participates_in_scale_domain_inference()
+                {
+                    saw_excluded_source = true;
+                    continue;
+                }
+                saw_included_source = true;
                 if is_empty_relation(&source.dataframe) {
                     continue;
                 }
@@ -1563,6 +1570,11 @@ where
                     domain_channel_value,
                     channel,
                 ) {
+                    if !domain_channel_value.participates_in_scale_domain_inference() {
+                        saw_excluded_source = true;
+                        continue;
+                    }
+                    saw_included_source = true;
                     let domain_scale_input = domain_channel_value.scale_input_expr(ctx);
                     let use_domain_source = domain_scale_input
                         .as_ref()
@@ -1681,6 +1693,24 @@ where
     }
 
     if entries.is_empty() {
+        if let Some(raw_domain_override) = raw_domain_override {
+            let mut domain = ScaleDomain::new_interval(lit(0.0_f64), lit(1.0_f64));
+            domain.raw_domain = Some(raw_domain_override);
+            builder.add_explicit_domain(
+                channel.to_string(),
+                spec.clone_box(),
+                options,
+                domain,
+                derived_scalars,
+            );
+            builder.set_channel_data_type(channel.to_string(), dt.clone());
+            return Ok(());
+        }
+        if saw_excluded_source && !saw_included_source {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Scale '{channel}' has no domain source: every matching channel excludes automatic domain contribution; add another contributing channel or configure an explicit domain"
+            )));
+        }
         return Ok(());
     }
 
@@ -3553,6 +3583,7 @@ mod tests {
             record_batch::RecordBatch,
         },
         functions_aggregate::{expr_fn::sum, min_max::max},
+        functions_nested::expr_fn::make_array,
         prelude::{SessionContext, col, lit, named_struct},
     };
     use indexmap::IndexMap;
@@ -3656,7 +3687,6 @@ mod tests {
                     mark_index: 0,
                     identity: Default::default(),
                     facet_data_scope: Default::default(),
-                    exclude_from_scale_domains: false,
                     visible: None,
                     details: None,
                     zindex: None,
@@ -4058,6 +4088,130 @@ mod tests {
             .numeric_interval_domain()
             .expect("fill numeric domain");
         assert_eq!(fill_domain, (0.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn excluded_channel_does_not_extend_shared_inferred_domain() {
+        let ctx = SessionContext::new();
+        let included_data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let excluded_data = df(&ctx, vec!["C", "D"], vec![100.0, 200.0]).unwrap();
+
+        let included_channels =
+            IndexMap::from([("x".to_string(), ChannelValue::from(col("value")))]);
+        let excluded_channels = IndexMap::from([(
+            "x".to_string(),
+            ChannelValue::from(col("value")).exclude_from_scale_domain(),
+        )]);
+        let included_mark = Arc::new(TestCompiledMark::new(
+            included_data.clone(),
+            included_channels.clone(),
+        )) as Arc<dyn CompiledMark>;
+        let excluded_mark = Arc::new(TestCompiledMark::new(
+            excluded_data.clone(),
+            excluded_channels.clone(),
+        )) as Arc<dyn CompiledMark>;
+        let prepared = vec![
+            PreparedScaleMark::new(
+                included_mark,
+                Some(included_data),
+                included_channels,
+                DerivedScalarMap::new(),
+            ),
+            PreparedScaleMark::new(
+                excluded_mark,
+                Some(excluded_data),
+                excluded_channels,
+                DerivedScalarMap::new(),
+            ),
+        ];
+
+        let scales = configured_scales_for_prepared(&ctx, prepared, HashMap::new())
+            .await
+            .unwrap();
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("x numeric domain");
+        assert_eq!(x_domain, (1.0, 2.0));
+    }
+
+    #[tokio::test]
+    async fn excluded_only_inferred_scale_requires_another_domain_source() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let channels = IndexMap::from([(
+            "x".to_string(),
+            ChannelValue::from(col("value")).exclude_from_scale_domain(),
+        )]);
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let error = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .expect_err("excluded-only inferred scale should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("every matching channel excludes automatic domain contribution"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn excluded_channel_accepts_explicit_domain() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![100.0, 200.0]).unwrap();
+        let channels = IndexMap::from([(
+            "x".to_string(),
+            ChannelValue::from(col("value"))
+                .exclude_from_scale_domain()
+                .scale_with::<Linear>(|scale| scale.domain((0.0, 10.0))),
+        )]);
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("x numeric domain");
+        assert_eq!(x_domain, (0.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn excluded_channel_accepts_raw_domain() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![100.0, 200.0]).unwrap();
+        let channels = IndexMap::from([(
+            "x".to_string(),
+            ChannelValue::from(col("value"))
+                .exclude_from_scale_domain()
+                .scale_with::<Linear>(|scale| {
+                    scale.raw_domain(make_array(vec![lit(20.0), lit(40.0)]))
+                }),
+        )]);
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("x numeric domain");
+        assert_eq!(x_domain, (20.0, 40.0));
     }
 
     #[tokio::test]

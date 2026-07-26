@@ -113,7 +113,6 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
                 view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
-                exclude_from_scale_domains: false,
                 visible: None,
                 details: None,
                 zindex: None,

@@ -423,8 +423,7 @@ class):
 | Parallel | `line, symbol` (dimension-mapped) |
 
 Base options on every mark: `id`, `data=` (mark-level source, including a
-`Store`), `unit_data=True`, `exclude_from_scale_domains=True`, `visible=`,
-`zindex=`, `details=[...]`, and
+`Store`), `unit_data=True`, `visible=`, `zindex=`, `details=[...]`, and
 `facet_scope=` (`"filtered" | "broadcast" | av.level(n)`).
 
 ## Channel Options
@@ -438,6 +437,7 @@ chart.rect(
     x="category",
     x_scale=av.Band(domain=["A", "B", "C"]),
     x_axis=av.Axis(title="Category", grid=False),
+    x_domain_contribution="exclude",
     x2=av.channel("x"), x2_band=1.0,
     y=0.0, y_scale=av.Linear(domain=(0, 100)), y_axis=av.Axis(title="Value"),
     y2="value",
@@ -455,6 +455,7 @@ The suffix vocabulary:
 | `x_band=`, `x2_band=` | band position boundary | `x2_band=1.0` |
 | `fill_legend=` | legend configuration | `fill_legend=av.Legend(title="Origin")` |
 | `fill_when=` | ordered conditional branches | see [Conditionals](#conditionals) |
+| `x_domain_contribution=` | automatic domain participation (`"infer"` or `"exclude"`) | `x_domain_contribution="exclude"` |
 | `x_domain_scope=`, `x_domain_group=` | domain coordination | `x_domain_scope="shared"` |
 | `x_transform_scope=` | transform sharing scope | `x_transform_scope=av.level(1)` |
 

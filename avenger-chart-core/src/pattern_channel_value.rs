@@ -6,8 +6,9 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     ChannelExpr, ConditionalValue, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
-    IntoExpr, Legend, ScaleConfigSpec, SerializableExpr, channel::strip_trailing_numbers,
-    channel_value::expr_to_string, serialization::DefaultLogicalExprNodeExt,
+    IntoExpr, Legend, ScaleConfigSpec, ScaleDomainInference, SerializableExpr,
+    channel::strip_trailing_numbers, channel_value::expr_to_string,
+    serialization::DefaultLogicalExprNodeExt,
 };
 
 /// Represents a pattern-fill channel encoding value.
@@ -36,6 +37,9 @@ pub enum PatternChannelValue {
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
+        /// Whether this channel contributes to automatic scale-domain inference.
+        #[serde(default)]
+        scale_domain_inference: ScaleDomainInference,
     },
     /// Conditional pattern encoding that is evaluated through a pattern scale.
     Conditional {
@@ -54,6 +58,9 @@ pub enum PatternChannelValue {
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
+        /// Whether scaled branches contribute to automatic scale-domain inference.
+        #[serde(default)]
+        scale_domain_inference: ScaleDomainInference,
     },
     /// Literal pattern that bypasses scaling.
     Value {
@@ -73,6 +80,7 @@ impl PatternChannelValue {
             legend_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         }
     }
 
@@ -176,6 +184,81 @@ impl PatternChannelValue {
         }
     }
 
+    /// Return this channel's automatic scale-domain inference policy.
+    pub fn scale_domain_inference(&self) -> ScaleDomainInference {
+        match self {
+            Self::Scaled {
+                scale_domain_inference,
+                ..
+            }
+            | Self::Conditional {
+                scale_domain_inference,
+                ..
+            } => *scale_domain_inference,
+            Self::Value { .. } => ScaleDomainInference::Infer,
+        }
+    }
+
+    /// Whether this channel contributes scaled values to automatic domain inference.
+    pub fn participates_in_scale_domain_inference(&self) -> bool {
+        matches!(
+            self,
+            Self::Scaled {
+                scale_domain_inference: ScaleDomainInference::Infer,
+                ..
+            } | Self::Conditional {
+                scale_domain_inference: ScaleDomainInference::Infer,
+                ..
+            }
+        )
+    }
+
+    /// Exclude this channel from automatic scale-domain inference.
+    pub fn exclude_from_scale_domain(self) -> Self {
+        self.with_scale_domain_inference(ScaleDomainInference::Exclude)
+    }
+
+    /// Set whether this channel contributes to automatic scale-domain inference.
+    pub fn with_scale_domain_inference(self, inference: ScaleDomainInference) -> Self {
+        match self {
+            Self::Scaled {
+                expr,
+                scale_name,
+                scale_config,
+                legend_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => Self::Scaled {
+                expr,
+                scale_name,
+                scale_config,
+                legend_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference: inference,
+            },
+            Self::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => Self::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference: inference,
+            },
+            Self::Value { pattern } => Self::Value { pattern },
+        }
+    }
+
     pub fn with_scale_name(self, name: impl Into<String>) -> Self {
         match self {
             Self::Scaled {
@@ -184,6 +267,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -192,6 +276,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional { .. } => self,
             Self::Value { .. } => self,
@@ -206,6 +291,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -214,6 +300,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -221,6 +308,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Conditional {
                 conditions,
@@ -229,6 +317,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -242,6 +331,7 @@ impl PatternChannelValue {
                 scale_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -250,6 +340,7 @@ impl PatternChannelValue {
                 legend_config: Some(Box::new(legend_config)),
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -257,6 +348,7 @@ impl PatternChannelValue {
                 scale_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Conditional {
                 conditions,
@@ -265,6 +357,7 @@ impl PatternChannelValue {
                 legend_config: Some(Box::new(legend_config)),
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -279,6 +372,7 @@ impl PatternChannelValue {
                 scale_config,
                 legend_config,
                 domain_coordination,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -288,6 +382,7 @@ impl PatternChannelValue {
                 domain_coordination: domain_coordination
                     .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -295,6 +390,7 @@ impl PatternChannelValue {
                 scale_config,
                 legend_config,
                 domain_coordination,
+                scale_domain_inference,
                 ..
             } => Self::Conditional {
                 conditions,
@@ -304,6 +400,7 @@ impl PatternChannelValue {
                 domain_coordination: domain_coordination
                     .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -318,6 +415,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Self::Scaled {
                 expr,
                 scale_name,
@@ -327,6 +425,7 @@ impl PatternChannelValue {
                     domain_coordination.unwrap_or_default().with_scope(scope),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -335,6 +434,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Self::Conditional {
                 conditions,
                 otherwise,
@@ -344,6 +444,7 @@ impl PatternChannelValue {
                     domain_coordination.unwrap_or_default().with_scope(scope),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -359,6 +460,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Self::Scaled {
                 expr,
                 scale_name,
@@ -368,6 +470,7 @@ impl PatternChannelValue {
                     domain_coordination.unwrap_or_default().with_group(group),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -376,6 +479,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Self::Conditional {
                 conditions,
                 otherwise,
@@ -385,6 +489,7 @@ impl PatternChannelValue {
                     domain_coordination.unwrap_or_default().with_group(group),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -400,6 +505,7 @@ impl PatternChannelValue {
                 scale_config,
                 legend_config,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -408,6 +514,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination: Some(coordination),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Conditional {
                 conditions,
@@ -415,6 +522,7 @@ impl PatternChannelValue {
                 scale_config,
                 legend_config,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Conditional {
                 conditions,
@@ -423,6 +531,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination: Some(coordination),
                 transform_scope,
+                scale_domain_inference,
             },
             Self::Value { .. } => self,
         }
@@ -438,6 +547,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Some(crate::ChannelValue::Scaled {
                 expr: expr.clone(),
                 scale_name: scale_name.clone(),
@@ -448,6 +558,7 @@ impl PatternChannelValue {
                 axis_config: None,
                 domain_coordination: domain_coordination.clone(),
                 transform_scope: *transform_scope,
+                scale_domain_inference: *scale_domain_inference,
             }),
             Self::Conditional {
                 conditions,
@@ -456,6 +567,7 @@ impl PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => Some(crate::ChannelValue::Conditional {
                 conditions: conditions.clone(),
                 otherwise: otherwise.clone(),
@@ -465,6 +577,7 @@ impl PatternChannelValue {
                 axis_config: None,
                 domain_coordination: domain_coordination.clone(),
                 transform_scope: *transform_scope,
+                scale_domain_inference: *scale_domain_inference,
             }),
             Self::Value { .. } => None,
         }
@@ -505,6 +618,7 @@ impl From<crate::ChannelValue> for PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Scaled {
                 expr,
@@ -513,6 +627,7 @@ impl From<crate::ChannelValue> for PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             crate::ChannelValue::Value { expr } => Self::Scaled {
                 expr,
@@ -521,6 +636,7 @@ impl From<crate::ChannelValue> for PatternChannelValue {
                 legend_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: ScaleDomainInference::Infer,
             },
             crate::ChannelValue::Conditional {
                 conditions,
@@ -529,6 +645,7 @@ impl From<crate::ChannelValue> for PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => Self::Conditional {
                 conditions,
@@ -537,6 +654,7 @@ impl From<crate::ChannelValue> for PatternChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
         }
     }
@@ -585,11 +703,15 @@ mod tests {
 
     #[test]
     fn scaled_pattern_channel_preserves_custom_scale_name() {
-        let value = PatternChannelValue::from(col("category")).with_scale_name("hatch");
+        let value = PatternChannelValue::from(
+            ChannelValue::from(col("category")).exclude_from_scale_domain(),
+        )
+        .with_scale_name("hatch");
         assert_eq!(
             value.get_scale_name("fill_pattern").as_deref(),
             Some("hatch")
         );
+        assert!(!value.participates_in_scale_domain_inference());
 
         let Some(surrogate) = value.scaled_channel_surrogate() else {
             panic!("scaled pattern channels should provide a scalar surrogate");
@@ -598,6 +720,7 @@ mod tests {
             surrogate.get_scale_name("fill_pattern").as_deref(),
             Some("hatch")
         );
+        assert!(!surrogate.participates_in_scale_domain_inference());
     }
 
     #[test]
@@ -620,6 +743,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: crate::ScaleDomainInference::Infer,
             },
         ));
 

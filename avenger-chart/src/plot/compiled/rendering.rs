@@ -2399,10 +2399,10 @@ impl CompiledPlot {
             let Some(view_scope) = mark.state().view.as_ref() else {
                 return false;
             };
-            if mark.state().exclude_from_scale_domains {
-                return false;
-            }
             view_scope.data.channels().iter().any(|(channel, value)| {
+                if !value.participates_in_scale_domain_inference() {
+                    return false;
+                }
                 if channel == "x" || channel == "y" {
                     return false;
                 }
@@ -10470,11 +10470,10 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .exclude_from_scale_domains()
-                .x(lit(0.0))
-                .x2(lit(1.0))
-                .y(lit(2.0))
-                .y2(lit(7.0))
+                .x_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                .x2_with(lit(1.0), |c| c.exclude_from_scale_domain())
+                .y_with(lit(2.0), |c| c.exclude_from_scale_domain())
+                .y2_with(lit(7.0), |c| c.exclude_from_scale_domain())
                 .fill("rgba(37, 99, 235, 0.20)")
                 .stroke("#2563eb")
                 .stroke_width(1.5),
@@ -10539,11 +10538,10 @@ mod tests {
                 .data(df.clone())
                 .mark(
                     Rect::<Cartesian>::new()
-                        .exclude_from_scale_domains()
-                        .x(lit(0.0))
-                        .x2(lit(1.0))
-                        .y(lit(2.0))
-                        .y2(lit(7.0))
+                        .x_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                        .x2_with(lit(1.0), |c| c.exclude_from_scale_domain())
+                        .y_with(lit(2.0), |c| c.exclude_from_scale_domain())
+                        .y2_with(lit(7.0), |c| c.exclude_from_scale_domain())
                         .fill("rgba(37, 99, 235, 0.20)"),
                 ),
         );
@@ -10588,11 +10586,10 @@ mod tests {
         let overlay = crate::legend::ColorbarOverlay::new().mark(
             Rect::<Cartesian>::new()
                 .unit_data()
-                .exclude_from_scale_domains()
-                .x(lit(2.0))
-                .x2(lit(7.0))
-                .y(lit(0.0))
-                .y2(lit(1.0))
+                .x_with(lit(2.0), |c| c.exclude_from_scale_domain())
+                .x2_with(lit(7.0), |c| c.exclude_from_scale_domain())
+                .y_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                .y2_with(lit(1.0), |c| c.exclude_from_scale_domain())
                 .fill("rgba(37, 99, 235, 0.20)")
                 .stroke("#2563eb")
                 .stroke_width(1.5),

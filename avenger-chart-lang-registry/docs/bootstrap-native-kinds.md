@@ -127,6 +127,7 @@ A wide-form parallel-coordinate frame with user-named dimensions.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `data` | property | false | Chart-level data source. |
+| `dimensions` | property | false | Sparse frame configuration keyed by mark-owned logical dimension id. |
 | `format` | property | false | Chart formatting defaults. |
 | `guide` | property | false | Coordinate-independent guide styling. |
 | `layout` | property | false | Chart canvas, plot-area, and margin layout. |
@@ -285,7 +286,6 @@ A filled Cartesian area mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -326,7 +326,6 @@ A GeoJSON or WKB geometry projected through the geo coordinate system.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -348,7 +347,6 @@ An image positioned in Cartesian coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -370,7 +368,6 @@ A Cartesian line mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -393,7 +390,6 @@ A projected line with planar or longitude/latitude positions.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -418,7 +414,6 @@ A line in radial and angular coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -442,7 +437,6 @@ A wide-form polyline spanning the declared parallel dimensions.
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
 | `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -463,7 +457,6 @@ A symbol at every row and parallel-dimension intersection.
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
 | `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -483,7 +476,6 @@ An arbitrary Cartesian path mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -507,7 +499,6 @@ A Cartesian rectangle mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -530,7 +521,6 @@ A rectangle in projected geo plot coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -553,7 +543,6 @@ A Cartesian rule mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -575,7 +564,6 @@ A data-driven child plot positioned in Cartesian coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `height` | property | false | Child plot-area height. |
@@ -593,7 +581,6 @@ A data-driven child plot positioned in polar coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `height` | property | false | Child plot-area height. |
@@ -611,7 +598,6 @@ A point symbol in Cartesian coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -634,7 +620,6 @@ A symbol positioned by projected x/y or geographic lon/lat channels.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `lon_lat` | property | false | Convenience pair `[longitude, latitude]`; do not also author `lon` or `lat`. |
@@ -660,7 +645,6 @@ A point symbol in radial and angular coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -681,7 +665,6 @@ A non-spatial symbol placed at the plot center.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -701,7 +684,6 @@ Text positioned in Cartesian coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
@@ -744,7 +726,6 @@ Text positioned in radial and angular coordinates.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
@@ -787,7 +768,6 @@ Text placed at the plot center.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
@@ -813,7 +793,6 @@ A variable-width Cartesian trail mark.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
@@ -833,7 +812,6 @@ Header bars for visible non-leaf treemap nodes.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `max_depth` | property | false | Maximum relative hierarchy depth. |
@@ -859,7 +837,6 @@ Labels fitted inside visible treemap nodes.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fit` | property | false | Overflow behavior for labels. |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
@@ -886,7 +863,6 @@ Rectangles for visible treemap nodes.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `node_mode` | property | false | Node set to render; an integer selects one relative depth. |
@@ -909,7 +885,6 @@ A uniformly binned two-dimensional raster image.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
@@ -932,7 +907,6 @@ A uniformly binned two-dimensional raster image.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `details` | property | false | Data field names retained for interaction details and path partitioning. |
-| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
 | `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
 | `geometry_space` | property | false | Space in which the mark constructs geometry. |
@@ -1426,6 +1400,7 @@ A momentary button with a monotonic activation count.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `action` | property | false | Ordered shared-state mutations run atomically after each activation. |
 | `activation_param` | property | false | Existing UInt64 parameter bound to the activation count. |
 | `label` | property | true | Nonempty visible label. |
 | `position` | property | true | Containing chart guide-slot edge. |
@@ -1769,6 +1744,7 @@ A standard discrete or continuous chart legend configuration.
 | `label_syntax` | property | false | Legend-label text syntax. |
 | `order` | property | false | Expression controlling discrete item order. |
 | `orientation` | property | false | Legend item-flow orientation. |
+| `overlay` | property | false | Marks rendered on a continuous colorbar surface using injected Cartesian value and cross-axis scales. |
 | `position` | property | false | Legend chrome-slot position. |
 | `symbol_size` | property | false | Discrete legend symbol area. |
 | `tick_color` | property | false | Continuous colorbar tick-label color. |

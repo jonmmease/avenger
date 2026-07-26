@@ -11,18 +11,21 @@ should not add arbitrary `infer_domain_from(expr)` behavior.
 
 ### Implementation Checklist
 
-- [ ] Add `ScaleDomainInference` to `avenger-chart-core/src/channel_value.rs`.
-- [ ] Add `domain_inference` to `ChannelValue::Scaled`.
-- [ ] Add `domain_inference` to `ChannelValue::Conditional`.
-- [ ] Add `ChannelValue` helper methods for reading and setting domain inference.
-- [ ] Add `exclude_from_scale_domain()` to `ScaleChannelConfig`.
-- [ ] Preserve `domain_inference` through channel-value rewrites.
-- [ ] Gate automatic domain-entry collection in the scale builder per channel.
-- [ ] Remove mark-level `exclude_from_scale_domains` state and generated API.
-- [ ] Update compile errors from changed `ChannelValue` enum fields.
-- [ ] Update tests that used the old mark-level API.
-- [ ] Add focused tests for channel-level exclusion.
-- [ ] Run focused validation commands.
+- [x] Add `ScaleDomainInference` to `avenger-chart-core/src/channel_value.rs`.
+- [x] Add `scale_domain_inference` to `ChannelValue::Scaled`.
+- [x] Add `scale_domain_inference` to `ChannelValue::Conditional`.
+- [x] Add the same metadata to scaled and conditional `PatternChannelValue`.
+- [x] Add `ChannelValue` helper methods for reading and setting domain inference.
+- [x] Add `exclude_from_scale_domain()` to `ScaleChannelConfig`.
+- [x] Preserve `scale_domain_inference` through channel-value rewrites.
+- [x] Gate automatic domain-entry collection in the scale builder per channel.
+- [x] Remove mark-level `exclude_from_scale_domains` state and generated API.
+- [x] Update compile errors from changed `ChannelValue` enum fields.
+- [x] Update tests that used the old mark-level API.
+- [x] Add focused tests for channel-level exclusion.
+- [x] Add DSL `domain_contribution: infer | exclude` lowering and editor support.
+- [x] Reject inferred scales whose only matching channels are excluded.
+- [x] Run focused validation commands.
 
 ### Public Semantics
 
@@ -59,7 +62,7 @@ No compatibility shim is needed.
 
 ### Core Data Model
 
-- [ ] Implement this data model.
+- [x] Implement this data model.
 
 In `avenger-chart-core/src/channel_value.rs`, add:
 
@@ -73,14 +76,18 @@ pub enum ScaleDomainInference {
 }
 ```
 
-Add a `domain_inference: ScaleDomainInference` field to:
+Add a `scale_domain_inference: ScaleDomainInference` field to:
 
 ```rust
 ChannelValue::Scaled
 ChannelValue::Conditional
+PatternChannelValue::Scaled
+PatternChannelValue::Conditional
 ```
 
-`ChannelValue::Value` needs no field because it never feeds a scale domain.
+The literal `Value` variants need no field because they never feed a scale
+domain. Pattern-channel scalar surrogates preserve the pattern channel's
+policy.
 
 Add helpers on `ChannelValue`:
 
@@ -88,7 +95,7 @@ Add helpers on `ChannelValue`:
 pub fn scale_domain_inference(&self) -> ScaleDomainInference
 pub fn participates_in_scale_domain_inference(&self) -> bool
 pub fn exclude_from_scale_domain(self) -> Self
-pub(crate) fn with_scale_domain_inference(self, mode: ScaleDomainInference) -> Self
+pub fn with_scale_domain_inference(self, mode: ScaleDomainInference) -> Self
 ```
 
 Important: do not make `scale_input_expr()` return `None` for excluded
@@ -97,7 +104,7 @@ automatic domain collection explicitly in the scale builder instead.
 
 ### Channel Config API
 
-- [ ] Implement the channel config API.
+- [x] Implement the channel config API.
 
 In `avenger-chart-core/src/scale_channel_config.rs`, add this to
 `ScaleChannelConfig`:
@@ -119,18 +126,20 @@ implementation pressure appears. Default include is enough.
 
 ### Mechanical Updates
 
-- [ ] Update all `ChannelValue::Scaled` construction sites.
-- [ ] Update all `ChannelValue::Conditional` construction sites.
-- [ ] Update all pattern matches that rebuild `Scaled` or `Conditional`.
-- [ ] Ensure channel resolution preserves `domain_inference`.
-- [ ] Ensure repeat resolution preserves `domain_inference`.
-- [ ] Ensure conditional branch helpers preserve `domain_inference`.
-- [ ] Ensure scale/channel config helpers preserve `domain_inference`.
-- [ ] Ensure transform output channel handles preserve or default
-      `domain_inference` correctly.
+- [x] Update all `ChannelValue::Scaled` construction sites.
+- [x] Update all `ChannelValue::Conditional` construction sites.
+- [x] Update all pattern matches that rebuild `Scaled` or `Conditional`.
+- [x] Ensure channel resolution preserves `scale_domain_inference`.
+- [x] Ensure repeat resolution preserves `scale_domain_inference`.
+- [x] Ensure conditional branch helpers preserve `scale_domain_inference`.
+- [x] Ensure pattern-channel scalar surrogates preserve
+      `scale_domain_inference`.
+- [x] Ensure scale/channel config helpers preserve `scale_domain_inference`.
+- [x] Ensure transform output channel handles preserve or default
+      `scale_domain_inference` correctly.
 
 Update all constructors and pattern matches for `ChannelValue::Scaled` and
-`ChannelValue::Conditional`. Preserve `domain_inference` whenever a channel
+`ChannelValue::Conditional`. Preserve `scale_domain_inference` whenever a channel
 value is rebuilt.
 
 Likely hot files:
@@ -150,18 +159,18 @@ avenger-chart/src/lib.rs
 When in doubt, the rule is:
 
 ```text
-Operations that preserve the same authored channel should preserve domain_inference.
+Operations that preserve the same authored channel should preserve scale_domain_inference.
 Operations that create a new scaled channel from scratch should default to Infer.
 Operations that convert to Value/no_scale drop the setting.
 ```
 
 ### Scale Builder Change
 
-- [ ] Remove the mark-level skip in scale-domain collection.
-- [ ] Add a per-channel skip before pushing automatic domain entries.
-- [ ] Confirm excluded channels can still create/configure scales.
-- [ ] Confirm explicit scale domains still work for excluded channels.
-- [ ] Confirm raw-domain params still work for excluded channels.
+- [x] Remove the mark-level skip in scale-domain collection.
+- [x] Add a per-channel skip before pushing automatic domain entries.
+- [x] Confirm excluded channels can still create/configure scales.
+- [x] Confirm explicit scale domains still work for excluded channels.
+- [x] Confirm raw-domain params still work for excluded channels.
 
 In `avenger-chart-scales/src/mark_scale_builder.rs`, remove the mark-level check:
 
@@ -192,13 +201,13 @@ whether an explicit/raw domain exists
 
 ### Remove Mark-Level State
 
-- [ ] Remove `MarkState::exclude_from_scale_domains`.
-- [ ] Remove `CompiledMarkState::exclude_from_scale_domains`.
-- [ ] Remove default initialization of the field.
-- [ ] Remove serialization/deserialization references to the field.
-- [ ] Remove generated `.exclude_from_scale_domains()` from `impl_mark_base`.
-- [ ] Update manual `MarkState` constructors.
-- [ ] Remove or update docs/examples mentioning mark-level exclusion.
+- [x] Remove `MarkState::exclude_from_scale_domains`.
+- [x] Remove `CompiledMarkState::exclude_from_scale_domains`.
+- [x] Remove default initialization of the field.
+- [x] Remove serialization/deserialization references to the field.
+- [x] Remove generated `.exclude_from_scale_domains()` from `impl_mark_base`.
+- [x] Update manual `MarkState` constructors.
+- [x] Remove or update docs/examples mentioning mark-level exclusion.
 
 Remove `exclude_from_scale_domains` from:
 
@@ -217,17 +226,17 @@ exclusion, or remove them if they only tested the old coarse API.
 
 ### Tests
 
-- [ ] Add or update unit tests in `avenger-chart-core` for
+- [x] Add or update unit tests in `avenger-chart-core` for
       `ScaleDomainInference` serialization/defaults.
-- [ ] Add or update unit tests in `avenger-chart-core` proving
+- [x] Add or update unit tests in `avenger-chart-core` proving
       `exclude_from_scale_domain()` survives channel-value transformations.
-- [ ] Add or update scale-builder tests proving per-channel exclusion affects
+- [x] Add or update scale-builder tests proving per-channel exclusion affects
       automatic domain inference only.
-- [ ] Update any tests that currently call `.exclude_from_scale_domains()`.
-- [ ] Add an integration test where x is excluded but y still contributes.
-- [ ] Add an integration test where fill/color is excluded but x/y still
+- [x] Update any tests that currently call `.exclude_from_scale_domains()`.
+- [x] Add an integration test where x is excluded but y still contributes.
+- [x] Add an integration test where fill/color is excluded but x/y still
       contribute.
-- [ ] Add a rendering or mark-data test proving an excluded channel still
+- [x] Add a rendering or mark-data test proving an excluded channel still
       renders normally.
 
 Add focused tests proving:
@@ -255,6 +264,26 @@ If the old test merely tested the old mark-level method, remove or replace it
 with a channel-level API test.
 ```
 
+### DSL And Tooling
+
+- [x] Accept `domain_contribution: infer | exclude` in every configured
+      ordinary channel block.
+- [x] Default omitted `domain_contribution` to `infer`.
+- [x] Lower the property to `ScaleDomainInference`.
+- [x] Remove `exclude_from_scale_domains` from generic native and defined-mark
+      schemas without a compatibility alias.
+- [x] Complete the property in channel blocks and complete both enum values.
+- [x] Update the semantic schema, generated native-schema references, compiler
+      fixtures, and LSP acceptance tests.
+
+The DSL uses author-facing `domain_contribution` because it describes the
+channel's role. Rust uses `ScaleDomainInference` because the metadata is an
+execution policy on automatic domain collection.
+
+If exclusion leaves a scale with no automatic contributor and no explicit,
+raw, or replacement domain, compilation/evaluation must report a targeted
+error. It must not silently materialize the scale with a neutral fallback.
+
 Good validation commands:
 
 ```bash
@@ -266,10 +295,10 @@ cargo test --release -p avenger-chart
 
 Validation checklist:
 
-- [ ] `cargo test --release -p avenger-chart-core channel_value`
-- [ ] `cargo test --release -p avenger-chart-scales`
-- [ ] `cargo test --release -p avenger-chart --test test_mark_effects`
-- [ ] `cargo test --release -p avenger-chart`
+- [x] `cargo test --release -p avenger-chart-core channel_value`
+- [x] `cargo test --release -p avenger-chart-scales`
+- [x] `cargo test --release -p avenger-chart --test test_mark_effects`
+- [x] `cargo test --release -p avenger-chart`
 
 ## Section 2: Add `View` Transform As A Standalone Feature
 

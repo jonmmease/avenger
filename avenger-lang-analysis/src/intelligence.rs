@@ -1539,7 +1539,9 @@ impl<'a> QueryContext<'a> {
         let sql_incomplete = sql.as_ref().is_some_and(|result| result.is_incomplete);
         if let Some(sql) = sql {
             items.extend(sql.items);
-            if let Some(property) = property_value_context(syntax, cursor) {
+            if let Some(property) = property_value_context(syntax, cursor)
+                .or_else(|| incomplete_core_property_value_context(text, cursor))
+            {
                 self.complete_property_value(
                     property,
                     prefix,
@@ -1685,7 +1687,9 @@ impl<'a> QueryContext<'a> {
                 cursor,
                 &mut items,
             );
-        } else if let Some(property) = property_value_context(syntax, cursor) {
+        } else if let Some(property) = property_value_context(syntax, cursor)
+            .or_else(|| incomplete_core_property_value_context(text, cursor))
+        {
             self.complete_property_value(
                 property,
                 prefix,
@@ -1996,16 +2000,29 @@ impl<'a> QueryContext<'a> {
                 && schema.channels.contains_key(property_path[0])
                 && enclosing_property(syntax, cursor).is_some()
             {
-                for (name, docs) in [
-                    ("scale", "Scale configuration for this channel."),
-                    ("axis", "Axis configuration for this channel."),
-                    ("legend", "Legend configuration for this channel."),
+                for (name, insertion, docs) in [
+                    (
+                        "scale",
+                        "scale: { }",
+                        "Scale configuration for this channel.",
+                    ),
+                    ("axis", "axis: { }", "Axis configuration for this channel."),
+                    (
+                        "legend",
+                        "legend: { }",
+                        "Legend configuration for this channel.",
+                    ),
+                    (
+                        "domain_contribution",
+                        "domain_contribution: ",
+                        "Whether this channel contributes to automatic scale-domain inference (`infer` or `exclude`).",
+                    ),
                 ] {
                     if !authored.contains(name) && candidate_matches(name, prefix) {
                         output.push(item(
                             name.to_owned(),
                             replacement,
-                            format!("{name}: {{ }}"),
+                            insertion.to_owned(),
                             CompletionKind::Property,
                             Some("channel configuration".to_owned()),
                             Some(docs.to_owned()),
@@ -3474,6 +3491,20 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
         .map(|(_, name)| name)
 }
 
+fn incomplete_core_property_value_context(text: &str, cursor: usize) -> Option<&str> {
+    let prefix = &text[..cursor.min(text.len())];
+    let start = prefix
+        .rfind(['{', '}', ';', '\n'])
+        .map_or(0, |position| position + 1);
+    let fragment = &prefix[start..];
+    let colon = fragment.find(':')?;
+    if fragment[colon + 1..].contains(':') {
+        return None;
+    }
+    let property = fragment[..colon].trim();
+    (!core_property_values(property).is_empty()).then_some(property)
+}
+
 fn is_property_name_context(text: &str, cursor: usize) -> bool {
     let prefix = &text[..cursor.min(text.len())];
     let start = prefix
@@ -3829,6 +3860,7 @@ fn core_property_values(property: &str) -> &'static [&'static str] {
         "sharing" => &["shared", "free", "level("],
         "empty" => &["all", "none"],
         "combine" => &["union", "intersect"],
+        "domain_contribution" => &["infer", "exclude"],
         "mode" => &["preview", "exact"],
         "consume" | "settle_exact" => &["true", "false"],
         _ => &[],

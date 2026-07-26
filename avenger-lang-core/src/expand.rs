@@ -997,12 +997,7 @@ impl Expander<'_> {
             let generic = match schema.kind {
                 DefinitionKind::Mark => matches!(
                     property.as_str(),
-                    "visible"
-                        | "details"
-                        | "zindex"
-                        | "facet_data_scope"
-                        | "geometry_space"
-                        | "exclude_from_scale_domains"
+                    "visible" | "details" | "zindex" | "facet_data_scope" | "geometry_space"
                 ),
                 DefinitionKind::Transform => property.as_str() == "scope",
                 DefinitionKind::Tool => false,

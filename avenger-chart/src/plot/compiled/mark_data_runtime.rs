@@ -1175,6 +1175,7 @@ fn expand_selection_predicates_in_channels(
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => {
                 let expanded =
                     expand_selection_predicates(expr.to_expr(ctx)?, eval_ctx, available_columns)?;
@@ -1188,6 +1189,7 @@ fn expand_selection_predicates_in_channels(
                     axis_config,
                     domain_coordination,
                     transform_scope,
+                    scale_domain_inference,
                 }
             }
             ChannelValue::Value { expr } => {
@@ -1206,6 +1208,7 @@ fn expand_selection_predicates_in_channels(
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => {
                 let expanded_conditions = conditions
                     .into_iter()
@@ -1259,6 +1262,7 @@ fn expand_selection_predicates_in_channels(
                     axis_config,
                     domain_coordination,
                     transform_scope,
+                    scale_domain_inference,
                 }
             }
         };

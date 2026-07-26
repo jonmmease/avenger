@@ -62,10 +62,6 @@ impl Mark<Cartesian> for UniformRaster2D<Cartesian> {
     }
 
     fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
-        if self.state().exclude_from_scale_domains {
-            return Ok(Vec::new());
-        }
-
         let x_position = required_position(&self.raster_options().x_position, "x")?;
         let y_position = required_position(&self.raster_options().y_position, "y")?;
 
@@ -143,10 +139,6 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
     }
 
     fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
-        if self.state.exclude_from_scale_domains {
-            return Ok(Vec::new());
-        }
-
         let x_position = required_position(&self.options.x_position, "x")?;
         let y_position = required_position(&self.options.y_position, "y")?;
 
@@ -167,9 +159,6 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
         domain_dataframe: Option<&DataFrame>,
         ctx: &SessionContext,
     ) -> Result<Vec<MarkScaleDomainSource>, AvengerChartError> {
-        if self.state.exclude_from_scale_domains {
-            return Ok(Vec::new());
-        }
         if self.state.view.is_some() {
             return Ok(Vec::new());
         }
@@ -1080,7 +1069,6 @@ mod tests {
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::FILTERED,
-            exclude_from_scale_domains: false,
             visible: None,
             details: None,
             zindex: None,

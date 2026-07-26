@@ -209,9 +209,8 @@ fn lasso_query_update(sharing: CoordinationScope) -> SelectionSceneQuery {
 fn lasso_overlay(store: &str, stroke: &str) -> PathMark<Cartesian> {
     PathMark::<Cartesian>::new()
         .data_store(StoreData::new(store))
-        .exclude_from_scale_domains()
-        .x(col("anchor_x"))
-        .y(col("anchor_y"))
+        .x_with(col("anchor_x"), |c| c.exclude_from_scale_domain())
+        .y_with(col("anchor_y"), |c| c.exclude_from_scale_domain())
         .path_with(col("path"), |c| c.no_scale())
         .fill("rgba(37, 99, 235, 0.08)")
         .stroke(stroke)

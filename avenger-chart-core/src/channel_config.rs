@@ -104,6 +104,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -115,6 +116,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             }
         }
         ChannelValue::Scaled {
@@ -127,6 +129,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             nested_band_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
@@ -136,6 +139,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -146,6 +150,7 @@ fn add_scaled_condition(current: ChannelValue, condition: Expr, value: Expr) -> 
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Infer,
         },
     }
 }
@@ -166,6 +171,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => {
             conditions.push((condition_node, new_branch));
             ChannelValue::Conditional {
@@ -177,6 +183,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             }
         }
         ChannelValue::Scaled {
@@ -189,6 +196,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             nested_band_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
             otherwise: ConditionalValue::Scaled { expr },
@@ -198,6 +206,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { expr } => ChannelValue::Conditional {
             conditions: vec![(condition_node, new_branch)],
@@ -208,6 +217,7 @@ fn add_value_condition(current: ChannelValue, condition: Expr, value: Expr) -> C
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: crate::ScaleDomainInference::Infer,
         },
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     Auto, ChannelConfig, ChannelExpr, ChannelValue, CoordinationScope, DomainCoordination, Scale,
-    ScaleSpec,
+    ScaleDomainInference, ScaleSpec,
 };
 
 /// Extension methods for channel configs that carry scale configuration.
@@ -64,6 +64,23 @@ pub trait ScaleChannelConfig: ChannelConfig {
     /// Make this channel's plot scale domain independent for each facet.
     fn free_domain(self) -> Self {
         self.with_domain_scope(CoordinationScope::Free)
+    }
+
+    /// Exclude this channel from automatic scale-domain inference.
+    fn exclude_from_scale_domain(mut self) -> Self {
+        let value = self.get_value().clone().exclude_from_scale_domain();
+        self.set_value(value);
+        self
+    }
+
+    /// Set whether this channel contributes to automatic scale-domain inference.
+    fn with_scale_domain_inference(mut self, inference: ScaleDomainInference) -> Self {
+        let value = self
+            .get_value()
+            .clone()
+            .with_scale_domain_inference(inference);
+        self.set_value(value);
+        self
     }
 }
 
@@ -133,6 +150,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
             ..
         } => ChannelValue::Scaled {
             expr,
@@ -144,6 +162,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Conditional {
             conditions,
@@ -153,6 +172,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
             ..
         } => ChannelValue::Conditional {
             conditions,
@@ -163,6 +183,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             axis_config,
             domain_coordination,
             transform_scope,
+            scale_domain_inference,
         },
         ChannelValue::Value { .. } => value,
     }
@@ -174,7 +195,7 @@ mod tests {
 
     use crate::{
         ChannelConfig, ChannelValue, CoordinationScope, DomainCoordination,
-        DomainCoordinationGroup, ScaleChannelConfig,
+        DomainCoordinationGroup, ScaleChannelConfig, ScaleDomainInference,
     };
 
     use super::ScaleChannelValue;
@@ -244,5 +265,33 @@ mod tests {
             coordination.group,
             DomainCoordinationGroup::Named("height".to_string())
         );
+    }
+
+    #[test]
+    fn channel_value_domain_exclusion_survives_configuration_and_serialization() {
+        assert!(
+            !ChannelValue::from(lit(1.0))
+                .no_scale()
+                .participates_in_scale_domain_inference()
+        );
+
+        let channel = ChannelValue::from(col("x"))
+            .exclude_from_scale_domain()
+            .with_domain_scope(CoordinationScope::Shared)
+            .with_scale_name("shared_x");
+
+        assert_eq!(
+            channel.scale_domain_inference(),
+            ScaleDomainInference::Exclude
+        );
+        let json = serde_json::to_string(&channel).expect("serialize excluded channel");
+        let decoded: ChannelValue =
+            serde_json::from_str(&json).expect("deserialize excluded channel");
+        assert!(!decoded.participates_in_scale_domain_inference());
+
+        let config = crate::GenericPositionConfig::<crate::NoGuide>::new(decoded)
+            .with_scale_domain_inference(ScaleDomainInference::Infer)
+            .exclude_from_scale_domain();
+        assert!(!config.get_value().participates_in_scale_domain_inference());
     }
 }

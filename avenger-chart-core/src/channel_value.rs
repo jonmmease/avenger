@@ -153,6 +153,20 @@ impl ConditionalValue {
     }
 }
 
+/// Whether a scaled channel contributes values to automatic scale-domain inference.
+///
+/// This policy does not disable the scale. Excluded channels still participate in
+/// scale type inference, configuration, guides, explicit domains, and rendering.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScaleDomainInference {
+    /// Include this channel's scaled values when inferring its scale domain.
+    #[default]
+    Infer,
+    /// Omit this channel's scaled values from automatic domain inference.
+    Exclude,
+}
+
 /// Represents a channel encoding value
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
@@ -181,6 +195,9 @@ pub enum ChannelValue {
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
+        /// Whether this channel contributes to automatic scale-domain inference.
+        #[serde(default)]
+        scale_domain_inference: ScaleDomainInference,
     },
     /// Expression that bypasses scaling (identity transformation)
     Value {
@@ -210,6 +227,9 @@ pub enum ChannelValue {
         /// Scope of the transform stage that produced this value, if any.
         #[serde(default)]
         transform_scope: Option<CoordinationScope>,
+        /// Whether scaled branches contribute to automatic scale-domain inference.
+        #[serde(default)]
+        scale_domain_inference: ScaleDomainInference,
     },
 }
 
@@ -365,6 +385,16 @@ impl ChannelExpr {
         self.map_channel_value(|value| value.with_domain_coordination(coordination))
     }
 
+    /// Exclude this channel from automatic scale-domain inference.
+    pub fn exclude_from_scale_domain(self) -> Self {
+        self.map_channel_value(ChannelValue::exclude_from_scale_domain)
+    }
+
+    /// Set whether this channel contributes to automatic scale-domain inference.
+    pub fn with_scale_domain_inference(self, inference: ScaleDomainInference) -> Self {
+        self.map_channel_value(|value| value.with_scale_domain_inference(inference))
+    }
+
     /// Attach default axis configuration to this channel value.
     pub fn with_axis_config<A: Axis + 'static>(self, axis_config: A) -> Self {
         self.map_channel_value(|value| value.with_axis_config(axis_config))
@@ -435,6 +465,7 @@ impl std::fmt::Debug for ChannelValue {
                 .field("has_legend_config", &self.has_legend_config())
                 .field("has_axis_config", &self.has_axis_config())
                 .field("transform_scope", transform_scope)
+                .field("scale_domain_inference", &self.scale_domain_inference())
                 .finish(),
             ChannelValue::Value { expr: _ } => f
                 .debug_struct("Identity")
@@ -451,12 +482,98 @@ impl std::fmt::Debug for ChannelValue {
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .field("has_axis_config", &self.has_axis_config())
+                .field("scale_domain_inference", &self.scale_domain_inference())
                 .finish(),
         }
     }
 }
 
 impl ChannelValue {
+    /// Return this channel's automatic scale-domain inference policy.
+    pub fn scale_domain_inference(&self) -> ScaleDomainInference {
+        match self {
+            ChannelValue::Scaled {
+                scale_domain_inference,
+                ..
+            }
+            | ChannelValue::Conditional {
+                scale_domain_inference,
+                ..
+            } => *scale_domain_inference,
+            ChannelValue::Value { .. } => ScaleDomainInference::Infer,
+        }
+    }
+
+    /// Whether this channel contributes scaled values to automatic domain inference.
+    pub fn participates_in_scale_domain_inference(&self) -> bool {
+        matches!(
+            self,
+            ChannelValue::Scaled {
+                scale_domain_inference: ScaleDomainInference::Infer,
+                ..
+            } | ChannelValue::Conditional {
+                scale_domain_inference: ScaleDomainInference::Infer,
+                ..
+            }
+        )
+    }
+
+    /// Exclude this channel from automatic scale-domain inference.
+    pub fn exclude_from_scale_domain(self) -> Self {
+        self.with_scale_domain_inference(ScaleDomainInference::Exclude)
+    }
+
+    /// Set whether this channel contributes to automatic scale-domain inference.
+    pub fn with_scale_domain_inference(self, inference: ScaleDomainInference) -> Self {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                position_boundary,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                position_boundary,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference: inference,
+            },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference: inference,
+            },
+            ChannelValue::Value { expr } => ChannelValue::Value { expr },
+        }
+    }
+
     /// Check if this channel has scale configuration
     pub fn has_scale_config(&self) -> bool {
         match self {
@@ -554,6 +671,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 domain_coordination,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -566,6 +684,7 @@ impl ChannelValue {
                 domain_coordination: domain_coordination
                     .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
+                scale_domain_inference,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -575,6 +694,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 domain_coordination,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -586,6 +706,7 @@ impl ChannelValue {
                 domain_coordination: domain_coordination
                     .or_else(|| Some(DomainCoordination::scale_name(scope))),
                 transform_scope: Some(scope),
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
         }
@@ -604,6 +725,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
@@ -616,6 +738,7 @@ impl ChannelValue {
                     domain_coordination.unwrap_or_default().with_scope(scope),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -626,6 +749,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -637,6 +761,7 @@ impl ChannelValue {
                     domain_coordination.unwrap_or_default().with_scope(scope),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
         }
@@ -656,6 +781,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
@@ -668,6 +794,7 @@ impl ChannelValue {
                     domain_coordination.unwrap_or_default().with_group(group),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -678,6 +805,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             } => ChannelValue::Conditional {
                 conditions,
                 otherwise,
@@ -689,6 +817,7 @@ impl ChannelValue {
                     domain_coordination.unwrap_or_default().with_group(group),
                 ),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
         }
@@ -708,6 +837,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -719,6 +849,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination: Some(coordination),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -728,6 +859,7 @@ impl ChannelValue {
                 legend_config,
                 axis_config,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -738,6 +870,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination: Some(coordination),
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
         }
@@ -764,6 +897,7 @@ impl ChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -775,6 +909,7 @@ impl ChannelValue {
                 axis_config: Some(axis_config),
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => ChannelValue::Value { expr },
             ChannelValue::Conditional {
@@ -785,6 +920,7 @@ impl ChannelValue {
                 legend_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -795,6 +931,7 @@ impl ChannelValue {
                 axis_config: Some(axis_config),
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
         }
     }
@@ -993,6 +1130,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -1004,6 +1142,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             other => other,
         }
@@ -1044,6 +1183,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -1055,6 +1195,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Conditional {
                 conditions,
@@ -1064,6 +1205,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Conditional {
                 conditions,
@@ -1074,6 +1216,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             other => other,
         }
@@ -1092,6 +1235,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr: new_expr,
@@ -1103,9 +1247,13 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { .. } => ChannelValue::Value { expr: new_expr },
-            ChannelValue::Conditional { .. } => {
+            ChannelValue::Conditional {
+                scale_domain_inference,
+                ..
+            } => {
                 // For conditional, we can't easily update - just create a new scaled value
                 ChannelValue::Scaled {
                     expr: new_expr,
@@ -1117,6 +1265,7 @@ impl ChannelValue {
                     axis_config: None,
                     domain_coordination: None,
                     transform_scope: None,
+                    scale_domain_inference,
                 }
             }
         }
@@ -1134,6 +1283,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
                 ..
             } => ChannelValue::Scaled {
                 expr,
@@ -1145,6 +1295,7 @@ impl ChannelValue {
                 axis_config,
                 domain_coordination,
                 transform_scope,
+                scale_domain_inference,
             },
             ChannelValue::Value { expr } => {
                 // Convert to scaled with custom scale
@@ -1158,6 +1309,7 @@ impl ChannelValue {
                     axis_config: None,
                     domain_coordination: None,
                     transform_scope: None,
+                    scale_domain_inference: ScaleDomainInference::Infer,
                 }
             }
             ChannelValue::Conditional { .. } => {
@@ -1240,6 +1392,7 @@ impl From<Expr> for ChannelValue {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         }
     }
 }
@@ -1734,6 +1887,7 @@ mod tests {
                 axis_config: None,
                 domain_coordination: None,
                 transform_scope: None,
+                scale_domain_inference: ScaleDomainInference::Infer,
             };
             // Conditional values don't have a single column name
             assert_eq!(cv.as_column_name(&ctx), None);
@@ -1798,6 +1952,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         };
 
         // expr() returns None for conditional
@@ -1864,6 +2019,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         };
 
         let domain_expr = cv.expr_for_domain(&ctx);
@@ -1934,6 +2090,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         };
 
         // scale_input_expr() should return CASE with NULL for literal branches
@@ -1989,6 +2146,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         };
 
         // scale_input_expr() should return None when all branches are literals
@@ -2027,6 +2185,7 @@ mod tests {
             axis_config: None,
             domain_coordination: None,
             transform_scope: None,
+            scale_domain_inference: ScaleDomainInference::Infer,
         };
 
         // scale_input_expr() should return CASE without NULL (all branches use scale)

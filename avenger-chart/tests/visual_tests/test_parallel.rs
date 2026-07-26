@@ -953,11 +953,10 @@ async fn parallel_axis_brush_intersection_selected_lines() {
         Plot::<Cartesian>::new().mark(
             Rect::new()
                 .data(axis_interval_data(&ctx, 47.0, 59.0))
-                .exclude_from_scale_domains()
-                .x(lit(0.0))
-                .x2(lit(1.0))
-                .y(col("value_min"))
-                .y2(col("value_max"))
+                .x_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                .x2_with(lit(1.0), |c| c.exclude_from_scale_domain())
+                .y_with(col("value_min"), |c| c.exclude_from_scale_domain())
+                .y2_with(col("value_max"), |c| c.exclude_from_scale_domain())
                 .fill("rgba(37, 99, 235, 0.14)")
                 .stroke("#2563eb")
                 .stroke_width(1.3),
@@ -970,11 +969,10 @@ async fn parallel_axis_brush_intersection_selected_lines() {
         Plot::<Cartesian>::new().mark(
             Rect::new()
                 .data(axis_interval_data(&ctx, 77.0, 81.0))
-                .exclude_from_scale_domains()
-                .x(lit(0.0))
-                .x2(lit(1.0))
-                .y(col("value_min"))
-                .y2(col("value_max"))
+                .x_with(lit(0.0), |c| c.exclude_from_scale_domain())
+                .x2_with(lit(1.0), |c| c.exclude_from_scale_domain())
+                .y_with(col("value_min"), |c| c.exclude_from_scale_domain())
+                .y2_with(col("value_max"), |c| c.exclude_from_scale_domain())
                 .fill("rgba(37, 99, 235, 0.14)")
                 .stroke("#2563eb")
                 .stroke_width(1.3),

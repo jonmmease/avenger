@@ -20,6 +20,7 @@ fn test_channel_value_get_data_type() {
         axis_config: None,
         domain_coordination: None,
         transform_scope: None,
+        scale_domain_inference: Default::default(),
     };
 
     // Create a schema with the column

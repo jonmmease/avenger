@@ -22,6 +22,44 @@ fn fixture(relative: &str) -> String {
     .unwrap_or_else(|error| panic!("read fixture {relative}: {error}"))
 }
 
+fn completion_labels(marked: &str) -> Vec<String> {
+    let offset = marked.find(CURSOR).expect("cursor marker");
+    let text = marked.replacen(CURSOR, "", 1);
+    let origin = SourceOrigin::Memory("channel-completion.avenger".into());
+    let revision = SourceRevision::from_text(&text);
+    let syntax = analyze_syntax(&DocumentSnapshot::new(
+        origin.clone(),
+        revision.clone(),
+        text,
+    ));
+    let compiler = Compiler::builder()
+        .project_root(env!("CARGO_MANIFEST_DIR"))
+        .build()
+        .unwrap();
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(1),
+        Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
+        Vec::new(),
+        BTreeMap::from([(origin.clone(), syntax)]),
+        compiler.language_host().authoring_schema().clone(),
+    );
+    analysis
+        .complete(
+            &PositionRequest {
+                source: origin,
+                byte_offset: offset,
+                source_revision: revision,
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect()
+}
+
 fn compiler_fixture_files() -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
     fn collect(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
         let mut entries = fs::read_dir(directory)
@@ -276,6 +314,40 @@ fn structural_completion_matches_the_frozen_baseline() {
     for excluded in case["must_exclude"].as_array().unwrap() {
         assert!(!labels.contains(&excluded.as_str().unwrap()));
     }
+}
+
+#[test]
+fn channel_domain_contribution_property_and_values_complete() {
+    let properties = completion_labels(
+        r#"avenger 1;
+chart cartesian as chart {
+  mark symbol {
+    x: "x" {
+      ⟦cursor⟧
+    }
+    y: "y";
+  }
+}"#,
+    );
+    assert!(
+        properties
+            .iter()
+            .any(|label| label == "domain_contribution")
+    );
+
+    let values = completion_labels(
+        r#"avenger 1;
+chart cartesian as chart {
+  mark symbol {
+    x: "x" {
+      domain_contribution: ⟦cursor⟧
+    }
+    y: "y";
+  }
+}"#,
+    );
+    assert!(values.iter().any(|label| label == "infer"));
+    assert!(values.iter().any(|label| label == "exclude"));
 }
 
 #[test]

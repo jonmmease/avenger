@@ -118,11 +118,10 @@ store to declare a primary key.
 ```rust
 Rect::<Cartesian>::new()
     .data_store(StoreData::new("brush_boxes"))
-    .exclude_from_scale_domains()
-    .x(col("x_min"))
-    .x2(col("x_max"))
-    .y(col("y_min"))
-    .y2(col("y_max"));
+    .x_with(col("x_min"), |c| c.exclude_from_scale_domain())
+    .x2_with(col("x_max"), |c| c.exclude_from_scale_domain())
+    .y_with(col("y_min"), |c| c.exclude_from_scale_domain())
+    .y2_with(col("y_max"), |c| c.exclude_from_scale_domain());
 ```
 
 `StoreData::new(name)` reads the store instance implied by that store's
@@ -318,11 +317,10 @@ Chart::<Cartesian>::new()
     .mark(
         Rect::new()
             .data_store(StoreData::new("brush_boxes"))
-            .exclude_from_scale_domains()
-            .x(col("x_min"))
-            .x2(col("x_max"))
-            .y(col("y_min"))
-            .y2(col("y_max")),
+            .x_with(col("x_min"), |c| c.exclude_from_scale_domain())
+            .x2_with(col("x_max"), |c| c.exclude_from_scale_domain())
+            .y_with(col("y_min"), |c| c.exclude_from_scale_domain())
+            .y2_with(col("y_max"), |c| c.exclude_from_scale_domain()),
     );
 ```
 

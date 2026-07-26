@@ -4918,12 +4918,7 @@ impl<'a> Resolver<'a> {
             let generic = match schema.kind {
                 DefinitionKind::Mark => matches!(
                     name.as_str(),
-                    "visible"
-                        | "details"
-                        | "zindex"
-                        | "facet_data_scope"
-                        | "geometry_space"
-                        | "exclude_from_scale_domains"
+                    "visible" | "details" | "zindex" | "facet_data_scope" | "geometry_space"
                 ),
                 DefinitionKind::Transform => name.as_str() == "scope",
                 DefinitionKind::Tool => false,
@@ -9207,7 +9202,6 @@ fn core_property(declaration: &Decl, property: &str) -> bool {
                 | "zindex"
                 | "facet_data_scope"
                 | "geometry_space"
-                | "exclude_from_scale_domains"
         );
     }
     match declaration.keyword.as_str() {
