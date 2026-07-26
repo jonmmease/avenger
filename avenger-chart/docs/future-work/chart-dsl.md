@@ -2153,6 +2153,278 @@ Branch payloads are `value: ...;` (literal) or `scaled: <sql-expr>;`
 (scaled), mapping to `ConditionalValue`. Channel-level `scale`, `axis`,
 `legend`, and coordination properties still apply to scaled branches.
 
+### Scale Resolution
+
+This section is normative for a resolved Avenger v1 program. Scale resolution
+is a semantic part of the language: it determines which values share a scale,
+which data values can be displayed, and how those values map into a coordinate
+or visual range. It is not a renderer-aesthetic choice.
+
+Some decisions below are owned by the active native implementation profile.
+Those points are called out explicitly. The profile is the deterministic
+native schema/implementation profile described in
+[Authoring Schema Source](#authoring-schema-source);
+compiled artifacts and caches record its identity. A custom profile may add
+scale kinds and coordinate- or mark-specific policies, but it must implement
+the language-owned ordering and locality rules in this section.
+
+#### Scale creation and identity
+
+A channel occurrence is **scale-bearing** when all of the following hold:
+
+1. its payload is a bare/scaled expression or a conditional channel with
+   scaled branches, rather than `value`, `none`, or an entirely unscaled
+   payload;
+2. the active coordinate profile says that the channel uses a scale; and
+3. the channel resolves to a scale kind, either explicitly or by the inference
+   procedure below.
+
+`value` and `none` never create, configure, or contribute to a scale. An
+unscaled branch of an otherwise scale-bearing conditional also does not
+contribute a domain value. Coordinate-owned partition/layout inputs, such as
+facet dimensions, may use channel-shaped syntax without being scale-bearing;
+the coordinate's versioned schema declares that distinction.
+
+Each coordinate profile declares its required position-scale families. In the
+stock Cartesian profile these are `x` and `y`; in polar they are `r` and
+`theta`. The compiler attempts to realize those scales even when only a
+secondary member such as `x2` or `y2` is authored.
+
+Every scale has an identity local to one plot. By default, the identity is the
+channel name with a trailing decimal suffix removed, so `x`, `x1`, and `x2`
+resolve to the local `x` scale while `fill` resolves to `fill`. A native or
+expanded defined mark may provide a different resolved scale identity through
+its registered channel mapping. That identity is semantic IR, not a
+user-visible label.
+
+All scale-bearing occurrences with the same resolved identity in one plot use
+one effective scale. This includes occurrences on different marks and inside
+`mark group` descendants: a group is a dataflow boundary, not a scale
+namespace. A child `plot`/`cell` begins a new scale namespace. Two child plots
+never share a scale object merely because both have a scale named `x`.
+
+Scale-configuration fragments attached to occurrences of the same local scale
+are merged before type inference. Resolved marks are traversed depth-first in
+semantic child order; properties within one declaration use canonical property
+order, so authored property order remains nonsemantic. A later fragment
+replaces an earlier explicitly set domain, range, ordering field, or
+same-named option while preserving fields it does not set. Multiple explicit
+scale kinds for one identity must agree; disagreement is a compile-time error,
+not last-writer-wins. A compiler-owned plot scale edit is applied after the
+merged channel configuration.
+
+Definition expansion does not change any of these results. Private expansion
+groups introduce no new scale namespace, and scale identities, contributor
+order, configuration precedence, and diagnostics must be equivalent before and
+after expansion.
+
+#### Scale-kind inference
+
+The compiler first determines the effective physical Arrow input type from the
+first scaled input with a statically known non-`Null` Arrow type in resolved
+mark traversal order. For a conditional channel, only scaled branches
+participate in this check; unscaled branches are typed as `Null`. An Arrow
+`List<T>` input is inferred from `T`. Every later contributor must be
+compatible with the selected scale's domain type; otherwise compilation or
+logical planning fails rather than silently selecting a second scale type.
+
+The effective scale kind is selected in this precedence order:
+
+1. the explicit kind in the merged `scale:` configuration;
+2. `ordinal` when no kind is explicit but the merged scale has a discrete or
+   pattern range;
+3. `nested_band` for a position channel authored with `nested([...])`;
+4. a compound mark's registered `scale_hint`; incompatible hints for the same
+   scale are an error;
+5. the coordinate profile's preference for the channel and Arrow type;
+6. the first applicable mark profile preference in resolved traversal order;
+7. the stock Arrow-type default below.
+
+The stock defaults are:
+
+| Physical Arrow input | Default scale kind |
+|---|---|
+| signed/unsigned integer, `float32`, `float64` | `linear` |
+| `date32`, `date64`, timestamp | `time` |
+| `utf8`, `large_utf8`, `utf8_view`, boolean | `ordinal` |
+| struct | none; a position channel must use `nested([...])` |
+| any other type | none |
+
+A coordinate preference can refine this table; for example, the stock parallel
+coordinate profile prefers `point` for string and boolean dimensions. A mark
+preference or `scale_hint` selects a kind only—it does not add a domain value.
+If the procedure finds no compatible registered scale kind for a
+scale-bearing occurrence, compilation fails with the channel, Arrow type, and
+active profile in the diagnostic.
+
+The mapping from a preference to a concrete scale implementation, the input
+types and options accepted by that implementation, and any additional
+coordinate/mark preferences are native-profile-owned. The stock profile
+registers `band`, `linear`, `log`, `nested_band`, `ordinal`, `point`, `pow`,
+`quantile`, `quantize`, `sqrt`, `symlog`, `threshold`, and `time`.
+
+#### Local domain contribution
+
+Unless an explicit non-raw `domain:` is configured, the local domain
+contributor multiset for a scale contains:
+
+- the scaled input expression of every matching channel occurrence on every
+  mark in the plot;
+- every matching mark-owned domain source declared by the native profile,
+  such as the generated channels of a native compound mark; and
+- every scaled branch of a matching conditional channel, represented as one
+  conditional expression whose unscaled branches produce `null`.
+
+Each expression is evaluated against that occurrence's data context after its
+group/view transforms. `mark group` descendants remain in the containing
+plot's contributor set even when groups use different data contexts. Defined
+marks contribute exactly what their expanded ordinary marks contribute.
+
+`domain_contribution: exclude` removes that one occurrence (or the whole
+conditional occurrence) only from this automatic contributor multiset. It
+does not affect scale identity, type inference, configuration, guides,
+rendering, an explicit domain, or `raw_domain`. A native mark's registered
+domain source may carry the same policy. If every available matching source is
+excluded and neither an explicit domain nor `raw_domain` is configured,
+compilation/evaluation fails rather than inventing a data domain.
+
+An explicit interval or discrete `domain:` replaces the automatic contributor
+multiset for that local scale. A profile-supplied `DomainExprs` source also
+replaces ordinary mark collection with its declared relation/expression
+sources. `raw_domain` is different: it is a runtime override and retains the
+inferred or explicit domain as its fallback.
+
+After all contributor relations are unioned, the registered scale
+implementation reduces them to a local domain. The stock profile uses:
+
+- minimum/maximum over all non-null numeric contributors for ordinary numeric
+  domains;
+- earliest/latest over all non-null temporal contributors;
+- the unique non-null categorical values, sorted by the stock scalar total
+  order when no `order_by` is present;
+- the configured `order_by` aggregate and direction across all contributing
+  rows, with the category value as the deterministic tie-breaker; and
+- structured unique paths, followed by the per-level ordering rules, for
+  `nested_band`.
+
+The reducer used by a third-party scale kind is native-profile-owned and must
+be declared by that scale's registry entry. It still receives the complete
+language-defined contributor multiset and may not inspect excluded
+occurrences.
+
+#### Domain coordination across plots
+
+Domain coordination shares **extents**, not scale instances or scale
+configuration. An ordinary channel can configure its coordination target in
+the same channel block:
+
+```avenger
+x: "height" {
+  domain_scope: shared;
+  domain_group: 'height';
+}
+```
+
+`domain_scope` accepts the common coordination values:
+
+- `free` (equivalent to `level(0)`) keeps one domain per leaf plot;
+- `level(n)` coordinates with the logical owner `n` child-frame/facet levels
+  above the leaf; and
+- `shared` coordinates at the root owner.
+
+`domain_group` is an optional nonempty string containing only ASCII letters,
+digits, underscores, or hyphens; periods are reserved for future namespacing.
+It may appear only with `domain_scope`. Without it, the resolved local scale
+identity is the group, so ordinary `x` scales coordinate with other `x`
+scales. A named group allows unlike local identities to coordinate—for
+example, one matrix cell's `x` scale with another cell's `y` scale when both
+represent `height`. Scaled pattern channels use the same coordination
+properties.
+
+When at least one occurrence of a local scale declares a domain scope, the
+broadest explicitly declared scope is effective; an undeclared occurrence
+does not broaden it. All explicit named groups for that local scale must agree
+or compilation fails. With no explicit declaration, the stock facet, repeat,
+and child-frame profiles use `shared` with the local scale identity as the
+group.
+
+For each `(owner, group)` target, compatible local numeric/temporal extents are
+unioned by outer minimum/maximum and categorical extents by unique-value union.
+The coordinated extent is then supplied back to each participating local scale,
+including an empty child that had no local contributor but belongs to a group
+with another contributor. Ordered categorical domains are evaluated at the
+coordination owner so every member receives one stable order. Explicit domains
+do not export an inferred extent and are not widened by coordination.
+
+Repeat's `domain_coordination: matrix` is the high-level spelling for
+by-variable coordination: the compiler assigns the repeat variable id as a
+named group to each repeated channel. Any explicit channel coordination must
+name the same group and may only narrow, not rename or broaden, the
+repeat-generated target.
+
+Facet `slots` are independent of scale-domain coordination. `slots: shared`
+coordinates which facet values occupy layout slots; it does not make child
+scale domains shared. Conversely, `slots: free` may be combined with shared
+child domains. Nested-band `level` declarations likewise separate
+cross-cell `scope` from within-scale `nest_scope`.
+
+Coordinates with coupled-domain constraints, such as Cartesian
+`unit_aspect` or a fitted geo viewport, may run a profile-owned domain
+realization step after compatible extents have been grouped. The profile must
+declare which scale kinds and container groups it supports and must preserve
+the resolved coordination owners; it may not silently combine otherwise free
+domains.
+
+#### Domain normalization, raw override, and range
+
+For the stock numeric continuous scales, final fallback-domain construction
+has this order:
+
+1. collect and reduce each local contributor multiset;
+2. union compatible extents at each domain-coordination target;
+3. apply coordinate/mark geometry-aware domain expansion, including
+   radius-aware position padding;
+4. apply the scale implementation's normalization—in the stock linear family,
+   pixel clip padding, then `zero`, then `nice`; and
+5. if `raw_domain` evaluates to a valid override, replace the normalized
+   fallback domain with that raw interval.
+
+Temporal scales apply their registered temporal `nice` operation. Categorical
+scale padding changes range layout/bandwidth rather than adding domain values.
+Other scale-specific normalization is native-profile-owned and documented by
+the registered scale schema.
+
+Profile-provided domain-affecting defaults such as Cartesian linear `nice` and
+`y.zero` are omitted when the author supplies an explicit non-raw domain.
+Author-specified options remain authoritative and can explicitly request
+normalization of that domain. Rendering-only defaults such as `round` still
+apply. User channel options override coordinate and mark defaults; the
+compiler-owned plot scale edit is last.
+
+`raw_domain` is accepted only by numeric-domain, continuous-range scales. A
+valid value is a two-element, finite, nondegenerate numeric interval. It is a
+literal viewport override: it bypasses fallback-domain normalization. `null`,
+partially null, nonfinite, malformed, or degenerate results do not fail an
+interaction; they use the normalized inferred/explicit fallback. A raw-only
+configuration may use a neutral fallback internally, but that fallback is not
+an authored or shareable data domain.
+
+Position-scale ranges are coordinate-owned: Cartesian `x` maps across plot
+width, Cartesian `y` maps from plot height to zero, polar `theta` maps to
+`[0, 2π]`, and polar `r` maps to half the smaller plot dimension. That binding
+overrides a channel-authored numeric range for the same position scale.
+For a non-position scale, range precedence is: explicit merged range,
+mark-profile default, theme range, then stock channel default. Range selection
+does not alter the contributor set or domain ownership.
+
+> **Rust alignment required before this contract is considered implemented.**
+> The Rust model already implements the contributor, normalization, raw-domain,
+> range, and extent-coordination behavior above. The language lowering still
+> needs ordinary-channel `domain_scope`/`domain_group`, agreement diagnostics
+> for coordination groups and explicit scale kinds, and scale-kind selection
+> from the fully merged effective configuration rather than the first raw
+> channel fragment.
+
 ### Scale Blocks
 
 Scale blocks are typed property objects; unknown properties are delegated to
@@ -2190,7 +2462,9 @@ fill: "category" {
 
 `domain` and `range` map to `ScaleConfigSpec` (`raw_domain` rides on its
 `ScaleDomain`, and `order_by`/`order` lower to `ScaleOrderingSpec`); the
-remaining per-type options come from the generated language schema.
+remaining per-type options come from the generated language schema. Their
+merge precedence, inference role, domain semantics, and range ownership follow
+[Scale Resolution](#scale-resolution).
 
 ### Nested Position Channels
 
@@ -2216,8 +2490,11 @@ x: nested(["region", "category"]) {
 }
 ```
 
-`scope` maps to `NestScope`; `boundary` accepts `band(<expr>)` or
-`level_band(<level>, <expr>)`, matching `PositionBoundary`.
+`scope` maps to that nested level's cross-cell domain-coordination scope.
+`nest_scope` accepts `free` or `shared` and maps to `NestScope`, controlling
+whether child categories reserve common slots inside the one nested scale.
+`boundary` accepts `band(<expr>)` or `level_band(<level>, <expr>)`, matching
+`PositionBoundary`.
 
 ### Colorbar Overlays
 
@@ -8218,7 +8495,12 @@ Minimum schema contents:
 - Mark kinds, coordinate compatibility, supported channels, channel defaults,
   extra mark-level properties, and public part aliases. Native parts are
   registered aliases; defined parts are derived only from explicit mark
-  exports.
+  exports. Every scale-bearing `ChannelSchema` composes the language-owned
+  configured-channel properties `domain_contribution`, `domain_scope`, and
+  `domain_group` (respectively the infer/exclude enum, `CoordinationScope`,
+  and the constrained semantic-group string) with its profile-owned
+  scale/axis/legend and position-specific properties; native entries cannot
+  redefine their meanings.
 - Transform kinds, properties, default values, required values, output
   handles, and materialization behavior. The native `pipeline` entry additionally
   declares its mixed body, sequential child-stage rule, non-empty constraint,
