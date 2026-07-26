@@ -1320,22 +1320,13 @@ impl Expander<'_> {
             Value::Pattern(value) => {
                 Value::Pattern(Box::new(self.expand_value(owner, value, Some(context))))
             }
-            Value::Call { function, args } => {
-                let function = context
-                    .slots
-                    .get(function.as_str())
-                    .filter(|slot| slot.shape == "function")
-                    .and_then(|slot| value_atom_name(&slot.value))
-                    .map(name)
-                    .unwrap_or_else(|| function.clone());
-                Value::Call {
-                    function,
-                    args: args
-                        .iter()
-                        .map(|value| self.expand_value(owner, value, Some(context)))
-                        .collect(),
-                }
-            }
+            Value::Call { function, args } => Value::Call {
+                function: function.clone(),
+                args: args
+                    .iter()
+                    .map(|value| self.expand_value(owner, value, Some(context)))
+                    .collect(),
+            },
             _ => value.clone(),
         }
     }

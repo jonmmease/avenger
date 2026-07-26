@@ -1236,6 +1236,12 @@ impl Parser {
     fn slot(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
         let kind = self.name()?;
+        if kind.as_str() == "function" {
+            return Err(self.error(
+                "AVENGER-PARSE-021",
+                "function slots are not supported; pass a complete `expr` instead",
+            ));
+        }
         if !matches!(
             kind.as_str(),
             "expr"
@@ -1245,7 +1251,6 @@ impl Parser {
                 | "string"
                 | "boolean"
                 | "enum"
-                | "function"
                 | "ref"
                 | "block"
                 | "channel"

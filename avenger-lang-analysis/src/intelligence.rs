@@ -1871,10 +1871,6 @@ impl<'a> QueryContext<'a> {
                     ("default", "Optional default value."),
                     ("values", "Closed enum value inventory."),
                 ],
-                "function" => &[
-                    ("default", "Optional default function."),
-                    ("class", "Required function class."),
-                ],
                 "ref" => &[
                     ("default", "Optional default reference."),
                     ("kind", "Required reference kind."),
@@ -3385,7 +3381,6 @@ fn fixed_header_candidates(text: &str, cursor: usize) -> Option<&'static [&'stat
             "string",
             "boolean",
             "enum",
-            "function",
             "ref",
             "block",
             "channel",
@@ -4268,6 +4263,10 @@ mod tests {
             "{slot_shapes:?}"
         );
         assert!(!slot_shapes.contains(&"list".to_owned()), "{slot_shapes:?}");
+        assert!(
+            !slot_shapes.contains(&"function".to_owned()),
+            "{slot_shapes:?}"
+        );
 
         let variable_name =
             completion_labels("avenger 1; chart repeat_grid { variable row | cell cartesian {} }");

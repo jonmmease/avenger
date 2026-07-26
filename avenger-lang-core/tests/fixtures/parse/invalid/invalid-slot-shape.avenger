@@ -1,4 +1,4 @@
 avenger 1;
 define mark bad {
-  slot mystery value;
+  slot function value;
 }

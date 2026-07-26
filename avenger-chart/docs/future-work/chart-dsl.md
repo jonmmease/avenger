@@ -35,8 +35,8 @@ the ordinary inline form for defined tools, with stable required identity,
 instance-scoped state/events/chrome, exact exports, and containing-plot scale
 edits; `match` over enum slots as the only branching construct
 in definitions (compile-time, closed arms); block slots (caller-provided
-declarations at a marked splice point, with declared `exposes` handles) and
-typed `function` slots as the two remaining extension constructs;
+declarations at a marked splice point, with declared `exposes` handles) as the
+remaining structural extension construct;
 two-tier publicity (named declarations in a chart have canonical structural
 paths; definition internals are private and cross the boundary only through
 explicit, stable `export` aliases, while caller-authored block-slot content
@@ -4054,20 +4054,21 @@ export define mark error_bar {
 
 `slot <shape> <name>` declarations are the definition's explicit property
 schema. The closed v1 shapes are `expr`, `expr_list`, `literal`, `number`,
-`string`, `boolean`, `enum`, `function`, `ref`, `block`, and `channel`. The scalar
+`string`, `boolean`, `enum`, `ref`, `block`, and `channel`. The scalar
 refinements (`number`, `string`, `boolean`) accept SQL expressions whose
 resolved type matches; `literal` accepts any scalar literal without expression
 evaluation. A slot is required when it has no `default:` property; `;` is only
 the compact empty-body form.
 An `enum` slot declares a non-empty, duplicate-free `values:` array and any
-default must be a member. A `function` slot declares one of `class: scalar;`,
-`class: aggregate;`, `class: window;`, or `class: table;`. A `ref` slot's
-`kind:` is one of `mark`, `param`, `selection`, `store`, `tool`, `widget`, or
-`resource`; `mark group` uses the ordinary `mark` reference category. Inline
-views are lexical scopes, not reference values. A `block` slot accepts a
-declaration body at its splice point, with optional `default:` and `exposes:`;
-the splice position's authoring schema still determines which child
-declarations are legal there.
+default must be a member. A `ref` slot's `kind:` is one of `mark`, `param`,
+`selection`, `store`, `tool`, `widget`, or `resource`; `mark group` uses the
+ordinary `mark` reference category. Inline views are lexical scopes, not
+reference values. A `block` slot accepts a declaration body at its splice
+point, with optional `default:` and `exposes:`; the splice position's
+authoring schema still determines which child declarations are legal there.
+Function names are deliberately not slot values in v1. An open-ended callable
+choice is expressed as a complete `expr` supplied by the caller; a definition
+that owns the call arguments uses a closed `enum` plus `match`.
 
 A `ref` slot binds a resolved typed path, not an untyped identifier. When the
 slot declaration supplies a non-value kind, callers normally use the shorter
@@ -4729,36 +4730,30 @@ Slot names must parse as identifiers inside statements, so SQL reserved
 words (`order`, `end`, `group`) cannot name slots; the resolver rejects them
 with a rename suggestion.
 
-A `function` slot binds a function name from the declared registry class and
-splices it only in call position — the construct that keeps open sets of
-aggregations from becoming one `match` arm per function:
+There is no `function` slot. When the caller should choose an open-ended
+DataFusion function, it supplies the complete expression so ordinary SQL
+planning owns function lookup, overload resolution, argument checking, return
+typing, and cache identity:
 
 ```avenger
 define transform rolling {
-  slot expr measure;
-  slot expr order_key;
-  slot function agg {
-    class: aggregate;
-    default: avg;
-  }
-  slot number preceding { default: 6; }
+  slot expr rolled_expr;
   output rolled;
 
   transform sql {
     query:
       SELECT *,
-        agg(measure) OVER (
-          ORDER BY order_key
-          ROWS BETWEEN preceding PRECEDING AND CURRENT ROW
-        ) AS rolled
+        rolled_expr AS rolled
       FROM input;
   }
 }
 ```
 
-`transform rolling as r { measure: "sales"; order_key: "date"; agg: median; }`
-validates `median` as an aggregate function at instantiation; binding a
-non-function, or a function from the wrong class, is an error.
+The caller may bind `rolled_expr:` to
+`median("sales") OVER (ORDER BY "date" ROWS BETWEEN 6 PRECEDING AND CURRENT
+ROW)`. If the definition must own the measure or call shape, it exposes a
+closed `enum` and selects explicitly authored calls with `match`; v1 does not
+model function identifiers as typed first-class values.
 
 ### Modes: `match` Over An Enum Slot
 
@@ -5027,9 +5022,9 @@ recorded so the boundary holds under pressure:
   runtime behavior variation is expressed with params and event-binding
   `filter:` predicates (a two-click gesture is two bindings filtered on a
   state param).
-- **No slot-derived identifiers** outside the two declared mechanisms
-  (channel slots and typed `function` slots). Output column names, mark
-  names, and property names are never assembled from slot values.
+- **No slot-derived identifiers.** Channel slots substitute channel
+  expressions, never names. Output column names, mark names, and property
+  names are never assembled from slot values.
 
 ### Project Layout
 
@@ -5484,8 +5479,8 @@ define        = "define" , ( "mark" | "tool" | "transform" ) ,
                 { item } , "}" ;
 slot          = "slot" , slot_shape , ident , ( body | ";" ) ;
 slot_shape    = "expr" | "expr_list" | "literal" | "number"
-              | "string" | "boolean" | "enum" | "function"
-              | "ref" | "block" | "channel" ;
+              | "string" | "boolean" | "enum" | "ref" | "block"
+              | "channel" ;
 output        = "output" , ( ident | sql_expr , "as" , ident ) , ";" ;
 export        = "export" , qual , [ "as" , ident ] , ";" ;
                      (* define headers and group bodies; source paths may
@@ -5637,9 +5632,9 @@ Grammar notes:
   the public property name and there is no `as`. A slot is required exactly
   when it has no `default:`; a trailing `;` is merely an empty body. A body may
   declare `default:`; `enum` additionally requires `values:`,
-  `function` requires `class:`, `ref` requires `kind:`, and `block` may declare
-  `exposes:`. The authoring schema rejects properties not valid for the
-  declared shape. Slot shapes are explicit and never inferred from body use.
+  `ref` requires `kind:`, and `block` may declare `exposes:`. The authoring
+  schema rejects properties not valid for the declared shape. Slot shapes are
+  explicit and never inferred from body use.
 - The schema-free parser selects a `value` production from local syntax and the
   globally reserved `sql`/`query` names; the authoring schema then validates
   that shape for the particular property. `sql_query` is reachable only from

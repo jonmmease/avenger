@@ -39,19 +39,17 @@ async fn project(sources: &[(&str, &str)]) -> avenger_lang_core::ParsedModuleGra
 }
 
 #[tokio::test]
-async fn definitions_validate_closed_match_block_exposure_parts_and_function_classes() {
+async fn definitions_validate_closed_match_block_exposure_and_parts() {
     let project = project(&[
         (
             "chart.avenger",
             r#"
 avenger 1;
 import { summary } from 'summary.avenger';
-import { rolling } from 'rolling.avenger';
 chart cartesian as chart {
-  transform rolling as rolled { measure: "value"; agg: avg; }
   mark summary as result {
     mode: show;
-    measure: rolled.value;
+    measure: "value";
     zindex: 2;
     annotations: { mark text as label { x: "x"; y: "y"; text: value 'ok'; } }
     part point { fill: value '#dc2626'; }
@@ -73,18 +71,6 @@ export define mark summary {
     show { annotations; }
     hide { }
   }
-}
-"#,
-        ),
-        (
-            "rolling.avenger",
-            r#"
-avenger 1;
-export define transform rolling {
-  slot expr measure;
-  slot function agg { class: aggregate; default: avg; }
-  output value;
-  transform sql { query: SELECT *, agg(measure) OVER () AS value FROM input; }
 }
 "#,
         ),
@@ -141,32 +127,18 @@ export define mark broken {
 }
 
 #[tokio::test]
-async fn definitions_reject_wrong_function_class_and_anonymous_defined_tool() {
+async fn definitions_reject_anonymous_defined_tool_and_wrong_reference_kind() {
     let project = project(&[
         (
             "chart.avenger",
             r#"
 avenger 1;
-import { rolling } from 'rolling.avenger';
 import { picker } from 'picker.avenger';
 chart cartesian {
   param boolean as state { value: true; }
   mark symbol as points { x: "x"; y: "y"; }
-  transform rolling as value { agg: row_number; window: 'wide'; }
   tool picker;
   tool picker as wrong_target { target: $state; }
-}
-"#,
-        ),
-        (
-            "rolling.avenger",
-            r#"
-avenger 1;
-export define transform rolling {
-  slot function agg { class: aggregate; }
-  slot number window;
-  output value;
-  transform sql { query: SELECT agg("x") AS value FROM input; }
 }
 "#,
         ),
@@ -190,7 +162,6 @@ export define tool picker {
         .iter()
         .map(|diagnostic| diagnostic.code.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    assert!(codes.contains("AVENGER-RESOLVE-053"));
     assert!(codes.contains("AVENGER-RESOLVE-164"));
 }
 
@@ -734,7 +705,7 @@ fn find_resolved_declaration<'a>(
 }
 
 #[tokio::test]
-async fn expansion_inlines_transform_functions_lists_outputs_and_intermediates() {
+async fn expansion_inlines_transform_lists_outputs_and_intermediates() {
     let project = project(&[
         (
             "chart.avenger",
@@ -745,7 +716,6 @@ chart cartesian {
   transform rolling as rolled {
     measure: "value";
     keys: ["group", "region"];
-    agg: avg;
   }
   mark symbol { x: "group"; y: rolled.value; }
 }
@@ -758,11 +728,10 @@ avenger 1;
 export define transform rolling {
   slot expr measure;
   slot expr_list keys;
-  slot function agg { class: aggregate; }
   output value;
   transform sql {
     query:
-      SELECT *, agg(measure) OVER (PARTITION BY keys) AS value,
+      SELECT *, avg(measure) OVER (PARTITION BY keys) AS value,
         measure AS __rolling_private
       FROM input;
   }

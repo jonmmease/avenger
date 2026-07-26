@@ -288,7 +288,6 @@ pub struct DefinitionSlot {
     pub required: bool,
     pub default: Option<ResolvedValue>,
     pub enum_values: Vec<String>,
-    pub function_class: Option<String>,
     pub reference_kind: Option<String>,
     pub exposes: Vec<String>,
 }
@@ -1791,7 +1790,6 @@ impl<'a> Resolver<'a> {
                                     | "string"
                                     | "boolean"
                                     | "enum"
-                                    | "function"
                                     | "ref"
                                     | "block"
                             ) {
@@ -1818,11 +1816,6 @@ impl<'a> Resolver<'a> {
                                 .get("kind")
                                 .and_then(value_atom)
                                 .map(str::to_owned);
-                            let function_class = child
-                                .props
-                                .get("class")
-                                .and_then(value_atom)
-                                .map(str::to_owned);
                             let exposes = value_names(child.props.get("exposes"));
                             self.validate_slot_declaration(
                                 child,
@@ -1838,7 +1831,6 @@ impl<'a> Resolver<'a> {
                                 required: default.is_none(),
                                 default,
                                 enum_values,
-                                function_class,
                                 reference_kind,
                                 exposes,
                             };
@@ -2182,7 +2174,6 @@ impl<'a> Resolver<'a> {
         let name = slot.name.as_ref().map_or("<unnamed>", Name::as_str);
         let allowed = match shape {
             "enum" => &["default", "values"][..],
-            "function" => &["default", "class"][..],
             "ref" => &["default", "kind"][..],
             "block" => &["default", "exposes"][..],
             _ => &["default"][..],
@@ -2228,20 +2219,6 @@ impl<'a> Resolver<'a> {
                     format!("slot `{name}` must default to one of its `values:` atoms"),
                 );
             }
-        }
-        if shape == "function"
-            && !slot
-                .props
-                .get("class")
-                .and_then(value_atom)
-                .is_some_and(|class| matches!(class, "scalar" | "aggregate" | "window" | "table"))
-        {
-            self.error(
-                "AVENGER-RESOLVE-017",
-                "function slot requires a valid class",
-                span,
-                format!("slot `{name}` requires scalar, aggregate, window, or table"),
-            );
         }
         if shape == "ref"
             && !slot
@@ -5763,14 +5740,6 @@ impl<'a> Resolver<'a> {
             "enum" => {
                 matches!(value, ResolvedValue::Atom(atom) if slot.enum_values.iter().any(|candidate| candidate == atom))
             }
-            "function" => match value {
-                ResolvedValue::Atom(name) => slot
-                    .function_class
-                    .as_deref()
-                    .is_some_and(|class| definition_function_class(name) == Some(class)),
-                ResolvedValue::DefinitionArgument(ResolvedTarget::DefinitionSlot { .. }) => true,
-                _ => false,
-            },
             "ref" => {
                 matches!(
                     value,
@@ -10789,85 +10758,6 @@ fn value_atom(value: &Value) -> Option<&str> {
     match value {
         Value::Atom(value) => Some(value.as_str()),
         _ => None,
-    }
-}
-
-fn definition_function_class(name: &str) -> Option<&'static str> {
-    let name = name.to_ascii_lowercase();
-    if matches!(
-        name.as_str(),
-        "avg"
-            | "count"
-            | "min"
-            | "max"
-            | "sum"
-            | "median"
-            | "approx_median"
-            | "array_agg"
-            | "bool_and"
-            | "bool_or"
-            | "covar_pop"
-            | "covar_samp"
-            | "stddev"
-            | "stddev_pop"
-            | "stddev_samp"
-            | "variance"
-            | "var_pop"
-            | "var_samp"
-    ) {
-        Some("aggregate")
-    } else if matches!(
-        name.as_str(),
-        "row_number"
-            | "rank"
-            | "dense_rank"
-            | "percent_rank"
-            | "cume_dist"
-            | "lag"
-            | "lead"
-            | "first_value"
-            | "last_value"
-            | "nth_value"
-            | "ntile"
-    ) {
-        Some("window")
-    } else if matches!(name.as_str(), "unnest" | "generate_series") {
-        Some("table")
-    } else if matches!(
-        name.as_str(),
-        "abs"
-            | "acos"
-            | "asin"
-            | "atan"
-            | "atan2"
-            | "ceil"
-            | "coalesce"
-            | "concat"
-            | "cos"
-            | "date_bin"
-            | "date_part"
-            | "date_trunc"
-            | "exp"
-            | "floor"
-            | "greatest"
-            | "least"
-            | "ln"
-            | "log"
-            | "log2"
-            | "log10"
-            | "lower"
-            | "nullif"
-            | "power"
-            | "round"
-            | "signum"
-            | "sin"
-            | "sqrt"
-            | "tan"
-            | "upper"
-    ) {
-        Some("scalar")
-    } else {
-        None
     }
 }
 
