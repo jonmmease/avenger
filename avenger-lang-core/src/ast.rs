@@ -4,10 +4,14 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     hash::{Hash, Hasher},
+    ops::ControlFlow,
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
-use sqlparser::ast::{Expr, ObjectName, Query, Visit, Visitor};
+use sqlparser::ast::{
+    ExcludeSelectItem, Expr, Ident, ObjectName, ObjectNamePart, Query, RenameSelectItem, Select,
+    SelectItem, Visit, VisitMut, Visitor, VisitorMut, WildcardAdditionalOptions,
+};
 
 use crate::{
     SourceFile, SourceId, SourceOrigin, SourceSpan,
@@ -434,6 +438,16 @@ impl SqlExpression {
     pub fn canonical_sql(&self) -> String {
         restore_bindings(self.ast.to_string(), &self.bindings)
     }
+
+    pub(crate) fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        let _ = VisitMut::visit(&mut self.ast, &mut IdentifierRewriter { replacement });
+    }
+
+    /// SQL column references and output/selector aliases, excluding relation
+    /// names, string literals, and unrelated SQL binders.
+    pub fn column_identifier_values(&self) -> BTreeSet<String> {
+        column_identifier_values(&self.ast)
+    }
 }
 
 impl PartialEq for SqlExpression {
@@ -500,6 +514,227 @@ impl SqlQuery {
 
     pub fn canonical_sql(&self) -> String {
         restore_bindings(self.ast.to_string(), &self.bindings)
+    }
+
+    pub(crate) fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        let _ = VisitMut::visit(&mut self.ast, &mut IdentifierRewriter { replacement });
+    }
+
+    /// SQL column references and output/selector aliases, excluding relation
+    /// names, string literals, and unrelated SQL binders.
+    pub fn column_identifier_values(&self) -> BTreeSet<String> {
+        column_identifier_values(self.ast.as_ref())
+    }
+}
+
+struct IdentifierRewriter<F> {
+    replacement: F,
+}
+
+impl<F> IdentifierRewriter<F>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    fn rewrite(&mut self, identifier: &mut Ident) {
+        if let Some(replacement) = (self.replacement)(&identifier.value) {
+            identifier.value = replacement;
+        }
+    }
+
+    fn rewrite_object_name(&mut self, name: &mut ObjectName) {
+        for part in &mut name.0 {
+            if let ObjectNamePart::Identifier(identifier) = part {
+                self.rewrite(identifier);
+            }
+        }
+    }
+
+    fn rewrite_wildcard(&mut self, options: &mut WildcardAdditionalOptions) {
+        match &mut options.opt_exclude {
+            Some(ExcludeSelectItem::Single(name)) => self.rewrite_object_name(name),
+            Some(ExcludeSelectItem::Multiple(names)) => {
+                for name in names {
+                    self.rewrite_object_name(name);
+                }
+            }
+            None => {}
+        }
+        if let Some(except) = &mut options.opt_except {
+            self.rewrite(&mut except.first_element);
+            for identifier in &mut except.additional_elements {
+                self.rewrite(identifier);
+            }
+        }
+        if let Some(replace) = &mut options.opt_replace {
+            for item in &mut replace.items {
+                self.rewrite(&mut item.column_name);
+            }
+        }
+        match &mut options.opt_rename {
+            Some(RenameSelectItem::Single(item)) => {
+                self.rewrite(&mut item.ident);
+                self.rewrite(&mut item.alias);
+            }
+            Some(RenameSelectItem::Multiple(items)) => {
+                for item in items {
+                    self.rewrite(&mut item.ident);
+                    self.rewrite(&mut item.alias);
+                }
+            }
+            None => {}
+        }
+        if let Some(alias) = &mut options.opt_alias {
+            self.rewrite(alias);
+        }
+    }
+}
+
+impl<F> VisitorMut for IdentifierRewriter<F>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    type Break = ();
+
+    fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
+        match expression {
+            Expr::Identifier(identifier) => self.rewrite(identifier),
+            Expr::CompoundIdentifier(identifiers) => {
+                for identifier in identifiers {
+                    self.rewrite(identifier);
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_select(&mut self, select: &mut Select) -> ControlFlow<Self::Break> {
+        for item in &mut select.projection {
+            match item {
+                SelectItem::ExprWithAlias { alias, .. } => self.rewrite(alias),
+                SelectItem::ExprWithAliases { aliases, .. } => {
+                    for alias in aliases {
+                        self.rewrite(alias);
+                    }
+                }
+                SelectItem::QualifiedWildcard(_, options) | SelectItem::Wildcard(options) => {
+                    self.rewrite_wildcard(options);
+                }
+                SelectItem::UnnamedExpr(_) => {}
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+fn column_identifier_values<T>(ast: &T) -> BTreeSet<String>
+where
+    T: Visit,
+{
+    struct IdentifierCollector {
+        values: BTreeSet<String>,
+    }
+
+    impl Visitor for IdentifierCollector {
+        type Break = ();
+
+        fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
+            match expression {
+                Expr::Identifier(identifier) => {
+                    self.values.insert(identifier.value.clone());
+                }
+                Expr::CompoundIdentifier(identifiers) => {
+                    self.values.extend(
+                        identifiers
+                            .iter()
+                            .map(|identifier| identifier.value.clone()),
+                    );
+                }
+                _ => {}
+            }
+            ControlFlow::Continue(())
+        }
+
+        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
+            for item in &select.projection {
+                match item {
+                    SelectItem::ExprWithAlias { alias, .. } => {
+                        self.values.insert(alias.value.clone());
+                    }
+                    SelectItem::ExprWithAliases { aliases, .. } => {
+                        self.values
+                            .extend(aliases.iter().map(|alias| alias.value.clone()));
+                    }
+                    SelectItem::QualifiedWildcard(_, options) | SelectItem::Wildcard(options) => {
+                        collect_wildcard_identifier_values(options, &mut self.values);
+                    }
+                    SelectItem::UnnamedExpr(_) => {}
+                }
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    let mut collector = IdentifierCollector {
+        values: BTreeSet::new(),
+    };
+    let _ = ast.visit(&mut collector);
+    collector.values
+}
+
+fn collect_wildcard_identifier_values(
+    options: &WildcardAdditionalOptions,
+    output: &mut BTreeSet<String>,
+) {
+    let mut collect_name = |name: &ObjectName| {
+        output.extend(name.0.iter().filter_map(|part| {
+            let ObjectNamePart::Identifier(identifier) = part else {
+                return None;
+            };
+            Some(identifier.value.clone())
+        }));
+    };
+    match &options.opt_exclude {
+        Some(ExcludeSelectItem::Single(name)) => collect_name(name),
+        Some(ExcludeSelectItem::Multiple(names)) => {
+            for name in names {
+                collect_name(name);
+            }
+        }
+        None => {}
+    }
+    if let Some(except) = &options.opt_except {
+        output.insert(except.first_element.value.clone());
+        output.extend(
+            except
+                .additional_elements
+                .iter()
+                .map(|identifier| identifier.value.clone()),
+        );
+    }
+    if let Some(replace) = &options.opt_replace {
+        output.extend(
+            replace
+                .items
+                .iter()
+                .map(|item| item.column_name.value.clone()),
+        );
+    }
+    match &options.opt_rename {
+        Some(RenameSelectItem::Single(item)) => {
+            output.insert(item.ident.value.clone());
+            output.insert(item.alias.value.clone());
+        }
+        Some(RenameSelectItem::Multiple(items)) => {
+            for item in items {
+                output.insert(item.ident.value.clone());
+                output.insert(item.alias.value.clone());
+            }
+        }
+        None => {}
+    }
+    if let Some(alias) = &options.opt_alias {
+        output.insert(alias.value.clone());
     }
 }
 
@@ -762,5 +997,40 @@ mod tests {
         assert_eq!(query.bindings()[0].kind, BindingKind::Store);
         assert_eq!(query.bindings()[1].kind, BindingKind::Param);
         assert!(query.canonical_sql().contains("FROM $rows"));
+    }
+
+    #[test]
+    fn ast_identifier_rewrite_changes_references_and_aliases_but_not_literals() {
+        let mut query = SqlQuery::parse(
+            "SELECT '__private_value' AS literal, \"__private_value\" AS \"__private_output\" FROM input",
+        )
+        .unwrap();
+        query.rewrite_identifiers(|identifier| {
+            identifier
+                .strip_prefix("__private_")
+                .map(|suffix| format!("__av_col_deadbeef0000_{suffix}"))
+        });
+        let sql = query.canonical_sql();
+        assert!(sql.contains("'__private_value'"), "{sql}");
+        assert!(sql.contains("\"__av_col_deadbeef0000_value\""), "{sql}");
+        assert!(sql.contains("AS \"__av_col_deadbeef0000_output\""), "{sql}");
+        assert!(
+            query
+                .column_identifier_values()
+                .contains("__av_col_deadbeef0000_output")
+        );
+
+        let mut wildcard =
+            SqlQuery::parse("SELECT * EXCLUDE (\"__private_value\") FROM input").unwrap();
+        wildcard.rewrite_identifiers(|identifier| {
+            identifier
+                .strip_prefix("__private_")
+                .map(|suffix| format!("__av_col_deadbeef0000_{suffix}"))
+        });
+        assert!(
+            wildcard
+                .canonical_sql()
+                .contains("\"__av_col_deadbeef0000_value\"")
+        );
     }
 }

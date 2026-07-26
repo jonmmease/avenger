@@ -54,7 +54,7 @@ use avenger_lang_core::{
     ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
     ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader, SourceSpan,
     StateSharing, StoreId, TimeUnit,
-    ast::{BindingTime, Visibility},
+    ast::{BindingTime, SqlExpression, SqlQuery, Visibility},
     module_graph::resolve_relative_origin,
 };
 use datafusion::{
@@ -2406,6 +2406,7 @@ impl<'a> ModuleLowerer<'a> {
                     .lower_transform(&native, context)
                     .map_err(|error| lowerer_error(declaration, error.to_string()))?,
                 NativeTransformMode::Pipeline => {
+                    validate_private_pipeline_input(declaration, input)?;
                     let mut child_data = input.clone();
                     let mut stages = Vec::new();
                     for child in declaration
@@ -5814,6 +5815,97 @@ fn is_direct_reference_sql(sql: &str, path: &[String]) -> bool {
 /// `ChannelValue::no_scale`.
 fn scaled_literal_channel(expr: Expr) -> ChannelValue {
     ChannelValue::from(expr)
+}
+
+fn validate_private_pipeline_input(
+    declaration: &ResolvedDeclaration,
+    input: &DataFrame,
+) -> Result<(), Diagnostic> {
+    let mut private_columns = BTreeSet::new();
+    collect_private_physical_columns(declaration, &mut private_columns);
+    if private_columns.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(name) = input.schema().iter().find_map(|(_, field)| {
+        let name = field.name();
+        (name.starts_with("__av_") || name.starts_with("__private_")).then(|| name.clone())
+    }) {
+        return Err(diagnostic(
+            declaration.span,
+            "AVENGER-LOWER-003",
+            "defined transform input uses a reserved private-column prefix",
+            format!(
+                "input column `{name}` must be renamed or projected before this definition instance"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn collect_private_physical_columns(
+    declaration: &ResolvedDeclaration,
+    output: &mut BTreeSet<String>,
+) {
+    for value in declaration.properties.values() {
+        collect_private_physical_columns_from_value(value, output);
+    }
+    for child in &declaration.children {
+        collect_private_physical_columns(child, output);
+    }
+}
+
+fn collect_private_physical_columns_from_value(
+    value: &ResolvedValue,
+    output: &mut BTreeSet<String>,
+) {
+    match value {
+        ResolvedValue::Expression(expression) => {
+            if let Ok(expression) = SqlExpression::parse(&expression.sql) {
+                output.extend(
+                    expression
+                        .column_identifier_values()
+                        .into_iter()
+                        .filter(|name| name.starts_with("__av_col_")),
+                );
+            }
+        }
+        ResolvedValue::Query(query) => {
+            if let Ok(query) = SqlQuery::parse(&query.sql) {
+                output.extend(
+                    query
+                        .column_identifier_values()
+                        .into_iter()
+                        .filter(|name| name.starts_with("__av_col_")),
+                );
+            }
+        }
+        ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
+            for value in values {
+                collect_private_physical_columns_from_value(value, output);
+            }
+        }
+        ResolvedValue::Object {
+            head,
+            properties,
+            children,
+            ..
+        } => {
+            if let Some(head) = head {
+                collect_private_physical_columns_from_value(head, output);
+            }
+            for value in properties.values() {
+                collect_private_physical_columns_from_value(value, output);
+            }
+            for child in children {
+                collect_private_physical_columns(child, output);
+            }
+        }
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            collect_private_physical_columns_from_value(value, output);
+        }
+        _ => {}
+    }
 }
 
 fn lowerer_error(declaration: &ResolvedDeclaration, message: impl Into<String>) -> Diagnostic {

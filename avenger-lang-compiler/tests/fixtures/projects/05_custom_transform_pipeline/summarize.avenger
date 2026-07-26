@@ -8,8 +8,8 @@ export define transform summarize {
   transform sql as calculate {
     query:
       SELECT *,
-        measure * 2.0 AS __summarize_doubled,
-        measure * 3.0 AS __summarize_tripled
+        measure * 2.0 AS __private_doubled,
+        measure * 3.0 AS __private_tripled
       FROM input;
   }
 
@@ -20,9 +20,9 @@ export define transform summarize {
   transform sql as finalize {
     query:
       SELECT *,
-        __summarize_doubled AS doubled,
-        __summarize_tripled + 1.0 AS adjusted,
-        99.0 AS __summarize_scratch
+        __private_doubled AS doubled,
+        __private_tripled + 1.0 AS adjusted,
+        99.0 AS __private_scratch
       FROM input;
   }
 }

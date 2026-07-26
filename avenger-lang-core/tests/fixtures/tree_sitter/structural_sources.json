@@ -56,7 +56,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_transform_pipeline.avenger",
-      "sha256": "56ab74cf44e4504f9cc19e38bf85275e635cd40772236c45c7cf53abdabbaab3",
+      "sha256": "60786291e3cdae1fcd175a63f7d00260a464fe5e98f4b0478d714394cbf48762",
       "classification": "canonical_valid",
       "root": "chart"
     },

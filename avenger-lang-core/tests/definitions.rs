@@ -732,7 +732,8 @@ export define transform rolling {
   transform sql {
     query:
       SELECT *, avg(measure) OVER (PARTITION BY keys) AS value,
-        measure AS __rolling_private
+        measure AS "__private_value",
+        '__private_literal' AS marker
       FROM input;
   }
 }
@@ -754,13 +755,111 @@ export define transform rolling {
         text.contains("PARTITION BY \"group\", \"region\""),
         "{text}"
     );
-    assert!(text.contains("__rolled_"), "{text}");
-    assert!(text.contains("_private"), "{text}");
-    assert!(!text.contains("__rolling_private"), "{text}");
+    assert!(text.contains("\"__av_col_"), "{text}");
+    assert!(text.contains("_value\""), "{text}");
+    assert!(text.contains("'__private_literal'"), "{text}");
+    assert!(!text.contains("\"__private_value\""), "{text}");
 
     resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
         .result
         .unwrap();
+}
+
+#[tokio::test]
+async fn resolver_reserves_compiler_names_and_definition_private_columns() {
+    let project = project(&[(
+        "chart.avenger",
+        r#"
+avenger 1;
+chart cartesian as chart {
+  param boolean as __av_authored { value: true; }
+  private param boolean as __av_authored_private { value: true; }
+  transform sql {
+    query: SELECT *, __private_value AS copied FROM input;
+  }
+}
+"#,
+    )])
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let codes = failure
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(codes.contains("AVENGER-RESOLVE-181"), "{codes:?}");
+    assert!(codes.contains("AVENGER-RESOLVE-182"), "{codes:?}");
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-181")
+            .count()
+            >= 2
+    );
+}
+
+#[tokio::test]
+async fn expansion_rejects_an_authored_private_binder_matching_its_generated_name() {
+    let definition = r#"
+avenger 1;
+export define mark shell {
+  mark symbol as inside { x: "x"; y: "y"; }
+}
+"#;
+    let first_chart = r#"
+avenger 1;
+import { shell } from 'shell.avenger';
+chart cartesian as chart {
+  mark shell as instance {}
+}
+"#;
+    let first = project(&[
+        ("chart.avenger", first_chart),
+        ("shell.avenger", definition),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&first, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_module_graph(&first, &resolved).unwrap();
+    let chart = first.requested_modules.first().unwrap();
+    let generated = expanded
+        .texts
+        .get(chart)
+        .unwrap()
+        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
+        .find(|word| word.starts_with("__av_") && word.ends_with("_inside"))
+        .expect("generated private binder");
+    let colliding_chart = format!(
+        r#"
+avenger 1;
+import {{ shell }} from 'shell.avenger';
+chart cartesian as chart {{
+  private mark symbol as {generated} {{ x: "x"; y: "y"; }}
+  mark shell as instance {{}}
+}}
+"#
+    );
+    let colliding = project(&[
+        ("chart.avenger", colliding_chart.as_str()),
+        ("shell.avenger", definition),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&colliding, &bootstrap_schema())
+        .result
+        .unwrap();
+    let failure = expand_module_graph(&colliding, &resolved).unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-EXPAND-009"),
+        "{:?}",
+        failure.diagnostics
+    );
 }
 
 #[tokio::test]

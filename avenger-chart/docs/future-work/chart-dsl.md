@@ -492,6 +492,14 @@ syntax. Avenger v1 rejects `a # b`: DataFusion exposes that spelling through a
 PostgreSQL parse path that the Generic-derived `AvengerSqlDialect` does not use.
 DSL names remain unquoted.
 
+Names beginning with `__av_` are reserved for deterministic compiler output.
+They may appear in canonical expanded source on compiler-private declarations,
+or in canonical bundled source on link-local top-level items whose generated
+names replace module qualification. Ordinary authored binders and SQL
+identifiers must not use the prefix. Definition authors spell private SQL
+intermediates with the separate `__private_` marker described under
+[Defining Transforms](#defining-transforms).
+
 Value-binding path segments use this same identifier profile. The leading `$`,
 path dots, and an adjacent optional `@start` or `@previous` provide structure
 rather than becoming part of a segment. Consequently `$controls.width`,
@@ -5015,6 +5023,41 @@ Everything else in a statement follows ordinary SQL rules. The resolver warns
 when a slot name shadows a column of the incoming context; rename the slot or
 quote the column.
 
+Definition-private intermediate SQL columns use one fixed logical spelling:
+`__private_<suffix>`. The marker applies to parsed column references,
+projection aliases, and wildcard column selectors, including their quoted
+forms; it is never recognized inside a string literal, comment, relation name,
+or unrelated SQL binder. It is valid only inside a definition and the suffix
+must be non-empty. Expansion rewrites every such identifier structurally to
+the deterministic physical form
+`__av_col_<instance-identity>_<suffix>`. For example:
+
+```avenger
+export define transform doubled {
+  slot expr measure;
+  output doubled;
+
+  transform sql {
+    query:
+      SELECT *, measure * 2 AS __private_doubled
+      FROM input;
+  }
+  transform sql {
+    query:
+      SELECT *, __private_doubled AS doubled
+      FROM input;
+  }
+}
+```
+
+The source definition name is deliberately absent from this convention:
+renaming or importing the definition under another name cannot alter its
+private-column semantics. A definition instance that owns private
+intermediates rejects an incoming column whose name begins with either
+`__private_` or compiler-owned `__av_`; callers must project or rename that
+column before the instance. Expansion never probes the runtime schema to
+freshen names.
+
 On a defined-transform instantiation, `scope:` becomes the expanded
 pipeline's `scope:` property and sets the coordination scope for every child
 stage that does not declare its own. Output declarations are validated against
@@ -5480,7 +5523,9 @@ Built-in widgets likewise remain opaque `widget` declarations; there are no
 widget definitions or widget-expansion products. Each
 defined-mark instance is emitted as an ordinary group named by the instance
 id. The group records the original kind as opaque `component_kind:`
-provenance. Definition-authored declarations print as `private`; resolved
+provenance. Definition-authored binding declarations print as `private`;
+their deterministic names use
+`__av_<instance-identity>_<source-name>`. Resolved
 definition exports print as group-local `export` aliases; and caller-authored
 block-slot declarations print normally, or as `public` when they must cross a
 private ancestor. Thus a public path such as `mpg_box.box` survives even if
@@ -5493,12 +5538,13 @@ pipeline; an output-free anonymous definition expands to an anonymous
 output-free pipeline. A defined-tool instance becomes one native `tool behavior` with the
 same required instance binder, `component_kind` provenance, private owned
 state and bindings, resolved exports, containing-plot scale edits, and chrome
-marks left in place. Instance-scoped params, stores, and selections keep their
-authored lexical names in expanded source; inline view binders remain local to
-their owning view bodies. State references inside the component remain lexical,
-and group/behavior exports provide the only external qualified aliases. The compiler assigns opaque unique symbol ids after
-resolution, but those ids are never printed as DSL names and cannot collide
-with caller-authored identifiers.
+marks left in place. Instance-scoped params, stores, selections, transform
+aliases, and structural binders are alpha-renamed in expanded source; inline
+view binders remain local to their owning view bodies. State references inside
+the component are rewritten to the corresponding generated binders, and
+group/behavior exports provide the only external qualified aliases. The
+compiler assigns opaque semantic ids after resolution in addition to these
+printable names.
 The output removes imports and private source items needed solely for expanded
 definitions — `std:` definitions included — and contains no `define`, `slot` (including
 `slot channel`), `match`, or `exposes` constructs from those expansions.
@@ -5512,13 +5558,18 @@ remain. `component_kind: error_bar;` on the instance group and `export ... as
 bar;` together preserve `error_bar::part(bar)` after the definition import is
 gone. The equivalence property below forces this to be right, since a themed
 chart whose expansion lost either fact would compile differently.
-Definition expansion has no name-reconciliation problem: each expanded
-definition namespace is deleted, and every remaining name is instance-scoped
-by construction
-(mark groups and tool behaviors retain lexical instance boundaries, exported
-state qualifies through public aliases, and generated intermediate columns use
-opaque resolved identities), so two versions of the same library expand side by side
-without contact. This is the archival form (it freezes
+The `__av_` prefix is compiler-owned across DSL binders and physical columns.
+Ordinary authored declarations and SQL cannot introduce it. Canonical
+expanded source uses it on explicitly private declarations and private
+physical columns; canonical bundled source also uses it for deterministic
+link-local top-level item names. Expansion reports a collision rather than
+capturing an already-present generated-form binder. Because the namespace is
+reserved, the instance identity is deterministic and expansion does not
+perform schema-dependent or process-fresh name generation. Mark groups and tool
+behaviors retain lexical instance boundaries, exported state qualifies through
+public aliases, and generated intermediate columns use
+`__av_col_<instance-identity>_...`, so two versions of the same library expand
+side by side without contact. This is the archival form (it freezes
 rendering semantics against imported-definition evolution), the debugging
 form (what a chart actually lowers to), and the minimal-runtime form (a
 host can execute it with the definition machinery entirely absent).
@@ -5659,6 +5710,15 @@ read top-to-bottom and avoids a second dependency scheduler in macro expansion.
   continues to resolve inside the component boundary; caller code reads an
   explicitly exported value binding with `$instance.alias`. A library file
   can never silently depend on chart state.
+- **Deterministic alpha-equivalence**: alpha-renaming applies only to
+  definition-private binders and `__private_` intermediate columns. Public
+  export aliases, declared transform outputs, definition instance names,
+  caller-owned block-slot names, imported public names, and user-facing
+  component provenance are fixed observations and are never alpha-renamed.
+  Renaming a private source binder or private-column suffix together with all
+  of its bound uses is semantics-preserving; renaming any fixed observation is
+  an API or chart change. Expansion is deterministic for the resolved module,
+  instance path, and definition-local seed.
 - **No styling side effects**: `theme css` declarations are valid only in
   chart bodies. A definition styles itself through its own mark properties
   and part defaults and can never inject chart-global CSS.

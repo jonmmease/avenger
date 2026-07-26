@@ -192,8 +192,8 @@ struct ExpansionContext {
     caller: SourceModuleId,
     chart: SourceModuleId,
     definition: ModuleItemId,
-    definition_name: String,
     instance_name: String,
+    instance_identity: String,
     private_names: BTreeMap<String, String>,
     exposed_private_names: BTreeMap<String, String>,
     slots: BTreeMap<String, BoundSlot>,
@@ -822,7 +822,7 @@ impl Expander<'_> {
                 self.expand_declaration(owner, child, &child_path, context, child_origin);
             if context.is_some()
                 && expanded.name.is_some()
-                && targetable_declaration(&expanded)
+                && (targetable_declaration(&expanded) || expanded.keyword.as_str() == "transform")
                 && expanded.visibility == Visibility::Default
             {
                 expanded.visibility = Visibility::Private;
@@ -878,6 +878,20 @@ impl Expander<'_> {
         );
         let instance_name = format!("{source_instance_name}_{instance_identity}");
         let private_names = definition_private_names(template, &instance_identity);
+        if let Some(generated) =
+            generated_name_collision(self.module_graph, caller, &private_names, outer_context)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                "AVENGER-EXPAND-009",
+                "compiler-generated name collides with source",
+                SourceLabel::new(
+                    instantiation_span,
+                    format!(
+                        "`{generated}` is reserved for this definition expansion; rename the authored binding"
+                    ),
+                ),
+            ));
+        }
         let chart = outer_context
             .map(|context| context.chart.clone())
             .unwrap_or_else(|| caller.clone());
@@ -922,8 +936,8 @@ impl Expander<'_> {
                     caller: caller.clone(),
                     chart: chart.clone(),
                     definition: definition_id.clone(),
-                    definition_name: schema.source_name.clone(),
                     instance_name: instance_name.clone(),
+                    instance_identity: instance_identity.clone(),
                     private_names: private_names.clone(),
                     exposed_private_names: BTreeMap::new(),
                     slots: slots.clone(),
@@ -949,8 +963,8 @@ impl Expander<'_> {
             caller: caller.clone(),
             chart,
             definition: definition_id.clone(),
-            definition_name: schema.source_name.clone(),
             instance_name,
+            instance_identity,
             private_names,
             exposed_private_names: BTreeMap::new(),
             slots,
@@ -1234,12 +1248,10 @@ impl Expander<'_> {
                 .unwrap_or_else(|| {
                     Value::Atom(name(&rename_channel(atom.as_str(), &context.channels)))
                 }),
-            Value::Expr(expression) => substitute_sql(expression.canonical_sql(), owner, context)
-                .and_then(|sql| crate::ast::SqlExpression::parse(&sql))
+            Value::Expr(expression) => substitute_sql_expression(expression, owner, context)
                 .map(|expression| Value::Expr(Box::new(expression)))
                 .unwrap_or_else(|_| value.clone()),
-            Value::Query(query) => substitute_sql(query.canonical_sql(), owner, context)
-                .and_then(|sql| crate::ast::SqlQuery::parse(&sql))
+            Value::Query(query) => substitute_sql_query(query, owner, context)
                 .map(|query| Value::Query(Box::new(query)))
                 .unwrap_or_else(|_| value.clone()),
             Value::Array(values) => Value::Array(
@@ -1442,7 +1454,57 @@ fn slot_default(template: &Decl, name: &str) -> Option<Value> {
         .cloned()
 }
 
-fn substitute_sql(
+fn substitute_sql_expression(
+    expression: &crate::ast::SqlExpression,
+    owner: &SourceModuleId,
+    context: &ExpansionContext,
+) -> Result<crate::ast::SqlExpression, crate::ast::AstError> {
+    let sql = substitute_sql_macros(expression.canonical_sql(), owner, context)?;
+    let mut expression = crate::ast::SqlExpression::parse(&sql)?;
+    rewrite_definition_private_columns(&mut expression, context);
+    Ok(expression)
+}
+
+fn substitute_sql_query(
+    query: &crate::ast::SqlQuery,
+    owner: &SourceModuleId,
+    context: &ExpansionContext,
+) -> Result<crate::ast::SqlQuery, crate::ast::AstError> {
+    let sql = substitute_sql_macros(query.canonical_sql(), owner, context)?;
+    let mut query = crate::ast::SqlQuery::parse(&sql)?;
+    rewrite_definition_private_columns(&mut query, context);
+    Ok(query)
+}
+
+trait RewritesSqlIdentifiers {
+    fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>);
+}
+
+impl RewritesSqlIdentifiers for crate::ast::SqlExpression {
+    fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        Self::rewrite_identifiers(self, replacement);
+    }
+}
+
+impl RewritesSqlIdentifiers for crate::ast::SqlQuery {
+    fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        Self::rewrite_identifiers(self, replacement);
+    }
+}
+
+fn rewrite_definition_private_columns(
+    sql: &mut impl RewritesSqlIdentifiers,
+    context: &ExpansionContext,
+) {
+    sql.rewrite_identifiers(|identifier| {
+        identifier
+            .strip_prefix("__private_")
+            .filter(|suffix| !suffix.is_empty())
+            .map(|suffix| format!("__av_col_{}_{}", context.instance_identity, suffix))
+    });
+}
+
+fn substitute_sql_macros(
     sql: String,
     owner: &SourceModuleId,
     context: &ExpansionContext,
@@ -1469,14 +1531,7 @@ fn substitute_sql(
         if !binding && let Some(value) = private_names.get(identifier) {
             return Some(value.clone());
         }
-        let prefix = format!("__{}_", context.definition_name);
-        (!binding)
-            .then(|| {
-                identifier
-                    .strip_prefix(&prefix)
-                    .map(|suffix| format!("__{}_{}", context.instance_name, suffix))
-            })
-            .flatten()
+        None
     }))
 }
 
@@ -1639,6 +1694,83 @@ fn definition_private_names(template: &Decl, instance_identity: &str) -> BTreeMa
             (source_name, private)
         })
         .collect()
+}
+
+fn generated_name_collision(
+    module_graph: &ParsedModuleGraph,
+    caller: &SourceModuleId,
+    private_names: &BTreeMap<String, String>,
+    outer_context: Option<&ExpansionContext>,
+) -> Option<String> {
+    let generated = private_names
+        .values()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut collision = outer_context
+        .into_iter()
+        .flat_map(|context| context.private_names.values())
+        .find(|name| generated.contains(name.as_str()))
+        .cloned();
+    if collision.is_some() {
+        return collision;
+    }
+    let file = module_graph.source_modules.get(caller)?;
+    collision = file
+        .parsed
+        .ast
+        .items
+        .iter()
+        .find_map(|item| declaration_generated_name_collision(&item.declaration, &generated));
+    collision
+}
+
+fn declaration_generated_name_collision(
+    declaration: &Decl,
+    generated: &BTreeSet<&str>,
+) -> Option<String> {
+    declaration
+        .name
+        .as_ref()
+        .map(Name::as_str)
+        .filter(|name| generated.contains(name))
+        .map(str::to_owned)
+        .or_else(|| {
+            declaration
+                .props
+                .iter()
+                .find_map(|(_, value)| value_generated_name_collision(value, generated))
+        })
+        .or_else(|| {
+            declaration
+                .children
+                .iter()
+                .find_map(|child| declaration_generated_name_collision(child, generated))
+        })
+}
+
+fn value_generated_name_collision(value: &Value, generated: &BTreeSet<&str>) -> Option<String> {
+    match value {
+        Value::Array(values) | Value::Call { args: values, .. } => values
+            .iter()
+            .find_map(|value| value_generated_name_collision(value, generated)),
+        Value::Block { head, body } => head
+            .as_deref()
+            .and_then(|head| value_generated_name_collision(head, generated))
+            .or_else(|| {
+                body.props
+                    .iter()
+                    .find_map(|(_, value)| value_generated_name_collision(value, generated))
+            })
+            .or_else(|| {
+                body.children
+                    .iter()
+                    .find_map(|child| declaration_generated_name_collision(child, generated))
+            }),
+        Value::Visual(value) | Value::Pattern(value) => {
+            value_generated_name_collision(value, generated)
+        }
+        _ => None,
+    }
 }
 
 fn rename_path(path: &[Name], private_names: &BTreeMap<String, String>) -> Vec<Name> {

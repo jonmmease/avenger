@@ -4152,6 +4152,21 @@ impl<'a> Resolver<'a> {
         self.validate_visibility(file, path, declaration, info.span);
 
         let in_definition = inside_definition(file, path);
+        let in_transform_pipeline = parent.is_some_and(|parent| {
+            parent.keyword.as_str() == "transform"
+                && parent
+                    .kind
+                    .as_ref()
+                    .is_some_and(|kind| kind.as_str() == "pipeline")
+        });
+        self.validate_compiler_owned_names(
+            declaration,
+            info.span,
+            in_definition,
+            inside_private,
+            in_transform_pipeline,
+            path.len() == 1,
+        );
         let kind_binding =
             self.kind_binding(file, declaration, coordinate.as_deref(), in_definition);
         if let Some(ResolvedKindBinding::Native { implementation, .. }) = &kind_binding
@@ -5157,6 +5172,68 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn validate_compiler_owned_names(
+        &mut self,
+        declaration: &Decl,
+        span: SourceSpan,
+        in_definition: bool,
+        inside_private: bool,
+        in_transform_pipeline: bool,
+        module_item: bool,
+    ) {
+        if declaration_binds_name(declaration)
+            && let Some(name) = declaration.name.as_ref().map(Name::as_str)
+            && name.starts_with("__av_")
+            && !((declaration.visibility == Visibility::Private || inside_private)
+                && is_generated_private_binder(name))
+            && !(module_item && is_generated_bundle_binder(name))
+        {
+            self.error(
+                "AVENGER-RESOLVE-181",
+                "declaration uses the compiler-owned name prefix",
+                span,
+                format!("`{name}` begins with reserved `__av_`; rename the authored binding"),
+            );
+        }
+
+        let mut identifiers = BTreeSet::new();
+        for (_, value) in declaration.props.iter() {
+            collect_sql_identifier_values(value, &mut identifiers);
+        }
+        for identifier in identifiers {
+            if identifier.starts_with("__av_")
+                && declaration.visibility != Visibility::Private
+                && !inside_private
+                && !(in_transform_pipeline && is_generated_private_column(&identifier))
+            {
+                self.error(
+                    "AVENGER-RESOLVE-181",
+                    "SQL uses the compiler-owned column prefix",
+                    span,
+                    format!(
+                        "column `{identifier}` begins with reserved `__av_`; rename or project it before this declaration"
+                    ),
+                );
+            } else if identifier.starts_with("__private_") && !in_definition {
+                self.error(
+                    "AVENGER-RESOLVE-182",
+                    "definition-private SQL column is used outside a definition",
+                    span,
+                    format!(
+                        "`{identifier}` is a private-column marker and is valid only inside a definition"
+                    ),
+                );
+            } else if identifier == "__private_" {
+                self.error(
+                    "AVENGER-RESOLVE-182",
+                    "definition-private SQL column has no name",
+                    span,
+                    "add a non-empty suffix after `__private_`",
+                );
+            }
+        }
+    }
+
     fn validate_core_property_names(
         &mut self,
         declaration: &Decl,
@@ -5223,7 +5300,7 @@ impl<'a> Resolver<'a> {
         let has_public_identity = is_structural(declaration)
             || matches!(
                 declaration.keyword.as_str(),
-                "param" | "store" | "selection"
+                "param" | "store" | "selection" | "transform"
             );
         if declaration.name.is_none() || !has_public_identity {
             self.error(
@@ -10413,6 +10490,70 @@ fn is_structural(declaration: &Decl) -> bool {
             | "dimension"
             | "resource"
     )
+}
+
+fn declaration_binds_name(declaration: &Decl) -> bool {
+    declaration.name.is_some() && declaration.keyword.as_str() != "set"
+}
+
+fn is_generated_private_binder(name: &str) -> bool {
+    is_generated_prefixed_name(name, 12)
+}
+
+fn is_generated_bundle_binder(name: &str) -> bool {
+    is_generated_prefixed_name(name, 10)
+}
+
+fn is_generated_prefixed_name(name: &str, identity_len: usize) -> bool {
+    let Some((identity, suffix)) = name
+        .strip_prefix("__av_")
+        .and_then(|rest| rest.split_once('_'))
+    else {
+        return false;
+    };
+    identity.len() == identity_len
+        && identity
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        && !suffix.is_empty()
+}
+
+fn is_generated_private_column(name: &str) -> bool {
+    let Some((identity, suffix)) = name
+        .strip_prefix("__av_col_")
+        .and_then(|rest| rest.split_once('_'))
+    else {
+        return false;
+    };
+    identity.len() == 12
+        && identity
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        && !suffix.is_empty()
+}
+
+fn collect_sql_identifier_values(value: &Value, output: &mut BTreeSet<String>) {
+    match value {
+        Value::Expr(expression) => output.extend(expression.column_identifier_values()),
+        Value::Query(query) => output.extend(query.column_identifier_values()),
+        Value::Array(values) | Value::Call { args: values, .. } => {
+            for value in values {
+                collect_sql_identifier_values(value, output);
+            }
+        }
+        Value::Block { head, body } => {
+            if let Some(head) = head {
+                collect_sql_identifier_values(head, output);
+            }
+            for (_, value) in body.props.iter() {
+                collect_sql_identifier_values(value, output);
+            }
+        }
+        Value::Visual(value) | Value::Pattern(value) => {
+            collect_sql_identifier_values(value, output);
+        }
+        _ => {}
+    }
 }
 
 fn owns_lexical_scope(declaration: &Decl) -> bool {

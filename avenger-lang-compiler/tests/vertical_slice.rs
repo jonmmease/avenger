@@ -2460,6 +2460,48 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
 }
 
 #[tokio::test]
+async fn defined_transform_rejects_reserved_private_columns_in_its_input_schema() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("summarize.avenger"),
+        include_str!("fixtures/projects/05_custom_transform_pipeline/summarize.avenger"),
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("chart.avenger"),
+        r#"
+avenger 1;
+import { summarize } from 'summarize.avenger';
+chart cartesian as chart {
+  data: {
+    values: [{ category: 'A'; value: 2.0; __private_existing: 1.0; }];
+  }
+  transform summarize as summary { measure: "value"; }
+  mark symbol { x: "category"; y: summary.adjusted; }
+}
+"#,
+    )
+    .unwrap();
+
+    let compiler = Compiler::builder()
+        .project_root(root.path())
+        .build()
+        .unwrap();
+    let failure = compiler
+        .compile_chart(root.path().join("chart.avenger"), None)
+        .await
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "AVENGER-LOWER-003"
+                && diagnostic.primary.message.contains("__private_existing")
+        }),
+        "{:?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
 async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definition_kinds() {
     let root = fixture("05_definition_widget_adjacency");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
