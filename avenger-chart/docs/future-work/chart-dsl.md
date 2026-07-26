@@ -86,7 +86,7 @@ single-key tagged values, SQL islands as canonical text, closed node set —
 under round-trip laws (printing is total and canonical, one layout
 engine shared with `avenger fmt`; `parse(print(ast)) == ast`), so specs are produced and
 consumed without the Rust library, validated structurally by a frozen
-hand-written core JSON Schema (closed fourteen-tag value inventory) and
+hand-written core JSON Schema (closed fifteen-tag value inventory) and
 semantically by a full JSON Schema generated from the authoring schema;
 and the EBNF grammar below.
 
@@ -174,6 +174,18 @@ deterministic private alpha-renaming and bound-reference rewriting. This
 decision is source-breaking and replaces the earlier filename-as-name,
 one-public-item-per-file, plain-import, specialized-suffix, and
 collection-style-bundling designs.
+
+Adopted 2026-07-26: **transforms that accept caller-named SQL expressions use
+an ordered projection-list value.** The standard property is `exprs:` and each
+custom output is written `<sql-expression> AS <dsl-name>`, reusing the
+select-list grammar between SQL `SELECT` and `FROM` without using open
+user-named property maps. `aggregate`, `join_aggregate`, `scalar_aggregate`,
+`calculate`, and `window` require named projection items; `select` accepts
+source columns plus explicitly aliased computed expressions. Projection aliases
+are exact, case-sensitive DSL output binders, not DataFusion-normalized SQL
+identifiers. A constrained `slot outputs` carries the same named projection
+shape through a custom transform definition and makes its caller-authored
+aliases that instance's public output handles.
 
 ## Design Principles
 
@@ -850,7 +862,7 @@ chart cartesian as sales_by_category {
   mark group as layers {
     transform aggregate as totals {
       group_by: "category";
-      total: sum("amount");
+      exprs: sum("amount") AS total;
     }
 
     mark rect as bars {
@@ -947,7 +959,7 @@ chart cartesian as example {
   mark group as layers {
     transform aggregate as totals {
       group_by: "category";
-      total: sum("amount");
+      exprs: sum("amount") AS total;
     }
 
     mark rect as bars {
@@ -1208,6 +1220,119 @@ or qualified scalar/table value binding. The bare
 argument form matters for definitions: channel slots rename through
 bare channel arguments during expansion, which is what lets an imported tool
 be channel-generic.
+
+## SQL Projection Lists
+
+A projection list is the ordered SQL fragment that normally appears between
+`SELECT` and `FROM`. It is a third SQL island beside a scalar expression and a
+query:
+
+```avenger
+transform calculate as derived {
+  exprs:
+    "price" * "quantity" AS total,
+    coalesce("label", 'unknown') AS display_label,
+    23 AS constant;
+}
+```
+
+The semantic value owns one or more `sqlparser` select items in source order.
+Its expressions use the same `AvengerSqlDialect`, value-binding normalization,
+reserved helpers, definition-slot substitution, type planning, and canonical
+SQL spelling as every other SQL island. Top-level commas separate projection
+items; commas and `AS` tokens inside calls, casts, arrays, structs, subqueries,
+or comments remain inside the item's expression. A trailing comma is accepted
+when the pinned dialect accepts a trailing SQL projection comma, but canonical
+formatting removes it.
+
+The generic projection AST can represent the select-item forms supported by
+the pinned Avenger SQL parser. An authoring schema narrows those forms at each
+property:
+
+- A **named projection** contains only
+  `<sql-expression> AS <dsl-name>` items. Every alias is required, explicit
+  `AS` is required, quoted aliases and multi-alias forms are invalid, aliases
+  are unique, and wildcards are invalid. `aggregate`, `join_aggregate`,
+  `scalar_aggregate`, `calculate`, and `window` use this shape.
+- A **select projection** accepts an unaliased direct data-column expression or
+  an explicitly aliased expression. A computed expression requires
+  `AS <dsl-name>`. Wildcards remain the job of `transform sql`; they are
+  deliberately invalid in `transform select`, where selecting `*` would add
+  no behavior and would make the transform's output inventory input-dependent.
+
+The alias after top-level `AS` is a DSL-owned binder even though SQL provides
+its tokenization and expression boundary. It therefore uses the unquoted DSL
+identifier profile, preserves authored case, and is not lowercased by
+DataFusion. Lowering removes the alias from the parsed expression and supplies
+the exact name to the Rust transform builder. When a projection is structurally
+spliced into a full SQL query, expansion emits a quoted SQL alias as needed to
+preserve that exact physical column name.
+
+Aliases are outputs, not inputs. Every item in one projection list resolves
+against the same relation entering the transform; an earlier alias is not
+visible to a later sibling. This matches SQL `SELECT` semantics and makes
+property-map order irrelevant. The item order determines deterministic output
+and handle order. Duplicate aliases are an error before lowering.
+
+The standard property name is `exprs:`:
+
+```avenger
+transform aggregate as totals {
+  group_by: ["category", "segment"];
+  exprs:
+    sum("amount") AS total,
+    count(*) AS count;
+}
+
+transform window as ranked {
+  partition_by: "category";
+  order_by: "amount";
+  exprs:
+    row_number() AS rank,
+    sum("amount") AS running_total;
+}
+
+transform select {
+  exprs:
+    "category",
+    "amount" * 2 AS doubled;
+}
+```
+
+`exprs` is a contextual reserved property name in the schema-free structural
+parser, just as `sql` and `query` select query islands. A registry entry may
+use `exprs` only with a projection-list shape. For a custom slot whose property
+has another name, a top-level `AS` or comma makes the projection syntax
+structurally self-identifying; the schema then requires the named projection
+shape. A single `slot outputs` value is always self-identifying because its
+only valid item has an explicit alias.
+
+The aliases of a named projection, and explicitly aliased items in a select
+projection, are the transform's dynamic output handles. An unaliased pass-through
+column in `select` does not create a handle. If the transform has an instance
+binder, downstream expressions may use `derived.total`; the physical column is
+also available as `"total"` where the transform produces a relation column.
+`scalar_aggregate` instead publishes same-named derived scalar handles,
+preserving its existing non-column result kind. Anonymous transforms still
+create the physical columns but introduce no qualified handle namespace.
+
+This syntax deliberately replaces, rather than supplements, the former open
+property-map and structured-measure forms:
+
+```avenger
+-- Invalid v1 syntax after this adoption:
+transform aggregate {
+  total: sum("amount");
+  measures: [{ name: 'count'; op: count; }];
+}
+```
+
+Removing wildcard properties restores unknown-property diagnostics:
+`group_byy:` is always an unknown property, never an attempted aggregate
+measure. The projection shape does not broaden a transform's operation set.
+For example, the native aggregate family still accepts exactly the aggregate
+function forms its Rust implementation supports; `23 AS constant` is valid for
+`calculate` but not for `aggregate`.
 
 ## Comments
 
@@ -1915,9 +2040,10 @@ mark group as manual_box_plot {
   mark group as summary {
     transform aggregate as stats {
       group_by: "group";
-      q1: approx_percentile_cont("value", 0.25);
-      median: median("value");
-      q3: approx_percentile_cont("value", 0.75);
+      exprs:
+        approx_percentile_cont("value", 0.25) AS q1,
+        median("value") AS median,
+        approx_percentile_cont("value", 0.75) AS q3;
     }
 
     mark rect as box {
@@ -1961,7 +2087,7 @@ quoted column names in the next data context:
 
 ```avenger
 transform calculate {
-  total: "price" * "quantity";
+  exprs: "price" * "quantity" AS total;
 }
 
 mark rect {
@@ -1984,14 +2110,16 @@ transform filter {
 }
 
 transform calculate {
-  margin: "profit" / "revenue";
-  label: "category" || ': ' || cast("amount" as varchar);
+  exprs:
+    "profit" / "revenue" AS margin,
+    "category" || ': ' || cast("amount" as varchar) AS label;
 }
 
 transform aggregate as totals {
   group_by: ["category", "segment"];
-  total: sum("amount");
-  count: count(*);
+  exprs:
+    sum("amount") AS total,
+    count(*) AS count;
 }
 
 transform bin as b {
@@ -2008,6 +2136,23 @@ transform stack as s {
 }
 ```
 
+The named-projection transforms share syntax but retain their distinct Rust
+semantics:
+
+| Transform | `exprs:` | Result and collision rule |
+| --- | --- | --- |
+| `aggregate` | optional only when `group_by:` is present | Collapses rows; every item must be one aggregate call supported by the native aggregate implementation. A measure alias may not collide with a grouping output or incoming column. |
+| `join_aggregate` | required | Appends grouped aggregate results to every input row. Aliases may not collide with input columns. |
+| `scalar_aggregate` | required | Publishes derived scalar handles without adding relation columns. `evaluation:` retains its existing eager/lazy meaning. |
+| `calculate` | required | Appends or intentionally replaces same-named input columns. All items read the pre-transform input, including when one alias replaces an input column. |
+| `window` | required | Appends window results and rejects aliases that collide with input columns. `partition_by:` and `order_by:` supply defaults to every item as before. |
+| `select` | required | Replaces the relation with the ordered projection. Direct columns may omit aliases; computed expressions may not. Duplicate resulting column names are invalid. |
+
+`aggregate` with neither grouping keys nor measures is invalid. The other
+required properties exclude no-op stages. These requirements are authoring
+schema rules; the lower-level Rust builders may continue to represent an empty
+builder while the language refuses a semantically empty declaration.
+
 Diagnostics may display an alias when present, but resolution allocates an
 opaque stage symbol for source maps, provenance, and internal references.
 Execution and cache fingerprints derive from the resolved operation, inputs,
@@ -2023,7 +2168,7 @@ Transform sharing scope should also be a property, keeping the header regular:
 transform aggregate as global_totals {
   scope: shared;
   group_by: "category";
-  total: sum("amount");
+  exprs: sum("amount") AS total;
 }
 
 transform bin as local_bins {
@@ -3446,8 +3591,9 @@ chart cartesian {
     mark group as fence {
       transform join_aggregate as fence {
         group_by: "group";
-        q1: approx_percentile_cont("value", 0.25);
-        q3: approx_percentile_cont("value", 0.75);
+        exprs:
+          approx_percentile_cont("value", 0.25) AS q1,
+          approx_percentile_cont("value", 0.75) AS q3;
       }
 
       mark group as inliers {
@@ -3459,8 +3605,9 @@ chart cartesian {
 
         transform aggregate as whisker {
           group_by: "group";
-          whisker_low: min("value");
-          whisker_high: max("value");
+          exprs:
+            min("value") AS whisker_low,
+            max("value") AS whisker_high;
         }
 
         mark rule as whiskers {
@@ -3516,9 +3663,10 @@ chart cartesian {
     mark group as summary {
       transform aggregate as stats {
         group_by: "group";
-        q1: approx_percentile_cont("value", 0.25);
-        median: median("value");
-        q3: approx_percentile_cont("value", 0.75);
+        exprs:
+          approx_percentile_cont("value", 0.25) AS q1,
+          median("value") AS median,
+          approx_percentile_cont("value", 0.75) AS q3;
       }
 
       mark rect as box {
@@ -4328,9 +4476,10 @@ export define mark error_bar {
   mark group {
     transform aggregate as stats {
       group_by: category;
-      lo: min(measure);
-      hi: max(measure);
-      mid: avg(measure);
+      exprs:
+        min(measure) AS lo,
+        max(measure) AS hi,
+        avg(measure) AS mid;
     }
 
     mark rule as bar {
@@ -4362,7 +4511,8 @@ export define mark error_bar {
 
 `slot <shape> <name>` declarations are the definition's explicit property
 schema. The closed v1 shapes are `expr`, `expr_list`, `literal`, `number`,
-`string`, `boolean`, `enum`, `ref`, `block`, and `channel`. The scalar
+`string`, `boolean`, `enum`, `ref`, `block`, `channel`, and the
+transform-only `outputs` shape. The scalar
 refinements (`number`, `string`, `boolean`) accept SQL expressions whose
 resolved type matches; `literal` accepts any scalar literal without expression
 evaluation. A slot is required when it has no `default:` property; `;` is only
@@ -4422,8 +4572,9 @@ define mark error_bar {
   mark group {
     transform aggregate as stats {
       group_by: category;
-      lo: min(measure);
-      hi: max(measure);
+      exprs:
+        min(measure) AS lo,
+        max(measure) AS hi;
     }
 
     mark rule as bar {
@@ -4914,6 +5065,54 @@ instantiation alias exposes, each mapping to a column of the pipeline's
 result. `output name;` is the same-name shorthand. Any explicit source uses
 the source-to-alias form `output <expression> as <public-name>;`.
 
+A definition that intentionally lets its caller choose a variable set of
+named expressions may declare one `slot outputs`:
+
+```avenger
+export define transform summarize {
+  slot expr_list group_by;
+  slot outputs exprs;
+
+  transform aggregate {
+    group_by: group_by;
+    exprs: exprs;
+  }
+}
+```
+
+```avenger
+transform summarize as stats {
+  group_by: ["category"];
+  exprs:
+    sum("amount") AS total,
+    avg("amount") AS average;
+}
+```
+
+`slot outputs <name>` is a required, non-empty named projection list. It is
+valid only in `define transform`, may occur at most once, has no `default:`,
+and must be consumed exactly once in a named-projection position — an
+`exprs:` property or a SQL `SELECT` projection splice. Its caller-authored
+aliases automatically join the definition's public output-handle set, so the
+example exposes `stats.total` and `stats.average`. A definition containing an
+outputs slot therefore always requires an instance binder. Static `output`
+declarations may coexist with it; names must be unique after the call-site
+projection is known.
+
+The compiler validates every dynamic alias against the expanded pipeline's
+final relation just as it validates a static `output`. Dropping or renaming a
+slot-provided column before the boundary is an error. When the slot is spliced
+into `transform sql`, expansion quotes its SQL alias as necessary to preserve
+the exact case-sensitive DSL name. Substitution is structured over parsed
+select items, never comma-joined text.
+
+This is a deliberately bounded row-polymorphic interface, not a general
+identifier macro. The caller must author each complete alias; a definition
+cannot compute, prefix, suffix, rename, filter, iterate over, or synthesize
+those names. `slot expr_list` remains the non-naming expression-list input.
+Definitions that own a closed output interface continue to use ordinary
+`output` declarations.
+
 A defined-transform instantiation requires `as <alias>` exactly when its
 definition declares one or more public `output` handles. An output-free
 definition may be instantiated anonymously. This requirement is independent
@@ -5001,7 +5200,7 @@ export define transform binned_counts {
 
   transform aggregate {
     group_by: [b.start, b.end];
-    count: count(*);
+    exprs: count(*) AS count;
   }
 }
 ```
@@ -5033,6 +5232,9 @@ Slot substitution inside `query:` statements follows the declared shape.
 `expr` slots splice one expression into the statement AST before planning;
 `expr_list` slots splice a comma-separated expression list in list positions
 such as `PARTITION BY`, `GROUP BY`, a `SELECT` list, or `IN (...)`.
+An `outputs` slot splices one named SQL projection list only into a `SELECT`
+list or a schema-declared named-projection property and retains each alias as
+an output binder.
 Everything else in a statement follows ordinary SQL rules. The resolver warns
 when a slot name shadows a column of the incoming context; rename the slot or
 quote the column.
@@ -5374,9 +5576,12 @@ recorded so the boundary holds under pressure:
   runtime behavior variation is expressed with params and event-binding
   `filter:` predicates (a two-click gesture is two bindings filtered on a
   state param).
-- **No slot-derived identifiers.** Channel slots substitute channel
-  expressions, never names. Output column names, mark names, and property
-  names are never assembled from slot values.
+- **No computed slot-derived identifiers.** Channel slots substitute channel
+  identities, never names. Mark names and property names are never assembled
+  from slot values. The one bounded exception is `slot outputs`: its caller
+  supplies complete, explicit projection aliases that become output column and
+  handle names. Neither the definition nor expansion may compute or rewrite
+  those aliases.
 
 ### Project Layout
 
@@ -5807,9 +6012,9 @@ punct     { } [ ] ( ) : ; , = .
 
 Comments (`--` followed by whitespace; nested `/* ... */`) and whitespace are
 trivia, except that `-- |` doc lines are captured into the adjacent
-declaration's `doc` field rather than dropped. `sql_expr` and `sql_query` are
-islands parsed by sqlparser's `Parser` under `AvengerSqlDialect` from the
-normalized token stream; the resolver then
+declaration's `doc` field rather than dropped. `sql_expr`, `sql_projection`,
+and `sql_query` are islands parsed by sqlparser's `Parser` under
+`AvengerSqlDialect` from the normalized token stream; the resolver then
 rewrites value-binding paths, bare qualified names, and reserved helper
 functions.
 
@@ -5849,7 +6054,7 @@ define        = "define" , ( "mark" | "tool" | "transform" ) ,
 slot          = "slot" , slot_shape , ident , ( body | ";" ) ;
 slot_shape    = "expr" | "expr_list" | "literal" | "number"
               | "string" | "boolean" | "enum" | "ref" | "block"
-              | "channel" ;
+              | "channel" | "outputs" ;
 output        = "output" , ( ident | sql_expr , "as" , ident ) , ";" ;
 export        = "export" , qual , [ "as" , ident ] , ";" ;
                      (* define headers and group bodies; source paths may
@@ -5943,6 +6148,8 @@ value         = body                                 (* anonymous object *)
               | "none" , ";"
               | sql_query , ";"                      (* reserved `sql:` and `query:`
                                                         properties only *)
+              | sql_projection , ";"                 (* reserved `exprs:` or a
+                                                        structurally evident outputs slot *)
               | sql_expr , terminator ;              (* default expression slot *)
 terminator    = body | ";" ;                         (* config block or semicolon *)
 array         = "[" , [ elem , { "," , elem } , [ "," ] ] , "]" ;
@@ -5950,6 +6157,8 @@ elem          = body | sql_expr | "value" , sql_expr | "pattern" , body | "none"
 qual          = ident , { "." , ident } ;
 
 sql_expr      = ? one sqlparser expression accepted by AvengerSqlDialect ? ;
+sql_projection
+              = ? one non-empty sqlparser SELECT projection list ? ;
 sql_query     = ? one standard SELECT, FROM-first SELECT, or VALUES statement ? ;
 arrow_type    = ? one canonical physical Arrow type from Physical Arrow Types ? ;
 ```
@@ -6016,12 +6225,17 @@ lowerer.
   when it has no `default:`; a trailing `;` is merely an empty body. A body may
   declare `default:`; `enum` additionally requires `values:`,
   `ref` requires `kind:`, and `block` may declare `exposes:`. The authoring
-  schema rejects properties not valid for the declared shape. Slot shapes are
-  explicit and never inferred from body use.
+  schema rejects properties not valid for the declared shape. `outputs` is
+  transform-only, required, non-defaulted, unique within a definition, and
+  contributes its supplied aliases to the instance output interface. Slot
+  shapes are explicit and never inferred from body use.
 - The schema-free parser selects a `value` production from local syntax and the
-  globally reserved `sql`/`query` names; the authoring schema then validates
-  that shape for the particular property. `sql_query` is reachable only from
-  those two reserved properties. Bare identifiers in enum-valued properties
+  globally reserved `sql`/`query`/`exprs` names; the authoring schema then
+  validates that shape for the particular property. `sql_query` is reachable
+  only from the first two reserved properties, while `exprs` selects a
+  projection list. A top-level projection comma or explicit alias also
+  self-identifies a projection supplied to an arbitrarily named `outputs`
+  slot. Bare identifiers in enum-valued properties
   parse as `sql_expr` atoms that the resolver checks against the enum. A
   `typed_ref` records an explicit reference kind plus a lexical or
   qualified path; when a property schema already fixes the kind, its shorter
@@ -6065,6 +6279,10 @@ lowerer.
   `output <sql_expr> as <public-name>;`; the top-level `as` is parsed after the
   complete expression and is not confused with SQL-internal `AS` such as a
   cast or subquery alias.
+- A projection alias is likewise recognized only at the top level of one
+  select item, but it belongs to the projection value rather than creating an
+  `output` declaration. Named-projection schemas require explicit uppercase or
+  lowercase `AS`; canonical formatting emits uppercase `AS`.
 - An outer `event` body's `target:`, `scope:`, and `surface:` properties parse
   only as `event_target`, `event_scope`, and `event_surface`, respectively;
   omission supplies unrestricted marks, containing-plot scope, and plot surface.
@@ -6633,6 +6851,7 @@ enum Value {
     Column(String),                  // "Horsepower"
     Atom(Name),                      // lone bare identifier: retarget_cached, median
     Expr(SqlExpr),                   // parsed semantic expression only
+    Projection(SqlProjection),       // ordered SQL select items
     Query(SqlQuery),                 // sql:/query: query island
     Binding(BindingKind, Vec<Name>, BindingTime),
                                       // $name or $component.alias[@time]
@@ -6654,6 +6873,12 @@ struct NumericLiteral {
 enum BindingKind { Param, Store }
 enum BindingTime { Current, Start, Previous } // Current is omitted in source/JSON
 ```
+
+`SqlProjection` contains one or more parsed SQL select items in source order
+plus the same normalized bindings and source-independent canonicalization as
+`SqlExpr` and `SqlQuery`. A named item retains its expression and exact DSL
+`Name` separately; lowering never asks DataFusion to infer or normalize that
+alias.
 
 Every feature in this document is an instance of `Decl` — `table sql` with
 params, `catalog schemas` and `schema tables` containers, `match` arms,
@@ -6692,7 +6917,8 @@ bare identifier parses as `Atom`; whether it names an enum member, a slot,
 or a function is the resolver's schema-directed decision (the bare-name
 law). `Binding` retains the resolved scalar/table kind, every `$path`
 segment, and its temporal version; `Ref` retains the expected non-value state kind and every path segment
-even when a schema-fixed property omits the surface prefix. `Expr` and `Query`
+even when a schema-fixed property omits the surface prefix. `Expr`,
+`Projection`, and `Query`
 retain parsed semantic SQL only. Original island
 spelling, whitespace, comments, and token ranges belong to the concrete syntax
 tree and source map, not semantic AST identity.
@@ -6726,9 +6952,10 @@ Serde over these nodes defines the interchange form. Four rules:
   `{"binding": {"kind": "param", "path": "width", "time": "start"}}`,
   `{"binding": {"kind": "store", "path": ["controls", "brush"]}}`,
   `{"ref": {"kind": "selection", "path": ["hover", "hovered"]}}`,
-  `{"env": "ICEBERG_TOKEN"}`, `{"expr": "..."}`, `{"query": "..."}`. The
-  inventory is closed — fourteen tags: `num`, `col`, `atom`, `binding`, `expr`,
-  `query`, `value`, `dim`, `ref`, `pattern`, `env`, `none`, `block`,
+  `{"env": "ICEBERG_TOKEN"}`, `{"expr": "..."}`,
+  `{"projection": "... AS name, ..."}`, `{"query": "..."}`. The
+  inventory is closed — fifteen tags: `num`, `col`, `atom`, `binding`, `expr`,
+  `projection`, `query`, `value`, `dim`, `ref`, `pattern`, `env`, `none`, `block`,
   `call` — pinned by the core schema below. The `block` tag carries the
   optional head beside `props` and `children`
   (`{"block": {"head": {"col": "amount"}, "props": ...}}`); a typed
@@ -7075,9 +7302,10 @@ semantics; an ASCII-only regex fallback is non-conforming because source names
 such as `café` and `Δvalue` are valid.
 
 The instance corpus for this schema includes accept/reject and bidirectional
-round-trip cases for every one of the fourteen tags, including exact `num`
+round-trip cases for every one of the fifteen tags, including exact `num`
 spelling, two-segment `dim`, string `env`, boolean-true `none`, compact and
-qualified binding paths, and headed/headless blocks. It also covers well-formed
+qualified binding paths, canonical SQL `projection`, and headed/headless
+blocks. It also covers well-formed
 single- and multi-chart modules, mixed data/definition modules, named and
 namespace imports, and rejects
 plain JSON numbers, two-key tagged objects, unknown tags, provenance fields,
@@ -7086,10 +7314,10 @@ to the same conformance corpus that pins the formatter.
 
 ### Round-Trip Laws
 
-- **Printing is total.** Every constructible strict AST prints. Every `Expr`
-  and `Query`, whether parsed from source, decoded from JSON, or constructed by
-  a host API, prints through the same pinned SQL unparser. Nothing a host API
-  can build lacks a text spelling.
+- **Printing is total.** Every constructible strict AST prints. Every `Expr`,
+  `Projection`, and `Query`, whether parsed from source, decoded from JSON, or
+  constructed by a host API, prints through the same pinned SQL unparser.
+  Nothing a host API can build lacks a text spelling.
 - **Printing is canonical.** Equal trees produce byte-identical files, so
   generated artifacts diff cleanly against hand-written ones. `avenger
   fmt` shares the printer's one layout engine but runs it over the
@@ -7245,19 +7473,21 @@ it does not rewrite the source string. Query-only validation rejects
 
 The compiler corpus parses every accepted island through the frontend entry
 point and then verifies that its canonical SQL is accepted and planned by the
-pinned DataFusion adapter with the same expression/query shape. DataFusion may
+pinned DataFusion adapter with the same expression/projection/query shape. DataFusion may
 add planning semantics, but it cannot silently define a second source grammar;
 any frontend/planner acceptance mismatch is a release-blocking conformance
 failure.
 
 The schema-free structural parser chooses the value production from local
 syntax and the reserved property-name contract: `sql:`/`query:` enter a query
-island, a leading block/array/prefix enters its structural value, and remaining
-expression positions enter an expression island. Authoring schemas validate
-whether that parsed shape is legal for the containing declaration afterward;
-they are not needed for parse/print round trips. Channel values, filter
-predicates, calculate outputs, aggregate expressions, sort keys, and visibility
-conditions are SQL expression slots. Selectors such as
+island, `exprs:` enters a projection island, a leading block/array/prefix enters
+its structural value, and remaining positions enter an expression island
+unless top-level projection punctuation makes a projection self-identifying.
+Authoring schemas validate whether that parsed shape is legal for the
+containing declaration afterward; they are not needed for parse/print round
+trips. Channel values, filter predicates, sort keys, and visibility conditions
+are SQL expression slots. Calculate outputs, aggregate measures, window
+outputs, and select items are SQL projection slots. Selectors such as
 `target: mark manual_box_plot.fence.outlier_layer.outliers;`, typed values such as
 `scale: linear { ... }`, arrays of DSL names, and nested property objects are
 DSL values.
@@ -7269,6 +7499,7 @@ context. The fixed boundary contexts are:
 | Source context | Structural parser owns | Delegated SQL unit | Stops before |
 | --- | --- | --- | --- |
 | reserved `sql:` or `query:` property | property name, `:`, and terminating `;` | one query (`SELECT`, `FROM`-first `SELECT`, set operation, or `VALUES`) | top-level `;` |
+| reserved `exprs:` property or structurally evident `slot outputs` argument | property name, `:`, terminating `;`, and semantic alias policy | one non-empty SQL projection list | top-level `;` |
 | ordinary/configurable property, channel value, filter, or `value` payload | property/prefix and optional configuration body | one scalar expression | top-level `;` or the configuration `{` |
 | explicit `output <expr> as <name>` | `output`, top-level `as`, public name, and `;` | one scalar expression | top-level `as` |
 | `set ... =` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
@@ -7276,8 +7507,10 @@ context. The fixed boundary contexts are:
 
 The SQL parser recognizes SQL-owned parentheses, brackets, braces, subqueries,
 strings, identifiers, and comments before returning control at an outer
-delimiter. Thus a SQL array, struct, function call, or subquery remains one
-expression island, while a DSL array is never delegated wholesale. Each
+delimiter. It therefore distinguishes top-level projection commas and aliases
+from `CAST(... AS ...)`, nested commas, and subquery projections without a
+second expression grammar. A SQL array, struct, function call, or subquery
+remains one expression island, while a DSL array is never delegated wholesale. Each
 ordinary element is parsed as its own expression, so the structural parser
 retains its commas and closing bracket. The structural parser does not
 reproduce an SQL expression subset.
@@ -7644,12 +7877,23 @@ module.exports = grammar(AvengerSql, {
 
     property_block: $ => seq("{", repeat($.property), "}"),
 
-    property: $ => choice($.sql_query_property, $.ordinary_property),
+    property: $ => choice(
+      $.sql_query_property,
+      $.sql_projection_property,
+      $.ordinary_property,
+    ),
 
     sql_query_property: $ => seq(
       field("name", choice("sql", "query")),
       ":",
       field("value", $.sql_query),
+      ";",
+    ),
+
+    sql_projection_property: $ => seq(
+      field("name", "exprs"),
+      ":",
+      field("value", $.sql_projection_list),
       ";",
     ),
 
@@ -7677,6 +7921,7 @@ module.exports = grammar(AvengerSql, {
     ),
 
     sql_property_expression: $ => $.expression,
+    sql_projection_list: $ => $.projection,
     sql_query: $ => $.query,
     sql_terminated_expression: $ => $.expression,
     sql_output_expression: $ => $.expression,
@@ -7696,14 +7941,14 @@ module.exports = grammar(AvengerSql, {
       $.sql_array_expression,
     ),
 
-    // identifier, number, strings, columns, comments, SQL expressions, and
-    // queries are inherited from the pinned avenger_sql base.
+    // identifier, number, strings, columns, comments, SQL expressions,
+    // projections, and queries are inherited from the pinned avenger_sql base.
     signed_number: $ => choice($.number, seq(choice("+", "-"), $.number)),
   },
 });
 ```
 
-The four context wrappers reference inherited grammar rules rather than opaque
+These context wrappers reference inherited grammar rules rather than opaque
 byte ranges. Their surrounding derived rules keep the DSL semicolon, comma,
 closing bracket, or configuration body structural, while the SQL grammar owns
 nested SQL delimiters. This removes the duplicate island-boundary scanner and
@@ -7717,9 +7962,12 @@ from the pinned base revision; it does not maintain another implementation.
 
 `sql_query_property` is selected only by the two globally reserved property
 names `sql` and `query`; both contain one query rather than an arbitrary SQL
-statement. All other SQL-bearing contexts expose one of the three expression
-wrappers above. Authoring schemas still determine whether that value shape is
-legal for a particular native or defined declaration.
+statement. `sql_projection_property` is selected by `exprs`. A second
+projection-valued property path recognizes the top-level alias/comma shape
+needed by an arbitrarily named `slot outputs` argument. All other SQL-bearing
+contexts expose an expression wrapper above. Authoring schemas still determine
+whether that value shape is legal for a particular native or defined
+declaration.
 
 Initial `highlights.scm` sketch:
 
@@ -7998,7 +8246,7 @@ top-level expression fragments. It should highlight:
 
 The web editor uses CodeMirror 6, and the decisive fit is Lezer's
 mixed-language parsing: a small Lezer grammar parses the DSL shell, and
-`parseMixed` delegates expression and query islands to the Lezer SQL
+`parseMixed` delegates expression, projection, and query islands to the Lezer SQL
 grammar — the same island architecture the compiler uses, incrementally
 parsed, with no second hand-maintained tokenizer. CodeMirror's modular core
 keeps the editor at a fraction of Monaco's size (matching the two-bundle
@@ -8301,6 +8549,10 @@ SQL island recovery boundaries depend on the slot:
 - Structurally terminated action RHS: stop at the top-level `;`, `}`, or EOF;
   a top-level `{` is not a DSL terminator there.
 - Array element: stop at the top-level `,` or `]`; the outer array owns both.
+- Projection property: keep top-level commas as select-item separators and
+  stop at the top-level `;`, `}`, EOF, or a plausible following property.
+  Missing expressions, `AS`, aliases, or commas recover inside one projection
+  node rather than consuming the next property.
 - Full-query `sql:`/`query:` property: stop at the query semicolon, `}`, or EOF.
 
 The analysis pipeline should be:
@@ -8311,7 +8563,7 @@ The analysis pipeline should be:
    `@start` or `@previous`, inside an SQL island to a unique kind-neutral quoted
    identifier, retaining a synthetic-token-to-path/version/source-span side
    table.
-4. Parse SQL expression and query islands with sqlparser under
+4. Parse SQL expression, projection, and query islands with sqlparser under
    `AvengerSqlDialect`; use DataFusion only for subsequent native planning.
 5. Resolve names, scopes, value-binding paths, transform aliases, event targets,
    views, tools, selections, stores, and channel references; use each binding's
@@ -8570,16 +8822,16 @@ Minimum schema contents:
   `component_kind` provenance. `ChildRule` validates legal cross-kind
   sequences and placement constraints over the single ordered child list; it
   never authorizes formatter reordering.
-- Each property's value shape — SQL expression, SQL query, literal, atom,
-  scalar/table binding, typed reference, array, anonymous block, typed block,
-  or configured value —
+- Each property's value shape — SQL expression, SQL projection list (including
+  named-versus-select item policy), SQL query, literal, atom, scalar/table
+  binding, typed reference, array, anonymous block, typed block, or configured value —
   plus requiredness, default, multiplicity, and nested block schema. A schema
   may include a non-semantic presentation rank for documentation tables and
   completion lists, but canonical DSL/JSON printing, AST equality, and hashing
   must ignore it and always use lexical property ordering.
 - The closed slot-shape inventory and each shape's configuration contract:
-  defaults, enum domains, function classes, reference kinds, block exposure,
-  and caller/block hygiene.
+  defaults, enum domains, reference kinds, block exposure, the transform-only
+  dynamic output-list contract, and caller/block hygiene.
 - Mark kinds, coordinate compatibility, supported channels, channel defaults,
   extra mark-level properties, and public part aliases. Native parts are
   registered aliases; defined parts are derived only from explicit mark
@@ -8590,7 +8842,8 @@ Minimum schema contents:
   scale/axis/legend and position-specific properties; native entries cannot
   redefine their meanings.
 - Transform kinds, properties, default values, required values, output
-  handles, and materialization behavior. The native `pipeline` entry additionally
+  handles, projection-alias output sources, and materialization behavior. The
+  native `pipeline` entry additionally
   declares its mixed body, sequential child-stage rule, non-empty constraint,
   final-relation output validation, lexical internal aliases, and single-stage
   behavior in its parent dataflow. Transform schemas distinguish actual result
@@ -8646,7 +8899,8 @@ not wait for every family.
 Imported `define` files contribute schema fragments after parsing: each typed
 slot becomes a property with exactly its declared `ValueShape`; channel slots
 become renameable channel positions; transform outputs and export
-aliases become completion/validation surfaces, and enum slots supply the domains that `match`
+aliases become completion/validation surfaces; an `outputs` slot contributes a
+call-site projection shape and per-instantiation alias handles; and enum slots supply the domains that `match`
 blocks must exhaust. Those fragments must validate against the same meta-model
 before an imported kind enters the registry. They may add names but cannot
 change the meaning of native entries or the v1 meta-model.
