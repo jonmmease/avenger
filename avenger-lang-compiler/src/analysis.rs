@@ -42,7 +42,12 @@ pub enum DatasetStageKind {
     CatalogTable,
     SqlView,
     DatasetSource,
-    Transform { native_kind: String },
+    Transform {
+        native_kind: String,
+    },
+    /// Final effective relation visible to one primitive mark after inherited
+    /// data and all enclosing/local transforms have been applied.
+    MarkInput,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

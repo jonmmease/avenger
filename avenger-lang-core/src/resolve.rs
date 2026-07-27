@@ -624,7 +624,14 @@ pub struct ResolvedExpression {
     pub sql: String,
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub datum_fields: Vec<ResolvedDatumFieldReference>,
     pub references: Vec<ResolvedSqlReference>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ResolvedDatumFieldReference {
+    pub field: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -698,6 +705,7 @@ pub enum ResolvedHelperArgument {
     Name(String),
     String(String),
     Number(String),
+    DatumField(String),
     Target {
         target: ResolvedTarget,
         authored_path: Vec<String>,
@@ -3883,6 +3891,12 @@ impl<'a> Resolver<'a> {
             let mut arguments = Vec::new();
             for (index, argument) in call.args.iter().enumerate() {
                 let mut resolved = helper_argument(argument);
+                if call.name == "selection_contains"
+                    && index == 1
+                    && let Some(field) = datum_field(argument)
+                {
+                    resolved = ResolvedHelperArgument::DatumField(field);
+                }
                 let expects_target =
                     matches!(class, HelperClass::Selection | HelperClass::View) && index == 0;
                 if expects_target
@@ -6050,6 +6064,8 @@ impl<'a> Resolver<'a> {
                 let sql = expression.canonical_sql();
                 let references =
                     self.resolve_sql_paths(scope, expression_paths(expression.ast()), span, true);
+                let datum_fields =
+                    self.resolve_datum_fields(scope, expression.ast(), span, in_event);
                 let helpers = self.resolve_helpers(
                     scope,
                     helper_calls(expression.ast()),
@@ -6062,6 +6078,7 @@ impl<'a> Resolver<'a> {
                     sql,
                     bindings,
                     references,
+                    datum_fields,
                 })
             }
             Value::Projection(projection) => {
@@ -6132,6 +6149,7 @@ impl<'a> Resolver<'a> {
                                 span,
                                 true,
                             ),
+                            datum_fields: Vec::new(),
                         });
                         ResolvedProjectionItem {
                             sql: crate::ast::restore_bindings(
@@ -6261,13 +6279,65 @@ impl<'a> Resolver<'a> {
                     .collect(),
             },
             Value::Call { function, args } => ResolvedValue::Call {
-                function: function.to_string(),
+                function: {
+                    if function.as_str().eq_ignore_ascii_case("datum") {
+                        self.error(
+                            "AVENGER-RESOLVE-183",
+                            "function-style datum references were removed",
+                            span,
+                            "use `datum.\"field\"` to read a field from the event datum",
+                        );
+                    }
+                    function.to_string()
+                },
                 args: args
                     .iter()
                     .map(|value| self.resolve_value(scope, value, span, in_event, owner))
                     .collect(),
             },
         }
+    }
+
+    fn resolve_datum_fields(
+        &mut self,
+        scope: ScopeId,
+        expression: &Expr,
+        span: SourceSpan,
+        in_event: bool,
+    ) -> Vec<ResolvedDatumFieldReference> {
+        let (scope_is_event, _) = self.scope_event_context(scope);
+        let in_event = in_event || scope_is_event;
+        let uses = datum_uses(expression, in_event);
+        let mut output = Vec::new();
+        let mut seen = BTreeSet::new();
+        for datum_use in uses {
+            match datum_use {
+                RawDatumUse::Field(field) if in_event => {
+                    if seen.insert(field.clone()) {
+                        output.push(ResolvedDatumFieldReference { field });
+                    }
+                }
+                RawDatumUse::Field(_) => self.error(
+                    "AVENGER-RESOLVE-110",
+                    "event datum is outside an event context",
+                    span,
+                    "`datum.\"field\"` requires an event binding or event effect",
+                ),
+                RawDatumUse::LegacyCall => self.error(
+                    "AVENGER-RESOLVE-183",
+                    "function-style datum references were removed",
+                    span,
+                    "use `datum.\"field\"` to read a field from the event datum",
+                ),
+                RawDatumUse::Invalid => self.error(
+                    "AVENGER-RESOLVE-184",
+                    "event datum fields must use a quoted two-part path",
+                    span,
+                    "use `datum.\"field\"`; unquoted, bare, and deeper datum paths are invalid",
+                ),
+            }
+        }
+        output
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -10601,6 +10671,13 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             sql: value.canonical_sql(),
             bindings: Vec::new(),
             helpers: helpers_in_sql(&value.canonical_sql()),
+            datum_fields: datum_uses(value.ast(), false)
+                .into_iter()
+                .filter_map(|datum_use| match datum_use {
+                    RawDatumUse::Field(field) => Some(ResolvedDatumFieldReference { field }),
+                    RawDatumUse::LegacyCall | RawDatumUse::Invalid => None,
+                })
+                .collect(),
             references: Vec::new(),
         }),
         Value::Projection(value) => ResolvedValue::Projection(ResolvedProjection {
@@ -10642,6 +10719,7 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
                             sql: expression.to_string(),
                             bindings: Vec::new(),
                             helpers: helpers_in_sql(&expression.to_string()),
+                            datum_fields: Vec::new(),
                             references: Vec::new(),
                         }),
                         aliases,
@@ -11563,7 +11641,6 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
 
 fn helpers_in_sql(sql: &str) -> Vec<ResolvedHelper> {
     const HELPERS: &[(&str, HelperClass)] = &[
-        ("datum", HelperClass::Datum),
         ("event_coord", HelperClass::Event),
         ("event_path", HelperClass::Event),
         ("start_coord", HelperClass::Event),
@@ -11652,7 +11729,7 @@ impl Visitor for HelperCalls {
 fn helper_class(name: &str) -> Option<HelperClass> {
     Some(match name {
         "channel" => HelperClass::Channel,
-        "datum" | "item_data" => HelperClass::Datum,
+        "item_data" => HelperClass::Datum,
         "event_coord" | "start_coord" | "event_domain_start" | "event_domain_end"
         | "event_path" | "event_facet_value" | "legend_value" | "item_channel" | "item_bbox" => {
             HelperClass::Event
@@ -11667,9 +11744,8 @@ fn helper_class(name: &str) -> Option<HelperClass> {
 fn helper_arity(name: &str) -> Option<usize> {
     Some(match name {
         "event_path" | "legend_value" => 0,
-        "channel" | "datum" | "event_coord" | "start_coord" | "event_domain_start"
-        | "event_domain_end" | "event_facet_value" | "item_channel" | "item_data" | "item_bbox"
-        | "polygon" => 1,
+        "channel" | "event_coord" | "start_coord" | "event_domain_start" | "event_domain_end"
+        | "event_facet_value" | "item_channel" | "item_data" | "item_bbox" | "polygon" => 1,
         "selection_contains" | "view_x" | "view_y" | "span" | "span_ordered" => 2,
         _ => return None,
     })
@@ -11712,6 +11788,84 @@ fn helper_argument(expression: &Expr) -> ResolvedHelperArgument {
         },
         _ => ResolvedHelperArgument::Sql(expression.to_string()),
     }
+}
+
+fn datum_field(expression: &Expr) -> Option<String> {
+    let Expr::CompoundIdentifier(identifiers) = expression else {
+        return None;
+    };
+    let [namespace, field] = identifiers.as_slice() else {
+        return None;
+    };
+    (namespace.quote_style.is_none()
+        && namespace.value.eq_ignore_ascii_case("datum")
+        && field.quote_style == Some('"'))
+    .then(|| field.value.clone())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RawDatumUse {
+    Field(String),
+    LegacyCall,
+    Invalid,
+}
+
+fn datum_uses(expression: &Expr, reserve_invalid_forms: bool) -> Vec<RawDatumUse> {
+    #[derive(Default)]
+    struct DatumUses {
+        reserve_invalid_forms: bool,
+        uses: Vec<RawDatumUse>,
+    }
+
+    impl Visitor for DatumUses {
+        type Break = ();
+
+        fn pre_visit_expr(&mut self, expression: &Expr) -> std::ops::ControlFlow<Self::Break> {
+            match expression {
+                Expr::CompoundIdentifier(identifiers)
+                    if identifiers.first().is_some_and(|identifier| {
+                        identifier.quote_style.is_none()
+                            && identifier.value.eq_ignore_ascii_case("datum")
+                    }) =>
+                {
+                    if let Some(field) = datum_field(expression) {
+                        self.uses.push(RawDatumUse::Field(field));
+                    } else if self.reserve_invalid_forms {
+                        self.uses.push(RawDatumUse::Invalid);
+                    }
+                }
+                Expr::Identifier(identifier)
+                    if self.reserve_invalid_forms
+                        && identifier.quote_style.is_none()
+                        && identifier.value.eq_ignore_ascii_case("datum") =>
+                {
+                    self.uses.push(RawDatumUse::Invalid);
+                }
+                Expr::Function(function)
+                    if function
+                        .name
+                        .0
+                        .last()
+                        .and_then(|part| part.as_ident())
+                        .is_some_and(|identifier| {
+                            identifier.quote_style.is_none()
+                                && identifier.value.eq_ignore_ascii_case("datum")
+                        }) =>
+                {
+                    self.uses.push(RawDatumUse::LegacyCall);
+                }
+                _ => {}
+            }
+            std::ops::ControlFlow::Continue(())
+        }
+    }
+
+    let mut uses = DatumUses {
+        reserve_invalid_forms,
+        uses: Vec::new(),
+    };
+    let _ = expression.visit(&mut uses);
+    uses.uses
 }
 
 fn helper_argument_path(expression: &Expr) -> Option<Vec<String>> {

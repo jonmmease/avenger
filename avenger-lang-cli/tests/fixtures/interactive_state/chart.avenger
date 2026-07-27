@@ -66,18 +66,18 @@ chart cartesian as chart {
       clause {
         id: 'clicked';
         equality {
-          id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum."id"; }
         }
       }
     }
     set selected_size = CASE
-      WHEN selection_contains(picked, datum('id')) THEN 520.0
+      WHEN selection_contains(picked, datum."id") THEN 520.0
       ELSE 80.0
     END;
   }
 
   on cursor_moved as drag {
-    filter: datum('id') IS NULL;
+    filter: datum."id" IS NULL;
     between: {
       start: mouse_down {}
       end: mouse_up {}

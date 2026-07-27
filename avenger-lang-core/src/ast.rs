@@ -410,8 +410,10 @@ impl SqlExpression {
 
     pub(crate) fn from_parsed(parsed: ParsedSqlIsland<Expr>) -> Result<Self, AstError> {
         let relation_names = relation_names(&parsed.ast);
+        let mut ast = parsed.ast;
+        normalize_datum_namespace(&mut ast);
         Ok(Self {
-            ast: parsed.ast,
+            ast,
             bindings: parsed
                 .bindings
                 .iter()
@@ -442,6 +444,13 @@ impl SqlExpression {
 
     pub(crate) fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
         let _ = VisitMut::visit(&mut self.ast, &mut IdentifierRewriter { replacement });
+    }
+
+    /// Replace contextual `datum."field"` references with ordinary quoted
+    /// identifiers. Compiler lowering uses this to let DataFusion plan the
+    /// surrounding SQL before restoring the runtime event expression.
+    pub fn rewrite_datum_fields(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        let _ = VisitMut::visit(&mut self.ast, &mut DatumFieldRewriter { replacement });
     }
 
     /// SQL column references and output/selector aliases, excluding relation
@@ -719,6 +728,57 @@ where
                 }
                 SelectItem::UnnamedExpr(_) => {}
             }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+fn normalize_datum_namespace(expression: &mut Expr) {
+    #[derive(Default)]
+    struct Normalizer;
+
+    impl VisitorMut for Normalizer {
+        type Break = ();
+
+        fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
+            if let Expr::CompoundIdentifier(identifiers) = expression
+                && let [namespace, field] = identifiers.as_mut_slice()
+                && namespace.quote_style.is_none()
+                && namespace.value.eq_ignore_ascii_case("datum")
+                && field.quote_style == Some('"')
+            {
+                namespace.value = "datum".to_owned();
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    let _ = VisitMut::visit(expression, &mut Normalizer);
+}
+
+struct DatumFieldRewriter<F> {
+    replacement: F,
+}
+
+impl<F> VisitorMut for DatumFieldRewriter<F>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    type Break = ();
+
+    fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
+        let Expr::CompoundIdentifier(identifiers) = expression else {
+            return ControlFlow::Continue(());
+        };
+        let [namespace, field] = identifiers.as_slice() else {
+            return ControlFlow::Continue(());
+        };
+        if namespace.quote_style.is_none()
+            && namespace.value.eq_ignore_ascii_case("datum")
+            && field.quote_style == Some('"')
+            && let Some(replacement) = (self.replacement)(&field.value)
+        {
+            *expression = Expr::Identifier(Ident::with_quote('"', replacement));
         }
         ControlFlow::Continue(())
     }
@@ -1112,6 +1172,26 @@ mod tests {
         assert_eq!(
             NumericLiteral::new("001.20E+003").unwrap().as_str(),
             "1.20e3"
+        );
+    }
+
+    #[test]
+    fn datum_field_references_are_canonical_and_ast_rewritable() {
+        let mut expression = SqlExpression::parse(r#"DATUM."a""b" + datum."value""#).unwrap();
+        assert_eq!(
+            expression.canonical_sql(),
+            r#"datum."a""b" + datum."value""#
+        );
+        expression.rewrite_datum_fields(|field| Some(format!("event_{field}")));
+        assert_eq!(
+            expression.canonical_sql(),
+            r#""event_a""b" + "event_value""#
+        );
+
+        let query = SqlQuery::parse(r#"SELECT datum."id" FROM input AS datum"#).unwrap();
+        assert_eq!(
+            query.canonical_sql(),
+            r#"SELECT datum."id" FROM input AS datum"#
         );
     }
 

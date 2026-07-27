@@ -2349,7 +2349,7 @@ chart cartesian as chart {
   mark group as layer {}
   variable row mpg {}
   adjust expr { x: "x" + 1; }
-  equality { id { field: "id"; value: datum('id'); } }
+  equality { id { field: "id"; value: datum."id"; } }
   on click { set point = NULL; set picked = clear; set cursor = 'crosshair'; }
 }"#,
         );

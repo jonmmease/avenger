@@ -406,6 +406,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.analyze_container_data(child, current_data.as_ref(), analysis)
                     .await?;
             }
+            if container.keyword == "mark"
+                && !is_resolved_mark_group(container)
+                && let Some(data) = current_data.as_ref()
+            {
+                analysis.push(chart_analysis_record(
+                    container,
+                    container,
+                    crate::DatasetStageKind::MarkInput,
+                    data,
+                ));
+            }
             Ok(())
         })
     }
@@ -4086,6 +4097,41 @@ impl<'a> ModuleLowerer<'a> {
             source_replacements.push((authored, replacement));
         }
 
+        let datum_replacements = expression
+            .datum_fields
+            .iter()
+            .enumerate()
+            .map(|(index, datum)| {
+                (
+                    datum.field.clone(),
+                    format!("__avenger_event_datum_{index:08}"),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !datum_replacements.is_empty() {
+            let mut parsed = SqlExpression::parse(&sql)
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            parsed.rewrite_datum_fields(|field| datum_replacements.get(field).cloned());
+            sql = parsed.canonical_sql();
+            for datum in &expression.datum_fields {
+                let synthetic = datum_replacements.get(&datum.field).ok_or_else(|| {
+                    lowerer_error(declaration, "resolved datum field is unavailable")
+                })?;
+                let seed = data
+                    .and_then(|data| data.schema().field_with_unqualified_name(&datum.field).ok())
+                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
+                    .unwrap_or_else(|| ScalarValue::Utf8(None));
+                parse_data = parse_data
+                    .with_column(synthetic, lit(seed.clone()))
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                replacements.insert(synthetic.clone(), event::datum(&datum.field));
+                source_replacements.push((
+                    datum_field_spelling(&datum.field),
+                    format!("\"{}\"", synthetic.replace('"', "\"\"")),
+                ));
+            }
+        }
+
         // sqlparser reports helper calls in pre-order. Lower them in reverse so
         // nested calls become synthetic columns before their parents are
         // planned. Parent SQL arguments can then refer to those columns.
@@ -4097,7 +4143,6 @@ impl<'a> ModuleLowerer<'a> {
                 data,
                 &parse_data,
                 &source_replacements,
-                &expression.helpers,
                 declaration,
             )?;
             let synthetic = format!("__avenger_event_helper_{index:08}");
@@ -4218,14 +4263,7 @@ impl<'a> ModuleLowerer<'a> {
                 ]))))
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?,
         };
-        self.event_helper_expr_with_context(
-            helper,
-            data,
-            &parse_data,
-            &[],
-            std::slice::from_ref(helper),
-            declaration,
-        )
+        self.event_helper_expr_with_context(helper, data, &parse_data, &[], declaration)
     }
 
     fn event_helper_expr_with_context(
@@ -4234,7 +4272,6 @@ impl<'a> ModuleLowerer<'a> {
         data: Option<&DataFrame>,
         parse_data: &DataFrame,
         source_replacements: &[(String, String)],
-        all_helpers: &[avenger_lang_core::ResolvedHelper],
         declaration: &ResolvedDeclaration,
     ) -> Result<(Expr, ScalarValue), Diagnostic> {
         use ResolvedHelperArgument::{Name, Number, String as StringArg};
@@ -4257,13 +4294,6 @@ impl<'a> ModuleLowerer<'a> {
                     .map_err(|_| lowerer_error(declaration, "event facet index is invalid"))?;
                 (event::event_facet_value(index), utf8())
             }
-            ("datum", [StringArg(field)]) => {
-                let seed = data
-                    .and_then(|data| data.schema().field_with_unqualified_name(field).ok())
-                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
-                    .unwrap_or_else(utf8);
-                (event::datum(field), seed)
-            }
             ("item_channel", [Name(channel)]) => (col(item_channel_column_name(channel)), float()),
             ("item_data", [StringArg(field)]) => {
                 let seed = data
@@ -4282,29 +4312,9 @@ impl<'a> ModuleLowerer<'a> {
                         target: ResolvedTarget::Selection(selection_id),
                         ..
                     },
-                    ResolvedHelperArgument::Sql(value_sql),
+                    ResolvedHelperArgument::DatumField(field),
                 ],
             ) => {
-                let field = all_helpers
-                    .iter()
-                    .find_map(|candidate| {
-                        if candidate.name != "datum"
-                            || helper_spelling(candidate, declaration).ok().as_deref()
-                                != Some(value_sql.as_str())
-                        {
-                            return None;
-                        }
-                        match candidate.arguments.as_slice() {
-                            [StringArg(field)] => Some(field.as_str()),
-                            _ => None,
-                        }
-                    })
-                    .ok_or_else(|| {
-                        lowerer_error(
-                            declaration,
-                            "selection_contains currently requires datum('field') as its value",
-                        )
-                    })?;
                 let selection = self.selections.get(selection_id).ok_or_else(|| {
                     lowerer_error(declaration, "resolved selection is unavailable")
                 })?;
@@ -5429,6 +5439,7 @@ fn helper_spelling(
                 Ok(value.clone())
             }
             ResolvedHelperArgument::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
+            ResolvedHelperArgument::DatumField(value) => Ok(datum_field_spelling(value)),
             ResolvedHelperArgument::Target { authored_path, .. } => Ok(authored_path.join(".")),
             ResolvedHelperArgument::Sql(value) => Ok(value.clone()),
             ResolvedHelperArgument::DefinitionChannel {
@@ -5452,6 +5463,10 @@ fn rewrite_source_fragment(source: &str, replacements: &[(String, String)]) -> S
         .fold(source.to_owned(), |source, (authored, replacement)| {
             source.replace(authored, replacement)
         })
+}
+
+fn datum_field_spelling(field: &str) -> String {
+    format!("datum.\"{}\"", field.replace('"', "\"\""))
 }
 
 fn rewrite_store_subquery_targets(
@@ -5504,6 +5519,7 @@ fn helper_argument_expr(
             value.clone()
         }
         ResolvedHelperArgument::String(value) => format!("'{}'", value.replace('\'', "''")),
+        ResolvedHelperArgument::DatumField(value) => datum_field_spelling(value),
         ResolvedHelperArgument::Sql(value) => value.clone(),
         ResolvedHelperArgument::Target { .. }
         | ResolvedHelperArgument::DefinitionChannel { .. } => {

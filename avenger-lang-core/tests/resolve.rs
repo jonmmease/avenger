@@ -2077,10 +2077,11 @@ chart cartesian as helpers {
   mark symbol as points { x: channel(y) + 1; y: "y"; }
   on click {
     target: mark points;
-    filter: selection_contains(picked, datum('id')) = true;
+    filter: selection_contains(picked, datum."id") = true;
     set cursor_x = event_coord(x) + 0;
   }
 }
+
 "#,
         )],
         "helpers.avenger",
@@ -2109,14 +2110,24 @@ chart cartesian as helpers {
     assert!(filter.helpers.iter().any(|helper| {
         helper.name == "selection_contains"
             && matches!(
-                helper.arguments.first(),
-                Some(avenger_lang_core::ResolvedHelperArgument::Target {
-                    target: ResolvedTarget::Selection(_),
-                    ..
-                })
+                helper.arguments.as_slice(),
+                [
+                    avenger_lang_core::ResolvedHelperArgument::Target {
+                        target: ResolvedTarget::Selection(_),
+                        ..
+                    },
+                    avenger_lang_core::ResolvedHelperArgument::DatumField(field),
+                ] if field == "id"
             )
     }));
-    assert!(filter.helpers.iter().any(|helper| helper.name == "datum"));
+    assert_eq!(
+        filter
+            .datum_fields
+            .iter()
+            .map(|reference| reference.field.as_str())
+            .collect::<Vec<_>>(),
+        ["id"]
+    );
     let avenger_lang_core::ResolvedValue::Expression(action) =
         &event.children[0].properties["value"]
     else {
@@ -2148,6 +2159,95 @@ chart cartesian as bad_helpers {
             .filter(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-154")
             .count(),
         2
+    );
+}
+
+#[tokio::test]
+async fn resolve_datum_fields_are_contextual_and_reject_removed_forms() {
+    let valid = project(
+        &[(
+            "datum.avenger",
+            r#"
+avenger 1;
+chart cartesian as datum_chart {
+  data: { values: [{ id: 1; }]; }
+  mark symbol as points { x: 1; y: 1; }
+  on click {
+    target: mark points;
+    filter: DATUM."id" = datum."id";
+  }
+}
+"#,
+        )],
+        "datum.avenger",
+    )
+    .await;
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let root = &resolved.source_modules.values().next().unwrap().roots[0];
+    let avenger_lang_core::ResolvedValue::Expression(filter) =
+        &root.children[1].properties["filter"]
+    else {
+        panic!("event filter expression")
+    };
+    assert_eq!(filter.sql, r#"datum."id" = datum."id""#);
+    assert_eq!(filter.datum_fields.len(), 1);
+    assert_eq!(filter.datum_fields[0].field, "id");
+
+    for (source, expected) in [
+        ("datum('id') IS NOT NULL", "AVENGER-RESOLVE-183"),
+        ("datum.id IS NOT NULL", "AVENGER-RESOLVE-184"),
+        ("datum IS NOT NULL", "AVENGER-RESOLVE-184"),
+        (r#"datum."id".value IS NOT NULL"#, "AVENGER-RESOLVE-184"),
+    ] {
+        let invalid_source = format!(
+            r#"
+avenger 1;
+chart cartesian as bad_datum {{
+  on click {{ filter: {source}; }}
+}}
+"#
+        );
+        let invalid = project(
+            &[("bad_datum.avenger", invalid_source.as_str())],
+            "bad_datum.avenger",
+        )
+        .await;
+        let failure = resolve_module_graph(&invalid, &bootstrap_schema())
+            .result
+            .unwrap_err();
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_str() == expected),
+            "missing {expected} for {source}: {:?}",
+            failure.diagnostics
+        );
+    }
+
+    let outside = project(
+        &[(
+            "outside.avenger",
+            r#"
+avenger 1;
+chart cartesian as outside {
+  mark symbol { x: datum."id"; y: 1; }
+}
+"#,
+        )],
+        "outside.avenger",
+    )
+    .await;
+    let failure = resolve_module_graph(&outside, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-110")
     );
 }
 

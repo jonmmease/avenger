@@ -16,10 +16,13 @@ use std::{
 };
 
 use arrow::datatypes::DataType;
-use avenger_lang_compiler::{AnalyzedDataset, ModuleAnalysis, physical_type_to_arrow};
+use avenger_lang_compiler::{
+    AnalyzedDataset, DatasetStageKind, ModuleAnalysis, physical_type_to_arrow,
+};
 use avenger_lang_core::{
     ByteSpan, PhysicalType, SourceOrigin, SourceSpan,
     ast::{SqlExpression, SqlProjection, SqlQuery},
+    resolve::{DeclarationId, ResolvedDeclaration, ResolvedEventScope, ResolvedTarget},
     sql::{DOMAIN_RANGE_HELPERS, LosslessTokenKind, RESERVED_HELPER_NAMES, TokenClass},
     syntax::{SqlIslandContext, SqlIslandRoot, TolerantSyntaxNodeKind},
 };
@@ -158,6 +161,7 @@ struct ColumnMetadata {
     nullable: bool,
     stage: String,
     lineage: Option<String>,
+    detail: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +207,12 @@ struct CachedSqlAnalysis {
 struct RepairedSql {
     text: String,
     generated: Vec<Range<usize>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DatumTokenSpans {
+    pub namespace: SourceSpan,
+    pub field: SourceSpan,
 }
 
 impl RepairedSql {
@@ -311,6 +321,11 @@ pub(crate) fn complete_sql(
             project,
             dataset_context,
         );
+        if context.root() == SqlIslandRoot::Expression
+            && let Some(datum) = event_datum_relation(project, &request.source, request.byte_offset)
+        {
+            scope.relations.push(datum);
+        }
         if context.root() == SqlIslandRoot::Query {
             reconcile_query_output_with_datafusion(
                 &text[node.span.range.as_range()],
@@ -373,14 +388,28 @@ pub(crate) fn complete_sql(
     let mut items = Vec::new();
     let mut incomplete = project.is_none();
     let qualifier = qualifier_before(text, node.span, replacement.range.start);
+    let quoted_qualifier = quoted_qualifier_before(text, node.span, replacement.range.start);
+    let qualifier = quoted_qualifier
+        .as_ref()
+        .map(|(qualifier, _)| qualifier.clone())
+        .or(qualifier);
+    let member_replacement = quoted_qualifier
+        .map(|(_, quote_start)| SourceSpan {
+            source: replacement.source,
+            range: ByteSpan {
+                start: quote_start,
+                end: replacement.range.end,
+            },
+        })
+        .unwrap_or(replacement);
 
-    if roles.contains(&SqlExpectedRole::QualifierMember)
+    if (roles.contains(&SqlExpectedRole::QualifierMember) || qualifier.is_some())
         && let Some(qualifier) = qualifier.as_deref()
     {
         let found = complete_qualifier(
             qualifier,
             prefix,
-            replacement,
+            member_replacement,
             roles,
             scope,
             catalog,
@@ -470,6 +499,130 @@ pub(crate) fn complete_sql(
             synthetic_ranges: cached.synthetic_ranges.clone(),
         },
     })
+}
+
+pub(crate) fn datum_hover(
+    request: &PositionRequest,
+    syntax: &SyntaxAnalysis,
+    semantic_roots: &BTreeMap<String, RootAnalysis>,
+    dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+) -> Option<(SourceSpan, String)> {
+    let node = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                TolerantSyntaxNodeKind::SqlIsland { context }
+                    if context.root() == SqlIslandRoot::Expression
+            ) && node.span.range.start <= request.byte_offset
+                && request.byte_offset <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())?;
+    let tokens = island_tokens(syntax, node.span);
+    let (spans, field) = datum_references_in_tokens(&tokens)
+        .into_iter()
+        .find(|(spans, _)| {
+            spans.namespace.range.start <= request.byte_offset
+                && request.byte_offset <= spans.field.range.end
+        })?;
+    let (project, _) = project_at(
+        &request.source,
+        request.byte_offset,
+        semantic_roots,
+        dataset_contexts,
+    );
+    let relation = event_datum_relation(project, &request.source, request.byte_offset)?;
+    let column = relation
+        .columns
+        .iter()
+        .find(|column| column.name == field)?;
+    let detail = column.detail.clone().unwrap_or_else(|| {
+        format!(
+            "{} · {} · logical hit row",
+            column.data_type,
+            nullability(column.nullable)
+        )
+    });
+    Some((
+        SourceSpan {
+            source: spans.namespace.source,
+            range: ByteSpan {
+                start: spans.namespace.range.start,
+                end: spans.field.range.end,
+            },
+        },
+        format!(
+            "```avenger\ndatum.\"{}\"\n```\n\nLogical pre-scale field from the hit mark instance.\n\n{detail}",
+            field.replace('"', "\"\"")
+        ),
+    ))
+}
+
+pub(crate) fn datum_semantic_token_spans(
+    analysis: &crate::WorkspaceAnalysis,
+    origin: &SourceOrigin,
+) -> Vec<DatumTokenSpans> {
+    let Some(syntax) = analysis.syntax.get(origin) else {
+        return Vec::new();
+    };
+    let mut output = Vec::new();
+    for node in &syntax.parsed.nodes {
+        let TolerantSyntaxNodeKind::SqlIsland { context } = node.kind else {
+            continue;
+        };
+        if context.root() != SqlIslandRoot::Expression {
+            continue;
+        }
+        let cursor = node.span.range.start;
+        let (project, _) = project_at(
+            origin,
+            cursor,
+            &analysis.semantic_roots,
+            &analysis.dataset_contexts,
+        );
+        if event_datum_relation(project, origin, cursor).is_none() {
+            continue;
+        }
+        output.extend(
+            datum_references_in_tokens(&island_tokens(syntax, node.span))
+                .into_iter()
+                .map(|(spans, _)| spans),
+        );
+    }
+    output
+}
+
+fn datum_references_in_tokens(tokens: &[SqlToken<'_>]) -> Vec<(DatumTokenSpans, String)> {
+    tokens
+        .windows(3)
+        .filter_map(|window| {
+            let [namespace, period, field] = window else {
+                return None;
+            };
+            let Some(Token::Word(namespace_word)) = namespace.token else {
+                return None;
+            };
+            let Some(Token::Word(field_word)) = field.token else {
+                return None;
+            };
+            if namespace_word.quote_style.is_some()
+                || !namespace_word.value.eq_ignore_ascii_case("datum")
+                || !period.is_period()
+                || field_word.quote_style != Some('"')
+            {
+                return None;
+            }
+            Some((
+                DatumTokenSpans {
+                    namespace: namespace.span,
+                    field: field.span,
+                },
+                field_word.value.clone(),
+            ))
+        })
+        .collect()
 }
 
 fn sql_cache_key(
@@ -909,6 +1062,7 @@ fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
                                         .join(", ")
                                 })
                         }),
+                        detail: None,
                     })
                     .collect(),
                 detail: format!(
@@ -921,6 +1075,228 @@ fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
             })
         })
         .collect()
+}
+
+fn event_datum_relation(
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> Option<RelationMetadata> {
+    let project = project?;
+    let resolved = project.resolved_module_graph.as_deref()?;
+    let event = resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+        .filter_map(|root| find_enclosing_event(root, resolved, origin, cursor))
+        .min_by_key(|event| event.span.range.len())?;
+    let binding = event.event_binding.as_ref()?;
+    let scope_id = match &binding.scope {
+        ResolvedEventScope::Plot(id) | ResolvedEventScope::Subplots { plot: id, .. } => id,
+    };
+    let scope = resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+        .find_map(|root| find_declaration(root, scope_id))?;
+
+    let mut marks = Vec::new();
+    if binding.targets.is_empty() {
+        collect_primitive_marks(scope, &mut marks);
+    } else {
+        for target in &binding.targets {
+            collect_target_primitive_marks(scope, target, &mut marks);
+        }
+    }
+    marks.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
+    marks.dedup_by(|left, right| left.id == right.id);
+    if marks.is_empty() {
+        return None;
+    }
+
+    let schemas = marks
+        .iter()
+        .filter_map(|mark| {
+            project
+                .datasets
+                .iter()
+                .filter(|(_, dataset)| {
+                    dataset.provenance.stage_kind == DatasetStageKind::MarkInput
+                        && dataset.provenance.declaration_span == mark.span
+                })
+                .map(|(_, dataset)| dataset)
+                .last()
+                .map(|dataset| (*mark, dataset))
+        })
+        .collect::<Vec<_>>();
+    if schemas.is_empty() {
+        return None;
+    }
+
+    let mut fields = BTreeMap::<String, Vec<(&ResolvedDeclaration, &ColumnMetadata)>>::new();
+    let schema_columns = schemas
+        .iter()
+        .map(|(_, dataset)| {
+            dataset
+                .columns
+                .iter()
+                .map(|column| ColumnMetadata {
+                    name: column.name.clone(),
+                    qualifier: Some("datum".to_owned()),
+                    data_type: column.data_type.clone(),
+                    nullable: column.nullable,
+                    stage: "event datum".to_owned(),
+                    lineage: None,
+                    detail: None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    for ((mark, _), columns) in schemas.iter().zip(&schema_columns) {
+        for column in columns {
+            fields
+                .entry(column.name.clone())
+                .or_default()
+                .push((*mark, column));
+        }
+    }
+
+    let total = schemas.len();
+    let columns = fields
+        .into_iter()
+        .map(|(name, candidates)| {
+            let first_type = candidates[0].1.data_type.clone();
+            let consistent = candidates
+                .iter()
+                .all(|(_, column)| column.data_type == first_type);
+            let coverage = candidates.len();
+            let mut types = candidates
+                .iter()
+                .map(|(_, column)| column.data_type.to_string())
+                .collect::<Vec<_>>();
+            types.sort();
+            types.dedup();
+            let targets = candidates
+                .iter()
+                .map(|(mark, _)| {
+                    mark.public_path
+                        .as_deref()
+                        .or(mark.name.as_deref())
+                        .or(mark.kind.as_deref())
+                        .unwrap_or("anonymous mark")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let nullable =
+                coverage < total || candidates.iter().any(|(_, column)| column.nullable);
+            ColumnMetadata {
+                name,
+                qualifier: Some("datum".to_owned()),
+                data_type: if consistent {
+                    first_type
+                } else {
+                    DataType::Null
+                },
+                nullable,
+                stage: "event datum".to_owned(),
+                lineage: None,
+                detail: Some(if consistent {
+                    format!(
+                        "{} · {} · logical hit row · {coverage}/{total} targets ({targets})",
+                        candidates[0].1.data_type,
+                        nullability(nullable)
+                    )
+                } else {
+                    format!(
+                        "target-dependent ({}) · {} · logical hit row · {coverage}/{total} targets ({targets})",
+                        types.join(" | "),
+                        nullability(nullable)
+                    )
+                }),
+            }
+        })
+        .collect();
+
+    Some(RelationMetadata {
+        path: vec!["datum".to_owned()],
+        alias: Some("datum".to_owned()),
+        columns,
+        detail: "logical pre-scale row of the hit mark instance".to_owned(),
+        scope_depth: 0,
+    })
+}
+
+fn find_enclosing_event<'a>(
+    declaration: &'a ResolvedDeclaration,
+    project: &avenger_lang_core::ResolvedModuleGraph,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> Option<&'a ResolvedDeclaration> {
+    let authored = project.expansion_source_map.authored_span(declaration.span);
+    let source = project.sources.get(authored.source)?;
+    if !same_origin(&source.origin, origin)
+        || authored.range.start > cursor
+        || cursor > authored.range.end
+    {
+        return None;
+    }
+    declaration
+        .children
+        .iter()
+        .filter_map(|child| find_enclosing_event(child, project, origin, cursor))
+        .min_by_key(|event| event.span.range.len())
+        .or_else(|| declaration.event_binding.as_ref().map(|_| declaration))
+}
+
+fn find_declaration<'a>(
+    declaration: &'a ResolvedDeclaration,
+    id: &DeclarationId,
+) -> Option<&'a ResolvedDeclaration> {
+    if &declaration.id == id {
+        return Some(declaration);
+    }
+    declaration
+        .children
+        .iter()
+        .find_map(|child| find_declaration(child, id))
+}
+
+fn collect_primitive_marks<'a>(
+    declaration: &'a ResolvedDeclaration,
+    output: &mut Vec<&'a ResolvedDeclaration>,
+) {
+    if declaration.keyword == "mark" && declaration.kind.as_deref() != Some("group") {
+        output.push(declaration);
+        return;
+    }
+    for child in &declaration.children {
+        collect_primitive_marks(child, output);
+    }
+}
+
+fn collect_target_primitive_marks<'a>(
+    declaration: &'a ResolvedDeclaration,
+    target: &ResolvedTarget,
+    output: &mut Vec<&'a ResolvedDeclaration>,
+) {
+    let matches = match (target, declaration.runtime_target.as_ref()) {
+        (ResolvedTarget::Mark(expected), Some(ResolvedTarget::Mark(actual))) => expected == actual,
+        (
+            ResolvedTarget::Part {
+                declaration: expected,
+                ..
+            },
+            _,
+        ) => expected == &declaration.id,
+        _ => false,
+    };
+    if matches {
+        collect_primitive_marks(declaration, output);
+        return;
+    }
+    for child in &declaration.children {
+        collect_target_primitive_marks(child, target, output);
+    }
 }
 
 fn build_query_scope(
@@ -964,6 +1340,7 @@ fn build_query_scope(
                     nullable: column.nullable,
                     stage: format!("{}#{}", stage.dataset.as_str(), stage.ordinal),
                     lineage: None,
+                    detail: None,
                 })
                 .collect(),
             detail: "exact pipeline input".to_owned(),
@@ -1042,6 +1419,7 @@ fn reconcile_query_output_with_datafusion(
                 .iter()
                 .find(|column| column.name.eq_ignore_ascii_case(field.name()))
                 .and_then(|column| column.lineage.clone()),
+            detail: None,
         })
         .collect();
 }
@@ -1354,6 +1732,7 @@ fn projection_aliases(
                     nullable: true,
                     stage: "projection".to_owned(),
                     lineage: item.iter().find_map(SqlToken::word).map(str::to_owned),
+                    detail: None,
                 });
             }
         } else if let Some(name) = item.iter().rev().find_map(SqlToken::word) {
@@ -1368,6 +1747,7 @@ fn projection_aliases(
                 nullable: true,
                 stage: "projection".to_owned(),
                 lineage: None,
+                detail: None,
             }));
         }
         item_start = item_end.saturating_add(1);
@@ -1438,6 +1818,31 @@ fn qualifier_before(text: &str, island: SourceSpan, start: usize) -> Option<Stri
     }
     parts.reverse();
     (!parts.is_empty()).then(|| parts.join("."))
+}
+
+fn quoted_qualifier_before(
+    text: &str,
+    island: SourceSpan,
+    start: usize,
+) -> Option<(String, usize)> {
+    let quote = start.checked_sub(1)?;
+    if quote < island.range.start || text.as_bytes().get(quote) != Some(&b'"') {
+        return None;
+    }
+    let period = quote.checked_sub(1)?;
+    if period < island.range.start || text.as_bytes().get(period) != Some(&b'.') {
+        return None;
+    }
+    let mut position = period;
+    while position > island.range.start {
+        let character = text[..position].chars().next_back()?;
+        if character == '_' || character == '$' || character.is_alphanumeric() {
+            position -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (position < period).then(|| (text[position..period].to_owned(), quote))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1582,9 +1987,21 @@ fn complete_column_members(
     relation: &RelationMetadata,
     output: &mut Vec<CompletionItem>,
 ) {
+    let quoted_members = relation.visible_name().eq_ignore_ascii_case("datum")
+        && relation.detail.starts_with("logical pre-scale");
+    let typed = if quoted_members {
+        prefix.trim_start_matches('"').replace("\"\"", "\"")
+    } else {
+        prefix.to_owned()
+    };
     for column in &relation.columns {
-        if candidate_matches(&column.name, prefix) {
-            output.push(column_candidate(column, &column.name, replacement, "00"));
+        if candidate_matches(&column.name, &typed) {
+            let insert = if quoted_members {
+                format!("\"{}\"", column.name.replace('"', "\"\""))
+            } else {
+                column.name.clone()
+            };
+            output.push(column_candidate(column, &insert, replacement, "00"));
         }
     }
 }
@@ -1635,6 +2052,11 @@ fn complete_columns(
         *counts.entry(column.name.to_ascii_lowercase()).or_default() += 1;
     }
     for relation in &scope.relations {
+        if relation.visible_name().eq_ignore_ascii_case("datum")
+            && relation.detail.starts_with("logical pre-scale")
+        {
+            continue;
+        }
         for column in &relation.columns {
             let ambiguous = counts
                 .get(&column.name.to_ascii_lowercase())
@@ -1703,6 +2125,7 @@ fn table_binding_relations(
                         nullable: field.nullable,
                         stage: format!("store:${}", symbol.name),
                         lineage: None,
+                        detail: None,
                     })
                     .collect(),
                 detail: "table-valued store".to_owned(),
@@ -1813,12 +2236,14 @@ fn column_candidate(
     replacement: SourceSpan,
     bucket: &str,
 ) -> CompletionItem {
-    let mut detail = format!(
-        "{} · {} · stage {}",
-        column.data_type,
-        nullability(column.nullable),
-        column.stage
-    );
+    let mut detail = column.detail.clone().unwrap_or_else(|| {
+        format!(
+            "{} · {} · stage {}",
+            column.data_type,
+            nullability(column.nullable),
+            column.stage
+        )
+    });
     if let Some(qualifier) = &column.qualifier {
         detail.push_str(&format!(" · {qualifier}"));
     }

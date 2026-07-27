@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use avenger_lang_analysis::{
     AnalysisCancellation, AnalysisGeneration, AnalysisService, CodeActionRequest,
-    CompletionOptions, DocumentSnapshot, PositionRequest, SourceRevision, WorkspaceAnalysis,
-    WorkspaceSnapshot, analyze_syntax,
+    CompletionOptions, DocumentRequest, DocumentSnapshot, PositionRequest, SemanticTokenKind,
+    SourceRevision, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{ByteSpan, InMemorySourceLoader, ModuleRoot, SourceOrigin, SourceSpan};
@@ -61,6 +61,10 @@ chart cartesian as chart {{
     x: {expression};
     y: rating;
   }}
+  on cursor_moved as inspect {{
+    target: mark points;
+    filter: true;
+  }}
 }}
 "#
     )
@@ -76,12 +80,7 @@ fn chart_query_source(query: &str) -> String {
 }
 
 fn chart_handler_source(expression: &str) -> String {
-    chart_source("rating").replace(
-        "  mark symbol as points {",
-        &format!(
-            "  on cursor_moved as inspect {{\n    filter: {expression};\n  }}\n  mark symbol as points {{"
-        ),
-    )
+    chart_source("rating").replace("    filter: true;", &format!("    filter: {expression};"))
 }
 
 async fn fixture() -> Fixture {
@@ -144,6 +143,57 @@ async fn fixture() -> Fixture {
     Fixture {
         analysis,
         data,
+        chart,
+    }
+}
+
+async fn chart_only_fixture(text: &str) -> Fixture {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let _ = Box::leak(Box::new(directory));
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(InMemorySourceLoader::default()))
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root,
+                roots: vec![ModuleRoot::requested(chart.clone())],
+                open_documents: BTreeMap::from([(
+                    chart.clone(),
+                    DocumentSnapshot::new(
+                        chart.clone(),
+                        SourceRevision::from_text(text),
+                        text.to_owned(),
+                    ),
+                )]),
+                known_disk_sources: vec![chart.clone()],
+                native_registry_profile: profile,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_ok(),
+        "{:?}",
+        analysis.semantic_roots[&chart.canonical_uri()].result
+    );
+    Fixture {
+        analysis,
+        data: chart.clone(),
         chart,
     }
 }
@@ -391,6 +441,236 @@ async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
         chart_source("CAST(rating AS DO⟦cursor⟧)"),
     );
     assert!(labels(&data_type).contains(&"DOUBLE"));
+}
+
+#[tokio::test]
+async fn event_datum_completion_is_target_aware_and_always_quotes_fields() {
+    let fixture = fixture().await;
+    let completion = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("datum.⟦cursor⟧"),
+    );
+    for expected in ["id", "title", "category", "rating"] {
+        let item = completion
+            .items
+            .iter()
+            .find(|item| item.label == expected)
+            .unwrap_or_else(|| panic!("missing {expected}: {:?}", labels(&completion)));
+        assert_eq!(item.insert_text, format!("\"{expected}\""));
+        assert!(
+            item.detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("logical hit row")),
+            "{:?}",
+            item.detail
+        );
+    }
+
+    let partial = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("datum.\"ra⟦cursor⟧"),
+    );
+    let rating = partial
+        .items
+        .iter()
+        .find(|item| item.label == "rating")
+        .expect("partial quoted datum field completion");
+    assert_eq!(rating.insert_text, "\"rating\"");
+}
+
+#[tokio::test]
+async fn event_datum_hover_tokens_and_migration_actions_are_contextual() {
+    let fixture = fixture().await;
+    let marked = chart_handler_source(r#"da⟦cursor⟧tum."rating""#);
+    let cursor = marked.find(CURSOR).unwrap();
+    let text = marked.replacen(CURSOR, "", 1);
+    let revision = SourceRevision::from_text(&text);
+    let mut syntax = fixture.analysis.syntax.clone();
+    syntax.insert(
+        fixture.chart.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            fixture.chart.clone(),
+            revision.clone(),
+            text,
+        )),
+    );
+    let analysis = fixture
+        .analysis
+        .with_syntax(AnalysisGeneration::new(2), syntax);
+    let request = PositionRequest {
+        source: fixture.chart.clone(),
+        byte_offset: cursor,
+        source_revision: revision.clone(),
+    };
+    let hover = analysis
+        .hover(&request, &AnalysisCancellation::default())
+        .unwrap()
+        .expect("datum hover");
+    assert!(hover.markdown.contains("Float64"), "{}", hover.markdown);
+    assert!(
+        hover.markdown.contains("Logical pre-scale field"),
+        "{}",
+        hover.markdown
+    );
+    let tokens = analysis
+        .semantic_tokens(
+            &DocumentRequest {
+                source: fixture.chart.clone(),
+                source_revision: revision,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .tokens;
+    assert!(tokens.iter().any(|token| {
+        token.kind == SemanticTokenKind::Namespace && token.modifiers.default_library
+    }));
+    assert!(
+        tokens
+            .iter()
+            .any(|token| { token.kind == SemanticTokenKind::Field && token.modifiers.readonly })
+    );
+
+    for (authored, expected) in [
+        ("datum('rating')", r#"datum."rating""#),
+        ("datum.rating", r#"datum."rating""#),
+    ] {
+        let source = chart_handler_source(authored);
+        let revision = SourceRevision::from_text(&source);
+        let mut syntax = fixture.analysis.syntax.clone();
+        syntax.insert(
+            fixture.chart.clone(),
+            analyze_syntax(&DocumentSnapshot::new(
+                fixture.chart.clone(),
+                revision.clone(),
+                source.clone(),
+            )),
+        );
+        let analysis = fixture
+            .analysis
+            .with_syntax(AnalysisGeneration::new(3), syntax);
+        let start = source.find(authored).unwrap();
+        let actions = analysis
+            .code_actions(
+                &CodeActionRequest {
+                    source: fixture.chart.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&fixture.chart].parsed.nodes[0].span.source,
+                        range: ByteSpan {
+                            start,
+                            end: start + authored.len(),
+                        },
+                    },
+                    source_revision: revision,
+                    diagnostic_codes: Vec::new(),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            actions.iter().any(|action| {
+                action
+                    .edit
+                    .sources
+                    .get(&fixture.chart)
+                    .is_some_and(|edits| edits.edits.iter().any(|edit| edit.new_text == expected))
+            }),
+            "missing migration action for {authored}: {actions:?}"
+        );
+    }
+
+    for authored in ["'datum(''rating'')'", "'datum.rating'"] {
+        let source = chart_handler_source(authored);
+        let revision = SourceRevision::from_text(&source);
+        let mut syntax = fixture.analysis.syntax.clone();
+        syntax.insert(
+            fixture.chart.clone(),
+            analyze_syntax(&DocumentSnapshot::new(
+                fixture.chart.clone(),
+                revision.clone(),
+                source.clone(),
+            )),
+        );
+        let analysis = fixture
+            .analysis
+            .with_syntax(AnalysisGeneration::new(4), syntax);
+        let start = source.find(authored).unwrap();
+        let actions = analysis
+            .code_actions(
+                &CodeActionRequest {
+                    source: fixture.chart.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&fixture.chart].parsed.nodes[0].span.source,
+                        range: ByteSpan {
+                            start,
+                            end: start + authored.len(),
+                        },
+                    },
+                    source_revision: revision,
+                    diagnostic_codes: Vec::new(),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            actions
+                .iter()
+                .all(|action| !action.title.starts_with("Use `datum.")),
+            "datum text inside a SQL string received a migration action: {actions:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn event_datum_completion_reports_union_coverage_and_type_conflicts() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  mark symbol as numeric {
+    data: { values: [{ id: 1; only_numeric: 2.0; }]; }
+    x: 1;
+    y: 1;
+  }
+  mark symbol as textual {
+    data: { values: [{ id: 'one'; only_textual: true; }]; }
+    x: 2;
+    y: 2;
+  }
+  on click as inspect {
+    filter: datum."id" IS NOT NULL;
+  }
+}
+"#;
+    let fixture = chart_only_fixture(source).await;
+    let marked = source.replace(r#"datum."id" IS NOT NULL"#, "datum.⟦cursor⟧");
+    let completion = complete_marked(&fixture, &fixture.chart, marked);
+    let id = completion
+        .items
+        .iter()
+        .find(|item| item.label == "id")
+        .expect("shared conflicting datum field");
+    assert!(
+        id.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("target-dependent")),
+        "{:?}",
+        id.detail
+    );
+    let only_numeric = completion
+        .items
+        .iter()
+        .find(|item| item.label == "only_numeric")
+        .expect("partial-coverage datum field");
+    assert!(
+        only_numeric
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("1/2 targets")),
+        "{:?}",
+        only_numeric.detail
+    );
+    assert_eq!(only_numeric.insert_text, "\"only_numeric\"");
 }
 
 #[tokio::test]

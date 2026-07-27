@@ -3000,6 +3000,19 @@ impl<'a> QueryContext<'a> {
         cancellation: &AnalysisCancellation,
     ) -> Result<Option<HoverResult>, AnalysisQueryError> {
         let syntax = self.syntax(request, cancellation)?;
+        if let Some((span, markdown)) = crate::sql_intelligence::datum_hover(
+            request,
+            syntax,
+            self.semantic_roots,
+            self.dataset_contexts,
+        ) {
+            return Ok(Some(HoverResult {
+                span,
+                markdown,
+                generation: self.generation,
+                source_revision: request.source_revision.clone(),
+            }));
+        }
         let symbol = self.index.symbol_at(&request.source, request.byte_offset);
         let reference = self
             .index

@@ -7,7 +7,7 @@ use avenger_lang_core::{
     ByteSpan, SourceFile, SourceId, SourceOrigin, SourceSpan,
     ast::{ImportClause, Name},
     module_graph::normalize_path,
-    sql::{LosslessTokenKind, TokenClass},
+    sql::{LosslessTokenKind, TokenClass, tokenize_lossless},
     syntax::{ImportClauseSyntax, format_source, parse_file},
 };
 use sqlparser::tokenizer::Token;
@@ -129,6 +129,24 @@ pub(crate) fn semantic_tokens(
                 modifiers: SemanticTokenModifiers::default(),
             });
         }
+    }
+    for spans in crate::sql_intelligence::datum_semantic_token_spans(analysis, &request.source) {
+        tokens.push(SemanticToken {
+            span: spans.namespace,
+            kind: SemanticTokenKind::Namespace,
+            modifiers: SemanticTokenModifiers {
+                default_library: true,
+                ..SemanticTokenModifiers::default()
+            },
+        });
+        tokens.push(SemanticToken {
+            span: spans.field,
+            kind: SemanticTokenKind::Field,
+            modifiers: SemanticTokenModifiers {
+                readonly: true,
+                ..SemanticTokenModifiers::default()
+            },
+        });
     }
     let text = syntax.parsed.tokens.text();
     tokens.retain(|token| {
@@ -541,6 +559,7 @@ pub(crate) fn code_actions(
     missing_as_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
+    datum_reference_actions(analysis, request, &mut actions);
     inline_definition_action(analysis, request, &mut actions);
     extract_definition_action(analysis, request, &mut actions);
     cancellation
@@ -551,6 +570,145 @@ pub(crate) fn code_actions(
     });
     actions.dedup_by(|left, right| left.title == right.title && left.edit == right.edit);
     Ok(actions)
+}
+
+fn datum_reference_actions(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let text = syntax.parsed.tokens.text();
+    for island in syntax.parsed.nodes.iter().filter(|node| {
+        matches!(
+            node.kind,
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::SqlIsland {
+                context: avenger_lang_core::syntax::SqlIslandContext::PropertyExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::TerminatedExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::ArrayExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::AliasedExpression
+            }
+        ) && spans_overlap(node.span, request.range)
+    }) {
+        let source = &text[island.span.range.as_range()];
+        for (relative, replacement_len, field) in legacy_datum_literals(source)
+            .into_iter()
+            .chain(unquoted_datum_fields(source))
+        {
+            let span = SourceSpan {
+                source: island.span.source,
+                range: ByteSpan {
+                    start: island.span.range.start + relative,
+                    end: island.span.range.start + relative + replacement_len,
+                },
+            };
+            if !spans_overlap(span, request.range) {
+                continue;
+            }
+            let replacement = format!("datum.\"{}\"", field.replace('"', "\"\""));
+            output.push(quick_fix(
+                format!("Use `{replacement}`"),
+                request,
+                span,
+                replacement,
+                true,
+            ));
+        }
+    }
+}
+
+fn legacy_datum_literals(source: &str) -> Vec<(usize, usize, String)> {
+    let lower = source.to_ascii_lowercase();
+    let mut output = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = lower[cursor..].find("datum(") {
+        let start = cursor + found;
+        if !is_datum_token_start(source, start) {
+            cursor = start + 6;
+            continue;
+        }
+        let mut position = start + 6;
+        if source.as_bytes().get(position) != Some(&b'\'') {
+            cursor = position;
+            continue;
+        }
+        position += 1;
+        let mut field = String::new();
+        let mut closed = false;
+        while position < source.len() {
+            let Some(character) = source[position..].chars().next() else {
+                break;
+            };
+            if character == '\'' {
+                if source.as_bytes().get(position + 1) == Some(&b'\'') {
+                    field.push('\'');
+                    position += 2;
+                    continue;
+                }
+                position += 1;
+                closed = true;
+                break;
+            }
+            field.push(character);
+            position += character.len_utf8();
+        }
+        if closed && source.as_bytes().get(position) == Some(&b')') {
+            output.push((start, position + 1 - start, field));
+            cursor = position + 1;
+        } else {
+            cursor = (start + 6).min(source.len());
+        }
+    }
+    output
+}
+
+fn unquoted_datum_fields(source: &str) -> Vec<(usize, usize, String)> {
+    let lower = source.to_ascii_lowercase();
+    let mut output = Vec::new();
+    let mut cursor = 0;
+    while let Some(found) = lower[cursor..].find("datum.") {
+        let start = cursor + found;
+        let field_start = start + 6;
+        if !is_datum_token_start(source, start) || source.as_bytes().get(field_start) == Some(&b'"')
+        {
+            cursor = field_start;
+            continue;
+        }
+        let mut end = field_start;
+        while end < source.len() {
+            let Some(character) = source[end..].chars().next() else {
+                break;
+            };
+            if character == '_' || character.is_alphanumeric() {
+                end += character.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if end > field_start {
+            output.push((start, end - start, source[field_start..end].to_owned()));
+        }
+        cursor = end.max(field_start);
+    }
+    output
+}
+
+fn is_datum_token_start(source: &str, start: usize) -> bool {
+    let source = SourceFile::new(
+        SourceId::new(0),
+        SourceOrigin::Memory("datum-code-action".to_owned()),
+        source.to_owned(),
+    );
+    tokenize_lossless(&source).tokens().iter().any(|token| {
+        token.span().range.start == start
+            && matches!(
+                token.token(),
+                Some(Token::Word(word))
+                    if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("datum")
+            )
+    })
 }
 
 pub(crate) fn pin_import_target(

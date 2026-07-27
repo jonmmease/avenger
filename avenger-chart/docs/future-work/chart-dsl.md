@@ -18,9 +18,11 @@ cut and its per-phase gates — is
 Adopted decisions (2026-07-07): a required `avenger 1;` version pragma; SQL
 string semantics everywhere with mandatory double-quoted data columns and
 bare identifiers reserved for DSL names; `value` as the only unscaled
-spelling; reserved helper functions (`channel(x)`, `datum('id')`, ...)
-instead of sigil forms, with bare arguments for DSL-space names and strings
-for data-space names; `sql:` restricted to query statements; cross-file
+spelling; reserved helper functions (`channel(x)`, `event_coord(x)`, ...)
+instead of sigil forms, plus the contextual event-row relation
+`datum."field"`; helper arguments use bare names for DSL-space values and
+strings where a helper explicitly accepts data-space names; `sql:` restricted
+to query statements; cross-file
 reuse via `import` and parameterized `define` with `channel` parameters; a
 two-tier kind model in which native built-ins are registered by the host and
 custom compound marks, tools, and transform pipelines are authored with
@@ -217,10 +219,10 @@ aliases that instance's public output handles.
   checks its kind. In event expressions, param reads may add `@start` or
   `@previous` to select a frozen temporal version (`$width@start` reads “width at
   start”); stores do not admit temporal qualifiers. Positional placeholders are
-  rejected. All other DSL-injected
-  references are reserved
-  helper functions (`channel(x)`, `datum('id')`, `event_coord(x)`, ...),
-  which tokenize as ordinary SQL. Qualified binding references use a pre-parse token
+  rejected. Other DSL-injected references are reserved helper functions
+  (`channel(x)`, `event_coord(x)`, ...), which tokenize as ordinary SQL,
+  or the event-only contextual relation `datum."field"`, which tokenizes as
+  an ordinary qualified SQL identifier. Qualified binding references use a pre-parse token
   normalization pass, not a custom lexer.
 - Keep the DSL lexical surface compatible with DataFusion SQL tokenization.
   The whole file should tokenize through `sqlparser-rs` before the
@@ -832,7 +834,7 @@ field float64 x nullable;
 variable row mpg { expr: "mpg"; }
 
 equality {
-  id { field: "id"; value: datum('id'); }
+  id { field: "id"; value: datum."id"; }
 }
 ```
 
@@ -1181,16 +1183,16 @@ mark rect as bars {
 }
 ```
 
-The same mechanism covers every DSL-injected reference. Helper arguments
+Helper arguments
 follow the language's core rule: arguments naming DSL-space things —
 channels, enum values, declared ids, exported state paths — are bare identifiers
 or bare qualified paths; their helper signature supplies the expected kind.
-Arguments naming data-space things — datum fields, store columns — are strings. The reserved
-helper namespace:
+Arguments naming data-space things are strings when the helper signature calls
+for a string. The reserved helper namespace, plus the contextual datum form:
 
 ```text
 channel(x)                   reference another channel of the same mark
-datum('id')                  event / row datum field
+datum."id"                   logical event-row field (not a function)
 event_coord(x)               event coordinate in a channel's space
 start_coord(x)               between-binding start coordinate
 event_domain_start(x)        event-time scale domain start
@@ -1198,7 +1200,7 @@ event_domain_end(x)          event-time scale domain end
 event_path()                 accumulated drag path of a between-binding
 event_facet_value(0)         event facet-path component
 legend_value()               legend-surface event value
-selection_contains(picked, datum('id'))   selection predicate
+selection_contains(picked, datum."id")   selection predicate
 item_channel(x)              mark-effect item channel value
 item_data('label')           mark-effect source datum field
 item_bbox(top)               mark-effect item bounding box
@@ -1207,6 +1209,15 @@ span(lo, hi)                 construct a domain interval value
 span_ordered(a, b)           domain interval with endpoints sorted
 polygon(event_path())        scene-query geometry from a drag path
 ```
+
+`datum."field"` is reserved only throughout scalar event-expression islands.
+It identifies the logical source row of the hit primitive mark before visual
+scaling. The field component is always a double-quoted SQL identifier, uses
+ordinary `""` escaping, and preserves the exact Arrow value. A missing field
+on a possible target or an event without a mark hit produces a typed null.
+`datum.id`, bare `datum`, deeper paths, and the removed `datum('id')` spelling
+are errors. Full SQL queries do not reserve the name: for example,
+`SELECT datum."id" FROM input AS datum` retains ordinary SQL alias semantics.
 
 The helper names are checked against sqlparser's reserved-for-identifier
 inventory. In particular, `interval(...)` is not a helper spelling: `INTERVAL`
@@ -2295,7 +2306,7 @@ first match wins — with an optional `otherwise`:
 ```avenger
 fill: "region" {
   when {
-    predicate: selection_contains(picked, datum('id'));
+    predicate: selection_contains(picked, datum."id");
     value: '#2563eb';
   }
   otherwise: {
@@ -2707,11 +2718,11 @@ distinct from declarative `:` configuration:
 ```avenger
 on click as select_outlier {
   target: mark manual_box_plot.fence.outlier_layer.outliers;
-  filter: datum('value') > $threshold;
+  filter: datum."value" > $threshold;
   consume: true;
 
-  set selected_group = datum('group');
-  set selected_value = datum('value');
+  set selected_group = datum."group";
+  set selected_value = datum."value";
 }
 ```
 
@@ -2778,7 +2789,7 @@ same ordering:
 
 ```avenger
 set brush = insert_rows {
-  row { id: datum('id'); }
+  row { id: datum."id"; }
 }
 set brush_count = (SELECT count(*) FROM $brush);
 ```
@@ -3013,20 +3024,20 @@ payloads:
 
 ```avenger
 set hover = clear;
-set hover = insert_rows  { row { id: datum('id'); } }
-set hover = replace_rows { row { id: datum('id'); } }
-set hover = upsert_rows  { row { id: datum('id'); x: event_coord(x); } }
-set hover = update_by_key { key { id: datum('id'); } fields { x: event_coord(x); } }
-set hover = delete_by_key { key { id: datum('id'); } }
-set hover = toggle_rows  { row { id: datum('id'); } }
+set hover = insert_rows  { row { id: datum."id"; } }
+set hover = replace_rows { row { id: datum."id"; } }
+set hover = upsert_rows  { row { id: datum."id"; x: event_coord(x); } }
+set hover = update_by_key { key { id: datum."id"; } fields { x: event_coord(x); } }
+set hover = delete_by_key { key { id: datum."id"; } }
+set hover = toggle_rows  { row { id: datum."id"; } }
 
 set picked = clear;
 set picked = clear_in_scope { scope: level(1); }
 set picked = toggle_clauses {
   clause {
-    id: datum('id');
+    id: datum."id";
     equality {
-      id { field: "id"; value: datum('id'); }
+      id { field: "id"; value: datum."id"; }
     }
   }
 }
@@ -3725,7 +3736,7 @@ The public event paths contain every visible named ancestor:
 ```avenger
 on click as select_outlier {
   target: mark manual_box_plot.fence.outlier_layer.outliers;
-  set selected_group = datum('group');
+  set selected_group = datum."group";
 }
 ```
 
@@ -4670,7 +4681,7 @@ mark distribution_summary as mpg_summary {
     mark text {
       band_axis: category { band: 0.5; }
       value_axis: values;
-      text: datum('name');
+      text: datum."name";
       font_size: value 9;
     }
   }
@@ -4881,7 +4892,7 @@ tool behavior as hover {
     set hovered = replace_all_clauses {
       clause {
         equality {
-          id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum."id"; }
         }
       }
     }
@@ -5006,7 +5017,7 @@ export define tool hover_highlight {
     set hovered = replace_all_clauses {
       clause {
         equality {
-          id { field: "id"; value: datum('id'); }
+          id { field: "id"; value: datum."id"; }
         }
       }
     }
@@ -5035,7 +5046,7 @@ chart cartesian as explorer {
     y: "mpg";
     fill: "origin" {
       when {
-        predicate: selection_contains(hover.hovered, datum('id'));
+        predicate: selection_contains(hover.hovered, datum."id");
         value: '#dc2626';
       }
       otherwise: { scaled: "origin"; }
@@ -5502,12 +5513,12 @@ define tool click_picker {
     match mode {
       toggle {
         set sel = toggle_clauses {
-          clause { equality { id { field: "id"; value: datum('id'); } } }
+          clause { equality { id { field: "id"; value: datum."id"; } } }
         }
       }
       replace {
         set sel = replace_all_clauses {
-          clause { equality { id { field: "id"; value: datum('id'); } } }
+          clause { equality { id { field: "id"; value: datum."id"; } } }
         }
       }
     }
@@ -6722,8 +6733,9 @@ examples plus explicit invariants, not from grammars.
   `'red'` is a scaled string, `"red"` is a column reference).
 - Bare identifiers are language-space names — kinds, properties, enums,
   aliases, slots — never columns.
-- Helper arguments: DSL-space names bare (`channel(x)`, `event_coord(x)`),
-  data-space names as strings (`datum('id')`).
+- Helper arguments use the shape required by their signature. DSL-space names
+  are bare (`channel(x)`, `event_coord(x)`); event-row fields use the quoted
+  contextual relation (`datum."id"`).
 - `avenger 1;` first; imports precede a non-empty ordered module-item list;
   a multi-chart module names every chart; `;` terminates a
   property unless a `{ }` config block follows; channel config attaches
@@ -6868,7 +6880,7 @@ enum Value {
     None,
     Array(Vec<Value>),
     Block(Option<Box<Value>>, Body), // head value + body; Body = props + children
-    Call(Name, Vec<Value>),          // channel(x), datum('id'), list(float64)
+    Call(Name, Vec<Value>),          // channel(x), event_coord(x), list(float64)
 }
 
 struct NumericLiteral {
@@ -7558,14 +7570,13 @@ Synthetic identifier spellings live only in the normalized token buffer, are
 distinguished by a side table rather than a reserved source prefix, and never
 appear in diagnostics, serialized SQL, or printed DSL.
 
-Every other DSL-injected reference — `channel(x)`, `datum('id')`,
-`event_coord(x)`, `item_channel(x)`, and the rest of the reserved helper
-namespace — parses as an ordinary SQL function call and is rewritten by the
-resolver before DataFusion planning. No lexer extensions are required beyond
-what the SQL tokenizer already produces, which is also why the
-mandatory column-quoting rule costs nothing at this layer: quoted identifiers
-and bare compound identifiers are both native SQL, and the resolver simply
-assigns them to the data and DSL namespaces respectively.
+Reserved helpers such as `channel(x)`, `event_coord(x)`, and
+`item_channel(x)` parse as ordinary SQL function calls and are rewritten by
+the resolver before DataFusion planning. `datum."id"` instead parses as an
+ordinary qualified identifier and is recognized contextually in scalar event
+expressions before planning. No lexer extensions are required: quoted
+identifiers and bare compound identifiers are native SQL, and the resolver
+assigns them to the data, event-datum, and DSL namespaces.
 
 Because the surface language is defined over a third-party tokenizer, the
 token classes the DSL relies on (words, quoted identifiers, strings, numbers,
@@ -7651,8 +7662,9 @@ highlighting while accepting all Avenger SQL contexts:
   sort keys, visibility conditions, and event filters.
 - Named bindings such as `$min_amount`, including the temporal param suffixes
   `$width@start` and `$width@previous`.
-- Reserved helper functions such as `channel(...)` and `datum(...)`,
-  highlighted as functions (no dedicated tokens are needed).
+- Reserved helper functions such as `channel(...)` and `event_coord(...)`.
+  `datum."field"` remains a normal qualified identifier in the grammar; the
+  LSP supplies its contextual namespace/field semantic tokens.
 - SQL comments using `-- ...` and `/* ... */`.
 
 The base grammar is named `avenger_sql` rather than plain `sql`. A stock SQL
@@ -8244,8 +8256,9 @@ top-level expression fragments. It should highlight:
 - `$binding` as a parameter token, including `@start`/`@previous`; semantic
   analysis distinguishes params and stores and highlights the temporal suffix
   as a modifier.
-- Reserved helper functions (`channel`, `datum`, `event_coord`, ...) as
-  ordinary SQL functions, optionally with a distinct capture.
+- Reserved helper functions (`channel`, `event_coord`, ...) as ordinary SQL
+  functions, optionally with a distinct capture. `datum."field"` uses
+  qualified-identifier highlighting, refined contextually by the LSP.
 - DataFusion-oriented function names such as `approx_percentile_cont`, `date_bin`,
   `regexp_match`, and nested/struct functions as ordinary SQL functions.
 

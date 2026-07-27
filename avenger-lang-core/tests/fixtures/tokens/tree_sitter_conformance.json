@@ -21,6 +21,7 @@
     { "id": "identifier_backtick", "category": "identifier", "stage": "tokenize", "source": "`column`", "accepted": false },
     { "id": "quoted_identifier", "category": "identifier", "stage": "expression", "source": "\"column\"", "accepted": true },
     { "id": "quoted_identifier_doubled", "category": "identifier", "stage": "expression", "source": "\"a\"\"b\"", "accepted": true },
+    { "id": "datum_qualified_quoted_identifier", "category": "identifier", "stage": "expression", "source": "datum.\"a\"\"b\"", "accepted": true },
     { "id": "string_ordinary", "category": "literal", "stage": "expression", "source": "'ordinary '' quote'", "accepted": true },
     { "id": "string_ordinary_multiline", "category": "literal", "stage": "expression", "source": "'line one\nline two'", "accepted": true },
     { "id": "string_escaped_upper", "category": "literal", "stage": "expression", "source": "E'line\\nnext'", "accepted": true },

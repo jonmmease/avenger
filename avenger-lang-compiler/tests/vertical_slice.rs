@@ -1724,7 +1724,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
           mark symbol as points { x: "x"; y: "y"; }
           on cursor_moved as drag {
             target: mark points;
-            filter: $enabled AND (selection_contains(picked, datum('x')) OR true);
+            filter: $enabled AND (selection_contains(picked, datum."x") OR true);
             throttle_ms: 16;
             consume: true;
             mode: preview;

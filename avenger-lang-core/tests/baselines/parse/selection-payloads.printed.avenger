@@ -7,7 +7,7 @@ chart cartesian {
         equality {
           category {
             field: "category";
-            value: datum('category');
+            value: datum."category";
           }
         }
         interval {
