@@ -352,6 +352,7 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
                 tagged_schema("block")
             ]
         }),
+        ValueShape::SqlProjection { .. } => tagged_schema("projection"),
         ValueShape::SqlQuery => tagged_schema("query"),
         ValueShape::ChannelConfig => tagged_schema("block"),
         ValueShape::ConfiguredExpression(fields) => configured_expression_schema(fields),

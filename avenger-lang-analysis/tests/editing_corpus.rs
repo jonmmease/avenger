@@ -156,7 +156,7 @@ fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
     let (project_root, files) = compiler_fixture_files();
     assert_eq!(
         files.len(),
-        62,
+        63,
         "fixture additions should update this corpus gate"
     );
 
@@ -182,7 +182,7 @@ fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
         compiler.language_host().authoring_schema().clone(),
     );
     let cancellation = AnalysisCancellation::default();
-    assert_eq!(analysis.semantic_index.documents.len(), 62);
+    assert_eq!(analysis.semantic_index.documents.len(), 63);
     for (origin, syntax) in &analysis.syntax {
         assert!(analysis.semantic_index.documents.contains_key(origin));
         let request = DocumentRequest {

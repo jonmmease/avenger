@@ -60,11 +60,12 @@ pub use resolve::{
     ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
     ResolvedHelper, ResolvedHelperArgument, ResolvedImport, ResolvedKindBinding, ResolvedModule,
     ResolvedModuleGraph, ResolvedModuleItem, ResolvedOutputHandle, ResolvedOutputShape,
-    ResolvedParam, ResolvedPart, ResolvedQuery, ResolvedReference, ResolvedRelationId,
-    ResolvedRelationReference, ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine,
-    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
-    WidgetId, allowed_child_declarations, placement_allowed, resolve_module_graph,
+    ResolvedParam, ResolvedPart, ResolvedProjection, ResolvedProjectionItem, ResolvedQuery,
+    ResolvedReference, ResolvedRelationId, ResolvedRelationReference, ResolvedRelationTarget,
+    ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference,
+    ResolvedStateLValue, ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId,
+    StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId, allowed_child_declarations,
+    placement_allowed, resolve_module_graph,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

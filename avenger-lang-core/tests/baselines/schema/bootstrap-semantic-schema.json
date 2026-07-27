@@ -61181,90 +61181,18 @@
                 "maxItems": 0
               },
               "props": {
-                "additionalProperties": {
-                  "oneOf": [
-                    {
-                      "type": [
-                        "string",
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "num": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "num"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "col": {}
-                      },
-                      "required": [
-                        "col"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "atom": {}
-                      },
-                      "required": [
-                        "atom"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "binding": {}
-                      },
-                      "required": [
-                        "binding"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "expr": {}
-                      },
-                      "required": [
-                        "expr"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "value": {}
-                      },
-                      "required": [
-                        "value"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {}
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
+                "additionalProperties": false,
                 "properties": {
+                  "expressions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
+                    },
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
+                  },
                   "group_by": {
                     "oneOf": [
                       {
@@ -61437,148 +61365,6 @@
                         "type": "array"
                       }
                     ]
-                  },
-                  "measures": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "children": {
-                              "maxItems": 0
-                            },
-                            "head": {
-                              "$ref": "#/$defs/value"
-                            },
-                            "props": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "expr": {
-                                  "oneOf": [
-                                    {
-                                      "type": [
-                                        "string",
-                                        "boolean",
-                                        "null"
-                                      ]
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "num": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "num"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "col": {}
-                                      },
-                                      "required": [
-                                        "col"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "atom": {}
-                                      },
-                                      "required": [
-                                        "atom"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "binding": {}
-                                      },
-                                      "required": [
-                                        "binding"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "expr": {}
-                                      },
-                                      "required": [
-                                        "expr"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "value": {}
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "block": {}
-                                      },
-                                      "required": [
-                                        "block"
-                                      ],
-                                      "type": "object"
-                                    }
-                                  ]
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "op": {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "atom": {
-                                      "enum": [
-                                        "sum",
-                                        "count",
-                                        "mean",
-                                        "min",
-                                        "max",
-                                        "median"
-                                      ]
-                                    }
-                                  },
-                                  "required": [
-                                    "atom"
-                                  ],
-                                  "type": "object"
-                                }
-                              },
-                              "required": [
-                                "name",
-                                "op"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "required": [
-                            "props"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    },
-                    "type": "array"
                   },
                   "scope": {
                     "oneOf": [
@@ -62331,90 +62117,18 @@
                 "maxItems": 0
               },
               "props": {
-                "additionalProperties": {
-                  "oneOf": [
-                    {
-                      "type": [
-                        "string",
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "num": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "num"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "col": {}
-                      },
-                      "required": [
-                        "col"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "atom": {}
-                      },
-                      "required": [
-                        "atom"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "binding": {}
-                      },
-                      "required": [
-                        "binding"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "expr": {}
-                      },
-                      "required": [
-                        "expr"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "value": {}
-                      },
-                      "required": [
-                        "value"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {}
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
+                "additionalProperties": false,
                 "properties": {
+                  "expressions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
+                    },
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
+                  },
                   "scope": {
                     "oneOf": [
                       {
@@ -62445,6 +62159,9 @@
                     ]
                   }
                 },
+                "required": [
+                  "expressions"
+                ],
                 "type": "object"
               }
             }
@@ -63279,90 +62996,18 @@
                 "maxItems": 0
               },
               "props": {
-                "additionalProperties": {
-                  "oneOf": [
-                    {
-                      "type": [
-                        "string",
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "num": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "num"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "col": {}
-                      },
-                      "required": [
-                        "col"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "atom": {}
-                      },
-                      "required": [
-                        "atom"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "binding": {}
-                      },
-                      "required": [
-                        "binding"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "expr": {}
-                      },
-                      "required": [
-                        "expr"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "value": {}
-                      },
-                      "required": [
-                        "value"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {}
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
+                "additionalProperties": false,
                 "properties": {
+                  "expressions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
+                    },
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
+                  },
                   "group_by": {
                     "oneOf": [
                       {
@@ -63536,148 +63181,6 @@
                       }
                     ]
                   },
-                  "measures": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "children": {
-                              "maxItems": 0
-                            },
-                            "head": {
-                              "$ref": "#/$defs/value"
-                            },
-                            "props": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "expr": {
-                                  "oneOf": [
-                                    {
-                                      "type": [
-                                        "string",
-                                        "boolean",
-                                        "null"
-                                      ]
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "num": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "num"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "col": {}
-                                      },
-                                      "required": [
-                                        "col"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "atom": {}
-                                      },
-                                      "required": [
-                                        "atom"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "binding": {}
-                                      },
-                                      "required": [
-                                        "binding"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "expr": {}
-                                      },
-                                      "required": [
-                                        "expr"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "value": {}
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "block": {}
-                                      },
-                                      "required": [
-                                        "block"
-                                      ],
-                                      "type": "object"
-                                    }
-                                  ]
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "op": {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "atom": {
-                                      "enum": [
-                                        "sum",
-                                        "count",
-                                        "mean",
-                                        "min",
-                                        "max",
-                                        "median"
-                                      ]
-                                    }
-                                  },
-                                  "required": [
-                                    "atom"
-                                  ],
-                                  "type": "object"
-                                }
-                              },
-                              "required": [
-                                "name",
-                                "op"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "required": [
-                            "props"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
                   "scope": {
                     "oneOf": [
                       {
@@ -63708,6 +63211,9 @@
                     ]
                   }
                 },
+                "required": [
+                  "expressions"
+                ],
                 "type": "object"
               }
             }
@@ -66035,89 +65541,7 @@
                 "maxItems": 0
               },
               "props": {
-                "additionalProperties": {
-                  "oneOf": [
-                    {
-                      "type": [
-                        "string",
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "num": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "num"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "col": {}
-                      },
-                      "required": [
-                        "col"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "atom": {}
-                      },
-                      "required": [
-                        "atom"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "binding": {}
-                      },
-                      "required": [
-                        "binding"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "expr": {}
-                      },
-                      "required": [
-                        "expr"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "value": {}
-                      },
-                      "required": [
-                        "value"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {}
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
+                "additionalProperties": false,
                 "properties": {
                   "evaluation": {
                     "additionalProperties": false,
@@ -66134,147 +65558,15 @@
                     ],
                     "type": "object"
                   },
-                  "measures": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "children": {
-                              "maxItems": 0
-                            },
-                            "head": {
-                              "$ref": "#/$defs/value"
-                            },
-                            "props": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "expr": {
-                                  "oneOf": [
-                                    {
-                                      "type": [
-                                        "string",
-                                        "boolean",
-                                        "null"
-                                      ]
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "num": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "num"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "col": {}
-                                      },
-                                      "required": [
-                                        "col"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "atom": {}
-                                      },
-                                      "required": [
-                                        "atom"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "binding": {}
-                                      },
-                                      "required": [
-                                        "binding"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "expr": {}
-                                      },
-                                      "required": [
-                                        "expr"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "value": {}
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "type": "object"
-                                    },
-                                    {
-                                      "additionalProperties": false,
-                                      "properties": {
-                                        "block": {}
-                                      },
-                                      "required": [
-                                        "block"
-                                      ],
-                                      "type": "object"
-                                    }
-                                  ]
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "op": {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "atom": {
-                                      "enum": [
-                                        "sum",
-                                        "count",
-                                        "mean",
-                                        "min",
-                                        "max",
-                                        "median"
-                                      ]
-                                    }
-                                  },
-                                  "required": [
-                                    "atom"
-                                  ],
-                                  "type": "object"
-                                }
-                              },
-                              "required": [
-                                "name",
-                                "op"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "required": [
-                            "props"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
+                  "expressions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
                     },
-                    "type": "array"
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
                   },
                   "scope": {
                     "oneOf": [
@@ -66306,6 +65598,9 @@
                     ]
                   }
                 },
+                "required": [
+                  "expressions"
+                ],
                 "type": "object"
               }
             }
@@ -66335,177 +65630,14 @@
                 "additionalProperties": false,
                 "properties": {
                   "expressions": {
-                    "oneOf": [
-                      {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      {
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": [
-                                "string",
-                                "boolean",
-                                "null"
-                              ]
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "num": {
-                                  "type": "string"
-                                }
-                              },
-                              "required": [
-                                "num"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "col": {}
-                              },
-                              "required": [
-                                "col"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "atom": {}
-                              },
-                              "required": [
-                                "atom"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "binding": {}
-                              },
-                              "required": [
-                                "binding"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "expr": {}
-                              },
-                              "required": [
-                                "expr"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "value": {}
-                              },
-                              "required": [
-                                "value"
-                              ],
-                              "type": "object"
-                            },
-                            {
-                              "additionalProperties": false,
-                              "properties": {
-                                "block": {}
-                              },
-                              "required": [
-                                "block"
-                              ],
-                              "type": "object"
-                            }
-                          ]
-                        },
-                        "type": "array"
-                      }
-                    ]
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
+                    },
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
                   },
                   "scope": {
                     "oneOf": [
@@ -68403,90 +67535,18 @@
                 "maxItems": 0
               },
               "props": {
-                "additionalProperties": {
-                  "oneOf": [
-                    {
-                      "type": [
-                        "string",
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "num": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "num"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "col": {}
-                      },
-                      "required": [
-                        "col"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "atom": {}
-                      },
-                      "required": [
-                        "atom"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "binding": {}
-                      },
-                      "required": [
-                        "binding"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "expr": {}
-                      },
-                      "required": [
-                        "expr"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "value": {}
-                      },
-                      "required": [
-                        "value"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "block": {}
-                      },
-                      "required": [
-                        "block"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
+                "additionalProperties": false,
                 "properties": {
+                  "expressions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "projection": {}
+                    },
+                    "required": [
+                      "projection"
+                    ],
+                    "type": "object"
+                  },
                   "order_by": {
                     "oneOf": [
                       {
@@ -68863,6 +67923,9 @@
                     ]
                   }
                 },
+                "required": [
+                  "expressions"
+                ],
                 "type": "object"
               }
             }
@@ -70966,6 +70029,10 @@
         },
         "pattern": {
           "$ref": "#/$defs/value"
+        },
+        "projection": {
+          "minLength": 1,
+          "type": "string"
         },
         "query": {
           "minLength": 1,
@@ -79743,41 +78810,19 @@
         "stateless": false
       },
       {
-        "additional_properties": {
-          "docs": "A user-named aggregate expression whose property name becomes the output handle.",
-          "required": false,
-          "shape": {
-            "shape": "sql_expression"
-          }
-        },
         "channels": {},
         "child_rules": [],
         "compatible_coordinates": [],
         "docs": "Group rows and compute named aggregate measures.",
         "dynamic_outputs": [
           {
-            "docs": "Each user-named aggregate expression exposes a same-named field handle.",
+            "docs": "Each projection alias exposes a same-named field handle.",
             "shape": {
               "shape": "sql_expression"
             },
             "source": {
-              "exclude": [
-                "group_by",
-                "measures",
-                "scope"
-              ],
-              "source": "property_names"
-            }
-          },
-          {
-            "docs": "Each structured measure exposes the field named by its `name` member.",
-            "shape": {
-              "shape": "sql_expression"
-            },
-            "source": {
-              "field": "name",
-              "property": "measures",
-              "source": "array_object_field"
+              "property": "expressions",
+              "source": "projection_aliases"
             }
           }
         ],
@@ -79789,6 +78834,16 @@
         "outputs": {},
         "parts": {},
         "properties": {
+          "expressions": {
+            "docs": "Named aggregate expressions written as `expression AS output`.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "policy": "named"
+              },
+              "shape": "sql_projection"
+            }
+          },
           "group_by": {
             "docs": "One grouping expression or an array of grouping expressions.",
             "required": false,
@@ -79797,67 +78852,6 @@
                 "shape": "sql_expression"
               },
               "shape": "one_or_many"
-            }
-          },
-          "measures": {
-            "docs": "Legacy structured named measures; user-named expression properties are preferred.",
-            "required": false,
-            "shape": {
-              "detail": {
-                "detail": {
-                  "expr": {
-                    "docs": "Input expression; omitted for count.",
-                    "required": false,
-                    "shape": {
-                      "shape": "sql_expression"
-                    }
-                  },
-                  "name": {
-                    "docs": "Output column name.",
-                    "required": true,
-                    "shape": {
-                      "shape": "string"
-                    }
-                  },
-                  "op": {
-                    "docs": "Aggregation operation.",
-                    "required": true,
-                    "shape": {
-                      "detail": {
-                        "values": [
-                          {
-                            "docs": "The `sum` aggregation operation.",
-                            "value": "sum"
-                          },
-                          {
-                            "docs": "The `count` aggregation operation.",
-                            "value": "count"
-                          },
-                          {
-                            "docs": "The `mean` aggregation operation.",
-                            "value": "mean"
-                          },
-                          {
-                            "docs": "The `min` aggregation operation.",
-                            "value": "min"
-                          },
-                          {
-                            "docs": "The `max` aggregation operation.",
-                            "value": "max"
-                          },
-                          {
-                            "docs": "The `median` aggregation operation.",
-                            "value": "median"
-                          }
-                        ]
-                      },
-                      "shape": "atom"
-                    }
-                  }
-                },
-                "shape": "object"
-              },
-              "shape": "array"
             }
           },
           "scope": {
@@ -80009,13 +79003,6 @@
         "stateless": false
       },
       {
-        "additional_properties": {
-          "docs": "A user-named row expression whose property name becomes the output column and handle.",
-          "required": false,
-          "shape": {
-            "shape": "sql_expression"
-          }
-        },
         "channels": {},
         "child_rules": [],
         "compatible_coordinates": [],
@@ -80027,10 +79014,8 @@
               "shape": "sql_expression"
             },
             "source": {
-              "exclude": [
-                "scope"
-              ],
-              "source": "property_names"
+              "property": "expressions",
+              "source": "projection_aliases"
             }
           }
         ],
@@ -80042,6 +79027,16 @@
         "outputs": {},
         "parts": {},
         "properties": {
+          "expressions": {
+            "docs": "Named row expressions written as `expression AS output`.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "policy": "named"
+              },
+              "shape": "sql_projection"
+            }
+          },
           "scope": {
             "docs": "Coordination scope for this transform stage.",
             "required": false,
@@ -80271,41 +79266,19 @@
         "stateless": false
       },
       {
-        "additional_properties": {
-          "docs": "A user-named aggregate expression whose property name becomes the output handle.",
-          "required": false,
-          "shape": {
-            "shape": "sql_expression"
-          }
-        },
         "channels": {},
         "child_rules": [],
         "compatible_coordinates": [],
         "docs": "Compute grouped aggregate measures and join them back onto every input row.",
         "dynamic_outputs": [
           {
-            "docs": "Each user-named aggregate expression exposes a same-named field handle.",
+            "docs": "Each projection alias exposes a same-named field handle.",
             "shape": {
               "shape": "sql_expression"
             },
             "source": {
-              "exclude": [
-                "group_by",
-                "measures",
-                "scope"
-              ],
-              "source": "property_names"
-            }
-          },
-          {
-            "docs": "Each structured measure exposes the field named by its `name` member.",
-            "shape": {
-              "shape": "sql_expression"
-            },
-            "source": {
-              "field": "name",
-              "property": "measures",
-              "source": "array_object_field"
+              "property": "expressions",
+              "source": "projection_aliases"
             }
           }
         ],
@@ -80317,6 +79290,16 @@
         "outputs": {},
         "parts": {},
         "properties": {
+          "expressions": {
+            "docs": "Named aggregate expressions written as `expression AS output`.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "policy": "named"
+              },
+              "shape": "sql_projection"
+            }
+          },
           "group_by": {
             "docs": "One grouping expression or an array of grouping expressions.",
             "required": false,
@@ -80325,67 +79308,6 @@
                 "shape": "sql_expression"
               },
               "shape": "one_or_many"
-            }
-          },
-          "measures": {
-            "docs": "Legacy structured named measures; user-named expression properties are preferred.",
-            "required": false,
-            "shape": {
-              "detail": {
-                "detail": {
-                  "expr": {
-                    "docs": "Input expression; omitted for count.",
-                    "required": false,
-                    "shape": {
-                      "shape": "sql_expression"
-                    }
-                  },
-                  "name": {
-                    "docs": "Output column name.",
-                    "required": true,
-                    "shape": {
-                      "shape": "string"
-                    }
-                  },
-                  "op": {
-                    "docs": "Aggregation operation.",
-                    "required": true,
-                    "shape": {
-                      "detail": {
-                        "values": [
-                          {
-                            "docs": "The `sum` aggregation operation.",
-                            "value": "sum"
-                          },
-                          {
-                            "docs": "The `count` aggregation operation.",
-                            "value": "count"
-                          },
-                          {
-                            "docs": "The `mean` aggregation operation.",
-                            "value": "mean"
-                          },
-                          {
-                            "docs": "The `min` aggregation operation.",
-                            "value": "min"
-                          },
-                          {
-                            "docs": "The `max` aggregation operation.",
-                            "value": "max"
-                          },
-                          {
-                            "docs": "The `median` aggregation operation.",
-                            "value": "median"
-                          }
-                        ]
-                      },
-                      "shape": "atom"
-                    }
-                  }
-                },
-                "shape": "object"
-              },
-              "shape": "array"
             }
           },
           "scope": {
@@ -80924,41 +79846,19 @@
         "stateless": false
       },
       {
-        "additional_properties": {
-          "docs": "A user-named aggregate expression whose property name becomes the output handle.",
-          "required": false,
-          "shape": {
-            "shape": "sql_expression"
-          }
-        },
         "channels": {},
         "child_rules": [],
         "compatible_coordinates": [],
         "docs": "Publish whole-input aggregate measures as derived scalar expressions without changing rows.",
         "dynamic_outputs": [
           {
-            "docs": "Each user-named aggregate expression exposes a same-named derived scalar handle.",
+            "docs": "Each projection alias exposes a same-named derived scalar handle.",
             "shape": {
               "shape": "sql_expression"
             },
             "source": {
-              "exclude": [
-                "evaluation",
-                "measures",
-                "scope"
-              ],
-              "source": "property_names"
-            }
-          },
-          {
-            "docs": "Each structured measure exposes the derived scalar named by its `name` member.",
-            "shape": {
-              "shape": "sql_expression"
-            },
-            "source": {
-              "field": "name",
-              "property": "measures",
-              "source": "array_object_field"
+              "property": "expressions",
+              "source": "projection_aliases"
             }
           }
         ],
@@ -80989,65 +79889,14 @@
               "shape": "atom"
             }
           },
-          "measures": {
-            "docs": "Legacy structured named measures; user-named expression properties are preferred.",
-            "required": false,
+          "expressions": {
+            "docs": "Named aggregate expressions written as `expression AS output`.",
+            "required": true,
             "shape": {
               "detail": {
-                "detail": {
-                  "expr": {
-                    "docs": "Input expression; omitted for count.",
-                    "required": false,
-                    "shape": {
-                      "shape": "sql_expression"
-                    }
-                  },
-                  "name": {
-                    "docs": "Output column name.",
-                    "required": true,
-                    "shape": {
-                      "shape": "string"
-                    }
-                  },
-                  "op": {
-                    "docs": "Aggregation operation.",
-                    "required": true,
-                    "shape": {
-                      "detail": {
-                        "values": [
-                          {
-                            "docs": "The `sum` aggregation operation.",
-                            "value": "sum"
-                          },
-                          {
-                            "docs": "The `count` aggregation operation.",
-                            "value": "count"
-                          },
-                          {
-                            "docs": "The `mean` aggregation operation.",
-                            "value": "mean"
-                          },
-                          {
-                            "docs": "The `min` aggregation operation.",
-                            "value": "min"
-                          },
-                          {
-                            "docs": "The `max` aggregation operation.",
-                            "value": "max"
-                          },
-                          {
-                            "docs": "The `median` aggregation operation.",
-                            "value": "median"
-                          }
-                        ]
-                      },
-                      "shape": "atom"
-                    }
-                  }
-                },
-                "shape": "object"
+                "policy": "named"
               },
-              "shape": "array"
+              "shape": "sql_projection"
             }
           },
           "scope": {
@@ -81065,6 +79914,18 @@
         "child_rules": [],
         "compatible_coordinates": [],
         "docs": "Project an ordered set of source columns and explicitly aliased expressions.",
+        "dynamic_outputs": [
+          {
+            "docs": "Each explicitly aliased projection exposes a same-named field handle.",
+            "shape": {
+              "shape": "sql_expression"
+            },
+            "source": {
+              "property": "expressions",
+              "source": "projection_aliases"
+            }
+          }
+        ],
         "exports": {},
         "key": {
           "kind": "select",
@@ -81074,13 +79935,13 @@
         "parts": {},
         "properties": {
           "expressions": {
-            "docs": "One projection expression or an ordered array of projection expressions.",
+            "docs": "Ordered direct columns and explicitly aliased computed expressions.",
             "required": true,
             "shape": {
               "detail": {
-                "shape": "sql_expression"
+                "policy": "select"
               },
-              "shape": "one_or_many"
+              "shape": "sql_projection"
             }
           },
           "scope": {
@@ -81788,13 +80649,6 @@
         "stateless": false
       },
       {
-        "additional_properties": {
-          "docs": "A user-named SQL window expression whose property name becomes the output handle.",
-          "required": false,
-          "shape": {
-            "shape": "sql_expression"
-          }
-        },
         "channels": {},
         "child_rules": [],
         "compatible_coordinates": [],
@@ -81806,12 +80660,8 @@
               "shape": "sql_expression"
             },
             "source": {
-              "exclude": [
-                "order_by",
-                "partition_by",
-                "scope"
-              ],
-              "source": "property_names"
+              "property": "expressions",
+              "source": "projection_aliases"
             }
           }
         ],
@@ -81823,6 +80673,16 @@
         "outputs": {},
         "parts": {},
         "properties": {
+          "expressions": {
+            "docs": "Named SQL window expressions written as `expression AS output`.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "policy": "named"
+              },
+              "shape": "sql_projection"
+            }
+          },
           "order_by": {
             "docs": "Expressions defining ascending nulls-last order.",
             "required": false,

@@ -13,7 +13,7 @@ chart cartesian as chart {
   mark group as summarized {
     transform aggregate as totals {
       group_by: ["category"];
-      measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+      expressions: sum("amount") AS total;
     }
     transform sql as doubled {
       query:

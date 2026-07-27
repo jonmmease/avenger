@@ -216,6 +216,71 @@ export chart cartesian as summary {
 }
 
 #[tokio::test]
+async fn bundle_preserves_namespace_imported_dynamic_output_projections() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("library.avenger"),
+        r#"avenger 1;
+export define transform summarize {
+  slot outputs measures;
+  transform aggregate { expressions: measures; }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("chart.avenger"),
+        r#"avenger 1;
+import * as stats from './library.avenger';
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { category: 'A'; amount: 2.0; },
+      { category: 'B'; amount: 4.0; }
+    ];
+  }
+  transform stats.summarize as summary {
+    measures: sum("amount") AS Total;
+  }
+  mark symbol { x: summary.Total; y: summary.Total; }
+}
+"#,
+    )
+    .unwrap();
+
+    let compiler = Compiler::builder()
+        .project_root(root.path())
+        .build()
+        .unwrap();
+    let original = compiler
+        .compile_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap();
+    let bundle = compiler
+        .bundle_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap();
+    assert!(!bundle.text.contains("import "));
+    assert!(bundle.text.contains("slot outputs measures"));
+    assert!(bundle.text.contains("sum(\"amount\") AS Total"));
+
+    let standalone = tempfile::tempdir().unwrap();
+    fs::write(standalone.path().join("bundle.avenger"), bundle.text).unwrap();
+    let bundled = Compiler::builder()
+        .project_root(standalone.path())
+        .build()
+        .unwrap()
+        .compile_chart("bundle.avenger", Some("chart"))
+        .await
+        .unwrap();
+    assert_eq!(
+        bundled.compiled_plot().marks().len(),
+        original.compiled_plot().marks().len()
+    );
+}
+
+#[tokio::test]
 async fn bundle_alpha_renames_colliding_exports_and_private_helpers() {
     let root = tempfile::tempdir().unwrap();
     for (module, helper_kind) in [("left", "symbol"), ("right", "rect")] {

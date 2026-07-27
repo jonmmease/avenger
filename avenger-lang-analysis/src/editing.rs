@@ -1356,7 +1356,10 @@ fn rename_symbol<'a>(
 fn renameable_kind(kind: IndexedValueKind, keyword: &str) -> bool {
     matches!(
         kind,
-        IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
+        IndexedValueKind::Scalar
+            | IndexedValueKind::Table
+            | IndexedValueKind::Selection
+            | IndexedValueKind::Output
     ) || matches!(
         keyword,
         "chart" | "define" | "catalog" | "schema" | "table" | "import"
@@ -1364,7 +1367,7 @@ fn renameable_kind(kind: IndexedValueKind, keyword: &str) -> bool {
 }
 
 fn references_are_complete(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol) -> bool {
-    analysis
+    let indexed = analysis
         .semantic_index
         .documents
         .values()
@@ -1375,7 +1378,37 @@ fn references_are_complete(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol)
                 || (symbol.exported
                     && symbol.parent.is_none()
                     && is_named_import_reference(analysis, symbol, reference))
-        })
+        });
+    indexed
+        && (symbol.keyword != "output_alias" || output_column_references_are_safe(analysis, symbol))
+}
+
+fn output_column_references_are_safe(analysis: &WorkspaceAnalysis, symbol: &IndexedSymbol) -> bool {
+    let Some(syntax) = analysis.syntax.get(&symbol.origin) else {
+        return false;
+    };
+    let mut covered = vec![symbol.selection_span];
+    covered.extend(
+        analysis
+            .semantic_index
+            .documents
+            .values()
+            .flat_map(|document| &document.references)
+            .filter(|reference| reference.target_identity.as_deref() == Some(&symbol.identity))
+            .filter_map(|reference| reference_name_span(analysis, reference, &symbol.name)),
+    );
+    syntax.parsed.tokens.tokens().iter().all(|token| {
+        let is_same_identifier = matches!(
+            token.token(),
+            Some(sqlparser::tokenizer::Token::Word(word)) if word.value == symbol.name
+        );
+        !is_same_identifier
+            || covered.iter().any(|span| {
+                span.source == token.span().source
+                    && span.range.start <= token.span().range.start
+                    && token.span().range.end <= span.range.end
+            })
+    })
 }
 
 fn rename_span_at_cursor(

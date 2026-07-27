@@ -41,7 +41,8 @@ use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
     ResolvedBehaviorExportTarget, ResolvedBehaviorState, ResolvedChildPlot,
     ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup, ResolvedPlot,
-    ResolvedToolBehavior, ResolvedTransformStage, ResolvedValue as NativeValue, ResolvedViewScope,
+    ResolvedProjectionItem as NativeProjectionItem, ResolvedToolBehavior, ResolvedTransformStage,
+    ResolvedValue as NativeValue, ResolvedViewScope,
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
@@ -2437,7 +2438,7 @@ impl<'a> ModuleLowerer<'a> {
                                     .schema()
                                     .field_with_unqualified_name(&name)
                                     .map_err(|error| lowerer_error(output, error.to_string()))?;
-                                col(&name)
+                                Expr::Column(Column::new_unqualified(name.clone()))
                             }
                         };
                         outputs.insert(name, expr);
@@ -2742,6 +2743,36 @@ impl<'a> ModuleLowerer<'a> {
                 .is_some_and(|property| property.shape == ValueShape::SqlExpression)
             {
                 NativeValue::Expr(self.expression_value(value, data, declaration)?)
+            } else if matches!(property_shape, Some(ValueShape::SqlProjection { .. })) {
+                let ResolvedValue::Projection(projection) = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must be a SQL projection list"),
+                    ));
+                };
+                NativeValue::Projection(
+                    projection
+                        .items
+                        .iter()
+                        .map(|item| {
+                            let expression = item.expression.as_ref().ok_or_else(|| {
+                                lowerer_error(
+                                    declaration,
+                                    "wildcards are not allowed in projection lists",
+                                )
+                            })?;
+                            Ok(NativeProjectionItem {
+                                expr: self.expression_value(
+                                    &ResolvedValue::Expression(expression.clone()),
+                                    data,
+                                    declaration,
+                                )?,
+                                alias: item.aliases.first().cloned(),
+                                direct_column: item.direct_column,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, Diagnostic>>()?,
+                )
             } else if property_shape == Some(&ValueShape::SelectionBinding) {
                 let ResolvedValue::Reference(reference) = value else {
                     return Err(lowerer_error(
@@ -3415,6 +3446,29 @@ impl<'a> ModuleLowerer<'a> {
             | ResolvedValue::Binding(_) => {
                 NativeValue::Expr(self.expression_value(value, data, declaration)?)
             }
+            ResolvedValue::Projection(projection) => NativeValue::Projection(
+                projection
+                    .items
+                    .iter()
+                    .map(|item| {
+                        let expression = item.expression.as_ref().ok_or_else(|| {
+                            lowerer_error(
+                                declaration,
+                                "wildcards are not allowed in projection lists",
+                            )
+                        })?;
+                        Ok(NativeProjectionItem {
+                            expr: self.expression_value(
+                                &ResolvedValue::Expression(expression.clone()),
+                                data,
+                                declaration,
+                            )?,
+                            alias: item.aliases.first().cloned(),
+                            direct_column: item.direct_column,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Diagnostic>>()?,
+            ),
             ResolvedValue::Query(query) => NativeValue::Query(self.query_sql(query, declaration)?),
             ResolvedValue::Array(values) => NativeValue::Array(
                 values

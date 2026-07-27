@@ -1523,7 +1523,7 @@ async fn resolve_transform_outputs_are_sequential_typed_handles() {
 avenger 1;
 chart cartesian as pipeline {
   transform aggregate as stats {
-    total: sum("amount");
+    expressions: sum("amount") AS total;
   }
   mark symbol as points { x: stats.total; y: "y"; }
 }
@@ -1558,7 +1558,7 @@ avenger 1;
 chart cartesian as future {
   mark symbol { x: stats.total; y: "y"; }
   transform aggregate as stats {
-    total: sum("amount");
+    expressions: sum("amount") AS total;
   }
 }
 "#,
@@ -1578,6 +1578,82 @@ chart cartesian as future {
 }
 
 #[tokio::test]
+async fn resolve_projection_policies_reject_ambiguous_output_names() {
+    for expressions in [
+        "sum(\"amount\")",
+        "sum(\"amount\") AS \"quoted\"",
+        "sum(\"amount\") AS total, avg(\"amount\") AS total",
+    ] {
+        let source = format!(
+            r#"avenger 1;
+chart cartesian {{
+  transform aggregate as stats {{ expressions: {expressions}; }}
+}}"#
+        );
+        let project = project(&[("chart.avenger", &source)], "chart.avenger").await;
+        let failure = resolve_module_graph(&project, &bootstrap_schema())
+            .result
+            .unwrap_err();
+        assert!(
+            failure.diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.code.as_str(),
+                "AVENGER-RESOLVE-050" | "AVENGER-RESOLVE-150"
+            )),
+            "{expressions}: {:#?}",
+            failure.diagnostics
+        );
+    }
+
+    let valid = project(
+        &[(
+            "chart.avenger",
+            r#"
+avenger 1;
+chart cartesian {
+  transform select as projected {
+    expressions: "category", "amount" * 2 AS doubled;
+  }
+  mark symbol { x: "category"; y: projected.doubled; }
+}
+"#,
+        )],
+        "chart.avenger",
+    )
+    .await;
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let transform = &resolved.source_modules.values().next().unwrap().roots[0].children[0];
+    assert_eq!(
+        transform
+            .transform_outputs
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        ["doubled"]
+    );
+
+    let invalid = project(
+        &[(
+            "chart.avenger",
+            r#"
+avenger 1;
+chart cartesian {
+  transform select { expressions: "amount" * 2; }
+}
+"#,
+        )],
+        "chart.avenger",
+    )
+    .await;
+    assert!(
+        resolve_module_graph(&invalid, &bootstrap_schema())
+            .result
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn resolve_pipeline_defers_output_interfaces_but_preserves_stage_order() {
     let valid = project(
         &[(
@@ -1588,10 +1664,10 @@ chart cartesian as pipeline {
   transform pipeline as summarized {
     output second.final as final;
     transform aggregate as first {
-      measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+      expressions: sum("amount") AS total;
     }
     transform aggregate as second {
-      measures: [{ name: 'final'; op: sum; expr: first.total; }];
+      expressions: sum(first.total) AS final;
     }
   }
   mark symbol as points { x: summarized.final; y: "y"; }
@@ -1626,7 +1702,7 @@ chart cartesian as pipeline {
 avenger 1;
 chart cartesian {
   transform pipeline as duplicate {
-    transform aggregate { measures: [{ name: 'total'; op: sum; expr: "x"; }]; }
+    transform aggregate { expressions: sum("x") AS total; }
     output "total" as total;
     output "total" as total;
   }

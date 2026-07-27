@@ -589,6 +589,7 @@ pub enum ResolvedValue {
     Atom(String),
     Column(String),
     Expression(ResolvedExpression),
+    Projection(ResolvedProjection),
     Query(ResolvedQuery),
     Binding(ResolvedBinding),
     Reference(ResolvedReference),
@@ -624,6 +625,21 @@ pub struct ResolvedExpression {
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
     pub references: Vec<ResolvedSqlReference>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedProjection {
+    pub sql: String,
+    pub items: Vec<ResolvedProjectionItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedProjectionItem {
+    pub sql: String,
+    pub expression: Option<ResolvedExpression>,
+    pub aliases: Vec<String>,
+    pub aliases_quoted: Vec<bool>,
+    pub direct_column: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1792,6 +1808,7 @@ impl<'a> Resolver<'a> {
                                     | "enum"
                                     | "ref"
                                     | "block"
+                                    | "outputs"
                             ) {
                                 self.error(
                                     "AVENGER-RESOLVE-004",
@@ -1827,8 +1844,8 @@ impl<'a> Resolver<'a> {
                             );
                             slot_order.push(name.to_string());
                             let slot_schema = DefinitionSlot {
+                                required: shape == "outputs" || default.is_none(),
                                 shape,
-                                required: default.is_none(),
                                 default,
                                 enum_values,
                                 reference_kind,
@@ -2044,6 +2061,49 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
+                if slot.shape == "outputs" {
+                    if schema.kind != DefinitionKind::Transform {
+                        self.error(
+                            "AVENGER-RESOLVE-166",
+                            "outputs slots are transform-only",
+                            root_span(&file),
+                            format!("slot `{name}` is only valid in `define transform`"),
+                        );
+                    }
+                    let uses = count_definition_value_uses(&root, name);
+                    if uses != 1 {
+                        self.error(
+                            "AVENGER-RESOLVE-167",
+                            "outputs slot requires exactly one value use",
+                            root_span(&file),
+                            format!(
+                                "outputs slot `{name}` is used {uses} times; expected exactly once"
+                            ),
+                        );
+                    } else if count_definition_output_projection_uses(&root, name) != 1 {
+                        self.error(
+                            "AVENGER-RESOLVE-170",
+                            "outputs slot is used outside a projection splice",
+                            root_span(&file),
+                            format!(
+                                "use outputs slot `{name}` as a whole `expressions:` value or one whole SQL `SELECT` item"
+                            ),
+                        );
+                    }
+                }
+            }
+            let output_slots = schema
+                .slots
+                .values()
+                .filter(|slot| slot.shape == "outputs")
+                .count();
+            if output_slots > 1 {
+                self.error(
+                    "AVENGER-RESOLVE-168",
+                    "transform definition has multiple outputs slots",
+                    root_span(&file),
+                    "a transform definition may declare at most one `slot outputs`",
+                );
             }
         }
     }
@@ -2176,6 +2236,7 @@ impl<'a> Resolver<'a> {
             "enum" => &["default", "values"][..],
             "ref" => &["default", "kind"][..],
             "block" => &["default", "exposes"][..],
+            "outputs" => &[][..],
             _ => &["default"][..],
         };
         for (property, _) in slot.props.iter() {
@@ -5354,6 +5415,14 @@ impl<'a> Resolver<'a> {
         if resolved_value_contains_invalid(value) {
             return;
         }
+        if matches!(
+            value,
+            ResolvedValue::DefinitionArgument(
+                ResolvedTarget::DefinitionSlot { .. } | ResolvedTarget::DefinitionChannel { .. }
+            )
+        ) {
+            return;
+        }
         if value_matches_shape(value, shape) {
             match (value, shape) {
                 (
@@ -5450,6 +5519,25 @@ impl<'a> Resolver<'a> {
         owner: &Decl,
     ) {
         match shape {
+            ValueShape::SqlProjection { .. } => {
+                let Value::Projection(projection) = source else {
+                    return;
+                };
+                let [
+                    sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(
+                        identifier,
+                    )),
+                ] = projection.items()
+                else {
+                    return;
+                };
+                let path = vec![identifier.value.clone()];
+                if let Some(target @ ResolvedTarget::DefinitionSlot { .. }) =
+                    self.resolve_any_path(scope, &path, span, false)
+                {
+                    *resolved = ResolvedValue::DefinitionArgument(target);
+                }
+            }
             ValueShape::SqlExpression => {
                 if let (
                     Value::Block {
@@ -5845,6 +5933,12 @@ impl<'a> Resolver<'a> {
                 )
             }
             "block" => matches!(value, ResolvedValue::Object { .. }),
+            "outputs" => value_matches_shape(
+                value,
+                &ValueShape::SqlProjection {
+                    policy: avenger_chart_schema::ProjectionPolicy::Named,
+                },
+            ),
             _ => false,
         };
         if !valid {
@@ -5968,6 +6062,92 @@ impl<'a> Resolver<'a> {
                     sql,
                     bindings,
                     references,
+                })
+            }
+            Value::Projection(projection) => {
+                let bindings = projection
+                    .bindings()
+                    .iter()
+                    .filter_map(|binding| {
+                        self.resolve_sql_binding(
+                            scope,
+                            binding.kind,
+                            &binding.path,
+                            binding.time,
+                            span,
+                            in_event,
+                            owner,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let items = projection
+                    .items()
+                    .iter()
+                    .map(|item| {
+                        let (expression, aliases, aliases_quoted) = match item {
+                            sqlparser::ast::SelectItem::UnnamedExpr(expression) => {
+                                (Some(expression), Vec::new(), Vec::new())
+                            }
+                            sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } => (
+                                Some(expr),
+                                vec![alias.value.clone()],
+                                vec![alias.quote_style.is_some()],
+                            ),
+                            sqlparser::ast::SelectItem::ExprWithAliases { expr, aliases } => (
+                                Some(expr),
+                                aliases.iter().map(|alias| alias.value.clone()).collect(),
+                                aliases
+                                    .iter()
+                                    .map(|alias| alias.quote_style.is_some())
+                                    .collect(),
+                            ),
+                            sqlparser::ast::SelectItem::QualifiedWildcard(_, _)
+                            | sqlparser::ast::SelectItem::Wildcard(_) => {
+                                (None, Vec::new(), Vec::new())
+                            }
+                        };
+                        let direct_column = expression.is_some_and(|expression| {
+                            matches!(
+                                expression,
+                                sqlparser::ast::Expr::Identifier(_)
+                                    | sqlparser::ast::Expr::CompoundIdentifier(_)
+                            )
+                        });
+                        let expression = expression.map(|expression| ResolvedExpression {
+                            sql: crate::ast::restore_bindings(
+                                expression.to_string(),
+                                projection.bindings(),
+                            ),
+                            bindings: bindings.clone(),
+                            helpers: self.resolve_helpers(
+                                scope,
+                                helper_calls(expression),
+                                span,
+                                in_event,
+                                owner,
+                            ),
+                            references: self.resolve_sql_paths(
+                                scope,
+                                expression_paths(expression),
+                                span,
+                                true,
+                            ),
+                        });
+                        ResolvedProjectionItem {
+                            sql: crate::ast::restore_bindings(
+                                item.to_string(),
+                                projection.bindings(),
+                            ),
+                            expression,
+                            aliases,
+                            aliases_quoted,
+                            direct_column,
+                        }
+                    })
+                    .collect();
+                ResolvedValue::Projection(ResolvedProjection {
+                    sql: projection.canonical_sql(),
+                    items,
                 })
             }
             Value::Query(query) => {
@@ -7176,6 +7356,32 @@ impl<'a> Resolver<'a> {
                     .cloned()
                     .map(|name| (name, ResolvedOutputShape::Expression)),
             );
+            for (name, slot) in &definition.slots {
+                if slot.shape != "outputs" {
+                    continue;
+                }
+                if let Some(Value::Projection(projection)) = declaration.props.get(name) {
+                    output_names.extend(projection.items().iter().filter_map(|item| {
+                        let sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } = item else {
+                            return None;
+                        };
+                        Some((alias.value.clone(), ResolvedOutputShape::Expression))
+                    }));
+                }
+            }
+            if definition
+                .slots
+                .values()
+                .any(|slot| slot.shape == "outputs")
+                && declaration.name.is_none()
+            {
+                self.error(
+                    "AVENGER-RESOLVE-169",
+                    "dynamic-output transform instance requires a binder",
+                    info.span,
+                    "add `as <name>` so caller-authored output handles have a namespace",
+                );
+            }
         }
         if let Some(schema) = declaration.kind.as_ref().and_then(|kind| {
             self.registry.entries.get(&NativeKindKey::new(
@@ -7185,16 +7391,6 @@ impl<'a> Resolver<'a> {
         }) {
             for dynamic in &schema.dynamic_outputs {
                 match &dynamic.source {
-                    avenger_chart_schema::DynamicOutputSource::PropertyNames { exclude } => {
-                        output_names.extend(
-                            declaration
-                                .props
-                                .iter()
-                                .map(|(name, _)| name.to_string())
-                                .filter(|name| !exclude.contains(name))
-                                .map(|name| (name, resolved_output_shape(&dynamic.shape))),
-                        );
-                    }
                     avenger_chart_schema::DynamicOutputSource::ArrayObjectField {
                         property,
                         field,
@@ -7227,6 +7423,18 @@ impl<'a> Resolver<'a> {
                                     Some((name.to_string(), resolved_output_shape(&dynamic.shape)))
                                 }
                                 _ => None,
+                            }));
+                        }
+                    }
+                    avenger_chart_schema::DynamicOutputSource::ProjectionAliases { property } => {
+                        if let Some(Value::Projection(projection)) = declaration.props.get(property)
+                        {
+                            output_names.extend(projection.items().iter().filter_map(|item| {
+                                let sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } = item
+                                else {
+                                    return None;
+                                };
+                                Some((alias.value.clone(), resolved_output_shape(&dynamic.shape)))
                             }));
                         }
                     }
@@ -9340,7 +9548,9 @@ fn schema_property<'a>(schema: &'a KindSchema, name: &str) -> Option<&'a ValueSh
 
 fn resolved_output_shape(shape: &ValueShape) -> ResolvedOutputShape {
     match shape {
-        ValueShape::SqlExpression => ResolvedOutputShape::Expression,
+        ValueShape::SqlExpression | ValueShape::SqlProjection { .. } => {
+            ResolvedOutputShape::Expression
+        }
         ValueShape::RasterDimension => ResolvedOutputShape::RasterDimension,
         _ => ResolvedOutputShape::Opaque,
     }
@@ -9457,6 +9667,31 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                         ..
                     } if is_expression_value(head)
                 )
+        }
+        ValueShape::SqlProjection { policy } => {
+            let ResolvedValue::Projection(projection) = value else {
+                return false;
+            };
+            !projection.items.is_empty()
+                && projection.items.iter().all(|item| {
+                    if item.expression.is_none()
+                        || item.aliases.len() > 1
+                        || item.aliases_quoted.iter().any(|quoted| *quoted)
+                        || item
+                            .aliases
+                            .iter()
+                            .any(|alias| crate::ast::Name::new(alias.clone()).is_err())
+                    {
+                        return false;
+                    }
+                    match policy {
+                        avenger_chart_schema::ProjectionPolicy::Named => item.aliases.len() == 1,
+                        avenger_chart_schema::ProjectionPolicy::Select => {
+                            item.aliases.len() == 1
+                                || (item.aliases.is_empty() && item.direct_column)
+                        }
+                    }
+                })
         }
         ValueShape::SqlQuery => matches!(value, ResolvedValue::Query(_)),
         ValueShape::ChannelConfig => matches!(
@@ -9808,6 +10043,24 @@ fn collect_value_targets(value: &ResolvedValue, targets: &mut BTreeSet<ResolvedT
                     .map(|reference| reference.target.clone()),
             );
         }
+        ResolvedValue::Projection(projection) => {
+            for item in &projection.items {
+                if let Some(expression) = &item.expression {
+                    targets.extend(
+                        expression
+                            .bindings
+                            .iter()
+                            .map(|binding| binding.target.clone()),
+                    );
+                    targets.extend(
+                        expression
+                            .references
+                            .iter()
+                            .map(|reference| reference.target.clone()),
+                    );
+                }
+            }
+        }
         ResolvedValue::Query(query) => {
             targets.extend(query.bindings.iter().map(|binding| binding.target.clone()));
             targets.extend(
@@ -9881,6 +10134,14 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::Identifier => "identifier",
         ValueShape::Atom { .. } => "enum atom",
         ValueShape::SqlExpression => "SQL expression",
+        ValueShape::SqlProjection { policy } => match policy {
+            avenger_chart_schema::ProjectionPolicy::Named => {
+                "named SQL projection list (`expression AS name, ...`)"
+            }
+            avenger_chart_schema::ProjectionPolicy::Select => {
+                "SQL select list (direct columns or `expression AS name`)"
+            }
+        },
         ValueShape::SqlQuery => "SQL query",
         ValueShape::ChannelConfig => "configuration-only channel block",
         ValueShape::ConfiguredExpression(_) => "configured SQL expression",
@@ -9916,6 +10177,7 @@ fn resolved_shape(value: &ResolvedValue) -> &'static str {
         ResolvedValue::Atom(_) => "atom",
         ResolvedValue::Column(_) => "column",
         ResolvedValue::Expression(_) => "SQL expression",
+        ResolvedValue::Projection(_) => "SQL projection list",
         ResolvedValue::Query(_) => "SQL query",
         ResolvedValue::Binding(_) => "binding",
         ResolvedValue::Reference(_) => "reference",
@@ -10341,6 +10603,54 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             helpers: helpers_in_sql(&value.canonical_sql()),
             references: Vec::new(),
         }),
+        Value::Projection(value) => ResolvedValue::Projection(ResolvedProjection {
+            sql: value.canonical_sql(),
+            items: value
+                .items()
+                .iter()
+                .map(|item| {
+                    let (expression, aliases, aliases_quoted) = match item {
+                        sqlparser::ast::SelectItem::UnnamedExpr(expression) => {
+                            (Some(expression), Vec::new(), Vec::new())
+                        }
+                        sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } => (
+                            Some(expr),
+                            vec![alias.value.clone()],
+                            vec![alias.quote_style.is_some()],
+                        ),
+                        sqlparser::ast::SelectItem::ExprWithAliases { expr, aliases } => (
+                            Some(expr),
+                            aliases.iter().map(|alias| alias.value.clone()).collect(),
+                            aliases
+                                .iter()
+                                .map(|alias| alias.quote_style.is_some())
+                                .collect(),
+                        ),
+                        sqlparser::ast::SelectItem::QualifiedWildcard(_, _)
+                        | sqlparser::ast::SelectItem::Wildcard(_) => (None, Vec::new(), Vec::new()),
+                    };
+                    let direct_column = expression.is_some_and(|expression| {
+                        matches!(
+                            expression,
+                            sqlparser::ast::Expr::Identifier(_)
+                                | sqlparser::ast::Expr::CompoundIdentifier(_)
+                        )
+                    });
+                    ResolvedProjectionItem {
+                        sql: item.to_string(),
+                        expression: expression.map(|expression| ResolvedExpression {
+                            sql: expression.to_string(),
+                            bindings: Vec::new(),
+                            helpers: helpers_in_sql(&expression.to_string()),
+                            references: Vec::new(),
+                        }),
+                        aliases,
+                        aliases_quoted,
+                        direct_column,
+                    }
+                })
+                .collect(),
+        }),
         Value::Query(value) => ResolvedValue::Query(ResolvedQuery {
             sql: value.canonical_sql(),
             bindings: Vec::new(),
@@ -10393,6 +10703,16 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
     }
 }
 
+fn select_item_expression(item: &sqlparser::ast::SelectItem) -> Option<&sqlparser::ast::Expr> {
+    match item {
+        sqlparser::ast::SelectItem::UnnamedExpr(expression) => Some(expression),
+        sqlparser::ast::SelectItem::ExprWithAlias { expr, .. }
+        | sqlparser::ast::SelectItem::ExprWithAliases { expr, .. } => Some(expr),
+        sqlparser::ast::SelectItem::QualifiedWildcard(_, _)
+        | sqlparser::ast::SelectItem::Wildcard(_) => None,
+    }
+}
+
 fn definition_value(
     value: &Value,
     definition: &DeclarationId,
@@ -10430,6 +10750,29 @@ fn normalize_definition_value_references(
                     })
                 })
                 .collect();
+        }
+        (Value::Projection(projection), ResolvedValue::Projection(resolved)) => {
+            for (source, item) in projection.items().iter().zip(&mut resolved.items) {
+                let Some(expression) = select_item_expression(source) else {
+                    continue;
+                };
+                let Some(resolved_expression) = item.expression.as_mut() else {
+                    continue;
+                };
+                resolved_expression.references = expression_paths(expression)
+                    .into_iter()
+                    .filter_map(|path| {
+                        let name = path.first()?.clone();
+                        slots.contains(&name).then(|| ResolvedSqlReference {
+                            authored_path: path,
+                            target: ResolvedTarget::DefinitionSlot {
+                                definition: definition.clone(),
+                                name,
+                            },
+                        })
+                    })
+                    .collect();
+            }
         }
         (Value::Query(query), ResolvedValue::Query(resolved)) => {
             resolved.references = query_paths(query.ast())
@@ -10561,6 +10904,9 @@ fn is_generated_private_column(name: &str) -> bool {
 fn collect_sql_identifier_values(value: &Value, output: &mut BTreeSet<String>) {
     match value {
         Value::Expr(expression) => output.extend(expression.column_identifier_values()),
+        Value::Projection(projection) => {
+            output.extend(projection.column_identifier_values());
+        }
         Value::Query(query) => output.extend(query.column_identifier_values()),
         Value::Array(values) | Value::Call { args: values, .. } => {
             for value in values {
@@ -11000,6 +11346,19 @@ fn collect_definition_slot_dependencies(
                 }
             }
         }
+        Value::Projection(projection) => {
+            for item in projection.items() {
+                if let Some(expression) = select_item_expression(item) {
+                    for path in expression_paths(expression) {
+                        if let Some(name) = path.first()
+                            && slots.contains(name)
+                        {
+                            output.insert(name.clone());
+                        }
+                    }
+                }
+            }
+        }
         Value::Array(values) => {
             for value in values {
                 collect_definition_slot_dependencies(value, slots, output);
@@ -11023,6 +11382,127 @@ fn collect_definition_slot_dependencies(
         }
         _ => {}
     }
+}
+
+fn count_definition_value_uses(declaration: &Decl, slot: &str) -> usize {
+    fn count_value(value: &Value, slot: &str) -> usize {
+        match value {
+            Value::Atom(name) => usize::from(name.as_str() == slot),
+            Value::Expr(expression) => expression.column_identifier_occurrences(slot),
+            Value::Projection(projection) => projection.column_identifier_occurrences(slot),
+            Value::Query(query) => query.column_identifier_occurrences(slot),
+            Value::Array(values) | Value::Call { args: values, .. } => {
+                values.iter().map(|value| count_value(value, slot)).sum()
+            }
+            Value::Block { head, body } => {
+                head.as_deref().map_or(0, |head| count_value(head, slot))
+                    + body
+                        .props
+                        .iter()
+                        .map(|(_, value)| count_value(value, slot))
+                        .sum::<usize>()
+                    + body
+                        .children
+                        .iter()
+                        .map(|child| count_definition_value_uses(child, slot))
+                        .sum::<usize>()
+            }
+            Value::Visual(value) | Value::Pattern(value) => count_value(value, slot),
+            _ => 0,
+        }
+    }
+
+    let own = declaration
+        .props
+        .iter()
+        .map(|(_, value)| count_value(value, slot))
+        .sum::<usize>();
+    own + declaration
+        .children
+        .iter()
+        .filter(|child| child.keyword.as_str() != "slot")
+        .map(|child| count_definition_value_uses(child, slot))
+        .sum::<usize>()
+}
+
+fn count_definition_output_projection_uses(declaration: &Decl, slot: &str) -> usize {
+    struct SelectProjectionCounter<'a> {
+        slot: &'a str,
+        count: usize,
+    }
+
+    impl Visitor for SelectProjectionCounter<'_> {
+        type Break = ();
+
+        fn pre_visit_select(
+            &mut self,
+            select: &sqlparser::ast::Select,
+        ) -> std::ops::ControlFlow<Self::Break> {
+            self.count += select
+                .projection
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        item,
+                        sqlparser::ast::SelectItem::UnnamedExpr(
+                            sqlparser::ast::Expr::Identifier(identifier)
+                        ) if identifier.value == self.slot && identifier.quote_style.is_none()
+                    )
+                })
+                .count();
+            std::ops::ControlFlow::Continue(())
+        }
+    }
+
+    fn count_value(value: &Value, slot: &str) -> usize {
+        match value {
+            Value::Projection(projection)
+                if matches!(
+                    projection.items(),
+                    [sqlparser::ast::SelectItem::UnnamedExpr(
+                        sqlparser::ast::Expr::Identifier(identifier)
+                    )] if identifier.value == slot && identifier.quote_style.is_none()
+                ) =>
+            {
+                1
+            }
+            Value::Query(query) => {
+                let mut counter = SelectProjectionCounter { slot, count: 0 };
+                let _ = query.ast().visit(&mut counter);
+                counter.count
+            }
+            Value::Array(values) | Value::Call { args: values, .. } => {
+                values.iter().map(|value| count_value(value, slot)).sum()
+            }
+            Value::Block { head, body } => {
+                head.as_deref().map_or(0, |head| count_value(head, slot))
+                    + body
+                        .props
+                        .iter()
+                        .map(|(_, value)| count_value(value, slot))
+                        .sum::<usize>()
+                    + body
+                        .children
+                        .iter()
+                        .map(|child| count_definition_output_projection_uses(child, slot))
+                        .sum::<usize>()
+            }
+            Value::Visual(value) | Value::Pattern(value) => count_value(value, slot),
+            _ => 0,
+        }
+    }
+
+    declaration
+        .props
+        .iter()
+        .map(|(_, value)| count_value(value, slot))
+        .sum::<usize>()
+        + declaration
+            .children
+            .iter()
+            .filter(|child| child.keyword.as_str() != "slot")
+            .map(|child| count_definition_output_projection_uses(child, slot))
+            .sum::<usize>()
 }
 
 fn infer_widget_item_type(declaration: &Decl) -> Option<PhysicalType> {

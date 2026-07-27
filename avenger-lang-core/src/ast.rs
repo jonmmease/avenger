@@ -17,7 +17,7 @@ use crate::{
     SourceFile, SourceId, SourceOrigin, SourceSpan,
     sql::{
         BindingOccurrence, BindingVersion, ParsedSqlIsland, is_unquoted_identifier,
-        parse_sql_expression, parse_sql_query, tokenize,
+        parse_sql_expression, parse_sql_projection, parse_sql_query, tokenize,
     },
 };
 
@@ -327,6 +327,7 @@ pub enum Value {
     Column(String),
     Atom(Name),
     Expr(Box<SqlExpression>),
+    Projection(Box<SqlProjection>),
     Query(Box<SqlQuery>),
     Binding {
         kind: BindingKind,
@@ -448,6 +449,10 @@ impl SqlExpression {
     pub fn column_identifier_values(&self) -> BTreeSet<String> {
         column_identifier_values(&self.ast)
     }
+
+    pub(crate) fn column_identifier_occurrences(&self, value: &str) -> usize {
+        column_identifier_occurrences(&self.ast, value)
+    }
 }
 
 impl PartialEq for SqlExpression {
@@ -459,6 +464,94 @@ impl PartialEq for SqlExpression {
 impl Eq for SqlExpression {}
 
 impl Hash for SqlExpression {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.canonical_sql().hash(state);
+    }
+}
+
+/// A SQL projection list, equivalent to the comma-separated expressions
+/// between `SELECT` and `FROM` but without either clause.
+#[derive(Clone, Debug)]
+pub struct SqlProjection {
+    items: Vec<SelectItem>,
+    bindings: Vec<SqlBinding>,
+}
+
+impl SqlProjection {
+    pub fn parse(source: &str) -> Result<Self, AstError> {
+        let source_file = SourceFile::new(
+            SourceId::new(0),
+            SourceOrigin::Memory("<sql-projection>".into()),
+            source,
+        );
+        let stream = tokenize(&source_file).map_err(|error| AstError::Sql(error.to_string()))?;
+        let parsed =
+            parse_sql_projection(&stream, 0).map_err(|error| AstError::Sql(error.to_string()))?;
+        ensure_sql_consumed(&stream, parsed.next_token)?;
+        Self::from_parsed(parsed)
+    }
+
+    pub(crate) fn from_parsed(parsed: ParsedSqlIsland<Vec<SelectItem>>) -> Result<Self, AstError> {
+        let relation_names = relation_names(&parsed.ast);
+        Ok(Self {
+            items: parsed.ast,
+            bindings: parsed
+                .bindings
+                .iter()
+                .map(|binding| {
+                    let quoted = format!("\"{}\"", binding.synthetic_identifier);
+                    let kind = if relation_names.contains(&quoted) {
+                        BindingKind::Store
+                    } else {
+                        BindingKind::Param
+                    };
+                    sql_binding(binding, kind)
+                })
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    pub fn items(&self) -> &[SelectItem] {
+        &self.items
+    }
+
+    pub fn bindings(&self) -> &[SqlBinding] {
+        &self.bindings
+    }
+
+    pub fn canonical_sql(&self) -> String {
+        self.canonical_items().join(", ")
+    }
+
+    pub fn canonical_items(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .map(|item| restore_bindings(item.to_string(), &self.bindings))
+            .collect()
+    }
+
+    pub(crate) fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        let _ = VisitMut::visit(&mut self.items, &mut IdentifierRewriter { replacement });
+    }
+
+    pub fn column_identifier_values(&self) -> BTreeSet<String> {
+        column_identifier_values(&self.items)
+    }
+
+    pub(crate) fn column_identifier_occurrences(&self, value: &str) -> usize {
+        column_identifier_occurrences(&self.items, value)
+    }
+}
+
+impl PartialEq for SqlProjection {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonical_sql() == other.canonical_sql()
+    }
+}
+
+impl Eq for SqlProjection {}
+
+impl Hash for SqlProjection {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.canonical_sql().hash(state);
     }
@@ -524,6 +617,10 @@ impl SqlQuery {
     /// names, string literals, and unrelated SQL binders.
     pub fn column_identifier_values(&self) -> BTreeSet<String> {
         column_identifier_values(self.ast.as_ref())
+    }
+
+    pub(crate) fn column_identifier_occurrences(&self, value: &str) -> usize {
+        column_identifier_occurrences(self.ast.as_ref(), value)
     }
 }
 
@@ -680,6 +777,40 @@ where
     };
     let _ = ast.visit(&mut collector);
     collector.values
+}
+
+fn column_identifier_occurrences<T>(ast: &T, expected: &str) -> usize
+where
+    T: Visit,
+{
+    struct IdentifierCounter<'a> {
+        expected: &'a str,
+        count: usize,
+    }
+
+    impl Visitor for IdentifierCounter<'_> {
+        type Break = ();
+
+        fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
+            match expression {
+                Expr::Identifier(identifier) => {
+                    self.count += usize::from(identifier.value == self.expected);
+                }
+                Expr::CompoundIdentifier(identifiers) => {
+                    self.count += identifiers
+                        .iter()
+                        .filter(|identifier| identifier.value == self.expected)
+                        .count();
+                }
+                _ => {}
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    let mut counter = IdentifierCounter { expected, count: 0 };
+    let _ = Visit::visit(ast, &mut counter);
+    counter.count
 }
 
 fn collect_wildcard_identifier_values(
@@ -939,7 +1070,7 @@ fn binding_surface(binding: &SqlBinding) -> String {
     output
 }
 
-fn restore_bindings(mut sql: String, bindings: &[SqlBinding]) -> String {
+pub(crate) fn restore_bindings(mut sql: String, bindings: &[SqlBinding]) -> String {
     for binding in bindings {
         sql = sql.replace(
             &format!("\"{}\"", binding.synthetic_identifier),
@@ -969,7 +1100,7 @@ fn relation_names(node: &impl Visit) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BindingKind, NumericLiteral, SqlExpression, SqlQuery};
+    use super::{BindingKind, NumericLiteral, SqlExpression, SqlProjection, SqlQuery};
 
     #[test]
     fn ast_numeric_literals_are_exact_and_canonical() {
@@ -981,6 +1112,52 @@ mod tests {
         assert_eq!(
             NumericLiteral::new("001.20E+003").unwrap().as_str(),
             "1.20e3"
+        );
+    }
+
+    #[test]
+    fn projection_lists_round_trip_canonically() {
+        let projection =
+            SqlProjection::parse("sum(value) as total, $width + 1 AS adjusted").unwrap();
+        assert_eq!(
+            projection.canonical_sql(),
+            "sum(value) AS total, $width + 1 AS adjusted"
+        );
+        assert_eq!(projection.bindings().len(), 1);
+
+        let nested = SqlProjection::parse(
+            "coalesce(struct(1, 2), struct(3, 4)) AS nested, CAST(value AS DOUBLE) AS numeric,",
+        )
+        .unwrap();
+        assert_eq!(
+            nested.canonical_sql(),
+            "coalesce(STRUCT(1, 2), STRUCT(3, 4)) AS nested, CAST(value AS DOUBLE) AS numeric"
+        );
+        assert_eq!(
+            SqlProjection::parse(&nested.canonical_sql()).unwrap(),
+            nested
+        );
+
+        let commented =
+            SqlProjection::parse("sum(value) /* measure */ AS total, -- next\n value AS raw")
+                .unwrap();
+        assert_eq!(
+            commented.canonical_sql(),
+            "sum(value) AS total, value AS raw"
+        );
+        assert_eq!(
+            SqlProjection::parse(&commented.canonical_sql()).unwrap(),
+            commented
+        );
+    }
+
+    #[test]
+    fn projection_lists_reject_implicit_aliases_without_confusing_nested_as() {
+        assert!(SqlProjection::parse("sum(value) total").is_err());
+        let projection = SqlProjection::parse("CAST(value AS DOUBLE) AS converted").unwrap();
+        assert_eq!(
+            projection.canonical_sql(),
+            "CAST(value AS DOUBLE) AS converted"
         );
     }
 

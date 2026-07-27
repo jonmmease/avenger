@@ -984,16 +984,13 @@ Group rows and compute named aggregate measures.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `expressions` | property | false | Named aggregate expressions written as `expression AS output`. |
 | `group_by` | property | false | One grouping expression or an array of grouping expressions. |
-| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
 | `scope` | property | false | Coordination scope for this transform stage. |
-| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"group_by", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named field handle.
-
-- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
+- ProjectionAliases { property: "expressions" }: Each projection alias exposes a same-named field handle.
 
 ## `Transform.bin`
 
@@ -1021,12 +1018,12 @@ Append user-named columns computed from row expressions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `expressions` | property | true | Named row expressions written as `expression AS output`. |
 | `scope` | property | false | Coordination scope for this transform stage. |
-| `*` | user-named property | false | A user-named row expression whose property name becomes the output column and handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"scope"} }: Each expression exposes a same-named output field handle.
+- ProjectionAliases { property: "expressions" }: Each expression exposes a same-named output field handle.
 
 ## `Transform.filter`
 
@@ -1070,16 +1067,13 @@ Compute grouped aggregate measures and join them back onto every input row.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `expressions` | property | true | Named aggregate expressions written as `expression AS output`. |
 | `group_by` | property | false | One grouping expression or an array of grouping expressions. |
-| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
 | `scope` | property | false | Coordination scope for this transform stage. |
-| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"group_by", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named field handle.
-
-- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
+- ProjectionAliases { property: "expressions" }: Each projection alias exposes a same-named field handle.
 
 ## `Transform.kde`
 
@@ -1148,15 +1142,12 @@ Publish whole-input aggregate measures as derived scalar expressions without cha
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `evaluation` | property | false | Whether to materialize literal scalars eagerly or publish scalar subqueries lazily. |
-| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `expressions` | property | true | Named aggregate expressions written as `expression AS output`. |
 | `scope` | property | false | Coordination scope for this transform stage. |
-| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"evaluation", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named derived scalar handle.
-
-- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the derived scalar named by its `name` member.
+- ProjectionAliases { property: "expressions" }: Each projection alias exposes a same-named derived scalar handle.
 
 ## `Transform.select`
 
@@ -1164,8 +1155,12 @@ Project an ordered set of source columns and explicitly aliased expressions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
-| `expressions` | property | true | One projection expression or an ordered array of projection expressions. |
+| `expressions` | property | true | Ordered direct columns and explicitly aliased computed expressions. |
 | `scope` | property | false | Coordination scope for this transform stage. |
+
+Dynamic transform outputs:
+
+- ProjectionAliases { property: "expressions" }: Each explicitly aliased projection exposes a same-named field handle.
 
 ## `Transform.sql`
 
@@ -1243,14 +1238,14 @@ Append user-named SQL window expressions over optional partitions and ordering.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `expressions` | property | true | Named SQL window expressions written as `expression AS output`. |
 | `order_by` | property | false | Expressions defining ascending nulls-last order. |
 | `partition_by` | property | false | Expressions defining independent window partitions. |
 | `scope` | property | false | Coordination scope for this transform stage. |
-| `*` | user-named property | false | A user-named SQL window expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"order_by", "partition_by", "scope"} }: Each user-named window expression exposes a same-named field handle.
+- ProjectionAliases { property: "expressions" }: Each user-named window expression exposes a same-named field handle.
 
 ## `Tool.box_selection`
 

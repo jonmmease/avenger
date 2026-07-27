@@ -64,6 +64,7 @@ struct FixtureManifest {
 #[derive(Debug, Deserialize)]
 struct FixtureCase {
     root: String,
+    selector: Option<String>,
     expectation: FixtureExpectation,
     review: Option<FixtureReview>,
     #[serde(default)]
@@ -176,14 +177,14 @@ fn blessing_enabled() -> bool {
 fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
     let manifest = load_manifest();
     assert_eq!(manifest.schema_version, 1);
-    assert_eq!(manifest.cases.len(), 45, "one case per selected chart");
+    assert_eq!(manifest.cases.len(), 46, "one case per selected chart");
     assert_eq!(
         manifest
             .cases
             .iter()
             .filter(|case| case.expectation == FixtureExpectation::Visual)
             .count(),
-        44
+        45
     );
 
     let mut owners = BTreeMap::new();
@@ -238,7 +239,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
 
     let owned = owners.into_keys().collect::<BTreeSet<_>>();
     let discovered = discovered_sources();
-    assert_eq!(owned.len(), 59, "reviewed fixture inventory changed");
+    assert_eq!(owned.len(), 60, "reviewed fixture inventory changed");
     assert_eq!(
         owned, discovered,
         "update visual_cases.json for fixture drift"
@@ -275,7 +276,11 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
     }
     let compiler = compiler_for(case)?;
     let result = compiler
-        .compile_chart_generation_attempt(fixtures_dir().join(&case.root), None, 0)
+        .compile_chart_generation_attempt(
+            fixtures_dir().join(&case.root),
+            case.selector.as_deref(),
+            0,
+        )
         .await
         .result;
 

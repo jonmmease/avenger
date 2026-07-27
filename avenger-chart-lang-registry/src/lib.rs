@@ -16,8 +16,8 @@ use avenger_chart_core::{
 pub use avenger_chart_lang_types::{
     AdjustmentLanguageDefinition, CoordinateLanguageDefinition, LoweredAdjustment,
     LoweredTransform, MarkLanguageLowerer, NativeLoweringError, NativeOutputValue,
-    ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition,
-    TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
+    ObjectLanguageDefinition, ResolvedDeclaration, ResolvedProjectionItem, ResolvedValue,
+    TransformLanguageDefinition, TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -2014,6 +2014,15 @@ fn validate_value_shape(
             ResolvedValue::Output(NativeOutputValue::Expr(_) | NativeOutputValue::Channel(_)),
             ValueShape::SqlExpression,
         ) => true,
+        (ResolvedValue::Projection(items), ValueShape::SqlProjection { policy }) => {
+            !items.is_empty()
+                && items.iter().all(|item| match policy {
+                    avenger_chart_schema::ProjectionPolicy::Named => item.alias.is_some(),
+                    avenger_chart_schema::ProjectionPolicy::Select => {
+                        item.alias.is_some() || item.direct_column
+                    }
+                })
+        }
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::Channel(_), ValueShape::ChannelConfig) => true,
         (
@@ -2241,21 +2250,13 @@ mod tests {
     use avenger_chart_schema::ChannelSchema;
     use datafusion::{
         common::ScalarValue,
+        functions_aggregate::expr_fn::sum,
         logical_expr::{col, lit},
     };
     use indexmap::IndexMap;
     use serde_json::json;
 
     use super::*;
-
-    fn object(fields: impl IntoIterator<Item = (&'static str, ResolvedValue)>) -> ResolvedValue {
-        ResolvedValue::Object(
-            fields
-                .into_iter()
-                .map(|(name, value)| (name.to_string(), value))
-                .collect(),
-        )
-    }
 
     fn test_builtin_builder() -> NativeRegistryBuilder {
         let mut builder = NativeRegistry::builder();
@@ -2286,6 +2287,13 @@ mod tests {
                 "y" => col("y"),
                 _ => col("x"),
             }),
+            ValueShape::SqlProjection { .. } => {
+                ResolvedValue::Projection(vec![ResolvedProjectionItem {
+                    expr: sum(col("x")),
+                    alias: Some("output".to_string()),
+                    direct_column: false,
+                }])
+            }
             ValueShape::SqlQuery => ResolvedValue::Query("SELECT * FROM input".to_string()),
             ValueShape::ChannelConfig => {
                 ResolvedValue::Channel(Box::new(ChannelExpr::scaled(col("x"))))
@@ -2906,11 +2914,20 @@ mod tests {
                 serde_json::to_string_pretty(registry.snapshot()).unwrap() + "\n",
             )
             .unwrap();
+            fs::write(
+                root.join("docs/bootstrap-native-kinds.md"),
+                registry.snapshot().markdown_reference(),
+            )
+            .unwrap();
             return;
         }
         let checked: NativeSchemaSnapshot =
             serde_json::from_str(include_str!("../snapshots/bootstrap-schema.json")).unwrap();
         assert_eq!(registry.snapshot(), &checked);
+        assert_eq!(
+            registry.snapshot().markdown_reference(),
+            include_str!("../docs/bootstrap-native-kinds.md")
+        );
     }
 
     #[tokio::test]
@@ -3189,12 +3206,12 @@ mod tests {
         let aggregate = registry
             .lower_transform(
                 &ResolvedDeclaration::new("aggregate").property(
-                    "measures",
-                    ResolvedValue::Array(vec![object([
-                        ("name", ResolvedValue::String("total".to_string())),
-                        ("op", ResolvedValue::String("sum".to_string())),
-                        ("expr", ResolvedValue::Expr(col("x"))),
-                    ])]),
+                    "expressions",
+                    ResolvedValue::Projection(vec![ResolvedProjectionItem {
+                        expr: sum(col("x")),
+                        alias: Some("total".to_string()),
+                        direct_column: false,
+                    }]),
                 ),
                 context,
             )
@@ -3239,12 +3256,12 @@ mod tests {
                 "aggregate" | "join_aggregate" | "scalar_aggregate"
             ) {
                 declaration.properties.insert(
-                    "measures".to_string(),
-                    ResolvedValue::Array(vec![object([
-                        ("name", ResolvedValue::String("total".to_string())),
-                        ("op", ResolvedValue::String("sum".to_string())),
-                        ("expr", ResolvedValue::Expr(col("x"))),
-                    ])]),
+                    "expressions".to_string(),
+                    ResolvedValue::Projection(vec![ResolvedProjectionItem {
+                        expr: sum(col("x")),
+                        alias: Some("total".to_string()),
+                        direct_column: false,
+                    }]),
                 );
             }
             let result = if kind == "pipeline" {

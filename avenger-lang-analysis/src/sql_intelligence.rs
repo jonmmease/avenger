@@ -19,7 +19,7 @@ use arrow::datatypes::DataType;
 use avenger_lang_compiler::{AnalyzedDataset, ModuleAnalysis, physical_type_to_arrow};
 use avenger_lang_core::{
     ByteSpan, PhysicalType, SourceOrigin, SourceSpan,
-    ast::{SqlExpression, SqlQuery},
+    ast::{SqlExpression, SqlProjection, SqlQuery},
     sql::{DOMAIN_RANGE_HELPERS, LosslessTokenKind, RESERVED_HELPER_NAMES, TokenClass},
     syntax::{SqlIslandContext, SqlIslandRoot, TolerantSyntaxNodeKind},
 };
@@ -52,6 +52,7 @@ pub enum SqlExpectedRole {
     Function,
     Type,
     Binding,
+    Alias,
 }
 
 /// The deliberately small recovery matrix used before consulting semantic
@@ -266,6 +267,7 @@ pub(crate) fn complete_sql(
         semantic_roots,
         dataset_contexts,
     );
+    let tokens = island_tokens(syntax, node.span);
     let document = semantic_index.documents.get(&request.source);
     let cache_key = sql_cache_key(request, node.span, project, dataset_context);
     let cached = sql_analysis_cache()
@@ -278,7 +280,6 @@ pub(crate) fn complete_sql(
         cached
     } else {
         CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
-        let tokens = island_tokens(syntax, node.span);
         let roles = expected_roles(&tokens, request.byte_offset, context, prefix);
         let recovery = recover_sql(
             &text[node.span.range.as_range()],
@@ -317,16 +318,28 @@ pub(crate) fn complete_sql(
                 &mut scope,
             );
         }
-        let expression_planned = if context.root() == SqlIslandRoot::Expression {
+        let expression_planned = if matches!(
+            context.root(),
+            SqlIslandRoot::Expression | SqlIslandRoot::Projection
+        ) {
             project
                 .and_then(|project| input_dataset(project, dataset_context, request.byte_offset))
                 .is_some_and(|dataset| {
-                    validate_expression(
-                        &text[node.span.range.as_range()],
-                        dataset,
-                        recovery.strategy,
-                        request.byte_offset.saturating_sub(node.span.range.start),
-                    )
+                    if context.root() == SqlIslandRoot::Projection {
+                        validate_projection(
+                            &text[node.span.range.as_range()],
+                            dataset,
+                            recovery.strategy,
+                            request.byte_offset.saturating_sub(node.span.range.start),
+                        )
+                    } else {
+                        validate_expression(
+                            &text[node.span.range.as_range()],
+                            dataset,
+                            recovery.strategy,
+                            request.byte_offset.saturating_sub(node.span.range.start),
+                        )
+                    }
                 })
         } else {
             false
@@ -420,6 +433,15 @@ pub(crate) fn complete_sql(
             document,
             request.byte_offset,
             project,
+            &mut items,
+        );
+    }
+    if roles.contains(&SqlExpectedRole::Alias) {
+        complete_projection_alias(
+            prefix,
+            replacement,
+            &tokens,
+            request.byte_offset,
             &mut items,
         );
     }
@@ -639,6 +661,14 @@ fn expected_roles(
         roles.insert(SqlExpectedRole::Type);
         return roles;
     }
+    if context.root() == SqlIslandRoot::Projection
+        && structural_before
+            .and_then(|index| tokens.get(index))
+            .is_some_and(|token| token.is_word("as"))
+    {
+        roles.insert(SqlExpectedRole::Alias);
+        return roles;
+    }
     if relation_position(tokens, structural_before, cursor) {
         roles.insert(SqlExpectedRole::Relation);
         roles.insert(SqlExpectedRole::Catalog);
@@ -783,6 +813,7 @@ fn recover_sql(
         let repaired = build_repaired_sql(authored, cursor, strategy);
         let parsed = match root {
             SqlIslandRoot::Query => SqlQuery::parse(&repaired.text).is_ok(),
+            SqlIslandRoot::Projection => SqlProjection::parse(&repaired.text).is_ok(),
             SqlIslandRoot::Expression => SqlExpression::parse(&repaired.text).is_ok(),
         };
         fallback = Some(RecoveryResult {
@@ -2005,6 +2036,79 @@ fn complete_types(prefix: &str, replacement: SourceSpan, output: &mut Vec<Comple
     }
 }
 
+fn complete_projection_alias(
+    prefix: &str,
+    replacement: SourceSpan,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    output: &mut Vec<CompletionItem>,
+) {
+    let Some(as_index) = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| token.span.range.end <= cursor && token.is_word("as"))
+        .map(|(index, _)| index)
+        .next_back()
+    else {
+        return;
+    };
+    let depth = tokens[as_index].depth;
+    let start = tokens[..as_index]
+        .iter()
+        .rposition(|token| token.depth == depth && token.is_comma())
+        .map_or(0, |index| index + 1);
+    let mut words = tokens[start..as_index]
+        .iter()
+        .filter(|token| token.depth >= depth)
+        .filter_map(SqlToken::word)
+        .filter(|word| {
+            !matches!(
+                word.to_ascii_lowercase().as_str(),
+                "cast" | "try_cast" | "as" | "distinct" | "filter" | "over"
+            )
+        })
+        .map(to_alias_fragment)
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    words.dedup();
+    let suggestion = words
+        .into_iter()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("_");
+    if suggestion.is_empty() || !candidate_matches(&suggestion, prefix) {
+        return;
+    }
+    output.push(candidate(
+        &suggestion,
+        &suggestion,
+        replacement,
+        CompletionKind::Field,
+        Some("projection output alias".to_owned()),
+        CompletionOrigin::Syntax,
+        "00",
+    ));
+}
+
+fn to_alias_fragment(value: &str) -> String {
+    let mut output = String::new();
+    let mut prior_separator = false;
+    for character in value.chars() {
+        if character == '_' || character.is_alphanumeric() {
+            output.extend(character.to_lowercase());
+            prior_separator = false;
+        } else if !prior_separator && !output.is_empty() {
+            output.push('_');
+            prior_separator = true;
+        }
+    }
+    output.trim_matches('_').to_owned()
+}
+
 fn complete_keywords(
     prefix: &str,
     replacement: SourceSpan,
@@ -2071,6 +2175,40 @@ fn validate_expression(
         .create_logical_expr(&repaired.text, &schema)
         .and_then(|expression| expression.get_type(&schema))
         .is_ok()
+}
+
+fn validate_projection(
+    authored: &str,
+    dataset: &AnalyzedDataset,
+    repair: SqlRepairStrategy,
+    cursor: usize,
+) -> bool {
+    let repaired = build_repaired_sql(authored, cursor, repair);
+    let Ok(projection) = SqlProjection::parse(&repaired.text) else {
+        return false;
+    };
+    let Ok(schema) = DFSchema::try_from(dataset.schema.as_ref().clone()) else {
+        return false;
+    };
+    let state = SessionStateBuilder::new().with_default_features().build();
+    projection.items().iter().all(|item| {
+        let expression = match item {
+            sqlparser::ast::SelectItem::UnnamedExpr(expression)
+            | sqlparser::ast::SelectItem::ExprWithAlias {
+                expr: expression, ..
+            }
+            | sqlparser::ast::SelectItem::ExprWithAliases {
+                expr: expression, ..
+            } => expression,
+            sqlparser::ast::SelectItem::QualifiedWildcard(_, _)
+            | sqlparser::ast::SelectItem::Wildcard(_) => return false,
+        };
+        LOGICAL_EXPRESSION_PLANS.fetch_add(1, Ordering::Relaxed);
+        state
+            .create_logical_expr(&expression.to_string(), &schema)
+            .and_then(|expression| expression.get_type(&schema))
+            .is_ok()
+    })
 }
 
 fn deduplicate_relations(relations: &mut Vec<RelationMetadata>) {

@@ -159,6 +159,7 @@
         "atom": { "$ref": "#/$defs/name" },
         "binding": { "$ref": "#/$defs/binding" },
         "expr": { "type": "string", "minLength": 1 },
+        "projection": { "type": "string", "minLength": 1 },
         "query": { "type": "string", "minLength": 1 },
         "value": { "$ref": "#/$defs/value" },
         "dim": { "type": "string", "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$" },

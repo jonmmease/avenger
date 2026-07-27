@@ -11,7 +11,7 @@ use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
     functions_aggregate::expr_fn::{approx_percentile_cont, avg, count, max, median, min, sum},
-    logical_expr::{Expr, col, expr::Sort, lit},
+    logical_expr::{Expr, expr::Sort, lit},
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -197,7 +197,7 @@ impl AggregateOutput {
         if !self.names.iter().any(|candidate| candidate == name) {
             panic!("Unknown aggregate output '{name}'");
         }
-        col(name)
+        Expr::Column(datafusion::common::Column::new_unqualified(name))
     }
 }
 

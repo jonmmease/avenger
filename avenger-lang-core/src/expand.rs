@@ -1051,6 +1051,33 @@ impl Expander<'_> {
             Some(&context),
         );
         wrapper.children = expanded.children;
+        if schema.kind == DefinitionKind::Transform {
+            let dynamic_outputs = schema
+                .slots
+                .iter()
+                .filter(|(_, slot)| slot.shape == "outputs")
+                .filter_map(|(slot_name, _)| context.slots.get(slot_name))
+                .filter_map(|slot| {
+                    let Value::Projection(projection) = &slot.value else {
+                        return None;
+                    };
+                    Some(projection)
+                })
+                .flat_map(|projection| projection.items())
+                .filter_map(|item| {
+                    let sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } = item else {
+                        return None;
+                    };
+                    Name::new(alias.value.clone()).ok()
+                })
+                .map(|alias| Decl {
+                    keyword: name("output"),
+                    name: Some(alias),
+                    ..Decl::new(name("output"))
+                })
+                .collect::<Vec<_>>();
+            wrapper.children.splice(0..0, dynamic_outputs);
+        }
         let mut expanded_instance = instance.clone();
         for part in &mut expanded_instance.children {
             if part.keyword.as_str() == "part" {
@@ -1250,6 +1277,9 @@ impl Expander<'_> {
                 }),
             Value::Expr(expression) => substitute_sql_expression(expression, owner, context)
                 .map(|expression| Value::Expr(Box::new(expression)))
+                .unwrap_or_else(|_| value.clone()),
+            Value::Projection(projection) => substitute_sql_projection(projection, owner, context)
+                .map(|projection| Value::Projection(Box::new(projection)))
                 .unwrap_or_else(|_| value.clone()),
             Value::Query(query) => substitute_sql_query(query, owner, context)
                 .map(|query| Value::Query(Box::new(query)))
@@ -1459,7 +1489,7 @@ fn substitute_sql_expression(
     owner: &SourceModuleId,
     context: &ExpansionContext,
 ) -> Result<crate::ast::SqlExpression, crate::ast::AstError> {
-    let sql = substitute_sql_macros(expression.canonical_sql(), owner, context)?;
+    let sql = substitute_sql_macros(expression.canonical_sql(), owner, context, false)?;
     let mut expression = crate::ast::SqlExpression::parse(&sql)?;
     rewrite_definition_private_columns(&mut expression, context);
     Ok(expression)
@@ -1470,10 +1500,21 @@ fn substitute_sql_query(
     owner: &SourceModuleId,
     context: &ExpansionContext,
 ) -> Result<crate::ast::SqlQuery, crate::ast::AstError> {
-    let sql = substitute_sql_macros(query.canonical_sql(), owner, context)?;
+    let sql = substitute_sql_macros(query.canonical_sql(), owner, context, true)?;
     let mut query = crate::ast::SqlQuery::parse(&sql)?;
     rewrite_definition_private_columns(&mut query, context);
     Ok(query)
+}
+
+fn substitute_sql_projection(
+    projection: &crate::ast::SqlProjection,
+    owner: &SourceModuleId,
+    context: &ExpansionContext,
+) -> Result<crate::ast::SqlProjection, crate::ast::AstError> {
+    let sql = substitute_sql_macros(projection.canonical_sql(), owner, context, false)?;
+    let mut projection = crate::ast::SqlProjection::parse(&sql)?;
+    rewrite_definition_private_columns(&mut projection, context);
+    Ok(projection)
 }
 
 trait RewritesSqlIdentifiers {
@@ -1487,6 +1528,12 @@ impl RewritesSqlIdentifiers for crate::ast::SqlExpression {
 }
 
 impl RewritesSqlIdentifiers for crate::ast::SqlQuery {
+    fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
+        Self::rewrite_identifiers(self, replacement);
+    }
+}
+
+impl RewritesSqlIdentifiers for crate::ast::SqlProjection {
     fn rewrite_identifiers(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
         Self::rewrite_identifiers(self, replacement);
     }
@@ -1508,13 +1555,14 @@ fn substitute_sql_macros(
     sql: String,
     owner: &SourceModuleId,
     context: &ExpansionContext,
+    quote_output_aliases: bool,
 ) -> Result<String, crate::ast::AstError> {
     let mut replacements = BTreeMap::new();
     for (name, slot) in &context.slots {
         if slot.shape == "block" || slot.shape == "ref" {
             continue;
         }
-        replacements.insert(name.clone(), slot_sql(slot)?);
+        replacements.insert(name.clone(), slot_sql(slot, quote_output_aliases)?);
     }
     let private_names = context_names_for_owner(owner, context);
     for (logical, physical) in &context.channels {
@@ -1535,7 +1583,30 @@ fn substitute_sql_macros(
     }))
 }
 
-fn slot_sql(slot: &BoundSlot) -> Result<String, crate::ast::AstError> {
+fn slot_sql(slot: &BoundSlot, quote_output_aliases: bool) -> Result<String, crate::ast::AstError> {
+    if slot.shape == "outputs"
+        && let Value::Projection(projection) = &slot.value
+    {
+        return Ok(projection
+            .items()
+            .iter()
+            .filter_map(|item| {
+                let sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } = item else {
+                    return None;
+                };
+                let alias = if quote_output_aliases {
+                    format!("\"{}\"", alias.value.replace('"', "\"\""))
+                } else {
+                    alias.value.clone()
+                };
+                Some(format!(
+                    "{} AS {alias}",
+                    crate::ast::restore_bindings(expr.to_string(), projection.bindings()),
+                ))
+            })
+            .collect::<Vec<_>>()
+            .join(", "));
+    }
     if slot.shape == "expr_list" {
         let Value::Array(values) = &slot.value else {
             return Ok(crate::print::print_value(&slot.value));

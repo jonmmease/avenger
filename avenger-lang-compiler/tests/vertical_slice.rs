@@ -286,6 +286,31 @@ async fn vertical_slice_sql_aggregate_pipeline_propagates_schema_and_evaluates()
 }
 
 #[tokio::test]
+async fn all_projection_list_native_transforms_compile_and_evaluate() {
+    let root = fixture("13_projection_transforms");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    for chart in [
+        "aggregate_chart",
+        "join_aggregate_chart",
+        "scalar_aggregate_chart",
+        "calculate_chart",
+        "window_chart",
+        "select_chart",
+    ] {
+        let artifact = compiler
+            .compile_chart(root.join("charts.avenger"), Some(chart))
+            .await
+            .unwrap_or_else(|failure| panic!("{chart}: {:#?}", failure.diagnostics));
+        let evaluated = artifact
+            .compiled_plot()
+            .evaluate(&SessionContext::new(), None)
+            .await
+            .unwrap_or_else(|error| panic!("{chart}: {error}"));
+        assert!(!evaluated.scene_graph.marks.is_empty(), "{chart}");
+    }
+}
+
+#[tokio::test]
 async fn legend_overlay_compiles_nested_groups_without_inheriting_chart_rows() {
     let source = r#"avenger 1;
 chart cartesian as chart {
@@ -351,7 +376,7 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
             scope: level(2);
             output totals.total as total;
             transform aggregate as totals {
-              total: sum("amount");
+              expressions: sum("amount") AS total;
             }
           }
           mark symbol as point {
@@ -2457,6 +2482,148 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
         serde_json::to_value(&expanded_evaluated.scene_graph).unwrap()
     );
     assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn outputs_slot_compiles_caller_authored_projection_columns() {
+    let compiler = source_compiler(
+        r#"
+avenger 1;
+
+define transform summarize {
+  slot outputs measures;
+  transform aggregate { expressions: measures; }
+}
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { category: 'A'; amount: 2.0; },
+      { category: 'B'; amount: 4.0; }
+    ];
+  }
+  transform summarize as stats {
+    measures: sum("amount") AS total, avg("amount") AS average;
+  }
+  mark symbol { x: stats.total; y: stats.average; }
+}
+"#,
+        None,
+    );
+    let artifact = compiler
+        .compile_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap();
+    let analysis = compiler.analyze_module("chart.avenger").await.unwrap();
+    assert!(analysis.datasets.iter().any(|(_, dataset)| {
+        dataset.schema.field_with_name("total").is_ok()
+            && dataset.schema.field_with_name("average").is_ok()
+    }));
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn outputs_slot_rejects_aliases_dropped_before_the_definition_boundary() {
+    let compiler = source_compiler(
+        r#"
+avenger 1;
+
+define transform broken {
+  slot outputs columns;
+  transform calculate { expressions: columns; }
+  transform select { expressions: "category"; }
+}
+
+chart cartesian as chart {
+  data: { values: [{ category: 'A'; amount: 2.0; }]; }
+  transform broken as projected {
+    columns: "amount" + 1 AS adjusted;
+  }
+  mark symbol { x: "category"; y: projected.adjusted; }
+}
+"#,
+        None,
+    );
+    let failure = compiler
+        .compile_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains("lowering")
+                || diagnostic.primary.message.contains("adjusted")
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
+async fn native_aggregate_rejects_counting_a_nullable_value_as_row_count() {
+    let compiler = source_compiler(
+        r#"
+avenger 1;
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { amount: 2.0; },
+      { amount: null; }
+    ];
+  }
+  transform aggregate {
+    expressions: count("amount") AS count;
+  }
+}
+"#,
+        None,
+    );
+    let failure = compiler
+        .compile_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains("row count")
+                || diagnostic.primary.message.contains("row count")
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
+async fn native_select_rejects_duplicate_unaliased_result_columns() {
+    let compiler = source_compiler(
+        r#"
+avenger 1;
+
+chart cartesian as chart {
+  data: { values: [{ category: 'A'; amount: 2.0; }]; }
+  transform select {
+    expressions: "category", "category";
+  }
+}
+"#,
+        None,
+    );
+    let failure = compiler
+        .compile_chart("chart.avenger", Some("chart"))
+        .await
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains("duplicate column")
+                || diagnostic.primary.message.contains("duplicate column")
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
 }
 
 #[tokio::test]

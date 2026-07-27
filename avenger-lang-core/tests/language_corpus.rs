@@ -166,6 +166,12 @@ fn ast_json_round_trips_every_value_variant() {
         Value::Column("column".into()),
         Value::Atom(name("median")),
         Value::Expr(Box::new(SqlExpression::parse("1 + 2").unwrap())),
+        Value::Projection(Box::new(
+            avenger_lang_core::ast::SqlProjection::parse(
+                "sum(amount) AS total, avg(amount) AS average",
+            )
+            .unwrap(),
+        )),
         Value::Query(Box::new(SqlQuery::parse("SELECT * FROM movies").unwrap())),
         Value::Binding {
             kind: BindingKind::Param,

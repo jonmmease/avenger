@@ -252,6 +252,7 @@ impl Serialize for Value {
             Self::Column(value) => tagged(serializer, "col", value),
             Self::Atom(value) => tagged(serializer, "atom", value),
             Self::Expr(value) => tagged(serializer, "expr", &value.canonical_sql()),
+            Self::Projection(value) => tagged(serializer, "projection", &value.canonical_sql()),
             Self::Query(value) => tagged(serializer, "query", &value.canonical_sql()),
             Self::Binding { kind, path, time } => tagged(
                 serializer,
@@ -373,6 +374,10 @@ impl<'de> Deserialize<'de> for Value {
                         SqlExpression::parse(&map.next_value::<String>()?)
                             .map_err(de::Error::custom)?,
                     )),
+                    "projection" => Value::Projection(Box::new(
+                        crate::ast::SqlProjection::parse(&map.next_value::<String>()?)
+                            .map_err(de::Error::custom)?,
+                    )),
                     "query" => Value::Query(Box::new(
                         SqlQuery::parse(&map.next_value::<String>()?).map_err(de::Error::custom)?,
                     )),
@@ -445,8 +450,21 @@ impl<'de> Deserialize<'de> for Value {
 }
 
 const VALUE_TAGS: &[&str] = &[
-    "num", "col", "atom", "binding", "expr", "query", "value", "dim", "ref", "pattern", "env",
-    "none", "block", "call",
+    "num",
+    "col",
+    "atom",
+    "binding",
+    "expr",
+    "projection",
+    "query",
+    "value",
+    "dim",
+    "ref",
+    "pattern",
+    "env",
+    "none",
+    "block",
+    "call",
 ];
 
 fn tagged<S, T>(serializer: S, tag: &'static str, payload: &T) -> Result<S::Ok, S::Error>
@@ -669,7 +687,7 @@ impl BindingTime {
 mod tests {
     use serde_json::json;
 
-    use crate::ast::{BindingKind, BindingTime, Name, Value};
+    use crate::ast::{BindingKind, BindingTime, Name, SqlProjection, Value};
 
     use super::{CORE_SCHEMA_V1, canonical_json, decode_json};
 
@@ -701,6 +719,21 @@ mod tests {
     }
 
     #[test]
+    fn ast_interchange_projection_lists_round_trip_canonically() {
+        let value = Value::Projection(Box::new(
+            SqlProjection::parse("sum(\"amount\") as total, $width + 1 AS adjusted").unwrap(),
+        ));
+        let encoded = serde_json::to_value(&value).unwrap();
+        assert_eq!(
+            encoded,
+            json!({
+                "projection": "sum(\"amount\") AS total, $width + 1 AS adjusted"
+            })
+        );
+        assert_eq!(serde_json::from_value::<Value>(encoded).unwrap(), value);
+    }
+
+    #[test]
     fn ast_interchange_rejects_duplicate_properties_and_tags() {
         assert!(serde_json::from_str::<Value>(r#"{"num":"1","atom":"x"}"#).is_err());
         assert!(
@@ -717,7 +750,7 @@ mod tests {
                 .as_object()
                 .unwrap()
                 .len(),
-            14
+            15
         );
     }
 

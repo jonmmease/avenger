@@ -6,7 +6,7 @@ define transform centered {
 
   transform pipeline as pipeline {
     transform aggregate {
-      value: mean($field);
+      expressions: mean($field) AS value;
     }
     transform formula {
       expression: $field - "value";

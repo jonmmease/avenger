@@ -397,13 +397,37 @@ async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
 async fn chained_transforms_complete_the_exact_input_and_output_stage() {
     let (fixture, source) = transform_pipeline_fixture().await;
 
-    let aggregate_input = complete_marked(
+    let projection_input = complete_marked(
         &fixture,
         &fixture.chart,
-        source.replace("expr: \"amount\"", "expr: am⟦cursor⟧"),
+        source.replace(
+            "expressions: sum(\"amount\") AS total",
+            "expressions: sum(am⟦cursor⟧) AS total",
+        ),
     );
-    assert!(labels(&aggregate_input).contains(&"amount"));
-    assert!(!labels(&aggregate_input).contains(&"total"));
+    assert!(labels(&projection_input).contains(&"amount"));
+    assert!(!labels(&projection_input).contains(&"total"));
+
+    let projection_as = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace(
+            "expressions: sum(\"amount\") AS total",
+            "expressions: sum(\"amount\") ⟦cursor⟧",
+        ),
+    );
+    assert!(labels(&projection_as).contains(&"AS"));
+
+    let projection_alias = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace(
+            "expressions: sum(\"amount\") AS total",
+            "expressions: sum(\"amount\") AS ⟦cursor⟧",
+        ),
+    );
+    assert!(labels(&projection_alias).contains(&"sum_amount"));
+    assert!(!labels(&projection_alias).contains(&"amount"));
 
     let sql_input = complete_marked(
         &fixture,

@@ -6,7 +6,7 @@ use avenger_chart_core::{
     DataTransformStage, DefaultLogicalExprNodeExt, ExecutionShape, IntoExpr, SerializableExpr,
     apply_compiled_data_transforms,
 };
-use datafusion::{dataframe::DataFrame, logical_expr::Expr, prelude::col};
+use datafusion::{common::Column, dataframe::DataFrame, logical_expr::Expr};
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -129,7 +129,7 @@ impl CompiledDataTransform for CompiledPipelineTransform {
                 !output_names.contains(name.as_str())
                     && final_schema.field_with_unqualified_name(name).is_ok()
             })
-            .map(col)
+            .map(|name| Expr::Column(Column::new_unqualified(name)))
             .collect::<Vec<_>>();
         projection.extend(
             self.outputs
@@ -254,7 +254,7 @@ impl PipelineOutput {
         if !self.names.iter().any(|candidate| candidate == name) {
             panic!("Unknown pipeline output '{name}'");
         }
-        col(name)
+        Expr::Column(Column::new_unqualified(name))
     }
 }
 
@@ -303,7 +303,7 @@ mod tests {
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
-        prelude::SessionContext,
+        prelude::{SessionContext, col},
     };
     use std::sync::Arc;
 

@@ -58,6 +58,42 @@ fn test_registry() -> NativeSchemaSnapshot {
     }
 }
 
+async fn resolved_workspace_analysis(
+    text: &str,
+) -> (WorkspaceAnalysis, SourceOrigin, SourceRevision) {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let origin = SourceOrigin::File(project_root.join("chart.avenger"));
+    let revision = SourceRevision::from_text(text);
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .unwrap();
+    let analysis = AnalysisService::new(compiler.clone())
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root,
+                roots: vec![ModuleRoot::requested(origin.clone())],
+                open_documents: BTreeMap::from([(
+                    origin.clone(),
+                    DocumentSnapshot::new(origin.clone(), revision.clone(), text),
+                )]),
+                known_disk_sources: vec![origin.clone()],
+                native_registry_profile: compiler
+                    .language_host()
+                    .registry()
+                    .profile_id()
+                    .as_str()
+                    .to_owned(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    (analysis, origin, revision)
+}
+
 #[test]
 fn canonical_formatting_is_a_comment_preserving_fixpoint_and_rejects_invalid_source() {
     let source = r#"avenger 1; chart cartesian as chart {
@@ -188,6 +224,86 @@ chart cartesian as chart {
         analysis.rename(&request, "$bad", &AnalysisCancellation::default()),
         Err(RenameError::InvalidName(name)) if name == "$bad"
     ));
+}
+
+#[tokio::test]
+async fn projection_alias_tokens_hover_and_safe_rename_share_output_identity() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ amount: 2.0; }, { amount: 4.0; }]; }
+  transform aggregate as totals {
+    expressions: sum("amount") AS total;
+  }
+  mark symbol { x: totals.total; y: totals.total; }
+}"#;
+    let (analysis, origin, revision) = resolved_workspace_analysis(source).await;
+    let alias_start = source.find("AS total").unwrap() + "AS ".len();
+    let request = PositionRequest {
+        source: origin.clone(),
+        byte_offset: alias_start + 1,
+        source_revision: revision.clone(),
+    };
+    let semantic = analysis
+        .semantic_tokens(
+            &DocumentRequest {
+                source: origin.clone(),
+                source_revision: revision.clone(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert!(semantic.tokens.iter().any(|token| {
+        token.span.range.start == alias_start
+            && token.kind == SemanticTokenKind::Field
+            && token.modifiers.declaration
+    }));
+    let hover = analysis
+        .hover(&request, &AnalysisCancellation::default())
+        .unwrap()
+        .unwrap();
+    assert!(hover.markdown.contains("transform output column `total`"));
+    assert!(hover.markdown.contains("Arrow type: `Float64`"));
+
+    let prepared = analysis
+        .prepare_rename(&request, &AnalysisCancellation::default())
+        .unwrap();
+    assert!(
+        prepared.is_some(),
+        "{:#?}",
+        analysis.semantic_index.documents[&origin]
+    );
+    let prepared = prepared.unwrap();
+    assert_eq!(prepared.placeholder, "total");
+    let edit = analysis
+        .rename(&request, "amount_total", &AnalysisCancellation::default())
+        .unwrap();
+    assert_eq!(edit.sources[&origin].edits.len(), 3);
+    let mut renamed = source.to_owned();
+    for edit in edit.sources[&origin].edits.iter().rev() {
+        renamed.replace_range(edit.span.range.as_range(), &edit.new_text);
+    }
+    assert!(renamed.contains("AS amount_total"));
+    assert_eq!(renamed.matches("totals.amount_total").count(), 2);
+
+    let unsafe_source = source.replace(
+        "mark symbol",
+        "transform calculate { expressions: \"total\" + 1 AS adjusted; }\n  mark symbol",
+    );
+    let (analysis, origin, revision) = resolved_workspace_analysis(&unsafe_source).await;
+    let alias_start = unsafe_source.find("AS total").unwrap() + "AS ".len();
+    assert!(
+        analysis
+            .prepare_rename(
+                &PositionRequest {
+                    source: origin,
+                    byte_offset: alias_start + 1,
+                    source_revision: revision,
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

@@ -1,8 +1,9 @@
 use std::ops::ControlFlow;
 
 use sqlparser::{
-    ast::{Expr, Query, Select, SelectFlavor, Statement, Visit, Visitor},
+    ast::{Expr, Query, Select, SelectFlavor, SelectItem, Statement, Visit, Visitor},
     parser::{Parser, ParserError},
+    tokenizer::Token,
 };
 
 use crate::{ByteSpan, SourceSpan, sql::normalize::error};
@@ -62,6 +63,75 @@ pub fn parse_sql_expression_with_limits(
     limits: SqlParseLimits,
 ) -> Result<ParsedSqlIsland<Expr>, SqlFrontendError> {
     parse_island(stream, start_token, limits, |parser| parser.parse_expr())
+}
+
+pub fn parse_sql_projection(
+    stream: &TokenStream,
+    start_token: usize,
+) -> Result<ParsedSqlIsland<Vec<SelectItem>>, SqlFrontendError> {
+    parse_sql_projection_with_limits(stream, start_token, SqlParseLimits::default())
+}
+
+pub fn parse_sql_projection_with_limits(
+    stream: &TokenStream,
+    start_token: usize,
+    limits: SqlParseLimits,
+) -> Result<ParsedSqlIsland<Vec<SelectItem>>, SqlFrontendError> {
+    let parsed = parse_island(stream, start_token, limits, |parser| {
+        parser.parse_projection()
+    })?;
+    validate_explicit_projection_aliases(stream, start_token, &parsed)?;
+    Ok(parsed)
+}
+
+fn validate_explicit_projection_aliases(
+    stream: &TokenStream,
+    start_token: usize,
+    parsed: &ParsedSqlIsland<Vec<SelectItem>>,
+) -> Result<(), SqlFrontendError> {
+    let mut item_has_as = vec![false];
+    let mut item_starts = vec![start_token];
+    let mut depth = 0usize;
+    for index in start_token..parsed.next_token {
+        let Some(token) = stream.token(index) else {
+            break;
+        };
+        match token.token() {
+            Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+            Token::RParen | Token::RBracket | Token::RBrace => {
+                depth = depth.saturating_sub(1);
+            }
+            Token::Comma if depth == 0 => {
+                item_has_as.push(false);
+                item_starts.push(index.saturating_add(1));
+            }
+            Token::Word(word) if depth == 0 && word.value.eq_ignore_ascii_case("as") => {
+                if let Some(has_as) = item_has_as.last_mut() {
+                    *has_as = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    for (index, item) in parsed.ast.iter().enumerate() {
+        if matches!(
+            item,
+            SelectItem::ExprWithAlias { .. } | SelectItem::ExprWithAliases { .. }
+        ) && !item_has_as.get(index).copied().unwrap_or(false)
+        {
+            let span = item_starts
+                .get(index)
+                .and_then(|index| stream.token(*index))
+                .map_or(parsed.span, |token| token.span());
+            return Err(error(
+                "AVENGER-SQL-012",
+                "projection aliases require `AS`",
+                span,
+                "write `expression AS output_name`",
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn parse_sql_query(
@@ -251,7 +321,7 @@ mod tests {
 
     use crate::{SourceFile, SourceId, SourceOrigin, sql::tokenize};
 
-    use super::{parse_sql_expression, parse_sql_query};
+    use super::{parse_sql_expression, parse_sql_projection, parse_sql_query};
 
     fn stream(source: &str) -> super::TokenStream {
         let source = SourceFile::new(SourceId::new(1), SourceOrigin::Memory("sql".into()), source);
@@ -280,6 +350,26 @@ mod tests {
             next_significant.token(),
             sqlparser::tokenizer::Token::LBrace
         ));
+    }
+
+    #[test]
+    fn projection_parser_returns_select_items_and_outer_cursor() {
+        let stream = stream("sum(x) AS total, avg(y) AS average;");
+        let parsed = parse_sql_projection(&stream, 0).unwrap();
+        assert_eq!(parsed.ast.len(), 2);
+        assert_eq!(parsed.ast[0].to_string(), "sum(x) AS total");
+        assert_eq!(parsed.ast[1].to_string(), "avg(y) AS average");
+        assert!(matches!(
+            stream.tokens()[parsed.next_token].token(),
+            sqlparser::tokenizer::Token::SemiColon
+        ));
+    }
+
+    #[test]
+    fn projection_parser_rejects_implicit_aliases() {
+        let stream = stream("sum(x) total;");
+        let error = parse_sql_projection(&stream, 0).unwrap_err();
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-SQL-012");
     }
 
     #[test]

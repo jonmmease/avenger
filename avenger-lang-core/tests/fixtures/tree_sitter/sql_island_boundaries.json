@@ -13,6 +13,12 @@
       "sites": ["query_property"]
     },
     {
+      "name": "projection_property",
+      "root": "projection",
+      "outer_delimiters": [";"],
+      "sites": ["projection_property"]
+    },
+    {
       "name": "property_expression",
       "root": "expression",
       "outer_delimiters": [";", "{"],
@@ -75,6 +81,14 @@
       "context": "property_expression",
       "source": "\"amount\" + coalesce($offset, 0);",
       "island": "\"amount\" + coalesce($offset, 0)",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "projection_list_semicolon",
+      "context": "projection_property",
+      "source": "sum(x) AS total, avg(y) AS average;",
+      "island": "sum(x) AS total, avg(y) AS average",
       "outer": ";",
       "accepted": true
     },

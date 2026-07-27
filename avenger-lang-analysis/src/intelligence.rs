@@ -8,8 +8,8 @@ use avenger_chart_schema::{
     ValueShape,
 };
 use avenger_lang_core::{
-    ByteSpan, ResolvedDeclaration, ResolvedModuleGraph, ResolvedTarget, SourceFile, SourceId,
-    SourceOrigin, SourceSpan, allowed_child_declarations,
+    ByteSpan, ResolvedDeclaration, ResolvedModuleGraph, ResolvedOutputHandle, ResolvedTarget,
+    ResolvedValue, SourceFile, SourceId, SourceOrigin, SourceSpan, allowed_child_declarations,
     ast::Visibility,
     sql::{LosslessTokenKind, TokenClass},
     syntax::{TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
@@ -119,7 +119,7 @@ impl WorkspaceSemanticIndex {
             let Some(project) = analysis.resolved_module_graph.as_deref() else {
                 continue;
             };
-            index.enrich_from_resolved(project);
+            index.enrich_from_resolved(project, syntax);
         }
         // Install syntax-derived import bindings after semantic enrichment so
         // imported-name references point at the final declaration identities.
@@ -240,7 +240,11 @@ impl WorkspaceSemanticIndex {
         }
     }
 
-    fn enrich_from_resolved(&mut self, project: &ResolvedModuleGraph) {
+    fn enrich_from_resolved(
+        &mut self,
+        project: &ResolvedModuleGraph,
+        syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>,
+    ) {
         let mut declarations = BTreeMap::new();
         for file in project.source_modules.values() {
             collect_resolved_declarations(&file.roots, &mut declarations);
@@ -283,6 +287,8 @@ impl WorkspaceSemanticIndex {
                 }
             }
         }
+
+        self.install_output_alias_symbols(project, syntax, &declarations);
 
         for param in project.params.values() {
             self.enrich_state_symbol(
@@ -399,6 +405,158 @@ impl WorkspaceSemanticIndex {
                     });
             }
         }
+        self.install_output_references(project, syntax);
+    }
+
+    fn install_output_alias_symbols(
+        &mut self,
+        project: &ResolvedModuleGraph,
+        syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>,
+        declarations: &BTreeMap<String, &ResolvedDeclaration>,
+    ) {
+        for declaration in declarations.values().copied() {
+            if declaration.keyword != "transform" || declaration.transform_outputs.is_empty() {
+                continue;
+            }
+            let authored = project.expansion_source_map.authored_span(declaration.span);
+            let Some(origin) = project
+                .sources
+                .get(authored.source)
+                .map(|source| source.origin.clone())
+            else {
+                continue;
+            };
+            let Some(document_syntax) = syntax.get(&origin) else {
+                continue;
+            };
+            let authored_syntax_span = SourceSpan {
+                source: document_syntax.parsed.tokens.source(),
+                range: authored.range,
+            };
+            let expected = declaration
+                .transform_outputs
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let aliases = projection_alias_spans(document_syntax, authored, &expected);
+            let Some(document) = self.documents.get_mut(&origin) else {
+                continue;
+            };
+            let parent = document
+                .symbols
+                .iter()
+                .position(|symbol| symbol.identity == declaration.id.to_string());
+            let scope_span = parent
+                .and_then(|index| document.symbols[index].parent)
+                .map(|index| document.symbols[index].scope_span)
+                .unwrap_or_else(|| SourceSpan {
+                    source: document_syntax.parsed.tokens.source(),
+                    range: ByteSpan {
+                        start: 0,
+                        end: document_syntax.parsed.tokens.text().len(),
+                    },
+                });
+            for (name, selection_span) in aliases {
+                let Some(handle) = declaration.transform_outputs.get(&name) else {
+                    continue;
+                };
+                let identity = output_identity(handle);
+                if document
+                    .symbols
+                    .iter()
+                    .any(|symbol| symbol.identity == identity)
+                {
+                    continue;
+                }
+                document.symbols.push(IndexedSymbol {
+                    identity,
+                    name: name.clone(),
+                    kind: SymbolKind::Field,
+                    value_kind: IndexedValueKind::Output,
+                    origin: origin.clone(),
+                    declaration_span: authored_syntax_span,
+                    selection_span,
+                    scope_span,
+                    parent,
+                    keyword: "output_alias".to_owned(),
+                    native_kind: declaration.kind.clone(),
+                    visibility: declaration.visibility,
+                    exported: false,
+                    detail: Some(match handle.shape {
+                        avenger_lang_core::ResolvedOutputShape::Expression => {
+                            if declaration.kind.as_deref() == Some("scalar_aggregate") {
+                                format!("derived scalar output `{name}`")
+                            } else {
+                                format!("transform output column `{name}`")
+                            }
+                        }
+                        avenger_lang_core::ResolvedOutputShape::RasterDimension => {
+                            format!("transform raster dimension `{name}`")
+                        }
+                        avenger_lang_core::ResolvedOutputShape::Opaque => {
+                            format!("transform output `{name}`")
+                        }
+                    }),
+                    documentation: Some(
+                        "Caller-authored output declared by this SQL projection alias.".to_owned(),
+                    ),
+                });
+            }
+        }
+    }
+
+    fn install_output_references(
+        &mut self,
+        project: &ResolvedModuleGraph,
+        syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>,
+    ) {
+        let mut references = Vec::new();
+        for module in project.source_modules.values() {
+            collect_output_references(&module.roots, &mut references);
+        }
+        for (declaration, path, handle) in references {
+            let authored = project.expansion_source_map.authored_span(declaration.span);
+            let Some(origin) = project
+                .sources
+                .get(authored.source)
+                .map(|source| source.origin.clone())
+            else {
+                continue;
+            };
+            let Some(document_syntax) = syntax.get(&origin) else {
+                continue;
+            };
+            let spans = sql_path_spans(document_syntax, authored, &path);
+            let Some(document) = self.documents.get_mut(&origin) else {
+                continue;
+            };
+            let identity = output_identity(&handle);
+            for span in spans {
+                if document
+                    .symbols
+                    .iter()
+                    .any(|symbol| symbol.selection_span == span)
+                {
+                    continue;
+                }
+                if let Some(reference) = document
+                    .references
+                    .iter_mut()
+                    .find(|reference| reference.span == span)
+                {
+                    reference.target_identity = Some(identity.clone());
+                    reference.value_kind = IndexedValueKind::Output;
+                    continue;
+                }
+                document.references.push(IndexedReference {
+                    name: path.join("."),
+                    origin: origin.clone(),
+                    span,
+                    target_identity: Some(identity.clone()),
+                    value_kind: IndexedValueKind::Output,
+                });
+            }
+        }
     }
 
     fn enrich_state_symbol(
@@ -483,6 +641,9 @@ impl WorkspaceSemanticIndex {
                 })
                 .collect::<Vec<_>>();
             for (reference, local_target) in document.references.iter_mut().zip(local_targets) {
+                if reference.target_identity.is_some() {
+                    continue;
+                }
                 if let Some(reference_target) = self
                     .public_references
                     .get(&(reference.origin.clone(), reference.name.clone()))
@@ -1052,6 +1213,192 @@ fn significant_tokens<'a>(
             span: token.span(),
         })
         .collect()
+}
+
+fn projection_alias_spans(
+    syntax: &SyntaxAnalysis,
+    authored: SourceSpan,
+    expected: &BTreeSet<String>,
+) -> Vec<(String, SourceSpan)> {
+    let declaration = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. }))
+        .filter(|node| {
+            node.span.range.start <= authored.range.start
+                && authored.range.end <= node.span.range.end
+                || authored.range.start <= node.span.range.start
+                    && node.span.range.end <= authored.range.end
+        })
+        .min_by_key(|node| node.span.range.len());
+    let Some(declaration) = declaration else {
+        return Vec::new();
+    };
+    let mut output = Vec::new();
+    for property in syntax.parsed.nodes.iter().filter(|node| {
+        matches!(node.kind, TolerantSyntaxNodeKind::Property { .. })
+            && parent_declaration(&syntax.parsed.nodes, node.parent) == Some(declaration.id)
+    }) {
+        let tokens = significant_tokens(syntax, Some(property.span));
+        let Some(colon) = tokens
+            .iter()
+            .position(|token| matches!(token.token, Some(Token::Colon)))
+        else {
+            continue;
+        };
+        let mut depth = 0usize;
+        let mut index = colon + 1;
+        while index < tokens.len() {
+            match tokens[index].token {
+                Some(Token::LParen | Token::LBracket | Token::LBrace) => depth += 1,
+                Some(Token::RParen | Token::RBracket | Token::RBrace) => {
+                    depth = depth.saturating_sub(1);
+                }
+                Some(Token::SemiColon) if depth == 0 => break,
+                Some(Token::Word(word)) if depth == 0 && word.value.eq_ignore_ascii_case("as") => {
+                    if let Some(alias) = tokens.get(index + 1)
+                        && let Some(Token::Word(word)) = alias.token
+                        && word.quote_style.is_none()
+                        && expected.contains(&word.value)
+                    {
+                        output.push((word.value.clone(), alias.span));
+                    }
+                    index += 1;
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+    }
+    output.sort_by_key(|(_, span)| span.range.start);
+    output.dedup_by_key(|(_, span)| *span);
+    output
+}
+
+fn output_identity(handle: &ResolvedOutputHandle) -> String {
+    format!("output:{}:{}", handle.producer, handle.name)
+}
+
+fn collect_output_references<'a>(
+    declarations: &'a [ResolvedDeclaration],
+    output: &mut Vec<(&'a ResolvedDeclaration, Vec<String>, ResolvedOutputHandle)>,
+) {
+    fn collect_value<'a>(
+        declaration: &'a ResolvedDeclaration,
+        value: &ResolvedValue,
+        output: &mut Vec<(&'a ResolvedDeclaration, Vec<String>, ResolvedOutputHandle)>,
+    ) {
+        let mut collect_references = |references: &[avenger_lang_core::ResolvedSqlReference]| {
+            output.extend(references.iter().filter_map(|reference| {
+                let ResolvedTarget::Output(handle) = &reference.target else {
+                    return None;
+                };
+                Some((declaration, reference.authored_path.clone(), handle.clone()))
+            }));
+        };
+        match value {
+            ResolvedValue::Expression(expression) => collect_references(&expression.references),
+            ResolvedValue::Projection(projection) => {
+                for item in &projection.items {
+                    if let Some(expression) = &item.expression {
+                        collect_references(&expression.references);
+                    }
+                }
+            }
+            ResolvedValue::Query(query) => collect_references(&query.references),
+            ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
+                for value in values {
+                    collect_value(declaration, value, output);
+                }
+            }
+            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+                collect_value(declaration, value, output);
+            }
+            ResolvedValue::Object {
+                head, properties, ..
+            } => {
+                if let Some(head) = head {
+                    collect_value(declaration, head, output);
+                }
+                for value in properties.values() {
+                    collect_value(declaration, value, output);
+                }
+            }
+            ResolvedValue::String(_)
+            | ResolvedValue::Number(_)
+            | ResolvedValue::Boolean(_)
+            | ResolvedValue::Null
+            | ResolvedValue::Atom(_)
+            | ResolvedValue::Column(_)
+            | ResolvedValue::Binding(_)
+            | ResolvedValue::Reference(_)
+            | ResolvedValue::Dimension(_)
+            | ResolvedValue::Environment(_)
+            | ResolvedValue::None
+            | ResolvedValue::DefinitionArgument(_)
+            | ResolvedValue::Invalid => {}
+        }
+    }
+
+    for declaration in declarations {
+        for value in declaration.properties.values() {
+            collect_value(declaration, value, output);
+        }
+        collect_output_references(&declaration.children, output);
+    }
+}
+
+fn sql_path_spans(
+    syntax: &SyntaxAnalysis,
+    authored: SourceSpan,
+    path: &[String],
+) -> Vec<SourceSpan> {
+    if path.is_empty() {
+        return Vec::new();
+    }
+    let within = SourceSpan {
+        source: syntax.parsed.tokens.source(),
+        range: authored.range,
+    };
+    let tokens = significant_tokens(syntax, Some(within));
+    let mut output = Vec::new();
+    for start in 0..tokens.len() {
+        let Some(first) = tokens[start].word() else {
+            continue;
+        };
+        if first != path[0] {
+            continue;
+        }
+        let mut cursor = start + 1;
+        let mut matched = true;
+        for component in &path[1..] {
+            if !tokens
+                .get(cursor)
+                .is_some_and(|token| matches!(token.token, Some(Token::Period)))
+                || tokens.get(cursor + 1).and_then(SigToken::word) != Some(component.as_str())
+            {
+                matched = false;
+                break;
+            }
+            cursor += 2;
+        }
+        if matched {
+            let end = if path.len() == 1 {
+                tokens[start].span.range.end
+            } else {
+                tokens[cursor - 1].span.range.end
+            };
+            output.push(SourceSpan {
+                source: tokens[start].span.source,
+                range: ByteSpan {
+                    start: tokens[start].span.range.start,
+                    end,
+                },
+            });
+        }
+    }
+    output
 }
 
 #[derive(Clone, Debug)]
@@ -2671,6 +3018,11 @@ impl<'a> QueryContext<'a> {
             if let Some(detail) = &symbol.detail {
                 markdown.push_str(&format!("\n\n{detail}"));
             }
+            if symbol.value_kind == IndexedValueKind::Output
+                && let Some(detail) = self.output_column_detail(symbol)
+            {
+                markdown.push_str(&format!("\n\n{detail}"));
+            }
             if let Some(docs) = &symbol.documentation {
                 markdown.push_str(&format!("\n\n{docs}"));
             }
@@ -2694,16 +3046,18 @@ impl<'a> QueryContext<'a> {
                 .and_then(|identity| self.index.symbol_by_identity(identity));
             let sigil = matches!(
                 reference.value_kind,
-                IndexedValueKind::Scalar
-                    | IndexedValueKind::Table
-                    | IndexedValueKind::Selection
-                    | IndexedValueKind::Output
+                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
             )
             .then_some("$")
             .unwrap_or("");
             let mut markdown = format!("```avenger\n{sigil}{}\n```", reference.name);
             if let Some(target) = target {
                 if let Some(detail) = &target.detail {
+                    markdown.push_str(&format!("\n\n{detail}"));
+                }
+                if target.value_kind == IndexedValueKind::Output
+                    && let Some(detail) = self.output_column_detail(target)
+                {
                     markdown.push_str(&format!("\n\n{detail}"));
                 }
                 if let Some(docs) = &target.documentation {
@@ -2757,6 +3111,29 @@ impl<'a> QueryContext<'a> {
             generation: self.generation,
             source_revision: request.source_revision.clone(),
         }))
+    }
+
+    fn output_column_detail(&self, symbol: &IndexedSymbol) -> Option<String> {
+        self.semantic_roots.values().find_map(|root| {
+            let project = root.result.as_ref().ok()?;
+            project.datasets.iter().find_map(|(_, dataset)| {
+                let source = project.sources.get(dataset.provenance.stage_span.source)?;
+                if source.origin.canonical_uri() != symbol.origin.canonical_uri()
+                    || dataset.provenance.stage_span.range.start > symbol.selection_span.range.start
+                    || symbol.selection_span.range.end > dataset.provenance.stage_span.range.end
+                {
+                    return None;
+                }
+                let column = dataset
+                    .columns
+                    .iter()
+                    .find(|column| column.name == symbol.name)?;
+                Some(format!(
+                    "- Arrow type: `{:?}`\n- Nullable: `{}`\n- Result kind: `column`",
+                    column.data_type, column.nullable
+                ))
+            })
+        })
     }
 
     pub(crate) fn definition(
@@ -3772,6 +4149,7 @@ fn shape_accepts_binding(shape: &ValueShape) -> bool {
         | ValueShape::TableBinding
         | ValueShape::SelectionBinding
         | ValueShape::SqlExpression
+        | ValueShape::SqlProjection { .. }
         | ValueShape::SqlQuery
         | ValueShape::Any => true,
         ValueShape::Union(shapes) => shapes.iter().any(shape_accepts_binding),
@@ -3788,6 +4166,7 @@ fn shape_label(shape: &ValueShape) -> String {
         ValueShape::Identifier => "identifier",
         ValueShape::Atom { .. } => "enum",
         ValueShape::SqlExpression => "SQL expression",
+        ValueShape::SqlProjection { .. } => "SQL projection list",
         ValueShape::SqlQuery => "SQL query",
         ValueShape::ScalarBinding => "scalar binding",
         ValueShape::TableBinding => "table binding",

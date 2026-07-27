@@ -6,7 +6,7 @@ use std::{
 
 use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
-    sql::{parse_sql_expression, parse_sql_query, tokenize},
+    sql::{parse_sql_expression, parse_sql_projection, parse_sql_query, tokenize},
     syntax::{SqlIslandContext, SqlIslandRoot, SqlIslandSite, parse_file},
 };
 use serde::Deserialize;
@@ -130,6 +130,7 @@ fn sql_island_manifest_covers_every_context_and_call_site() {
             .unwrap_or_else(|| panic!("missing SQL-island context {context:?}"));
         let expected_root = match context.root() {
             SqlIslandRoot::Query => "query",
+            SqlIslandRoot::Projection => "projection",
             SqlIslandRoot::Expression => "expression",
         };
         assert_eq!(entry.root, expected_root, "root for {context:?}");
@@ -190,6 +191,9 @@ fn sql_island_boundaries_leave_outer_tokens_unconsumed() {
         let parsed = match context.root() {
             SqlIslandRoot::Query => {
                 parse_sql_query(&stream, 0).map(|parsed| (parsed.span, parsed.next_token))
+            }
+            SqlIslandRoot::Projection => {
+                parse_sql_projection(&stream, 0).map(|parsed| (parsed.span, parsed.next_token))
             }
             SqlIslandRoot::Expression => {
                 parse_sql_expression(&stream, 0).map(|parsed| (parsed.span, parsed.next_token))

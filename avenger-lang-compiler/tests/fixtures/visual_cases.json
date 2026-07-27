@@ -316,6 +316,15 @@
       "review": "reviewed"
     },
     {
+      "root": "13_projection_transforms/charts.avenger",
+      "selector": "aggregate_chart",
+      "expectation": "visual",
+      "sources": [
+        "13_projection_transforms/charts.avenger"
+      ],
+      "review": "reviewed"
+    },
+    {
       "root": "phase9-files/chart.avenger",
       "expectation": "visual",
       "sources": [

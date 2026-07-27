@@ -873,6 +873,199 @@ export define transform rolling {
 }
 
 #[tokio::test]
+async fn outputs_slot_publishes_call_site_aliases_and_expands_pipeline_outputs() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import { summarize } from 'summarize.avenger';
+chart cartesian {
+  transform summarize as stats {
+    measures: sum("amount") AS Total, avg("amount") AS average;
+  }
+  mark symbol { x: stats.Total; y: stats.average; }
+}
+"#,
+        ),
+        (
+            "summarize.avenger",
+            r#"
+avenger 1;
+export define transform summarize {
+  slot outputs measures;
+  transform aggregate { expressions: measures; }
+}
+"#,
+        ),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = resolved
+        .source_modules
+        .values()
+        .find_map(|module| module.roots.iter().find(|root| root.keyword == "chart"))
+        .unwrap();
+    assert_eq!(
+        chart.children[0]
+            .transform_outputs
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        ["Total", "average"]
+    );
+
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let chart_module = project.requested_modules.first().unwrap();
+    let text = &expanded.texts[chart_module];
+    assert!(text.contains("transform pipeline as stats"), "{text}");
+    assert!(text.contains("output Total;"), "{text}");
+    assert!(text.contains("output average;"), "{text}");
+    assert!(text.contains("sum(\"amount\") AS Total"), "{text}");
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
+        .result
+        .unwrap();
+}
+
+#[tokio::test]
+async fn outputs_slot_splices_exact_quoted_aliases_into_full_select() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import { project } from 'project.avenger';
+chart cartesian {
+  transform project as projected {
+    columns: "amount" + 1 AS Total;
+  }
+}
+"#,
+        ),
+        (
+            "project.avenger",
+            r#"
+avenger 1;
+export define transform project {
+  slot outputs columns;
+  transform sql { query: SELECT columns FROM input; }
+}
+"#,
+        ),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let chart_module = project.requested_modules.first().unwrap();
+    let text = &expanded.texts[chart_module];
+    assert!(text.contains("AS \"Total\""), "{text}");
+    assert!(text.contains("output Total;"), "{text}");
+    resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
+        .result
+        .unwrap();
+}
+
+#[tokio::test]
+async fn outputs_slot_requires_one_placeholder_occurrence() {
+    let project = project(&[(
+        "chart.avenger",
+        r#"
+avenger 1;
+define transform duplicate {
+  slot outputs columns;
+  transform sql {
+    query: SELECT columns, columns FROM input;
+  }
+}
+"#,
+    )])
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "AVENGER-RESOLVE-167"
+                && diagnostic.primary.message.contains("used 2 times")
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
+async fn outputs_slot_requires_a_whole_projection_destination() {
+    let project = project(&[(
+        "chart.avenger",
+        r#"
+avenger 1;
+define transform misplaced {
+  slot outputs columns;
+  transform sql {
+    query: SELECT "value" FROM input WHERE columns;
+  }
+}
+"#,
+    )])
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "AVENGER-RESOLVE-170"
+                && diagnostic.message.contains("projection splice")
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
+async fn outputs_slot_requires_a_binder_and_rejects_static_output_collisions() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import { summarize } from 'summarize.avenger';
+chart cartesian {
+  transform summarize {
+    measures: sum("amount") AS total;
+  }
+}
+"#,
+        ),
+        (
+            "summarize.avenger",
+            r#"
+avenger 1;
+export define transform summarize {
+  slot outputs measures;
+  output total;
+  transform aggregate { expressions: measures; }
+}
+"#,
+        ),
+    ])
+    .await;
+    let failure = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let codes = failure
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(codes.contains("AVENGER-RESOLVE-169"), "{codes:?}");
+    assert!(codes.contains("AVENGER-RESOLVE-150"), "{codes:?}");
+}
+
+#[tokio::test]
 async fn resolver_reserves_compiler_names_and_definition_private_columns() {
     let project = project(&[(
         "chart.avenger",

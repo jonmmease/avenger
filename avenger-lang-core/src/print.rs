@@ -534,6 +534,28 @@ impl Printer {
                 self.text(&query.canonical_sql());
                 self.line(";");
             }
+            Value::Projection(projection) => {
+                let items = projection.canonical_items();
+                let current_width = self
+                    .output
+                    .rsplit_once('\n')
+                    .map_or(self.output.len(), |(_, line)| line.len());
+                if items.len() == 1 && current_width + items[0].len() < 88 {
+                    self.text(&items[0]);
+                    self.line(";");
+                } else {
+                    if self.output.ends_with(' ') {
+                        self.output.pop();
+                    }
+                    self.line("");
+                    self.indent += 1;
+                    for (index, item) in items.iter().enumerate() {
+                        self.text(item);
+                        self.line(if index + 1 == items.len() { ";" } else { "," });
+                    }
+                    self.indent -= 1;
+                }
+            }
             Value::Visual(value) => {
                 self.text("value ");
                 self.value(value);
@@ -577,6 +599,7 @@ impl Printer {
             }
             Value::Atom(value) => self.text(value.as_str()),
             Value::Expr(value) => self.text(&value.canonical_sql()),
+            Value::Projection(value) => self.text(&value.canonical_sql()),
             Value::Query(value) => self.text(&value.canonical_sql()),
             Value::Binding { path, time, .. } => {
                 self.text("$");

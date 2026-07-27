@@ -12,12 +12,13 @@ use crate::{
     ast::{
         AstError, AstNodeId, AstNodeRole, AstSourceMap, BindingKind, BindingTime, Body, Decl, File,
         Import, ImportClause, ImportSpecifier, ModuleItem, Name, NumericLiteral, PropertyMap,
-        QualifiedName, RefKind, SqlExpression, SqlQuery, Value, Visibility,
+        QualifiedName, RefKind, SqlExpression, SqlProjection, SqlQuery, Value, Visibility,
     },
     physical_type::PhysicalType,
     sql::{
         ParsedSqlIsland, SqlFrontendError, SqlParseLimits, TokenClass, TokenStream,
-        parse_sql_expression_with_limits, parse_sql_query_with_limits, tokenize,
+        parse_sql_expression_with_limits, parse_sql_projection_with_limits,
+        parse_sql_query_with_limits, tokenize,
     },
 };
 
@@ -29,13 +30,14 @@ pub struct SyntaxLimits {
     pub sql: SqlParseLimits,
 }
 
-/// The five structural contexts that can own an embedded SQL island.
+/// The six structural contexts that can own an embedded SQL island.
 ///
 /// This is intentionally a closed compiler/editor contract. Adding a context
 /// requires updating the checked Tree-sitter boundary manifest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SqlIslandContext {
     QueryProperty,
+    ProjectionProperty,
     PropertyExpression,
     TerminatedExpression,
     ArrayExpression,
@@ -45,6 +47,7 @@ pub enum SqlIslandContext {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SqlIslandRoot {
     Query,
+    Projection,
     Expression,
 }
 
@@ -54,6 +57,7 @@ pub enum SqlIslandRoot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SqlIslandSite {
     QueryProperty,
+    ProjectionProperty,
     ValuePropertyPayload,
     PropertyValue,
     ArrayValuePayload,
@@ -64,8 +68,9 @@ pub enum SqlIslandSite {
 }
 
 impl SqlIslandContext {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::QueryProperty,
+        Self::ProjectionProperty,
         Self::PropertyExpression,
         Self::TerminatedExpression,
         Self::ArrayExpression,
@@ -75,6 +80,7 @@ impl SqlIslandContext {
     pub const fn manifest_name(self) -> &'static str {
         match self {
             Self::QueryProperty => "query_property",
+            Self::ProjectionProperty => "projection_property",
             Self::PropertyExpression => "property_expression",
             Self::TerminatedExpression => "terminated_expression",
             Self::ArrayExpression => "array_expression",
@@ -85,6 +91,7 @@ impl SqlIslandContext {
     pub const fn root(self) -> SqlIslandRoot {
         match self {
             Self::QueryProperty => SqlIslandRoot::Query,
+            Self::ProjectionProperty => SqlIslandRoot::Projection,
             Self::PropertyExpression
             | Self::TerminatedExpression
             | Self::ArrayExpression
@@ -94,7 +101,7 @@ impl SqlIslandContext {
 
     pub const fn outer_delimiters(self) -> &'static [&'static str] {
         match self {
-            Self::QueryProperty | Self::TerminatedExpression => &[";"],
+            Self::QueryProperty | Self::ProjectionProperty | Self::TerminatedExpression => &[";"],
             Self::PropertyExpression => &[";", "{"],
             Self::ArrayExpression => &[",", "]"],
             Self::AliasedExpression => &["as", ";"],
@@ -103,8 +110,9 @@ impl SqlIslandContext {
 }
 
 impl SqlIslandSite {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::QueryProperty,
+        Self::ProjectionProperty,
         Self::ValuePropertyPayload,
         Self::PropertyValue,
         Self::ArrayValuePayload,
@@ -117,6 +125,7 @@ impl SqlIslandSite {
     pub const fn manifest_name(self) -> &'static str {
         match self {
             Self::QueryProperty => "query_property",
+            Self::ProjectionProperty => "projection_property",
             Self::ValuePropertyPayload => "value_property_payload",
             Self::PropertyValue => "property_value",
             Self::ArrayValuePayload => "array_value_payload",
@@ -130,6 +139,7 @@ impl SqlIslandSite {
     pub const fn context(self) -> SqlIslandContext {
         match self {
             Self::QueryProperty => SqlIslandContext::QueryProperty,
+            Self::ProjectionProperty => SqlIslandContext::ProjectionProperty,
             Self::ValuePropertyPayload | Self::PropertyValue => {
                 SqlIslandContext::PropertyExpression
             }
@@ -798,6 +808,14 @@ impl Parser {
                 .map(|query| Value::Query(Box::new(query)))
                 .map_err(|error| self.ast_error(error));
         }
+        if property == "expressions" || self.looks_like_projection() {
+            let parsed = self.projection(SqlIslandSite::ProjectionProperty)?;
+            self.index = parsed.next_token;
+            self.expect(Token::SemiColon, "`;` after SQL projection list")?;
+            return SqlProjection::from_parsed(parsed)
+                .map(|projection| Value::Projection(Box::new(projection)))
+                .map_err(|error| self.ast_error(error));
+        }
         if self.word().is_some() && self.nth_is(1, &Token::LBrace) {
             let head = Value::Atom(self.name()?);
             return Ok(Value::Block {
@@ -904,6 +922,15 @@ impl Parser {
         parse_sql_query_with_limits(&self.stream, start, self.limits.sql).map_err(Into::into)
     }
 
+    fn projection(
+        &mut self,
+        site: SqlIslandSite,
+    ) -> Result<ParsedSqlIsland<Vec<sqlparser::ast::SelectItem>>, ParseError> {
+        debug_assert_eq!(site.context().root(), SqlIslandRoot::Projection);
+        let start = self.sig();
+        parse_sql_projection_with_limits(&self.stream, start, self.limits.sql).map_err(Into::into)
+    }
+
     fn expression(
         &mut self,
         binding_kind: BindingKind,
@@ -917,6 +944,30 @@ impl Parser {
     }
 
     // Declaration shapes and cursor helpers continue below.
+
+    fn looks_like_projection(&mut self) -> bool {
+        let start = self.sig();
+        let mut index = start;
+        let mut depth = 0usize;
+        while let Some(token) = self.stream.token(index) {
+            match token.token() {
+                Token::LBrace if depth == 0 && index != start => return false,
+                Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    depth = depth.saturating_sub(1);
+                }
+                Token::Comma if depth == 0 => return true,
+                Token::Word(word) if depth == 0 && word.value.eq_ignore_ascii_case("as") => {
+                    return true;
+                }
+                Token::SemiColon if depth == 0 => return false,
+                Token::EOF => return false,
+                _ => {}
+            }
+            index += 1;
+        }
+        false
+    }
 }
 
 impl Parser {
@@ -1253,6 +1304,7 @@ impl Parser {
                 | "enum"
                 | "ref"
                 | "block"
+                | "outputs"
                 | "channel"
         ) {
             return Err(self.error("AVENGER-PARSE-021", "unknown definition slot shape"));
@@ -2190,6 +2242,23 @@ chart cartesian as example {
                     && specifiers[0].local.as_str() == "data"
         ));
         assert!(!parsed.source_map.is_empty());
+    }
+
+    #[test]
+    fn projection_lookahead_stops_at_configured_expression_blocks() {
+        let parsed = parse(
+            r#"
+avenger 1;
+chart cartesian as example {
+  mark symbol {
+    x: "x" { scale: linear { domain: [0.0, 3.0]; } }
+    y: "y";
+  }
+  public mark text as label {}
+}
+"#,
+        );
+        assert_eq!(only_item(&parsed).declaration.children.len(), 2);
     }
 
     #[test]

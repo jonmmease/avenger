@@ -1076,6 +1076,10 @@ impl<'a> TolerantTreeBuilder<'a> {
                             TolerantSyntaxNodeKind::SqlIsland {
                                 context: if name.eq_ignore_ascii_case("sql") {
                                     SqlIslandContext::QueryProperty
+                                } else if name.eq_ignore_ascii_case("expressions")
+                                    || self.tokens_form_projection(value_start, value_end)
+                                {
+                                    SqlIslandContext::ProjectionProperty
                                 } else {
                                     SqlIslandContext::PropertyExpression
                                 },
@@ -1420,6 +1424,27 @@ impl<'a> TolerantTreeBuilder<'a> {
         self.significant
             .get(position)
             .map(|index| &self.tokens.tokens()[*index])
+    }
+
+    fn tokens_form_projection(&self, start: usize, end: usize) -> bool {
+        let mut depth = 0usize;
+        for position in start..=end {
+            let Some(token) = self.token_at_significant_opt(position) else {
+                continue;
+            };
+            match token.token() {
+                Some(Token::LParen | Token::LBracket | Token::LBrace) => depth += 1,
+                Some(Token::RParen | Token::RBracket | Token::RBrace) => {
+                    depth = depth.saturating_sub(1);
+                }
+                Some(Token::Comma) if depth == 0 => return true,
+                Some(Token::Word(word)) if depth == 0 && word.value.eq_ignore_ascii_case("as") => {
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        false
     }
 }
 

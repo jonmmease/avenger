@@ -176,7 +176,7 @@ one-public-item-per-file, plain-import, specialized-suffix, and
 collection-style-bundling designs.
 
 Adopted 2026-07-26: **transforms that accept caller-named SQL expressions use
-an ordered projection-list value.** The standard property is `exprs:` and each
+an ordered projection-list value.** The standard property is `expressions:` and each
 custom output is written `<sql-expression> AS <dsl-name>`, reusing the
 select-list grammar between SQL `SELECT` and `FROM` without using open
 user-named property maps. `aggregate`, `join_aggregate`, `scalar_aggregate`,
@@ -862,7 +862,7 @@ chart cartesian as sales_by_category {
   mark group as layers {
     transform aggregate as totals {
       group_by: "category";
-      exprs: sum("amount") AS total;
+      expressions: sum("amount") AS total;
     }
 
     mark rect as bars {
@@ -959,7 +959,7 @@ chart cartesian as example {
   mark group as layers {
     transform aggregate as totals {
       group_by: "category";
-      exprs: sum("amount") AS total;
+      expressions: sum("amount") AS total;
     }
 
     mark rect as bars {
@@ -1229,7 +1229,7 @@ query:
 
 ```avenger
 transform calculate as derived {
-  exprs:
+  expressions:
     "price" * "quantity" AS total,
     coalesce("label", 'unknown') AS display_label,
     23 AS constant;
@@ -1274,12 +1274,12 @@ visible to a later sibling. This matches SQL `SELECT` semantics and makes
 property-map order irrelevant. The item order determines deterministic output
 and handle order. Duplicate aliases are an error before lowering.
 
-The standard property name is `exprs:`:
+The standard property name is `expressions:`:
 
 ```avenger
 transform aggregate as totals {
   group_by: ["category", "segment"];
-  exprs:
+  expressions:
     sum("amount") AS total,
     count(*) AS count;
 }
@@ -1287,21 +1287,21 @@ transform aggregate as totals {
 transform window as ranked {
   partition_by: "category";
   order_by: "amount";
-  exprs:
-    row_number() AS rank,
-    sum("amount") AS running_total;
+  expressions:
+    row_number() OVER () AS rank,
+    sum("amount") OVER () AS running_total;
 }
 
 transform select {
-  exprs:
+  expressions:
     "category",
     "amount" * 2 AS doubled;
 }
 ```
 
-`exprs` is a contextual reserved property name in the schema-free structural
+`expressions` is a contextual reserved property name in the schema-free structural
 parser, just as `sql` and `query` select query islands. A registry entry may
-use `exprs` only with a projection-list shape. For a custom slot whose property
+use `expressions` only with a projection-list shape. For a custom slot whose property
 has another name, a top-level `AS` or comma makes the projection syntax
 structurally self-identifying; the schema then requires the named projection
 shape. A single `slot outputs` value is always self-identifying because its
@@ -2040,7 +2040,7 @@ mark group as manual_box_plot {
   mark group as summary {
     transform aggregate as stats {
       group_by: "group";
-      exprs:
+      expressions:
         approx_percentile_cont("value", 0.25) AS q1,
         median("value") AS median,
         approx_percentile_cont("value", 0.75) AS q3;
@@ -2087,7 +2087,7 @@ quoted column names in the next data context:
 
 ```avenger
 transform calculate {
-  exprs: "price" * "quantity" AS total;
+  expressions: "price" * "quantity" AS total;
 }
 
 mark rect {
@@ -2110,14 +2110,14 @@ transform filter {
 }
 
 transform calculate {
-  exprs:
+  expressions:
     "profit" / "revenue" AS margin,
     "category" || ': ' || cast("amount" as varchar) AS label;
 }
 
 transform aggregate as totals {
   group_by: ["category", "segment"];
-  exprs:
+  expressions:
     sum("amount") AS total,
     count(*) AS count;
 }
@@ -2139,7 +2139,7 @@ transform stack as s {
 The named-projection transforms share syntax but retain their distinct Rust
 semantics:
 
-| Transform | `exprs:` | Result and collision rule |
+| Transform | `expressions:` | Result and collision rule |
 | --- | --- | --- |
 | `aggregate` | optional only when `group_by:` is present | Collapses rows; every item must be one aggregate call supported by the native aggregate implementation. A measure alias may not collide with a grouping output or incoming column. |
 | `join_aggregate` | required | Appends grouped aggregate results to every input row. Aliases may not collide with input columns. |
@@ -2147,6 +2147,10 @@ semantics:
 | `calculate` | required | Appends or intentionally replaces same-named input columns. All items read the pre-transform input, including when one alias replaces an input column. |
 | `window` | required | Appends window results and rejects aliases that collide with input columns. `partition_by:` and `order_by:` supply defaults to every item as before. |
 | `select` | required | Replaces the relation with the ordered projection. Direct columns may omit aliases; computed expressions may not. Duplicate resulting column names are invalid. |
+
+Window projection items use SQL window syntax, including `OVER (...)`. An
+empty `OVER ()` delegates missing partition and ordering clauses to the
+transform-level `partition_by:` and `order_by:` properties.
 
 `aggregate` with neither grouping keys nor measures is invalid. The other
 required properties exclude no-op stages. These requirements are authoring
@@ -2156,10 +2160,11 @@ builder while the language refuses a semantically empty declaration.
 Diagnostics may display an alias when present, but resolution allocates an
 opaque stage symbol for source maps, provenance, and internal references.
 Execution and cache fingerprints derive from the resolved operation, inputs,
-and configuration rather than either the symbol spelling or user alias.
-Consistently renaming an alias and all its lexical references is alpha-renaming:
-it does not change the resolved plan or cache fingerprint. It does change the
-source AST and printed text, as any binder rename does. The opaque symbol is
+configuration, and physical output schema rather than the opaque stage symbol.
+A projection alias names both the public handle and, for relation-producing
+transforms, the physical output column. Consistently renaming an alias and all
+its lexical references therefore changes the resolved plan schema and cache
+fingerprint even when the expression is unchanged. The opaque stage symbol is
 never printed in DSL or exposed as an output namespace.
 
 Transform sharing scope should also be a property, keeping the header regular:
@@ -2168,7 +2173,7 @@ Transform sharing scope should also be a property, keeping the header regular:
 transform aggregate as global_totals {
   scope: shared;
   group_by: "category";
-  exprs: sum("amount") AS total;
+  expressions: sum("amount") AS total;
 }
 
 transform bin as local_bins {
@@ -3591,7 +3596,7 @@ chart cartesian {
     mark group as fence {
       transform join_aggregate as fence {
         group_by: "group";
-        exprs:
+        expressions:
           approx_percentile_cont("value", 0.25) AS q1,
           approx_percentile_cont("value", 0.75) AS q3;
       }
@@ -3605,7 +3610,7 @@ chart cartesian {
 
         transform aggregate as whisker {
           group_by: "group";
-          exprs:
+          expressions:
             min("value") AS whisker_low,
             max("value") AS whisker_high;
         }
@@ -3663,7 +3668,7 @@ chart cartesian {
     mark group as summary {
       transform aggregate as stats {
         group_by: "group";
-        exprs:
+        expressions:
           approx_percentile_cont("value", 0.25) AS q1,
           median("value") AS median,
           approx_percentile_cont("value", 0.75) AS q3;
@@ -4476,7 +4481,7 @@ export define mark error_bar {
   mark group {
     transform aggregate as stats {
       group_by: category;
-      exprs:
+      expressions:
         min(measure) AS lo,
         max(measure) AS hi,
         avg(measure) AS mid;
@@ -4572,7 +4577,7 @@ define mark error_bar {
   mark group {
     transform aggregate as stats {
       group_by: category;
-      exprs:
+      expressions:
         min(measure) AS lo,
         max(measure) AS hi;
     }
@@ -5071,11 +5076,11 @@ named expressions may declare one `slot outputs`:
 ```avenger
 export define transform summarize {
   slot expr_list group_by;
-  slot outputs exprs;
+  slot outputs measures;
 
   transform aggregate {
     group_by: group_by;
-    exprs: exprs;
+    expressions: measures;
   }
 }
 ```
@@ -5083,7 +5088,7 @@ export define transform summarize {
 ```avenger
 transform summarize as stats {
   group_by: ["category"];
-  exprs:
+  measures:
     sum("amount") AS total,
     avg("amount") AS average;
 }
@@ -5092,7 +5097,7 @@ transform summarize as stats {
 `slot outputs <name>` is a required, non-empty named projection list. It is
 valid only in `define transform`, may occur at most once, has no `default:`,
 and must be consumed exactly once in a named-projection position — an
-`exprs:` property or a SQL `SELECT` projection splice. Its caller-authored
+`expressions:` property or a SQL `SELECT` projection splice. Its caller-authored
 aliases automatically join the definition's public output-handle set, so the
 example exposes `stats.total` and `stats.average`. A definition containing an
 outputs slot therefore always requires an instance binder. Static `output`
@@ -5200,7 +5205,7 @@ export define transform binned_counts {
 
   transform aggregate {
     group_by: [b.start, b.end];
-    exprs: count(*) AS count;
+    expressions: count(*) AS count;
   }
 }
 ```
@@ -6148,7 +6153,7 @@ value         = body                                 (* anonymous object *)
               | "none" , ";"
               | sql_query , ";"                      (* reserved `sql:` and `query:`
                                                         properties only *)
-              | sql_projection , ";"                 (* reserved `exprs:` or a
+              | sql_projection , ";"                 (* reserved `expressions:` or a
                                                         structurally evident outputs slot *)
               | sql_expr , terminator ;              (* default expression slot *)
 terminator    = body | ";" ;                         (* config block or semicolon *)
@@ -6230,9 +6235,9 @@ lowerer.
   contributes its supplied aliases to the instance output interface. Slot
   shapes are explicit and never inferred from body use.
 - The schema-free parser selects a `value` production from local syntax and the
-  globally reserved `sql`/`query`/`exprs` names; the authoring schema then
+  globally reserved `sql`/`query`/`expressions` names; the authoring schema then
   validates that shape for the particular property. `sql_query` is reachable
-  only from the first two reserved properties, while `exprs` selects a
+  only from the first two reserved properties, while `expressions` selects a
   projection list. A top-level projection comma or explicit alias also
   self-identifies a projection supplied to an arbitrarily named `outputs`
   slot. Bare identifiers in enum-valued properties
@@ -7480,7 +7485,7 @@ failure.
 
 The schema-free structural parser chooses the value production from local
 syntax and the reserved property-name contract: `sql:`/`query:` enter a query
-island, `exprs:` enters a projection island, a leading block/array/prefix enters
+island, `expressions:` enters a projection island, a leading block/array/prefix enters
 its structural value, and remaining positions enter an expression island
 unless top-level projection punctuation makes a projection self-identifying.
 Authoring schemas validate whether that parsed shape is legal for the
@@ -7499,7 +7504,7 @@ context. The fixed boundary contexts are:
 | Source context | Structural parser owns | Delegated SQL unit | Stops before |
 | --- | --- | --- | --- |
 | reserved `sql:` or `query:` property | property name, `:`, and terminating `;` | one query (`SELECT`, `FROM`-first `SELECT`, set operation, or `VALUES`) | top-level `;` |
-| reserved `exprs:` property or structurally evident `slot outputs` argument | property name, `:`, terminating `;`, and semantic alias policy | one non-empty SQL projection list | top-level `;` |
+| reserved `expressions:` property or structurally evident `slot outputs` argument | property name, `:`, terminating `;`, and semantic alias policy | one non-empty SQL projection list | top-level `;` |
 | ordinary/configurable property, channel value, filter, or `value` payload | property/prefix and optional configuration body | one scalar expression | top-level `;` or the configuration `{` |
 | explicit `output <expr> as <name>` | `output`, top-level `as`, public name, and `;` | one scalar expression | top-level `as` |
 | `set ... =` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
@@ -7891,7 +7896,7 @@ module.exports = grammar(AvengerSql, {
     ),
 
     sql_projection_property: $ => seq(
-      field("name", "exprs"),
+      field("name", "expressions"),
       ":",
       field("value", $.sql_projection_list),
       ";",
@@ -7962,7 +7967,7 @@ from the pinned base revision; it does not maintain another implementation.
 
 `sql_query_property` is selected only by the two globally reserved property
 names `sql` and `query`; both contain one query rather than an arbitrary SQL
-statement. `sql_projection_property` is selected by `exprs`. A second
+statement. `sql_projection_property` is selected by `expressions`. A second
 projection-valued property path recognizes the top-level alias/comma shape
 needed by an arbitrarily named `slot outputs` argument. All other SQL-bearing
 contexts expose an expression wrapper above. Authoring schemas still determine

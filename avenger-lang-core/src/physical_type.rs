@@ -607,6 +607,7 @@ fn value_shape(value: &Value) -> String {
         Value::Column(_) => "column",
         Value::Atom(_) => "atom",
         Value::Expr(_) => "SQL expression",
+        Value::Projection(_) => "SQL projection list",
         Value::Query(_) => "SQL query",
         Value::Binding { .. } => "binding",
         Value::Ref { .. } => "reference",

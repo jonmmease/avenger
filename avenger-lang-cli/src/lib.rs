@@ -2083,6 +2083,7 @@ mod tests {
                 continue;
             }
             let root = case["root"].as_str().expect("fixture root is a string");
+            let selector = case.get("selector").and_then(Value::as_str);
             let project_name = Path::new(root)
                 .components()
                 .next()
@@ -2097,7 +2098,7 @@ mod tests {
                 .build()
                 .unwrap_or_else(|error| panic!("build compiler for {root}: {error}"));
             let generation = runtime
-                .block_on(compiler.compile_chart_generation_attempt(&chart, None, 1))
+                .block_on(compiler.compile_chart_generation_attempt(&chart, selector, 1))
                 .result
                 .unwrap_or_else(|failure| panic!("compile {root}: {:#?}", failure.diagnostics));
             let context = generation.environment.session_context_arc();

@@ -864,13 +864,17 @@ impl SyntaxAnalysis {
                 property_name: Some(name.clone()),
             },
             Some(TolerantSyntaxNodeKind::SqlIsland { context }) => SyntaxContext {
-                kind: if matches!(
-                    context,
-                    avenger_lang_core::syntax::SqlIslandContext::QueryProperty
-                ) {
-                    SyntaxContextKind::Query
-                } else {
-                    SyntaxContextKind::Expression
+                kind: match context {
+                    avenger_lang_core::syntax::SqlIslandContext::QueryProperty => {
+                        SyntaxContextKind::Query
+                    }
+                    avenger_lang_core::syntax::SqlIslandContext::ProjectionProperty
+                    | avenger_lang_core::syntax::SqlIslandContext::PropertyExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::TerminatedExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::ArrayExpression
+                    | avenger_lang_core::syntax::SqlIslandContext::AliasedExpression => {
+                        SyntaxContextKind::Expression
+                    }
                 },
                 span: node.unwrap().span,
                 declaration_keyword: None,

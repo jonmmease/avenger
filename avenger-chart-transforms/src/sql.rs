@@ -53,7 +53,7 @@ pub struct SqlOutput;
 impl SqlOutput {
     /// Column reference into the stage's output schema.
     pub fn field(&self, name: &str) -> Expr {
-        datafusion::prelude::col(name)
+        Expr::Column(datafusion::common::Column::new_unqualified(name))
     }
 }
 

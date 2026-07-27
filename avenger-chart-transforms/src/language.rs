@@ -4,18 +4,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use avenger_chart_core::{DataTransform, TimeContext, WeekStart};
 use avenger_chart_lang_types::{
-    LoweredTransform, NativeLoweringError, NativeOutputValue, ResolvedDeclaration, ResolvedValue,
-    TransformLanguageDefinition, TransformPipelineLanguageDefinition, expr_property, resolved_expr,
-    string_property,
+    LoweredTransform, NativeLoweringError, NativeOutputValue, ResolvedDeclaration,
+    ResolvedProjectionItem, ResolvedValue, TransformLanguageDefinition,
+    TransformPipelineLanguageDefinition, expr_property, resolved_expr, string_property,
 };
 use avenger_chart_schema::{
     BodyMode, ChildRule, DynamicOutputSource, DynamicTransformOutputSchema, EnumValueSchema,
-    KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, TransformOutputSchema,
-    ValueShape,
+    KindSchema, NativeKindKey, NativeKindNamespace, ProjectionPolicy, PropertySchema,
+    TransformOutputSchema, ValueShape,
 };
 use datafusion::{
-    common::ScalarValue,
-    logical_expr::{Expr, col},
+    common::{Column, ScalarValue},
+    logical_expr::Expr,
 };
 use indexmap::IndexMap;
 
@@ -25,6 +25,10 @@ use crate::{
     Select, Sql, Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel,
     TimeLevels, TimeUnit, TimeUnitPart, Window,
 };
+
+fn exact_col(name: impl Into<String>) -> Expr {
+    Expr::Column(Column::new_unqualified(name.into()))
+}
 
 /// The transform definitions currently available to the native registry.
 ///
@@ -111,11 +115,6 @@ fn with_transform_scope(mut schema: KindSchema) -> KindSchema {
             "Coordination scope for this transform stage.",
         ),
     );
-    for output in &mut schema.dynamic_outputs {
-        if let DynamicOutputSource::PropertyNames { exclude } = &mut output.source {
-            exclude.insert("scope".to_string());
-        }
-    }
     schema
 }
 
@@ -142,36 +141,6 @@ fn filter_definition() -> TransformLanguageDefinition {
 }
 
 fn aggregate_definition() -> TransformLanguageDefinition {
-    let operation = ValueShape::Atom {
-        values: ["sum", "count", "mean", "min", "max", "median"]
-            .into_iter()
-            .map(|value| EnumValueSchema {
-                value: value.to_string(),
-                docs: format!("The `{value}` aggregation operation."),
-            })
-            .collect(),
-    };
-    let measure = ValueShape::Object(
-        [
-            (
-                "name".to_string(),
-                PropertySchema::required(ValueShape::String, "Output column name."),
-            ),
-            (
-                "op".to_string(),
-                PropertySchema::required(operation, "Aggregation operation."),
-            ),
-            (
-                "expr".to_string(),
-                PropertySchema::optional(
-                    ValueShape::SqlExpression,
-                    "Input expression; omitted for count.",
-                ),
-            ),
-        ]
-        .into_iter()
-        .collect(),
-    );
     let schema = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Transform, "aggregate"),
         "Group rows and compute named aggregate measures.",
@@ -184,32 +153,20 @@ fn aggregate_definition() -> TransformLanguageDefinition {
         ),
     )
     .property(
-        "measures",
+        "expressions",
         PropertySchema::optional(
-            ValueShape::Array(Box::new(measure)),
-            "Legacy structured named measures; user-named expression properties are preferred.",
+            ValueShape::SqlProjection {
+                policy: ProjectionPolicy::Named,
+            },
+            "Named aggregate expressions written as `expression AS output`.",
         ),
     )
-    .additional_properties(PropertySchema::optional(
-        ValueShape::SqlExpression,
-        "A user-named aggregate expression whose property name becomes the output handle.",
-    ))
     .dynamic_output(DynamicTransformOutputSchema {
-        source: DynamicOutputSource::PropertyNames {
-            exclude: ["group_by".to_string(), "measures".to_string()]
-                .into_iter()
-                .collect(),
+        source: DynamicOutputSource::ProjectionAliases {
+            property: "expressions".to_string(),
         },
         shape: ValueShape::SqlExpression,
-        docs: "Each user-named aggregate expression exposes a same-named field handle.".to_string(),
-    })
-    .dynamic_output(DynamicTransformOutputSchema {
-        source: DynamicOutputSource::ArrayObjectField {
-            property: "measures".to_string(),
-            field: "name".to_string(),
-        },
-        shape: ValueShape::SqlExpression,
-        docs: "Each structured measure exposes the field named by its `name` member.".to_string(),
+        docs: "Each projection alias exposes a same-named field handle.".to_string(),
     });
     TransformLanguageDefinition {
         schema,
@@ -221,38 +178,28 @@ fn lower_aggregate(
     declaration: &ResolvedDeclaration,
     context: avenger_chart_core::DataTransformCompileContext,
 ) -> Result<LoweredTransform, NativeLoweringError> {
-    let mut aggregate = Aggregate::new();
-    aggregate = aggregate.group_by(resolved_exprs(declaration.properties.get("group_by"))?);
-    let mut names = Vec::new();
-    if let Some(ResolvedValue::Array(measures)) = declaration.properties.get("measures") {
-        for measure in measures {
-            let ResolvedValue::Object(fields) = measure else {
-                unreachable!("schema validation checks aggregate measure objects")
-            };
-            let name = object_string(fields, "name")?;
-            let op = object_string(fields, "op")?;
-            let expr = optional_object_expr(fields, "expr")?;
-            aggregate = apply_structured_measure(aggregate, &name, &op, expr, "aggregate")?;
-            names.push(name);
-        }
+    let group_by = resolved_exprs(declaration.properties.get("group_by"))?;
+    let items = optional_projection_property(declaration, "expressions")?;
+    if group_by.is_empty() && items.is_empty() {
+        return Err(NativeLoweringError::Lowering {
+            kind: "aggregate".to_string(),
+            message: "aggregate requires a non-empty `group_by` or `expressions`".to_string(),
+        });
     }
-    for (name, value) in declaration
-        .properties
-        .iter()
-        .filter(|(name, _)| !matches!(name.as_str(), "group_by" | "measures"))
-    {
-        let ResolvedValue::Expr(expr) = value else {
-            unreachable!("schema validation checks aggregate expressions")
-        };
-        aggregate = apply_aggregate_expr(aggregate, name, expr.clone(), "aggregate")?;
-        names.push(name.clone());
+    let mut aggregate = Aggregate::new();
+    aggregate = aggregate.group_by(group_by);
+    let mut names = Vec::new();
+    for item in items {
+        let name = projection_alias(item, "aggregate")?;
+        aggregate = apply_aggregate_expr(aggregate, &name, item.expr.clone(), "aggregate")?;
+        names.push(name);
     }
     let (transform, _output) = aggregate.into_compiled_and_output(context)?;
     Ok(LoweredTransform {
         transform,
         outputs: names
             .into_iter()
-            .map(|name| (name.clone(), col(name).into()))
+            .map(|name| (name.clone(), exact_col(name).into()))
             .collect(),
     })
 }
@@ -262,6 +209,12 @@ fn join_aggregate_definition() -> TransformLanguageDefinition {
     definition.schema.key.kind = "join_aggregate".to_string();
     definition.schema.docs =
         "Compute grouped aggregate measures and join them back onto every input row.".to_string();
+    definition
+        .schema
+        .properties
+        .get_mut("expressions")
+        .expect("aggregate schema owns expressions")
+        .required = true;
     definition.lowerer = lower_join_aggregate;
     definition
 }
@@ -273,39 +226,17 @@ fn lower_join_aggregate(
     let mut aggregate =
         JoinAggregate::new().group_by(resolved_exprs(declaration.properties.get("group_by"))?);
     let mut names = Vec::new();
-    if let Some(ResolvedValue::Array(measures)) = declaration.properties.get("measures") {
-        for measure in measures {
-            let ResolvedValue::Object(fields) = measure else {
-                unreachable!("schema validation checks join aggregate measure objects")
-            };
-            let name = object_string(fields, "name")?;
-            aggregate = apply_structured_measure(
-                aggregate,
-                &name,
-                &object_string(fields, "op")?,
-                optional_object_expr(fields, "expr")?,
-                "join_aggregate",
-            )?;
-            names.push(name);
-        }
-    }
-    for (name, value) in declaration
-        .properties
-        .iter()
-        .filter(|(name, _)| !matches!(name.as_str(), "group_by" | "measures"))
-    {
-        let ResolvedValue::Expr(expr) = value else {
-            unreachable!("schema validation checks join aggregate expressions")
-        };
-        aggregate = apply_aggregate_expr(aggregate, name, expr.clone(), "join_aggregate")?;
-        names.push(name.clone());
+    for item in projection_property(declaration, "expressions")? {
+        let name = projection_alias(item, "join_aggregate")?;
+        aggregate = apply_aggregate_expr(aggregate, &name, item.expr.clone(), "join_aggregate")?;
+        names.push(name);
     }
     let (transform, ()) = aggregate.into_compiled_and_output(context)?;
     Ok(LoweredTransform {
         transform,
         outputs: names
             .into_iter()
-            .map(|name| (name.clone(), col(name).into()))
+            .map(|name| (name.clone(), exact_col(name).into()))
             .collect(),
     })
 }
@@ -315,13 +246,18 @@ fn calculate_definition() -> TransformLanguageDefinition {
         NativeKindKey::new(NativeKindNamespace::Transform, "calculate"),
         "Append user-named columns computed from row expressions.",
     )
-    .additional_properties(PropertySchema::optional(
-        ValueShape::SqlExpression,
-        "A user-named row expression whose property name becomes the output column and handle.",
-    ))
+    .property(
+        "expressions",
+        PropertySchema::required(
+            ValueShape::SqlProjection {
+                policy: ProjectionPolicy::Named,
+            },
+            "Named row expressions written as `expression AS output`.",
+        ),
+    )
     .dynamic_output(DynamicTransformOutputSchema {
-        source: DynamicOutputSource::PropertyNames {
-            exclude: BTreeSet::new(),
+        source: DynamicOutputSource::ProjectionAliases {
+            property: "expressions".to_string(),
         },
         shape: ValueShape::SqlExpression,
         docs: "Each expression exposes a same-named output field handle.".to_string(),
@@ -329,14 +265,12 @@ fn calculate_definition() -> TransformLanguageDefinition {
     TransformLanguageDefinition {
         schema,
         lowerer: |declaration, context| {
-            let mut calculate = Calculate::new();
+            let mut calculate = Calculate::new().simultaneous();
             let mut outputs = BTreeMap::new();
-            for (name, value) in &declaration.properties {
-                let ResolvedValue::Expr(expr) = value else {
-                    unreachable!("schema validation checks calculate expressions")
-                };
-                calculate = calculate.expr(name, expr.clone());
-                outputs.insert(name.clone(), col(name).into());
+            for item in projection_property(declaration, "expressions")? {
+                let name = projection_alias(item, "calculate")?;
+                calculate = calculate.expr(&name, item.expr.clone());
+                outputs.insert(name.clone(), exact_col(name).into());
             }
             let (transform, ()) = calculate.into_compiled_and_output(context)?;
             Ok(LoweredTransform { transform, outputs })
@@ -352,22 +286,51 @@ fn select_definition() -> TransformLanguageDefinition {
     .property(
         "expressions",
         PropertySchema::required(
-            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
-            "One projection expression or an ordered array of projection expressions.",
+            ValueShape::SqlProjection {
+                policy: ProjectionPolicy::Select,
+            },
+            "Ordered direct columns and explicitly aliased computed expressions.",
         ),
-    );
+    )
+    .dynamic_output(DynamicTransformOutputSchema {
+        source: DynamicOutputSource::ProjectionAliases {
+            property: "expressions".to_string(),
+        },
+        shape: ValueShape::SqlExpression,
+        docs: "Each explicitly aliased projection exposes a same-named field handle.".to_string(),
+    });
     TransformLanguageDefinition {
         schema,
         lowerer: |declaration, context| {
             let mut select = Select::new();
-            for expression in resolved_exprs(declaration.properties.get("expressions"))? {
+            let mut outputs = BTreeMap::new();
+            let mut result_names = BTreeSet::new();
+            for item in projection_property(declaration, "expressions")? {
+                let result_name = item.alias.clone().or_else(|| match &item.expr {
+                    Expr::Column(column) => Some(column.name.clone()),
+                    _ => None,
+                });
+                if let Some(result_name) = result_name
+                    && !result_names.insert(result_name.clone())
+                {
+                    return Err(NativeLoweringError::Lowering {
+                        kind: "select".to_string(),
+                        message: format!(
+                            "select projection produces duplicate column '{result_name}'"
+                        ),
+                    });
+                }
+                let expression = match &item.alias {
+                    Some(alias) => {
+                        outputs.insert(alias.clone(), exact_col(alias).into());
+                        item.expr.clone().alias(alias)
+                    }
+                    None => item.expr.clone(),
+                };
                 select = select.expr(expression);
             }
             let (transform, ()) = select.into_compiled_and_output(context)?;
-            Ok(LoweredTransform {
-                transform,
-                outputs: BTreeMap::new(),
-            })
+            Ok(LoweredTransform { transform, outputs })
         },
     }
 }
@@ -1130,6 +1093,12 @@ fn scalar_aggregate_definition() -> TransformLanguageDefinition {
         "Publish whole-input aggregate measures as derived scalar expressions without changing rows."
             .to_string();
     definition.schema.properties.remove("group_by");
+    definition
+        .schema
+        .properties
+        .get_mut("expressions")
+        .expect("aggregate schema owns expressions")
+        .required = true;
     definition.schema.properties.insert(
         "evaluation".to_string(),
         PropertySchema::optional(
@@ -1138,10 +1107,6 @@ fn scalar_aggregate_definition() -> TransformLanguageDefinition {
         ),
     );
     for output in &mut definition.schema.dynamic_outputs {
-        if let DynamicOutputSource::PropertyNames { exclude } = &mut output.source {
-            exclude.remove("group_by");
-            exclude.insert("evaluation".to_string());
-        }
         output.docs = output.docs.replace("field", "derived scalar");
     }
     definition.lowerer = lower_scalar_aggregate;
@@ -1161,32 +1126,10 @@ fn lower_scalar_aggregate(
         });
     }
     let mut names = Vec::new();
-    if let Some(ResolvedValue::Array(measures)) = declaration.properties.get("measures") {
-        for measure in measures {
-            let ResolvedValue::Object(fields) = measure else {
-                unreachable!("schema validation checks scalar aggregate measures")
-            };
-            let name = object_string(fields, "name")?;
-            aggregate = apply_structured_measure(
-                aggregate,
-                &name,
-                &object_string(fields, "op")?,
-                optional_object_expr(fields, "expr")?,
-                "scalar_aggregate",
-            )?;
-            names.push(name);
-        }
-    }
-    for (name, value) in declaration
-        .properties
-        .iter()
-        .filter(|(name, _)| !matches!(name.as_str(), "evaluation" | "measures"))
-    {
-        let ResolvedValue::Expr(expr) = value else {
-            unreachable!("schema validation checks scalar aggregate expressions")
-        };
-        aggregate = apply_aggregate_expr(aggregate, name, expr.clone(), "scalar_aggregate")?;
-        names.push(name.clone());
+    for item in projection_property(declaration, "expressions")? {
+        let name = projection_alias(item, "scalar_aggregate")?;
+        aggregate = apply_aggregate_expr(aggregate, &name, item.expr.clone(), "scalar_aggregate")?;
+        names.push(name);
     }
     let (transform, output) = aggregate.into_compiled_and_output(context)?;
     Ok(LoweredTransform {
@@ -1217,15 +1160,18 @@ fn window_definition() -> TransformLanguageDefinition {
             "Expressions defining ascending nulls-last order.",
         ),
     )
-    .additional_properties(PropertySchema::optional(
-        ValueShape::SqlExpression,
-        "A user-named SQL window expression whose property name becomes the output handle.",
-    ))
+    .property(
+        "expressions",
+        PropertySchema::required(
+            ValueShape::SqlProjection {
+                policy: ProjectionPolicy::Named,
+            },
+            "Named SQL window expressions written as `expression AS output`.",
+        ),
+    )
     .dynamic_output(DynamicTransformOutputSchema {
-        source: DynamicOutputSource::PropertyNames {
-            exclude: ["partition_by".to_string(), "order_by".to_string()]
-                .into_iter()
-                .collect(),
+        source: DynamicOutputSource::ProjectionAliases {
+            property: "expressions".to_string(),
         },
         shape: ValueShape::SqlExpression,
         docs: "Each user-named window expression exposes a same-named field handle.".to_string(),
@@ -1241,16 +1187,10 @@ fn window_definition() -> TransformLanguageDefinition {
                         .map(|expr| expr.sort(true, false)),
                 );
             let mut outputs = BTreeMap::new();
-            for (name, value) in declaration
-                .properties
-                .iter()
-                .filter(|(name, _)| !matches!(name.as_str(), "partition_by" | "order_by"))
-            {
-                let Some(expr) = resolved_expr(value) else {
-                    unreachable!("schema validation checks window expressions")
-                };
-                window = window.expr(name, expr);
-                outputs.insert(name.clone(), col(name).into());
+            for item in projection_property(declaration, "expressions")? {
+                let name = projection_alias(item, "window")?;
+                window = window.expr(&name, item.expr.clone());
+                outputs.insert(name.clone(), exact_col(name).into());
             }
             let (transform, ()) = window.into_compiled_and_output(context)?;
             Ok(LoweredTransform { transform, outputs })
@@ -1781,33 +1721,15 @@ aggregate_measure_builder!(Aggregate);
 aggregate_measure_builder!(JoinAggregate);
 aggregate_measure_builder!(ScalarAggregate);
 
-fn apply_structured_measure<B: AggregateMeasureBuilder>(
-    builder: B,
-    name: &str,
-    operation: &str,
-    expr: Option<Expr>,
-    kind: &str,
-) -> Result<B, NativeLoweringError> {
-    match (operation, expr) {
-        ("count", None) => Ok(builder.count(name)),
-        ("sum", Some(expr)) => Ok(builder.sum(name, expr)),
-        ("mean", Some(expr)) => Ok(builder.mean(name, expr)),
-        ("min", Some(expr)) => Ok(builder.min(name, expr)),
-        ("max", Some(expr)) => Ok(builder.max(name, expr)),
-        ("median", Some(expr)) => Ok(builder.median(name, expr)),
-        _ => Err(NativeLoweringError::Lowering {
-            kind: kind.to_string(),
-            message: format!("operation '{operation}' has an invalid expression shape"),
-        }),
-    }
-}
-
 fn apply_aggregate_expr<B: AggregateMeasureBuilder>(
     builder: B,
     name: &str,
-    expr: Expr,
+    mut expr: Expr,
     kind: &str,
 ) -> Result<B, NativeLoweringError> {
+    while let Expr::Alias(alias) = expr {
+        expr = *alias.expr;
+    }
     let Expr::AggregateFunction(function) = expr else {
         return Err(NativeLoweringError::Lowering {
             kind: kind.to_string(),
@@ -1837,7 +1759,20 @@ fn apply_aggregate_expr<B: AggregateMeasureBuilder>(
             })
     };
     match function_name.as_str() {
-        "count" => Ok(builder.count(name)),
+        "count"
+            if matches!(
+                args.as_slice(),
+                [Expr::Literal(ScalarValue::Int64(Some(1)), _)]
+            ) =>
+        {
+            Ok(builder.count(name))
+        }
+        "count" => Err(NativeLoweringError::Lowering {
+            kind: kind.to_string(),
+            message: format!(
+                "aggregate measure '{name}' supports row count (`count(*)` or `count(1)`), not value count"
+            ),
+        }),
         "sum" => Ok(builder.sum(name, first()?)),
         "avg" | "mean" => Ok(builder.mean(name, first()?)),
         "min" => Ok(builder.min(name, first()?)),
@@ -2055,22 +1990,6 @@ fn optional_strings(
         .transpose()
 }
 
-fn optional_object_expr(
-    fields: &IndexMap<String, ResolvedValue>,
-    name: &str,
-) -> Result<Option<Expr>, NativeLoweringError> {
-    fields
-        .get(name)
-        .map(|value| match value {
-            ResolvedValue::Expr(expr) => Ok(expr.clone()),
-            _ => Err(NativeLoweringError::InvalidPropertyType {
-                property: name.to_string(),
-                expected: "SQL expression".to_string(),
-            }),
-        })
-        .transpose()
-}
-
 fn time_context_shape() -> ValueShape {
     ValueShape::Object(
         [
@@ -2239,6 +2158,45 @@ fn transform_output(name: &str, docs: &str) -> TransformOutputSchema {
     }
 }
 
+fn projection_property<'a>(
+    declaration: &'a ResolvedDeclaration,
+    property: &str,
+) -> Result<&'a [ResolvedProjectionItem], NativeLoweringError> {
+    match declaration.get(property)? {
+        ResolvedValue::Projection(items) => Ok(items),
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "SQL projection list".to_string(),
+        }),
+    }
+}
+
+fn optional_projection_property<'a>(
+    declaration: &'a ResolvedDeclaration,
+    property: &str,
+) -> Result<&'a [ResolvedProjectionItem], NativeLoweringError> {
+    match declaration.properties.get(property) {
+        Some(ResolvedValue::Projection(items)) => Ok(items),
+        Some(_) => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "SQL projection list".to_string(),
+        }),
+        None => Ok(&[]),
+    }
+}
+
+fn projection_alias(
+    item: &ResolvedProjectionItem,
+    kind: &str,
+) -> Result<String, NativeLoweringError> {
+    item.alias
+        .clone()
+        .ok_or_else(|| NativeLoweringError::Lowering {
+            kind: kind.to_string(),
+            message: "projection expression requires an output alias".to_string(),
+        })
+}
+
 fn conditional_transform_output(
     name: &str,
     condition_property: &str,
@@ -2285,7 +2243,15 @@ mod tests {
     use avenger_chart_schema::{NativeSchemaSnapshot, SchemaVersion};
     use datafusion::functions_aggregate::expr_fn::sum;
     use datafusion::functions_window::expr_fn::row_number;
-    use datafusion::logical_expr::lit;
+    use datafusion::logical_expr::{col, lit};
+
+    fn projection(expr: Expr, alias: &str) -> ResolvedValue {
+        ResolvedValue::Projection(vec![ResolvedProjectionItem {
+            expr,
+            alias: Some(alias.to_string()),
+            direct_column: false,
+        }])
+    }
 
     #[test]
     fn definitions_are_complete_for_the_owner_slice_and_documented() {
@@ -2340,6 +2306,28 @@ mod tests {
     }
 
     #[test]
+    fn projection_transform_requiredness_matches_the_language_contract() {
+        let definitions = definitions();
+        for (kind, required) in [
+            ("aggregate", false),
+            ("join_aggregate", true),
+            ("scalar_aggregate", true),
+            ("calculate", true),
+            ("window", true),
+            ("select", true),
+        ] {
+            let definition = definitions
+                .iter()
+                .find(|definition| definition.schema.key.kind == kind)
+                .unwrap();
+            assert_eq!(
+                definition.schema.properties["expressions"].required, required,
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
     fn dynamic_and_channel_outputs_survive_owner_lowering() {
         let context = DataTransformCompileContext::new(CoordinationScope::Free);
         let definitions = definitions();
@@ -2349,7 +2337,7 @@ mod tests {
             .unwrap();
         let lowered = (calculate.lowerer)(
             &ResolvedDeclaration::new("calculate")
-                .property("double", ResolvedValue::Expr(col("value") * lit(2))),
+                .property("expressions", projection(col("value") * lit(2), "double")),
             context,
         )
         .unwrap();
@@ -2364,12 +2352,56 @@ mod tests {
             .unwrap();
         let lowered = (aggregate.lowerer)(
             &ResolvedDeclaration::new("aggregate")
-                .property("total", ResolvedValue::Expr(sum(col("value")))),
+                .property("expressions", projection(sum(col("value")), "total")),
             context,
         )
         .unwrap();
         assert!(matches!(
             lowered.outputs.get("total"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+
+        let join = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "join_aggregate")
+            .unwrap();
+        let lowered = (join.lowerer)(
+            &ResolvedDeclaration::new("join_aggregate")
+                .property("expressions", projection(sum(col("value")), "joined_total")),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered.outputs.get("joined_total"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+
+        let select = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "select")
+            .unwrap();
+        let lowered = (select.lowerer)(
+            &ResolvedDeclaration::new("select").property(
+                "expressions",
+                ResolvedValue::Projection(vec![
+                    ResolvedProjectionItem {
+                        expr: col("value"),
+                        alias: None,
+                        direct_column: true,
+                    },
+                    ResolvedProjectionItem {
+                        expr: col("value") * lit(2),
+                        alias: Some("doubled".to_string()),
+                        direct_column: false,
+                    },
+                ]),
+            ),
+            context,
+        )
+        .unwrap();
+        assert!(!lowered.outputs.contains_key("value"));
+        assert!(matches!(
+            lowered.outputs.get("doubled"),
             Some(NativeOutputValue::Expr(_))
         ));
 
@@ -2450,7 +2482,7 @@ mod tests {
             .unwrap();
         let lowered_scalar = (scalar.lowerer)(
             &ResolvedDeclaration::new("scalar_aggregate")
-                .property("total", ResolvedValue::Expr(sum(col("value")))),
+                .property("expressions", projection(sum(col("value")), "total")),
             context,
         )
         .unwrap();
@@ -2465,7 +2497,7 @@ mod tests {
             .unwrap();
         let lowered_window = (window.lowerer)(
             &ResolvedDeclaration::new("window")
-                .property("row_number", ResolvedValue::Expr(row_number())),
+                .property("expressions", projection(row_number(), "row_number")),
             context,
         )
         .unwrap();

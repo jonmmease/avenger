@@ -31,6 +31,7 @@ pub enum ResolvedValue {
     String(String),
     Scalar(ScalarValue),
     Expr(Expr),
+    Projection(Vec<ResolvedProjectionItem>),
     /// A configured encoding that preserves both its data expression and
     /// channel metadata. Compound marks consume the expression while ordinary
     /// primitive marks consume the `ChannelValue` from the same handle.
@@ -69,6 +70,7 @@ impl fmt::Debug for ResolvedValue {
             Self::String(value) => f.debug_tuple("String").field(value).finish(),
             Self::Scalar(value) => f.debug_tuple("Scalar").field(value).finish(),
             Self::Expr(_) => f.write_str("Expr(..)"),
+            Self::Projection(value) => f.debug_tuple("Projection").field(value).finish(),
             Self::Channel(value) => f.debug_tuple("Channel").field(value).finish(),
             Self::Query(value) => f.debug_tuple("Query").field(value).finish(),
             Self::Array(value) => f.debug_tuple("Array").field(value).finish(),
@@ -95,6 +97,13 @@ impl fmt::Debug for ResolvedValue {
             Self::Output(value) => f.debug_tuple("Output").field(value).finish(),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedProjectionItem {
+    pub expr: Expr,
+    pub alias: Option<String>,
+    pub direct_column: bool,
 }
 
 /// A schema-validated declaration ready for a native owner lowerer.

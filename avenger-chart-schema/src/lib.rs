@@ -306,6 +306,9 @@ pub enum ValueShape {
         values: Vec<EnumValueSchema>,
     },
     SqlExpression,
+    SqlProjection {
+        policy: ProjectionPolicy,
+    },
     SqlQuery,
     /// A channel configuration block with no authored data head. Native
     /// runtime values supply the data while scale/axis/legend metadata is
@@ -363,6 +366,16 @@ pub enum ValueShape {
     ChannelMap,
     Object(BTreeMap<String, PropertySchema>),
     Any,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionPolicy {
+    /// Every item must use an explicit `AS <name>` alias.
+    Named,
+    /// Direct column references may be unaliased; computed expressions must
+    /// use an explicit `AS <name>` alias.
+    Select,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -555,18 +568,15 @@ pub struct TransformOutputSchema {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum DynamicOutputSource {
-    /// Every user-named property except the listed configuration properties
-    /// contributes an output handle with the same name.
-    PropertyNames {
-        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-        exclude: BTreeSet<String>,
-    },
     /// Each object in an array property contributes the string stored in the
     /// configured field as an output handle.
     ArrayObjectField { property: String, field: String },
     /// Each string or atom in an array property contributes its value as an
     /// output-handle name.
     ArrayValueNames { property: String },
+    /// Every explicit alias in a SQL projection-list property contributes an
+    /// output handle with that exact name.
+    ProjectionAliases { property: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -787,6 +797,20 @@ impl NativeSchemaSnapshot {
             for output in &schema.dynamic_outputs {
                 require_docs(&output.docs, format!("{key:?} dynamic outputs"))?;
                 validate_shape_docs(&output.shape, format!("{key:?} dynamic outputs"))?;
+                if let DynamicOutputSource::ProjectionAliases { property } = &output.source
+                    && !matches!(
+                        schema
+                            .properties
+                            .get(property)
+                            .map(|property| &property.shape),
+                        Some(ValueShape::SqlProjection { .. })
+                    )
+                {
+                    return Err(SchemaError::InvalidProjectionOutputSource {
+                        key: key.clone(),
+                        property: property.clone(),
+                    });
+                }
             }
             for child in &schema.child_rules {
                 require_docs(&child.docs, format!("{key:?} child role '{}'", child.role))?;
@@ -970,6 +994,13 @@ pub enum SchemaError {
         module: NativeModuleId,
         name: String,
         implementation: NativeKindKey,
+    },
+    #[error(
+        "native schema {key:?} derives projection aliases from non-projection property '{property}'"
+    )]
+    InvalidProjectionOutputSource {
+        key: NativeKindKey,
+        property: String,
     },
     #[error("native module map key '{key}' does not match embedded module ID '{module}'")]
     NativeModuleKeyMismatch {

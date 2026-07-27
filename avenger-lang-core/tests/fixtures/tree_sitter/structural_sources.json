@@ -10,7 +10,7 @@
     ],
     "purpose": "Reviewed structural source corpus synchronized into tree-sitter-avenger"
   },
-  "snapshot_source_count": 130,
+  "snapshot_source_count": 131,
   "sources": [
     {
       "path": "avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger",
@@ -86,7 +86,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline/chart.avenger",
-      "sha256": "ddf5be602530f6360976496d78cb13d7db1906d14f6c19c59cf2646141b00f38",
+      "sha256": "e9afd417d13335bb21990d2d3f46af634787fd9b83890a625579518d8c8b4021",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -158,7 +158,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_transform_pipeline/summarize.avenger",
-      "sha256": "23895e0750d354d5d3722144fdd09d26e9e901b5501a54305a68961f56974cfc",
+      "sha256": "39ce5de99a166d55906df0f600df15cf25a4c0340bf52d639640bc3618845308",
       "classification": "strict_valid",
       "root": "definition"
     },
@@ -349,6 +349,12 @@
       "root": "chart"
     },
     {
+      "path": "avenger-lang-compiler/tests/fixtures/projects/13_projection_transforms/charts.avenger",
+      "sha256": "bf8ffb08bb0b6bd21adfb49434d4bb0719d5ac68914af39ac2e533c2fa811082",
+      "classification": "strict_valid",
+      "root": "chart"
+    },
+    {
       "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-files/chart.avenger",
       "sha256": "c9c77ec0025c455b8800943334281c43f6533bd938813156b035d78d18949b56",
       "classification": "strict_valid",
@@ -464,7 +470,7 @@
     },
     {
       "path": "avenger-lang-core/tests/baselines/parse/define-transform.printed.avenger",
-      "sha256": "15d38fa33a77be0214f3db206d96c226ba7c1ced79382e4347edf845fd4abd6f",
+      "sha256": "0dc956b45e122d9842c65e85b3e8ba65f32d0333e629deda384e7f25e11c1ce1",
       "classification": "canonical_valid",
       "root": "definition"
     },
@@ -554,7 +560,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/parse/define-transform.avenger",
-      "sha256": "dacdb59a253f779ce982e62c3042c8e1e7e7867891c3ccdb631c64fcfe4887c5",
+      "sha256": "68c3c40490e351e70c336e0f95d373c98a0d6218b387c564cc18fe169db643cc",
       "classification": "strict_valid",
       "root": "definition"
     },
@@ -596,7 +602,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/parse/invalid/invalid-slot-shape.avenger",
-      "sha256": "99ed6d44a50fd2f01f7f76eb6c230bff636f0e1c4d26a4ddacd94afd3f13cac2",
+      "sha256": "90cce195e17b9c4cdf333b87a82d191de12b1f950f7b5f79ac0fef167f7734f7",
       "classification": "strict_invalid",
       "root": null
     },

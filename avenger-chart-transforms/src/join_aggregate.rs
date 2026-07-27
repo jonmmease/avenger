@@ -9,8 +9,11 @@ use avenger_chart_core::{
     DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, ExecutionShape,
     IntoExpr,
 };
-use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, WindowFunctionDefinition, col, expr::WindowFunction};
+use datafusion::{
+    common::Column,
+    dataframe::DataFrame,
+    logical_expr::{Expr, WindowFunctionDefinition, expr::WindowFunction},
+};
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
@@ -211,9 +214,13 @@ impl CompiledDataTransform for CompiledJoinAggregateTransform {
 
         let mut projection = output_names
             .iter()
-            .map(|name| col(name).alias(name))
+            .map(|name| Expr::Column(Column::new_unqualified(name.clone())).alias(name))
             .collect::<Vec<_>>();
-        projection.extend(measure_names.iter().map(|name| col(name).alias(name)));
+        projection.extend(
+            measure_names
+                .iter()
+                .map(|name| Expr::Column(Column::new_unqualified(name.clone())).alias(name)),
+        );
         let result = result
             .select(projection)
             .map_err(AvengerChartError::DataFusionError)?;
