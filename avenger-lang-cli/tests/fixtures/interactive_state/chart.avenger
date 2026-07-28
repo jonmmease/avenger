@@ -83,7 +83,7 @@ chart cartesian as chart {
       end: mouse_up {}
     }
     set dragged = upsert_rows {
-      row { id: 'drag'; x: event_coord(x); y: event_coord(y); }
+      row { id: 'drag'; x: event.coord.x; y: event.coord.y; }
     }
     set cursor = 'crosshair';
   }

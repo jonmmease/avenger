@@ -4,6 +4,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
@@ -48,13 +49,15 @@ use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
     ChartEntrypointId, DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit,
     ParamId, PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding,
+    ResolvedChannelMember, ResolvedContextualAccess, ResolvedContextualAccessKind,
     ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
-    ResolvedHelperArgument, ResolvedModuleGraph, ResolvedOutputHandle, ResolvedOutputShape,
-    ResolvedParam, ResolvedQuery, ResolvedRelationTarget, ResolvedSelection,
+    ResolvedHelperArgument, ResolvedIntervalBoundary, ResolvedModuleGraph, ResolvedOutputHandle,
+    ResolvedOutputShape, ResolvedParam, ResolvedQuery, ResolvedRelationTarget, ResolvedSelection,
     ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader, SourceSpan,
-    StateSharing, StoreId, TimeUnit,
+    ResolvedTarget, ResolvedValue, ResolvedViewAxis, ResolvedViewField, SelectionId, SourceLabel,
+    SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
     ast::{BindingTime, SqlExpression, SqlQuery, Visibility},
+    contextual_access_signature,
     module_graph::resolve_relative_origin,
 };
 use datafusion::{
@@ -64,7 +67,7 @@ use datafusion::{
     },
     dataframe::DataFrame,
     datasource::empty::EmptyTable,
-    logical_expr::{Expr, LogicalPlan, TableScan, col, lit},
+    logical_expr::{Expr, ExprSchemable, LogicalPlan, TableScan, col, lit},
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
@@ -83,6 +86,7 @@ pub(crate) struct ChartDatasetAnalysis {
     pub schema: Arc<Schema>,
     pub columns: Vec<crate::AnalyzedColumn>,
     pub logical_plan_fingerprint: Option<String>,
+    pub mark_channels: Vec<crate::AnalyzedMarkChannel>,
 }
 
 type TransformStageFuture<'a> = std::pin::Pin<
@@ -179,6 +183,7 @@ struct ModuleLowerer<'a> {
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
     legend_overlays: BTreeMap<DeclarationId, ColorbarOverlay>,
+    mark_channel_seed_stack: RefCell<BTreeSet<(DeclarationId, String)>>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
     active_chart_id: Option<DeclarationId>,
     active_chart_path: Option<String>,
@@ -207,6 +212,7 @@ impl<'a> ModuleLowerer<'a> {
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
             legend_overlays: BTreeMap::new(),
+            mark_channel_seed_stack: RefCell::new(BTreeSet::new()),
             analysis_schemas: Vec::new(),
             active_chart_id: None,
             active_chart_path: None,
@@ -319,6 +325,10 @@ impl<'a> ModuleLowerer<'a> {
         analysis: &'b mut Vec<ChartDatasetAnalysis>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Diagnostic>> + 'b>> {
         Box::pin(async move {
+            if container.keyword == "view" {
+                let spec = self.lower_view_spec(container, inherited_data)?;
+                self.view_refs.insert(container.id.clone(), spec.view_ref());
+            }
             let explicit_data = match container.properties.get("data") {
                 Some(value) => {
                     if let Some((planning, _)) = self.store_data_binding(value, container)? {
@@ -391,6 +401,7 @@ impl<'a> ModuleLowerer<'a> {
                                 .collect(),
                             schema,
                             logical_plan_fingerprint: None,
+                            mark_channels: Vec::new(),
                         });
                     }
                 }
@@ -410,15 +421,61 @@ impl<'a> ModuleLowerer<'a> {
                 && !is_resolved_mark_group(container)
                 && let Some(data) = current_data.as_ref()
             {
-                analysis.push(chart_analysis_record(
+                let mut record = chart_analysis_record(
                     container,
                     container,
                     crate::DatasetStageKind::MarkInput,
                     data,
-                ));
+                );
+                record.mark_channels = self.analyze_mark_channels(container, data)?;
+                analysis.push(record);
             }
             Ok(())
         })
+    }
+
+    fn analyze_mark_channels(
+        &self,
+        declaration: &ResolvedDeclaration,
+        data: &DataFrame,
+    ) -> Result<Vec<crate::AnalyzedMarkChannel>, Diagnostic> {
+        let Some(kind) = declaration.kind.as_deref() else {
+            return Ok(Vec::new());
+        };
+        let key = NativeKindKey::mark(declaration.coordinate.as_deref().unwrap_or(""), kind);
+        let Some(schema) = self.registry.snapshot().entries.get(&key) else {
+            return Ok(Vec::new());
+        };
+        schema
+            .channels
+            .values()
+            .filter_map(|channel| {
+                declaration
+                    .properties
+                    .get(&channel.name)
+                    .map(|value| (channel, value))
+            })
+            .map(|(channel, value)| {
+                let expression = match value {
+                    ResolvedValue::Object { head, .. } => match head {
+                        Some(head) => self.channel_data_expr(head, Some(data), declaration)?,
+                        None => lit(1.0_f64),
+                    },
+                    _ => self.channel_data_expr(value, Some(data), declaration)?,
+                };
+                let data_type = expression
+                    .get_type(data.schema())
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                let nullable = expression
+                    .nullable(data.schema())
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                Ok(crate::AnalyzedMarkChannel {
+                    name: channel.name.clone(),
+                    data_type,
+                    nullable,
+                })
+            })
+            .collect()
     }
 
     fn enrich_interface(&self, artifact: &mut CompiledChartArtifact, chart: &ResolvedDeclaration) {
@@ -2345,35 +2402,7 @@ impl<'a> ModuleLowerer<'a> {
         Box<dyn std::future::Future<Output = Result<ResolvedMarkGroup, Diagnostic>> + 'b>,
     > {
         Box::pin(async move {
-            let source_name = declaration
-                .name
-                .clone()
-                .unwrap_or_else(|| declaration.id.as_str().to_string());
-            let mut native =
-                self.native_declaration(declaration, inherited_data, NativeKindNamespace::View)?;
-            native.source_name = Some(source_name);
-            // Domain strings use the same field shorthand as encoding
-            // channels: `x_domain: "x"` means the data column, not a scalar
-            // string literal.
-            for property in ["x_domain", "y_domain"] {
-                if let Some(ResolvedValue::String(field)) = declaration.properties.get(property) {
-                    native
-                        .properties
-                        .insert(property.to_string(), NativeValue::Expr(col(field)));
-                }
-            }
-            let key = NativeKindKey::new(NativeKindNamespace::View, native.kind.clone());
-            let spec = self
-                .registry
-                .lower_object(&key, &native)
-                .map_err(|error| lowerer_error(declaration, error.to_string()))?
-                .downcast::<avenger_chart_core::CompiledViewSpec>()
-                .map_err(|_| {
-                    lowerer_error(
-                        declaration,
-                        "registered view lowerer did not return CompiledViewSpec",
-                    )
-                })?;
+            let spec = self.lower_view_spec(declaration, inherited_data)?;
             self.view_refs
                 .insert(declaration.id.clone(), spec.view_ref());
 
@@ -2391,6 +2420,40 @@ impl<'a> ModuleLowerer<'a> {
             });
             Ok(group)
         })
+    }
+
+    fn lower_view_spec(
+        &self,
+        declaration: &ResolvedDeclaration,
+        inherited_data: Option<&DataFrame>,
+    ) -> Result<Box<avenger_chart_core::CompiledViewSpec>, Diagnostic> {
+        let source_name = declaration
+            .name
+            .clone()
+            .unwrap_or_else(|| declaration.id.as_str().to_string());
+        let mut native =
+            self.native_declaration(declaration, inherited_data, NativeKindNamespace::View)?;
+        native.source_name = Some(source_name);
+        // Domain strings use the same field shorthand as encoding channels:
+        // `x_domain: "x"` means the data column, not a scalar string literal.
+        for property in ["x_domain", "y_domain"] {
+            if let Some(ResolvedValue::String(field)) = declaration.properties.get(property) {
+                native
+                    .properties
+                    .insert(property.to_string(), NativeValue::Expr(col(field)));
+            }
+        }
+        let key = NativeKindKey::new(NativeKindNamespace::View, native.kind.clone());
+        self.registry
+            .lower_object(&key, &native)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?
+            .downcast::<avenger_chart_core::CompiledViewSpec>()
+            .map_err(|_| {
+                lowerer_error(
+                    declaration,
+                    "registered view lowerer did not return CompiledViewSpec",
+                )
+            })
     }
 
     fn lower_transform_stage<'b>(
@@ -3974,7 +4037,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 let helper = avenger_lang_core::ResolvedHelper {
                     name: function.clone(),
-                    class: HelperClass::Event,
+                    class: HelperClass::Reserved,
                     arguments: args
                         .iter()
                         .map(|value| match value {
@@ -4097,38 +4160,37 @@ impl<'a> ModuleLowerer<'a> {
             source_replacements.push((authored, replacement));
         }
 
-        let datum_replacements = expression
-            .datum_fields
+        let contextual_replacements = expression
+            .contextual_accesses
             .iter()
             .enumerate()
-            .map(|(index, datum)| {
+            .map(|(index, access)| {
                 (
-                    datum.field.clone(),
-                    format!("__avenger_event_datum_{index:08}"),
+                    contextual_access_spelling(access),
+                    format!("__avenger_contextual_access_{index:08}"),
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        if !datum_replacements.is_empty() {
+        if !contextual_replacements.is_empty() {
             let mut parsed = SqlExpression::parse(&sql)
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-            parsed.rewrite_datum_fields(|field| datum_replacements.get(field).cloned());
+            parsed.rewrite_expression_nodes(|candidate| {
+                contextual_replacements.get(&candidate.to_string()).cloned()
+            });
             sql = parsed.canonical_sql();
-            for datum in &expression.datum_fields {
-                let synthetic = datum_replacements.get(&datum.field).ok_or_else(|| {
-                    lowerer_error(declaration, "resolved datum field is unavailable")
+            for access in &expression.contextual_accesses {
+                let authored = contextual_access_spelling(access);
+                let synthetic = contextual_replacements.get(&authored).ok_or_else(|| {
+                    lowerer_error(declaration, "resolved contextual access is unavailable")
                 })?;
-                let seed = data
-                    .and_then(|data| data.schema().field_with_unqualified_name(&datum.field).ok())
-                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
-                    .unwrap_or_else(|| ScalarValue::Utf8(None));
+                let (runtime_expr, seed) =
+                    self.contextual_access_expr(access, data, declaration)?;
                 parse_data = parse_data
                     .with_column(synthetic, lit(seed.clone()))
                     .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                replacements.insert(synthetic.clone(), event::datum(&datum.field));
-                source_replacements.push((
-                    datum_field_spelling(&datum.field),
-                    format!("\"{}\"", synthetic.replace('"', "\"\"")),
-                ));
+                replacements.insert(synthetic.clone(), runtime_expr);
+                source_replacements
+                    .push((authored, format!("\"{}\"", synthetic.replace('"', "\"\""))));
             }
         }
 
@@ -4266,45 +4328,147 @@ impl<'a> ModuleLowerer<'a> {
         self.event_helper_expr_with_context(helper, data, &parse_data, &[], declaration)
     }
 
-    fn event_helper_expr_with_context(
+    fn contextual_access_expr(
         &self,
-        helper: &avenger_lang_core::ResolvedHelper,
+        access: &ResolvedContextualAccess,
         data: Option<&DataFrame>,
-        parse_data: &DataFrame,
-        source_replacements: &[(String, String)],
         declaration: &ResolvedDeclaration,
     ) -> Result<(Expr, ScalarValue), Diagnostic> {
-        use ResolvedHelperArgument::{Name, Number, String as StringArg};
-        let float = || ScalarValue::Float64(None);
         let utf8 = || ScalarValue::Utf8(None);
-        let boolean = || ScalarValue::Boolean(None);
-        let list = || ScalarValue::new_null_list(DataType::Float64, true, 1);
-        let result = match (helper.name.as_str(), helper.arguments.as_slice()) {
-            ("event_coord", [Name(channel)]) => (event::event_coord(channel), float()),
-            ("start_coord", [Name(channel)]) => (event::start_coord(channel), float()),
-            ("event_domain_start", [Name(channel)]) => {
-                (event::interval_start(event::event_domain(channel)), float())
+        let fixed = || fixed_contextual_planning_seed(&access.kind, declaration);
+        let channel_name = |channel: &ResolvedChannelMember| channel.authored_name();
+        let result = match &access.kind {
+            ResolvedContextualAccessKind::DatumField { field } => {
+                let seed = data
+                    .and_then(|data| data.schema().field_with_unqualified_name(field).ok())
+                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
+                    .unwrap_or_else(utf8);
+                (event::datum(field), seed)
             }
-            ("event_domain_end", [Name(channel)]) => {
-                (event::interval_end(event::event_domain(channel)), float())
+            ResolvedContextualAccessKind::MarkChannel { channel } => {
+                let name = channel_name(channel);
+                (
+                    col(format!(":{name}")),
+                    self.mark_channel_planning_seed(&name, data, declaration)?,
+                )
             }
-            ("event_facet_value", [Number(index)]) => {
-                let index = index
-                    .parse::<usize>()
-                    .map_err(|_| lowerer_error(declaration, "event facet index is invalid"))?;
-                (event::event_facet_value(index), utf8())
+            ResolvedContextualAccessKind::EventCoord { channel } => {
+                (event::event_coord(&channel_name(channel)), fixed()?)
             }
-            ("item_channel", [Name(channel)]) => (col(item_channel_column_name(channel)), float()),
-            ("item_data", [StringArg(field)]) => {
+            ResolvedContextualAccessKind::EventStartCoord { channel } => {
+                (event::start_coord(&channel_name(channel)), fixed()?)
+            }
+            ResolvedContextualAccessKind::EventDomainBoundary { channel, boundary } => {
+                let domain = event::event_domain(&channel_name(channel));
+                let expression = match boundary {
+                    ResolvedIntervalBoundary::Start => event::interval_start(domain),
+                    ResolvedIntervalBoundary::End => event::interval_end(domain),
+                };
+                (expression, fixed()?)
+            }
+            ResolvedContextualAccessKind::EventPath => (event::event_path(), fixed()?),
+            ResolvedContextualAccessKind::EventFacet { one_based_index } => (
+                event::event_facet_value((*one_based_index - 1) as usize),
+                fixed()?,
+            ),
+            ResolvedContextualAccessKind::EventLegendValue => (event::legend_value(), fixed()?),
+            ResolvedContextualAccessKind::ItemChannel {
+                channel,
+                physical_type,
+            } => {
+                let seed = ScalarValue::try_new_null(&physical_data_type(physical_type))
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                (col(item_channel_column_name(&channel_name(channel))), seed)
+            }
+            ResolvedContextualAccessKind::ItemDataField { field } => {
                 let seed = data
                     .and_then(|data| data.schema().field_with_unqualified_name(field).ok())
                     .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
                     .unwrap_or_else(utf8);
                 (col(item_data_column_name(field)), seed)
             }
-            ("item_bbox", [Name(edge)]) => (col(item_bbox_column_name(edge)), float()),
-            ("legend_value", []) => (event::legend_value(), utf8()),
-            ("event_path", []) => (event::event_path(), list()),
+            ResolvedContextualAccessKind::ItemBbox { edge } => {
+                (col(item_bbox_column_name(edge.as_str())), fixed()?)
+            }
+            ResolvedContextualAccessKind::ViewField {
+                target: ResolvedTarget::Declaration(view_id),
+                axis,
+                field,
+                ..
+            } => {
+                let view = self.view_refs.get(view_id).ok_or_else(|| {
+                    lowerer_error(declaration, "resolved inline view is unavailable")
+                })?;
+                let axis = match axis {
+                    ResolvedViewAxis::X => view.x(),
+                    ResolvedViewAxis::Y => view.y(),
+                };
+                match field {
+                    ResolvedViewField::DomainStart => (axis.domain_start(), fixed()?),
+                    ResolvedViewField::DomainEnd => (axis.domain_end(), fixed()?),
+                    ResolvedViewField::Pixels => (axis.pixels(), fixed()?),
+                }
+            }
+            ResolvedContextualAccessKind::ViewField { .. } => {
+                return Err(lowerer_error(
+                    declaration,
+                    "resolved inline-view access has an invalid target",
+                ));
+            }
+        };
+        Ok(result)
+    }
+
+    fn mark_channel_planning_seed(
+        &self,
+        channel: &str,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ScalarValue, Diagnostic> {
+        let Some(data) = data else {
+            return Ok(ScalarValue::Float64(None));
+        };
+        let key = (declaration.id.clone(), channel.to_owned());
+        if !self
+            .mark_channel_seed_stack
+            .borrow_mut()
+            .insert(key.clone())
+        {
+            // Runtime channel resolution owns the user-facing cycle diagnostic.
+            // A temporary numeric seed lets lowering reach that validation
+            // without recursively planning the same dependency forever.
+            return Ok(ScalarValue::Float64(None));
+        }
+
+        let result = (|| {
+            let value = declaration.properties.get(channel).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    format!("referenced channel `{channel}` is unavailable for type planning"),
+                )
+            })?;
+            let expression = self.channel_data_expr(value, Some(data), declaration)?;
+            let data_type = expression
+                .get_type(data.schema())
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            ScalarValue::try_new_null(&data_type)
+                .map_err(|error| lowerer_error(declaration, error.to_string()))
+        })();
+        self.mark_channel_seed_stack.borrow_mut().remove(&key);
+        result
+    }
+
+    fn event_helper_expr_with_context(
+        &self,
+        helper: &avenger_lang_core::ResolvedHelper,
+        _data: Option<&DataFrame>,
+        parse_data: &DataFrame,
+        source_replacements: &[(String, String)],
+        declaration: &ResolvedDeclaration,
+    ) -> Result<(Expr, ScalarValue), Diagnostic> {
+        let boolean = || ScalarValue::Boolean(None);
+        let list = || ScalarValue::new_null_list(DataType::Float64, true, 1);
+        let result = match (helper.name.as_str(), helper.arguments.as_slice()) {
             (
                 "selection_contains",
                 [
@@ -4376,14 +4540,22 @@ impl<'a> ModuleLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<Expr, Diagnostic> {
-        if expression
-            .helpers
-            .iter()
-            .any(|helper| helper.class != HelperClass::View)
-        {
+        if !expression.helpers.is_empty() {
             return Err(lowerer_error(
                 declaration,
                 "this reserved SQL helper is not valid in a native data expression",
+            ));
+        }
+        if expression.contextual_accesses.iter().any(|access| {
+            !matches!(
+                &access.kind,
+                ResolvedContextualAccessKind::MarkChannel { .. }
+                    | ResolvedContextualAccessKind::ViewField { .. }
+            )
+        }) {
+            return Err(lowerer_error(
+                declaration,
+                "this contextual access is not valid in a native data expression",
             ));
         }
         let data = data.ok_or_else(|| {
@@ -4392,64 +4564,35 @@ impl<'a> ModuleLowerer<'a> {
         let mut sql = expression.sql.clone();
         let mut parse_data = data.clone();
         let mut replacements = BTreeMap::new();
-        for (index, helper) in expression.helpers.iter().enumerate() {
-            let [
-                ResolvedHelperArgument::Target {
-                    target: ResolvedTarget::Declaration(view_id),
-                    ..
-                },
-                ResolvedHelperArgument::Name(field),
-            ] = helper.arguments.as_slice()
-            else {
-                return Err(lowerer_error(
-                    declaration,
-                    "resolved view helper has invalid arguments",
-                ));
-            };
-            let view = self
-                .view_refs
-                .get(view_id)
-                .ok_or_else(|| lowerer_error(declaration, "resolved inline view is unavailable"))?;
-            let axis = match helper.name.as_str() {
-                "view_x" => view.x(),
-                "view_y" => view.y(),
-                _ => {
-                    return Err(lowerer_error(
-                        declaration,
-                        format!("unsupported view helper `{}`", helper.name),
-                    ));
-                }
-            };
-            let expr = match field.as_str() {
-                "domain_start" => axis.domain_start(),
-                "domain_end" => axis.domain_end(),
-                "pixels" => axis.pixels(),
-                _ => {
-                    return Err(lowerer_error(
-                        declaration,
-                        format!("unsupported view helper field `{field}`"),
-                    ));
-                }
-            };
-            let synthetic = format!("__avenger_view_helper_{index:08}");
-            let canonical = format!("{}({}, {})", helper.name, view.id(), field);
-            let compact = format!("{}({},{})", helper.name, view.id(), field);
-            let replacement = format!("\"{synthetic}\"");
-            let mut rewritten = sql.replacen(&canonical, &replacement, 1);
-            if rewritten == sql {
-                rewritten = sql.replacen(&compact, &replacement, 1);
-            }
-            if rewritten == sql {
-                return Err(lowerer_error(
-                    declaration,
-                    format!("could not rewrite resolved view helper `{canonical}`"),
-                ));
-            }
-            sql = rewritten;
-            parse_data = parse_data
-                .with_column(&synthetic, expr.clone())
+        let contextual_replacements = expression
+            .contextual_accesses
+            .iter()
+            .enumerate()
+            .map(|(index, access)| {
+                (
+                    contextual_access_spelling(access),
+                    format!("__avenger_contextual_access_{index:08}"),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !contextual_replacements.is_empty() {
+            let mut parsed = SqlExpression::parse(&sql)
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-            replacements.insert(synthetic, expr);
+            parsed.rewrite_expression_nodes(|candidate| {
+                contextual_replacements.get(&candidate.to_string()).cloned()
+            });
+            sql = parsed.canonical_sql();
+        }
+        for access in &expression.contextual_accesses {
+            let authored = contextual_access_spelling(access);
+            let synthetic = contextual_replacements.get(&authored).ok_or_else(|| {
+                lowerer_error(declaration, "resolved contextual access is unavailable")
+            })?;
+            let (expr, seed) = self.contextual_access_expr(access, Some(data), declaration)?;
+            parse_data = parse_data
+                .with_column(synthetic, lit(seed))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(synthetic.clone(), expr);
         }
         for (index, reference) in expression.references.iter().enumerate() {
             let (expr, planning_seed) = match &reference.target {
@@ -4994,6 +5137,7 @@ fn chart_analysis_record(
             })
             .collect(),
         logical_plan_fingerprint: Some(logical_plan_fingerprint(data)),
+        mark_channels: Vec::new(),
     }
 }
 
@@ -5457,6 +5601,66 @@ fn helper_spelling(
     Ok(format!("{}({})", helper.name, args.join(", ")))
 }
 
+fn contextual_access_spelling(access: &ResolvedContextualAccess) -> String {
+    let channel = |channel: &ResolvedChannelMember| channel.authored_name();
+    match &access.kind {
+        ResolvedContextualAccessKind::DatumField { field } => datum_field_spelling(field),
+        ResolvedContextualAccessKind::MarkChannel { channel: member } => {
+            format!("channel.{}", channel(member))
+        }
+        ResolvedContextualAccessKind::EventCoord { channel: member } => {
+            format!("event.coord.{}", channel(member))
+        }
+        ResolvedContextualAccessKind::EventStartCoord { channel: member } => {
+            format!("event.start.coord.{}", channel(member))
+        }
+        ResolvedContextualAccessKind::EventDomainBoundary {
+            channel: member,
+            boundary,
+        } => format!(
+            "event.domain.{}.{}",
+            channel(member),
+            match boundary {
+                ResolvedIntervalBoundary::Start => "start",
+                ResolvedIntervalBoundary::End => "end",
+            }
+        ),
+        ResolvedContextualAccessKind::EventPath => "event.path".to_owned(),
+        ResolvedContextualAccessKind::EventFacet { one_based_index } => {
+            format!("event.facet[{one_based_index}]")
+        }
+        ResolvedContextualAccessKind::EventLegendValue => "event.legend.value".to_owned(),
+        ResolvedContextualAccessKind::ItemChannel {
+            channel: member, ..
+        } => {
+            format!("item.channel.{}", channel(member))
+        }
+        ResolvedContextualAccessKind::ItemDataField { field } => {
+            format!("item.data.\"{}\"", field.replace('"', "\"\""))
+        }
+        ResolvedContextualAccessKind::ItemBbox { edge } => {
+            format!("item.bbox.{}", edge.as_str())
+        }
+        ResolvedContextualAccessKind::ViewField {
+            authored_view,
+            axis,
+            field,
+            ..
+        } => {
+            let axis = match axis {
+                ResolvedViewAxis::X => "x",
+                ResolvedViewAxis::Y => "y",
+            };
+            let field = match field {
+                ResolvedViewField::DomainStart => "domain.start",
+                ResolvedViewField::DomainEnd => "domain.end",
+                ResolvedViewField::Pixels => "pixels",
+            };
+            format!("{}.{axis}.{field}", authored_view.join("."))
+        }
+    }
+}
+
 fn rewrite_source_fragment(source: &str, replacements: &[(String, String)]) -> String {
     replacements
         .iter()
@@ -5774,6 +5978,33 @@ fn widget_item_scalar(value: &ResolvedValue) -> Result<ScalarValue, &'static str
         ResolvedValue::Null => Ok(ScalarValue::Null),
         _ => Err("must be a scalar literal"),
     }
+}
+
+fn fixed_contextual_planning_seed(
+    kind: &ResolvedContextualAccessKind,
+    declaration: &ResolvedDeclaration,
+) -> Result<ScalarValue, Diagnostic> {
+    let signature = contextual_access_signature(kind.signature_pattern()).ok_or_else(|| {
+        lowerer_error(
+            declaration,
+            format!(
+                "contextual access `{}` has no registered signature",
+                kind.signature_pattern()
+            ),
+        )
+    })?;
+    let physical_type = signature.fixed_arrow_type.ok_or_else(|| {
+        lowerer_error(
+            declaration,
+            format!(
+                "contextual access `{}` requires a schema-derived planning type",
+                signature.pattern
+            ),
+        )
+    })?;
+    let physical_type = physical_type.physical_type();
+    ScalarValue::try_new_null(&physical_data_type(&physical_type))
+        .map_err(|error| lowerer_error(declaration, error.to_string()))
 }
 
 fn binding_spelling(binding: &ResolvedBinding) -> String {

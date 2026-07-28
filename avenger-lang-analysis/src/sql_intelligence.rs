@@ -16,14 +16,20 @@ use std::{
 };
 
 use arrow::datatypes::DataType;
+use avenger_chart_schema::{NativeKindNamespace, NativeSchemaSnapshot};
 use avenger_lang_compiler::{
     AnalyzedDataset, DatasetStageKind, ModuleAnalysis, physical_type_to_arrow,
 };
 use avenger_lang_core::{
-    ByteSpan, PhysicalType, SourceOrigin, SourceSpan,
+    ByteSpan, INTRINSIC_OPERATION_SIGNATURES, IntrinsicOperationContext, PhysicalType,
+    SourceOrigin, SourceSpan,
     ast::{SqlExpression, SqlProjection, SqlQuery},
-    resolve::{DeclarationId, ResolvedDeclaration, ResolvedEventScope, ResolvedTarget},
-    sql::{DOMAIN_RANGE_HELPERS, LosslessTokenKind, RESERVED_HELPER_NAMES, TokenClass},
+    contextual_access_signature,
+    resolve::{
+        DeclarationId, ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface,
+        ResolvedKindBinding, ResolvedTarget,
+    },
+    sql::{LosslessTokenKind, TokenClass},
     syntax::{SqlIslandContext, SqlIslandRoot, TolerantSyntaxNodeKind},
 };
 use datafusion::{
@@ -209,10 +215,12 @@ struct RepairedSql {
     generated: Vec<Range<usize>>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct DatumTokenSpans {
-    pub namespace: SourceSpan,
-    pub field: SourceSpan,
+#[derive(Clone, Debug)]
+pub(crate) struct ContextualTokenSpans {
+    pub root: SourceSpan,
+    pub root_is_builtin: bool,
+    pub properties: Vec<SourceSpan>,
+    pub field: Option<SourceSpan>,
 }
 
 impl RepairedSql {
@@ -247,6 +255,7 @@ fn sql_analysis_cache() -> &'static Mutex<BTreeMap<String, Arc<CachedSqlAnalysis
 pub(crate) fn complete_sql(
     request: &PositionRequest,
     syntax: &SyntaxAnalysis,
+    registry: &NativeSchemaSnapshot,
     semantic_index: &WorkspaceSemanticIndex,
     semantic_roots: &BTreeMap<String, RootAnalysis>,
     dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
@@ -406,18 +415,31 @@ pub(crate) fn complete_sql(
     if (roles.contains(&SqlExpectedRole::QualifierMember) || qualifier.is_some())
         && let Some(qualifier) = qualifier.as_deref()
     {
-        let found = complete_qualifier(
+        let contextual = complete_contextual_qualifier(
             qualifier,
             prefix,
             member_replacement,
-            roles,
-            scope,
-            catalog,
-            document,
+            syntax,
             project,
+            &request.source,
             request.byte_offset,
+            registry,
             &mut items,
         );
+        let found = contextual.unwrap_or_else(|| {
+            complete_qualifier(
+                qualifier,
+                prefix,
+                member_replacement,
+                roles,
+                scope,
+                catalog,
+                document,
+                project,
+                request.byte_offset,
+                &mut items,
+            )
+        });
         incomplete |= !found;
     }
     if roles.contains(&SqlExpectedRole::Relation)
@@ -435,6 +457,16 @@ pub(crate) fn complete_sql(
         );
     }
     if roles.contains(&SqlExpectedRole::Expression) || roles.contains(&SqlExpectedRole::Function) {
+        complete_contextual_roots(
+            prefix,
+            replacement,
+            syntax,
+            project,
+            &request.source,
+            request.byte_offset,
+            registry,
+            &mut items,
+        );
         complete_columns(prefix, replacement, scope, &mut items);
         complete_scalar_bindings(
             prefix,
@@ -443,7 +475,13 @@ pub(crate) fn complete_sql(
             request.byte_offset,
             &mut items,
         );
-        complete_functions(prefix, replacement, project, &mut items);
+        complete_functions(
+            prefix,
+            replacement,
+            project,
+            enclosing_event(project, &request.source, request.byte_offset).is_some(),
+            &mut items,
+        );
     }
     if roles.contains(&SqlExpectedRole::Type) {
         complete_types(prefix, replacement, &mut items);
@@ -501,9 +539,10 @@ pub(crate) fn complete_sql(
     })
 }
 
-pub(crate) fn datum_hover(
+pub(crate) fn contextual_hover(
     request: &PositionRequest,
     syntax: &SyntaxAnalysis,
+    registry: &NativeSchemaSnapshot,
     semantic_roots: &BTreeMap<String, RootAnalysis>,
     dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
 ) -> Option<(SourceSpan, String)> {
@@ -521,49 +560,38 @@ pub(crate) fn datum_hover(
         })
         .min_by_key(|node| node.span.range.len())?;
     let tokens = island_tokens(syntax, node.span);
-    let (spans, field) = datum_references_in_tokens(&tokens)
-        .into_iter()
-        .find(|(spans, _)| {
-            spans.namespace.range.start <= request.byte_offset
-                && request.byte_offset <= spans.field.range.end
-        })?;
     let (project, _) = project_at(
         &request.source,
         request.byte_offset,
         semantic_roots,
         dataset_contexts,
     );
-    let relation = event_datum_relation(project, &request.source, request.byte_offset)?;
-    let column = relation
-        .columns
-        .iter()
-        .find(|column| column.name == field)?;
-    let detail = column.detail.clone().unwrap_or_else(|| {
-        format!(
-            "{} · {} · logical hit row",
-            column.data_type,
-            nullability(column.nullable)
-        )
-    });
+    let reference = contextual_references_in_tokens(&tokens)
+        .into_iter()
+        .find(|reference| {
+            contextual_reference_is_legal(reference, project, &request.source, request.byte_offset)
+                && reference.full_span.range.start <= request.byte_offset
+                && request.byte_offset <= reference.full_span.range.end
+        })?;
+    let detail = contextual_reference_detail(
+        &reference,
+        project,
+        &request.source,
+        request.byte_offset,
+        registry,
+    )?;
+    let text = syntax.parsed.tokens.text();
+    let spelling = &text[reference.full_span.range.as_range()];
     Some((
-        SourceSpan {
-            source: spans.namespace.source,
-            range: ByteSpan {
-                start: spans.namespace.range.start,
-                end: spans.field.range.end,
-            },
-        },
-        format!(
-            "```avenger\ndatum.\"{}\"\n```\n\nLogical pre-scale field from the hit mark instance.\n\n{detail}",
-            field.replace('"', "\"\"")
-        ),
+        reference.full_span,
+        format!("```avenger\n{spelling}\n```\n\n{detail}"),
     ))
 }
 
-pub(crate) fn datum_semantic_token_spans(
+pub(crate) fn contextual_semantic_token_spans(
     analysis: &crate::WorkspaceAnalysis,
     origin: &SourceOrigin,
-) -> Vec<DatumTokenSpans> {
+) -> Vec<ContextualTokenSpans> {
     let Some(syntax) = analysis.syntax.get(origin) else {
         return Vec::new();
     };
@@ -582,47 +610,362 @@ pub(crate) fn datum_semantic_token_spans(
             &analysis.semantic_roots,
             &analysis.dataset_contexts,
         );
-        if event_datum_relation(project, origin, cursor).is_none() {
-            continue;
-        }
         output.extend(
-            datum_references_in_tokens(&island_tokens(syntax, node.span))
+            contextual_references_in_tokens(&island_tokens(syntax, node.span))
                 .into_iter()
-                .map(|(spans, _)| spans),
+                .filter(|reference| {
+                    contextual_reference_is_legal(reference, project, origin, cursor)
+                })
+                .map(|reference| reference.spans),
         );
     }
     output
 }
 
-fn datum_references_in_tokens(tokens: &[SqlToken<'_>]) -> Vec<(DatumTokenSpans, String)> {
-    tokens
-        .windows(3)
-        .filter_map(|window| {
-            let [namespace, period, field] = window else {
-                return None;
+#[derive(Clone, Debug)]
+struct ContextualTokenReference {
+    spans: ContextualTokenSpans,
+    parts: Vec<String>,
+    quoted: Vec<bool>,
+    full_span: SourceSpan,
+}
+
+fn contextual_references_in_tokens(tokens: &[SqlToken<'_>]) -> Vec<ContextualTokenReference> {
+    let mut output = Vec::new();
+    for (start, root) in tokens.iter().enumerate() {
+        let Some(Token::Word(root_word)) = root.token else {
+            continue;
+        };
+        if root_word.quote_style.is_some() {
+            continue;
+        }
+        let mut parts = vec![root_word.value.clone()];
+        let mut quoted = vec![false];
+        let mut properties = Vec::new();
+        let mut field = None;
+        let mut cursor = start;
+        while cursor + 2 < tokens.len() && tokens[cursor + 1].is_period() {
+            let Some(Token::Word(member)) = tokens[cursor + 2].token else {
+                break;
             };
-            let Some(Token::Word(namespace_word)) = namespace.token else {
-                return None;
-            };
-            let Some(Token::Word(field_word)) = field.token else {
-                return None;
-            };
-            if namespace_word.quote_style.is_some()
-                || !namespace_word.value.eq_ignore_ascii_case("datum")
-                || !period.is_period()
-                || field_word.quote_style != Some('"')
-            {
-                return None;
+            parts.push(member.value.clone());
+            quoted.push(member.quote_style == Some('"'));
+            if member.quote_style == Some('"') {
+                field = Some(tokens[cursor + 2].span);
+            } else {
+                properties.push(tokens[cursor + 2].span);
             }
-            Some((
-                DatumTokenSpans {
-                    namespace: namespace.span,
-                    field: field.span,
+            cursor += 2;
+        }
+        if parts.len() < 2 {
+            continue;
+        }
+        let mut end = tokens[cursor].span.range.end;
+        if parts.len() == 2
+            && parts[0].eq_ignore_ascii_case("event")
+            && parts[1].eq_ignore_ascii_case("facet")
+            && cursor + 3 < tokens.len()
+            && matches!(tokens[cursor + 1].token, Some(Token::LBracket))
+            && matches!(tokens[cursor + 3].token, Some(Token::RBracket))
+        {
+            end = tokens[cursor + 3].span.range.end;
+        }
+        let root_is_builtin = matches!(
+            parts[0].to_ascii_lowercase().as_str(),
+            "datum" | "channel" | "event" | "item"
+        );
+        output.push(ContextualTokenReference {
+            spans: ContextualTokenSpans {
+                root: root.span,
+                root_is_builtin,
+                properties,
+                field,
+            },
+            parts,
+            quoted,
+            full_span: SourceSpan {
+                source: root.span.source,
+                range: ByteSpan {
+                    start: root.span.range.start,
+                    end,
                 },
-                field_word.value.clone(),
+            },
+        });
+    }
+    output
+}
+
+fn contextual_reference_is_legal(
+    reference: &ContextualTokenReference,
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> bool {
+    let parts = reference
+        .parts
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let quoted = &reference.quoted;
+    let event = enclosing_event(project, origin, cursor);
+    let path = declaration_path_at(project, origin, cursor);
+    let mark = path.iter().any(|declaration| declaration.keyword == "mark");
+    let item = mark
+        && path
+            .iter()
+            .any(|declaration| matches!(declaration.keyword.as_str(), "adjust" | "derive"));
+    let between = event.is_some_and(|event| event.properties.contains_key("between"));
+    let legend = event
+        .and_then(|event| event.event_binding.as_ref())
+        .is_some_and(|binding| matches!(binding.surface, ResolvedEventSurface::Legend { .. }));
+    match parts.as_slice() {
+        [root, _] if root.eq_ignore_ascii_case("datum") => {
+            event.is_some() && quoted.get(1) == Some(&true)
+        }
+        [root, _] if root.eq_ignore_ascii_case("channel") => mark && quoted.get(1) == Some(&false),
+        [root, coord, _]
+            if root.eq_ignore_ascii_case("event") && coord.eq_ignore_ascii_case("coord") =>
+        {
+            event.is_some() && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, start, coord, _]
+            if root.eq_ignore_ascii_case("event")
+                && start.eq_ignore_ascii_case("start")
+                && coord.eq_ignore_ascii_case("coord") =>
+        {
+            between && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, domain, _, boundary]
+            if root.eq_ignore_ascii_case("event")
+                && domain.eq_ignore_ascii_case("domain")
+                && (boundary.eq_ignore_ascii_case("start")
+                    || boundary.eq_ignore_ascii_case("end")) =>
+        {
+            event.is_some() && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, path] if root.eq_ignore_ascii_case("event") && path.eq_ignore_ascii_case("path") => {
+            between && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, facet]
+            if root.eq_ignore_ascii_case("event") && facet.eq_ignore_ascii_case("facet") =>
+        {
+            event.is_some() && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, legend_member, value]
+            if root.eq_ignore_ascii_case("event")
+                && legend_member.eq_ignore_ascii_case("legend")
+                && value.eq_ignore_ascii_case("value") =>
+        {
+            legend && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, channel, _]
+            if root.eq_ignore_ascii_case("item") && channel.eq_ignore_ascii_case("channel") =>
+        {
+            item && quoted.iter().all(|quoted| !quoted)
+        }
+        [root, data, _]
+            if root.eq_ignore_ascii_case("item") && data.eq_ignore_ascii_case("data") =>
+        {
+            item && quoted.get(2) == Some(&true)
+        }
+        [root, bbox, edge]
+            if root.eq_ignore_ascii_case("item")
+                && bbox.eq_ignore_ascii_case("bbox")
+                && ["top", "right", "bottom", "left"]
+                    .iter()
+                    .any(|candidate| edge.eq_ignore_ascii_case(candidate)) =>
+        {
+            item && quoted.iter().all(|quoted| !quoted)
+        }
+        [view, axis, pixels]
+            if (axis.eq_ignore_ascii_case("x") || axis.eq_ignore_ascii_case("y"))
+                && pixels.eq_ignore_ascii_case("pixels") =>
+        {
+            path.iter().any(|declaration| {
+                declaration.keyword == "view"
+                    && declaration
+                        .name
+                        .as_deref()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(view))
+            }) && quoted.iter().all(|quoted| !quoted)
+        }
+        [view, axis, domain, boundary]
+            if (axis.eq_ignore_ascii_case("x") || axis.eq_ignore_ascii_case("y"))
+                && domain.eq_ignore_ascii_case("domain")
+                && (boundary.eq_ignore_ascii_case("start")
+                    || boundary.eq_ignore_ascii_case("end")) =>
+        {
+            path.iter().any(|declaration| {
+                declaration.keyword == "view"
+                    && declaration
+                        .name
+                        .as_deref()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(view))
+            }) && quoted.iter().all(|quoted| !quoted)
+        }
+        _ => false,
+    }
+}
+
+fn contextual_reference_detail(
+    reference: &ContextualTokenReference,
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+    registry: &NativeSchemaSnapshot,
+) -> Option<String> {
+    let parts = reference
+        .parts
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let path = declaration_path_at(project, origin, cursor);
+    let mark = path
+        .iter()
+        .rev()
+        .copied()
+        .find(|declaration| declaration.keyword == "mark");
+    match parts.as_slice() {
+        [root, field] if root.eq_ignore_ascii_case("datum") => {
+            let relation = event_datum_relation(project, origin, cursor)?;
+            let column = relation
+                .columns
+                .iter()
+                .find(|column| column.name == *field)?;
+            let detail = column.detail.clone().unwrap_or_else(|| {
+                format!(
+                    "{} · {} · logical hit row",
+                    column.data_type,
+                    nullability(column.nullable)
+                )
+            });
+            Some(format!(
+                "{}\n\n{detail}",
+                contextual_signature_docs("datum.\"<field>\"")?
             ))
-        })
-        .collect()
+        }
+        [root, channel] if root.eq_ignore_ascii_case("channel") => {
+            let channel = mark_channels(project, mark?, registry, false)
+                .into_iter()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(channel))?;
+            let type_detail = channel.data_type.as_ref().map(|data_type| {
+                format!(
+                    "`{data_type}` · {}.\n\n",
+                    channel
+                        .nullable
+                        .map(nullability)
+                        .unwrap_or("nullability unavailable")
+                )
+            });
+            Some(format!(
+                "{}\n\n{}{}",
+                contextual_signature_docs("channel.<channel>")?,
+                type_detail.as_deref().unwrap_or_default(),
+                channel.docs,
+            ))
+        }
+        [root, coord, channel]
+            if root.eq_ignore_ascii_case("event") && coord.eq_ignore_ascii_case("coord") =>
+        {
+            let detail = fixed_contextual_signature_detail("event.coord.<channel>")?;
+            Some(format!("Channel `{channel}`.\n\n{detail}"))
+        }
+        [root, start, coord, channel]
+            if root.eq_ignore_ascii_case("event")
+                && start.eq_ignore_ascii_case("start")
+                && coord.eq_ignore_ascii_case("coord") =>
+        {
+            let detail = fixed_contextual_signature_detail("event.start.coord.<channel>")?;
+            Some(format!("Channel `{channel}`.\n\n{detail}"))
+        }
+        [root, domain, channel, boundary]
+            if root.eq_ignore_ascii_case("event") && domain.eq_ignore_ascii_case("domain") =>
+        {
+            let pattern = format!("event.domain.<channel>.{}", boundary.to_ascii_lowercase());
+            let detail = fixed_contextual_signature_detail(&pattern)?;
+            Some(format!("Channel `{channel}`.\n\n{detail}"))
+        }
+        [root, path] if root.eq_ignore_ascii_case("event") && path.eq_ignore_ascii_case("path") => {
+            fixed_contextual_signature_detail("event.path")
+        }
+        [root, facet]
+            if root.eq_ignore_ascii_case("event") && facet.eq_ignore_ascii_case("facet") =>
+        {
+            fixed_contextual_signature_detail("event.facet[n]")
+        }
+        [root, legend, value]
+            if root.eq_ignore_ascii_case("event")
+                && legend.eq_ignore_ascii_case("legend")
+                && value.eq_ignore_ascii_case("value") =>
+        {
+            fixed_contextual_signature_detail("event.legend.value")
+        }
+        [root, channel_member, channel]
+            if root.eq_ignore_ascii_case("item")
+                && channel_member.eq_ignore_ascii_case("channel") =>
+        {
+            let channel = mark_channels(project, mark?, registry, true)
+                .into_iter()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(channel))?;
+            Some(format!(
+                "{}\n\n{} · {} · {}",
+                contextual_signature_docs("item.channel.<channel>")?,
+                channel.data_type.as_deref().unwrap_or("schema-derived"),
+                channel
+                    .nullable
+                    .map(nullability)
+                    .unwrap_or("nullability unavailable"),
+                channel.docs,
+            ))
+        }
+        [root, data, field]
+            if root.eq_ignore_ascii_case("item") && data.eq_ignore_ascii_case("data") =>
+        {
+            let column = mark_input_columns(project, mark?)
+                .into_iter()
+                .find(|column| column.name == *field)?;
+            Some(format!(
+                "{}\n\n{} · {}",
+                contextual_signature_docs("item.data.\"<field>\"")?,
+                column.data_type,
+                nullability(column.nullable),
+            ))
+        }
+        [root, bbox, edge]
+            if root.eq_ignore_ascii_case("item") && bbox.eq_ignore_ascii_case("bbox") =>
+        {
+            let detail = fixed_contextual_signature_detail("item.bbox.<edge>")?;
+            Some(format!("Edge `{edge}`.\n\n{detail}"))
+        }
+        [_, axis, pixels] if pixels.eq_ignore_ascii_case("pixels") => {
+            fixed_contextual_signature_detail(&format!(
+                "<view>.{}.pixels",
+                axis.to_ascii_lowercase()
+            ))
+        }
+        [_, axis, domain, boundary] if domain.eq_ignore_ascii_case("domain") => {
+            fixed_contextual_signature_detail(&format!(
+                "<view>.{}.domain.{}",
+                axis.to_ascii_lowercase(),
+                boundary.to_ascii_lowercase()
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn contextual_signature_docs(pattern: &str) -> Option<&'static str> {
+    contextual_access_signature(pattern).map(|signature| signature.docs)
+}
+
+fn fixed_contextual_signature_detail(pattern: &str) -> Option<String> {
+    let signature = contextual_access_signature(pattern)?;
+    let data_type = signature.fixed_arrow_type?.as_str();
+    Some(format!(
+        "{}\n\n`{data_type}` · {}.",
+        signature.docs,
+        nullability(signature.nullable)
+    ))
 }
 
 fn sql_cache_key(
@@ -1077,29 +1420,237 @@ fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
         .collect()
 }
 
-fn event_datum_relation(
-    project: Option<&ModuleAnalysis>,
+fn enclosing_event<'a>(
+    project: Option<&'a ModuleAnalysis>,
     origin: &SourceOrigin,
     cursor: usize,
-) -> Option<RelationMetadata> {
-    let project = project?;
-    let resolved = project.resolved_module_graph.as_deref()?;
-    let event = resolved
+) -> Option<&'a ResolvedDeclaration> {
+    let resolved = project?.resolved_module_graph.as_deref()?;
+    resolved
         .source_modules
         .values()
         .flat_map(|module| &module.roots)
         .filter_map(|root| find_enclosing_event(root, resolved, origin, cursor))
-        .min_by_key(|event| event.span.range.len())?;
-    let binding = event.event_binding.as_ref()?;
-    let scope_id = match &binding.scope {
-        ResolvedEventScope::Plot(id) | ResolvedEventScope::Subplots { plot: id, .. } => id,
-    };
-    let scope = resolved
+        .min_by_key(|event| event.span.range.len())
+}
+
+fn syntax_contains_declaration(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+    expected_keyword: &str,
+) -> bool {
+    syntax.parsed.nodes.iter().any(|node| {
+        matches!(
+            &node.kind,
+            TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                if keyword.eq_ignore_ascii_case(expected_keyword)
+        ) && node.span.range.start <= cursor
+            && cursor <= node.span.range.end
+    })
+}
+
+fn nearest_declaration<'a>(
+    project: Option<&'a ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+    expected_keyword: &str,
+) -> Option<&'a ResolvedDeclaration> {
+    let resolved = project?.resolved_module_graph.as_deref()?;
+    let mut candidates = Vec::new();
+    for root in resolved
         .source_modules
         .values()
         .flat_map(|module| &module.roots)
-        .find_map(|root| find_declaration(root, scope_id))?;
+    {
+        collect_declarations_by_keyword(
+            root,
+            resolved,
+            origin,
+            cursor,
+            expected_keyword,
+            &mut candidates,
+        );
+    }
+    candidates.into_iter().max_by_key(|declaration| {
+        resolved
+            .expansion_source_map
+            .authored_span(declaration.span)
+            .range
+            .start
+    })
+}
 
+fn collect_declarations_by_keyword<'a>(
+    declaration: &'a ResolvedDeclaration,
+    resolved: &avenger_lang_core::ResolvedModuleGraph,
+    origin: &SourceOrigin,
+    cursor: usize,
+    expected_keyword: &str,
+    output: &mut Vec<&'a ResolvedDeclaration>,
+) {
+    let authored = resolved
+        .expansion_source_map
+        .authored_span(declaration.span);
+    if let Some(source) = resolved.sources.get(authored.source)
+        && same_origin(&source.origin, origin)
+        && authored.range.start <= cursor
+        && declaration.keyword.eq_ignore_ascii_case(expected_keyword)
+    {
+        output.push(declaration);
+    }
+    for child in &declaration.children {
+        collect_declarations_by_keyword(child, resolved, origin, cursor, expected_keyword, output);
+    }
+}
+
+fn declaration_path_at<'a>(
+    project: Option<&'a ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> Vec<&'a ResolvedDeclaration> {
+    let Some(resolved) = project.and_then(|project| project.resolved_module_graph.as_deref())
+    else {
+        return Vec::new();
+    };
+    let mut candidates = Vec::new();
+    for root in resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+    {
+        let mut path = Vec::new();
+        collect_declaration_paths(root, resolved, origin, cursor, &mut path, &mut candidates);
+    }
+    candidates
+        .into_iter()
+        .min_by_key(|path| {
+            path.last()
+                .map(|declaration| {
+                    resolved
+                        .expansion_source_map
+                        .authored_span(declaration.span)
+                        .range
+                        .len()
+                })
+                .unwrap_or(usize::MAX)
+        })
+        .unwrap_or_default()
+}
+
+fn collect_declaration_paths<'a>(
+    declaration: &'a ResolvedDeclaration,
+    resolved: &avenger_lang_core::ResolvedModuleGraph,
+    origin: &SourceOrigin,
+    cursor: usize,
+    path: &mut Vec<&'a ResolvedDeclaration>,
+    output: &mut Vec<Vec<&'a ResolvedDeclaration>>,
+) {
+    let authored = resolved
+        .expansion_source_map
+        .authored_span(declaration.span);
+    let Some(source) = resolved.sources.get(authored.source) else {
+        return;
+    };
+    if !same_origin(&source.origin, origin)
+        || authored.range.start > cursor
+        || cursor > authored.range.end
+    {
+        return;
+    }
+    path.push(declaration);
+    output.push(path.clone());
+    for child in &declaration.children {
+        collect_declaration_paths(child, resolved, origin, cursor, path, output);
+    }
+    path.pop();
+}
+
+fn native_mark_schema<'a>(
+    mark: &ResolvedDeclaration,
+    registry: &'a NativeSchemaSnapshot,
+) -> Option<&'a avenger_chart_schema::KindSchema> {
+    let direct = match mark.kind_binding.as_ref() {
+        Some(ResolvedKindBinding::Builtin(key)) => Some(key),
+        Some(ResolvedKindBinding::Native { implementation, .. }) => Some(implementation),
+        _ => None,
+    }
+    .filter(|key| key.namespace == NativeKindNamespace::Mark)
+    .and_then(|key| registry.entries.get(key));
+    direct.or_else(|| {
+        let kind = mark.kind.as_deref()?;
+        registry.entries.values().find(|schema| {
+            schema.key.namespace == NativeKindNamespace::Mark
+                && schema.key.kind.eq_ignore_ascii_case(kind)
+                && schema.key.coordinate.as_deref() == mark.coordinate.as_deref()
+        })
+    })
+}
+
+fn mark_channels(
+    project: Option<&ModuleAnalysis>,
+    mark: &ResolvedDeclaration,
+    registry: &NativeSchemaSnapshot,
+    item_only: bool,
+) -> Vec<ContextualChannel> {
+    let Some(schema) = native_mark_schema(mark, registry) else {
+        return Vec::new();
+    };
+    schema
+        .channels
+        .values()
+        .filter(|channel| !item_only || channel.item_type.is_some())
+        .map(|channel| ContextualChannel {
+            name: channel.name.clone(),
+            data_type: if item_only {
+                channel.item_type.clone()
+            } else {
+                project
+                    .and_then(|project| project.mark_channels.get(&mark.id))
+                    .and_then(|channels| {
+                        channels
+                            .iter()
+                            .find(|candidate| candidate.name.eq_ignore_ascii_case(&channel.name))
+                    })
+                    .map(|channel| channel.data_type.to_string())
+            },
+            nullable: if item_only {
+                channel.item_type.as_ref().map(|_| true)
+            } else {
+                project
+                    .and_then(|project| project.mark_channels.get(&mark.id))
+                    .and_then(|channels| {
+                        channels
+                            .iter()
+                            .find(|candidate| candidate.name.eq_ignore_ascii_case(&channel.name))
+                    })
+                    .map(|channel| channel.nullable)
+            },
+            docs: channel.docs.clone(),
+        })
+        .collect()
+}
+
+fn event_target_marks<'a>(
+    project: &'a ModuleAnalysis,
+    event: &ResolvedDeclaration,
+) -> Vec<&'a ResolvedDeclaration> {
+    let Some(resolved) = project.resolved_module_graph.as_deref() else {
+        return Vec::new();
+    };
+    let Some(binding) = event.event_binding.as_ref() else {
+        return Vec::new();
+    };
+    let scope_id = match &binding.scope {
+        ResolvedEventScope::Plot(id) | ResolvedEventScope::Subplots { plot: id, .. } => id,
+    };
+    let Some(scope) = resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+        .find_map(|root| find_declaration(root, scope_id))
+    else {
+        return Vec::new();
+    };
     let mut marks = Vec::new();
     if binding.targets.is_empty() {
         collect_primitive_marks(scope, &mut marks);
@@ -1110,6 +1661,91 @@ fn event_datum_relation(
     }
     marks.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
     marks.dedup_by(|left, right| left.id == right.id);
+    marks
+}
+
+fn event_channels(
+    project: Option<&ModuleAnalysis>,
+    event: &ResolvedDeclaration,
+    registry: &NativeSchemaSnapshot,
+    item_only: bool,
+) -> Vec<ContextualChannel> {
+    let Some(project) = project else {
+        return Vec::new();
+    };
+    let mut channels = BTreeMap::<String, ContextualChannel>::new();
+    for mark in event_target_marks(project, event) {
+        for mut channel in mark_channels(Some(project), mark, registry, item_only) {
+            if !item_only {
+                // Event coordinate and domain accessors expose the fixed
+                // float64 event boundary, independent of the authored
+                // channel expression's physical type.
+                channel.data_type = Some("float64".to_owned());
+                channel.nullable = Some(true);
+            }
+            channels
+                .entry(channel.name.to_ascii_lowercase())
+                .and_modify(|existing| {
+                    if existing.data_type != channel.data_type {
+                        existing.data_type = None;
+                        existing.nullable = None;
+                        existing.docs = "Target-dependent channel type.".to_owned();
+                    } else if existing.nullable != channel.nullable {
+                        existing.nullable = Some(true);
+                    }
+                })
+                .or_insert(channel);
+        }
+    }
+    channels.into_values().collect()
+}
+
+fn mark_input_columns(
+    project: Option<&ModuleAnalysis>,
+    mark: &ResolvedDeclaration,
+) -> Vec<ColumnMetadata> {
+    let Some(project) = project else {
+        return Vec::new();
+    };
+    project
+        .datasets
+        .iter()
+        .filter(|(_, dataset)| {
+            dataset.provenance.stage_kind == DatasetStageKind::MarkInput
+                && dataset.provenance.declaration_span == mark.span
+        })
+        .map(|(_, dataset)| dataset)
+        .last()
+        .map(|dataset| {
+            dataset
+                .columns
+                .iter()
+                .map(|column| ColumnMetadata {
+                    name: column.name.clone(),
+                    qualifier: Some("item.data".to_owned()),
+                    data_type: column.data_type.clone(),
+                    nullable: column.nullable,
+                    stage: "item data".to_owned(),
+                    lineage: None,
+                    detail: Some(format!(
+                        "{} · {} · logical source item row",
+                        column.data_type,
+                        nullability(column.nullable)
+                    )),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn event_datum_relation(
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> Option<RelationMetadata> {
+    let project = project?;
+    let event = enclosing_event(Some(project), origin, cursor)?;
+    let marks = event_target_marks(project, event);
     if marks.is_empty() {
         return None;
     }
@@ -1845,6 +2481,434 @@ fn quoted_qualifier_before(
     (position < period).then(|| (text[position..period].to_owned(), quote))
 }
 
+#[derive(Clone, Debug)]
+struct ContextualChannel {
+    name: String,
+    data_type: Option<String>,
+    nullable: Option<bool>,
+    docs: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_contextual_qualifier(
+    qualifier: &str,
+    prefix: &str,
+    replacement: SourceSpan,
+    syntax: &SyntaxAnalysis,
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+    registry: &NativeSchemaSnapshot,
+    output: &mut Vec<CompletionItem>,
+) -> Option<bool> {
+    let parts = qualifier.split('.').collect::<Vec<_>>();
+    let root = parts.first()?.to_ascii_lowercase();
+    let event = enclosing_event(project, origin, cursor).or_else(|| {
+        syntax_contains_declaration(syntax, cursor, "on")
+            .then(|| nearest_declaration(project, origin, cursor, "on"))
+            .flatten()
+    });
+    let mut path = declaration_path_at(project, origin, cursor);
+    if !path.iter().any(|declaration| declaration.keyword == "mark")
+        && syntax_contains_declaration(syntax, cursor, "mark")
+        && let Some(mark) = nearest_declaration(project, origin, cursor, "mark")
+    {
+        path.push(mark);
+    }
+    if !path.iter().any(|declaration| declaration.keyword == "view")
+        && syntax_contains_declaration(syntax, cursor, "view")
+        && let Some(view) = nearest_declaration(project, origin, cursor, "view")
+    {
+        path.push(view);
+    }
+    let mark = path
+        .iter()
+        .rev()
+        .copied()
+        .find(|declaration| declaration.keyword == "mark");
+    let item_frame = path
+        .iter()
+        .rev()
+        .any(|declaration| matches!(declaration.keyword.as_str(), "adjust" | "derive"))
+        || syntax_contains_declaration(syntax, cursor, "adjust")
+        || syntax_contains_declaration(syntax, cursor, "derive");
+    let item_mark = item_frame.then_some(mark).flatten();
+    let between = event.is_some_and(|event| event.properties.contains_key("between"));
+    let legend = event
+        .and_then(|event| event.event_binding.as_ref())
+        .is_some_and(|binding| matches!(binding.surface, ResolvedEventSurface::Legend { .. }));
+    let handled = match (root.as_str(), parts.as_slice()) {
+        ("datum", ["datum"]) if event.is_some() => {
+            let relation = event_datum_relation(project, origin, cursor)?;
+            complete_contextual_columns(prefix, replacement, &relation.columns, true, output);
+            true
+        }
+        ("channel", ["channel"]) if mark.is_some() => {
+            complete_contextual_channels(
+                prefix,
+                replacement,
+                &mark_channels(project, mark.unwrap(), registry, false),
+                output,
+            );
+            true
+        }
+        ("event", ["event"]) if event.is_some() => {
+            let mut members = vec![
+                ("coord", "Current coordinates by channel."),
+                ("domain", "Event-time scale domains by channel."),
+                ("facet", "One-based facet-path components."),
+            ];
+            if between {
+                members.extend([
+                    ("start", "Gesture-start event context."),
+                    ("path", "Accumulated between-interaction path."),
+                ]);
+            }
+            if legend {
+                members.push(("legend", "Continuous legend-surface context."));
+            }
+            complete_fixed_members(prefix, replacement, &members, output);
+            true
+        }
+        ("event", ["event", member]) if member.eq_ignore_ascii_case("coord") && event.is_some() => {
+            complete_contextual_channels(
+                prefix,
+                replacement,
+                &event_channels(project, event.unwrap(), registry, false),
+                output,
+            );
+            true
+        }
+        ("event", ["event", member])
+            if member.eq_ignore_ascii_case("domain") && event.is_some() =>
+        {
+            complete_contextual_channels(
+                prefix,
+                replacement,
+                &event_channels(project, event.unwrap(), registry, false),
+                output,
+            );
+            true
+        }
+        ("event", ["event", start]) if start.eq_ignore_ascii_case("start") && between => {
+            complete_fixed_members(
+                prefix,
+                replacement,
+                &[("coord", "Gesture-start coordinates by channel.")],
+                output,
+            );
+            true
+        }
+        ("event", ["event", start, coord])
+            if start.eq_ignore_ascii_case("start")
+                && coord.eq_ignore_ascii_case("coord")
+                && between =>
+        {
+            complete_contextual_channels(
+                prefix,
+                replacement,
+                &event_channels(project, event.unwrap(), registry, false),
+                output,
+            );
+            true
+        }
+        ("event", ["event", domain, channel])
+            if domain.eq_ignore_ascii_case("domain") && event.is_some() =>
+        {
+            let valid = event_channels(project, event.unwrap(), registry, false)
+                .iter()
+                .any(|candidate| candidate.name.eq_ignore_ascii_case(channel));
+            if valid {
+                let start = fixed_contextual_signature_detail("event.domain.<channel>.start")
+                    .unwrap_or_else(|| "Start of the event-time scale domain.".to_owned());
+                let end = fixed_contextual_signature_detail("event.domain.<channel>.end")
+                    .unwrap_or_else(|| "End of the event-time scale domain.".to_owned());
+                complete_fixed_members(
+                    prefix,
+                    replacement,
+                    &[("start", &start), ("end", &end)],
+                    output,
+                );
+            }
+            valid
+        }
+        ("event", ["event", legend_member])
+            if legend_member.eq_ignore_ascii_case("legend") && legend =>
+        {
+            let value = fixed_contextual_signature_detail("event.legend.value")
+                .unwrap_or_else(|| "Continuous legend-surface value.".to_owned());
+            complete_fixed_members(prefix, replacement, &[("value", &value)], output);
+            true
+        }
+        ("item", ["item"]) if item_mark.is_some() => {
+            complete_fixed_members(
+                prefix,
+                replacement,
+                &[
+                    ("channel", "Evaluated source item channels."),
+                    ("data", "Logical source-row fields."),
+                    ("bbox", "Evaluated source-item bounding box."),
+                ],
+                output,
+            );
+            true
+        }
+        ("item", ["item", member])
+            if member.eq_ignore_ascii_case("channel") && item_mark.is_some() =>
+        {
+            complete_contextual_channels(
+                prefix,
+                replacement,
+                &mark_channels(project, item_mark.unwrap(), registry, true),
+                output,
+            );
+            true
+        }
+        ("item", ["item", member])
+            if member.eq_ignore_ascii_case("data") && item_mark.is_some() =>
+        {
+            let columns = mark_input_columns(project, item_mark.unwrap());
+            complete_contextual_columns(prefix, replacement, &columns, true, output);
+            !columns.is_empty()
+        }
+        ("item", ["item", member])
+            if member.eq_ignore_ascii_case("bbox") && item_mark.is_some() =>
+        {
+            let edge = fixed_contextual_signature_detail("item.bbox.<edge>")
+                .unwrap_or_else(|| "Evaluated source-item bounding-box edge.".to_owned());
+            complete_fixed_members(
+                prefix,
+                replacement,
+                &[
+                    ("top", &edge),
+                    ("right", &edge),
+                    ("bottom", &edge),
+                    ("left", &edge),
+                ],
+                output,
+            );
+            true
+        }
+        _ => {
+            let view = path.iter().rev().copied().find(|declaration| {
+                declaration.keyword == "view"
+                    && declaration
+                        .name
+                        .as_deref()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(parts[0]))
+            });
+            match (view, parts.as_slice()) {
+                (Some(_), [_]) => {
+                    complete_fixed_members(
+                        prefix,
+                        replacement,
+                        &[("x", "Inline-view x axis."), ("y", "Inline-view y axis.")],
+                        output,
+                    );
+                    true
+                }
+                (Some(_), [_, axis])
+                    if axis.eq_ignore_ascii_case("x") || axis.eq_ignore_ascii_case("y") =>
+                {
+                    let pixels = fixed_contextual_signature_detail(&format!(
+                        "<view>.{}.pixels",
+                        axis.to_ascii_lowercase()
+                    ))
+                    .unwrap_or_else(|| "Inline-view pixel count.".to_owned());
+                    complete_fixed_members(
+                        prefix,
+                        replacement,
+                        &[("domain", "Inline-view scale domain."), ("pixels", &pixels)],
+                        output,
+                    );
+                    true
+                }
+                (Some(_), [_, axis, domain])
+                    if (axis.eq_ignore_ascii_case("x") || axis.eq_ignore_ascii_case("y"))
+                        && domain.eq_ignore_ascii_case("domain") =>
+                {
+                    let start = fixed_contextual_signature_detail(&format!(
+                        "<view>.{}.domain.start",
+                        axis.to_ascii_lowercase()
+                    ))
+                    .unwrap_or_else(|| "Inline-view domain start.".to_owned());
+                    let end = fixed_contextual_signature_detail(&format!(
+                        "<view>.{}.domain.end",
+                        axis.to_ascii_lowercase()
+                    ))
+                    .unwrap_or_else(|| "Inline-view domain end.".to_owned());
+                    complete_fixed_members(
+                        prefix,
+                        replacement,
+                        &[("start", &start), ("end", &end)],
+                        output,
+                    );
+                    true
+                }
+                _ => return None,
+            }
+        }
+    };
+    Some(handled)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_contextual_roots(
+    prefix: &str,
+    replacement: SourceSpan,
+    syntax: &SyntaxAnalysis,
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+    registry: &NativeSchemaSnapshot,
+    output: &mut Vec<CompletionItem>,
+) {
+    let mut path = declaration_path_at(project, origin, cursor);
+    if !path.iter().any(|declaration| declaration.keyword == "mark")
+        && syntax_contains_declaration(syntax, cursor, "mark")
+        && let Some(mark) = nearest_declaration(project, origin, cursor, "mark")
+    {
+        path.push(mark);
+    }
+    if !path.iter().any(|declaration| declaration.keyword == "view")
+        && syntax_contains_declaration(syntax, cursor, "view")
+        && let Some(view) = nearest_declaration(project, origin, cursor, "view")
+    {
+        path.push(view);
+    }
+    let event = enclosing_event(project, origin, cursor).or_else(|| {
+        syntax_contains_declaration(syntax, cursor, "on")
+            .then(|| nearest_declaration(project, origin, cursor, "on"))
+            .flatten()
+    });
+    let mark = path
+        .iter()
+        .rev()
+        .copied()
+        .find(|declaration| declaration.keyword == "mark");
+    if mark.is_some() && !mark_channels(project, mark.unwrap(), registry, false).is_empty() {
+        complete_fixed_members(
+            prefix,
+            replacement,
+            &[("channel", "Channels on the current mark.")],
+            output,
+        );
+    }
+    if event.is_some() {
+        complete_fixed_members(
+            prefix,
+            replacement,
+            &[
+                ("event", "Current routed event context."),
+                ("datum", "Logical pre-scale row of the hit mark."),
+            ],
+            output,
+        );
+    }
+    if mark.is_some()
+        && (path
+            .iter()
+            .any(|declaration| matches!(declaration.keyword.as_str(), "adjust" | "derive"))
+            || syntax_contains_declaration(syntax, cursor, "adjust")
+            || syntax_contains_declaration(syntax, cursor, "derive"))
+    {
+        complete_fixed_members(
+            prefix,
+            replacement,
+            &[("item", "Source item-frame context.")],
+            output,
+        );
+    }
+    for view in path
+        .iter()
+        .filter(|declaration| declaration.keyword == "view")
+    {
+        if let Some(name) = view.name.as_deref() {
+            complete_fixed_members(
+                prefix,
+                replacement,
+                &[(name, "Lexically scoped inline view.")],
+                output,
+            );
+        }
+    }
+}
+
+fn complete_fixed_members(
+    prefix: &str,
+    replacement: SourceSpan,
+    members: &[(&str, &str)],
+    output: &mut Vec<CompletionItem>,
+) {
+    for (name, detail) in members {
+        if candidate_matches(name, prefix) {
+            output.push(candidate(
+                name,
+                name,
+                replacement,
+                CompletionKind::Property,
+                Some((*detail).to_owned()),
+                CompletionOrigin::AuthoringSchema,
+                "00",
+            ));
+        }
+    }
+}
+
+fn complete_contextual_channels(
+    prefix: &str,
+    replacement: SourceSpan,
+    channels: &[ContextualChannel],
+    output: &mut Vec<CompletionItem>,
+) {
+    for channel in channels {
+        if candidate_matches(&channel.name, prefix) {
+            let detail = channel.data_type.as_ref().map_or_else(
+                || channel.docs.clone(),
+                |data_type| {
+                    format!(
+                        "{data_type} · {} · {}",
+                        channel
+                            .nullable
+                            .map(nullability)
+                            .unwrap_or("nullability unavailable"),
+                        channel.docs
+                    )
+                },
+            );
+            output.push(candidate(
+                &channel.name,
+                &channel.name,
+                replacement,
+                CompletionKind::Property,
+                Some(detail),
+                CompletionOrigin::AuthoringSchema,
+                "00",
+            ));
+        }
+    }
+}
+
+fn complete_contextual_columns(
+    prefix: &str,
+    replacement: SourceSpan,
+    columns: &[ColumnMetadata],
+    quoted: bool,
+    output: &mut Vec<CompletionItem>,
+) {
+    let typed = prefix.trim_start_matches('"').replace("\"\"", "\"");
+    for column in columns {
+        if candidate_matches(&column.name, &typed) {
+            let insert = if quoted {
+                format!("\"{}\"", column.name.replace('"', "\"\""))
+            } else {
+                column.name.clone()
+            };
+            output.push(column_candidate(column, &insert, replacement, "00"));
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn complete_qualifier(
     qualifier: &str,
@@ -2399,6 +3463,7 @@ fn complete_functions(
     prefix: &str,
     replacement: SourceSpan,
     project: Option<&ModuleAnalysis>,
+    in_event: bool,
     output: &mut Vec<CompletionItem>,
 ) {
     let inventories = project.into_iter().flat_map(|project| {
@@ -2423,14 +3488,23 @@ fn complete_functions(
             }
         }
     }
-    for helper in RESERVED_HELPER_NAMES.iter().chain(DOMAIN_RANGE_HELPERS) {
-        if candidate_matches(helper, prefix) {
+    for operation in INTRINSIC_OPERATION_SIGNATURES.iter().filter(|signature| {
+        in_event
+            && signature
+                .contexts
+                .contains(&IntrinsicOperationContext::EventExpression)
+    }) {
+        if candidate_matches(operation.name, prefix) {
             output.push(candidate(
-                helper,
-                &format!("{helper}()"),
+                operation.name,
+                &format!("{}()", operation.name),
                 replacement,
                 CompletionKind::Function,
-                Some("Avenger SQL helper".to_owned()),
+                Some(format!(
+                    "{} Returns `{}`.",
+                    operation.docs,
+                    operation.result.as_str()
+                )),
                 CompletionOrigin::FunctionRegistry,
                 "00",
             ));

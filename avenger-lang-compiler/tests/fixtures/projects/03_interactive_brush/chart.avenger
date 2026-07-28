@@ -38,9 +38,9 @@ chart cartesian as chart {
       end: mouse_up {}
     }
 
-    set drag_x at start = event_coord(x);
+    set drag_x at start = event.coord.x;
     set hovered = insert_rows {
-      row { id: 'drag'; x: event_coord(x); }
+      row { id: 'drag'; x: event.coord.x; }
     }
     set hover_count = (SELECT count(*) FROM $hovered);
     set picked = upsert_clauses {
@@ -49,8 +49,8 @@ chart cartesian as chart {
         interval {
           x {
             field: "x";
-            from: start_coord(x);
-            to: event_coord(x);
+            from: event.start.coord.x;
+            to: event.coord.x;
           }
         }
       }

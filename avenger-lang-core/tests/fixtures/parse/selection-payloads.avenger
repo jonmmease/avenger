@@ -14,8 +14,8 @@ chart cartesian {
         interval {
           x {
             field: "x";
-            from: start_coord(x);
-            to: event_coord(x);
+            from: event.start.coord.x;
+            to: event.coord.x;
           }
         }
       }

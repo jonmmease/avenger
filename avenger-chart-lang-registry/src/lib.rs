@@ -2979,6 +2979,7 @@ mod tests {
             name: "x".to_string(),
             required: true,
             shape: ValueShape::SqlExpression,
+            item_type: None,
             docs: "Required x expression.".to_string(),
         });
         let pack = CoordinatePack::new(

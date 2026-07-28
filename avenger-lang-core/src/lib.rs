@@ -10,9 +10,11 @@
 pub mod ast;
 mod bundle;
 mod capabilities;
+pub mod contextual;
 mod diagnostic;
 mod expand;
 pub mod interchange;
+pub mod intrinsic;
 mod loader;
 pub mod module_graph;
 mod physical_type;
@@ -28,6 +30,10 @@ pub use capabilities::{
     DataCapabilities, EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities,
     MapEnvironmentProvider,
 };
+pub use contextual::{
+    CONTEXTUAL_ACCESS_SIGNATURES, ContextualAccessContext, ContextualAccessPhysicalType,
+    ContextualAccessSignature, contextual_access_signature,
+};
 pub use diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, ExpansionOrImportFrame, SourceLabel,
     render_diagnostics, sort_diagnostics,
@@ -35,6 +41,10 @@ pub use diagnostic::{
 pub use expand::{
     ExpandedModuleGraph, ExpansionFailure, ExpansionLimits, ExpansionMapping, ExpansionSourceMap,
     expand_module_graph, expand_module_graph_with_limits,
+};
+pub use intrinsic::{
+    INTRINSIC_OPERATION_SIGNATURES, IntrinsicOperationArgumentKind, IntrinsicOperationContext,
+    IntrinsicOperationResult, IntrinsicOperationSignature, intrinsic_operation_signature,
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
@@ -55,17 +65,19 @@ pub use resolve::{
     DefinitionKind, DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
     GeneratedStateOrigin, HelperClass, ItemDependencyCause, ItemDependencyEdge,
     ItemDependencyGraph, MarkId, ModuleBindingEnvironment, ModuleExportId, ModuleExportIndex,
-    ModuleItemId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,
-    ResolvedCatalogTable, ResolvedChartEntrypoint, ResolvedDatumFieldReference,
-    ResolvedDeclaration, ResolvedDimension, ResolvedEventBinding, ResolvedEventScope,
-    ResolvedEventSurface, ResolvedExpression, ResolvedHelper, ResolvedHelperArgument,
-    ResolvedImport, ResolvedKindBinding, ResolvedModule, ResolvedModuleGraph, ResolvedModuleItem,
+    ModuleItemId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBboxEdge,
+    ResolvedBinding, ResolvedCatalogTable, ResolvedChannelMember, ResolvedChartEntrypoint,
+    ResolvedContextualAccess, ResolvedContextualAccessKind, ResolvedDeclaration, ResolvedDimension,
+    ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
+    ResolvedHelper, ResolvedHelperArgument, ResolvedImport, ResolvedIntervalBoundary,
+    ResolvedKindBinding, ResolvedModule, ResolvedModuleGraph, ResolvedModuleItem,
     ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedPart, ResolvedProjection,
     ResolvedProjectionItem, ResolvedQuery, ResolvedReference, ResolvedRelationId,
     ResolvedRelationReference, ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine,
     ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
-    WidgetId, allowed_child_declarations, placement_allowed, resolve_module_graph,
+    ResolvedTarget, ResolvedValue, ResolvedViewAxis, ResolvedViewField, SelectionId,
+    StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId, allowed_child_declarations,
+    placement_allowed, resolve_module_graph,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

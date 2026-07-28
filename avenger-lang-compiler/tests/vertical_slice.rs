@@ -71,6 +71,7 @@ fn optional_channel(name: &str, docs: &str) -> ChannelSchema {
         name: name.to_string(),
         required: false,
         shape: ValueShape::SqlExpression,
+        item_type: None,
         docs: docs.to_string(),
     }
 }
@@ -1592,7 +1593,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               stale_policy: retarget_cached;
               throttle_ms: 16;
               transform filter {
-                predicate: view_x(viewport, pixels) > 0;
+                predicate: viewport.x.pixels > 0;
               }
               mark symbol { x: "x"; y: "y"; }
             }
@@ -1619,7 +1620,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               stale_policy: retarget_cached;
               throttle_ms: 16;
               transform filter {
-                predicate: view_x(viewport, pixels) > 0;
+                predicate: viewport.x.pixels > 0;
               }
               mark symbol { x: "x"; y: "y"; }
             }
@@ -1631,7 +1632,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               x_domain: "x";
               y_domain: "y";
               transform filter {
-                predicate: view_x(viewport, pixels) > 0;
+                predicate: viewport.x.pixels > 0;
               }
             }
           }"#,
@@ -1708,6 +1709,91 @@ async fn native_surface_geo_tile_resources_lower_through_typed_references() {
 }
 
 #[tokio::test]
+async fn mark_channel_access_preserves_the_referenced_expression_type() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: { values: [{ row: 1; }]; }
+          mark rect as interval {
+            x: 'a';
+            x2: channel.x || '-end';
+            y: 0.0;
+            y2: 1.0;
+          }
+        }"#;
+    source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn item_data_access_preserves_struct_physical_types() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [{
+              x: 1.0;
+              y: 2.0;
+              metadata: { label: 'A'; weight: 3; }
+            }];
+          }
+          mark symbol as points {
+            x: "x";
+            y: "y";
+            derive text as labels {
+              text: 'present';
+              x: item.channel.x;
+              y: item.channel.y;
+              defined: item.data."metadata" IS NOT NULL;
+            }
+          }
+        }"#;
+    source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn event_domain_facet_and_legend_property_accesses_lower() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          param float64 as domain_start { value: 0.0; }
+          param float64 as domain_end { value: 0.0; }
+          param utf8 as facet_value { value: ''; }
+          param utf8 as legend_hit { value: ''; }
+          data: {
+            values: [
+              { x: 1.0; y: 2.0; value: 3.0; },
+              { x: 2.0; y: 3.0; value: 4.0; }
+            ];
+          }
+          mark symbol as points {
+            x: "x";
+            y: "y";
+            fill: "value" {
+              legend: { title: 'Value'; }
+            }
+          }
+          on cursor_moved as inspect_plot {
+            target: mark points;
+            set domain_start = event.domain.x.start;
+            set domain_end = event.domain.x.end;
+            set facet_value = event.facet[1];
+          }
+          on cursor_moved as inspect_legend {
+            surface: legend fill;
+            set legend_hit = event.legend.value;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    assert_eq!(artifact.compiled_plot().event_bindings().len(), 2);
+}
+
+#[tokio::test]
 async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {
@@ -1733,15 +1819,15 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               start: mouse_down { filter: $enabled; }
               end: mouse_up { filter: $enabled; }
             }
-            set drag_x at start = event_coord(x);
+            set drag_x at start = event.coord.x;
             set hovered = insert_rows {
-              row { id: 'point'; x: event_coord(x); }
+              row { id: 'point'; x: event.coord.x; }
             }
             set picked = toggle_clauses {
               clause {
                 id: 'point';
                 equality {
-                  x { field: "x"; value: event_coord(x); }
+                  x { field: "x"; value: event.coord.x; }
                 }
               }
             }
@@ -1751,14 +1837,14 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
                 interval {
                   x {
                     field: "x";
-                    from: start_coord(x);
-                    to: event_coord(x);
+                    from: event.start.coord.x;
+                    to: event.coord.x;
                   }
                 }
               }
             }
             set picked = replace_all_from_scene_query {
-              geometry: polygon(event_path());
+              geometry: polygon(event.path);
               policy: intersects;
               marks: [points];
               fields: [{ id: 'x'; datum: 'x'; field: "x"; }];
@@ -1766,7 +1852,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               sharing: free;
             }
             set picked = delete_clauses { ids: ['point']; }
-            set drag_domain = span_ordered(event_coord(x), start_coord(x));
+            set drag_domain = span_ordered(event.coord.x, event.start.coord.x);
             set cursor = 'crosshair';
           }
         }"#;

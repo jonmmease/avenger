@@ -203,6 +203,7 @@ fn channel(name: &str, required: bool, docs: &str) -> ChannelSchema {
         name: name.to_string(),
         required,
         shape: ValueShape::SqlExpression,
+        item_type: None,
         docs: docs.to_string(),
     }
 }

@@ -28,8 +28,8 @@ use crate::{
     AnalyzedDataset, ArtifactCacheKey, CatalogFactoryRegistry, CompileEnvironmentFactory,
     CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompiledChartArtifact,
     CompiledModule, CompilerLimits, CompilerOptions, DatasetLineage, DatasetProvenance,
-    DatasetStageId, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
-    LanguageHost, LocalResourceLimits, ModuleAnalysis, ModuleDatasetId,
+    DatasetStageId, DatasetStageKind, DefaultCompileEnvironmentFactory, DefaultSourceLoader,
+    DependencyFingerprint, LanguageHost, LocalResourceLimits, ModuleAnalysis, ModuleDatasetId,
     ModuleDependencyFingerprints, ModuleFingerprint, NativeRequirementSet, SourceLoaderLimits,
     TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
@@ -783,6 +783,11 @@ impl Compiler {
         let mut ordinals = BTreeMap::new();
         let mut previous = BTreeMap::new();
         for dataset in chart_datasets {
+            if dataset.stage_kind == DatasetStageKind::MarkInput {
+                analysis
+                    .mark_channels
+                    .insert(dataset.dataset.clone(), dataset.mark_channels.clone());
+            }
             let id = ModuleDatasetId::new(format!("chart:{}", dataset.dataset.as_str()));
             let ordinal = ordinals.entry(dataset.dataset.clone()).or_insert(0_u32);
             let stage = DatasetStageId::new(id.clone(), *ordinal);

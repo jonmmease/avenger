@@ -3733,6 +3733,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "fill": {
@@ -3741,6 +3742,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -3757,6 +3759,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "order": {
@@ -3773,6 +3776,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `orientation` encoding channel."
         },
         "stroke": {
@@ -3781,6 +3785,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -3789,6 +3794,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_dash": {
@@ -3797,6 +3803,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_dash` encoding channel."
         },
         "stroke_join": {
@@ -3805,6 +3812,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
@@ -3813,6 +3821,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -3821,6 +3830,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "x2": {
@@ -3829,6 +3839,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x2` encoding channel."
         },
         "y": {
@@ -3837,6 +3848,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         },
         "y2": {
@@ -3845,6 +3857,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y2` encoding channel."
         }
       },
@@ -4205,6 +4218,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `align` encoding channel."
         },
         "aspect": {
@@ -4213,6 +4227,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `aspect` encoding channel."
         },
         "baseline": {
@@ -4221,6 +4236,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `baseline` encoding channel."
         },
         "height": {
@@ -4229,6 +4245,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `height` encoding channel."
         },
         "image": {
@@ -4237,6 +4254,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `image` encoding channel."
         },
         "smooth": {
@@ -4245,6 +4263,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `smooth` encoding channel."
         },
         "width": {
@@ -4253,6 +4272,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `width` encoding channel."
         },
         "x": {
@@ -4261,6 +4281,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -4269,6 +4290,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -4358,6 +4380,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "opacity": {
@@ -4366,6 +4389,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "order": {
@@ -4382,6 +4406,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -4390,6 +4415,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_dash": {
@@ -4398,6 +4424,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_dash` encoding channel."
         },
         "stroke_join": {
@@ -4406,6 +4433,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
@@ -4414,6 +4442,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -4422,6 +4451,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -4430,6 +4460,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -4519,6 +4550,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "lat": {
@@ -4543,6 +4575,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "order": {
@@ -4559,6 +4592,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -4567,6 +4601,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_dash": {
@@ -4575,6 +4610,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_dash` encoding channel."
         },
         "stroke_join": {
@@ -4583,6 +4619,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
@@ -4591,6 +4628,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -4599,6 +4637,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -4607,6 +4646,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -4696,6 +4736,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "opacity": {
@@ -4704,6 +4745,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "order": {
@@ -4728,6 +4770,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -4736,6 +4779,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_dash": {
@@ -4744,6 +4788,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_dash` encoding channel."
         },
         "stroke_join": {
@@ -4752,6 +4797,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
@@ -4760,6 +4806,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "theta": {
@@ -5145,6 +5192,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -5161,6 +5209,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "path": {
@@ -5169,6 +5218,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `path` encoding channel."
         },
         "path_transform": {
@@ -5177,6 +5227,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `path_transform` encoding channel."
         },
         "stroke": {
@@ -5185,6 +5236,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -5193,6 +5245,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_join": {
@@ -5201,6 +5254,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
@@ -5209,6 +5263,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -5217,6 +5272,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -5225,6 +5281,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -5314,6 +5371,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `corner_radius` encoding channel."
         },
         "fill": {
@@ -5322,6 +5380,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -5338,6 +5397,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "stroke": {
@@ -5346,6 +5406,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -5354,6 +5415,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -5362,6 +5424,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "x2": {
@@ -5370,6 +5433,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x2` encoding channel."
         },
         "y": {
@@ -5378,6 +5442,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         },
         "y2": {
@@ -5386,6 +5451,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y2` encoding channel."
         }
       },
@@ -5480,6 +5546,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `corner_radius` encoding channel."
         },
         "fill": {
@@ -5488,6 +5555,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -5504,6 +5572,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "stroke": {
@@ -5512,6 +5581,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -5520,6 +5590,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -5528,6 +5599,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "x2": {
@@ -5536,6 +5608,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x2` encoding channel."
         },
         "y": {
@@ -5544,6 +5617,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         },
         "y2": {
@@ -5552,6 +5626,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y2` encoding channel."
         }
       },
@@ -5646,6 +5721,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "stroke": {
@@ -5654,6 +5730,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_cap": {
@@ -5662,6 +5739,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_cap` encoding channel."
         },
         "stroke_dash": {
@@ -5670,6 +5748,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke_dash` encoding channel."
         },
         "stroke_width": {
@@ -5678,6 +5757,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -5686,6 +5766,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "x2": {
@@ -5694,6 +5775,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x2` encoding channel."
         },
         "y": {
@@ -5702,6 +5784,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         },
         "y2": {
@@ -5710,6 +5793,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y2` encoding channel."
         }
       },
@@ -6049,6 +6133,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "fill": {
@@ -6057,6 +6142,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -6073,6 +6159,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "shape": {
@@ -6081,6 +6168,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `shape` encoding channel."
         },
         "size": {
@@ -6089,6 +6177,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `size` encoding channel."
         },
         "stroke": {
@@ -6097,6 +6186,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -6105,6 +6195,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -6113,6 +6204,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -6121,6 +6213,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -6225,6 +6318,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "fill": {
@@ -6233,6 +6327,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
@@ -6265,6 +6360,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "shape": {
@@ -6273,6 +6369,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `shape` encoding channel."
         },
         "size": {
@@ -6281,6 +6378,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `size` encoding channel."
         },
         "stroke": {
@@ -6289,6 +6387,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -6297,6 +6396,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "x": {
@@ -6305,6 +6405,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -6313,6 +6414,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -6407,6 +6509,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "fill": {
@@ -6415,6 +6518,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "r": {
@@ -6431,6 +6535,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `shape` encoding channel."
         },
         "size": {
@@ -6439,6 +6544,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `size` encoding channel."
         },
         "stroke": {
@@ -6447,6 +6553,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -6455,6 +6562,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         },
         "theta": {
@@ -6557,6 +6665,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "fill": {
@@ -6565,6 +6674,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `fill` encoding channel."
         },
         "opacity": {
@@ -6573,6 +6683,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "shape": {
@@ -6581,6 +6692,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `shape` encoding channel."
         },
         "size": {
@@ -6589,6 +6701,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `size` encoding channel."
         },
         "stroke": {
@@ -6597,6 +6710,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "stroke_width": {
@@ -6605,6 +6719,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `stroke_width` encoding channel."
         }
       },
@@ -6718,6 +6833,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `align` encoding channel."
         },
         "angle": {
@@ -6726,6 +6842,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "baseline": {
@@ -6734,6 +6851,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `baseline` encoding channel."
         },
         "color": {
@@ -6742,6 +6860,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `color` encoding channel."
         },
         "defined": {
@@ -6750,6 +6869,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "font": {
@@ -6758,6 +6878,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font` encoding channel."
         },
         "font_size": {
@@ -6766,6 +6887,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `font_size` encoding channel."
         },
         "font_style": {
@@ -6774,6 +6896,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_style` encoding channel."
         },
         "font_weight": {
@@ -6782,6 +6905,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_weight` encoding channel."
         },
         "leader": {
@@ -6790,6 +6914,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `leader` encoding channel."
         },
         "leader_arrow": {
@@ -6798,6 +6923,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_arrow` encoding channel."
         },
         "leader_arrow_length": {
@@ -6806,6 +6932,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_arrow_length` encoding channel."
         },
         "leader_arrow_width": {
@@ -6814,6 +6941,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_arrow_width` encoding channel."
         },
         "leader_label_padding": {
@@ -6822,6 +6950,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_label_padding` encoding channel."
         },
         "leader_min_length": {
@@ -6830,6 +6959,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_min_length` encoding channel."
         },
         "leader_offset_x": {
@@ -6838,6 +6968,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_offset_x` encoding channel."
         },
         "leader_offset_y": {
@@ -6846,6 +6977,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_offset_y` encoding channel."
         },
         "leader_shape": {
@@ -6854,6 +6986,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_shape` encoding channel."
         },
         "leader_stroke": {
@@ -6862,6 +6995,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke` encoding channel."
         },
         "leader_stroke_cap": {
@@ -6870,6 +7004,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_cap` encoding channel."
         },
         "leader_stroke_dash": {
@@ -6878,6 +7013,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_dash` encoding channel."
         },
         "leader_stroke_join": {
@@ -6886,6 +7022,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_join` encoding channel."
         },
         "leader_stroke_width": {
@@ -6894,6 +7031,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_stroke_width` encoding channel."
         },
         "leader_target_radius": {
@@ -6902,6 +7040,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_target_radius` encoding channel."
         },
         "limit": {
@@ -6910,6 +7049,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `limit` encoding channel."
         },
         "opacity": {
@@ -6918,6 +7058,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "text": {
@@ -6926,6 +7067,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `text` encoding channel."
         },
         "x": {
@@ -6934,6 +7076,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -6942,6 +7085,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },
@@ -7050,6 +7194,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `align` encoding channel."
         },
         "angle": {
@@ -7058,6 +7203,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "baseline": {
@@ -7066,6 +7212,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `baseline` encoding channel."
         },
         "color": {
@@ -7074,6 +7221,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `color` encoding channel."
         },
         "defined": {
@@ -7082,6 +7230,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "font": {
@@ -7090,6 +7239,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font` encoding channel."
         },
         "font_size": {
@@ -7098,6 +7248,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `font_size` encoding channel."
         },
         "font_style": {
@@ -7106,6 +7257,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_style` encoding channel."
         },
         "font_weight": {
@@ -7114,6 +7266,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_weight` encoding channel."
         },
         "leader": {
@@ -7122,6 +7275,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `leader` encoding channel."
         },
         "leader_arrow": {
@@ -7130,6 +7284,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_arrow` encoding channel."
         },
         "leader_arrow_length": {
@@ -7138,6 +7293,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_arrow_length` encoding channel."
         },
         "leader_arrow_width": {
@@ -7146,6 +7302,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_arrow_width` encoding channel."
         },
         "leader_label_padding": {
@@ -7154,6 +7311,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_label_padding` encoding channel."
         },
         "leader_min_length": {
@@ -7162,6 +7320,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_min_length` encoding channel."
         },
         "leader_offset_x": {
@@ -7170,6 +7329,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_offset_x` encoding channel."
         },
         "leader_offset_y": {
@@ -7178,6 +7338,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_offset_y` encoding channel."
         },
         "leader_shape": {
@@ -7186,6 +7347,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_shape` encoding channel."
         },
         "leader_stroke": {
@@ -7194,6 +7356,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke` encoding channel."
         },
         "leader_stroke_cap": {
@@ -7202,6 +7365,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_cap` encoding channel."
         },
         "leader_stroke_dash": {
@@ -7210,6 +7374,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_dash` encoding channel."
         },
         "leader_stroke_join": {
@@ -7218,6 +7383,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `leader_stroke_join` encoding channel."
         },
         "leader_stroke_width": {
@@ -7226,6 +7392,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_stroke_width` encoding channel."
         },
         "leader_target_radius": {
@@ -7234,6 +7401,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `leader_target_radius` encoding channel."
         },
         "limit": {
@@ -7242,6 +7410,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `limit` encoding channel."
         },
         "opacity": {
@@ -7250,6 +7419,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "r": {
@@ -7266,6 +7436,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `text` encoding channel."
         },
         "theta": {
@@ -7382,6 +7553,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `align` encoding channel."
         },
         "angle": {
@@ -7390,6 +7562,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `angle` encoding channel."
         },
         "baseline": {
@@ -7398,6 +7571,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `baseline` encoding channel."
         },
         "color": {
@@ -7406,6 +7580,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `color` encoding channel."
         },
         "defined": {
@@ -7414,6 +7589,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "font": {
@@ -7422,6 +7598,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font` encoding channel."
         },
         "font_size": {
@@ -7430,6 +7607,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `font_size` encoding channel."
         },
         "font_style": {
@@ -7438,6 +7616,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_style` encoding channel."
         },
         "font_weight": {
@@ -7446,6 +7625,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `font_weight` encoding channel."
         },
         "limit": {
@@ -7454,6 +7634,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `limit` encoding channel."
         },
         "opacity": {
@@ -7462,6 +7643,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "text": {
@@ -7470,6 +7652,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `text` encoding channel."
         }
       },
@@ -7559,6 +7742,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "boolean",
           "docs": "The `defined` encoding channel."
         },
         "opacity": {
@@ -7567,6 +7751,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `opacity` encoding channel."
         },
         "order": {
@@ -7583,6 +7768,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `size` encoding channel."
         },
         "stroke": {
@@ -7591,6 +7777,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "utf8",
           "docs": "The `stroke` encoding channel."
         },
         "x": {
@@ -7599,6 +7786,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `x` encoding channel."
         },
         "y": {
@@ -7607,6 +7795,7 @@
           "shape": {
             "shape": "sql_expression"
           },
+          "item_type": "float32",
           "docs": "The `y` encoding channel."
         }
       },

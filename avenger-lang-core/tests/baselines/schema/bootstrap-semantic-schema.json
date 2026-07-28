@@ -73766,6 +73766,7 @@
         "channels": {
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -73774,6 +73775,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -73790,6 +73792,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -73806,6 +73809,7 @@
           },
           "orientation": {
             "docs": "The `orientation` encoding channel.",
+            "item_type": "utf8",
             "name": "orientation",
             "required": false,
             "shape": {
@@ -73814,6 +73818,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -73822,6 +73827,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -73830,6 +73836,7 @@
           },
           "stroke_dash": {
             "docs": "The `stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_dash",
             "required": false,
             "shape": {
@@ -73838,6 +73845,7 @@
           },
           "stroke_join": {
             "docs": "The `stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_join",
             "required": false,
             "shape": {
@@ -73846,6 +73854,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -73854,6 +73863,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -73862,6 +73872,7 @@
           },
           "x2": {
             "docs": "The `x2` encoding channel.",
+            "item_type": "float32",
             "name": "x2",
             "required": false,
             "shape": {
@@ -73870,6 +73881,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -73878,6 +73890,7 @@
           },
           "y2": {
             "docs": "The `y2` encoding channel.",
+            "item_type": "float32",
             "name": "y2",
             "required": false,
             "shape": {
@@ -74238,6 +74251,7 @@
         "channels": {
           "align": {
             "docs": "The `align` encoding channel.",
+            "item_type": "utf8",
             "name": "align",
             "required": false,
             "shape": {
@@ -74246,6 +74260,7 @@
           },
           "aspect": {
             "docs": "The `aspect` encoding channel.",
+            "item_type": "boolean",
             "name": "aspect",
             "required": false,
             "shape": {
@@ -74254,6 +74269,7 @@
           },
           "baseline": {
             "docs": "The `baseline` encoding channel.",
+            "item_type": "utf8",
             "name": "baseline",
             "required": false,
             "shape": {
@@ -74262,6 +74278,7 @@
           },
           "height": {
             "docs": "The `height` encoding channel.",
+            "item_type": "float32",
             "name": "height",
             "required": false,
             "shape": {
@@ -74270,6 +74287,7 @@
           },
           "image": {
             "docs": "The `image` encoding channel.",
+            "item_type": "utf8",
             "name": "image",
             "required": false,
             "shape": {
@@ -74278,6 +74296,7 @@
           },
           "smooth": {
             "docs": "The `smooth` encoding channel.",
+            "item_type": "boolean",
             "name": "smooth",
             "required": false,
             "shape": {
@@ -74286,6 +74305,7 @@
           },
           "width": {
             "docs": "The `width` encoding channel.",
+            "item_type": "float32",
             "name": "width",
             "required": false,
             "shape": {
@@ -74294,6 +74314,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -74302,6 +74323,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -74391,6 +74413,7 @@
         "channels": {
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -74399,6 +74422,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -74415,6 +74439,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -74423,6 +74448,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -74431,6 +74457,7 @@
           },
           "stroke_dash": {
             "docs": "The `stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_dash",
             "required": false,
             "shape": {
@@ -74439,6 +74466,7 @@
           },
           "stroke_join": {
             "docs": "The `stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_join",
             "required": false,
             "shape": {
@@ -74447,6 +74475,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -74455,6 +74484,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -74463,6 +74493,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -74552,6 +74583,7 @@
         "channels": {
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -74576,6 +74608,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -74592,6 +74625,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -74600,6 +74634,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -74608,6 +74643,7 @@
           },
           "stroke_dash": {
             "docs": "The `stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_dash",
             "required": false,
             "shape": {
@@ -74616,6 +74652,7 @@
           },
           "stroke_join": {
             "docs": "The `stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_join",
             "required": false,
             "shape": {
@@ -74624,6 +74661,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -74632,6 +74670,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -74640,6 +74679,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -74729,6 +74769,7 @@
         "channels": {
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -74737,6 +74778,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -74761,6 +74803,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -74769,6 +74812,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -74777,6 +74821,7 @@
           },
           "stroke_dash": {
             "docs": "The `stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_dash",
             "required": false,
             "shape": {
@@ -74785,6 +74830,7 @@
           },
           "stroke_join": {
             "docs": "The `stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_join",
             "required": false,
             "shape": {
@@ -74793,6 +74839,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -75178,6 +75225,7 @@
         "channels": {
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -75194,6 +75242,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -75202,6 +75251,7 @@
           },
           "path": {
             "docs": "The `path` encoding channel.",
+            "item_type": "utf8",
             "name": "path",
             "required": false,
             "shape": {
@@ -75210,6 +75260,7 @@
           },
           "path_transform": {
             "docs": "The `path_transform` encoding channel.",
+            "item_type": "utf8",
             "name": "path_transform",
             "required": false,
             "shape": {
@@ -75218,6 +75269,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -75226,6 +75278,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -75234,6 +75287,7 @@
           },
           "stroke_join": {
             "docs": "The `stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_join",
             "required": false,
             "shape": {
@@ -75242,6 +75296,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -75250,6 +75305,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -75258,6 +75314,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -75347,6 +75404,7 @@
         "channels": {
           "corner_radius": {
             "docs": "The `corner_radius` encoding channel.",
+            "item_type": "float32",
             "name": "corner_radius",
             "required": false,
             "shape": {
@@ -75355,6 +75413,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -75371,6 +75430,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -75379,6 +75439,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -75387,6 +75448,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -75395,6 +75457,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -75403,6 +75466,7 @@
           },
           "x2": {
             "docs": "The `x2` encoding channel.",
+            "item_type": "float32",
             "name": "x2",
             "required": false,
             "shape": {
@@ -75411,6 +75475,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -75419,6 +75484,7 @@
           },
           "y2": {
             "docs": "The `y2` encoding channel.",
+            "item_type": "float32",
             "name": "y2",
             "required": false,
             "shape": {
@@ -75513,6 +75579,7 @@
         "channels": {
           "corner_radius": {
             "docs": "The `corner_radius` encoding channel.",
+            "item_type": "float32",
             "name": "corner_radius",
             "required": false,
             "shape": {
@@ -75521,6 +75588,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -75537,6 +75605,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -75545,6 +75614,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -75553,6 +75623,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -75561,6 +75632,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -75569,6 +75641,7 @@
           },
           "x2": {
             "docs": "The `x2` encoding channel.",
+            "item_type": "float32",
             "name": "x2",
             "required": false,
             "shape": {
@@ -75577,6 +75650,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -75585,6 +75659,7 @@
           },
           "y2": {
             "docs": "The `y2` encoding channel.",
+            "item_type": "float32",
             "name": "y2",
             "required": false,
             "shape": {
@@ -75679,6 +75754,7 @@
         "channels": {
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -75687,6 +75763,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -75695,6 +75772,7 @@
           },
           "stroke_cap": {
             "docs": "The `stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_cap",
             "required": false,
             "shape": {
@@ -75703,6 +75781,7 @@
           },
           "stroke_dash": {
             "docs": "The `stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke_dash",
             "required": false,
             "shape": {
@@ -75711,6 +75790,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -75719,6 +75799,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -75727,6 +75808,7 @@
           },
           "x2": {
             "docs": "The `x2` encoding channel.",
+            "item_type": "float32",
             "name": "x2",
             "required": false,
             "shape": {
@@ -75735,6 +75817,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -75743,6 +75826,7 @@
           },
           "y2": {
             "docs": "The `y2` encoding channel.",
+            "item_type": "float32",
             "name": "y2",
             "required": false,
             "shape": {
@@ -76082,6 +76166,7 @@
         "channels": {
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -76090,6 +76175,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -76106,6 +76192,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -76114,6 +76201,7 @@
           },
           "shape": {
             "docs": "The `shape` encoding channel.",
+            "item_type": "utf8",
             "name": "shape",
             "required": false,
             "shape": {
@@ -76122,6 +76210,7 @@
           },
           "size": {
             "docs": "The `size` encoding channel.",
+            "item_type": "float32",
             "name": "size",
             "required": false,
             "shape": {
@@ -76130,6 +76219,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -76138,6 +76228,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -76146,6 +76237,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -76154,6 +76246,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -76248,6 +76341,7 @@
         "channels": {
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -76256,6 +76350,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -76288,6 +76383,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -76296,6 +76392,7 @@
           },
           "shape": {
             "docs": "The `shape` encoding channel.",
+            "item_type": "utf8",
             "name": "shape",
             "required": false,
             "shape": {
@@ -76304,6 +76401,7 @@
           },
           "size": {
             "docs": "The `size` encoding channel.",
+            "item_type": "float32",
             "name": "size",
             "required": false,
             "shape": {
@@ -76312,6 +76410,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -76320,6 +76419,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -76328,6 +76428,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -76336,6 +76437,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -76440,6 +76542,7 @@
         "channels": {
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -76448,6 +76551,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -76464,6 +76568,7 @@
           },
           "shape": {
             "docs": "The `shape` encoding channel.",
+            "item_type": "utf8",
             "name": "shape",
             "required": false,
             "shape": {
@@ -76472,6 +76577,7 @@
           },
           "size": {
             "docs": "The `size` encoding channel.",
+            "item_type": "float32",
             "name": "size",
             "required": false,
             "shape": {
@@ -76480,6 +76586,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -76488,6 +76595,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -76590,6 +76698,7 @@
         "channels": {
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -76598,6 +76707,7 @@
           },
           "fill": {
             "docs": "The `fill` encoding channel.",
+            "item_type": "utf8",
             "name": "fill",
             "required": false,
             "shape": {
@@ -76606,6 +76716,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -76614,6 +76725,7 @@
           },
           "shape": {
             "docs": "The `shape` encoding channel.",
+            "item_type": "utf8",
             "name": "shape",
             "required": false,
             "shape": {
@@ -76622,6 +76734,7 @@
           },
           "size": {
             "docs": "The `size` encoding channel.",
+            "item_type": "float32",
             "name": "size",
             "required": false,
             "shape": {
@@ -76630,6 +76743,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -76638,6 +76752,7 @@
           },
           "stroke_width": {
             "docs": "The `stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "stroke_width",
             "required": false,
             "shape": {
@@ -76732,6 +76847,7 @@
         "channels": {
           "align": {
             "docs": "The `align` encoding channel.",
+            "item_type": "utf8",
             "name": "align",
             "required": false,
             "shape": {
@@ -76740,6 +76856,7 @@
           },
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -76748,6 +76865,7 @@
           },
           "baseline": {
             "docs": "The `baseline` encoding channel.",
+            "item_type": "utf8",
             "name": "baseline",
             "required": false,
             "shape": {
@@ -76756,6 +76874,7 @@
           },
           "color": {
             "docs": "The `color` encoding channel.",
+            "item_type": "utf8",
             "name": "color",
             "required": false,
             "shape": {
@@ -76764,6 +76883,7 @@
           },
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -76772,6 +76892,7 @@
           },
           "font": {
             "docs": "The `font` encoding channel.",
+            "item_type": "utf8",
             "name": "font",
             "required": false,
             "shape": {
@@ -76780,6 +76901,7 @@
           },
           "font_size": {
             "docs": "The `font_size` encoding channel.",
+            "item_type": "float32",
             "name": "font_size",
             "required": false,
             "shape": {
@@ -76788,6 +76910,7 @@
           },
           "font_style": {
             "docs": "The `font_style` encoding channel.",
+            "item_type": "utf8",
             "name": "font_style",
             "required": false,
             "shape": {
@@ -76796,6 +76919,7 @@
           },
           "font_weight": {
             "docs": "The `font_weight` encoding channel.",
+            "item_type": "utf8",
             "name": "font_weight",
             "required": false,
             "shape": {
@@ -76804,6 +76928,7 @@
           },
           "leader": {
             "docs": "The `leader` encoding channel.",
+            "item_type": "boolean",
             "name": "leader",
             "required": false,
             "shape": {
@@ -76812,6 +76937,7 @@
           },
           "leader_arrow": {
             "docs": "The `leader_arrow` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_arrow",
             "required": false,
             "shape": {
@@ -76820,6 +76946,7 @@
           },
           "leader_arrow_length": {
             "docs": "The `leader_arrow_length` encoding channel.",
+            "item_type": "float32",
             "name": "leader_arrow_length",
             "required": false,
             "shape": {
@@ -76828,6 +76955,7 @@
           },
           "leader_arrow_width": {
             "docs": "The `leader_arrow_width` encoding channel.",
+            "item_type": "float32",
             "name": "leader_arrow_width",
             "required": false,
             "shape": {
@@ -76836,6 +76964,7 @@
           },
           "leader_label_padding": {
             "docs": "The `leader_label_padding` encoding channel.",
+            "item_type": "float32",
             "name": "leader_label_padding",
             "required": false,
             "shape": {
@@ -76844,6 +76973,7 @@
           },
           "leader_min_length": {
             "docs": "The `leader_min_length` encoding channel.",
+            "item_type": "float32",
             "name": "leader_min_length",
             "required": false,
             "shape": {
@@ -76852,6 +76982,7 @@
           },
           "leader_offset_x": {
             "docs": "The `leader_offset_x` encoding channel.",
+            "item_type": "float32",
             "name": "leader_offset_x",
             "required": false,
             "shape": {
@@ -76860,6 +76991,7 @@
           },
           "leader_offset_y": {
             "docs": "The `leader_offset_y` encoding channel.",
+            "item_type": "float32",
             "name": "leader_offset_y",
             "required": false,
             "shape": {
@@ -76868,6 +77000,7 @@
           },
           "leader_shape": {
             "docs": "The `leader_shape` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_shape",
             "required": false,
             "shape": {
@@ -76876,6 +77009,7 @@
           },
           "leader_stroke": {
             "docs": "The `leader_stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke",
             "required": false,
             "shape": {
@@ -76884,6 +77018,7 @@
           },
           "leader_stroke_cap": {
             "docs": "The `leader_stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_cap",
             "required": false,
             "shape": {
@@ -76892,6 +77027,7 @@
           },
           "leader_stroke_dash": {
             "docs": "The `leader_stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_dash",
             "required": false,
             "shape": {
@@ -76900,6 +77036,7 @@
           },
           "leader_stroke_join": {
             "docs": "The `leader_stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_join",
             "required": false,
             "shape": {
@@ -76908,6 +77045,7 @@
           },
           "leader_stroke_width": {
             "docs": "The `leader_stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "leader_stroke_width",
             "required": false,
             "shape": {
@@ -76916,6 +77054,7 @@
           },
           "leader_target_radius": {
             "docs": "The `leader_target_radius` encoding channel.",
+            "item_type": "float32",
             "name": "leader_target_radius",
             "required": false,
             "shape": {
@@ -76924,6 +77063,7 @@
           },
           "limit": {
             "docs": "The `limit` encoding channel.",
+            "item_type": "float32",
             "name": "limit",
             "required": false,
             "shape": {
@@ -76932,6 +77072,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -76940,6 +77081,7 @@
           },
           "text": {
             "docs": "The `text` encoding channel.",
+            "item_type": "utf8",
             "name": "text",
             "required": false,
             "shape": {
@@ -76948,6 +77090,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -76956,6 +77099,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {
@@ -77064,6 +77208,7 @@
         "channels": {
           "align": {
             "docs": "The `align` encoding channel.",
+            "item_type": "utf8",
             "name": "align",
             "required": false,
             "shape": {
@@ -77072,6 +77217,7 @@
           },
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -77080,6 +77226,7 @@
           },
           "baseline": {
             "docs": "The `baseline` encoding channel.",
+            "item_type": "utf8",
             "name": "baseline",
             "required": false,
             "shape": {
@@ -77088,6 +77235,7 @@
           },
           "color": {
             "docs": "The `color` encoding channel.",
+            "item_type": "utf8",
             "name": "color",
             "required": false,
             "shape": {
@@ -77096,6 +77244,7 @@
           },
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -77104,6 +77253,7 @@
           },
           "font": {
             "docs": "The `font` encoding channel.",
+            "item_type": "utf8",
             "name": "font",
             "required": false,
             "shape": {
@@ -77112,6 +77262,7 @@
           },
           "font_size": {
             "docs": "The `font_size` encoding channel.",
+            "item_type": "float32",
             "name": "font_size",
             "required": false,
             "shape": {
@@ -77120,6 +77271,7 @@
           },
           "font_style": {
             "docs": "The `font_style` encoding channel.",
+            "item_type": "utf8",
             "name": "font_style",
             "required": false,
             "shape": {
@@ -77128,6 +77280,7 @@
           },
           "font_weight": {
             "docs": "The `font_weight` encoding channel.",
+            "item_type": "utf8",
             "name": "font_weight",
             "required": false,
             "shape": {
@@ -77136,6 +77289,7 @@
           },
           "leader": {
             "docs": "The `leader` encoding channel.",
+            "item_type": "boolean",
             "name": "leader",
             "required": false,
             "shape": {
@@ -77144,6 +77298,7 @@
           },
           "leader_arrow": {
             "docs": "The `leader_arrow` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_arrow",
             "required": false,
             "shape": {
@@ -77152,6 +77307,7 @@
           },
           "leader_arrow_length": {
             "docs": "The `leader_arrow_length` encoding channel.",
+            "item_type": "float32",
             "name": "leader_arrow_length",
             "required": false,
             "shape": {
@@ -77160,6 +77316,7 @@
           },
           "leader_arrow_width": {
             "docs": "The `leader_arrow_width` encoding channel.",
+            "item_type": "float32",
             "name": "leader_arrow_width",
             "required": false,
             "shape": {
@@ -77168,6 +77325,7 @@
           },
           "leader_label_padding": {
             "docs": "The `leader_label_padding` encoding channel.",
+            "item_type": "float32",
             "name": "leader_label_padding",
             "required": false,
             "shape": {
@@ -77176,6 +77334,7 @@
           },
           "leader_min_length": {
             "docs": "The `leader_min_length` encoding channel.",
+            "item_type": "float32",
             "name": "leader_min_length",
             "required": false,
             "shape": {
@@ -77184,6 +77343,7 @@
           },
           "leader_offset_x": {
             "docs": "The `leader_offset_x` encoding channel.",
+            "item_type": "float32",
             "name": "leader_offset_x",
             "required": false,
             "shape": {
@@ -77192,6 +77352,7 @@
           },
           "leader_offset_y": {
             "docs": "The `leader_offset_y` encoding channel.",
+            "item_type": "float32",
             "name": "leader_offset_y",
             "required": false,
             "shape": {
@@ -77200,6 +77361,7 @@
           },
           "leader_shape": {
             "docs": "The `leader_shape` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_shape",
             "required": false,
             "shape": {
@@ -77208,6 +77370,7 @@
           },
           "leader_stroke": {
             "docs": "The `leader_stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke",
             "required": false,
             "shape": {
@@ -77216,6 +77379,7 @@
           },
           "leader_stroke_cap": {
             "docs": "The `leader_stroke_cap` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_cap",
             "required": false,
             "shape": {
@@ -77224,6 +77388,7 @@
           },
           "leader_stroke_dash": {
             "docs": "The `leader_stroke_dash` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_dash",
             "required": false,
             "shape": {
@@ -77232,6 +77397,7 @@
           },
           "leader_stroke_join": {
             "docs": "The `leader_stroke_join` encoding channel.",
+            "item_type": "utf8",
             "name": "leader_stroke_join",
             "required": false,
             "shape": {
@@ -77240,6 +77406,7 @@
           },
           "leader_stroke_width": {
             "docs": "The `leader_stroke_width` encoding channel.",
+            "item_type": "float32",
             "name": "leader_stroke_width",
             "required": false,
             "shape": {
@@ -77248,6 +77415,7 @@
           },
           "leader_target_radius": {
             "docs": "The `leader_target_radius` encoding channel.",
+            "item_type": "float32",
             "name": "leader_target_radius",
             "required": false,
             "shape": {
@@ -77256,6 +77424,7 @@
           },
           "limit": {
             "docs": "The `limit` encoding channel.",
+            "item_type": "float32",
             "name": "limit",
             "required": false,
             "shape": {
@@ -77264,6 +77433,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -77280,6 +77450,7 @@
           },
           "text": {
             "docs": "The `text` encoding channel.",
+            "item_type": "utf8",
             "name": "text",
             "required": false,
             "shape": {
@@ -77396,6 +77567,7 @@
         "channels": {
           "align": {
             "docs": "The `align` encoding channel.",
+            "item_type": "utf8",
             "name": "align",
             "required": false,
             "shape": {
@@ -77404,6 +77576,7 @@
           },
           "angle": {
             "docs": "The `angle` encoding channel.",
+            "item_type": "float32",
             "name": "angle",
             "required": false,
             "shape": {
@@ -77412,6 +77585,7 @@
           },
           "baseline": {
             "docs": "The `baseline` encoding channel.",
+            "item_type": "utf8",
             "name": "baseline",
             "required": false,
             "shape": {
@@ -77420,6 +77594,7 @@
           },
           "color": {
             "docs": "The `color` encoding channel.",
+            "item_type": "utf8",
             "name": "color",
             "required": false,
             "shape": {
@@ -77428,6 +77603,7 @@
           },
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -77436,6 +77612,7 @@
           },
           "font": {
             "docs": "The `font` encoding channel.",
+            "item_type": "utf8",
             "name": "font",
             "required": false,
             "shape": {
@@ -77444,6 +77621,7 @@
           },
           "font_size": {
             "docs": "The `font_size` encoding channel.",
+            "item_type": "float32",
             "name": "font_size",
             "required": false,
             "shape": {
@@ -77452,6 +77630,7 @@
           },
           "font_style": {
             "docs": "The `font_style` encoding channel.",
+            "item_type": "utf8",
             "name": "font_style",
             "required": false,
             "shape": {
@@ -77460,6 +77639,7 @@
           },
           "font_weight": {
             "docs": "The `font_weight` encoding channel.",
+            "item_type": "utf8",
             "name": "font_weight",
             "required": false,
             "shape": {
@@ -77468,6 +77648,7 @@
           },
           "limit": {
             "docs": "The `limit` encoding channel.",
+            "item_type": "float32",
             "name": "limit",
             "required": false,
             "shape": {
@@ -77476,6 +77657,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -77484,6 +77666,7 @@
           },
           "text": {
             "docs": "The `text` encoding channel.",
+            "item_type": "utf8",
             "name": "text",
             "required": false,
             "shape": {
@@ -77592,6 +77775,7 @@
         "channels": {
           "defined": {
             "docs": "The `defined` encoding channel.",
+            "item_type": "boolean",
             "name": "defined",
             "required": false,
             "shape": {
@@ -77600,6 +77784,7 @@
           },
           "opacity": {
             "docs": "The `opacity` encoding channel.",
+            "item_type": "float32",
             "name": "opacity",
             "required": false,
             "shape": {
@@ -77616,6 +77801,7 @@
           },
           "size": {
             "docs": "The `size` encoding channel.",
+            "item_type": "float32",
             "name": "size",
             "required": false,
             "shape": {
@@ -77624,6 +77810,7 @@
           },
           "stroke": {
             "docs": "The `stroke` encoding channel.",
+            "item_type": "utf8",
             "name": "stroke",
             "required": false,
             "shape": {
@@ -77632,6 +77819,7 @@
           },
           "x": {
             "docs": "The `x` encoding channel.",
+            "item_type": "float32",
             "name": "x",
             "required": false,
             "shape": {
@@ -77640,6 +77828,7 @@
           },
           "y": {
             "docs": "The `y` encoding channel.",
+            "item_type": "float32",
             "name": "y",
             "required": false,
             "shape": {

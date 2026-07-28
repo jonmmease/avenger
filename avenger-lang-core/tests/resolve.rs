@@ -811,7 +811,7 @@ chart cartesian {
   mark symbol {
     x: "x";
     y: "y";
-    adjust expr { x: item_channel(x); }
+    adjust expr { x: item.channel.x; }
     adjust nudge as nudged { dx: 1.0; }
     adjust jitter {
       bogus: true;
@@ -938,7 +938,7 @@ export define mark point_pair {
     mark symbol as point {
       horizontal: horizontal_value;
       vertical: vertical_value;
-      size: channel(horizontal) + 1;
+      size: channel.horizontal + 1;
     }
   }
   export body.point as point;
@@ -973,11 +973,14 @@ export define mark point_pair {
         panic!("definition channel helper expression")
     };
     assert!(matches!(
-        size.helpers[0].arguments.as_slice(),
-        [avenger_lang_core::ResolvedHelperArgument::DefinitionChannel {
-            target: ResolvedTarget::DefinitionChannel { name, .. },
-            family_suffix,
-        }] if name == "horizontal" && family_suffix.is_empty()
+        &size.contextual_accesses[0].kind,
+        avenger_lang_core::ResolvedContextualAccessKind::MarkChannel {
+            channel: avenger_lang_core::ResolvedChannelMember::Definition {
+                target: ResolvedTarget::DefinitionChannel { name, .. },
+                family_suffix,
+                ..
+            },
+        } if name == "horizontal" && family_suffix.is_empty()
     ));
 
     let chart_file = resolved
@@ -1127,7 +1130,7 @@ chart cartesian as chart {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
-      transform filter as visible { predicate: view_x(viewport, pixels) > 0; }
+      transform filter as visible { predicate: viewport.x.pixels > 0; }
       mark symbol as points { x: "x"; y: "y"; }
     }
   }
@@ -1147,8 +1150,8 @@ chart cartesian as chart {
         predicate,
         avenger_lang_core::ResolvedValue::Expression(expression)
             if matches!(
-                expression.helpers[0].arguments[0],
-                avenger_lang_core::ResolvedHelperArgument::Target {
+                &expression.contextual_accesses[0].kind,
+                avenger_lang_core::ResolvedContextualAccessKind::ViewField {
                     target: ResolvedTarget::Declaration(_),
                     ..
                 }
@@ -1167,7 +1170,7 @@ chart cartesian {
       y_domain: "y";
       mark symbol { x: "x"; y: "y"; }
     }
-    mark symbol { x: view_x(viewport, pixels) + 0; y: "y"; }
+    mark symbol { x: viewport.x.pixels + 0; y: "y"; }
   }
 }
 "#,
@@ -2005,7 +2008,7 @@ chart cartesian as events {
       start: mouse_down { filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set x at start = $x@start + event_facet_value(0);
+    set x at start = $x@start + event.facet[1];
     set cursor = 'crosshair';
   }
 }
@@ -2026,10 +2029,9 @@ chart cartesian as events {
     else {
         panic!("param action expression")
     };
-    assert_eq!(value.helpers[0].name, "event_facet_value");
     assert!(matches!(
-        value.helpers[0].arguments.as_slice(),
-        [avenger_lang_core::ResolvedHelperArgument::Number(value)] if value == "0"
+        &value.contextual_accesses[0].kind,
+        avenger_lang_core::ResolvedContextualAccessKind::EventFacet { one_based_index: 1 }
     ));
 
     let invalid = project(
@@ -2074,11 +2076,11 @@ avenger 1;
 chart cartesian as helpers {
   param float64 as cursor_x { value: 0; }
   param selection as picked {}
-  mark symbol as points { x: channel(y) + 1; y: "y"; }
+  mark symbol as points { x: channel.y + 1; y: "y"; }
   on click {
     target: mark points;
     filter: selection_contains(picked, datum."id") = true;
-    set cursor_x = event_coord(x) + 0;
+    set cursor_x = event.coord.x + 0;
   }
 }
 
@@ -2095,13 +2097,12 @@ chart cartesian as helpers {
         panic!("mark channel expression")
     };
     assert!(matches!(
-        x.helpers.as_slice(),
-        [avenger_lang_core::ResolvedHelper {
-            name,
-            class: avenger_lang_core::HelperClass::Channel,
-            arguments,
-        }] if name == "channel"
-            && matches!(arguments.as_slice(), [avenger_lang_core::ResolvedHelperArgument::Name(channel)] if channel == "y")
+        x.contextual_accesses.as_slice(),
+        [avenger_lang_core::ResolvedContextualAccess {
+            kind: avenger_lang_core::ResolvedContextualAccessKind::MarkChannel {
+                channel: avenger_lang_core::ResolvedChannelMember::Named { name },
+            },
+        }] if name == "y"
     ));
     let event = &root.children[3];
     let avenger_lang_core::ResolvedValue::Expression(filter) = &event.properties["filter"] else {
@@ -2120,20 +2121,20 @@ chart cartesian as helpers {
                 ] if field == "id"
             )
     }));
-    assert_eq!(
-        filter
-            .datum_fields
-            .iter()
-            .map(|reference| reference.field.as_str())
-            .collect::<Vec<_>>(),
-        ["id"]
-    );
+    assert!(matches!(
+        &filter.contextual_accesses[0].kind,
+        avenger_lang_core::ResolvedContextualAccessKind::DatumField { field }
+            if field == "id"
+    ));
     let avenger_lang_core::ResolvedValue::Expression(action) =
         &event.children[0].properties["value"]
     else {
         panic!("event action expression")
     };
-    assert_eq!(action.helpers[0].name, "event_coord");
+    assert!(matches!(
+        &action.contextual_accesses[0].kind,
+        avenger_lang_core::ResolvedContextualAccessKind::EventCoord { .. }
+    ));
 
     let invalid = project(
         &[(
@@ -2141,8 +2142,8 @@ chart cartesian as helpers {
             r#"
 avenger 1;
 chart cartesian as bad_helpers {
-  mark symbol as points { x: channel(missing) + 1; y: "y"; }
-  on click { target: mark points; filter: event_coord(missing) > 0; }
+  mark symbol as points { x: channel.missing + 1; y: "y"; }
+  on click { target: mark points; filter: event.coord.missing > 0; }
 }
 "#,
         )],
@@ -2192,14 +2193,18 @@ chart cartesian as datum_chart {
         panic!("event filter expression")
     };
     assert_eq!(filter.sql, r#"datum."id" = datum."id""#);
-    assert_eq!(filter.datum_fields.len(), 1);
-    assert_eq!(filter.datum_fields[0].field, "id");
+    assert_eq!(filter.contextual_accesses.len(), 1);
+    assert!(matches!(
+        &filter.contextual_accesses[0].kind,
+        avenger_lang_core::ResolvedContextualAccessKind::DatumField { field }
+            if field == "id"
+    ));
 
     for (source, expected) in [
         ("datum('id') IS NOT NULL", "AVENGER-RESOLVE-183"),
-        ("datum.id IS NOT NULL", "AVENGER-RESOLVE-184"),
-        ("datum IS NOT NULL", "AVENGER-RESOLVE-184"),
-        (r#"datum."id".value IS NOT NULL"#, "AVENGER-RESOLVE-184"),
+        ("datum.id IS NOT NULL", "AVENGER-RESOLVE-186"),
+        ("datum IS NOT NULL", "AVENGER-RESOLVE-186"),
+        (r#"datum."id".value IS NOT NULL"#, "AVENGER-RESOLVE-186"),
     ] {
         let invalid_source = format!(
             r#"
@@ -2276,10 +2281,10 @@ chart cartesian as events {
       start: mouse_down { target: mark overview.points; filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set x at start replacing scopes = event_coord(x);
-    set rows = insert_rows { row { id: 'cursor'; value: event_coord(x); } }
+    set x at start replacing scopes = event.coord.x;
+    set rows = insert_rows { row { id: 'cursor'; value: event.coord.x; } }
     set picked = replace_all_from_scene_query {
-      geometry: polygon(event_path());
+      geometry: polygon(event.path);
       policy: intersects;
       marks: [overview.points, detail.points];
       fields: [{ id: 'x'; datum: 'x'; field: "x"; }];
@@ -2357,7 +2362,7 @@ chart cartesian as bad_scene_targets {
   }
   on cursor_moved {
     set picked = replace_all_from_scene_query {
-      geometry: polygon(event_path());
+      geometry: polygon(event.path);
       policy: intersects;
       marks: [panel.points, panel.points, choice.container, 1 + 2];
     }

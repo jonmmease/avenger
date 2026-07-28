@@ -12,8 +12,8 @@ chart cartesian as mark_effects {
     size: value 80.0;
 
     adjust expr {
-      x: item_channel(x) + 4.0;
-      y: item_channel(y) - 2.0;
+      x: item.channel.x + 4.0;
+      y: item.channel.y - 2.0;
     }
 
     adjust nudge as nudged {
@@ -37,8 +37,8 @@ chart cartesian as mark_effects {
     }
 
     derive symbol as halos {
-      x: item_channel(x);
-      y: item_channel(y);
+      x: item.channel.x;
+      y: item.channel.y;
       size: 140.0;
       fill: '#00000000';
       stroke: '#111827';
@@ -46,18 +46,18 @@ chart cartesian as mark_effects {
     }
 
     derive rule as leaders {
-      x: item_bbox(left);
-      x2: item_bbox(right);
-      y: item_bbox(bottom) + 2.0;
-      y2: item_bbox(bottom) + 2.0;
+      x: item.bbox.left;
+      x2: item.bbox.right;
+      y: item.bbox.bottom + 2.0;
+      y2: item.bbox.bottom + 2.0;
       stroke: '#6b7280';
       zindex: 2;
     }
 
     derive text as labels {
-      text: item_data('name');
-      x: item_channel(x);
-      y: item_bbox(top) - 4.0;
+      text: item.data."name";
+      x: item.channel.x;
+      y: item.bbox.top - 4.0;
       zindex: 5;
     }
   }
@@ -70,10 +70,10 @@ chart cartesian as mark_effects {
     fill: value '#dbeafe';
 
     derive rect as backplates {
-      x: item_bbox(left) - 1.0;
-      x2: item_bbox(right) + 1.0;
-      y: item_bbox(top) - 1.0;
-      y2: item_bbox(bottom) + 1.0;
+      x: item.bbox.left - 1.0;
+      x2: item.bbox.right + 1.0;
+      y: item.bbox.top - 1.0;
+      y2: item.bbox.bottom + 1.0;
       fill: '#ffffff';
       opacity: 0.25;
       zindex: 0;

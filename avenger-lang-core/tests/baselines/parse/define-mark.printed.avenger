@@ -15,7 +15,7 @@ define mark badge {
   private mark group as implementation {
     public mark symbol as points {
       size: $radius;
-      x: channel(x);
+      x: channel.x;
     }
     match style {
       dot {

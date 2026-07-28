@@ -505,6 +505,11 @@ pub struct ChannelSchema {
     pub name: String,
     pub required: bool,
     pub shape: ValueShape,
+    /// Exact physical Arrow type exposed by `item.channel.<name>` after mark
+    /// evaluation. `None` means the channel is not materialized in the mark's
+    /// item frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
     pub docs: String,
 }
 

@@ -14,7 +14,6 @@ use super::{
 };
 
 pub const RESERVED_HELPER_NAMES: &[&str] = &["EXISTS", "INTERVAL", "STRUCT", "TRIM"];
-pub const DOMAIN_RANGE_HELPERS: &[&str] = &["span", "span_ordered"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SqlParseLimits {

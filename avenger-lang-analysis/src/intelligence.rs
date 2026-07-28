@@ -1879,6 +1879,7 @@ impl<'a> QueryContext<'a> {
         let sql = crate::sql_intelligence::complete_sql(
             request,
             syntax,
+            self.registry,
             self.index,
             self.semantic_roots,
             self.dataset_contexts,
@@ -3000,9 +3001,10 @@ impl<'a> QueryContext<'a> {
         cancellation: &AnalysisCancellation,
     ) -> Result<Option<HoverResult>, AnalysisQueryError> {
         let syntax = self.syntax(request, cancellation)?;
-        if let Some((span, markdown)) = crate::sql_intelligence::datum_hover(
+        if let Some((span, markdown)) = crate::sql_intelligence::contextual_hover(
             request,
             syntax,
+            self.registry,
             self.semantic_roots,
             self.dataset_contexts,
         ) {

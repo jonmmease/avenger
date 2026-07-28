@@ -4,10 +4,10 @@ use std::{
 };
 
 use avenger_lang_core::{
-    SourceFile, SourceId, SourceOrigin,
+    INTRINSIC_OPERATION_SIGNATURES, IntrinsicOperationContext, SourceFile, SourceId, SourceOrigin,
     sql::{
-        BindingVersion, DOMAIN_RANGE_HELPERS, TokenClass, is_reserved_helper_name,
-        normalize_bindings, parse_sql_expression, parse_sql_query, tokenize,
+        BindingVersion, TokenClass, is_reserved_helper_name, normalize_bindings,
+        parse_sql_expression, parse_sql_query, tokenize,
     },
 };
 use serde::Deserialize;
@@ -468,13 +468,30 @@ fn token_kernel_sql_island_boundaries_share_one_stream() {
 }
 
 #[test]
-fn token_reserved_helper_names_and_domain_range_spelling_are_pinned() {
+fn token_reserved_names_and_intrinsic_operation_spelling_are_pinned() {
     for name in ["EXISTS", "interval", "Struct", "trim"] {
         assert!(is_reserved_helper_name(name));
     }
-    for name in DOMAIN_RANGE_HELPERS {
+    for name in INTRINSIC_OPERATION_SIGNATURES
+        .iter()
+        .filter(|signature| {
+            signature
+                .contexts
+                .contains(&IntrinsicOperationContext::EventExpression)
+        })
+        .map(|signature| signature.name)
+    {
         assert!(!is_reserved_helper_name(name));
-        let source = memory_source(&format!("{name}(1, 2)"));
+        let args = std::iter::repeat_n(
+            "1",
+            avenger_lang_core::intrinsic_operation_signature(name)
+                .unwrap()
+                .arguments
+                .len(),
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+        let source = memory_source(&format!("{name}({args})"));
         let stream = tokenize(&source).unwrap();
         assert!(parse_sql_expression(&stream, 0).is_ok());
     }

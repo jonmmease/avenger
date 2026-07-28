@@ -130,23 +130,38 @@ pub(crate) fn semantic_tokens(
             });
         }
     }
-    for spans in crate::sql_intelligence::datum_semantic_token_spans(analysis, &request.source) {
-        tokens.push(SemanticToken {
-            span: spans.namespace,
-            kind: SemanticTokenKind::Namespace,
-            modifiers: SemanticTokenModifiers {
-                default_library: true,
-                ..SemanticTokenModifiers::default()
-            },
-        });
-        tokens.push(SemanticToken {
-            span: spans.field,
-            kind: SemanticTokenKind::Field,
-            modifiers: SemanticTokenModifiers {
-                readonly: true,
-                ..SemanticTokenModifiers::default()
-            },
-        });
+    for spans in crate::sql_intelligence::contextual_semantic_token_spans(analysis, &request.source)
+    {
+        if spans.root_is_builtin {
+            tokens.push(SemanticToken {
+                span: spans.root,
+                kind: SemanticTokenKind::Namespace,
+                modifiers: SemanticTokenModifiers {
+                    default_library: true,
+                    ..SemanticTokenModifiers::default()
+                },
+            });
+        }
+        for span in spans.properties {
+            tokens.push(SemanticToken {
+                span,
+                kind: SemanticTokenKind::Property,
+                modifiers: SemanticTokenModifiers {
+                    readonly: true,
+                    ..SemanticTokenModifiers::default()
+                },
+            });
+        }
+        if let Some(span) = spans.field {
+            tokens.push(SemanticToken {
+                span,
+                kind: SemanticTokenKind::Field,
+                modifiers: SemanticTokenModifiers {
+                    readonly: true,
+                    ..SemanticTokenModifiers::default()
+                },
+            });
+        }
     }
     let text = syntax.parsed.tokens.text();
     tokens.retain(|token| {
@@ -559,7 +574,7 @@ pub(crate) fn code_actions(
     missing_as_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
-    datum_reference_actions(analysis, request, &mut actions);
+    contextual_reference_actions(analysis, request, &mut actions);
     inline_definition_action(analysis, request, &mut actions);
     extract_definition_action(analysis, request, &mut actions);
     cancellation
@@ -572,7 +587,7 @@ pub(crate) fn code_actions(
     Ok(actions)
 }
 
-fn datum_reference_actions(
+fn contextual_reference_actions(
     analysis: &WorkspaceAnalysis,
     request: &CodeActionRequest,
     output: &mut Vec<CodeAction>,
@@ -593,9 +608,17 @@ fn datum_reference_actions(
         ) && spans_overlap(node.span, request.range)
     }) {
         let source = &text[island.span.range.as_range()];
-        for (relative, replacement_len, field) in legacy_datum_literals(source)
+        let datum = legacy_datum_literals(source)
             .into_iter()
             .chain(unquoted_datum_fields(source))
+            .map(|(start, len, field)| {
+                (
+                    start,
+                    len,
+                    format!("datum.\"{}\"", field.replace('"', "\"\"")),
+                )
+            });
+        for (relative, replacement_len, replacement) in datum.chain(legacy_contextual_calls(source))
         {
             let span = SourceSpan {
                 source: island.span.source,
@@ -607,7 +630,6 @@ fn datum_reference_actions(
             if !spans_overlap(span, request.range) {
                 continue;
             }
-            let replacement = format!("datum.\"{}\"", field.replace('"', "\"\""));
             output.push(quick_fix(
                 format!("Use `{replacement}`"),
                 request,
@@ -617,6 +639,174 @@ fn datum_reference_actions(
             ));
         }
     }
+}
+
+fn legacy_contextual_calls(source: &str) -> Vec<(usize, usize, String)> {
+    let source_file = SourceFile::new(
+        SourceId::new(0),
+        SourceOrigin::Memory("contextual-code-action".to_owned()),
+        source.to_owned(),
+    );
+    let tokens = tokenize_lossless(&source_file);
+    let tokens = tokens
+        .tokens()
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token.kind(),
+                LosslessTokenKind::Token(TokenClass::Whitespace(_) | TokenClass::Comment(_))
+                    | LosslessTokenKind::Eof
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut output = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        let Some(Token::Word(function)) = token.token() else {
+            continue;
+        };
+        if function.quote_style.is_some() {
+            continue;
+        }
+        let name = function.value.to_ascii_lowercase();
+        let replacement = match name.as_str() {
+            "event_path" | "legend_value"
+                if matches!(
+                    tokens.get(index + 1).and_then(|token| token.token()),
+                    Some(Token::LParen)
+                ) && matches!(
+                    tokens.get(index + 2).and_then(|token| token.token()),
+                    Some(Token::RParen)
+                ) =>
+            {
+                Some((
+                    if name == "event_path" {
+                        "event.path"
+                    } else {
+                        "event.legend.value"
+                    }
+                    .to_owned(),
+                    index + 2,
+                ))
+            }
+            "channel" | "event_coord" | "start_coord" | "event_domain_start"
+            | "event_domain_end" | "item_channel" | "item_bbox"
+                if simple_call_word(&tokens, index).is_some() =>
+            {
+                let argument = simple_call_word(&tokens, index).unwrap();
+                let replacement = match name.as_str() {
+                    "channel" => format!("channel.{argument}"),
+                    "event_coord" => format!("event.coord.{argument}"),
+                    "start_coord" => format!("event.start.coord.{argument}"),
+                    "event_domain_start" => format!("event.domain.{argument}.start"),
+                    "event_domain_end" => format!("event.domain.{argument}.end"),
+                    "item_channel" => format!("item.channel.{argument}"),
+                    "item_bbox" => format!("item.bbox.{argument}"),
+                    _ => unreachable!(),
+                };
+                Some((replacement, index + 3))
+            }
+            "event_facet_value" => simple_call_integer(&tokens, index).map(|value| {
+                (
+                    format!("event.facet[{}]", value.saturating_add(1)),
+                    index + 3,
+                )
+            }),
+            "item_data" => simple_call_string(&tokens, index).map(|field| {
+                (
+                    format!("item.data.\"{}\"", field.replace('"', "\"\"")),
+                    index + 3,
+                )
+            }),
+            "view_x" | "view_y" => {
+                simple_two_word_call(&tokens, index).and_then(|(view, field)| {
+                    let axis = if name == "view_x" { "x" } else { "y" };
+                    let suffix = match field.as_str() {
+                        "pixels" => "pixels",
+                        "domain_start" => "domain.start",
+                        "domain_end" => "domain.end",
+                        _ => return None,
+                    };
+                    Some((format!("{view}.{axis}.{suffix}"), index + 5))
+                })
+            }
+            _ => None,
+        };
+        let Some((replacement, end_index)) = replacement else {
+            continue;
+        };
+        let start = token.span().range.start;
+        let end = tokens[end_index].span().range.end;
+        output.push((start, end - start, replacement));
+    }
+    output
+}
+
+fn simple_call_word(
+    tokens: &[&avenger_lang_core::sql::LosslessToken],
+    index: usize,
+) -> Option<String> {
+    if !matches!(tokens.get(index + 1)?.token(), Some(Token::LParen))
+        || !matches!(tokens.get(index + 3)?.token(), Some(Token::RParen))
+    {
+        return None;
+    }
+    let Some(Token::Word(argument)) = tokens.get(index + 2)?.token() else {
+        return None;
+    };
+    argument
+        .quote_style
+        .is_none()
+        .then(|| argument.value.clone())
+}
+
+fn simple_call_integer(
+    tokens: &[&avenger_lang_core::sql::LosslessToken],
+    index: usize,
+) -> Option<u32> {
+    if !matches!(tokens.get(index + 1)?.token(), Some(Token::LParen))
+        || !matches!(tokens.get(index + 3)?.token(), Some(Token::RParen))
+    {
+        return None;
+    }
+    match tokens.get(index + 2)?.token() {
+        Some(Token::Number(value, false)) => value.parse().ok(),
+        _ => None,
+    }
+}
+
+fn simple_call_string(
+    tokens: &[&avenger_lang_core::sql::LosslessToken],
+    index: usize,
+) -> Option<String> {
+    if !matches!(tokens.get(index + 1)?.token(), Some(Token::LParen))
+        || !matches!(tokens.get(index + 3)?.token(), Some(Token::RParen))
+    {
+        return None;
+    }
+    match tokens.get(index + 2)?.token() {
+        Some(Token::SingleQuotedString(value)) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn simple_two_word_call(
+    tokens: &[&avenger_lang_core::sql::LosslessToken],
+    index: usize,
+) -> Option<(String, String)> {
+    if !matches!(tokens.get(index + 1)?.token(), Some(Token::LParen))
+        || !matches!(tokens.get(index + 3)?.token(), Some(Token::Comma))
+        || !matches!(tokens.get(index + 5)?.token(), Some(Token::RParen))
+    {
+        return None;
+    }
+    let Some(Token::Word(first)) = tokens.get(index + 2)?.token() else {
+        return None;
+    };
+    let Some(Token::Word(second)) = tokens.get(index + 4)?.token() else {
+        return None;
+    };
+    (first.quote_style.is_none() && second.quote_style.is_none())
+        .then(|| (first.value.clone(), second.value.clone()))
 }
 
 fn legacy_datum_literals(source: &str) -> Vec<(usize, usize, String)> {
@@ -1657,7 +1847,7 @@ fn position_syntax<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::apply_line_ending;
+    use super::{apply_line_ending, legacy_contextual_calls};
     use crate::LineEnding;
 
     #[test]
@@ -1665,5 +1855,36 @@ mod tests {
         assert_eq!(apply_line_ending("a\nb\n", LineEnding::Lf), "a\nb\n");
         assert_eq!(apply_line_ending("a\nb\n", LineEnding::Crlf), "a\r\nb\r\n");
         assert_eq!(apply_line_ending("a\nb\n", LineEnding::Cr), "a\rb\r");
+    }
+
+    #[test]
+    fn contextual_call_migrations_are_token_safe_and_complete() {
+        let cases = [
+            ("channel(x)", "channel.x"),
+            ("event_coord(x)", "event.coord.x"),
+            ("start_coord(x)", "event.start.coord.x"),
+            ("event_domain_start(x)", "event.domain.x.start"),
+            ("event_domain_end(x)", "event.domain.x.end"),
+            ("event_path()", "event.path"),
+            ("event_facet_value(0)", "event.facet[1]"),
+            ("legend_value()", "event.legend.value"),
+            ("item_channel(fill)", "item.channel.fill"),
+            ("item_data('display label')", "item.data.\"display label\""),
+            ("item_bbox(top)", "item.bbox.top"),
+            ("view_x(viewport, pixels)", "viewport.x.pixels"),
+            ("view_y(viewport, domain_start)", "viewport.y.domain.start"),
+            ("view_y(viewport, domain_end)", "viewport.y.domain.end"),
+        ];
+        for (authored, expected) in cases {
+            let migrations = legacy_contextual_calls(authored);
+            assert_eq!(
+                migrations,
+                vec![(0, authored.len(), expected.to_owned())],
+                "{authored}"
+            );
+        }
+        assert!(legacy_contextual_calls("event_coord(x + 1)").is_empty());
+        assert!(legacy_contextual_calls("'event_coord(x)'").is_empty());
+        assert!(legacy_contextual_calls("-- event_coord(x)\n1").is_empty());
     }
 }

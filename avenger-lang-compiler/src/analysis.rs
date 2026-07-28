@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, SchemaRef};
 use avenger_chart_lang_registry::NativeRegistryProfileId;
-use avenger_lang_core::{SourceMap, SourceSpan};
+use avenger_lang_core::{DeclarationId, SourceMap, SourceSpan};
 use serde::{Deserialize, Serialize};
 
 use crate::{ModuleDependencyFingerprints, ModuleFingerprint};
@@ -79,6 +79,19 @@ pub struct AnalyzedDataset {
 pub struct AnalyzedColumn {
     pub name: String,
     pub qualifier: Option<String>,
+    pub data_type: DataType,
+    pub nullable: bool,
+}
+
+/// Exact authored expression type for one configured primitive-mark channel.
+///
+/// These types come from the same DataFusion planning path used by compiler
+/// lowering, including dependencies such as `channel.x`. They are kept
+/// separate from the mark's logical input relation because channels are
+/// evaluated outputs rather than source columns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnalyzedMarkChannel {
+    pub name: String,
     pub data_type: DataType,
     pub nullable: bool,
 }
@@ -183,6 +196,8 @@ pub struct ModuleAnalysis {
     pub dependency_fingerprints: ModuleDependencyFingerprints,
     pub functions: FunctionInventory,
     pub physical_type_constructors: Vec<String>,
+    /// Exact planned types for configured channels on each primitive mark.
+    pub mark_channels: BTreeMap<DeclarationId, Vec<AnalyzedMarkChannel>>,
     /// The immutable semantic model that produced this analysis.
     ///
     /// Editor hosts use this to build symbol, scope, and reference indexes
@@ -213,6 +228,7 @@ impl ModuleAnalysis {
             dependency_fingerprints: ModuleDependencyFingerprints::default(),
             functions: FunctionInventory::default(),
             physical_type_constructors: physical_type_constructors(),
+            mark_channels: BTreeMap::new(),
             resolved_module_graph: None,
         }
     }

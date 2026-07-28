@@ -16,9 +16,9 @@ mod schema;
 mod source_loader;
 
 pub use analysis::{
-    AnalyzedColumn, AnalyzedDataset, ColumnLineage, DatasetLineage, DatasetLineageIndex,
-    DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, FunctionInventory,
-    ModuleAnalysis, ModuleDatasetId, physical_type_to_arrow,
+    AnalyzedColumn, AnalyzedDataset, AnalyzedMarkChannel, ColumnLineage, DatasetLineage,
+    DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
+    FunctionInventory, ModuleAnalysis, ModuleDatasetId, physical_type_to_arrow,
 };
 pub use artifact::{
     ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,

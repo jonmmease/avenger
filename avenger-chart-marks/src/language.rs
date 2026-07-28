@@ -328,10 +328,155 @@ pub fn primitive_schema(
             } else {
                 ValueShape::SqlExpression
             },
+            item_type: primitive_item_channel_type(kind, channel.name).map(str::to_owned),
             docs: format!("The `{}` encoding channel.", channel.name),
         });
     }
     schema
+}
+
+fn primitive_item_channel_type(kind: &str, channel: &str) -> Option<&'static str> {
+    let available = match kind {
+        "area" => matches!(
+            channel,
+            "x" | "y"
+                | "x2"
+                | "y2"
+                | "orientation"
+                | "fill"
+                | "stroke"
+                | "stroke_width"
+                | "stroke_dash"
+                | "stroke_cap"
+                | "stroke_join"
+                | "opacity"
+                | "defined"
+        ),
+        "image" => matches!(
+            channel,
+            "x" | "y" | "image" | "width" | "height" | "align" | "baseline" | "aspect" | "smooth"
+        ),
+        "line" => matches!(
+            channel,
+            "x" | "y"
+                | "stroke"
+                | "stroke_width"
+                | "stroke_dash"
+                | "opacity"
+                | "stroke_cap"
+                | "stroke_join"
+                | "defined"
+        ),
+        "path" => matches!(
+            channel,
+            "x" | "y"
+                | "path"
+                | "path_transform"
+                | "fill"
+                | "stroke"
+                | "stroke_width"
+                | "stroke_cap"
+                | "stroke_join"
+                | "opacity"
+        ),
+        "rect" => matches!(
+            channel,
+            "x" | "x2"
+                | "y"
+                | "y2"
+                | "fill"
+                | "stroke"
+                | "stroke_width"
+                | "corner_radius"
+                | "opacity"
+        ),
+        "rule" => matches!(
+            channel,
+            "x" | "y"
+                | "x2"
+                | "y2"
+                | "stroke"
+                | "stroke_width"
+                | "stroke_dash"
+                | "stroke_cap"
+                | "opacity"
+        ),
+        "symbol" => matches!(
+            channel,
+            "x" | "y" | "size" | "fill" | "stroke" | "stroke_width" | "shape" | "angle" | "opacity"
+        ),
+        "text" => matches!(
+            channel,
+            "x" | "y"
+                | "text"
+                | "align"
+                | "baseline"
+                | "angle"
+                | "color"
+                | "font"
+                | "font_size"
+                | "font_weight"
+                | "font_style"
+                | "limit"
+                | "opacity"
+                | "defined"
+                | "leader"
+                | "leader_offset_x"
+                | "leader_offset_y"
+                | "leader_stroke"
+                | "leader_stroke_width"
+                | "leader_stroke_dash"
+                | "leader_stroke_cap"
+                | "leader_stroke_join"
+                | "leader_label_padding"
+                | "leader_target_radius"
+                | "leader_min_length"
+                | "leader_shape"
+                | "leader_arrow"
+                | "leader_arrow_length"
+                | "leader_arrow_width"
+        ),
+        "trail" => matches!(
+            channel,
+            "x" | "y" | "size" | "stroke" | "opacity" | "defined"
+        ),
+        _ => false,
+    };
+    if !available {
+        return None;
+    }
+    if matches!(channel, "defined" | "leader" | "aspect" | "smooth") {
+        Some("boolean")
+    } else if matches!(
+        channel,
+        "orientation"
+            | "fill"
+            | "stroke"
+            | "stroke_dash"
+            | "stroke_cap"
+            | "stroke_join"
+            | "image"
+            | "align"
+            | "baseline"
+            | "path"
+            | "path_transform"
+            | "shape"
+            | "text"
+            | "color"
+            | "font"
+            | "font_weight"
+            | "font_style"
+            | "leader_stroke"
+            | "leader_stroke_dash"
+            | "leader_stroke_cap"
+            | "leader_stroke_join"
+            | "leader_shape"
+            | "leader_arrow"
+    ) {
+        Some("utf8")
+    } else {
+        Some("float32")
+    }
 }
 
 /// Add the coordinate-independent state surface shared by primitive and
@@ -493,6 +638,7 @@ pub fn uniform_raster_schema(coordinate: &str) -> KindSchema {
         name: "opacity_by_total".to_string(),
         required: false,
         shape: ValueShape::ChannelConfig,
+        item_type: None,
         docs: "Configuration for the internal per-pixel total-to-opacity channel.".to_string(),
     })
     .property(

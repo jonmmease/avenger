@@ -18,10 +18,10 @@ cut and its per-phase gates — is
 Adopted decisions (2026-07-07): a required `avenger 1;` version pragma; SQL
 string semantics everywhere with mandatory double-quoted data columns and
 bare identifiers reserved for DSL names; `value` as the only unscaled
-spelling; reserved helper functions (`channel(x)`, `event_coord(x)`, ...)
-instead of sigil forms, plus the contextual event-row relation
-`datum."field"`; helper arguments use bare names for DSL-space values and
-strings where a helper explicitly accepts data-space names; `sql:` restricted
+spelling; SQL-shaped contextual accesses (`channel.x`, `event.coord.x`,
+`datum."field"`, ...) for compiler-provided values; operation functions retain
+bare DSL-space arguments and strings only where their signature explicitly
+accepts data-space names; `sql:` restricted
 to query statements; cross-file
 reuse via `import` and parameterized `define` with `channel` parameters; a
 two-tier kind model in which native built-ins are registered by the host and
@@ -210,7 +210,7 @@ aliases that instance's public output handles.
   literals, double quotes are identifiers.
 - Data columns are always double-quoted (`"horsepower"`); a bare identifier
   is never a column. Bare names belong to the DSL: kinds, properties, enum
-  values, transform aliases, reserved namespaces, and helper functions.
+  values, transform aliases, contextual namespaces, and intrinsic operations.
 - `value` is the only unscaled spelling. A bare expression in a channel slot
   is always scaled; `value '#2563eb'` is a literal visual value.
 - Scalar, store, and selection params share one param namespace. `$name`
@@ -219,11 +219,10 @@ aliases that instance's public output handles.
   checks its kind. In event expressions, param reads may add `@start` or
   `@previous` to select a frozen temporal version (`$width@start` reads “width at
   start”); stores do not admit temporal qualifiers. Positional placeholders are
-  rejected. Other DSL-injected references are reserved helper functions
-  (`channel(x)`, `event_coord(x)`, ...), which tokenize as ordinary SQL,
-  or the event-only contextual relation `datum."field"`, which tokenizes as
-  an ordinary qualified SQL identifier. Qualified binding references use a pre-parse token
-  normalization pass, not a custom lexer.
+  rejected. Other compiler-provided values use contextual qualified identifiers
+  such as `channel.x`, `event.coord.x`, and `datum."field"` (plus the ordinary
+  SQL subscript in `event.facet[1]`). Qualified binding references use a
+  pre-parse token normalization pass, not a custom lexer.
 - Keep the DSL lexical surface compatible with DataFusion SQL tokenization.
   The whole file should tokenize through `sqlparser-rs` before the
   Avenger-specific parser interprets declarations and property blocks, and
@@ -481,10 +480,10 @@ from SQL:
 | --- | --- | --- |
 | `'...'` | string literal | `title: 'Horsepower';` |
 | `"..."` | data column reference | `x: "horsepower";` |
-| bare identifier | DSL name: kind, property, enum value, alias, namespace, helper function | `scale: linear`, `totals.amount`, `median(...)` |
+| bare identifier | DSL name: kind, property, enum value, alias, contextual namespace, intrinsic operation | `scale: linear`, `totals.amount`, `median(...)` |
 | `$name` | lexical value-binding reference | `"mpg" >= $min_mpg`, `data: $brush` |
 | `$path.to.name` | exported value-binding reference | `"mpg" >= $controls.min_mpg` |
-| `$path@start`, `$path@previous` | frozen temporal param read in an event expression | `$width@start + event_coord(x) - start_coord(x)` |
+| `$path@start`, `$path@previous` | frozen temporal param read in an event expression | `$width@start + event.coord.x - event.start.coord.x` |
 | `<kind> <path>` | typed DSL reference | `selection hover.hovered` |
 
 Bare DSL names use exactly the same unquoted-identifier character profile as
@@ -1128,8 +1127,8 @@ request to fall back to the outer declaration.
 Event expressions may qualify a param read with a temporal version:
 
 ```avenger
-set width = $width@start + event_coord(x) - start_coord(x);
-set velocity = event_coord(x) - $position@previous;
+set width = $width@start + event.coord.x - event.start.coord.x;
+set velocity = event.coord.x - $position@previous;
 ```
 
 `$param` reads the current transaction's working value at the current routed
@@ -1170,60 +1169,82 @@ mark rect as bins {
 }
 ```
 
-All other DSL-injected references are reserved helper functions, which
-tokenize as ordinary SQL calls and are rewritten by the resolver before
-DataFusion planning. Channel references use `channel(...)`:
+Compiler-provided scalar values use SQL-shaped contextual property access.
+They tokenize as ordinary qualified SQL identifiers (or, for facets, a
+qualified identifier plus a SQL subscript) and are rewritten through parsed
+SQL AST nodes before DataFusion planning. Channel references use `channel`:
 
 ```avenger
 mark rect as bars {
   x: "category";
-  x2: channel(x) {
+  x2: channel.x {
     band: 1.0;
   }
 }
 ```
 
-Helper arguments
-follow the language's core rule: arguments naming DSL-space things —
-channels, enum values, declared ids, exported state paths — are bare identifiers
-or bare qualified paths; their helper signature supplies the expected kind.
-Arguments naming data-space things are strings when the helper signature calls
-for a string. The reserved helper namespace, plus the contextual datum form:
+The contextual-access inventory is normative:
 
-```text
-channel(x)                   reference another channel of the same mark
-datum."id"                   logical event-row field (not a function)
-event_coord(x)               event coordinate in a channel's space
-start_coord(x)               between-binding start coordinate
-event_domain_start(x)        event-time scale domain start
-event_domain_end(x)          event-time scale domain end
-event_path()                 accumulated drag path of a between-binding
-event_facet_value(0)         event facet-path component
-legend_value()               legend-surface event value
-selection_contains(picked, datum."id")   selection predicate
-item_channel(x)              mark-effect item channel value
-item_data('label')           mark-effect source datum field
-item_bbox(top)               mark-effect item bounding box
-view_x(viewport, pixels)     view-ref field (also view_y)
-span(lo, hi)                 construct a domain interval value
-span_ordered(a, b)           domain interval with endpoints sorted
-polygon(event_path())        scene-query geometry from a drag path
-```
+| Access | Legal scalar-expression context | Arrow result | Nullability and meaning |
+| --- | --- | --- | --- |
+| `channel.<channel>` | a channel expression on the current mark | referenced channel's exact expression type | preserves the referenced expression's nullability; cycle validation still applies |
+| `datum."<field>"` | event expression | effective logical hit-row field type | nullable at the event boundary and when a possible target lacks the field |
+| `event.coord.<channel>` | event expression | `float64` | current event coordinate in the channel's space |
+| `event.start.coord.<channel>` | event expression in a `between` binding | `float64` | nullable until a start coordinate exists |
+| `event.domain.<channel>.start` / `.end` | event expression | `float64` | event-time scale-domain boundary |
+| `event.path` | event expression in a `between` binding | `list(float64)` | accumulated coordinate path; nullable before one exists |
+| `event.facet[n]` | event expression | `utf8` | one-based logical facet-path component; only a positive integer literal is accepted |
+| `event.legend.value` | legend-surface event expression | `utf8` | continuous-legend value; null outside a value hit |
+| `item.channel.<channel>` | `adjust` or `derive` item frame | registered item-frame channel type | nullable item-frame field; preserves numeric, string, boolean, and other registered physical representations |
+| `item.data."<field>"` | `adjust` or `derive` item frame | effective source-data field type | preserves physical Arrow type and source nullability |
+| `item.bbox.<edge>` | `adjust` or `derive` item frame | `float32` | nullable item-frame field; edge is `top`, `right`, `bottom`, or `left` |
+| `<view>.x.domain.start` / `.end` | owning inline-view scope | `float64` | inline-view x-domain param |
+| `<view>.y.domain.start` / `.end` | owning inline-view scope | `float64` | inline-view y-domain param |
+| `<view>.x.pixels` / `.y.pixels` | owning inline-view scope | `uint32` | inline-view pixel-count param |
 
-`datum."field"` is reserved only throughout scalar event-expression islands.
-It identifies the logical source row of the hit primitive mark before visual
-scaling. The field component is always a double-quoted SQL identifier, uses
-ordinary `""` escaping, and preserves the exact Arrow value. A missing field
-on a possible target or an event without a mark hit produces a typed null.
-`datum.id`, bare `datum`, deeper paths, and the removed `datum('id')` spelling
-are errors. Full SQL queries do not reserve the name: for example,
-`SELECT datum."id" FROM input AS datum` retains ordinary SQL alias semantics.
+`datum`, `channel`, `event`, and `item` are language-owned contextual roots.
+They and all fixed members are case-insensitive in valid scalar DSL expression
+islands; canonical formatting emits lowercase. An inline-view binder such as
+`viewport` is instead a normal lexical DSL name and participates in rename and
+navigation. Channel members are unquoted DSL-space names. Data fields remain
+required double-quoted SQL identifiers and use normal `""` escaping.
 
-The helper names are checked against sqlparser's reserved-for-identifier
-inventory. In particular, `interval(...)` is not a helper spelling: `INTERVAL`
-enters SQL interval-literal parsing in the pinned parser. The token/expression
-corpus reserves `EXISTS`, `INTERVAL`, `STRUCT`, and `TRIM` against future helper
-names.
+A recognized contextual root reserves the whole candidate access in its legal
+scalar expression island. Bare roots, unquoted data fields, unknown or
+over-qualified members, invalid bounding-box edges, and zero, negative, or
+computed facet subscripts receive a focused contextual-access diagnostic rather
+than falling through to ordinary DSL or SQL name resolution. Full SQL queries
+do not reserve these roots: for example,
+`SELECT event."value", datum."id" FROM input AS event JOIN rows AS datum`
+retains ordinary SQL alias semantics.
+
+The function-shaped contextual spellings (`channel(x)`, `event_coord(x)`,
+`item_data('field')`, `view_x(view, pixels)`, and the rest of that family) are
+removed and are not compatibility aliases. Diagnostics offer an automatic
+rewrite only when the old arguments make the conversion unambiguous.
+
+Operations and value constructors remain calls:
+
+| Operation | Argument kinds | Legal context | Result | Meaning |
+| --- | --- | --- | --- | --- |
+| `selection_contains(selection, datum."<field>")` | selection, contextual datum field | event scalar expression | `boolean` | selection membership predicate |
+| `span(lo, hi)` | two numeric expressions | event scalar expression | `list(float64)` | construct an interval |
+| `span_ordered(a, b)` | two numeric expressions | event scalar expression | `list(float64)` | construct and order an interval |
+| `polygon(points)` | path/list expression | scene-query geometry slot | scene geometry | construct polygon geometry |
+| `rect(x0, y0, x1, y1)` | four numeric expressions | scene-query geometry slot | scene geometry | construct rectangle geometry |
+| `circle(cx, cy, radius)` | three numeric expressions | scene-query geometry slot | scene geometry | construct circle geometry |
+
+The resolver and editor analysis consume this operation inventory directly;
+it is not a prose-only list. `EXISTS`, `INTERVAL`, `STRUCT`, and `TRIM` remain
+reserved SQL forms and are not Avenger operations or completion candidates.
+
+Operation arguments naming DSL-space things are bare identifiers or qualified
+paths when the operation signature calls for them. The operation inventory is
+checked against sqlparser's reserved-for-identifier inventory. In particular,
+`interval(...)` is not an operation spelling: `INTERVAL` enters SQL
+interval-literal parsing in the pinned parser. The token/expression corpus
+reserves `EXISTS`, `INTERVAL`, `STRUCT`, and `TRIM` against future intrinsic
+operation names.
 
 Reserved namespaces (`repeat.row`, `repeat.column_id`, ...) resolve the same
 way as transform aliases. `$path` is the only sigil form and references a lexical
@@ -1249,7 +1270,8 @@ transform calculate as derived {
 
 The semantic value owns one or more `sqlparser` select items in source order.
 Its expressions use the same `AvengerSqlDialect`, value-binding normalization,
-reserved helpers, definition-slot substitution, type planning, and canonical
+contextual-access and intrinsic-operation resolution, definition-slot
+substitution, type planning, and canonical
 SQL spelling as every other SQL island. Top-level commas separate projection
 items; commas and `AS` tokens inside calls, casts, arrays, structs, subqueries,
 or comments remain inside the item's expression. A trailing comma is accepted
@@ -2913,7 +2935,7 @@ on cursor_moved as drag_box {
     }
   }
 
-  set drag_x at start = event_coord(x);
+  set drag_x at start = event.coord.x;
 }
 ```
 
@@ -2958,13 +2980,13 @@ An action may select the facet owner of its **left-hand target** with `at`:
 
 ```avenger
 set brush at start = replace_rows {
-  row { x0: start_coord(x); x1: event_coord(x); }
+  row { x0: event.start.coord.x; x1: event.coord.x; }
 }
-set drag_x at current = event_coord(x);
+set drag_x at current = event.coord.x;
 set picked at start = clear;
 
 set active_brush at start replacing scopes = replace_rows {
-  row { x0: start_coord(x); x1: event_coord(x); }
+  row { x0: event.start.coord.x; x1: event.coord.x; }
 }
 ```
 
@@ -2978,8 +3000,8 @@ If the selected route is absent, the adopted non-shared-write rule applies: the
 action is a no-op, never an implicit root write.
 
 `at` applies only to the target before `=`. It does not change RHS evaluation:
-start-derived event values remain explicit through helpers such as
-`start_coord(x)`, and a start-derived param value uses `$param@start`, while
+start-derived event values remain explicit through contextual accesses such as
+`event.start.coord.x`, and a start-derived param value uses `$param@start`, while
 ordinary `$param` expressions use the handler transaction's current routed
 owner and working state. Thus LHS `at start` selects where to write; RHS
 `@start` selects which frozen value to read, and neither implies the other.
@@ -3026,8 +3048,8 @@ payloads:
 set hover = clear;
 set hover = insert_rows  { row { id: datum."id"; } }
 set hover = replace_rows { row { id: datum."id"; } }
-set hover = upsert_rows  { row { id: datum."id"; x: event_coord(x); } }
-set hover = update_by_key { key { id: datum."id"; } fields { x: event_coord(x); } }
+set hover = upsert_rows  { row { id: datum."id"; x: event.coord.x; } }
+set hover = update_by_key { key { id: datum."id"; } fields { x: event.coord.x; } }
 set hover = delete_by_key { key { id: datum."id"; } }
 set hover = toggle_rows  { row { id: datum."id"; } }
 
@@ -3048,7 +3070,7 @@ Update kinds mirror `StoreUpdate` and `SelectionUpdate`; `replace_all_clauses`,
 `toggle_clauses`, while `delete_clauses` and `delete_clauses_in_scope` take
 clause ids through a non-empty `ids: [...]` array (and the scoped form also
 requires `scope:`). Clause predicates support keyed `equality` and `interval`
-dimensions (`x { field: "x"; from: start_coord(x); to: event_coord(x); }`). The
+dimensions (`x { field: "x"; from: event.start.coord.x; to: event.coord.x; }`). The
 parent fixes the child category and predicate type, so the dimension ID is the
 complete header; it is not a scoped declaration or `as` binder. Geometry-driven
 selection uses the scene-query update kinds —
@@ -3058,7 +3080,7 @@ that make lasso and box selection definable in the language:
 
 ```avenger
 set picked = replace_all_from_scene_query {
-  geometry: polygon(event_path());
+  geometry: polygon(event.path);
   policy: intersects;
   marks: [points];
   fields: [{ id: 'id'; datum: 'id'; field: "id"; }];
@@ -3399,7 +3421,7 @@ tool point_selection as pick_points {
 Other native or imported tool kinds — including `lasso_selection`,
 `box_selection`, and coordinate-specific tools such as `geo_pan_zoom` — use
 the same caller syntax. A custom lasso-like definition can, for example, use a
-between-binding that accumulates `event_path()` and applies a scene-query
+between-binding that accumulates `event.path` and applies a scene-query
 selection update; that example does not constrain how a native lasso tool is
 implemented.
 
@@ -3512,7 +3534,8 @@ widget button as clear {
 
 The action runs when the Button's monotonic activation count changes and
 lowers through the same serializable `ChartAction`/parameter-change reaction
-seam as the landed Rust `Button::action`. It has no event datum, event helpers,
+seam as the landed Rust `Button::action`. It has no event datum or contextual
+event access,
 route, `between:` state, or `at start`; all referenced mutation targets must be
 shared. The Rust–DSL prerequisite converts the current per-kind `ChartAction`
 arrays to the language's one ordered action vector before this syntax is
@@ -4060,8 +4083,8 @@ mark symbol as points {
   fill: "origin";
 
   adjust expr {
-    x: item_channel(x) + 4;
-    y: item_channel(y) - 2;
+    x: item.channel.x + 4;
+    y: item.channel.y - 2;
   }
 
   adjust jitter as jittered {
@@ -4072,9 +4095,9 @@ mark symbol as points {
   }
 
   derive text as labels {
-    text: item_data('name');
-    x: item_channel(x);
-    y: item_bbox(top) - 4;
+    text: item.data."name";
+    x: item.channel.x;
+    y: item.bbox.top - 4;
     zindex: 5;
   }
 }
@@ -4217,12 +4240,12 @@ mark uniform_raster_2d as density {
       by: "passenger_count";
 
       x_dim: {
-        extent: [view_x(viewport, domain_start), view_x(viewport, domain_end)];
-        bins: view_x(viewport, pixels);
+        extent: [viewport.x.domain.start, viewport.x.domain.end];
+        bins: viewport.x.pixels;
       }
       y_dim: {
-        extent: [view_y(viewport, domain_start), view_y(viewport, domain_end)];
-        bins: view_y(viewport, pixels);
+        extent: [viewport.y.domain.start, viewport.y.domain.end];
+        bins: viewport.y.pixels;
       }
     }
   }
@@ -4337,12 +4360,12 @@ chart geo as taxi_density {
         frame: 'EPSG:3857';
 
         x_dim: {
-          extent: [view_x(viewport, domain_start), view_x(viewport, domain_end)];
-          bins: view_x(viewport, pixels);
+          extent: [viewport.x.domain.start, viewport.x.domain.end];
+          bins: viewport.x.pixels;
         }
         y_dim: {
-          extent: [view_y(viewport, domain_start), view_y(viewport, domain_end)];
-          bins: view_y(viewport, pixels);
+          extent: [viewport.y.domain.start, viewport.y.domain.end];
+          bins: viewport.y.pixels;
         }
       }
     }
@@ -4627,7 +4650,8 @@ Expansion renames logical channels wherever channel identity appears:
   binding `value_axis: y;` maps `value_axis2` to `y2`;
 - channel-enum property values (`scale_hint { channel: ...; }`,
   `scale_edit { channel: ...; }`, tool `channels:` arrays);
-- bare channel arguments to reserved helpers (`event_coord(value_axis)`).
+- contextual channel members (`event.coord.value_axis`, `channel.value_axis`,
+  and `item.channel.value_axis`).
 
 This is the entire mechanism — a declared rename, not macro splicing.
 Property-name substitution is available only through `slot channel` inputs,
@@ -4965,20 +4989,20 @@ define tool drag_pan {
     }
 
     set domain = span(
-      event_domain_start(axis) - (event_coord(axis) - start_coord(axis)),
-      event_domain_end(axis) - (event_coord(axis) - start_coord(axis))
+      event.domain.axis.start - (event.coord.axis - event.start.coord.axis),
+      event.domain.axis.end - (event.coord.axis - event.start.coord.axis)
     );
   }
 }
 ```
 
 `tool drag_pan as pan_x;` pans x; `tool drag_pan as pan_y { axis: y; }` pans y
-— the channel slot renames through the scale edit and the bare helper arguments
+— the channel slot renames through the scale edit and contextual channel members
 alike. Its behavior is exactly the behavior declared here; it makes no parity
 claim with a native pan/zoom kind. Geometry-driven custom tools can use the
 event system's scene queries:
 a lasso-like definition can combine a between-binding accumulating
-`event_path()` with a scene-query selection update
+`event.path` with a scene-query selection update
 (`set picked = replace_all_from_scene_query { ... }`). This is an
 example of the custom surface, not a required implementation of the native
 `lasso_selection` kind. Definitions may also wrap native kinds or imported
@@ -6015,7 +6039,7 @@ pinned by a conformance corpus:
 
 ```text
 ident     unquoted word using    DSL names: kinds, properties, enum values,
-          AvengerSqlDialect's    aliases, namespaces, helper functions
+          AvengerSqlDialect's    aliases, namespaces, intrinsic operations
           identifier characters
 column    "double quoted"        data column reference (SQL identifier)
 string    'single quoted'        string literal
@@ -6031,8 +6055,8 @@ trivia, except that `-- |` doc lines are captured into the adjacent
 declaration's `doc` field rather than dropped. `sql_expr`, `sql_projection`,
 and `sql_query` are islands parsed by sqlparser's `Parser` under
 `AvengerSqlDialect` from the normalized token stream; the resolver then
-rewrites value-binding paths, bare qualified names, and reserved helper
-functions.
+rewrites value-binding paths, DSL-qualified names, contextual accesses, and
+intrinsic operations.
 
 ```ebnf
 file          = version , { import } , module_item , { module_item } ;
@@ -6526,7 +6550,7 @@ temporary DSL-only runtime representations while that prerequisite is open.
    hooks (`requires_single_line_comment_whitespace`,
    `supports_nested_comments`) over the stock sqlparser tokenizer, and
    the golden token-stream corpus pinning the token classes the language
-   relies on, including reserved helper-name exclusions and every registered
+   relies on, including intrinsic-name exclusions and every registered
    cursor style ([Parser Architecture](#parser-architecture)). The smallest
    deliverable, and it de-risks the foundational bet first. Gate: the
    corpus is green against the workspace's sqlparser.
@@ -6549,7 +6573,7 @@ temporary DSL-only runtime representations while that prerequisite is open.
 3. **Resolver + authoring-schema integration.** Names, scopes, scalar/table `$bindings`,
    predeclaration, forward-reference categories, sequential dataflow aliases,
    param-initializer and table dependency DAGs, validation, alias fields,
-   reserved-helper rewriting, event targets,
+   contextual-access/intrinsic rewriting, event targets,
    visibility/hoisting and group-export alias graphs, imported-definition
    schema fragments, and schema-driven property checking
    over the normative registry ([Authoring Schema Source](#authoring-schema-source)).
@@ -6734,7 +6758,7 @@ examples plus explicit invariants, not from grammars.
 - Bare identifiers are language-space names — kinds, properties, enums,
   aliases, slots — never columns.
 - Helper arguments use the shape required by their signature. DSL-space names
-  are bare (`channel(x)`, `event_coord(x)`); event-row fields use the quoted
+  are bare (`channel.x`, `event.coord.x`); event-row fields use the quoted
   contextual relation (`datum."id"`).
 - `avenger 1;` first; imports precede a non-empty ordered module-item list;
   a multi-chart module names every chart; `;` terminates a
@@ -6880,7 +6904,7 @@ enum Value {
     None,
     Array(Vec<Value>),
     Block(Option<Box<Value>>, Body), // head value + body; Body = props + children
-    Call(Name, Vec<Value>),          // channel(x), event_coord(x), list(float64)
+    Call(Name, Vec<Value>),          // span(...), polygon(...), list(float64)
 }
 
 struct NumericLiteral {
@@ -7570,13 +7594,12 @@ Synthetic identifier spellings live only in the normalized token buffer, are
 distinguished by a side table rather than a reserved source prefix, and never
 appear in diagnostics, serialized SQL, or printed DSL.
 
-Reserved helpers such as `channel(x)`, `event_coord(x)`, and
-`item_channel(x)` parse as ordinary SQL function calls and are rewritten by
-the resolver before DataFusion planning. `datum."id"` instead parses as an
-ordinary qualified identifier and is recognized contextually in scalar event
-expressions before planning. No lexer extensions are required: quoted
-identifiers and bare compound identifiers are native SQL, and the resolver
-assigns them to the data, event-datum, and DSL namespaces.
+Contextual accesses such as `channel.x`, `event.coord.x`,
+`item.channel.x`, and `datum."id"` parse as ordinary SQL qualified
+identifiers; `event.facet[1]` additionally uses SQL's ordinary subscript AST.
+The resolver recognizes them only in compatible scalar DSL expression islands
+and rewrites the parsed AST before DataFusion planning. No lexer extension is
+required.
 
 Because the surface language is defined over a third-party tokenizer, the
 token classes the DSL relies on (words, quoted identifiers, strings, numbers,
@@ -7662,9 +7685,10 @@ highlighting while accepting all Avenger SQL contexts:
   sort keys, visibility conditions, and event filters.
 - Named bindings such as `$min_amount`, including the temporal param suffixes
   `$width@start` and `$width@previous`.
-- Reserved helper functions such as `channel(...)` and `event_coord(...)`.
-  `datum."field"` remains a normal qualified identifier in the grammar; the
-  LSP supplies its contextual namespace/field semantic tokens.
+- Contextual property accesses such as `channel.x`, `event.coord.x`,
+  `event.facet[1]`, and `datum."field"` remain ordinary qualified-identifier
+  and subscript syntax in the grammar; the LSP supplies contextual semantic
+  tokens.
 - SQL comments using `-- ...` and `/* ... */`.
 
 The base grammar is named `avenger_sql` rather than plain `sql`. A stock SQL
@@ -8256,9 +8280,10 @@ top-level expression fragments. It should highlight:
 - `$binding` as a parameter token, including `@start`/`@previous`; semantic
   analysis distinguishes params and stores and highlights the temporal suffix
   as a modifier.
-- Reserved helper functions (`channel`, `event_coord`, ...) as ordinary SQL
-  functions, optionally with a distinct capture. `datum."field"` uses
-  qualified-identifier highlighting, refined contextually by the LSP.
+- Contextual accesses (`channel.x`, `event.coord.x`, `datum."field"`, ...)
+  as ordinary qualified identifiers. The context-free grammar does not assign
+  them a language-owned meaning; the LSP refines roots, fixed members, and data
+  fields contextually.
 - DataFusion-oriented function names such as `approx_percentile_cont`, `date_bin`,
   `regexp_match`, and nested/struct functions as ordinary SQL functions.
 
@@ -8689,7 +8714,8 @@ The LSP can offer:
 - Completion for declaration keywords, mark kinds, transform kinds, property
   names, channel names, scale and guide options, lexical and qualified
   `$binding` paths with scalar/table type information, typed state paths,
-  reserved helper functions, predeclared forward event/structural/state
+  contextual accesses and intrinsic operations, predeclared forward
+  event/structural/state
   targets, currently visible transform aliases, and DataFusion-derived columns
   in SQL queries, encoding expressions, and transform expressions at their
   exact pipeline stage.
@@ -8785,7 +8811,8 @@ content and do not mutate the host-native profile.
 
 Documentation is a schema requirement, not an afterthought, at every
 granularity: the entity (mark kind, transform kind, tool kind, widget kind,
-scale type, coordinate, reserved helper, event type) and each of its members — a channel per
+scale type, coordinate, contextual access, intrinsic operation, event type)
+and each of its members — a channel per
 (coordinate, mark) pair, each channel option suffix, each mark base
 property, each transform property and output field, each scale option, and
 **each enum value** (`empty_cells: hole` hover-explains what `hole`
@@ -9088,8 +9115,9 @@ may revisit it with usage evidence.
   property replaces the definition's complete value rather than deep-merging
   it. A part cannot attach `adjust`, `derive`, or any other child declaration
   to an internal mark.
-- V1 uses reserved helper functions such as `event_coord(x)` and has no dotted
-  sugar such as `event.coord.x`.
+- V1 uses SQL-shaped contextual property access such as `event.coord.x`.
+  Function-shaped read aliases such as `event_coord(x)` are intentionally not
+  part of the language.
 - **An inline Rust macro** (recorded 2026-07-10; wanted): `chart!(r#"…"#)`
   as a full `Chart` constructor in Rust source. Verbatim token-tree form is
   ruled out **by design** — the SQL-flavored surface (single-quoted strings,

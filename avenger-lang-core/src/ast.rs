@@ -9,8 +9,9 @@ use std::{
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use sqlparser::ast::{
-    ExcludeSelectItem, Expr, Ident, ObjectName, ObjectNamePart, Query, RenameSelectItem, Select,
-    SelectItem, Visit, VisitMut, Visitor, VisitorMut, WildcardAdditionalOptions,
+    AccessExpr, ExcludeSelectItem, Expr, Ident, ObjectName, ObjectNamePart, Query,
+    RenameSelectItem, Select, SelectItem, Visit, VisitMut, Visitor, VisitorMut,
+    WildcardAdditionalOptions,
 };
 
 use crate::{
@@ -411,7 +412,7 @@ impl SqlExpression {
     pub(crate) fn from_parsed(parsed: ParsedSqlIsland<Expr>) -> Result<Self, AstError> {
         let relation_names = relation_names(&parsed.ast);
         let mut ast = parsed.ast;
-        normalize_datum_namespace(&mut ast);
+        normalize_contextual_namespaces(&mut ast);
         Ok(Self {
             ast,
             bindings: parsed
@@ -451,6 +452,14 @@ impl SqlExpression {
     /// surrounding SQL before restoring the runtime event expression.
     pub fn rewrite_datum_fields(&mut self, replacement: impl FnMut(&str) -> Option<String>) {
         let _ = VisitMut::visit(&mut self.ast, &mut DatumFieldRewriter { replacement });
+    }
+
+    /// Replace complete SQL expression nodes selected by their canonical SQL
+    /// spelling. Contextual language accesses use this to become synthetic
+    /// columns before DataFusion planning without touching strings, comments,
+    /// or similarly spelled identifier fragments.
+    pub fn rewrite_expression_nodes(&mut self, replacement: impl FnMut(&Expr) -> Option<String>) {
+        let _ = VisitMut::visit(&mut self.ast, &mut ExpressionNodeRewriter { replacement });
     }
 
     /// SQL column references and output/selector aliases, excluding relation
@@ -733,7 +742,7 @@ where
     }
 }
 
-fn normalize_datum_namespace(expression: &mut Expr) {
+fn normalize_contextual_namespaces(expression: &mut Expr) {
     #[derive(Default)]
     struct Normalizer;
 
@@ -741,19 +750,106 @@ fn normalize_datum_namespace(expression: &mut Expr) {
         type Break = ();
 
         fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
-            if let Expr::CompoundIdentifier(identifiers) = expression
-                && let [namespace, field] = identifiers.as_mut_slice()
-                && namespace.quote_style.is_none()
-                && namespace.value.eq_ignore_ascii_case("datum")
-                && field.quote_style == Some('"')
-            {
-                namespace.value = "datum".to_owned();
+            if let Expr::CompoundIdentifier(identifiers) = expression {
+                normalize_contextual_identifier_path(identifiers);
+            } else if let Expr::CompoundFieldAccess { root, access_chain } = expression {
+                if let Expr::CompoundIdentifier(identifiers) = root.as_mut() {
+                    normalize_contextual_identifier_path(identifiers);
+                } else if let Expr::Identifier(identifier) = root.as_mut()
+                    && identifier.quote_style.is_none()
+                    && identifier.value.eq_ignore_ascii_case("event")
+                    && let Some(AccessExpr::Dot(Expr::Identifier(member))) =
+                        access_chain.first_mut()
+                    && member.quote_style.is_none()
+                    && member.value.eq_ignore_ascii_case("facet")
+                {
+                    identifier.value = "event".to_owned();
+                    member.value = "facet".to_owned();
+                }
             }
             ControlFlow::Continue(())
         }
     }
 
     let _ = VisitMut::visit(expression, &mut Normalizer);
+}
+
+fn normalize_contextual_identifier_path(identifiers: &mut [Ident]) {
+    let Some(root) = identifiers.first_mut() else {
+        return;
+    };
+    if root.quote_style.is_some() {
+        return;
+    }
+    let root_name = root.value.to_ascii_lowercase();
+    match root_name.as_str() {
+        "datum" | "channel" => {
+            root.value = root_name;
+            return;
+        }
+        "event" => {
+            root.value = root_name;
+            let channel_index = identifiers.get(1).and_then(|member| {
+                if member.value.eq_ignore_ascii_case("coord")
+                    || member.value.eq_ignore_ascii_case("domain")
+                {
+                    Some(2)
+                } else if member.value.eq_ignore_ascii_case("start") {
+                    Some(3)
+                } else {
+                    None
+                }
+            });
+            for (index, identifier) in identifiers.iter_mut().enumerate().skip(1) {
+                if identifier.quote_style.is_none() && channel_index != Some(index) {
+                    identifier.value.make_ascii_lowercase();
+                }
+            }
+            return;
+        }
+        "item" => {
+            root.value = root_name;
+            if let Some(namespace) = identifiers.get_mut(1)
+                && namespace.quote_style.is_none()
+            {
+                namespace.value.make_ascii_lowercase();
+            }
+            if identifiers
+                .get(1)
+                .is_some_and(|namespace| namespace.value == "bbox")
+                && let Some(edge) = identifiers.get_mut(2)
+                && edge.quote_style.is_none()
+            {
+                edge.value.make_ascii_lowercase();
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    // Inline view binders are user-defined, but their fixed member suffixes
+    // are language-owned and canonicalized case-insensitively.
+    let suffix = identifiers
+        .iter()
+        .skip(1)
+        .filter(|identifier| identifier.quote_style.is_none())
+        .map(|identifier| identifier.value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if matches!(
+        suffix.as_slice(),
+        [axis, field]
+            if matches!(axis.as_str(), "x" | "y") && field == "pixels"
+    ) || matches!(
+        suffix.as_slice(),
+        [axis, domain, boundary]
+            if matches!(axis.as_str(), "x" | "y")
+                && domain == "domain"
+                && matches!(boundary.as_str(), "start" | "end")
+    ) {
+        for identifier in identifiers.iter_mut().skip(1) {
+            identifier.value.make_ascii_lowercase();
+        }
+    }
 }
 
 struct DatumFieldRewriter<F> {
@@ -778,6 +874,24 @@ where
             && field.quote_style == Some('"')
             && let Some(replacement) = (self.replacement)(&field.value)
         {
+            *expression = Expr::Identifier(Ident::with_quote('"', replacement));
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+struct ExpressionNodeRewriter<F> {
+    replacement: F,
+}
+
+impl<F> VisitorMut for ExpressionNodeRewriter<F>
+where
+    F: FnMut(&Expr) -> Option<String>,
+{
+    type Break = ();
+
+    fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
+        if let Some(replacement) = (self.replacement)(expression) {
             *expression = Expr::Identifier(Ident::with_quote('"', replacement));
         }
         ControlFlow::Continue(())
@@ -1192,6 +1306,38 @@ mod tests {
         assert_eq!(
             query.canonical_sql(),
             r#"SELECT datum."id" FROM input AS datum"#
+        );
+    }
+
+    #[test]
+    fn contextual_property_accesses_are_canonical_and_ast_rewritable() {
+        let mut expression = SqlExpression::parse(
+            "EVENT.START.COORD.Horizontal + event.domain.Horizontal.END + event.facet[1]",
+        )
+        .unwrap();
+        assert_eq!(
+            expression.canonical_sql(),
+            "event.start.coord.Horizontal + event.domain.Horizontal.end + event.facet[1]"
+        );
+        expression.rewrite_expression_nodes(|candidate| {
+            (candidate.to_string() == "event.facet[1]").then(|| "facet_one".to_owned())
+        });
+        assert_eq!(
+            expression.canonical_sql(),
+            r#"event.start.coord.Horizontal + event.domain.Horizontal.end + "facet_one""#
+        );
+
+        assert_eq!(
+            SqlExpression::parse("Viewport.X.DOMAIN.START + Viewport.Y.PIXELS")
+                .unwrap()
+                .canonical_sql(),
+            "Viewport.x.domain.start + Viewport.y.pixels"
+        );
+        assert_eq!(
+            SqlExpression::parse(r#"ITEM.DATA."Display Name" || item.BBOX.TOP"#)
+                .unwrap()
+                .canonical_sql(),
+            r#"item.data."Display Name" || item.bbox.top"#
         );
     }
 

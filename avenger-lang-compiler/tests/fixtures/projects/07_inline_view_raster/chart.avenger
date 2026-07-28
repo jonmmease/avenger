@@ -24,11 +24,11 @@ chart cartesian as chart {
         y: "y";
         agg: count;
         x_dim: {
-          extent: [view_x(viewport, domain_start), view_x(viewport, domain_end)];
+          extent: [viewport.x.domain.start, viewport.x.domain.end];
           bins: 32;
         }
         y_dim: {
-          extent: [view_y(viewport, domain_start), view_y(viewport, domain_end)];
+          extent: [viewport.y.domain.start, viewport.y.domain.end];
           bins: 32;
         }
       }

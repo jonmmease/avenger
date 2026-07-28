@@ -1757,6 +1757,15 @@ impl Parser {
                 if self.nth_is(1, &Token::LParen) {
                     return self.try_generic_call();
                 }
+                if self.nth_is(1, &Token::Period) {
+                    let start = self.sig();
+                    let parsed =
+                        parse_sql_expression_with_limits(&self.stream, start, self.limits.sql)?;
+                    self.index = parsed.next_token;
+                    return expression_value(parsed, BindingKind::Param)
+                        .map(Some)
+                        .map_err(|error| self.ast_error(error));
+                }
                 self.index += 1;
                 match word.as_str() {
                     "true" => Ok(Some(Value::Bool(true))),

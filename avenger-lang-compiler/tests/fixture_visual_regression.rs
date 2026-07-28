@@ -993,6 +993,7 @@ fn optional_channel(name: &str, docs: &str) -> ChannelSchema {
         name: name.to_owned(),
         required: false,
         shape: ValueShape::SqlExpression,
+        item_type: None,
         docs: docs.to_owned(),
     }
 }

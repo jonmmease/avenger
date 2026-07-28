@@ -256,6 +256,67 @@ async fn transform_pipeline_fixture() -> (Fixture, String) {
     )
 }
 
+async fn disk_chart_fixture(relative_project: &str) -> (Fixture, String) {
+    let project_root = std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../avenger-lang-compiler/tests/fixtures/projects")
+            .join(relative_project),
+    )
+    .unwrap();
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let text = std::fs::read_to_string(match &chart {
+        SourceOrigin::File(path) => path,
+        _ => unreachable!(),
+    })
+    .unwrap();
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root,
+                roots: vec![ModuleRoot::requested(chart.clone())],
+                open_documents: BTreeMap::from([(
+                    chart.clone(),
+                    DocumentSnapshot::new(
+                        chart.clone(),
+                        SourceRevision::from_text(&text),
+                        text.clone(),
+                    ),
+                )]),
+                known_disk_sources: vec![chart.clone()],
+                native_registry_profile: profile,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_ok(),
+        "{:?}",
+        analysis.semantic_roots[&chart.canonical_uri()].result
+    );
+    (
+        Fixture {
+            analysis,
+            data: chart.clone(),
+            chart,
+        },
+        text,
+    )
+}
+
 fn complete_marked(
     fixture: &Fixture,
     origin: &SourceOrigin,
@@ -434,6 +495,18 @@ async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
             .iter()
             .any(|label| label.eq_ignore_ascii_case("round"))
     );
+    let operation = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("spa⟦cursor⟧"),
+    );
+    for expected in ["span", "span_ordered"] {
+        assert!(
+            labels(&operation).contains(&expected),
+            "missing intrinsic operation {expected}: {:?}",
+            labels(&operation)
+        );
+    }
 
     let data_type = complete_marked(
         &fixture,
@@ -481,6 +554,147 @@ async fn event_datum_completion_is_target_aware_and_always_quotes_fields() {
 }
 
 #[tokio::test]
+async fn contextual_access_completion_is_staged_and_schema_aware() {
+    let fixture = fixture().await;
+
+    let event = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("event.⟦cursor⟧"),
+    );
+    for expected in ["coord", "domain", "facet"] {
+        assert!(
+            labels(&event).contains(&expected),
+            "missing event member {expected}: {:?}",
+            labels(&event)
+        );
+    }
+    assert!(!labels(&event).contains(&"start"));
+    assert!(!labels(&event).contains(&"path"));
+
+    let event_channel = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("event.coord.⟦cursor⟧"),
+    );
+    for expected in ["x", "y"] {
+        assert!(
+            labels(&event_channel).contains(&expected),
+            "missing event channel {expected}: {:?}",
+            labels(&event_channel)
+        );
+    }
+
+    let domain = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("event.domain.x.⟦cursor⟧"),
+    );
+    assert!(labels(&domain).contains(&"start"));
+    assert!(labels(&domain).contains(&"end"));
+
+    let mark_channel = complete_marked(&fixture, &fixture.chart, chart_source("channel.⟦cursor⟧"));
+    assert!(labels(&mark_channel).contains(&"x"));
+    assert!(labels(&mark_channel).contains(&"y"));
+    let x = mark_channel
+        .items
+        .iter()
+        .find(|item| item.label == "x")
+        .expect("mark x channel");
+    assert!(
+        x.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("Utf8")),
+        "{:?}",
+        x.detail
+    );
+}
+
+#[tokio::test]
+async fn item_and_inline_view_completion_use_runtime_schemas() {
+    let effects = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/mark_effects.avenger",
+        ),
+    )
+    .unwrap();
+    let fixture = chart_only_fixture(&effects).await;
+
+    let item = complete_marked(
+        &fixture,
+        &fixture.chart,
+        effects.replace("text: item.data.\"name\";", "text: item.⟦cursor⟧;"),
+    );
+    for expected in ["channel", "data", "bbox"] {
+        assert!(labels(&item).contains(&expected), "{:?}", labels(&item));
+    }
+
+    let channels = complete_marked(
+        &fixture,
+        &fixture.chart,
+        effects.replace("text: item.data.\"name\";", "text: item.channel.⟦cursor⟧;"),
+    );
+    for expected in ["x", "y", "size", "fill", "stroke"] {
+        assert!(
+            labels(&channels).contains(&expected),
+            "missing item channel {expected}: {:?}",
+            labels(&channels)
+        );
+    }
+    let x = channels
+        .items
+        .iter()
+        .find(|item| item.label == "x")
+        .expect("item x channel");
+    assert!(
+        x.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("float32")),
+        "{:?}",
+        x.detail
+    );
+
+    let data = complete_marked(
+        &fixture,
+        &fixture.chart,
+        effects.replace("text: item.data.\"name\";", "text: item.data.⟦cursor⟧;"),
+    );
+    for expected in ["name", "x", "y"] {
+        let item = data
+            .items
+            .iter()
+            .find(|item| item.label == expected)
+            .unwrap_or_else(|| panic!("missing item data {expected}: {:?}", labels(&data)));
+        assert_eq!(item.insert_text, format!("\"{expected}\""));
+    }
+
+    let bbox = complete_marked(
+        &fixture,
+        &fixture.chart,
+        effects.replace("text: item.data.\"name\";", "text: item.bbox.⟦cursor⟧;"),
+    );
+    for expected in ["top", "right", "bottom", "left"] {
+        assert!(labels(&bbox).contains(&expected), "{:?}", labels(&bbox));
+    }
+
+    let (view_fixture, view_source) = disk_chart_fixture("07_inline_view_raster").await;
+    let view = complete_marked(
+        &view_fixture,
+        &view_fixture.chart,
+        view_source.replacen("bins: 32;", "bins: viewport.x.⟦cursor⟧;", 1),
+    );
+    assert!(labels(&view).contains(&"domain"));
+    assert!(labels(&view).contains(&"pixels"));
+    let domain = complete_marked(
+        &view_fixture,
+        &view_fixture.chart,
+        view_source.replacen("bins: 32;", "bins: viewport.x.domain.⟦cursor⟧;", 1),
+    );
+    assert!(labels(&domain).contains(&"start"));
+    assert!(labels(&domain).contains(&"end"));
+}
+
+#[tokio::test]
 async fn event_datum_hover_tokens_and_migration_actions_are_contextual() {
     let fixture = fixture().await;
     let marked = chart_handler_source(r#"da⟦cursor⟧tum."rating""#);
@@ -510,7 +724,10 @@ async fn event_datum_hover_tokens_and_migration_actions_are_contextual() {
         .expect("datum hover");
     assert!(hover.markdown.contains("Float64"), "{}", hover.markdown);
     assert!(
-        hover.markdown.contains("Logical pre-scale field"),
+        hover
+            .markdown
+            .to_ascii_lowercase()
+            .contains("logical pre-scale field"),
         "{}",
         hover.markdown
     );

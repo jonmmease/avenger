@@ -14,8 +14,8 @@ use avenger_chart_schema::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlparser::ast::{
-    Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Value as SqlValue, Visit,
-    Visitor,
+    AccessExpr, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Subscript,
+    Value as SqlValue, Visit, Visitor,
 };
 
 use crate::{
@@ -625,13 +625,174 @@ pub struct ResolvedExpression {
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub datum_fields: Vec<ResolvedDatumFieldReference>,
+    pub contextual_accesses: Vec<ResolvedContextualAccess>,
     pub references: Vec<ResolvedSqlReference>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedContextualAccess {
+    pub kind: ResolvedContextualAccessKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "access", rename_all = "snake_case")]
+pub enum ResolvedContextualAccessKind {
+    DatumField {
+        field: String,
+    },
+    MarkChannel {
+        channel: ResolvedChannelMember,
+    },
+    EventCoord {
+        channel: ResolvedChannelMember,
+    },
+    EventStartCoord {
+        channel: ResolvedChannelMember,
+    },
+    EventDomainBoundary {
+        channel: ResolvedChannelMember,
+        boundary: ResolvedIntervalBoundary,
+    },
+    EventPath,
+    EventFacet {
+        one_based_index: u32,
+    },
+    EventLegendValue,
+    ItemChannel {
+        channel: ResolvedChannelMember,
+        physical_type: PhysicalType,
+    },
+    ItemDataField {
+        field: String,
+    },
+    ItemBbox {
+        edge: ResolvedBboxEdge,
+    },
+    ViewField {
+        target: ResolvedTarget,
+        authored_view: Vec<String>,
+        axis: ResolvedViewAxis,
+        field: ResolvedViewField,
+    },
+}
+
+impl ResolvedContextualAccessKind {
+    pub const fn signature_pattern(&self) -> &'static str {
+        match self {
+            Self::MarkChannel { .. } => "channel.<channel>",
+            Self::DatumField { .. } => "datum.\"<field>\"",
+            Self::EventCoord { .. } => "event.coord.<channel>",
+            Self::EventStartCoord { .. } => "event.start.coord.<channel>",
+            Self::EventDomainBoundary {
+                boundary: ResolvedIntervalBoundary::Start,
+                ..
+            } => "event.domain.<channel>.start",
+            Self::EventDomainBoundary {
+                boundary: ResolvedIntervalBoundary::End,
+                ..
+            } => "event.domain.<channel>.end",
+            Self::EventPath => "event.path",
+            Self::EventFacet { .. } => "event.facet[n]",
+            Self::EventLegendValue => "event.legend.value",
+            Self::ItemChannel { .. } => "item.channel.<channel>",
+            Self::ItemDataField { .. } => "item.data.\"<field>\"",
+            Self::ItemBbox { .. } => "item.bbox.<edge>",
+            Self::ViewField {
+                axis: ResolvedViewAxis::X,
+                field: ResolvedViewField::DomainStart,
+                ..
+            } => "<view>.x.domain.start",
+            Self::ViewField {
+                axis: ResolvedViewAxis::X,
+                field: ResolvedViewField::DomainEnd,
+                ..
+            } => "<view>.x.domain.end",
+            Self::ViewField {
+                axis: ResolvedViewAxis::Y,
+                field: ResolvedViewField::DomainStart,
+                ..
+            } => "<view>.y.domain.start",
+            Self::ViewField {
+                axis: ResolvedViewAxis::Y,
+                field: ResolvedViewField::DomainEnd,
+                ..
+            } => "<view>.y.domain.end",
+            Self::ViewField {
+                axis: ResolvedViewAxis::X,
+                field: ResolvedViewField::Pixels,
+                ..
+            } => "<view>.x.pixels",
+            Self::ViewField {
+                axis: ResolvedViewAxis::Y,
+                field: ResolvedViewField::Pixels,
+                ..
+            } => "<view>.y.pixels",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ResolvedDatumFieldReference {
-    pub field: String,
+#[serde(tag = "channel", rename_all = "snake_case")]
+pub enum ResolvedChannelMember {
+    Named {
+        name: String,
+    },
+    Definition {
+        target: ResolvedTarget,
+        name: String,
+        family_suffix: String,
+    },
+}
+
+impl ResolvedChannelMember {
+    pub fn authored_name(&self) -> String {
+        match self {
+            Self::Named { name } => name.clone(),
+            Self::Definition { name, .. } => name.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedIntervalBoundary {
+    Start,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedBboxEdge {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl ResolvedBboxEdge {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Right => "right",
+            Self::Bottom => "bottom",
+            Self::Left => "left",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedViewAxis {
+    X,
+    Y,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedViewField {
+    DomainStart,
+    DomainEnd,
+    Pixels,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -720,11 +881,7 @@ pub enum ResolvedHelperArgument {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HelperClass {
-    Channel,
-    Datum,
-    Event,
     Selection,
-    View,
     Reserved,
 }
 
@@ -3854,16 +4011,10 @@ impl<'a> Resolver<'a> {
                     ),
                 );
             }
-            let item_effect = matches!(owner.keyword.as_str(), "adjust" | "derive")
-                && matches!(
-                    call.name.as_str(),
-                    "item_channel" | "item_data" | "item_bbox"
-                );
-            if matches!(class, HelperClass::Event | HelperClass::Datum) && !in_event && !item_effect
-            {
+            if !in_event {
                 self.error(
                     "AVENGER-RESOLVE-110",
-                    "event helper is outside an event context",
+                    "reserved operation is outside an event context",
                     span,
                     format!(
                         "`{}(...)` requires an event binding or event effect",
@@ -3871,22 +4022,7 @@ impl<'a> Resolver<'a> {
                     ),
                 );
             }
-            if class == HelperClass::Channel && owner.keyword.as_str() != "mark" {
-                self.error(
-                    "AVENGER-RESOLVE-111",
-                    "channel helper is outside a mark channel",
-                    span,
-                    format!("`{}(...)` requires a mark encoding context", call.name),
-                );
-            }
-            if matches!(call.name.as_str(), "start_coord" | "event_path") && !scope_has_between {
-                self.error(
-                    "AVENGER-RESOLVE-132",
-                    "gesture-start helper requires a between interaction",
-                    span,
-                    format!("`{}(...)` has no start event in this binding", call.name),
-                );
-            }
+            let _ = (scope_has_between, owner);
 
             let mut arguments = Vec::new();
             for (index, argument) in call.args.iter().enumerate() {
@@ -3897,28 +4033,16 @@ impl<'a> Resolver<'a> {
                 {
                     resolved = ResolvedHelperArgument::DatumField(field);
                 }
-                let expects_target =
-                    matches!(class, HelperClass::Selection | HelperClass::View) && index == 0;
+                let expects_target = class == HelperClass::Selection && index == 0;
                 if expects_target
                     && let Some(path) = helper_argument_path(argument)
-                    && let Some(target) = if class == HelperClass::Selection {
+                    && let Some(target) =
                         self.resolve_typed_reference_path(scope, &path, RefKind::Selection, span)
-                    } else {
-                        self.resolve_any_path(scope, &path, span, true)
-                    }
                 {
-                    let valid = match class {
-                        HelperClass::Selection => matches!(
-                            target,
-                            ResolvedTarget::Selection(_)
-                                | ResolvedTarget::DefinitionSelection { .. }
-                        ),
-                        HelperClass::View => matches!(target, ResolvedTarget::Declaration(_)),
-                        HelperClass::Channel => {
-                            matches!(target, ResolvedTarget::DefinitionChannel { .. })
-                        }
-                        _ => true,
-                    };
+                    let valid = matches!(
+                        target,
+                        ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
+                    );
                     if !valid {
                         self.error(
                             "AVENGER-RESOLVE-112",
@@ -3931,42 +4055,7 @@ impl<'a> Resolver<'a> {
                         target,
                         authored_path: path,
                     };
-                } else if index == 0
-                    && helper_uses_channel_argument(&call.name)
-                    && let Some(path) = helper_argument_path(argument)
-                    && path.len() == 1
-                    && let Some((target, _)) =
-                        self.visible_definition_channel_property(scope, &path[0])
-                {
-                    let family_suffix = match &target {
-                        ResolvedTarget::DefinitionChannel { name, .. } => path[0]
-                            .strip_prefix(name)
-                            .filter(|suffix| *suffix == "2")
-                            .unwrap_or("")
-                            .to_owned(),
-                        _ => String::new(),
-                    };
-                    resolved = ResolvedHelperArgument::DefinitionChannel {
-                        target,
-                        family_suffix,
-                    };
                 }
-                if index == 0
-                    && helper_uses_channel_argument(&call.name)
-                    && let ResolvedHelperArgument::Name(channel) = &resolved
-                    && !self.helper_channel_exists(scope, owner, &call.name, channel)
-                {
-                    self.error(
-                        "AVENGER-RESOLVE-154",
-                        "reserved helper references an unknown channel",
-                        span,
-                        format!(
-                            "`{}` is not a registered channel in this helper context",
-                            channel
-                        ),
-                    );
-                }
-                self.validate_helper_argument(&call.name, index, &resolved, span);
                 arguments.push(resolved);
             }
             output.push(ResolvedHelper {
@@ -4026,47 +4115,6 @@ impl<'a> Resolver<'a> {
             cursor = self.scopes[id.0].parent;
         }
         None
-    }
-
-    fn validate_helper_argument(
-        &mut self,
-        helper: &str,
-        index: usize,
-        argument: &ResolvedHelperArgument,
-        span: SourceSpan,
-    ) {
-        let valid = match (helper, index) {
-            ("datum" | "item_data", 0) => {
-                matches!(argument, ResolvedHelperArgument::String(value) if !value.is_empty())
-            }
-            ("event_facet_value", 0) => matches!(
-                argument,
-                ResolvedHelperArgument::Number(value)
-                    if value.parse::<u32>().is_ok()
-            ),
-            ("item_bbox", 0) => matches!(
-                argument,
-                ResolvedHelperArgument::Name(value)
-                    if matches!(value.as_str(), "top" | "right" | "bottom" | "left")
-            ),
-            ("view_x" | "view_y", 1) => matches!(
-                argument,
-                ResolvedHelperArgument::Name(value)
-                    if matches!(
-                        value.as_str(),
-                        "pixels" | "domain_start" | "domain_end"
-                    )
-            ),
-            _ => true,
-        };
-        if !valid {
-            self.error(
-                "AVENGER-RESOLVE-133",
-                "reserved helper argument has an invalid shape",
-                span,
-                format!("argument {} to `{helper}(...)` is invalid", index + 1),
-            );
-        }
     }
 
     fn scope_with_transform(&self, scope: ScopeId, name: &str) -> Option<ScopeId> {
@@ -6064,8 +6112,13 @@ impl<'a> Resolver<'a> {
                 let sql = expression.canonical_sql();
                 let references =
                     self.resolve_sql_paths(scope, expression_paths(expression.ast()), span, true);
-                let datum_fields =
-                    self.resolve_datum_fields(scope, expression.ast(), span, in_event);
+                let contextual_accesses = self.resolve_contextual_accesses(
+                    scope,
+                    expression.ast(),
+                    span,
+                    in_event,
+                    owner,
+                );
                 let helpers = self.resolve_helpers(
                     scope,
                     helper_calls(expression.ast()),
@@ -6078,7 +6131,7 @@ impl<'a> Resolver<'a> {
                     sql,
                     bindings,
                     references,
-                    datum_fields,
+                    contextual_accesses,
                 })
             }
             Value::Projection(projection) => {
@@ -6149,7 +6202,7 @@ impl<'a> Resolver<'a> {
                                 span,
                                 true,
                             ),
-                            datum_fields: Vec::new(),
+                            contextual_accesses: Vec::new(),
                         });
                         ResolvedProjectionItem {
                             sql: crate::ast::restore_bindings(
@@ -6280,12 +6333,14 @@ impl<'a> Resolver<'a> {
             },
             Value::Call { function, args } => ResolvedValue::Call {
                 function: {
-                    if function.as_str().eq_ignore_ascii_case("datum") {
+                    let name = function.as_str().to_ascii_lowercase();
+                    if is_removed_contextual_call(&name) {
+                        let (code, replacement) = legacy_contextual_replacement(&name);
                         self.error(
-                            "AVENGER-RESOLVE-183",
-                            "function-style datum references were removed",
+                            code,
+                            "function-style contextual access was removed",
                             span,
-                            "use `datum.\"field\"` to read a field from the event datum",
+                            replacement,
                         );
                     }
                     function.to_string()
@@ -6298,46 +6353,268 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_datum_fields(
+    fn resolve_contextual_accesses(
         &mut self,
         scope: ScopeId,
         expression: &Expr,
         span: SourceSpan,
         in_event: bool,
-    ) -> Vec<ResolvedDatumFieldReference> {
-        let (scope_is_event, _) = self.scope_event_context(scope);
+        owner: &Decl,
+    ) -> Vec<ResolvedContextualAccess> {
+        let (scope_is_event, scope_has_between) = self.scope_event_context(scope);
         let in_event = in_event || scope_is_event;
-        let uses = datum_uses(expression, in_event);
+        let item_effect = matches!(owner.keyword.as_str(), "adjust" | "derive");
+        let uses = contextual_uses(expression);
         let mut output = Vec::new();
-        let mut seen = BTreeSet::new();
-        for datum_use in uses {
-            match datum_use {
-                RawDatumUse::Field(field) if in_event => {
-                    if seen.insert(field.clone()) {
-                        output.push(ResolvedDatumFieldReference { field });
+        for contextual_use in uses {
+            let kind = match contextual_use {
+                RawContextualUse::DatumField { field } if in_event => {
+                    Some(ResolvedContextualAccessKind::DatumField { field })
+                }
+                RawContextualUse::DatumField { .. } => {
+                    self.error(
+                        "AVENGER-RESOLVE-110",
+                        "event datum is outside an event context",
+                        span,
+                        "`datum.\"field\"` requires an event binding or event effect",
+                    );
+                    None
+                }
+                RawContextualUse::MarkChannel { channel } if owner.keyword.as_str() == "mark" => {
+                    self.resolve_contextual_channel(scope, owner, "channel", &channel, span)
+                        .map(|channel| ResolvedContextualAccessKind::MarkChannel { channel })
+                }
+                RawContextualUse::MarkChannel { .. } => {
+                    self.error(
+                        "AVENGER-RESOLVE-111",
+                        "channel access is outside a mark channel",
+                        span,
+                        "`channel.<name>` requires a mark encoding context",
+                    );
+                    None
+                }
+                RawContextualUse::EventCoord { channel } if in_event => self
+                    .resolve_contextual_channel(scope, owner, "event_coord", &channel, span)
+                    .map(|channel| ResolvedContextualAccessKind::EventCoord { channel }),
+                RawContextualUse::EventStartCoord { channel } if in_event && scope_has_between => {
+                    self.resolve_contextual_channel(scope, owner, "start_coord", &channel, span)
+                        .map(|channel| ResolvedContextualAccessKind::EventStartCoord { channel })
+                }
+                RawContextualUse::EventStartCoord { .. } if in_event => {
+                    self.error(
+                        "AVENGER-RESOLVE-132",
+                        "gesture-start access requires a between interaction",
+                        span,
+                        "`event.start.coord.<channel>` has no start event in this binding",
+                    );
+                    None
+                }
+                RawContextualUse::EventDomainBoundary { channel, boundary } if in_event => self
+                    .resolve_contextual_channel(scope, owner, "event_domain", &channel, span)
+                    .map(
+                        |channel| ResolvedContextualAccessKind::EventDomainBoundary {
+                            channel,
+                            boundary,
+                        },
+                    ),
+                RawContextualUse::EventPath if in_event && scope_has_between => {
+                    Some(ResolvedContextualAccessKind::EventPath)
+                }
+                RawContextualUse::EventPath if in_event => {
+                    self.error(
+                        "AVENGER-RESOLVE-132",
+                        "gesture-start access requires a between interaction",
+                        span,
+                        "`event.path` has no start event in this binding",
+                    );
+                    None
+                }
+                RawContextualUse::EventFacet { one_based_index } if in_event => {
+                    Some(ResolvedContextualAccessKind::EventFacet { one_based_index })
+                }
+                RawContextualUse::EventLegendValue if in_event => {
+                    Some(ResolvedContextualAccessKind::EventLegendValue)
+                }
+                RawContextualUse::EventCoord { .. }
+                | RawContextualUse::EventStartCoord { .. }
+                | RawContextualUse::EventDomainBoundary { .. }
+                | RawContextualUse::EventPath
+                | RawContextualUse::EventFacet { .. }
+                | RawContextualUse::EventLegendValue => {
+                    self.error(
+                        "AVENGER-RESOLVE-110",
+                        "event access is outside an event context",
+                        span,
+                        "the `event` contextual namespace requires an event binding or effect",
+                    );
+                    None
+                }
+                RawContextualUse::ItemChannel { channel } if item_effect => {
+                    let resolved = self.resolve_contextual_channel(
+                        scope,
+                        owner,
+                        "item_channel",
+                        &channel,
+                        span,
+                    );
+                    let physical_type = self.item_channel_physical_type(scope, &channel);
+                    match (resolved, physical_type) {
+                        (Some(channel), Some(physical_type)) => {
+                            Some(ResolvedContextualAccessKind::ItemChannel {
+                                channel,
+                                physical_type,
+                            })
+                        }
+                        (Some(_), None) => {
+                            self.error(
+                                "AVENGER-RESOLVE-191",
+                                "item channel is not available in the evaluated item frame",
+                                span,
+                                format!(
+                                    "`item.channel.{channel}` has no registered physical item type"
+                                ),
+                            );
+                            None
+                        }
+                        _ => None,
                     }
                 }
-                RawDatumUse::Field(_) => self.error(
-                    "AVENGER-RESOLVE-110",
-                    "event datum is outside an event context",
-                    span,
-                    "`datum.\"field\"` requires an event binding or event effect",
-                ),
-                RawDatumUse::LegacyCall => self.error(
-                    "AVENGER-RESOLVE-183",
-                    "function-style datum references were removed",
-                    span,
-                    "use `datum.\"field\"` to read a field from the event datum",
-                ),
-                RawDatumUse::Invalid => self.error(
-                    "AVENGER-RESOLVE-184",
-                    "event datum fields must use a quoted two-part path",
-                    span,
-                    "use `datum.\"field\"`; unquoted, bare, and deeper datum paths are invalid",
-                ),
+                RawContextualUse::ItemDataField { field } if item_effect => {
+                    Some(ResolvedContextualAccessKind::ItemDataField { field })
+                }
+                RawContextualUse::ItemBbox { edge } if item_effect => {
+                    Some(ResolvedContextualAccessKind::ItemBbox { edge })
+                }
+                RawContextualUse::ItemChannel { .. }
+                | RawContextualUse::ItemDataField { .. }
+                | RawContextualUse::ItemBbox { .. } => {
+                    self.error(
+                        "AVENGER-RESOLVE-185",
+                        "item access is outside an item-frame context",
+                        span,
+                        "the `item` contextual namespace is valid only in `adjust` and `derive` expressions",
+                    );
+                    None
+                }
+                RawContextualUse::ViewField {
+                    authored_view,
+                    axis,
+                    field,
+                } => {
+                    let target = self.resolve_any_path(scope, &authored_view, span, true);
+                    match target {
+                        Some(target @ ResolvedTarget::Declaration(_)) => {
+                            Some(ResolvedContextualAccessKind::ViewField {
+                                target,
+                                authored_view,
+                                axis,
+                                field,
+                            })
+                        }
+                        Some(_) => {
+                            self.error(
+                                "AVENGER-RESOLVE-112",
+                                "inline-view access has the wrong target kind",
+                                span,
+                                format!(
+                                    "`{}` is not an inline view binder",
+                                    authored_view.join(".")
+                                ),
+                            );
+                            None
+                        }
+                        None => None,
+                    }
+                }
+                RawContextualUse::LegacyCall { name } => {
+                    let (code, replacement) = legacy_contextual_replacement(&name);
+                    self.error(
+                        code,
+                        "function-style contextual access was removed",
+                        span,
+                        replacement,
+                    );
+                    None
+                }
+                RawContextualUse::Invalid { root, detail } => {
+                    self.error(
+                        "AVENGER-RESOLVE-186",
+                        "contextual access has an invalid shape",
+                        span,
+                        format!("invalid `{root}` access; {detail}"),
+                    );
+                    None
+                }
+            };
+            if let Some(kind) = kind
+                && output
+                    .iter()
+                    .all(|access: &ResolvedContextualAccess| access.kind != kind)
+            {
+                output.push(ResolvedContextualAccess { kind });
             }
         }
         output
+    }
+
+    fn resolve_contextual_channel(
+        &mut self,
+        scope: ScopeId,
+        owner: &Decl,
+        access: &str,
+        channel: &str,
+        span: SourceSpan,
+    ) -> Option<ResolvedChannelMember> {
+        if let Some((target, _)) = self.visible_definition_channel_property(scope, channel) {
+            let family_suffix = match &target {
+                ResolvedTarget::DefinitionChannel { name, .. } => channel
+                    .strip_prefix(name)
+                    .filter(|suffix| *suffix == "2")
+                    .unwrap_or("")
+                    .to_owned(),
+                _ => String::new(),
+            };
+            return Some(ResolvedChannelMember::Definition {
+                target,
+                name: channel.to_owned(),
+                family_suffix,
+            });
+        }
+        if self.helper_channel_exists(scope, owner, access, channel) {
+            Some(ResolvedChannelMember::Named {
+                name: channel.to_owned(),
+            })
+        } else {
+            self.error(
+                "AVENGER-RESOLVE-154",
+                "contextual access references an unknown channel",
+                span,
+                format!("`{channel}` is not a registered channel in this context"),
+            );
+            None
+        }
+    }
+
+    fn item_channel_physical_type(&self, scope: ScopeId, channel: &str) -> Option<PhysicalType> {
+        let coordinate = self.visible_coordinate(scope)?;
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(owner) = self.scopes[id.0].owner.as_ref()
+                && let Some((_, declaration)) = self.declaration_source(owner)
+                && declaration.keyword.as_str() == "mark"
+                && let Some(kind) = declaration.kind.as_ref()
+                && let Some(item_type) = self
+                    .registry
+                    .entries
+                    .get(&NativeKindKey::mark(coordinate.clone(), kind.as_str()))
+                    .and_then(|schema| schema.channels.get(channel))
+                    .and_then(|channel| channel.item_type.as_deref())
+            {
+                return parse_type_text(item_type);
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        None
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8718,10 +8995,12 @@ impl<'a> Resolver<'a> {
             if !matches!(
                 properties.get("geometry"),
                 Some(ResolvedValue::Call { function, args })
-                    if matches!(
-                        (function.as_str(), args.len()),
-                        ("polygon", 1) | ("rect", 4) | ("circle", 3)
-                    )
+                    if crate::intrinsic_operation_signature(function).is_some_and(|signature| {
+                        signature.arguments.len() == args.len()
+                            && signature
+                                .contexts
+                                .contains(&crate::IntrinsicOperationContext::SceneGeometry)
+                    })
             ) {
                 self.error(
                     "AVENGER-RESOLVE-160",
@@ -10671,13 +10950,7 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             sql: value.canonical_sql(),
             bindings: Vec::new(),
             helpers: helpers_in_sql(&value.canonical_sql()),
-            datum_fields: datum_uses(value.ast(), false)
-                .into_iter()
-                .filter_map(|datum_use| match datum_use {
-                    RawDatumUse::Field(field) => Some(ResolvedDatumFieldReference { field }),
-                    RawDatumUse::LegacyCall | RawDatumUse::Invalid => None,
-                })
-                .collect(),
+            contextual_accesses: Vec::new(),
             references: Vec::new(),
         }),
         Value::Projection(value) => ResolvedValue::Projection(ResolvedProjection {
@@ -10719,7 +10992,7 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
                             sql: expression.to_string(),
                             bindings: Vec::new(),
                             helpers: helpers_in_sql(&expression.to_string()),
-                            datum_fields: Vec::new(),
+                            contextual_accesses: Vec::new(),
                             references: Vec::new(),
                         }),
                         aliases,
@@ -11640,22 +11913,18 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
 }
 
 fn helpers_in_sql(sql: &str) -> Vec<ResolvedHelper> {
-    const HELPERS: &[(&str, HelperClass)] = &[
-        ("event_coord", HelperClass::Event),
-        ("event_path", HelperClass::Event),
-        ("start_coord", HelperClass::Event),
-        ("selection_test", HelperClass::Selection),
-        ("view_x", HelperClass::View),
-        ("view_y", HelperClass::View),
-        ("scaled", HelperClass::Channel),
-        ("unscaled", HelperClass::Channel),
-    ];
-    HELPERS
+    let lowercase = sql.to_ascii_lowercase();
+    crate::INTRINSIC_OPERATION_SIGNATURES
         .iter()
-        .filter(|(name, _)| sql.contains(&format!("{name}(")))
-        .map(|(name, class)| ResolvedHelper {
-            name: (*name).to_owned(),
-            class: *class,
+        .filter(|signature| {
+            signature
+                .contexts
+                .contains(&crate::IntrinsicOperationContext::EventExpression)
+                && lowercase.contains(&format!("{}(", signature.name))
+        })
+        .map(|signature| ResolvedHelper {
+            name: signature.name.to_owned(),
+            class: helper_class(signature.name).expect("scalar intrinsic helper class"),
             arguments: Vec::new(),
         })
         .collect()
@@ -11727,40 +11996,20 @@ impl Visitor for HelperCalls {
 }
 
 fn helper_class(name: &str) -> Option<HelperClass> {
-    Some(match name {
-        "channel" => HelperClass::Channel,
-        "item_data" => HelperClass::Datum,
-        "event_coord" | "start_coord" | "event_domain_start" | "event_domain_end"
-        | "event_path" | "event_facet_value" | "legend_value" | "item_channel" | "item_bbox" => {
-            HelperClass::Event
-        }
-        "selection_contains" => HelperClass::Selection,
-        "view_x" | "view_y" => HelperClass::View,
-        "span" | "span_ordered" | "polygon" => HelperClass::Reserved,
-        _ => return None,
-    })
+    let signature = crate::intrinsic_operation_signature(name)?;
+    signature
+        .contexts
+        .contains(&crate::IntrinsicOperationContext::EventExpression)
+        .then_some(if signature.name == "selection_contains" {
+            HelperClass::Selection
+        } else {
+            HelperClass::Reserved
+        })
 }
 
 fn helper_arity(name: &str) -> Option<usize> {
-    Some(match name {
-        "event_path" | "legend_value" => 0,
-        "channel" | "event_coord" | "start_coord" | "event_domain_start" | "event_domain_end"
-        | "event_facet_value" | "item_channel" | "item_data" | "item_bbox" | "polygon" => 1,
-        "selection_contains" | "view_x" | "view_y" | "span" | "span_ordered" => 2,
-        _ => return None,
-    })
-}
-
-fn helper_uses_channel_argument(name: &str) -> bool {
-    matches!(
-        name,
-        "channel"
-            | "event_coord"
-            | "start_coord"
-            | "event_domain_start"
-            | "event_domain_end"
-            | "item_channel"
-    )
+    helper_class(name)?;
+    crate::intrinsic_operation_signature(name).map(|signature| signature.arguments.len())
 }
 
 fn helper_argument(expression: &Expr) -> ResolvedHelperArgument {
@@ -11804,68 +12053,408 @@ fn datum_field(expression: &Expr) -> Option<String> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum RawDatumUse {
-    Field(String),
-    LegacyCall,
-    Invalid,
+enum RawContextualUse {
+    DatumField {
+        field: String,
+    },
+    MarkChannel {
+        channel: String,
+    },
+    EventCoord {
+        channel: String,
+    },
+    EventStartCoord {
+        channel: String,
+    },
+    EventDomainBoundary {
+        channel: String,
+        boundary: ResolvedIntervalBoundary,
+    },
+    EventPath,
+    EventFacet {
+        one_based_index: u32,
+    },
+    EventLegendValue,
+    ItemChannel {
+        channel: String,
+    },
+    ItemDataField {
+        field: String,
+    },
+    ItemBbox {
+        edge: ResolvedBboxEdge,
+    },
+    ViewField {
+        authored_view: Vec<String>,
+        axis: ResolvedViewAxis,
+        field: ResolvedViewField,
+    },
+    LegacyCall {
+        name: String,
+    },
+    Invalid {
+        root: String,
+        detail: &'static str,
+    },
 }
 
-fn datum_uses(expression: &Expr, reserve_invalid_forms: bool) -> Vec<RawDatumUse> {
+fn contextual_uses(expression: &Expr) -> Vec<RawContextualUse> {
     #[derive(Default)]
-    struct DatumUses {
-        reserve_invalid_forms: bool,
-        uses: Vec<RawDatumUse>,
+    struct ContextualUses {
+        uses: Vec<RawContextualUse>,
+        suppressed_bare_roots: BTreeMap<String, usize>,
     }
 
-    impl Visitor for DatumUses {
+    impl Visitor for ContextualUses {
         type Break = ();
 
         fn pre_visit_expr(&mut self, expression: &Expr) -> std::ops::ControlFlow<Self::Break> {
-            match expression {
-                Expr::CompoundIdentifier(identifiers)
-                    if identifiers.first().is_some_and(|identifier| {
-                        identifier.quote_style.is_none()
-                            && identifier.value.eq_ignore_ascii_case("datum")
-                    }) =>
-                {
-                    if let Some(field) = datum_field(expression) {
-                        self.uses.push(RawDatumUse::Field(field));
-                    } else if self.reserve_invalid_forms {
-                        self.uses.push(RawDatumUse::Invalid);
-                    }
+            if let Some(access) = contextual_use(expression) {
+                if matches!(expression, Expr::CompoundFieldAccess { .. }) {
+                    *self
+                        .suppressed_bare_roots
+                        .entry("event".to_owned())
+                        .or_default() += 1;
                 }
-                Expr::Identifier(identifier)
-                    if self.reserve_invalid_forms
-                        && identifier.quote_style.is_none()
-                        && identifier.value.eq_ignore_ascii_case("datum") =>
+                self.uses.push(access);
+            } else if let Expr::Identifier(identifier) = expression
+                && identifier.quote_style.is_none()
+            {
+                let name = identifier.value.to_ascii_lowercase();
+                if let Some(remaining) = self.suppressed_bare_roots.get_mut(&name)
+                    && *remaining > 0
                 {
-                    self.uses.push(RawDatumUse::Invalid);
+                    *remaining -= 1;
+                } else if matches!(name.as_str(), "datum" | "channel" | "event" | "item") {
+                    self.uses.push(RawContextualUse::Invalid {
+                        root: name,
+                        detail: "a complete property path is required",
+                    });
                 }
-                Expr::Function(function)
-                    if function
-                        .name
-                        .0
-                        .last()
-                        .and_then(|part| part.as_ident())
-                        .is_some_and(|identifier| {
-                            identifier.quote_style.is_none()
-                                && identifier.value.eq_ignore_ascii_case("datum")
-                        }) =>
-                {
-                    self.uses.push(RawDatumUse::LegacyCall);
-                }
-                _ => {}
             }
             std::ops::ControlFlow::Continue(())
         }
     }
 
-    let mut uses = DatumUses {
-        reserve_invalid_forms,
-        uses: Vec::new(),
-    };
+    let mut uses = ContextualUses::default();
     let _ = expression.visit(&mut uses);
     uses.uses
+}
+
+fn contextual_use(expression: &Expr) -> Option<RawContextualUse> {
+    if let Expr::Function(function) = expression
+        && let Some(identifier) = function.name.0.last().and_then(|part| part.as_ident())
+        && identifier.quote_style.is_none()
+    {
+        let name = identifier.value.to_ascii_lowercase();
+        if is_removed_contextual_call(&name) {
+            return Some(RawContextualUse::LegacyCall { name });
+        }
+    }
+
+    if let Expr::CompoundFieldAccess { root, access_chain } = expression
+        && compound_field_root_matches(root, access_chain, "event", "facet")
+    {
+        let Some(AccessExpr::Subscript(Subscript::Index { index })) = access_chain.last() else {
+            return Some(RawContextualUse::Invalid {
+                root: "event".to_owned(),
+                detail: "`event.facet` accepts exactly one positive literal subscript",
+            });
+        };
+        let Expr::Value(value) = index else {
+            return Some(RawContextualUse::Invalid {
+                root: "event".to_owned(),
+                detail: "`event.facet` uses a positive one-based integer literal",
+            });
+        };
+        let SqlValue::Number(value, false) = &value.value else {
+            return Some(RawContextualUse::Invalid {
+                root: "event".to_owned(),
+                detail: "`event.facet` uses a positive one-based integer literal",
+            });
+        };
+        return match value.parse::<u32>() {
+            Ok(one_based_index) if one_based_index > 0 => {
+                Some(RawContextualUse::EventFacet { one_based_index })
+            }
+            _ => Some(RawContextualUse::Invalid {
+                root: "event".to_owned(),
+                detail: "`event.facet` indices start at 1",
+            }),
+        };
+    }
+
+    let Expr::CompoundIdentifier(identifiers) = expression else {
+        return None;
+    };
+    let root = identifiers.first()?;
+    if root.quote_style.is_some() {
+        return None;
+    }
+    let root_name = root.value.to_ascii_lowercase();
+
+    match root_name.as_str() {
+        "datum" => {
+            if let Some(field) = datum_field(expression) {
+                Some(RawContextualUse::DatumField { field })
+            } else {
+                Some(RawContextualUse::Invalid {
+                    root: root_name,
+                    detail: "use exactly `datum.\"field\"`",
+                })
+            }
+        }
+        "channel" => match unquoted_path(identifiers).as_deref() {
+            Some([_, channel]) => Some(RawContextualUse::MarkChannel {
+                channel: channel.clone(),
+            }),
+            _ => Some(RawContextualUse::Invalid {
+                root: root_name,
+                detail: "use exactly `channel.<channel>`",
+            }),
+        },
+        "event" => {
+            let path = unquoted_path(identifiers);
+            match path.as_deref() {
+                Some([_, coord, channel]) if coord.eq_ignore_ascii_case("coord") => {
+                    Some(RawContextualUse::EventCoord {
+                        channel: channel.clone(),
+                    })
+                }
+                Some([_, start, coord, channel])
+                    if start.eq_ignore_ascii_case("start")
+                        && coord.eq_ignore_ascii_case("coord") =>
+                {
+                    Some(RawContextualUse::EventStartCoord {
+                        channel: channel.clone(),
+                    })
+                }
+                Some([_, domain, channel, boundary]) if domain.eq_ignore_ascii_case("domain") => {
+                    let boundary = match boundary.to_ascii_lowercase().as_str() {
+                        "start" => ResolvedIntervalBoundary::Start,
+                        "end" => ResolvedIntervalBoundary::End,
+                        _ => {
+                            return Some(RawContextualUse::Invalid {
+                                root: root_name,
+                                detail: "event domains end in `.start` or `.end`",
+                            });
+                        }
+                    };
+                    Some(RawContextualUse::EventDomainBoundary {
+                        channel: channel.clone(),
+                        boundary,
+                    })
+                }
+                Some([_, path]) if path.eq_ignore_ascii_case("path") => {
+                    Some(RawContextualUse::EventPath)
+                }
+                Some([_, legend, value])
+                    if legend.eq_ignore_ascii_case("legend")
+                        && value.eq_ignore_ascii_case("value") =>
+                {
+                    Some(RawContextualUse::EventLegendValue)
+                }
+                // The root of a valid `event.facet[n]` is visited separately
+                // by sqlparser's visitor. The enclosing CompoundFieldAccess
+                // performs the actual validation.
+                Some([_, facet]) if facet.eq_ignore_ascii_case("facet") => None,
+                _ => Some(RawContextualUse::Invalid {
+                    root: root_name,
+                    detail: "the event property path is not recognized",
+                }),
+            }
+        }
+        "item" => {
+            if identifiers.len() == 3
+                && identifiers[1].quote_style.is_none()
+                && identifiers[1].value.eq_ignore_ascii_case("data")
+                && identifiers[2].quote_style == Some('"')
+            {
+                return Some(RawContextualUse::ItemDataField {
+                    field: identifiers[2].value.clone(),
+                });
+            }
+            let path = unquoted_path(identifiers);
+            match path.as_deref() {
+                Some([_, channel, name]) if channel.eq_ignore_ascii_case("channel") => {
+                    Some(RawContextualUse::ItemChannel {
+                        channel: name.clone(),
+                    })
+                }
+                Some([_, bbox, edge]) if bbox.eq_ignore_ascii_case("bbox") => {
+                    let edge = match edge.to_ascii_lowercase().as_str() {
+                        "top" => ResolvedBboxEdge::Top,
+                        "right" => ResolvedBboxEdge::Right,
+                        "bottom" => ResolvedBboxEdge::Bottom,
+                        "left" => ResolvedBboxEdge::Left,
+                        _ => {
+                            return Some(RawContextualUse::Invalid {
+                                root: root_name,
+                                detail: "item bbox edges are top, right, bottom, or left",
+                            });
+                        }
+                    };
+                    Some(RawContextualUse::ItemBbox { edge })
+                }
+                _ => Some(RawContextualUse::Invalid {
+                    root: root_name,
+                    detail: "use `item.channel.<name>`, `item.data.\"field\"`, or `item.bbox.<edge>`",
+                }),
+            }
+        }
+        _ => contextual_view_use(identifiers),
+    }
+}
+
+fn compound_field_root_matches(
+    root: &Expr,
+    access_chain: &[AccessExpr],
+    namespace: &str,
+    member: &str,
+) -> bool {
+    match root {
+        Expr::CompoundIdentifier(identifiers) => {
+            identifier_path_matches(identifiers, &[namespace, member]) && access_chain.len() == 1
+        }
+        Expr::Identifier(identifier)
+            if identifier.quote_style.is_none()
+                && identifier.value.eq_ignore_ascii_case(namespace) =>
+        {
+            matches!(
+                access_chain,
+                [
+                    AccessExpr::Dot(Expr::Identifier(member_identifier)),
+                    AccessExpr::Subscript(_)
+                ] if member_identifier.quote_style.is_none()
+                    && member_identifier.value.eq_ignore_ascii_case(member)
+            )
+        }
+        _ => false,
+    }
+}
+
+fn contextual_view_use(identifiers: &[sqlparser::ast::Ident]) -> Option<RawContextualUse> {
+    let path = unquoted_path(identifiers)?;
+    let (authored_view, axis, field) = match path.as_slice() {
+        [view, axis, pixels] if pixels.eq_ignore_ascii_case("pixels") => (
+            vec![view.clone()],
+            resolved_view_axis(axis)?,
+            ResolvedViewField::Pixels,
+        ),
+        [view, axis, domain, boundary] if domain.eq_ignore_ascii_case("domain") => (
+            vec![view.clone()],
+            resolved_view_axis(axis)?,
+            match boundary.to_ascii_lowercase().as_str() {
+                "start" => ResolvedViewField::DomainStart,
+                "end" => ResolvedViewField::DomainEnd,
+                _ => return None,
+            },
+        ),
+        _ => return None,
+    };
+    Some(RawContextualUse::ViewField {
+        authored_view,
+        axis,
+        field,
+    })
+}
+
+fn resolved_view_axis(value: &str) -> Option<ResolvedViewAxis> {
+    match value.to_ascii_lowercase().as_str() {
+        "x" => Some(ResolvedViewAxis::X),
+        "y" => Some(ResolvedViewAxis::Y),
+        _ => None,
+    }
+}
+
+fn unquoted_path(identifiers: &[sqlparser::ast::Ident]) -> Option<Vec<String>> {
+    identifiers
+        .iter()
+        .map(|identifier| {
+            identifier
+                .quote_style
+                .is_none()
+                .then(|| identifier.value.clone())
+        })
+        .collect()
+}
+
+fn identifier_path_matches(identifiers: &[sqlparser::ast::Ident], expected: &[&str]) -> bool {
+    identifiers.len() == expected.len()
+        && identifiers
+            .iter()
+            .zip(expected)
+            .all(|(identifier, expected)| {
+                identifier.quote_style.is_none() && identifier.value.eq_ignore_ascii_case(expected)
+            })
+}
+
+fn is_removed_contextual_call(name: &str) -> bool {
+    matches!(
+        name,
+        "datum"
+            | "channel"
+            | "event_coord"
+            | "start_coord"
+            | "event_domain_start"
+            | "event_domain_end"
+            | "event_path"
+            | "event_facet_value"
+            | "legend_value"
+            | "item_channel"
+            | "item_data"
+            | "item_bbox"
+            | "view_x"
+            | "view_y"
+    )
+}
+
+fn legacy_contextual_replacement(name: &str) -> (&'static str, &'static str) {
+    match name {
+        "datum" => (
+            "AVENGER-RESOLVE-183",
+            "use `datum.\"field\"` to read a field from the event datum",
+        ),
+        "channel" => (
+            "AVENGER-RESOLVE-187",
+            "use `channel.<channel>` to reference another mark channel",
+        ),
+        "event_coord" => (
+            "AVENGER-RESOLVE-188",
+            "use `event.coord.<channel>` for the current event coordinate",
+        ),
+        "start_coord" => (
+            "AVENGER-RESOLVE-188",
+            "use `event.start.coord.<channel>` for the gesture-start coordinate",
+        ),
+        "event_domain_start" | "event_domain_end" => (
+            "AVENGER-RESOLVE-188",
+            "use `event.domain.<channel>.start` or `.end`",
+        ),
+        "event_path" => ("AVENGER-RESOLVE-188", "use `event.path`"),
+        "event_facet_value" => ("AVENGER-RESOLVE-188", "use one-based `event.facet[index]`"),
+        "legend_value" => ("AVENGER-RESOLVE-188", "use `event.legend.value`"),
+        "item_channel" => (
+            "AVENGER-RESOLVE-189",
+            "use `item.channel.<channel>` in item-frame expressions",
+        ),
+        "item_data" => (
+            "AVENGER-RESOLVE-189",
+            "use `item.data.\"field\"` in item-frame expressions",
+        ),
+        "item_bbox" => (
+            "AVENGER-RESOLVE-189",
+            "use `item.bbox.<edge>` in item-frame expressions",
+        ),
+        "view_x" | "view_y" => (
+            "AVENGER-RESOLVE-190",
+            "use `<view>.x.<field>` or `<view>.y.<field>`",
+        ),
+        _ => (
+            "AVENGER-RESOLVE-186",
+            "use the corresponding contextual property access",
+        ),
+    }
 }
 
 fn helper_argument_path(expression: &Expr) -> Option<Vec<String>> {
@@ -11948,6 +12537,13 @@ impl Visitor for SqlPaths {
             && identifiers
                 .iter()
                 .all(|identifier| identifier.quote_style.is_none())
+            && contextual_use(expression).is_none()
+            && !identifiers.first().is_some_and(|identifier| {
+                identifier.value.eq_ignore_ascii_case("event")
+                    && identifiers.get(1).is_some_and(|member| {
+                        member.quote_style.is_none() && member.value.eq_ignore_ascii_case("facet")
+                    })
+            })
         {
             self.0.push(
                 identifiers
