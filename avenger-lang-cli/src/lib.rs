@@ -2565,8 +2565,11 @@ mod tests {
         .expect("prepare styled generation");
         let success = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 2));
 
-        fs::write(&chart, "avenger 1; chart cartesian as broken {")
-            .expect("prepare broken generation");
+        fs::write(
+            &chart,
+            original_chart.replace("value: 180.0;", "value: 'not-a-number';"),
+        )
+        .expect("prepare generation with an invalid constant cast");
         let failure = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 3));
         assert!(failure.result.is_err());
 
@@ -2642,6 +2645,12 @@ mod tests {
                 .filter(|batch| batch.contains("compilation failed"))
                 .count(),
             1
+        );
+        assert!(
+            after_first_failure
+                .iter()
+                .any(|batch| batch.contains("cannot be cast")),
+            "{after_first_failure:#?}"
         );
         assert_eq!(host.wait_for_installs(1).len(), 1);
 

@@ -34,7 +34,8 @@ use sqlparser::{
 use crate::{
     AnalyzedColumn, AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironment, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    DependencyFingerprint, ModuleDatasetId, TableFactoryRegistry, lowering::physical_data_type,
+    DependencyFingerprint, ModuleDatasetId, TableFactoryRegistry,
+    sql_profile::{normalize_sql_query, physical_type_to_arrow},
 };
 
 pub(crate) struct CatalogAnalysis {
@@ -870,6 +871,8 @@ async fn inline_table(
     })?;
     let sql = inline_values_sql(rows)
         .map_err(|message| declaration_diagnostic(declaration, "AVENGER-DATA-036", message))?;
+    let sql = normalize_sql_query(&sql)
+        .map_err(|message| declaration_diagnostic(declaration, "AVENGER-DATA-036", message))?;
     context
         .sql(&sql)
         .await
@@ -1149,7 +1152,7 @@ fn expand_catalog_sql_with_sql(
             .unwrap_or_else(|| "table-function expansion stopped".to_owned()));
     }
     rewrite_query_relations(&mut statement, &relation_map);
-    Ok(statement.to_string())
+    normalize_sql_query(&statement.to_string())
 }
 
 fn parse_query_statement(sql: &str) -> Result<Statement, String> {
@@ -1312,9 +1315,9 @@ fn instantiate_table_query(
                     table.path.join(".")
                 )
             })?;
-        if !scalar_argument(expression) {
+        if !row_free_scalar_argument(expression) {
             return Err(format!(
-                "table argument `{name}` must be a scalar literal or visible `$param`"
+                "table argument `{name}` must be a row-free scalar expression using only visible `$param` placeholders"
             ));
         }
         bindings.insert(
@@ -1352,18 +1355,14 @@ fn default_param_expressions(
         .iter()
         .map(|id| {
             let param = &project.params[id];
-            let literal = scalar_literal_sql(&param.default)?;
-            let expression = parse_sql_expression(&literal)?;
-            Ok((
-                param.source_name.clone(),
-                typed_expression(expression, &param.data_type)?,
-            ))
+            let source = typed_boundary_value_sql(&param.default, &param.data_type)?;
+            Ok((param.source_name.clone(), parse_sql_expression(&source)?))
         })
         .collect()
 }
 
 fn typed_expression(expression: SqlExpr, data_type: &PhysicalType) -> Result<SqlExpr, String> {
-    let arrow_type = physical_data_type(data_type).to_string();
+    let arrow_type = physical_type_to_arrow(data_type).to_string();
     parse_sql_expression(&format!(
         "arrow_cast(({expression}), '{}')",
         arrow_type.replace('\'', "''")
@@ -1378,19 +1377,33 @@ fn parse_sql_expression(sql: &str) -> Result<SqlExpr, String> {
         .map_err(|error| error.to_string())
 }
 
-fn scalar_argument(expression: &SqlExpr) -> bool {
-    matches!(
-        expression,
-        SqlExpr::Value(_)
-            | SqlExpr::Array(_)
-            | SqlExpr::Struct { .. }
-            | SqlExpr::Dictionary(_)
-            | SqlExpr::Tuple(_)
-            | SqlExpr::UnaryOp { .. }
-            | SqlExpr::Function(_)
-            | SqlExpr::Cast { .. }
-            | SqlExpr::Nested(_)
-    )
+fn row_free_scalar_argument(expression: &SqlExpr) -> bool {
+    struct RowFreeValidator {
+        valid: bool,
+    }
+    impl sqlparser::ast::Visitor for RowFreeValidator {
+        type Break = ();
+
+        fn pre_visit_expr(&mut self, expression: &SqlExpr) -> ControlFlow<Self::Break> {
+            if matches!(
+                expression,
+                SqlExpr::Identifier(_)
+                    | SqlExpr::CompoundIdentifier(_)
+                    | SqlExpr::Subquery(_)
+                    | SqlExpr::Exists { .. }
+                    | SqlExpr::InSubquery { .. }
+            ) {
+                self.valid = false;
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        }
+    }
+    use sqlparser::ast::Visit;
+    let mut validator = RowFreeValidator { valid: true };
+    let _ = expression.visit(&mut validator);
+    validator.valid
 }
 
 fn substitute_query_params(
@@ -1450,7 +1463,7 @@ fn inline_values_sql(value: &ResolvedValue) -> Result<String, String> {
             "({})",
             columns
                 .iter()
-                .map(|column| scalar_literal_sql(&properties[column]))
+                .map(|column| catalog_structural_literal_sql(&properties[column]))
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ")
         ));
@@ -1466,17 +1479,21 @@ fn inline_values_sql(value: &ResolvedValue) -> Result<String, String> {
     ))
 }
 
-fn scalar_literal_sql(value: &ResolvedValue) -> Result<String, String> {
+/// Serialize the literal-only structural subset used by untyped inline table
+/// data and as the leaf fallback inside target-shaped catalog values.
+/// Typed boundaries always wrap the result in `typed_boundary_value_sql`.
+fn catalog_structural_literal_sql(value: &ResolvedValue) -> Result<String, String> {
     match value {
         ResolvedValue::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
         ResolvedValue::Number(value) => Ok(value.clone()),
         ResolvedValue::Boolean(value) => Ok(if *value { "TRUE" } else { "FALSE" }.to_owned()),
         ResolvedValue::Null => Ok("NULL".to_owned()),
+        ResolvedValue::Atom(value) if value.eq_ignore_ascii_case("null") => Ok("NULL".to_owned()),
         ResolvedValue::Array(values) => Ok(format!(
             "[{}]",
             values
                 .iter()
-                .map(scalar_literal_sql)
+                .map(catalog_structural_literal_sql)
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ")
         )),
@@ -1484,11 +1501,146 @@ fn scalar_literal_sql(value: &ResolvedValue) -> Result<String, String> {
             let mut arguments = Vec::with_capacity(properties.len() * 2);
             for (name, value) in properties {
                 arguments.push(format!("'{}'", name.replace('\'', "''")));
-                arguments.push(scalar_literal_sql(value)?);
+                arguments.push(catalog_structural_literal_sql(value)?);
             }
             Ok(format!("named_struct({})", arguments.join(", ")))
         }
         _ => Err("table parameter and inline values must be scalar SQL literals".to_owned()),
+    }
+}
+
+fn typed_boundary_value_sql(
+    value: &ResolvedValue,
+    target: &PhysicalType,
+) -> Result<String, String> {
+    let source = match (value, target) {
+        (ResolvedValue::Expression(expression), _)
+            if expression.bindings.is_empty()
+                && expression.helpers.is_empty()
+                && expression.contextual_accesses.is_empty()
+                && expression.references.is_empty() =>
+        {
+            expression.sql.clone()
+        }
+        (ResolvedValue::Array(values), PhysicalType::List(element))
+        | (ResolvedValue::Array(values), PhysicalType::LargeList(element)) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(|value| typed_boundary_value_sql(value, element))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
+        ),
+        (ResolvedValue::Array(values), PhysicalType::FixedSizeList { element, length }) => {
+            if usize::try_from(*length).ok() != Some(values.len()) {
+                return Err(format!(
+                    "fixed-size list boundary requires {length} values, found {}",
+                    values.len()
+                ));
+            }
+            format!(
+                "[{}]",
+                values
+                    .iter()
+                    .map(|value| typed_boundary_value_sql(value, element))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ")
+            )
+        }
+        (ResolvedValue::Object { properties, .. }, PhysicalType::Struct(fields)) => {
+            let unknown = properties
+                .keys()
+                .filter(|name| !fields.iter().any(|field| &field.name == *name))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !unknown.is_empty() {
+                return Err(format!(
+                    "typed struct has unknown field(s): {}",
+                    unknown.join(", ")
+                ));
+            }
+            let mut arguments = Vec::with_capacity(fields.len() * 2);
+            for field in fields {
+                let value = match properties.get(&field.name) {
+                    Some(value) => typed_boundary_value_sql(value, &field.data_type)?,
+                    None if field.nullable => typed_null_sql(&field.data_type),
+                    None => {
+                        return Err(format!(
+                            "typed struct is missing non-nullable field `{}`",
+                            field.name
+                        ));
+                    }
+                };
+                arguments.push(format!("'{}'", field.name.replace('\'', "''")));
+                arguments.push(value);
+            }
+            format!("named_struct({})", arguments.join(", "))
+        }
+        (ResolvedValue::Object { properties, .. }, PhysicalType::Map { key, value }) => {
+            let keys = properties
+                .keys()
+                .map(|name| typed_boundary_value_sql(&ResolvedValue::String(name.clone()), key))
+                .collect::<Result<Vec<_>, _>>()?;
+            let values = properties
+                .values()
+                .map(|item| typed_boundary_value_sql(item, value))
+                .collect::<Result<Vec<_>, _>>()?;
+            let key_list = list_sql(&keys, key);
+            let value_list = list_sql(&values, value);
+            format!("map({key_list}, {value_list})")
+        }
+        (ResolvedValue::Array(_), _) => {
+            return Err(format!("array value cannot be cast to Arrow type {target}"));
+        }
+        (ResolvedValue::Object { .. }, _) => {
+            return Err(format!(
+                "object value cannot be cast to Arrow type {target}"
+            ));
+        }
+        (value, _) => row_free_value_sql(value)?,
+    };
+    Ok(strict_cast_sql(&source, target))
+}
+
+fn row_free_value_sql(value: &ResolvedValue) -> Result<String, String> {
+    match value {
+        ResolvedValue::Expression(expression)
+            if expression.bindings.is_empty()
+                && expression.helpers.is_empty()
+                && expression.contextual_accesses.is_empty()
+                && expression.references.is_empty() =>
+        {
+            Ok(expression.sql.clone())
+        }
+        ResolvedValue::Call { function, args } => Ok(format!(
+            "{function}({})",
+            args.iter()
+                .map(row_free_value_sql)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
+        )),
+        value => catalog_structural_literal_sql(value),
+    }
+}
+
+fn strict_cast_sql(source: &str, target: &PhysicalType) -> String {
+    let arrow_type = physical_type_to_arrow(target).to_string();
+    format!(
+        "arrow_cast(({source}), '{}')",
+        arrow_type.replace('\'', "''")
+    )
+}
+
+fn typed_null_sql(target: &PhysicalType) -> String {
+    strict_cast_sql("NULL", target)
+}
+
+fn list_sql(values: &[String], element: &PhysicalType) -> String {
+    if values.is_empty() {
+        let list_type = PhysicalType::List(Box::new(element.clone()));
+        strict_cast_sql("[]", &list_type)
+    } else {
+        format!("[{}]", values.join(", "))
     }
 }
 

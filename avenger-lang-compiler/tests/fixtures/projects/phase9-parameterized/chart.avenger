@@ -6,8 +6,8 @@ chart cartesian as chart {
   param utf8 as selected { value: 'Manhattan'; }
   data: {
     table: 'local.borough_trips';
-    borough: $selected;
-    min_fare: 5;
+    borough: concat($selected, '');
+    min_fare: 2 + 3.5;
   }
   mark symbol {
     x: "borough";

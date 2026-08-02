@@ -14,6 +14,7 @@ mod lowering;
 mod options;
 mod schema;
 mod source_loader;
+mod sql_profile;
 
 pub use analysis::{
     AnalyzedColumn, AnalyzedDataset, AnalyzedMarkChannel, ColumnLineage, DatasetLineage,
@@ -40,6 +41,9 @@ pub use options::{
 };
 pub use schema::{LanguageHost, SemanticJsonSchema};
 pub use source_loader::{DefaultSourceLoader, SourceLoaderLimits};
+pub use sql_profile::{
+    SQL_SEMANTIC_PROFILE, exact_numeric_scalar, normalize_sql_expression, normalize_sql_query,
+};
 
 /// Last fully implemented language/compiler plan phase.
 pub const COMPILER_PHASE: u8 = 10;

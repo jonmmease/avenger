@@ -56,9 +56,7 @@ pub use module_graph::{
     ParsedModule, ParsedModuleGraph, ResolvedImportTarget, SourceModuleId, resolve_import_target,
     resolve_relative_origin,
 };
-pub use physical_type::{
-    IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, PhysicalValueError, TimeUnit,
-};
+pub use physical_type::{IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, TimeUnit};
 pub use resolve::{
     AuthoringItemGraph, BindingCategory, ChartEntrypointId, ChartSelector, DECLARATION_KEYWORDS,
     DeclarationId, DeclarationKey, DefinitionChannel, DefinitionExport, DefinitionExportKind,

@@ -3015,6 +3015,19 @@ impl<'a> QueryContext<'a> {
                 source_revision: request.source_revision.clone(),
             }));
         }
+        if let Some((span, markdown)) = crate::sql_intelligence::typed_boundary_hover(
+            request,
+            syntax,
+            self.semantic_roots,
+            self.dataset_contexts,
+        ) {
+            return Ok(Some(HoverResult {
+                span,
+                markdown,
+                generation: self.generation,
+                source_revision: request.source_revision.clone(),
+            }));
+        }
         let symbol = self.index.symbol_at(&request.source, request.byte_offset);
         let reference = self
             .index

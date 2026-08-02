@@ -376,7 +376,13 @@ async fn select_first_and_from_first_share_qualified_columns() {
             .iter()
             .find(|item| item.label == "rating")
             .unwrap();
-        assert!(rating.detail.as_deref().unwrap().contains("Float64"));
+        assert!(
+            rating
+                .detail
+                .as_deref()
+                .unwrap()
+                .contains("Decimal128(2, 1)")
+        );
         assert_eq!(rating.replacement.range.start, rating.replacement.range.end);
     }
 }
@@ -455,7 +461,13 @@ async fn catalog_cte_subquery_and_join_scopes_are_semantic() {
         .iter()
         .find(|item| item.label == "score")
         .unwrap();
-    assert!(score.detail.as_deref().unwrap().contains("Float64"));
+    assert!(
+        score
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("Decimal128(2, 1)")
+    );
     assert!(
         avenger_lang_analysis::SqlCompletionMetrics::snapshot().logical_query_plans > plans_before
     );
@@ -722,7 +734,11 @@ async fn event_datum_hover_tokens_and_migration_actions_are_contextual() {
         .hover(&request, &AnalysisCancellation::default())
         .unwrap()
         .expect("datum hover");
-    assert!(hover.markdown.contains("Float64"), "{}", hover.markdown);
+    assert!(
+        hover.markdown.contains("Decimal128(2, 1)"),
+        "{}",
+        hover.markdown
+    );
     assert!(
         hover
             .markdown

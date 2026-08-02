@@ -94,6 +94,74 @@ async fn resolved_workspace_analysis(
     (analysis, origin, revision)
 }
 
+#[tokio::test]
+async fn typed_boundary_hover_reports_sql_source_and_arrow_destination() {
+    let source = r#"avenger 1;
+chart zerod as chart {
+  param int32 as narrowed { value: 3.9; }
+  param struct(field(int16, 'x'), field(utf8, 'label')) as nested {
+    value: { x: 1 + 2.5; label: upper('ok'); }
+  }
+  param store as rows {
+    field int16 amount;
+    row { amount: '4'; }
+  }
+  on cursor_moved as update {
+    set narrowed = '9';
+    set cursor = 42;
+  }
+}
+"#;
+    let (analysis, origin, revision) = resolved_workspace_analysis(source).await;
+    let hover_at = |needle: &str| {
+        analysis
+            .hover(
+                &PositionRequest {
+                    source: origin.clone(),
+                    byte_offset: source.find(needle).unwrap() + 1,
+                    source_revision: revision.clone(),
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+            .unwrap()
+    };
+
+    let narrowed = hover_at("3.9");
+    assert!(narrowed.markdown.contains("Typed SQL boundary"));
+    assert!(narrowed.markdown.contains("Decimal128"));
+    assert!(narrowed.markdown.contains("Int32"));
+    assert!(narrowed.markdown.contains("strict DataFusion/Arrow `CAST`"));
+
+    let nested = hover_at("1 + 2.5");
+    assert!(nested.markdown.contains("field `x`"), "{}", nested.markdown);
+    assert!(nested.markdown.contains("Int16"), "{}", nested.markdown);
+
+    let store = hover_at("'4'");
+    assert!(
+        store.markdown.contains("store `$rows` field `amount`"),
+        "{}",
+        store.markdown
+    );
+    assert!(store.markdown.contains("Int16"), "{}", store.markdown);
+
+    let action = hover_at("'9'");
+    assert!(
+        action.markdown.contains("assignment to param `$narrowed`"),
+        "{}",
+        action.markdown
+    );
+    assert!(action.markdown.contains("Int32"), "{}", action.markdown);
+
+    let cursor = hover_at("42;");
+    assert!(
+        cursor.markdown.contains("cursor assignment"),
+        "{}",
+        cursor.markdown
+    );
+    assert!(cursor.markdown.contains("Utf8"), "{}", cursor.markdown);
+}
+
 #[test]
 fn canonical_formatting_is_a_comment_preserving_fixpoint_and_rejects_invalid_source() {
     let source = r#"avenger 1; chart cartesian as chart {

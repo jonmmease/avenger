@@ -630,18 +630,33 @@ physical type grammar.
 
 ### Typed Value Boundaries
 
-Declared Arrow types are exact at every param, store-field, and table-param
-boundary. The one ergonomic exception is a syntactic scalar literal in a
-destination-typed slot: the compiler constructs it directly as the destination
-Arrow scalar when the literal is representable without overflow, truncation, or
-invalid parsing. Thus `value: 0;` is valid for a scalar param declared as
-`int32`, `float64`, or
-`decimal128(10, 2)` without first becoming an `int64`; `NULL` becomes the
-destination's typed null. SQL list and struct literals recurse under the same
-expected type, and every struct field must match the destination's name, order,
-nested type, and fixed v1 nullability.
+Declared Arrow types are exact at every param, store-field, table-param, and
+typed action boundary. Every authored RHS at such a boundary is a SQL scalar
+expression. The compiler plans the expression under the names and relation
+allowed by that boundary, then applies DataFusion's strict Arrow `CAST` to the
+declared destination type. There is no literal/nonliteral distinction:
+`value: 0;`, `value: (0);`, and `value: 1 - 1;` follow the same rule.
 
-Numeric syntax remains exact until that destination construction. The semantic
+The destination cast intentionally accepts the complete conversion matrix of
+the pinned DataFusion 54 / Arrow 58 implementation, including supported string
+parsing and lossy numeric conversions. For example, a `float64` param may use
+`value: '0.75';`, and an `int32` param may use `value: 3.9;` (producing `3`
+under the pinned cast); the pinned Boolean string kernel accepts forms such as
+`'yes'` and `'no'`. An invalid constant cast is a compilation error. A
+value-dependent runtime cast failure fails and rolls back the complete ordered
+event transaction; it never silently becomes `NULL` or a skipped assignment.
+Authors who want failure-to-null semantics write an explicit inner
+`TRY_CAST(...)`, after which the destination's ordinary typed-null admission
+rules apply.
+
+`NULL` is strictly cast to the destination's typed null. DSL list, struct, and
+map value syntax recursively applies the same destination rule to its members.
+The declared target supplies the otherwise ambiguous shape of empty nested
+values, fixed-size-list length, struct field order/nullability, and map key and
+value types. Unknown struct fields, missing non-nullable fields, null map keys,
+and map-key collisions introduced by casting are errors.
+
+Numeric syntax remains exact until SQL planning and the destination cast. The semantic
 AST stores a numeric literal as its canonical decimal spelling, never as an
 `f64`, and interchange JSON uses the tagged string form
 `{"num":"9007199254740993"}`. Canonicalization preserves every significant
@@ -704,23 +719,32 @@ sign is folded into the numeric literal. Parenthesized or cast literals and all
 other expression shapes remain `Expr` values. This normalization is identical
 for parsed source and decoded interchange JSON.
 
-This contextual rule applies only to syntactic literals. A general SQL
-expression — including a `$param`, function call, arithmetic result, `CASE`,
-scalar subquery, or column expression — undergoes ordinary internal DataFusion
-planning and must then have exactly the destination Arrow type. The assignment
-or argument boundary inserts no implicit cast. Authors use an explicit SQL
-`CAST` when physical types differ, even when DataFusion could normally find a
-widening or comparison coercion inside an expression.
+That AST normalization is an interchange detail, not a semantic distinction at
+a typed boundary. A literal, parenthesized literal, `$param`, function call,
+arithmetic result, or `CASE` expression is planned by the same pinned
+DataFusion profile and receives the same strict destination cast. Exact numeric
+AST nodes are normalized to exact `int64`, `uint64`, decimal128/decimal256, or
+negative-zero floating source literals before DataFusion plans any scalar
+expression, full query, catalog SQL, or editor-analysis probe.
 
-The same law governs scalar param values, `set`, store row/patch/key fields,
-table-function arguments, and computed cursor expressions (`utf8`). A mismatch
-known from schemas is a compile-time error; a dynamic mismatch, invalid runtime
-cursor string, or failed explicit cast fails the action and aborts its
-transaction. Host adapters receive the declared Arrow schema and may
-ergonomically construct native scalar/list/struct inputs against it, but the
-result must have the exact declared `DataType` and value shape. They may not
-silently narrow, truncate, reorder struct fields, parse strings into another
-type, or choose a type from the host value.
+The boundary inventory is closed for v1:
+
+| Typed boundary | Expression environment | Destination |
+| --- | --- | --- |
+| scalar and generated param `value:` | row-free SQL and same-scope scalar-param dependencies | declared/exported Arrow type |
+| catalog-table param `value:` | self-contained row-free SQL | declared Arrow type |
+| table/data-block argument | row-free SQL and visible scalar params | callee param type |
+| store initial-row field | row-free SQL and chart scalar params | declared field type |
+| `set <scalar-param>` and store row/key/patch RHS | ordered event or param-change environment | target param/field type |
+| `set cursor` RHS | event environment | `utf8`, then cursor-style validation |
+| compiler-owned filters | their existing stream/action environment | `boolean` |
+
+Ordinary SQL output columns, native mark/channel properties without an exact
+Arrow destination, definition slots, enums, names, structural integers, and
+selection-specific predicate comparison semantics do not gain an implicit
+destination cast. Host `ScalarValue` and `RecordBatch` inputs also remain exact:
+they already carry physical Arrow types and must match the compiled interface
+without SQL coercion.
 
 ## Charts, Plots, And Subplots
 
@@ -1981,16 +2005,20 @@ table sql as zoned_trips {
 }
 ```
 
-- **A table-function argument accepts exactly what a scalar binding accepts**: a
-  scalar literal or a param `$binding` visible in the calling scope — the calling
-  table's own params here, the chart's params in chart scopes. Forwarding
+- **A table-function argument is a row-free scalar SQL expression**. It may use
+  literals, operators, scalar functions, `CASE`, parentheses, and visible
+  scalar `$param` bindings — the calling table's own params here, the chart's
+  params in chart scopes. It may not use columns, stores, subqueries, event/item
+  context, or transform outputs. Forwarding
   composes placeholders: the inlined plan carries the outer placeholder,
   so an entire chain still plans once and rebinds at execution —
   `zoned_trips(borough => 'Queens')` reaches through to the `borough_trips`
-  filter. The callee param supplies the expected Arrow type: a literal is
-  constructed contextually, while a `$binding` or other nonliteral expression
-  must already have that exact physical type under
-  [Typed Value Boundaries](#typed-value-boundaries).
+  filter. The callee param supplies the destination Arrow type and the complete
+  expression receives the strict cast from
+  [Typed Value Boundaries](#typed-value-boundaries). A binding such as
+  `borough => upper($selected_borough)` therefore remains one stable logical
+  expression over an outer placeholder and does not require replanning when
+  the param changes.
 - **Materialization is the only boundary in a chain.** Logical links
   inline end to end, so a chart predicate pushes through the whole chain
   into the sources. A `materialize: session;` link computes once and holds
@@ -3118,7 +3146,7 @@ Captured equality values and interval endpoints retain their evaluated Arrow
 types. Their comparisons use ordinary pinned DataFusion comparison planning,
 including DataFusion's compatible comparison coercions; incompatible types are
 planning errors. This is comparison semantics, not a param/store assignment
-boundary, so the exact-assignment rule above does not suppress those native
+boundary, so the destination-cast rule above does not suppress those native
 comparison coercions. Struct equality is supported through Arrow/DataFusion
 struct comparison.
 
@@ -3185,11 +3213,10 @@ stores.
 
 Every row supplied to `insert_rows`, `replace_rows`, `upsert_rows`, or
 `toggle_rows` is a complete row: missing nullable fields normalize to typed
-`NULL`; missing non-nullable fields, unknown fields, type mismatches, and null
-key fields are errors. Literal field values are contextually constructed as the
-declared field type; nonliteral field, key, and patch expressions must return
-that exact physical type or contain an explicit `CAST`. A multi-row keyed
-payload must contain unique key tuples
+`NULL`; missing non-nullable fields, unknown fields, failed strict casts, and
+null key fields are errors. Every field, key, and patch RHS is a SQL expression
+strictly cast to its declared field type; nested members recursively use their
+declared destination types. A multi-row keyed payload must contain unique key tuples
 within the payload before it is applied. Duplicate payload keys are errors,
 never sequential toggles or last-write-wins behavior.
 
@@ -3295,19 +3322,22 @@ alters it and is required exactly once. Scalar params are nullable: `NULL` means
 the typed null of the declared Arrow type, including for non-`NULL` initial
 values and first-invocation temporal reads. Initial values, host
 bindings, table-function arguments, and action assignments follow the exact
-[Typed Value Boundaries](#typed-value-boundaries) rule: literals are constructed
-under the expected type, while nonliteral expressions require exact physical
-type equality or an authored SQL `CAST`.
+[Typed Value Boundaries](#typed-value-boundaries) rule: every authored SQL
+expression is strictly cast to the declared physical Arrow type. Host-provided
+Arrow values remain different: they already carry a physical type and must
+match the compiled interface exactly.
 
 The DSL semantic model and `CompiledParamSpec` carry this `DataType`
-explicitly. The DSL type supplies destination context while checking literals,
-`NULL`, and initial-value expressions; placeholder fields, host bindings, and runtime
-assignment validation use that declared type. The ordinary Rust `Param` API is
+explicitly. The DSL type supplies destination context while planning and
+strictly casting literals, `NULL`, and initial-value expressions; placeholder
+fields, host bindings, and runtime assignment validation use that declared
+type. The ordinary Rust `Param` API is
 different because its initial/default value is already a precisely typed Arrow
 `ScalarValue`: `Param::new(name, value)` derives the compiled type from
 `value.data_type()` rather than requiring the Rust author to repeat it. DSL
-lowering must construct or evaluate `value:` against the separately declared
-type and reject a mismatch before producing the compiled param specification.
+lowering evaluates `value:` through the compiler-owned strict destination cast
+and rejects an unsupported or value-invalid conversion before producing the
+compiled param specification.
 
 Scalar params have no behavioral `kind:`. `store` and `selection` are closed
 header types, not metadata. Consumers impose role-specific type constraints at
@@ -6417,11 +6447,12 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    type aliases/inference, preserve typed `NULL`, validate defaults/host values/
    table arguments/action results against the declared type, round-trip nested
    type spellings, reject unsupported Arrow types, and check `raw_domain:`
-   use-site type constraints. Typed-boundary fixtures pin contextual primitive,
-   list, struct, and `NULL` literals; range/shape failures; exact nonliteral
-   param/store/table-argument/cursor results; absence of boundary-inserted casts;
-   explicit-cast success/failure; exact host `DataType`; and compile-time versus
-   transactional runtime diagnostics. Struct fixtures cover empty, flat, and
+   use-site type constraints. Typed-boundary fixtures pin bare, parenthesized,
+   and compound SQL sources; recursive list, fixed-list, struct, map, and typed
+   `NULL` values; string and lossy numeric conversions under the pinned cast
+   matrix; strict versus authored `TRY_CAST`; exact numeric sources; exact host
+   `DataType`; and compile-time versus transactional runtime failures. Struct
+   fixtures cover empty, flat, and
    recursively nested structs; ordered and arbitrary string-named fields;
    duplicate/empty-name rejection; nested list fields; nested `Call` interchange
    round trips; and default, assignment, host-binding, and temporal typed-`NULL`

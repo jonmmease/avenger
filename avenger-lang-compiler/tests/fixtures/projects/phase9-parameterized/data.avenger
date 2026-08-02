@@ -9,8 +9,8 @@ export schema tables as local {
   }
 
   table sql as borough_trips {
-    param utf8 as borough { value: 'Manhattan'; }
-    param int64 as min_fare { value: 0; }
+    param utf8 as borough { value: 'Man' || 'hattan'; }
+    param int64 as min_fare { value: (2 * 0.5); }
     sql:
       SELECT "borough", "fare"
       FROM local.trips
@@ -26,14 +26,14 @@ export schema tables as local {
 
   table sql as configured {
     param struct(field(utf8, 'label'), field(int64, 'weight')) as config {
-      value: { label: 'base'; weight: 2; }
+      value: { label: upper('base'); weight: 1 + 1.5; }
     }
     sql: SELECT $config AS settings;
   }
 
   table sql as configured_forwarded {
     param struct(field(utf8, 'label'), field(int64, 'weight')) as forwarded_settings {
-      value: { label: 'forwarded'; weight: 3; }
+      value: { label: upper('forwarded'); weight: 1 + 2.5; }
     }
     sql:
       SELECT *

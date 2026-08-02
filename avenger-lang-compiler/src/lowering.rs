@@ -6,37 +6,36 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
+    ops::ControlFlow,
     sync::Arc,
 };
 
 use arrow::{
-    array::{FixedSizeListArray, StructArray},
-    datatypes::{
-        DataType, Field, Fields, IntervalUnit as ArrowIntervalUnit, Schema,
-        TimeUnit as ArrowTimeUnit,
-    },
-    record_batch::RecordBatch,
+    datatypes::{DataType, Field, Schema},
+    record_batch::{RecordBatch, RecordBatchOptions},
 };
 use avenger_chart::{
     cartesian::Cartesian,
     layout::LayoutSpec,
     prelude::{
-        Auto, ChannelExpr, ChannelValue, ColorbarOverlay, LegendableChannelValue, Param, Scale,
-        ScaleChannelValue, ScaleDomainInference, Selection, Store, WidgetItemRow, WidgetItems,
+        Auto, ChannelExpr, ChannelValue, ColorbarOverlay, LegendableChannelValue, Linear, Param,
+        Scale, ScaleChannelValue, ScaleDomainInference, Selection, Store, WidgetItemRow,
+        WidgetItems,
     },
 };
 use avenger_chart_core::{
     ChartAction, ChartEventBinding, ChartEventStream, ChartEventType,
-    DataTransformExecutionContext, DataTransformStage, DerivedPrimitiveMarkSpec,
-    DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec, DerivedTextMarkSpec,
-    ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment,
+    CompiledScalarExpressionProgram, DataTransformExecutionContext, DataTransformStage,
+    DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec,
+    DerivedTextMarkSpec, ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment,
     MarkAdjustmentCompileContext, MarkAdjustmentSpec, Param as ChartParam, PatternAnchor,
     PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
-    PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
-    SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
-    StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
-    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
-    item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PrimitiveMarkEffects,
+    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
+    SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, StateMigrationKey, StoreData,
+    StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme,
+    TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event, item_bbox_column_name,
+    item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
@@ -47,19 +46,20 @@ use avenger_chart_lang_registry::{
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
-    ChartEntrypointId, DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit,
-    ParamId, PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding,
-    ResolvedChannelMember, ResolvedContextualAccess, ResolvedContextualAccessKind,
+    ChartEntrypointId, DeclarationId, Diagnostic, ImportCapabilities, ParamId, ResolvedActionRoute,
+    ResolvedBinding, ResolvedChannelMember, ResolvedContextualAccess, ResolvedContextualAccessKind,
     ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
     ResolvedHelperArgument, ResolvedIntervalBoundary, ResolvedModuleGraph, ResolvedOutputHandle,
     ResolvedOutputShape, ResolvedParam, ResolvedQuery, ResolvedRelationTarget, ResolvedSelection,
     ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
     ResolvedTarget, ResolvedValue, ResolvedViewAxis, ResolvedViewField, SelectionId, SourceLabel,
-    SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
+    SourceLoader, SourceSpan, StateSharing, StoreId,
     ast::{BindingTime, SqlExpression, SqlQuery, Visibility},
     contextual_access_signature,
     module_graph::resolve_relative_origin,
+    sql::AvengerSqlDialect,
 };
+use datafusion::functions_nested::map::map_udf;
 use datafusion::{
     common::{
         Column, ScalarValue,
@@ -67,12 +67,23 @@ use datafusion::{
     },
     dataframe::DataFrame,
     datasource::empty::EmptyTable,
-    logical_expr::{Expr, ExprSchemable, LogicalPlan, TableScan, col, lit},
-    prelude::SessionContext,
+    execution::FunctionRegistry,
+    logical_expr::{Expr, ExprSchemable, LogicalPlan, TableScan, cast, col, lit},
+    prelude::{SessionContext, make_array, named_struct},
 };
 use indexmap::IndexMap;
+use sqlparser::{
+    ast::{Expr as SqlExpr, Value as SqlValue, VisitMut, VisitorMut},
+    parser::Parser,
+};
 
-use crate::{CompiledChartArtifact, DependencyFingerprint, NativeRequirementSet};
+use crate::{
+    CompiledChartArtifact, DependencyFingerprint, NativeRequirementSet,
+    sql_profile::{
+        exact_numeric_scalar, normalize_sql_expression, normalize_sql_query,
+        physical_field_to_arrow, physical_type_to_arrow,
+    },
+};
 
 pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
@@ -658,8 +669,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_param(&mut self, id: &ParamId) -> Result<(), Diagnostic> {
         let param = &self.project.params[id];
-        let data_type = physical_data_type(&param.data_type);
-        let default = self.typed_scalar(&param.default, &data_type, param)?;
+        let default = self.evaluate_param_default(&param.default, param)?;
         let runtime_name = self.param_runtime_name(param);
         let mut lowered = Param::new(runtime_name, default);
         if let Some(key) = param.migration_key.as_ref() {
@@ -722,41 +732,30 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn typed_scalar(
+    fn evaluate_param_default(
         &self,
         value: &ResolvedValue,
-        data_type: &DataType,
         param: &ResolvedParam,
     ) -> Result<ScalarValue, Diagnostic> {
-        if let ResolvedValue::Binding(ResolvedBinding {
-            target: ResolvedTarget::Param(id),
-            time: BindingTime::Current,
-            ..
-        }) = value
-        {
-            return self
-                .params
-                .get(id)
-                .map(|param| param.default.clone())
-                .ok_or_else(|| {
-                    lowerer_error_at(
-                        param.declaration.clone(),
-                        self.project,
-                        "parameter default dependency was not lowered first",
-                    )
-                });
-        }
-        scalar_literal(value, data_type).map_err(|error| {
+        let declaration = find_declaration(self.project, &param.declaration).ok_or_else(|| {
             lowerer_error_at(
                 param.declaration.clone(),
                 self.project,
-                format!("invalid {:?} parameter default: {error}", data_type),
+                "parameter declaration is unavailable",
             )
-        })
+        })?;
+        let data = self.constant_expression_data(declaration)?;
+        let target = physical_type_to_arrow(&param.data_type);
+        let expr = self.typed_boundary_expr(value, &target, Some(&data), declaration, false)?;
+        self.evaluate_constant_boundary(expr, &target, declaration, "parameter default")
     }
 
     fn lower_store(&self, store: &ResolvedStore) -> Result<Store, Diagnostic> {
-        let fields = store.fields.iter().map(physical_field).collect::<Vec<_>>();
+        let fields = store
+            .fields
+            .iter()
+            .map(physical_field_to_arrow)
+            .collect::<Vec<_>>();
         let schema = Arc::new(Schema::new(fields.clone()));
         let mut lowered = if store.rows.is_empty() {
             Store::new(store.source_name.clone(), schema)
@@ -769,7 +768,27 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .map(|row| {
                             let value = row.get(field.name()).unwrap_or(&ResolvedValue::Null);
-                            scalar_literal(value, field.data_type())
+                            let declaration = find_declaration(self.project, &store.declaration)
+                                .ok_or_else(|| "store declaration is unavailable".to_owned())?;
+                            let data = self
+                                .constant_expression_data(declaration)
+                                .map_err(|diagnostic| diagnostic.message.clone())?;
+                            let expr = self
+                                .typed_boundary_expr(
+                                    value,
+                                    field.data_type(),
+                                    Some(&data),
+                                    declaration,
+                                    false,
+                                )
+                                .map_err(|diagnostic| diagnostic.message.clone())?;
+                            self.evaluate_constant_boundary(
+                                expr,
+                                field.data_type(),
+                                declaration,
+                                &format!("store field `{}`", field.name()),
+                            )
+                            .map_err(|diagnostic| diagnostic.message.clone())
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     ScalarValue::iter_to_array(values).map_err(|error| error.to_string())
@@ -791,6 +810,227 @@ impl<'a> ModuleLowerer<'a> {
                 lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
         }
         Ok(lowered)
+    }
+
+    fn constant_expression_data(
+        &self,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<DataFrame, Diagnostic> {
+        let schema = Arc::new(Schema::empty());
+        let batch = RecordBatch::try_new_with_options(
+            Arc::clone(&schema),
+            Vec::new(),
+            &RecordBatchOptions::new().with_row_count(Some(1)),
+        )
+        .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        self.context
+            .read_batch(batch)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))
+    }
+
+    fn typed_boundary_expr(
+        &self,
+        value: &ResolvedValue,
+        target: &DataType,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+        event: bool,
+    ) -> Result<Expr, Diagnostic> {
+        let source = match (value, target) {
+            (ResolvedValue::Array(values), DataType::List(field))
+            | (ResolvedValue::Array(values), DataType::LargeList(field)) => {
+                let values = values
+                    .iter()
+                    .map(|value| {
+                        self.typed_boundary_expr(value, field.data_type(), data, declaration, event)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                make_array(values)
+            }
+            (ResolvedValue::Array(values), DataType::FixedSizeList(field, length)) => {
+                if usize::try_from(*length).ok() != Some(values.len()) {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!(
+                            "fixed-size list boundary requires {length} values, found {}",
+                            values.len()
+                        ),
+                    ));
+                }
+                let values = values
+                    .iter()
+                    .map(|value| {
+                        self.typed_boundary_expr(value, field.data_type(), data, declaration, event)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                make_array(values)
+            }
+            (
+                ResolvedValue::Object {
+                    properties,
+                    children,
+                    ..
+                },
+                DataType::Struct(fields),
+            ) => {
+                if !children.is_empty() {
+                    return Err(lowerer_error(
+                        declaration,
+                        "typed struct values cannot contain declarations",
+                    ));
+                }
+                let unknown = properties
+                    .keys()
+                    .filter(|name| fields.find(name).is_none())
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !unknown.is_empty() {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("typed struct has unknown field(s): {}", unknown.join(", ")),
+                    ));
+                }
+                let mut arguments = Vec::with_capacity(fields.len() * 2);
+                for field in fields {
+                    arguments.push(lit(field.name().clone()));
+                    match properties.get(field.name()) {
+                        Some(value) => arguments.push(self.typed_boundary_expr(
+                            value,
+                            field.data_type(),
+                            data,
+                            declaration,
+                            event,
+                        )?),
+                        None if field.is_nullable() => {
+                            arguments.push(cast(lit(ScalarValue::Null), field.data_type().clone()))
+                        }
+                        None => {
+                            return Err(lowerer_error(
+                                declaration,
+                                format!(
+                                    "typed struct is missing non-nullable field `{}`",
+                                    field.name()
+                                ),
+                            ));
+                        }
+                    }
+                }
+                named_struct(arguments)
+            }
+            (
+                ResolvedValue::Object {
+                    properties,
+                    children,
+                    ..
+                },
+                DataType::Map(entries, _),
+            ) => {
+                if !children.is_empty() {
+                    return Err(lowerer_error(
+                        declaration,
+                        "typed map values cannot contain declarations",
+                    ));
+                }
+                let DataType::Struct(entry_fields) = entries.data_type() else {
+                    return Err(lowerer_error(declaration, "invalid Arrow map entry type"));
+                };
+                let key_type = entry_fields[0].data_type();
+                let value_type = entry_fields[1].data_type();
+                let mut keys = Vec::with_capacity(properties.len());
+                let mut values = Vec::with_capacity(properties.len());
+                for (name, value) in properties {
+                    keys.push(cast(lit(name.clone()), key_type.clone()));
+                    values.push(self.typed_boundary_expr(
+                        value,
+                        value_type,
+                        data,
+                        declaration,
+                        event,
+                    )?);
+                }
+                let key_list =
+                    DataType::List(Arc::new(Field::new_list_field(key_type.clone(), false)));
+                let value_list =
+                    DataType::List(Arc::new(Field::new_list_field(value_type.clone(), true)));
+                map_udf().call(vec![
+                    cast(make_array(keys), key_list),
+                    cast(make_array(values), value_list),
+                ])
+            }
+            (ResolvedValue::Array(_), _) => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("array value cannot be cast to Arrow type {target}"),
+                ));
+            }
+            (ResolvedValue::Object { .. }, _) => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("object value cannot be cast to Arrow type {target}"),
+                ));
+            }
+            _ => self.boundary_source_value(value, data, declaration, event)?,
+        };
+        Ok(cast(source, target.clone()))
+    }
+
+    fn evaluate_constant_boundary(
+        &self,
+        expr: Expr,
+        target: &DataType,
+        declaration: &ResolvedDeclaration,
+        boundary: &str,
+    ) -> Result<ScalarValue, Diagnostic> {
+        let expr = expr
+            .transform_up(|candidate| {
+                let Expr::Placeholder(placeholder) = &candidate else {
+                    return Ok(Transformed::no(candidate));
+                };
+                let default = self
+                    .params
+                    .values()
+                    .find(|param| format!("${}", param.name) == placeholder.id)
+                    .map(|param| param.default.clone())
+                    .ok_or_else(|| {
+                        datafusion::error::DataFusionError::Plan(format!(
+                            "parameter default dependency `{}` was not lowered first",
+                            placeholder.id
+                        ))
+                    })?;
+                Ok(Transformed::yes(lit(default)))
+            })
+            .map(|transformed| transformed.data)
+            .map_err(|error: datafusion::error::DataFusionError| {
+                lowerer_error(declaration, error.to_string())
+            })?;
+        let schema = Arc::new(Schema::empty());
+        let batch = RecordBatch::try_new_with_options(
+            Arc::clone(&schema),
+            Vec::new(),
+            &RecordBatchOptions::new().with_row_count(Some(1)),
+        )
+        .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        let program = CompiledScalarExpressionProgram::compile(
+            self.context,
+            schema,
+            vec![
+                PhysicalScalarExpressionSpec::new("__avenger_typed_boundary", expr)
+                    .with_expected_type(target.clone()),
+            ],
+            PhysicalScalarProgramOptions::default(),
+        )
+        .map_err(|error| {
+            lowerer_error(
+                declaration,
+                format!("{boundary} cannot be cast to `{target}`: {error}"),
+            )
+        })?;
+        program.evaluate_value_at(0, &batch).map_err(|error| {
+            lowerer_error(
+                declaration,
+                format!("{boundary} cannot be cast to `{target}`: {error}"),
+            )
+        })
     }
 
     async fn lower_chart(
@@ -1091,7 +1331,8 @@ impl<'a> ModuleLowerer<'a> {
                 .ok_or_else(|| lowerer_error(action, "state action requires a value"))?;
             match action.kind.as_deref() {
                 Some("cursor") => {
-                    binding = binding.set_cursor(self.event_expression_value(value, data, action)?);
+                    binding =
+                        binding.set_cursor(self.boundary_source_value(value, data, action, true)?);
                 }
                 Some("param") => {
                     let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
@@ -1106,7 +1347,7 @@ impl<'a> ModuleLowerer<'a> {
                     let param = self.params.get(id).ok_or_else(|| {
                         lowerer_error(action, "resolved parameter is unavailable")
                     })?;
-                    let expr = self.event_expression_value(value, data, action)?;
+                    let expr = self.boundary_source_value(value, data, action, true)?;
                     binding = match (lvalue.route, lvalue.replacing_scopes) {
                         (ResolvedActionRoute::Current, false) => binding.set_param(param, expr),
                         (ResolvedActionRoute::Current, true) => {
@@ -1243,7 +1484,10 @@ impl<'a> ModuleLowerer<'a> {
                     let param = self.params.get(id).ok_or_else(|| {
                         lowerer_error(action, "resolved parameter is unavailable")
                     })?;
-                    lowered = lowered.set_param(param, self.expression_value(value, data, action)?);
+                    lowered = lowered.set_param(
+                        param,
+                        self.boundary_source_value(value, data, action, false)?,
+                    );
                 }
                 Some("store") => {
                     let ResolvedTarget::Store(id) = &lvalue.target else {
@@ -1324,7 +1568,7 @@ impl<'a> ModuleLowerer<'a> {
                         .try_fold(StoreRow::new(), |row, (name, value)| {
                             Ok(row.field(
                                 name,
-                                self.event_expression_value(value, data, declaration)?,
+                                self.boundary_source_value(value, data, declaration, true)?,
                             ))
                         })
                 })
@@ -1355,7 +1599,7 @@ impl<'a> ModuleLowerer<'a> {
                         |patch, (name, value)| {
                             Ok(patch.field(
                                 name,
-                                self.event_expression_value(value, data, declaration)?,
+                                self.boundary_source_value(value, data, declaration, true)?,
                             ))
                         },
                     )?,
@@ -1388,7 +1632,10 @@ impl<'a> ModuleLowerer<'a> {
         key.properties
             .iter()
             .try_fold(StoreKey::new(), |key, (name, value)| {
-                Ok(key.field(name, self.event_expression_value(value, data, declaration)?))
+                Ok(key.field(
+                    name,
+                    self.boundary_source_value(value, data, declaration, true)?,
+                ))
             })
     }
 
@@ -3716,6 +3963,26 @@ impl<'a> ModuleLowerer<'a> {
         };
         if matches!(value, ResolvedValue::Visual(_)) {
             channel = channel.no_scale();
+        } else if channel.get_scale_config().is_none()
+            && matches!(
+                &channel,
+                ChannelValue::Scaled { .. } | ChannelValue::Conditional { .. }
+            )
+            && data.is_some_and(|data| {
+                data_expr.get_type(data.schema()).is_ok_and(|data_type| {
+                    matches!(
+                        data_type,
+                        DataType::Decimal128(_, _) | DataType::Decimal256(_, _)
+                    )
+                })
+            })
+        {
+            // Exact fractional SQL literals infer as Arrow decimals. The
+            // general Rust API intentionally retains its existing scale-type
+            // policy, so the language compiler supplies the numeric intent at
+            // this boundary without changing excluded/injected scale behavior
+            // in compound coordinate systems.
+            channel = channel.scale_with::<Linear>(|scale| scale);
         }
         Ok(NativeValue::Channel(Box::new(ChannelExpr::new(
             data_expr, channel,
@@ -3742,7 +4009,7 @@ impl<'a> ModuleLowerer<'a> {
         match value {
             ResolvedValue::String(value) => Ok(lit(value.clone())),
             ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
-                Ok(lit(value.parse::<i64>().unwrap()))
+                Ok(lit(value.parse::<i64>().expect("checked integer spelling")))
             }
             ResolvedValue::Number(value) => value.parse::<f64>().map(lit).map_err(|_| {
                 lowerer_error(declaration, format!("invalid numeric literal `{value}`"))
@@ -3975,9 +4242,12 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         match value {
+            ResolvedValue::Atom(value) if value.eq_ignore_ascii_case("null") => {
+                Ok(lit(ScalarValue::Null))
+            }
             ResolvedValue::String(value) | ResolvedValue::Atom(value) => Ok(lit(value.clone())),
             ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
-                Ok(lit(value.parse::<i64>().unwrap()))
+                Ok(lit(value.parse::<i64>().expect("checked integer spelling")))
             }
             ResolvedValue::Number(value) => value.parse::<f64>().map(lit).map_err(|_| {
                 lowerer_error(declaration, format!("invalid numeric literal `{value}`"))
@@ -4000,6 +4270,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.planned_expression(expression, data, declaration)
             }
             ResolvedValue::Binding(binding) => self.binding_expr(binding, declaration),
+            ResolvedValue::Call { function, args } => {
+                let function = self
+                    .context
+                    .udf(function)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                let args = args
+                    .iter()
+                    .map(|arg| self.expression_value(arg, data, declaration))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(function.call(args))
+            }
             ResolvedValue::Visual(inner) => self.expression_value(inner, data, declaration),
             _ => Err(lowerer_error(
                 declaration,
@@ -4035,31 +4316,67 @@ impl<'a> ModuleLowerer<'a> {
                         event::interval_ordered(left, right)
                     });
                 }
-                let helper = avenger_lang_core::ResolvedHelper {
-                    name: function.clone(),
-                    class: HelperClass::Reserved,
-                    arguments: args
-                        .iter()
-                        .map(|value| match value {
-                            ResolvedValue::Atom(value) => {
-                                Ok(ResolvedHelperArgument::Name(value.clone()))
-                            }
-                            ResolvedValue::String(value) => {
-                                Ok(ResolvedHelperArgument::String(value.clone()))
-                            }
-                            ResolvedValue::Number(value) => {
-                                Ok(ResolvedHelperArgument::Number(value.clone()))
-                            }
-                            _ => Err(lowerer_error(
-                                declaration,
-                                "event helper call has an unsupported argument",
-                            )),
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                };
-                self.event_helper_expr(&helper, data, declaration)
-                    .map(|(expr, _)| expr)
+                self.expression_value(value, data, declaration)
             }
+            _ => self.expression_value(value, data, declaration),
+        }
+    }
+
+    /// Lower the source side of a declared physical boundary while retaining
+    /// exact structural numeric spellings. Untyped native/channel values keep
+    /// their established integer-or-f64 representation.
+    fn boundary_source_value(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+        event: bool,
+    ) -> Result<Expr, Diagnostic> {
+        match value {
+            ResolvedValue::Number(value) => exact_numeric_scalar(value)
+                .map(lit)
+                .map_err(|error| lowerer_error(declaration, error)),
+            ResolvedValue::Expression(expression) if event => {
+                self.planned_event_expression(expression, data, declaration)
+            }
+            ResolvedValue::Expression(expression) => {
+                self.planned_expression(expression, data, declaration)
+            }
+            ResolvedValue::Binding(binding) if event => {
+                self.event_binding_expr(binding, declaration)
+            }
+            ResolvedValue::Call { function, args }
+                if event && matches!(function.as_str(), "span" | "span_ordered") =>
+            {
+                let [left, right] = args.as_slice() else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("event helper `{function}` requires two arguments"),
+                    ));
+                };
+                let left = self.boundary_source_value(left, data, declaration, true)?;
+                let right = self.boundary_source_value(right, data, declaration, true)?;
+                Ok(if function == "span" {
+                    event::interval(left, right)
+                } else {
+                    event::interval_ordered(left, right)
+                })
+            }
+            ResolvedValue::Call { function, args } => {
+                let function = self
+                    .context
+                    .udf(function)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                let args = args
+                    .iter()
+                    .map(|arg| self.boundary_source_value(arg, data, declaration, event))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(function.call(args))
+            }
+            ResolvedValue::Visual(inner) => {
+                self.boundary_source_value(inner, data, declaration, event)
+            }
+            _ if event => self.event_expression_value(value, data, declaration),
             _ => self.expression_value(value, data, declaration),
         }
     }
@@ -4223,6 +4540,8 @@ impl<'a> ModuleLowerer<'a> {
             replacements.insert(synthetic, expr);
             source_replacements.push((authored, replacement));
         }
+        let sql =
+            normalize_sql_expression(&sql).map_err(|error| lowerer_error(declaration, error))?;
         let parsed = if store_scan_targets.is_empty() {
             self.context
                 .parse_sql_expr(&sql, parse_data.schema())
@@ -4310,24 +4629,6 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn event_helper_expr(
-        &self,
-        helper: &avenger_lang_core::ResolvedHelper,
-        data: Option<&DataFrame>,
-        declaration: &ResolvedDeclaration,
-    ) -> Result<(Expr, ScalarValue), Diagnostic> {
-        let parse_data = match data {
-            Some(data) => data.clone(),
-            None => self
-                .context
-                .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(vec![
-                    Field::new("__avenger_event_parse", DataType::Boolean, true),
-                ]))))
-                .map_err(|error| lowerer_error(declaration, error.to_string()))?,
-        };
-        self.event_helper_expr_with_context(helper, data, &parse_data, &[], declaration)
-    }
-
     fn contextual_access_expr(
         &self,
         access: &ResolvedContextualAccess,
@@ -4376,7 +4677,7 @@ impl<'a> ModuleLowerer<'a> {
                 channel,
                 physical_type,
             } => {
-                let seed = ScalarValue::try_new_null(&physical_data_type(physical_type))
+                let seed = ScalarValue::try_new_null(&physical_type_to_arrow(physical_type))
                     .map_err(|error| lowerer_error(declaration, error.to_string()))?;
                 (col(item_channel_column_name(&channel_name(channel))), seed)
             }
@@ -4651,6 +4952,8 @@ impl<'a> ModuleLowerer<'a> {
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?;
             replacements.insert(synthetic, expr);
         }
+        let sql =
+            normalize_sql_expression(&sql).map_err(|error| lowerer_error(declaration, error))?;
         let parsed = parse_data
             .parse_sql_expr(&sql)
             .map_err(|error| lowerer_error(declaration, error.to_string()))?;
@@ -4734,8 +5037,9 @@ impl<'a> ModuleLowerer<'a> {
         }
         crate::catalog::ensure_query_relations_registered(self.context, query)
             .map_err(|error| lowerer_error(declaration, error))?;
-        crate::catalog::expand_chart_sql(self.project, query, &sql)
-            .map_err(|error| lowerer_error(declaration, error))
+        let sql = crate::catalog::expand_chart_sql(self.project, query, &sql)
+            .map_err(|error| lowerer_error(declaration, error))?;
+        normalize_sql_query(&sql).map_err(|error| lowerer_error(declaration, error))
     }
 
     fn direct_output(&self, expression: &ResolvedExpression) -> Option<&NativeOutputValue> {
@@ -5041,17 +5345,96 @@ impl<'a> ModuleLowerer<'a> {
                 .get(id)
                 .map(|param| format!("${}", param.name))
                 .ok_or_else(|| lowerer_error(declaration, "table binding param is unavailable")),
+            ResolvedValue::Expression(expression) => {
+                self.row_free_expression_sql(expression, declaration)
+            }
+            ResolvedValue::Call { function, args } => Ok(format!(
+                "{function}({})",
+                args.iter()
+                    .map(|value| self.table_binding_sql(value, declaration))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ")
+            )),
             ResolvedValue::String(_)
             | ResolvedValue::Number(_)
             | ResolvedValue::Boolean(_)
-            | ResolvedValue::Null
-            | ResolvedValue::Array(_)
-            | ResolvedValue::Object { .. } => inline_literal_sql(value),
+            | ResolvedValue::Null => inline_literal_sql(value),
+            ResolvedValue::Array(values) => Ok(format!(
+                "[{}]",
+                values
+                    .iter()
+                    .map(|value| self.table_binding_sql(value, declaration))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ")
+            )),
+            ResolvedValue::Object { properties, .. } => {
+                let mut arguments = Vec::with_capacity(properties.len() * 2);
+                for (name, value) in properties {
+                    arguments.push(format!("'{}'", name.replace('\'', "''")));
+                    arguments.push(self.table_binding_sql(value, declaration)?);
+                }
+                Ok(format!("named_struct({})", arguments.join(", ")))
+            }
             _ => Err(lowerer_error(
                 declaration,
-                "table parameter bindings must be scalar literals or current params",
+                "table parameter binding must be a row-free SQL expression using current scalar params",
             )),
         }
+    }
+
+    fn row_free_expression_sql(
+        &self,
+        expression: &ResolvedExpression,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<String, Diagnostic> {
+        let mut replacements = BTreeMap::new();
+        for binding in &expression.bindings {
+            let ResolvedTarget::Param(id) = &binding.target else {
+                return Err(lowerer_error(
+                    declaration,
+                    "table arguments may read only scalar params",
+                ));
+            };
+            if binding.time != BindingTime::Current {
+                return Err(lowerer_error(
+                    declaration,
+                    "table arguments may read only current scalar params",
+                ));
+            }
+            let param = self
+                .params
+                .get(id)
+                .ok_or_else(|| lowerer_error(declaration, "table binding param is unavailable"))?;
+            replacements.insert(binding_spelling(binding), format!("${}", param.name));
+        }
+        struct Substituter<'a> {
+            replacements: &'a BTreeMap<String, String>,
+        }
+        impl VisitorMut for Substituter<'_> {
+            type Break = ();
+
+            fn pre_visit_expr(&mut self, candidate: &mut SqlExpr) -> ControlFlow<Self::Break> {
+                let SqlExpr::Value(value) = candidate else {
+                    return ControlFlow::Continue(());
+                };
+                let SqlValue::Placeholder(placeholder) = &mut value.value else {
+                    return ControlFlow::Continue(());
+                };
+                if let Some(replacement) = self.replacements.get(placeholder) {
+                    *placeholder = replacement.clone();
+                }
+                ControlFlow::Continue(())
+            }
+        }
+        let mut parsed = Parser::new(&AvengerSqlDialect::new())
+            .try_with_sql(&expression.sql)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?
+            .parse_expr()
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        let _ = parsed.visit(&mut Substituter {
+            replacements: &replacements,
+        });
+        Ok(parsed.to_string())
     }
 
     fn lower_layout(
@@ -5733,8 +6116,11 @@ fn helper_argument_expr(
             ));
         }
     };
+    let source = rewrite_source_fragment(&source, source_replacements);
+    let source =
+        normalize_sql_expression(&source).map_err(|error| lowerer_error(declaration, error))?;
     parse_data
-        .parse_sql_expr(&rewrite_source_fragment(&source, source_replacements))
+        .parse_sql_expr(&source)
         .map_err(|error| lowerer_error(declaration, error.to_string()))
 }
 
@@ -5745,184 +6131,6 @@ fn sharing(value: StateSharing) -> avenger_chart_core::CoordinationScope {
         StateSharing::Level(level) => {
             avenger_chart_core::CoordinationScope::Level(level.min(u8::MAX as u32) as u8)
         }
-    }
-}
-
-fn physical_field(field: &PhysicalField) -> Field {
-    Field::new(
-        field.name.clone(),
-        physical_data_type(&field.data_type),
-        field.nullable,
-    )
-}
-
-pub(crate) fn physical_data_type(value: &PhysicalType) -> DataType {
-    match value {
-        PhysicalType::Boolean => DataType::Boolean,
-        PhysicalType::Int8 => DataType::Int8,
-        PhysicalType::Int16 => DataType::Int16,
-        PhysicalType::Int32 => DataType::Int32,
-        PhysicalType::Int64 => DataType::Int64,
-        PhysicalType::UInt8 => DataType::UInt8,
-        PhysicalType::UInt16 => DataType::UInt16,
-        PhysicalType::UInt32 => DataType::UInt32,
-        PhysicalType::UInt64 => DataType::UInt64,
-        PhysicalType::Float16 => DataType::Float16,
-        PhysicalType::Float32 => DataType::Float32,
-        PhysicalType::Float64 => DataType::Float64,
-        PhysicalType::Utf8 => DataType::Utf8,
-        PhysicalType::LargeUtf8 => DataType::LargeUtf8,
-        PhysicalType::Binary => DataType::Binary,
-        PhysicalType::LargeBinary => DataType::LargeBinary,
-        PhysicalType::Date32 => DataType::Date32,
-        PhysicalType::Date64 => DataType::Date64,
-        PhysicalType::Time32(unit) => DataType::Time32(arrow_time_unit(*unit)),
-        PhysicalType::Time64(unit) => DataType::Time64(arrow_time_unit(*unit)),
-        PhysicalType::Timestamp { unit, timezone } => DataType::Timestamp(
-            arrow_time_unit(*unit),
-            timezone
-                .as_ref()
-                .map(|value| Arc::<str>::from(value.as_str())),
-        ),
-        PhysicalType::Duration(unit) => DataType::Duration(arrow_time_unit(*unit)),
-        PhysicalType::Interval(unit) => DataType::Interval(match unit {
-            IntervalUnit::YearMonth => ArrowIntervalUnit::YearMonth,
-            IntervalUnit::DayTime => ArrowIntervalUnit::DayTime,
-            IntervalUnit::MonthDayNano => ArrowIntervalUnit::MonthDayNano,
-        }),
-        PhysicalType::FixedSizeBinary(size) => DataType::FixedSizeBinary(*size),
-        PhysicalType::Decimal128 { precision, scale } => DataType::Decimal128(*precision, *scale),
-        PhysicalType::Decimal256 { precision, scale } => DataType::Decimal256(*precision, *scale),
-        PhysicalType::List(element) => DataType::List(Arc::new(Field::new_list_field(
-            physical_data_type(element),
-            true,
-        ))),
-        PhysicalType::LargeList(element) => DataType::LargeList(Arc::new(Field::new_list_field(
-            physical_data_type(element),
-            true,
-        ))),
-        PhysicalType::FixedSizeList { element, length } => DataType::FixedSizeList(
-            Arc::new(Field::new_list_field(physical_data_type(element), true)),
-            *length,
-        ),
-        PhysicalType::Struct(fields) => DataType::Struct(Fields::from(
-            fields.iter().map(physical_field).collect::<Vec<_>>(),
-        )),
-        PhysicalType::Map { key, value } => DataType::Map(
-            Arc::new(Field::new(
-                "entries",
-                DataType::Struct(Fields::from(vec![
-                    Field::new("keys", physical_data_type(key), false),
-                    Field::new("values", physical_data_type(value), true),
-                ])),
-                false,
-            )),
-            false,
-        ),
-    }
-}
-
-fn arrow_time_unit(value: TimeUnit) -> ArrowTimeUnit {
-    match value {
-        TimeUnit::Second => ArrowTimeUnit::Second,
-        TimeUnit::Millisecond => ArrowTimeUnit::Millisecond,
-        TimeUnit::Microsecond => ArrowTimeUnit::Microsecond,
-        TimeUnit::Nanosecond => ArrowTimeUnit::Nanosecond,
-    }
-}
-
-fn scalar_literal(value: &ResolvedValue, data_type: &DataType) -> Result<ScalarValue, String> {
-    match value {
-        ResolvedValue::Null => {
-            ScalarValue::try_new_null(data_type).map_err(|error| error.to_string())
-        }
-        ResolvedValue::Atom(value) if value.eq_ignore_ascii_case("null") => {
-            ScalarValue::try_new_null(data_type).map_err(|error| error.to_string())
-        }
-        ResolvedValue::String(value)
-        | ResolvedValue::Number(value)
-        | ResolvedValue::Atom(value) => ScalarValue::try_from_string(value.clone(), data_type)
-            .map_err(|error| error.to_string()),
-        ResolvedValue::Boolean(value) => ScalarValue::try_from_string(value.to_string(), data_type)
-            .map_err(|error| error.to_string()),
-        ResolvedValue::Array(values) => match data_type {
-            DataType::List(field) => {
-                let values = values
-                    .iter()
-                    .map(|value| scalar_literal(value, field.data_type()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(ScalarValue::List(ScalarValue::new_list(
-                    &values,
-                    field.data_type(),
-                    field.is_nullable(),
-                )))
-            }
-            DataType::LargeList(field) => {
-                let values = values
-                    .iter()
-                    .map(|value| scalar_literal(value, field.data_type()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(ScalarValue::LargeList(ScalarValue::new_large_list(
-                    &values,
-                    field.data_type(),
-                )))
-            }
-            DataType::FixedSizeList(field, length) => {
-                if values.len() != *length as usize {
-                    return Err(format!(
-                        "fixed-size list requires {length} values, found {}",
-                        values.len()
-                    ));
-                }
-                let values = values
-                    .iter()
-                    .map(|value| scalar_literal(value, field.data_type()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let values =
-                    ScalarValue::iter_to_array(values).map_err(|error| error.to_string())?;
-                let array = FixedSizeListArray::try_new(field.clone(), *length, values, None)
-                    .map_err(|error| error.to_string())?;
-                Ok(ScalarValue::FixedSizeList(Arc::new(array)))
-            }
-            _ => Err(format!(
-                "array literal is not valid for Arrow type {data_type}"
-            )),
-        },
-        ResolvedValue::Object { properties, .. } => {
-            let DataType::Struct(fields) = data_type else {
-                return Err(format!(
-                    "object literal is not valid for Arrow type {data_type}"
-                ));
-            };
-            let columns = fields
-                .iter()
-                .map(|field| {
-                    let value = properties.get(field.name()).unwrap_or(&ResolvedValue::Null);
-                    scalar_literal(value, field.data_type())?
-                        .to_array_of_size(1)
-                        .map_err(|error| error.to_string())
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let unknown = properties
-                .keys()
-                .filter(|name| fields.find(name).is_none())
-                .cloned()
-                .collect::<Vec<_>>();
-            if !unknown.is_empty() {
-                return Err(format!(
-                    "struct literal has unknown field(s): {}",
-                    unknown.join(", ")
-                ));
-            }
-            Ok(ScalarValue::Struct(Arc::new(StructArray::new(
-                fields.clone(),
-                columns,
-                None,
-            ))))
-        }
-        _ => Err(format!(
-            "value `{value:?}` is not a typed Arrow scalar literal"
-        )),
     }
 }
 
@@ -6003,7 +6211,7 @@ fn fixed_contextual_planning_seed(
         )
     })?;
     let physical_type = physical_type.physical_type();
-    ScalarValue::try_new_null(&physical_data_type(&physical_type))
+    ScalarValue::try_new_null(&physical_type_to_arrow(&physical_type))
         .map_err(|error| lowerer_error(declaration, error.to_string()))
 }
 

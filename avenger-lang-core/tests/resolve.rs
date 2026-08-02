@@ -552,7 +552,6 @@ chart cartesian {
         .collect::<Vec<_>>();
     assert!(codes.contains(&"AVENGER-RESOLVE-029"));
     assert!(codes.contains(&"AVENGER-RESOLVE-064"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-077"));
 }
 
 #[tokio::test]
@@ -1917,12 +1916,11 @@ chart cartesian as bad_state {
         .collect::<Vec<_>>();
     assert!(codes.contains(&"AVENGER-RESOLVE-142"));
     assert!(codes.contains(&"AVENGER-RESOLVE-145"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-076"));
     assert!(codes.contains(&"AVENGER-RESOLVE-075"));
 }
 
 #[tokio::test]
-async fn resolve_catalog_table_params_are_owned_literal_and_self_contained() {
+async fn resolve_catalog_table_params_are_owned_row_free_and_self_contained() {
     let valid = project(
         &[
             (
@@ -1936,7 +1934,7 @@ avenger 1;
 export schema tables as local {
   table parquet as base { path: 'base.parquet'; }
   table sql as filtered {
-    param int64 as minimum { value: 10; }
+    param int64 as minimum { value: 5 + 5; }
     sql: SELECT * FROM local.base WHERE "value" >= $minimum;
   }
 }
@@ -2063,7 +2061,6 @@ chart cartesian as bad_events {
         .map(|diagnostic| diagnostic.code.as_str())
         .collect::<Vec<_>>();
     assert!(codes.contains(&"AVENGER-RESOLVE-106"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-076"));
 }
 
 #[tokio::test]

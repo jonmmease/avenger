@@ -1160,8 +1160,7 @@ impl CompiledChartEventBinding {
                             format!("assign_{param_name}_{value_index}"),
                             expr,
                         )
-                        .with_expected_type(data_type)
-                        .with_nullable_cast(),
+                        .with_expected_type(data_type),
                     );
                     let assignment = CompiledParamAssignment {
                         runtime_id,
@@ -1213,8 +1212,7 @@ impl CompiledChartEventBinding {
                     let value_index = specs.len();
                     specs.push(
                         PhysicalScalarExpressionSpec::new(format!("cursor_{value_index}"), expr)
-                            .with_expected_type(DataType::Utf8)
-                            .with_nullable_cast(),
+                            .with_expected_type(DataType::Utf8),
                     );
                     ordered_actions.push(CompiledOrderedAction::SetCursor { value_index });
                 }
@@ -1774,8 +1772,7 @@ impl CompiledChartParamChangeBinding {
                             format!("assign_{}", assignment.target.source_name),
                             expr,
                         )
-                        .with_expected_type(target.data_type.clone())
-                        .with_nullable_cast(),
+                        .with_expected_type(target.data_type.clone()),
                     );
                     ordered_actions.push(CompiledOrderedAction::SetParam(
                         CompiledParamAssignment {
@@ -2096,8 +2093,7 @@ fn append_store_row_specs(
                 format!("store_{}_{}_{}", store_name, prefix, field.name),
                 field.expr,
             )
-            .with_expected_type(field.expected_type)
-            .with_nullable_cast(),
+            .with_expected_type(field.expected_type),
         );
         fields.push((field.name, value_index));
     }
@@ -16442,6 +16438,112 @@ mod tests {
             state.params().await.get("value"),
             Some(&ScalarValue::Int64(Some(1)))
         );
+    }
+
+    #[tokio::test]
+    async fn runtime_string_assignment_is_strictly_cast_to_the_target_param_type() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", ScalarValue::Utf8(Some("42".to_owned())));
+        let target = Param::new("target", ScalarValue::Int64(Some(1)));
+        let binding =
+            ChartEventBinding::on(ChartEventType::CursorMoved).set_param(&target, source.expr());
+        let compiled = Chart::<Cartesian>::new()
+            .param(source)
+            .param(target)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile strict cast binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile strict cast runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(
+            state.params().await.get("target"),
+            Some(&ScalarValue::Int64(Some(42)))
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_cast_failure_rolls_back_preceding_staged_actions() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", ScalarValue::Utf8(Some("invalid".to_owned())));
+        let first = Param::new("first", ScalarValue::Int64(Some(1)));
+        let second = Param::new("second", ScalarValue::Int64(Some(5)));
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(&first, lit(2_i64))
+            .set_param(&second, source.expr());
+        let compiled = Chart::<Cartesian>::new()
+            .param(source)
+            .param(first)
+            .param(second)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile rollback binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile rollback runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Failed));
+        let params = state.params().await;
+        assert_eq!(params.get("first"), Some(&ScalarValue::Int64(Some(1))));
+        assert_eq!(params.get("second"), Some(&ScalarValue::Int64(Some(5))));
     }
 
     #[tokio::test]

@@ -1938,6 +1938,14 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
           param struct(field(float64, 'x')) as empty_pointer {
             value: NULL;
           }
+          param fixed_size_list(int16, 2) as fixed_values {
+            value: [1 + 1.9, '3'];
+          }
+          param map(utf8, int32) as mapped_values {
+            value: { first: 1 + 1.9; second: '4'; }
+          }
+          param list(int32) as empty_values { value: []; }
+          param map(utf8, int32) as empty_map { value: {} }
         }"#;
     let artifact = source_compiler(source, None)
         .compile_chart("chart.avenger", None)
@@ -1957,6 +1965,126 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
             .get("empty_pointer")
             .expect("typed null struct default")
             .is_null()
+    );
+    assert!(matches!(
+        defaults["fixed_values"].data_type(),
+        DataType::FixedSizeList(_, 2)
+    ));
+    assert!(matches!(
+        defaults["mapped_values"].data_type(),
+        DataType::Map(_, _)
+    ));
+    assert!(matches!(
+        defaults["empty_values"].data_type(),
+        DataType::List(_)
+    ));
+    assert!(matches!(
+        defaults["empty_map"].data_type(),
+        DataType::Map(_, _)
+    ));
+}
+
+#[tokio::test]
+async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() {
+    let source = r#"avenger 1;
+        chart zerod as chart {
+          param int32 as narrowed { value: 3.9; }
+          param float64 as parsed { value: '0.75'; }
+          param decimal128(10, 2) as subtotal { value: (6 * 2.05); }
+          param float64 as derived { value: ($source + 1.5); }
+          param int16 as source { value: '2'; }
+          param float64 as negative_zero { value: (-0.0); }
+          param struct(field(int32, 'x'), field(utf8, 'label')) as nested {
+            value: { x: 1 + 2.9; label: upper('ok'); }
+          }
+          param store as rows {
+            field utf8 id;
+            field int32 amount;
+            primary_key: [id];
+            row { id: upper('a'); amount: $source + 1.9; }
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let defaults = artifact.compiled_plot().get_default_params();
+    assert_eq!(defaults["narrowed"], ScalarValue::Int32(Some(3)));
+    assert_eq!(defaults["parsed"], ScalarValue::Float64(Some(0.75)));
+    assert_eq!(
+        defaults["subtotal"],
+        ScalarValue::Decimal128(Some(1230), 10, 2)
+    );
+    assert_eq!(defaults["source"], ScalarValue::Int16(Some(2)));
+    assert_eq!(defaults["derived"], ScalarValue::Float64(Some(3.5)));
+    let ScalarValue::Float64(Some(negative_zero)) = defaults["negative_zero"] else {
+        panic!("negative_zero should be a non-null float64")
+    };
+    assert!(negative_zero.is_sign_negative());
+    let ScalarValue::Struct(nested) = &defaults["nested"] else {
+        panic!("nested should be a struct")
+    };
+    assert_eq!(
+        ScalarValue::try_from_array(nested.column(0), 0).unwrap(),
+        ScalarValue::Int32(Some(3))
+    );
+    assert_eq!(
+        ScalarValue::try_from_array(nested.column(1), 0).unwrap(),
+        ScalarValue::Utf8(Some("OK".to_owned()))
+    );
+    let store = artifact.compiled_plot().store_specs().get("rows").unwrap();
+    let row = store.initial.as_ref().expect("initial store row");
+    assert_eq!(
+        ScalarValue::try_from_array(row.column(0), 0).unwrap(),
+        ScalarValue::Utf8(Some("A".to_owned()))
+    );
+    assert_eq!(
+        ScalarValue::try_from_array(row.column(1), 0).unwrap(),
+        ScalarValue::Int32(Some(3))
+    );
+
+    let invalid = r#"avenger 1;
+        chart zerod as chart {
+          param int32 as bad { value: 'not an integer'; }
+        }"#;
+    let diagnostics = source_compiler(invalid, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap_err();
+    assert!(
+        diagnostics
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("cannot be cast")
+                || diagnostic.primary.message.contains("cannot be cast")),
+        "{:#?}",
+        diagnostics.diagnostics
+    );
+
+    let duplicate_map_keys = r#"avenger 1;
+        chart zerod as chart {
+          param map(boolean, int32) as bad {
+            value: { yes: 1; true: 2; }
+          }
+        }"#;
+    let diagnostics = source_compiler(duplicate_map_keys, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap_err();
+    assert!(
+        diagnostics.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .to_ascii_lowercase()
+                .contains("duplicate")
+                || diagnostic
+                    .primary
+                    .message
+                    .to_ascii_lowercase()
+                    .contains("duplicate")
+        }),
+        "keys that collide after their destination cast must be rejected: {:#?}",
+        diagnostics.diagnostics
     );
 }
 

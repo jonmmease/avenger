@@ -18,14 +18,21 @@ impl CompileEnvironment {
     pub fn new(session_context: SessionContext) -> Self {
         Self {
             session_context: Arc::new(session_context),
-            dependency_fingerprint: "avenger-default-compile-environment-v1".to_owned(),
+            dependency_fingerprint: format!(
+                "{}|host:avenger-default-compile-environment-v1",
+                crate::SQL_SEMANTIC_PROFILE
+            ),
         }
     }
 
     /// Attach an immutable host snapshot identity (for example the installed
     /// object-store configuration and shared physical-plan-cache version).
     pub fn with_dependency_fingerprint(mut self, fingerprint: impl Into<String>) -> Self {
-        self.dependency_fingerprint = fingerprint.into();
+        self.dependency_fingerprint = format!(
+            "{}|host:{}",
+            crate::SQL_SEMANTIC_PROFILE,
+            fingerprint.into()
+        );
         self
     }
 
@@ -285,6 +292,12 @@ impl std::fmt::Debug for CompilerOptions {
 
 #[cfg(test)]
 mod tests {
+    use arrow::datatypes::DataType;
+    use datafusion::{
+        execution::FunctionRegistry,
+        logical_expr::{ColumnarValue, Volatility, create_udf},
+    };
+
     use super::*;
 
     struct FailingFactory(&'static str);
@@ -311,5 +324,34 @@ mod tests {
             Err(CatalogFactoryError::DuplicateKind(kind)) if kind == "fixture"
         ));
         assert!(Arc::ptr_eq(factories.get("fixture").unwrap(), &first));
+    }
+
+    #[test]
+    fn environment_forks_preserve_host_udfs_runtime_and_language_profile() {
+        let context = SessionContext::new();
+        context.register_udf(create_udf(
+            "avenger_test_identity",
+            vec![DataType::Int64],
+            DataType::Int64,
+            Volatility::Immutable,
+            Arc::new(|args: &[ColumnarValue]| Ok(args[0].clone())),
+        ));
+        let environment =
+            CompileEnvironment::new(context).with_dependency_fingerprint("host-snapshot-7");
+        let fork = environment.fork();
+
+        assert!(fork.session_context().udf("avenger_test_identity").is_ok());
+        assert!(Arc::ptr_eq(
+            &environment.session_context().runtime_env(),
+            &fork.session_context().runtime_env()
+        ));
+        assert_eq!(
+            environment.dependency_fingerprint(),
+            fork.dependency_fingerprint()
+        );
+        assert!(
+            fork.dependency_fingerprint()
+                .starts_with(crate::SQL_SEMANTIC_PROFILE)
+        );
     }
 }

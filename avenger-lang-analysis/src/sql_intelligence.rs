@@ -588,6 +588,226 @@ pub(crate) fn contextual_hover(
     ))
 }
 
+pub(crate) fn typed_boundary_hover(
+    request: &PositionRequest,
+    syntax: &SyntaxAnalysis,
+    semantic_roots: &BTreeMap<String, RootAnalysis>,
+    dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+) -> Option<(SourceSpan, String)> {
+    let node = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                TolerantSyntaxNodeKind::SqlIsland { context }
+                    if context.root() == SqlIslandRoot::Expression
+            ) && node.span.range.start <= request.byte_offset
+                && request.byte_offset <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())?;
+    let (analysis, _) = project_at(
+        &request.source,
+        request.byte_offset,
+        semantic_roots,
+        dataset_contexts,
+    );
+    let project = analysis?.resolved_module_graph.as_deref()?;
+    let mut property_path = Vec::new();
+    let mut parent = node.parent;
+    while let Some(id) = parent {
+        let candidate = &syntax.parsed.nodes[id.get() as usize];
+        match &candidate.kind {
+            TolerantSyntaxNodeKind::Property { name } => property_path.push(name.clone()),
+            TolerantSyntaxNodeKind::Declaration { .. } => break,
+            _ => {}
+        }
+        parent = candidate.parent;
+    }
+    property_path.reverse();
+    if property_path.first().is_some_and(|name| name == "value") {
+        property_path.remove(0);
+    }
+    let boundary = project
+        .params
+        .values()
+        .filter_map(|param| {
+            let declaration = resolved_declaration(project, &param.declaration)?;
+            declaration_contains_node(project, declaration, request, node.span).then(|| {
+                let destination = typed_member_destination(&param.data_type, &property_path)?;
+                Some((
+                    declaration.span.range.len(),
+                    destination.clone(),
+                    if property_path.is_empty() {
+                        format!("param `${}` value", param.source_name)
+                    } else {
+                        format!(
+                            "param `${}` field `{}`",
+                            param.source_name,
+                            property_path.join(".")
+                        )
+                    },
+                ))
+            })?
+        })
+        .chain(project.stores.values().filter_map(|store| {
+            let declaration = resolved_declaration(project, &store.declaration)?;
+            if !declaration_contains_node(project, declaration, request, node.span) {
+                return None;
+            }
+            let field_name = property_path.first()?;
+            let field = store
+                .fields
+                .iter()
+                .find(|field| &field.name == field_name)?;
+            let destination = typed_member_destination(&field.data_type, &property_path[1..])?;
+            Some((
+                declaration.span.range.len(),
+                destination.clone(),
+                format!(
+                    "store `${}` field `{}`",
+                    store.source_name,
+                    property_path.join(".")
+                ),
+            ))
+        }))
+        .chain(resolved_declarations(project).filter_map(|declaration| {
+            if !declaration_contains_node(project, declaration, request, node.span) {
+                return None;
+            }
+            if declaration.keyword == "set" && declaration.kind.as_deref() == Some("cursor") {
+                return Some((
+                    declaration.span.range.len(),
+                    PhysicalType::Utf8,
+                    "cursor assignment".to_owned(),
+                ));
+            }
+            let lvalue = declaration.state_lvalue.as_ref()?;
+            match &lvalue.target {
+                ResolvedTarget::Param(id) => {
+                    let param = project.params.get(id)?;
+                    Some((
+                        declaration.span.range.len(),
+                        param.data_type.clone(),
+                        format!("assignment to param `${}`", param.source_name),
+                    ))
+                }
+                ResolvedTarget::Store(id) => {
+                    let store = project.stores.get(id)?;
+                    let field_name = property_path.first()?;
+                    let field = store
+                        .fields
+                        .iter()
+                        .find(|field| &field.name == field_name)?;
+                    let destination =
+                        typed_member_destination(&field.data_type, &property_path[1..])?;
+                    Some((
+                        declaration.span.range.len(),
+                        destination.clone(),
+                        format!(
+                            "assignment to store `${}` field `{}`",
+                            store.source_name,
+                            property_path.join(".")
+                        ),
+                    ))
+                }
+                _ => None,
+            }
+        }))
+        .min_by_key(|(span_len, _, _)| *span_len)?;
+    let (_, destination, path) = boundary;
+    let arrow_destination = physical_type_to_arrow(&destination);
+    let text = syntax.parsed.tokens.text();
+    let authored = &text[node.span.range.as_range()];
+    let source_type = infer_row_free_expression_type(authored)
+        .map(|data_type| format!("`{data_type:?}`"))
+        .unwrap_or_else(|| "context-dependent or incomplete".to_owned());
+    Some((
+        node.span,
+        format!(
+            "**Typed SQL boundary** — {path}\n\n- Inferred SQL source type: {source_type}\n- Destination Arrow type: `{arrow_destination:?}` (`{destination}`)\n- Conversion: strict DataFusion/Arrow `CAST`\n\nA failed cast is an error. Write an inner `TRY_CAST` when failure should produce a typed `NULL`."
+        ),
+    ))
+}
+
+fn declaration_contains_node(
+    project: &avenger_lang_core::ResolvedModuleGraph,
+    declaration: &ResolvedDeclaration,
+    request: &PositionRequest,
+    node_span: SourceSpan,
+) -> bool {
+    let authored = project.expansion_source_map.authored_span(declaration.span);
+    project.sources.get(authored.source).is_some_and(|source| {
+        same_origin(&source.origin, &request.source)
+            && authored.range.start <= node_span.range.start
+            && node_span.range.end <= authored.range.end
+    })
+}
+
+fn resolved_declarations(
+    project: &avenger_lang_core::ResolvedModuleGraph,
+) -> impl Iterator<Item = &ResolvedDeclaration> {
+    fn collect<'a>(
+        declarations: &'a [ResolvedDeclaration],
+        result: &mut Vec<&'a ResolvedDeclaration>,
+    ) {
+        for declaration in declarations {
+            result.push(declaration);
+            collect(&declaration.children, result);
+        }
+    }
+    let mut result = Vec::new();
+    for module in project.source_modules.values() {
+        collect(&module.roots, &mut result);
+    }
+    result.into_iter()
+}
+
+fn resolved_declaration<'a>(
+    project: &'a avenger_lang_core::ResolvedModuleGraph,
+    id: &DeclarationId,
+) -> Option<&'a ResolvedDeclaration> {
+    fn find<'a>(
+        declarations: &'a [ResolvedDeclaration],
+        id: &DeclarationId,
+    ) -> Option<&'a ResolvedDeclaration> {
+        declarations.iter().find_map(|declaration| {
+            (&declaration.id == id)
+                .then_some(declaration)
+                .or_else(|| find(&declaration.children, id))
+        })
+    }
+    project
+        .source_modules
+        .values()
+        .find_map(|module| find(&module.roots, id))
+}
+
+fn typed_member_destination<'a>(
+    mut data_type: &'a PhysicalType,
+    path: &[String],
+) -> Option<&'a PhysicalType> {
+    for name in path {
+        data_type = match data_type {
+            PhysicalType::Struct(fields) => {
+                &fields.iter().find(|field| &field.name == name)?.data_type
+            }
+            PhysicalType::Map { value, .. } => value,
+            _ => return None,
+        };
+    }
+    Some(data_type)
+}
+
+fn infer_row_free_expression_type(authored: &str) -> Option<DataType> {
+    let normalized = avenger_lang_compiler::normalize_sql_expression(authored).ok()?;
+    let schema = DFSchema::empty();
+    let state = SessionStateBuilder::new().with_default_features().build();
+    let expression = state.create_logical_expr(&normalized, &schema).ok()?;
+    expression.get_type(&schema).ok()
+}
+
 pub(crate) fn contextual_semantic_token_spans(
     analysis: &crate::WorkspaceAnalysis,
     origin: &SourceOrigin,
@@ -976,6 +1196,8 @@ fn sql_cache_key(
 ) -> String {
     let mut hash = Sha256::new();
     hash.update(b"avenger-sql-completion-v1\0");
+    hash.update(avenger_lang_compiler::SQL_SEMANTIC_PROFILE.as_bytes());
+    hash.update(b"\0");
     hash.update(request.source.canonical_uri().as_bytes());
     hash.update(b"\0");
     hash.update(request.source_revision.as_str().as_bytes());
@@ -2035,7 +2257,9 @@ fn reconcile_query_output_with_datafusion(
         let _ = register_schema_only_relation(&context, &synthetic);
     }
 
-    let canonical = query.ast().to_string();
+    let Ok(canonical) = avenger_lang_compiler::normalize_sql_query(&query.ast().to_string()) else {
+        return;
+    };
     let Ok(plan) = futures::executor::block_on(context.state().create_logical_plan(&canonical))
     else {
         return;
@@ -3668,10 +3892,13 @@ fn validate_expression(
     let Ok(schema) = DFSchema::try_from(dataset.schema.as_ref().clone()) else {
         return false;
     };
+    let Ok(normalized) = avenger_lang_compiler::normalize_sql_expression(&repaired.text) else {
+        return false;
+    };
     let state = SessionStateBuilder::new().with_default_features().build();
     LOGICAL_EXPRESSION_PLANS.fetch_add(1, Ordering::Relaxed);
     state
-        .create_logical_expr(&repaired.text, &schema)
+        .create_logical_expr(&normalized, &schema)
         .and_then(|expression| expression.get_type(&schema))
         .is_ok()
 }
@@ -3702,9 +3929,14 @@ fn validate_projection(
             sqlparser::ast::SelectItem::QualifiedWildcard(_, _)
             | sqlparser::ast::SelectItem::Wildcard(_) => return false,
         };
+        let Ok(normalized) =
+            avenger_lang_compiler::normalize_sql_expression(&expression.to_string())
+        else {
+            return false;
+        };
         LOGICAL_EXPRESSION_PLANS.fetch_add(1, Ordering::Relaxed);
         state
-            .create_logical_expr(&expression.to_string(), &schema)
+            .create_logical_expr(&normalized, &schema)
             .and_then(|expression| expression.get_type(&schema))
             .is_ok()
     })

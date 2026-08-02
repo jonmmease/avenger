@@ -284,7 +284,7 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
     );
     assert_eq!(
         tables["vega.popular"].columns[1].data_type,
-        DataType::Float64
+        DataType::Decimal128(2, 1)
     );
     assert_eq!(
         tables["vega.movies"].qualified_path.as_deref(),

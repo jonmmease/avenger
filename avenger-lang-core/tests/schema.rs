@@ -134,41 +134,6 @@ fn schema_physical_arrow_types_reject_aliases_shapes_and_duplicate_fields() {
     }
 }
 
-#[test]
-fn schema_destination_typed_literals_are_exact() {
-    let int8 = PhysicalType::parse(&type_value("int8")).unwrap();
-    let decimal = PhysicalType::parse(&type_value("decimal128(5,2)")).unwrap();
-    let null = type_value("int64");
-    assert!(int8.accepts_literal(&number("127")).is_ok());
-    assert!(int8.accepts_literal(&number("128")).is_err());
-    assert!(decimal.accepts_literal(&number("123.45")).is_ok());
-    assert!(decimal.accepts_literal(&number("1234.56")).is_err());
-    assert!(PhysicalType::Int64.accepts_literal(&Value::Null).is_ok());
-    assert!(PhysicalType::parse(&null).is_ok());
-}
-
-#[test]
-fn schema_recursive_list_and_struct_literals_use_destination_types() {
-    let list = PhysicalType::parse(&type_value("fixed_size_list(int8,2)")).unwrap();
-    assert!(
-        list.accepts_literal(&Value::Array(vec![number("1"), number("127")]))
-            .is_ok()
-    );
-    assert!(
-        list.accepts_literal(&Value::Array(vec![number("1")]))
-            .is_err()
-    );
-
-    let data_type = PhysicalType::parse(&type_value(
-        "struct(field(float64, 'x'),field(list(utf8), 'labels'))",
-    ))
-    .unwrap();
-    let value = object(&[("x", number("1.25")), ("labels", strings(&["a", "b"]))]);
-    assert!(data_type.accepts_literal(&value).is_ok());
-    let invalid = object(&[("x", Value::Str("not a number".to_owned()))]);
-    assert!(data_type.accepts_literal(&invalid).is_err());
-}
-
 #[tokio::test]
 async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
     let registry = bootstrap_schema();
@@ -384,40 +349,4 @@ fn interchange_name_schema_matches_unicode_identifier_contract() {
         }]
     });
     assert!(!validator.is_valid(&invalid_top_level));
-}
-
-fn number(spelling: &str) -> Value {
-    let text = format!(
-        "avenger 1; chart cartesian as chart {{ param int64 as value {{ value: {spelling}; }} }}"
-    );
-    let source = SourceFile::new(
-        SourceId::new(2),
-        SourceOrigin::Memory("literal.avenger".into()),
-        text,
-    );
-    let parsed = parse_file(&source).unwrap();
-    let chart = parsed.ast.items.into_iter().next().unwrap().declaration;
-    chart.children[0].props.get("value").unwrap().clone()
-}
-
-fn strings(values: &[&str]) -> Value {
-    Value::Array(
-        values
-            .iter()
-            .map(|value| Value::Str((*value).to_owned()))
-            .collect(),
-    )
-}
-
-fn object(fields: &[(&str, Value)]) -> Value {
-    let mut body = avenger_lang_core::ast::Body::default();
-    for (name, value) in fields {
-        body.props
-            .insert(
-                avenger_lang_core::ast::Name::new(*name).unwrap(),
-                value.clone(),
-            )
-            .unwrap();
-    }
-    Value::Block { head: None, body }
 }

@@ -21,7 +21,10 @@ use sqlparser::ast::{
 use crate::{
     Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceFile,
     SourceId, SourceLabel, SourceMap, SourceSpan,
-    ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Value, Visibility},
+    ast::{
+        AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, SqlExpression, Value,
+        Visibility,
+    },
     expand::ExpansionSourceMap,
     module_graph::{ModuleId, ModuleImportEdge, ParsedModule, ParsedModuleGraph, SourceModuleId},
     sort_diagnostics,
@@ -3704,13 +3707,6 @@ impl<'a> Resolver<'a> {
             let default = source_default
                 .map(unresolved_value)
                 .unwrap_or(ResolvedValue::Null);
-            self.validate_typed_boundary(
-                &data_type,
-                source_default,
-                &default,
-                info.span,
-                "generated state default",
-            );
             self.params.insert(
                 id.clone(),
                 ResolvedParam {
@@ -7309,30 +7305,18 @@ impl<'a> Resolver<'a> {
                     .get("value")
                     .cloned()
                     .unwrap_or(ResolvedValue::Invalid);
-                self.validate_typed_boundary(
-                    &data_type,
-                    declaration.props.get("value"),
-                    &default,
-                    info.span,
-                    "param value",
-                );
                 let sharing =
                     parse_sharing(properties.get("sharing"), info.span, &mut self.diagnostics);
                 let (migration_key, definition_local_seed) =
                     self.state_identity(file, info, "param");
                 let dependencies = resolved_param_dependencies(&default);
                 let table_owner = self.table_owner(&info.id);
-                if table_owner.is_some()
-                    && !declaration
-                        .props
-                        .get("value")
-                        .is_some_and(is_self_contained_scalar_literal)
-                {
+                if table_owner.is_some() && !is_self_contained_row_free(&default) {
                     self.error(
                         "AVENGER-RESOLVE-135",
-                        "catalog-table param default must be a scalar literal",
+                        "catalog-table param default must be a self-contained row-free expression",
                         info.span,
-                        "table params are self-contained plan defaults and cannot read other params",
+                        "table params may use scalar SQL but cannot read params, columns, relations, outputs, helpers, or contextual values",
                     );
                 }
                 self.param_dependencies.insert(
@@ -7520,16 +7504,7 @@ impl<'a> Resolver<'a> {
             }
             for field in &fields {
                 match row.props.get(&field.name) {
-                    Some(source_value) => {
-                        let resolved = values.get(&field.name).expect("row value exists");
-                        self.validate_typed_boundary(
-                            &field.data_type,
-                            Some(source_value),
-                            resolved,
-                            info.span,
-                            "store row field",
-                        );
-                    }
+                    Some(_) => {}
                     None if !field.nullable => self.error(
                         "AVENGER-RESOLVE-075",
                         "store row is missing a non-nullable field",
@@ -7581,41 +7556,6 @@ impl<'a> Resolver<'a> {
                 generated_by: None,
             },
         );
-    }
-
-    fn validate_typed_boundary(
-        &mut self,
-        data_type: &PhysicalType,
-        source: Option<&Value>,
-        resolved: &ResolvedValue,
-        span: SourceSpan,
-        boundary: &str,
-    ) {
-        if let Some(source) = source
-            && let Err(error) = data_type.accepts_literal(source)
-            && ast_value_is_literal(source)
-        {
-            self.error(
-                "AVENGER-RESOLVE-076",
-                "typed value boundary mismatch",
-                span,
-                format!("{boundary}: {error}"),
-            );
-        }
-        if let ResolvedValue::Binding(binding) = resolved
-            && let Some(actual) = self.target_physical_type(&binding.target)
-            && &actual != data_type
-        {
-            self.error(
-                "AVENGER-RESOLVE-077",
-                "typed value boundary requires exact Arrow type equality",
-                span,
-                format!(
-                    "{boundary} expects `{data_type}`, but referenced param has `{}`; author an explicit CAST",
-                    actual
-                ),
-            );
-        }
     }
 
     fn target_physical_type(&self, target: &ResolvedTarget) -> Option<PhysicalType> {
@@ -7914,18 +7854,21 @@ impl<'a> Resolver<'a> {
                     value,
                     ResolvedValue::String(_)
                         | ResolvedValue::Atom(_)
+                        | ResolvedValue::Number(_)
+                        | ResolvedValue::Boolean(_)
                         | ResolvedValue::Null
                         | ResolvedValue::Column(_)
                         | ResolvedValue::Call { .. }
                         | ResolvedValue::Expression(_)
                         | ResolvedValue::Binding(_)
+                        | ResolvedValue::Visual(_)
                 )
             }) {
                 self.error(
                     "AVENGER-RESOLVE-091",
-                    "cursor action requires a UTF-8 scalar expression",
+                    "cursor action requires a scalar SQL expression",
                     span,
-                    "cursor is a write-only peer of params and stores",
+                    "the expression is strictly cast to utf8 before cursor-style validation",
                 );
             }
             if let Some(ResolvedValue::String(style) | ResolvedValue::Atom(style)) = value
@@ -7948,16 +7891,6 @@ impl<'a> Resolver<'a> {
                     "unknown cursor style literal",
                     span,
                     format!("`{style}` is not a registered cursor style"),
-                );
-            }
-            if let Some(ResolvedValue::Binding(binding)) = value
-                && self.target_physical_type(&binding.target) != Some(PhysicalType::Utf8)
-            {
-                self.error(
-                    "AVENGER-RESOLVE-088",
-                    "cursor action binding must have exact utf8 type",
-                    span,
-                    "cast or bind a utf8 param before calling set_cursor",
                 );
             }
             for property in action.properties.keys() {
@@ -8051,21 +7984,6 @@ impl<'a> Resolver<'a> {
                     "button-style actions cannot select a scoped owner without an event route",
                 );
             }
-        }
-        if kind == "param"
-            && let Some(target) = target.as_ref()
-            && let Some(data_type) = self.target_physical_type(target)
-        {
-            self.validate_typed_boundary(
-                &data_type,
-                source.props.get("value"),
-                action
-                    .properties
-                    .get("value")
-                    .unwrap_or(&ResolvedValue::Invalid),
-                span,
-                "param action assignment",
-            );
         }
         if kind == "store"
             && let Some(target) = target.as_ref()
@@ -8674,7 +8592,7 @@ impl<'a> Resolver<'a> {
         span: SourceSpan,
     ) {
         for name in resolved.properties.keys() {
-            let Some(field) = fields.iter().find(|field| &field.name == name) else {
+            if !fields.iter().any(|field| &field.name == name) {
                 self.error(
                     "AVENGER-RESOLVE-116",
                     "store update references an unknown field",
@@ -8682,7 +8600,7 @@ impl<'a> Resolver<'a> {
                     format!("field `{name}` is not declared by the target store"),
                 );
                 continue;
-            };
+            }
             if matches!(shape, StorePayloadShape::Key) && !primary_key.contains(name) {
                 self.error(
                     "AVENGER-RESOLVE-117",
@@ -8697,17 +8615,6 @@ impl<'a> Resolver<'a> {
                     "store patch cannot modify a primary-key field",
                     span,
                     format!("delete and insert/upsert to change `{name}`"),
-                );
-            }
-            if let Some(source_value) = source.props.get(name)
-                && let Some(resolved_value) = resolved.properties.get(name)
-            {
-                self.validate_typed_boundary(
-                    &field.data_type,
-                    Some(source_value),
-                    resolved_value,
-                    span,
-                    "store action field",
                 );
             }
             if primary_key.contains(name) && matches!(source.props.get(name), Some(Value::Null)) {
@@ -8936,13 +8843,6 @@ impl<'a> Resolver<'a> {
                     );
                     continue;
                 }
-                self.validate_typed_boundary(
-                    &PhysicalType::Utf8,
-                    source_id,
-                    resolved_id.expect("checked"),
-                    span,
-                    "selection clause id",
-                );
                 if matches!(source_id, Some(Value::Null))
                     || matches!(source_id, Some(Value::Str(value)) if value.is_empty())
                 {
@@ -8963,15 +8863,7 @@ impl<'a> Resolver<'a> {
                 (Some(Value::Array(source_ids)), Some(ResolvedValue::Array(ids)))
                     if !source_ids.is_empty() && source_ids.len() == ids.len() =>
                 {
-                    for (source_id, id) in source_ids.iter().zip(ids) {
-                        self.validate_typed_boundary(
-                            &PhysicalType::Utf8,
-                            Some(source_id),
-                            id,
-                            span,
-                            "selection clause deletion id",
-                        );
-                    }
+                    let _ = (source_ids, ids);
                 }
                 _ => self.error(
                     "AVENGER-RESOLVE-159",
@@ -10183,17 +10075,29 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
     }
 }
 
-fn is_self_contained_scalar_literal(value: &Value) -> bool {
+fn is_self_contained_row_free(value: &ResolvedValue) -> bool {
     match value {
-        Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null => true,
-        Value::Array(values) => values.iter().all(is_self_contained_scalar_literal),
-        Value::Block { head: None, body } => {
-            body.children.is_empty()
-                && body
-                    .props
-                    .iter()
-                    .all(|(_, value)| is_self_contained_scalar_literal(value))
+        ResolvedValue::String(_)
+        | ResolvedValue::Number(_)
+        | ResolvedValue::Boolean(_)
+        | ResolvedValue::Null => true,
+        ResolvedValue::Atom(value) => value.eq_ignore_ascii_case("null"),
+        ResolvedValue::Expression(expression) => {
+            expression.bindings.is_empty()
+                && expression.helpers.is_empty()
+                && expression.contextual_accesses.is_empty()
+                && expression.references.is_empty()
+                && SqlExpression::parse(&expression.sql)
+                    .is_ok_and(|expression| expression.column_identifier_values().is_empty())
         }
+        ResolvedValue::Array(values) => values.iter().all(is_self_contained_row_free),
+        ResolvedValue::Call { args, .. } => args.iter().all(is_self_contained_row_free),
+        ResolvedValue::Object {
+            head: None,
+            properties,
+            children,
+            ..
+        } => children.is_empty() && properties.values().all(is_self_contained_row_free),
         _ => false,
     }
 }
@@ -10456,21 +10360,6 @@ fn collect_value_targets(value: &ResolvedValue, targets: &mut BTreeSet<ResolvedT
         | ResolvedValue::Environment(_)
         | ResolvedValue::None
         | ResolvedValue::Invalid => {}
-    }
-}
-
-fn ast_value_is_literal(value: &Value) -> bool {
-    match value {
-        Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null => true,
-        Value::Array(values) => values.iter().all(ast_value_is_literal),
-        Value::Block { head: None, body } => {
-            body.children.is_empty()
-                && body
-                    .props
-                    .iter()
-                    .all(|(_, value)| ast_value_is_literal(value))
-        }
-        _ => false,
     }
 }
 
@@ -11881,7 +11770,7 @@ fn infer_widget_item_type(declaration: &Decl) -> Option<PhysicalType> {
             Value::Block { body, .. } => body
                 .props
                 .get("value")
-                .is_some_and(|value| inferred.accepts_literal(value).is_ok()),
+                .is_some_and(|value| inferred.accepts_inference_literal(value).is_ok()),
             _ => false,
         })
         .then_some(inferred)

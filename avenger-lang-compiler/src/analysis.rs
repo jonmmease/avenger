@@ -248,7 +248,7 @@ fn physical_type_constructors() -> Vec<String> {
 /// struct/list/map completion cannot drift from runtime parameter and store
 /// schemas.
 pub fn physical_type_to_arrow(value: &avenger_lang_core::PhysicalType) -> DataType {
-    crate::lowering::physical_data_type(value)
+    crate::sql_profile::physical_type_to_arrow(value)
 }
 
 #[derive(Clone, Debug, thiserror::Error)]

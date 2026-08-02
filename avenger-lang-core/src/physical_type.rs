@@ -137,7 +137,10 @@ impl PhysicalType {
         parse_type(value, "type")
     }
 
-    pub fn accepts_literal(&self, value: &Value) -> Result<(), PhysicalValueError> {
+    pub(crate) fn accepts_inference_literal(
+        &self,
+        value: &Value,
+    ) -> Result<(), PhysicalValueError> {
         match value {
             Value::Null => Ok(()),
             Value::Bool(_) if matches!(self, Self::Boolean) => Ok(()),
@@ -146,7 +149,7 @@ impl PhysicalType {
             Value::Array(values) => match self {
                 Self::List(element) | Self::LargeList(element) => {
                     for value in values {
-                        element.accepts_literal(value)?;
+                        element.accepts_inference_literal(value)?;
                     }
                     Ok(())
                 }
@@ -154,7 +157,7 @@ impl PhysicalType {
                     if usize::try_from(*length).ok() == Some(values.len()) =>
                 {
                     for value in values {
-                        element.accepts_literal(value)?;
+                        element.accepts_inference_literal(value)?;
                     }
                     Ok(())
                 }
@@ -178,7 +181,7 @@ impl PhysicalType {
                     }
                     for field in fields {
                         match body.props.get(&field.name) {
-                            Some(value) => field.data_type.accepts_literal(value)?,
+                            Some(value) => field.data_type.accepts_inference_literal(value)?,
                             None if field.nullable => {}
                             None => {
                                 return Err(PhysicalValueError::MissingField(field.name.clone()));
@@ -189,8 +192,8 @@ impl PhysicalType {
                 }
                 Self::Map { key, value } => {
                     for (name, item) in body.props.iter() {
-                        key.accepts_literal(&Value::Str(name.to_string()))?;
-                        value.accepts_literal(item)?;
+                        key.accepts_inference_literal(&Value::Str(name.to_string()))?;
+                        value.accepts_inference_literal(item)?;
                     }
                     Ok(())
                 }
@@ -662,7 +665,7 @@ pub enum PhysicalTypeError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum PhysicalValueError {
+pub(crate) enum PhysicalValueError {
     #[error("expected {expected}, found {found}")]
     Shape { expected: String, found: String },
     #[error("numeric literal `{value}` is not representable as {expected}")]
