@@ -1,15 +1,9 @@
 avenger 1;
 
 chart cartesian as chart {
-    param float64 as point_size {
-        value: 64.0;
-    }
-    param float64 as canvas_width {
-        value: 640.0;
-    }
-    param float64 as canvas_height {
-        value: 420.0;
-    }
+    param CAST(64.0 AS DOUBLE) as point_size;
+    param CAST(640.0 AS DOUBLE) as canvas_width;
+    param CAST(420.0 AS DOUBLE) as canvas_height;
 
     mark symbol as points {
         x: encoded "Horsepower";

@@ -18,12 +18,8 @@ chart cartesian as chart {
     export __av_d485012cfe02_enabled as enabled;
     export __av_d485012cfe02_hovered as hovered;
     export __av_d485012cfe02_chrome_layer.__av_d485012cfe02_chrome as chrome;
-    private param boolean as __av_d485012cfe02_enabled {
-      value: true;
-    }
-    private param list(float64) as __av_d485012cfe02_x_domain {
-      value: NULL;
-    }
+    private param true as __av_d485012cfe02_enabled;
+    private param CAST(NULL AS DOUBLE[]) as __av_d485012cfe02_x_domain;
     private param selection as __av_d485012cfe02_hovered {
       empty: none;
     }

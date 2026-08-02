@@ -123,36 +123,11 @@
                       }
                     ]
                   },
-                  "type": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "atom": {}
-                        },
-                        "required": [
-                          "atom"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "call": {}
-                        },
-                        "required": [
-                          "call"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
                   "value": {
                     "$ref": "#/$defs/value"
                   }
                 },
                 "required": [
-                  "type",
                   "value"
                 ],
                 "type": "object"

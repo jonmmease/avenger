@@ -10,9 +10,7 @@ use avenger_lang_core::{
 const VALID: &str = r#"avenger 1;
 
 chart cartesian as chart {
-    param float64 as width {
-        value: 640.0;
-    }
+    param 640.0 as width;
     table sql as movies {
         sql: FROM vega.movies AS m SELECT m.*;
     }

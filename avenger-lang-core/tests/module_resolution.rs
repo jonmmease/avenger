@@ -253,8 +253,8 @@ async fn chart_entrypoints_own_state_and_private_siblings_do_not_change_item_ide
             "root.avenger",
             "avenger 1;\
              define mark badge { mark symbol {} }\
-             chart cartesian as first { param int64 as value { value: 1; } }\
-             chart cartesian as second { param int64 as value { value: 2; } }",
+             chart cartesian as first { param 1 as value; }\
+             chart cartesian as second { param 2 as value; }",
         )],
         "root.avenger",
         BTreeMap::new(),
@@ -287,7 +287,7 @@ async fn chart_entrypoints_own_state_and_private_siblings_do_not_change_item_ide
             "avenger 1;\
              table memory as unrelated {}\
              define mark badge { mark symbol {} }\
-             chart cartesian as first { param int64 as value { value: 1; }\
+             chart cartesian as first { param 1 as value;\
              }",
         )],
         "root.avenger",

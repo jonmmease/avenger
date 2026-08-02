@@ -613,7 +613,8 @@ pub(crate) fn typed_boundary_hover(
         semantic_roots,
         dataset_contexts,
     );
-    let project = analysis?.resolved_module_graph.as_deref()?;
+    let analysis = analysis?;
+    let project = analysis.resolved_module_graph.as_deref()?;
     let mut property_path = Vec::new();
     let mut parent = node.parent;
     while let Some(id) = parent {
@@ -630,28 +631,9 @@ pub(crate) fn typed_boundary_hover(
         property_path.remove(0);
     }
     let boundary = project
-        .params
+        .stores
         .values()
-        .filter_map(|param| {
-            let declaration = resolved_declaration(project, &param.declaration)?;
-            declaration_contains_node(project, declaration, request, node.span).then(|| {
-                let destination = typed_member_destination(&param.data_type, &property_path)?;
-                Some((
-                    declaration.span.range.len(),
-                    destination.clone(),
-                    if property_path.is_empty() {
-                        format!("param `${}` value", param.source_name)
-                    } else {
-                        format!(
-                            "param `${}` field `{}`",
-                            param.source_name,
-                            property_path.join(".")
-                        )
-                    },
-                ))
-            })?
-        })
-        .chain(project.stores.values().filter_map(|store| {
+        .filter_map(|store| {
             let declaration = resolved_declaration(project, &store.declaration)?;
             if !declaration_contains_node(project, declaration, request, node.span) {
                 return None;
@@ -661,17 +643,20 @@ pub(crate) fn typed_boundary_hover(
                 .fields
                 .iter()
                 .find(|field| &field.name == field_name)?;
-            let destination = typed_member_destination(&field.data_type, &property_path[1..])?;
+            let destination = physical_type_to_arrow(typed_member_destination(
+                &field.data_type,
+                &property_path[1..],
+            )?);
             Some((
                 declaration.span.range.len(),
-                destination.clone(),
+                destination,
                 format!(
                     "store `${}` field `{}`",
                     store.source_name,
                     property_path.join(".")
                 ),
             ))
-        }))
+        })
         .chain(resolved_declarations(project).filter_map(|declaration| {
             if !declaration_contains_node(project, declaration, request, node.span) {
                 return None;
@@ -679,7 +664,7 @@ pub(crate) fn typed_boundary_hover(
             if declaration.keyword == "set" && declaration.kind.as_deref() == Some("cursor") {
                 return Some((
                     declaration.span.range.len(),
-                    PhysicalType::Utf8,
+                    DataType::Utf8,
                     "cursor assignment".to_owned(),
                 ));
             }
@@ -689,7 +674,7 @@ pub(crate) fn typed_boundary_hover(
                     let param = project.params.get(id)?;
                     Some((
                         declaration.span.range.len(),
-                        param.data_type.clone(),
+                        analysis.param_types.get(id)?.clone(),
                         format!("assignment to param `${}`", param.source_name),
                     ))
                 }
@@ -700,11 +685,13 @@ pub(crate) fn typed_boundary_hover(
                         .fields
                         .iter()
                         .find(|field| &field.name == field_name)?;
-                    let destination =
-                        typed_member_destination(&field.data_type, &property_path[1..])?;
+                    let destination = physical_type_to_arrow(typed_member_destination(
+                        &field.data_type,
+                        &property_path[1..],
+                    )?);
                     Some((
                         declaration.span.range.len(),
-                        destination.clone(),
+                        destination,
                         format!(
                             "assignment to store `${}` field `{}`",
                             store.source_name,
@@ -717,7 +704,6 @@ pub(crate) fn typed_boundary_hover(
         }))
         .min_by_key(|(span_len, _, _)| *span_len)?;
     let (_, destination, path) = boundary;
-    let arrow_destination = physical_type_to_arrow(&destination);
     let text = syntax.parsed.tokens.text();
     let authored = &text[node.span.range.as_range()];
     let source_type = infer_row_free_expression_type(authored)
@@ -726,7 +712,7 @@ pub(crate) fn typed_boundary_hover(
     Some((
         node.span,
         format!(
-            "**Typed SQL boundary** — {path}\n\n- Inferred SQL source type: {source_type}\n- Destination Arrow type: `{arrow_destination:?}` (`{destination}`)\n- Conversion: strict DataFusion/Arrow `CAST`\n\nA failed cast is an error. Write an inner `TRY_CAST` when failure should produce a typed `NULL`."
+            "**Typed SQL boundary** — {path}\n\n- Inferred SQL source type: {source_type}\n- Destination Arrow type: `{destination:?}` (`{destination}`)\n- Conversion: strict DataFusion/Arrow `CAST`\n\nA failed cast is an error. Write an inner `TRY_CAST` when failure should produce a typed `NULL`."
         ),
     ))
 }
@@ -3428,7 +3414,7 @@ fn binding_struct_fields<'a>(
     document: Option<&DocumentSemanticIndex>,
     project: Option<&'a ModuleAnalysis>,
     cursor: usize,
-) -> Option<&'a [avenger_lang_core::PhysicalField]> {
+) -> Option<&'a arrow::datatypes::Fields> {
     let mut parts = qualifier.trim_start_matches('$').split('.');
     let name = parts.next()?;
     let document = document?;
@@ -3445,18 +3431,18 @@ fn binding_struct_fields<'a>(
         .params
         .values()
         .find(|param| param.source_name.eq_ignore_ascii_case(name))?;
-    let mut data_type = &param.data_type;
+    let mut data_type = project?.param_types.get(&param.id)?;
     for part in parts {
-        let PhysicalType::Struct(fields) = data_type else {
+        let DataType::Struct(fields) = data_type else {
             return None;
         };
-        data_type = &fields
+        data_type = fields
             .iter()
-            .find(|field| field.name.eq_ignore_ascii_case(part))?
-            .data_type;
+            .find(|field| field.name().eq_ignore_ascii_case(part))?
+            .data_type();
     }
     match data_type {
-        PhysicalType::Struct(fields) => Some(fields),
+        DataType::Struct(fields) => Some(fields),
         _ => None,
     }
 }
@@ -3464,21 +3450,21 @@ fn binding_struct_fields<'a>(
 fn complete_physical_struct_fields(
     prefix: &str,
     replacement: SourceSpan,
-    fields: &[avenger_lang_core::PhysicalField],
+    fields: &arrow::datatypes::Fields,
     qualifier: &str,
     output: &mut Vec<CompletionItem>,
 ) {
     for field in fields {
-        if candidate_matches(&field.name, prefix) {
+        if candidate_matches(field.name(), prefix) {
             output.push(candidate(
-                &field.name,
-                &field.name,
+                field.name(),
+                field.name(),
                 replacement,
                 CompletionKind::Field,
                 Some(format!(
                     "{} · {} · struct field of {qualifier}",
-                    field.data_type,
-                    nullability(field.nullable)
+                    field.data_type(),
+                    nullability(field.is_nullable())
                 )),
                 CompletionOrigin::LexicalScope,
                 "00",

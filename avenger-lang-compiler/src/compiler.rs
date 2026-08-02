@@ -33,7 +33,7 @@ use crate::{
     ModuleDependencyFingerprints, ModuleFingerprint, NativeRequirementSet, SourceLoaderLimits,
     TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
-    lowering::{analyze_chart_datasets, lower_module_chart},
+    lowering::{PreparedParams, analyze_chart_datasets, lower_module_chart, prepare_module_params},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -308,7 +308,7 @@ impl Compiler {
                 Ok(project) => match select_chart_entrypoint(&parsed, &project, selector) {
                     Ok(entrypoint) => {
                         async {
-                            let (environment, catalog) = self
+                            let (environment, catalog, prepared_params) = self
                                 .analyze_resolved_module_graph(
                                     &project,
                                     generation,
@@ -331,6 +331,7 @@ impl Compiler {
                                 environment.session_context(),
                                 self.options.source_loader.as_ref(),
                                 &self.options.import_capabilities,
+                                &prepared_params,
                             )
                             .await
                             .map_err(|diagnostics| CompileFailure {
@@ -500,7 +501,7 @@ impl Compiler {
             .filter(|(entrypoint, _)| &entrypoint.module == requested)
             .flat_map(|(_, entrypoint)| entrypoint.reachable_items.iter().cloned())
             .collect::<BTreeSet<_>>();
-        let (environment, catalog) = self
+        let (environment, catalog, prepared_params) = self
             .analyze_resolved_module_graph(
                 project,
                 generation,
@@ -509,7 +510,14 @@ impl Compiler {
             )
             .await?;
         let analysis = self
-            .finish_module_analysis(parsed, project, dependencies, &environment, &catalog)
+            .finish_module_analysis(
+                parsed,
+                project,
+                dependencies,
+                &environment,
+                &catalog,
+                &prepared_params,
+            )
             .await?;
         let fingerprints = analysis.dependency_fingerprints.clone();
         let module_fingerprint = analysis.module_fingerprint;
@@ -530,6 +538,12 @@ impl Compiler {
                     .get(public_id)
                     .cloned()
                     .unwrap_or_default();
+                let fingerprint = chart_artifact_cache_fingerprint(
+                    &fingerprint,
+                    project,
+                    public_id,
+                    &prepared_params,
+                );
                 let requirements = native_requirements_for_entrypoint(
                     project,
                     public_id,
@@ -544,6 +558,7 @@ impl Compiler {
             }
         }
 
+        let prepared_params = &prepared_params;
         let lower_one = |entrypoint: ChartEntrypointId| {
             let chart_environment = environment.fork();
             async move {
@@ -554,6 +569,7 @@ impl Compiler {
                     chart_environment.session_context(),
                     self.options.source_loader.as_ref(),
                     &self.options.import_capabilities,
+                    prepared_params,
                 )
                 .await
             }
@@ -582,7 +598,11 @@ impl Compiler {
             match result {
                 Ok(mut chart) => {
                     chart.artifact.native_requirements = requirements;
-                    chart.artifact.dependency_fingerprint = key.dependency_fingerprint.clone();
+                    chart.artifact.dependency_fingerprint = fingerprints
+                        .charts
+                        .get(&public_id)
+                        .cloned()
+                        .unwrap_or_default();
                     artifacts.insert(public_id.clone(), chart.artifact.clone());
                     completed.push((public_id, key, chart.artifact));
                 }
@@ -669,11 +689,18 @@ impl Compiler {
                 dependencies: dependencies.clone(),
             })
             .result?;
-        let (environment, catalog) = self
+        let (environment, catalog, prepared_params) = self
             .analyze_resolved_module_graph(&project, 0, &dependencies, None)
             .await?;
-        self.finish_module_analysis(&parsed, &project, &dependencies, &environment, &catalog)
-            .await
+        self.finish_module_analysis(
+            &parsed,
+            &project,
+            &dependencies,
+            &environment,
+            &catalog,
+            &prepared_params,
+        )
+        .await
     }
 
     /// Analyze an explicit immutable root inventory without filesystem
@@ -692,11 +719,18 @@ impl Compiler {
                 dependencies: dependencies.clone(),
             })
             .result?;
-        let (environment, catalog) = self
+        let (environment, catalog, prepared_params) = self
             .analyze_resolved_module_graph(&project, generation, &dependencies, None)
             .await?;
-        self.finish_module_analysis(&parsed, &project, &dependencies, &environment, &catalog)
-            .await
+        self.finish_module_analysis(
+            &parsed,
+            &project,
+            &dependencies,
+            &environment,
+            &catalog,
+            &prepared_params,
+        )
+        .await
     }
 
     async fn finish_module_analysis(
@@ -706,6 +740,7 @@ impl Compiler {
         dependencies: &DiscoveredDependencySet,
         environment: &crate::CompileEnvironment,
         catalog: &CatalogAnalysis,
+        prepared_params: &PreparedParams,
     ) -> Result<ModuleAnalysis, CompileFailure> {
         let mut fingerprints = dependency_fingerprint_layers(
             &self.options,
@@ -735,6 +770,7 @@ impl Compiler {
             self.options.native_registry.profile_id().clone(),
             module_fingerprint,
         );
+        analysis.param_types.clone_from(&prepared_params.types);
         analysis.resolved_module_graph = Some(Arc::new(project.clone()));
         let state = environment.session_context().state();
         analysis.functions.scalar = state.scalar_functions().keys().cloned().collect();
@@ -771,6 +807,7 @@ impl Compiler {
             environment.session_context(),
             self.options.source_loader.as_ref(),
             &self.options.import_capabilities,
+            prepared_params,
         )
         .await
         .map_err(|mut diagnostics| {
@@ -883,7 +920,7 @@ impl Compiler {
     }
 
     pub async fn check_module(&self, path: impl AsRef<Path>) -> Result<(), CompileFailure> {
-        self.resolve_module_attempt(path).await.result.map(|_| ())
+        self.analyze_module(path).await.map(|_| ())
     }
 
     pub async fn expand_module(
@@ -1152,7 +1189,7 @@ impl Compiler {
         generation: u64,
         dependencies: &DiscoveredDependencySet,
         reachable_items: Option<&BTreeSet<avenger_lang_core::ModuleItemId>>,
-    ) -> Result<(crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
+    ) -> Result<(crate::CompileEnvironment, CatalogAnalysis, PreparedParams), CompileFailure> {
         let request = CompileEnvironmentRequest {
             generation,
             native_registry_profile: self
@@ -1175,9 +1212,21 @@ impl Compiler {
                 )],
                 sources: project.sources.clone(),
             })?;
+        let prepared_params = prepare_module_params(
+            project,
+            self.options.native_registry.as_ref(),
+            environment.session_context(),
+            self.options.source_loader.as_ref(),
+            &self.options.import_capabilities,
+        )
+        .map_err(|diagnostics| CompileFailure {
+            diagnostics,
+            sources: project.sources.clone(),
+        })?;
         let catalog = register_and_analyze_catalog(
             project,
             &environment,
+            &prepared_params.types,
             CatalogOptions {
                 project_root: &self.options.project_root,
                 capabilities: &self.options.data_capabilities,
@@ -1192,7 +1241,7 @@ impl Compiler {
             diagnostics: vec![diagnostic],
             sources: project.sources.clone(),
         })?;
-        Ok((environment, catalog))
+        Ok((environment, catalog, prepared_params))
     }
 }
 
@@ -2449,6 +2498,35 @@ fn stable_hash<'a>(domain: &str, parts: impl IntoIterator<Item = &'a str>) -> St
         hasher.update(part.as_bytes());
     }
     format!("sha256:{:x}", hasher.finalize())
+}
+
+fn chart_artifact_cache_fingerprint(
+    base: &DependencyFingerprint,
+    project: &ResolvedModuleGraph,
+    entrypoint: &ChartEntrypointId,
+    prepared_params: &PreparedParams,
+) -> DependencyFingerprint {
+    use avenger_chart_core::SerializableScalar;
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"avenger-chart-artifact-param-values-v1\0");
+    hasher.update(base.as_str().as_bytes());
+    if let Some(entrypoint) = project.entrypoints.get(entrypoint) {
+        for id in entrypoint.params.keys() {
+            let Some(param) = prepared_params.values.get(id) else {
+                continue;
+            };
+            hasher.update(b"\0param\0");
+            hasher.update(id.as_str().as_bytes());
+            hasher.update(b"\0");
+            let bytes = serde_json::to_vec(&SerializableScalar::new(param.default.clone()))
+                .expect("prepared param values were validated as serializable");
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        }
+    }
+    DependencyFingerprint::new(format!("sha256:{:x}", hasher.finalize()))
 }
 
 fn augment_project_fingerprint(

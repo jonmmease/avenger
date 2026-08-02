@@ -1,8 +1,8 @@
 avenger 1;
 
 chart cartesian as chart {
-    param float64 as width {
-        value: 640.0
+    param 640.0 as width {
+        sharing:
 
     mark symbol as points {
         x: encoded "Horsepower";

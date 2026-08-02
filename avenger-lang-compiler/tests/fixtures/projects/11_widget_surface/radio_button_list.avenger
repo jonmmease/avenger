@@ -1,8 +1,6 @@
 avenger 1;
 chart zerod as radio_button_list {
-  param utf8 as choice_state {
-    value: 'east';
-  }
+  param 'east' as choice_state;
   widget radio_button_list as choice {
     data: {
       sql: SELECT 'west' AS value, 'West' AS label, 2 AS rank UNION ALL SELECT 'east' AS value, 'East' AS label, 1 AS rank;

@@ -5,9 +5,7 @@ chart polar as polar {
   data: {
     table: 'shared.points';
   }
-  param float64 as point_size {
-    value: 72.0;
-  }
+  param 72.0 as point_size;
   transform pass {
   }
   mark symbol as points {

@@ -2656,7 +2656,7 @@ chart cartesian as detail {
     async fn utf16_transcript_preserves_complex_type_and_unicode_name_spans() {
         let project = tempdir().unwrap();
         let chart = project.path().join("unicode.avenger");
-        let text = "avenger 1; chart cartesian as chart { title: '😀'; param struct(field(float64, 'x')) as café { value: NULL; } param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: encoded $café; } }";
+        let text = "avenger 1; chart cartesian as chart { title: '😀'; param CAST(NULL AS DOUBLE) as café; param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: encoded $café; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -3217,7 +3217,7 @@ chart cartesian as detail {
     async fn transcript_format_semantic_tokens_prepare_and_versioned_rename() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { siez: 12.0; size: encoded $width; } }";
+        let text = "avenger 1; chart cartesian as chart { param 640.0 as width; mark symbol as points { siez: 12.0; size: encoded $width; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -3283,7 +3283,7 @@ chart cartesian as detail {
             serde_json::from_value(serde_json::to_value(formatting.result().unwrap()).unwrap())
                 .unwrap();
         assert_eq!(formatting.len(), 1);
-        assert!(formatting[0].new_text.contains("param float64 as width"));
+        assert!(formatting[0].new_text.contains("param 640.0 as width"));
 
         let semantic = call(
             &mut service,
@@ -3679,7 +3679,7 @@ chart cartesian as detail {
     async fn transcript_completion_hover_definition_references_and_highlights() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { size: encoded $wid; } }";
+        let text = "avenger 1; chart cartesian as chart { param 640.0 as width; mark symbol as points { size: encoded $wid; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();

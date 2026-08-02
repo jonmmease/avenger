@@ -38,7 +38,7 @@ async fn semantic_project(text: &str) -> avenger_lang_core::ParsedModuleGraph {
 
 fn type_value(spelling: &str) -> Value {
     let text = format!(
-        "avenger 1; chart cartesian as chart {{ param {spelling} as value {{ value: NULL; }} }}"
+        "avenger 1; chart cartesian as chart {{ param store as rows {{ field {spelling} value; }} }}"
     );
     let source = SourceFile::new(
         SourceId::new(1),
@@ -49,7 +49,11 @@ fn type_value(spelling: &str) -> Value {
         panic!("failed to parse physical type spelling {spelling}: {error:?}")
     });
     let chart = parsed.ast.items.into_iter().next().unwrap().declaration;
-    chart.children[0].props.get("type").unwrap().clone()
+    chart.children[0].children[0]
+        .props
+        .get("type")
+        .unwrap()
+        .clone()
 }
 
 fn type_source(spelling: &str) -> SourceFile {
@@ -57,7 +61,7 @@ fn type_source(spelling: &str) -> SourceFile {
         SourceId::new(3),
         SourceOrigin::Memory("invalid-type.avenger".into()),
         format!(
-            "avenger 1; chart cartesian as chart {{ param {spelling} as value {{ value: NULL; }} }}"
+            "avenger 1; chart cartesian as chart {{ param store as rows {{ field {spelling} value; }} }}"
         ),
     )
 }
@@ -266,7 +270,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param int64 as limit { value: 1; mark symbol { x: encoded "x"; y: encoded "y"; } }
+                param 1 as limit { mark symbol { x: encoded "x"; y: encoded "y"; } }
             }"#,
         ),
         (
@@ -310,7 +314,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
 
     let missing_value = semantic_project(
         r#"avenger 1; chart cartesian as chart {
-            param int64 as limit { value: 1; }
+            param 1 as limit;
         }"#,
     )
     .await;

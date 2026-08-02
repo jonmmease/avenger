@@ -18,11 +18,12 @@ exports, not basename suffixes, determine visibility and category. Named and
 namespace import completion, navigation, and rename preserve the producer
 export identity separately from each consumer's local spelling.
 
-Declaration intelligence follows the canonical unified surface: physical Arrow
-types are completed and highlighted in param/field headers; stores and
-selections occupy the param type position; containers, no-`as` definition
-members, keyed predicates, sparse parallel frame configuration, output aliases,
-and target-resolved `set` actions retain their semantic categories in symbols,
+Declaration intelligence follows the canonical unified surface: scalar params
+bind SQL initializers and expose their DataFusion-inferred Arrow types, while
+store fields retain explicit physical Arrow types and `store`/`selection`
+remain specialized param categories. Containers, no-`as` definition members,
+keyed predicates, sparse parallel frame configuration, output aliases, and
+target-resolved `set` actions retain their semantic categories in symbols,
 navigation, hover, completion, and generated edits.
 
 ## Running

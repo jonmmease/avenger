@@ -242,7 +242,7 @@ async fn definitions_reject_anonymous_defined_tool_and_wrong_reference_kind() {
 avenger 1;
 import { picker } from 'picker.avenger';
 chart cartesian {
-  param boolean as state { value: true; }
+  param true as state;
   mark symbol as points { x: encoded "x"; y: encoded "y"; }
   tool picker;
   tool picker as wrong_target { target: $state; }
@@ -340,7 +340,7 @@ import { private_component } from 'private_component.avenger';
 import { colliding } from 'colliding.avenger';
 import { output_transform } from 'output_transform.avenger';
 chart cartesian as chart {
-  param boolean as ambient { value: true; }
+  param true as ambient;
   mark capturing as captured { }
   mark private_component as component { }
   transform output_transform { }
@@ -429,7 +429,7 @@ import { shell } from 'shell.avenger';
 chart cartesian {
   mark shell {
     content: {
-      param boolean as invalid_here { value: true; }
+      param true as invalid_here;
     }
   }
 }
@@ -630,7 +630,7 @@ async fn expansion_alpha_renames_private_state_without_capturing_caller_block_bi
 avenger 1;
 import { shell } from 'shell.avenger';
 chart cartesian as chart {
-  param boolean as enabled { value: false; }
+  param false as enabled;
   mark shell as instance {
     content: {
       mark symbol as caller_mark {
@@ -651,7 +651,7 @@ avenger 1;
 export define mark shell {
   slot block content { exposes: [inside]; default: { } }
   export inside;
-  param boolean as enabled { value: true; }
+  param true as enabled;
   mark symbol as inside { x: encoded "x"; y: encoded "y"; visible: $enabled; }
   content;
 }
@@ -667,7 +667,7 @@ export define mark shell {
     assert_eq!(first.texts, second.texts);
     let chart = project.requested_modules.first().unwrap();
     let text = first.texts.get(chart).unwrap();
-    assert!(text.contains("private param boolean as __av_"), "{text}");
+    assert!(text.contains("private param true as __av_"), "{text}");
     assert!(text.contains("visible: $__av_"), "{text}");
     assert!(text.contains("visible: $enabled;"), "{text}");
 
@@ -717,7 +717,7 @@ async fn definition_state_migration_tracks_source_binders_not_public_export_alia
 avenger 1;
 export define mark shell {
   export local as exposed;
-  param boolean as local { value: true; }
+  param true as local;
   mark symbol { x: encoded "x"; y: encoded "y"; visible: $local; }
 }
 "#,
@@ -729,7 +729,7 @@ export define mark shell {
 avenger 1;
 export define mark shell {
   export local as renamed_export;
-  param boolean as local { value: true; }
+  param true as local;
   mark symbol { x: encoded "x"; y: encoded "y"; visible: $local; }
 }
 "#,
@@ -741,7 +741,7 @@ export define mark shell {
 avenger 1;
 export define mark shell {
   export renamed_state as exposed;
-  param boolean as renamed_state { value: true; }
+  param true as renamed_state;
   mark symbol { x: encoded "x"; y: encoded "y"; visible: $renamed_state; }
 }
 "#,
@@ -1072,8 +1072,8 @@ async fn resolver_reserves_compiler_names_and_definition_private_columns() {
         r#"
 avenger 1;
 chart cartesian as chart {
-  param boolean as __av_authored { value: true; }
-  private param boolean as __av_authored_private { value: true; }
+  param true as __av_authored;
+  private param true as __av_authored_private;
   transform sql {
     query: SELECT *, __private_value AS copied FROM input;
   }

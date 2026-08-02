@@ -3,9 +3,7 @@ chart geo as geo {
   center_lon_lat: [-73.9857, 40.7484];
   projection: mercator;
   zoom: 10;
-  param float64 as station_size {
-    value: 80.0;
-  }
+  param 80.0 as station_size;
   mark symbol as station {
     lon_lat: [-73.9857, 40.7484];
     size: encoded $station_size;

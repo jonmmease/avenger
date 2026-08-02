@@ -1,8 +1,6 @@
 avenger 1;
 chart cartesian as query_entry {
-  param int64 as minimum {
-    value: 1;
-  }
+  param 1 as minimum;
   param store as rows {
     field int64 id;
   }

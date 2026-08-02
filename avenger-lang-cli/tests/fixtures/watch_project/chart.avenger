@@ -13,15 +13,9 @@ chart cartesian as chart {
     }
     plot: auto;
   }
-  param float64 as canvas_width {
-    value: 640.0;
-  }
-  param float64 as canvas_height {
-    value: 420.0;
-  }
-  param float64 as point_size {
-    value: 180.0;
-  }
+  param CAST(640.0 AS DOUBLE) as canvas_width;
+  param CAST(420.0 AS DOUBLE) as canvas_height;
+  param CAST(180.0 AS DOUBLE) as point_size;
   mark badge as imported_badge {
   }
 }

@@ -155,6 +155,39 @@ async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() 
 }
 
 #[tokio::test]
+async fn project_compile_does_not_cache_nondeterministic_param_initializer_values() {
+    let project = TempProject::empty();
+    let chart = module_path(&project.0);
+    fs::write(
+        &chart,
+        "avenger 1; chart zerod as chart { param random() as nonce; }",
+    )
+    .unwrap();
+    let compiler = Compiler::builder()
+        .project_root(&project.0)
+        .build()
+        .unwrap();
+
+    let first = compiler.compile_module(&chart).await.unwrap();
+    let second = compiler.compile_module(&chart).await.unwrap();
+    let first_chart = first.charts.values().next().unwrap();
+    let second_chart = second.charts.values().next().unwrap();
+    let first_value = first_chart.compiled_plot().get_default_params()["nonce"].clone();
+    let second_value = second_chart.compiled_plot().get_default_params()["nonce"].clone();
+
+    assert_ne!(first_value, second_value);
+    assert!(!same_compiled_plot(first_chart, second_chart));
+    assert_eq!(
+        first_chart.dependency_fingerprint,
+        second_chart.dependency_fingerprint
+    );
+    assert_eq!(first.module_fingerprint, second.module_fingerprint);
+    let cache = compiler.cache_snapshot();
+    assert_eq!(cache.module_analyses, 1);
+    assert_eq!(cache.chart_artifacts, 1);
+}
+
+#[tokio::test]
 async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
     let project = TempProject::copy_fixture();
     let compiler = Compiler::builder()
@@ -170,7 +203,7 @@ async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
         &chart,
         fs::read_to_string(&chart)
             .unwrap()
-            .replace("value: 64.0", "value: 96.0"),
+            .replace("CAST(64.0 AS DOUBLE)", "CAST(96.0 AS DOUBLE)"),
     )
     .unwrap();
     let after = compiler
@@ -287,7 +320,7 @@ async fn project_compile_reuses_dataset_schema_across_unrelated_chart_edit() {
         &geo,
         fs::read_to_string(&geo)
             .unwrap()
-            .replace("value: 80.0", "value: 88.0"),
+            .replace("CAST(80.0 AS DOUBLE)", "CAST(88.0 AS DOUBLE)"),
     )
     .unwrap();
     let after = compiler
@@ -415,7 +448,7 @@ table sql as {private_table} {{
 
 chart cartesian as chart {{
   data: {{ table: '{private_table}'; }}
-  param float64 as point_size {{ value: 64.0; }}
+  param 64.0 as point_size;
   mark {private_mark} as points {{}}
   mark symbol as state_probe {{
     x: encoded "x";

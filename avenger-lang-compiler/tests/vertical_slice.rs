@@ -66,6 +66,113 @@ fn source_compiler(source: &str, registry: Option<Arc<NativeRegistry>>) -> Compi
     builder.build().unwrap()
 }
 
+#[tokio::test]
+async fn scalar_params_use_datafusion_planned_arrow_types() {
+    let source = r#"avenger 1;
+        chart zerod as chart {
+          param 1 as integer;
+          param 1.5 as decimal;
+          param -0.0 as negative_zero;
+          param 'hello' as string;
+          param true as boolean;
+          param 1e2 as exponent;
+          param CASE WHEN true THEN 1 ELSE 2 END as conditional;
+          param 1 + 2 as arithmetic;
+          param upper('hello') as udf_string;
+          param arrow_cast('abc', 'Binary') as binary;
+          param CAST('2026-08-02' AS DATE) as date;
+          param CAST(NULL AS DOUBLE) as typed_null;
+          param $lower + 10 as upper;
+          param 2 as lower;
+        }"#;
+    let analysis = source_compiler(source, None)
+        .analyze_module("chart.avenger")
+        .await
+        .unwrap();
+    let project = analysis.resolved_module_graph.as_deref().unwrap();
+    let data_type = |name: &str| {
+        let param = project
+            .params
+            .values()
+            .find(|param| param.source_name == name)
+            .unwrap();
+        analysis.param_types.get(&param.id).unwrap().clone()
+    };
+    assert_eq!(data_type("integer"), DataType::Int64);
+    assert_eq!(data_type("decimal"), DataType::Decimal128(2, 1));
+    assert_eq!(data_type("negative_zero"), DataType::Float64);
+    assert_eq!(data_type("string"), DataType::Utf8);
+    assert_eq!(data_type("boolean"), DataType::Boolean);
+    assert_eq!(data_type("exponent"), DataType::Decimal128(1, -2));
+    assert_eq!(data_type("conditional"), DataType::Int64);
+    assert_eq!(data_type("arithmetic"), DataType::Int64);
+    assert_eq!(data_type("udf_string"), DataType::Utf8);
+    assert_eq!(data_type("binary"), DataType::Binary);
+    assert_eq!(data_type("date"), DataType::Date32);
+    assert_eq!(data_type("typed_null"), DataType::Float64);
+    assert_eq!(data_type("lower"), DataType::Int64);
+    assert_eq!(data_type("upper"), DataType::Int64);
+
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let defaults = artifact.compiled_plot().get_default_params();
+    assert_eq!(defaults["typed_null"].data_type(), DataType::Float64);
+    assert!(defaults["typed_null"].is_null());
+}
+
+#[tokio::test]
+async fn scalar_param_rejects_an_untyped_null_initializer() {
+    let failure = source_compiler(
+        "avenger 1; chart zerod as chart { param NULL as missing_type; }",
+        None,
+    )
+    .check_module("chart.avenger")
+    .await
+    .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-PARAM-001"),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
+#[tokio::test]
+async fn inferred_param_must_match_a_native_fixed_type_requirement() {
+    let failure = source_compiler(
+        r#"avenger 1;
+        chart zerod as chart {
+          param 2.5 as threshold;
+          widget slider as input {
+            default: 2.5;
+            max: 10.0;
+            min: 0.0;
+            position: bottom;
+            value_param: $threshold;
+          }
+        }"#,
+        None,
+    )
+    .check_module("chart.avenger")
+    .await
+    .unwrap_err();
+    assert!(
+        failure.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "AVENGER-PARAM-002"
+                && (diagnostic.primary.message.contains("Float64")
+                    || diagnostic.message.contains("Float64"))
+                && (diagnostic.primary.message.contains("Decimal128")
+                    || diagnostic.message.contains("Decimal128"))
+        }),
+        "{:#?}",
+        failure.diagnostics
+    );
+}
+
 fn optional_channel(name: &str, docs: &str) -> ChannelSchema {
     ChannelSchema {
         name: name.to_string(),
@@ -1107,8 +1214,8 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
 async fn direct_canvas_params_remain_available_for_host_resize_binding() {
     let source = r#"avenger 1;
         chart cartesian as chart {
-          param float64 as canvas_width { value: 640.0; }
-          param float64 as canvas_height { value: 420.0; }
+          param 640.0 as canvas_width;
+          param 420.0 as canvas_height;
           layout: {
             canvas: { width: $canvas_width; height: $canvas_height; }
             plot: auto;
@@ -1463,9 +1570,7 @@ async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contrac
 async fn native_surface_button_actions_preserve_order_and_shared_state_targets() {
     let source = r#"avenger 1;
         chart zerod as chart {
-          param utf8 as query {
-            value: 'initial';
-          }
+          param 'initial' as query;
           param store as history {
             field utf8 id;
             primary_key: [id];
@@ -1834,10 +1939,10 @@ async fn item_data_access_preserves_struct_physical_types() {
 async fn event_domain_facet_and_legend_property_accesses_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {
-          param float64 as domain_start { value: 0.0; }
-          param float64 as domain_end { value: 0.0; }
-          param utf8 as facet_value { value: ''; }
-          param utf8 as legend_hit { value: ''; }
+          param 0.0 as domain_start;
+          param 0.0 as domain_end;
+          param '' as facet_value;
+          param '' as legend_hit;
           data: {
             values: [
               { x: 1.0; y: 2.0; value: 3.0; },
@@ -1873,9 +1978,9 @@ async fn event_domain_facet_and_legend_property_accesses_lower() {
 async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {
-          param boolean as enabled { value: true; }
-          param float64 as drag_x { value: 0.0; sharing: free; }
-          param list(float64) as drag_domain { value: [0.0, 0.0]; }
+          param true as enabled;
+          param 0.0 as drag_x { sharing: free; }
+          param [0.0, 0.0] as drag_domain;
           param store as hovered {
             field utf8 id;
             field float64 x;
@@ -2002,26 +2107,21 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
 }
 
 #[tokio::test]
-async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
+async fn scalar_parameter_initializers_infer_nested_arrow_types() {
     let source = r#"avenger 1;
         chart zerod as chart {
-          param struct(
-              field(struct(field(float64, 'x'), field(float64, 'y')), 'position'),
-              field(list(utf8), 'labels')
-            ) as pointer {
-            value: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
-          }
-          param struct(field(float64, 'x')) as empty_pointer {
-            value: NULL;
-          }
-          param fixed_size_list(int16, 2) as fixed_values {
-            value: [1 + 1.9, '3'];
-          }
-          param map(utf8, int32) as mapped_values {
-            value: { first: 1 + 1.9; second: '4'; }
-          }
-          param list(int32) as empty_values { value: []; }
-          param map(utf8, int32) as empty_map { value: {} }
+          param named_struct(
+              'position', named_struct('x', CAST(1 AS DOUBLE), 'y', CAST(NULL AS DOUBLE)),
+              'labels', ['a', 'b']
+            ) as pointer;
+          param CASE WHEN false THEN named_struct('x', CAST(0 AS DOUBLE)) ELSE NULL END as empty_pointer;
+          param [CAST(1 + 1.9 AS SMALLINT), CAST('3' AS SMALLINT)] as fixed_values;
+          param map(
+            ['first', 'second'],
+            [CAST(1 + 1.9 AS INT), CAST('4' AS INT)]
+          ) as mapped_values;
+          param CAST([] AS INT[]) as empty_values;
+          param map(CAST([] AS VARCHAR[]), CAST([] AS INT[])) as empty_map;
         }"#;
     let artifact = source_compiler(source, None)
         .compile_chart("chart.avenger", None)
@@ -2044,7 +2144,7 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
     );
     assert!(matches!(
         defaults["fixed_values"].data_type(),
-        DataType::FixedSizeList(_, 2)
+        DataType::List(_)
     ));
     assert!(matches!(
         defaults["mapped_values"].data_type(),
@@ -2064,15 +2164,13 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
 async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() {
     let source = r#"avenger 1;
         chart zerod as chart {
-          param int32 as narrowed { value: 3.9; }
-          param float64 as parsed { value: '0.75'; }
-          param decimal128(10, 2) as subtotal { value: (6 * 2.05); }
-          param float64 as derived { value: ($source + 1.5); }
-          param int16 as source { value: '2'; }
-          param float64 as negative_zero { value: (-0.0); }
-          param struct(field(int32, 'x'), field(utf8, 'label')) as nested {
-            value: { x: 1 + 2.9; label: upper('ok'); }
-          }
+          param CAST(3.9 AS INT) as narrowed;
+          param CAST('0.75' AS DOUBLE) as parsed;
+          param CAST(6 * 2.05 AS DECIMAL(10, 2)) as subtotal;
+          param (CAST($source AS DOUBLE) + 1.5) as derived;
+          param CAST('2' AS SMALLINT) as source;
+          param (-0.0) as negative_zero;
+          param named_struct('x', CAST(1 + 2.9 AS INT), 'label', upper('ok')) as nested;
           param store as rows {
             field utf8 id;
             field int32 amount;
@@ -2121,7 +2219,7 @@ async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() 
 
     let invalid = r#"avenger 1;
         chart zerod as chart {
-          param int32 as bad { value: 'not an integer'; }
+          param CAST('not an integer' AS INT) as bad;
         }"#;
     let diagnostics = source_compiler(invalid, None)
         .compile_chart("chart.avenger", None)
@@ -2139,9 +2237,7 @@ async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() 
 
     let duplicate_map_keys = r#"avenger 1;
         chart zerod as chart {
-          param map(boolean, int32) as bad {
-            value: { yes: 1; true: 2; }
-          }
+          param map([true, true], [CAST(1 AS INT), CAST(2 AS INT)]) as bad;
         }"#;
     let diagnostics = source_compiler(duplicate_map_keys, None)
         .compile_chart("chart.avenger", None)
@@ -2589,7 +2685,7 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         " as enabled;",
         " as hovered;",
         " as chrome;",
-        "private param boolean as __av_",
+        "private param true as __av_",
         "private param selection as __av_",
         "private tool point_selection as __av_",
         "scale_edit {",

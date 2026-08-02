@@ -13,35 +13,19 @@ export schema tables as local {
   }
   table sql as borough_trips {
     sql: SELECT "borough", "fare" FROM local.trips WHERE "borough" = $borough AND "fare" >= $min_fare;
-    param utf8 as borough {
-      value: 'Man' || 'hattan';
-    }
-    param int64 as min_fare {
-      value: (2 * 0.5);
-    }
+    param 'Man' || 'hattan' as borough;
+    param (2 * 0.5) as min_fare;
   }
   table sql as forwarded {
     sql: SELECT "borough", "fare" FROM borough_trips(borough => $requested, min_fare => 10);
-    param utf8 as requested {
-      value: 'Queens';
-    }
+    param 'Queens' as requested;
   }
   table sql as configured {
     sql: SELECT $config AS settings;
-    param struct(field(utf8, 'label'), field(int64, 'weight')) as config {
-      value: {
-        label: upper('base');
-        weight: 1 + 1.5;
-      }
-    }
+    param named_struct('label', upper('base'), 'weight', CAST(1 + 1.5 AS BIGINT)) as config;
   }
   table sql as configured_forwarded {
     sql: SELECT * FROM configured(config => $forwarded_settings);
-    param struct(field(utf8, 'label'), field(int64, 'weight')) as forwarded_settings {
-      value: {
-        label: upper('forwarded');
-        weight: 1 + 2.5;
-      }
-    }
+    param named_struct('label', upper('forwarded'), 'weight', CAST(1 + 2.5 AS BIGINT)) as forwarded_settings;
   }
 }

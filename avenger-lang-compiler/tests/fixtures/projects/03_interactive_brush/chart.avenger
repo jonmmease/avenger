@@ -13,13 +13,10 @@ chart cartesian as chart {
     }
     ];
   }
-  param float64 as drag_x {
+  param CAST(0.0 AS DOUBLE) as drag_x {
     sharing: free;
-    value: 0.0;
   }
-  param int64 as hover_count {
-    value: 0;
-  }
+  param 0 as hover_count;
   param store as hovered {
     primary_key: [id];
     field utf8 id;

@@ -377,7 +377,7 @@ fn incomplete_source_still_produces_symbols_and_context() {
     let analysis = analyze_syntax(&snapshot);
     assert!(!analysis.diagnostics.is_empty());
     assert!(analysis.symbols.iter().any(|symbol| symbol.name == "chart"));
-    let offset = text.find("value:").expect("value property") + "value:".len();
+    let offset = text.find("sharing:").expect("sharing property") + "sharing:".len();
     assert!(matches!(
         analysis.context_at(offset).kind,
         SyntaxContextKind::Property | SyntaxContextKind::Expression

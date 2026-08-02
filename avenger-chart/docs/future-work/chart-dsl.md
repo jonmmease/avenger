@@ -50,8 +50,9 @@ scalar, store, and selection params share one collision-checked lexical param
 namespace; scalar and store `$path` reads are checked by use context, store
 relations are valid in SQL `FROM`, selections retain typed references, and
 target-first `set <path>` resolution selects the update algebra; scalar params
-put their exact physical Arrow type in the header and require `value:`, while
-store and selection are reserved param types with category-specific bodies;
+bind a required row-free SQL initializer before `as` and take their exact Arrow
+type from DataFusion planning, while store and selection are reserved param
+categories with category-specific bodies;
 registry-free distribution — imports are uniform (`std:`, `native:`, relative,
 URL) in every module however obtained, relative imports resolve against the
 importer's location, and named or namespace clauses bind explicit exports
@@ -68,7 +69,7 @@ schema projections, inline `catalog schemas` and `schema tables` containers,
 and individually bound tables, with credentials via capability-gated `env`
 values and `.env`, and catalog-level SQL views spelled
 `table sql` — logical by default, materialized per session by opt-in, and
-parameterized by scalar `param` declarations with required `value:` initializers,
+parameterized by scalar `param <expression> as <name>` declarations,
 `$name` scalar placeholders in a
 once-planned query rebound per use via data-block properties or named
 table-function arguments, chaining over any catalog relation with
@@ -112,7 +113,7 @@ Compiled params, stores, selections, marks, inline views, and tool instances
 use opaque typed identities distinct from source names and public aliases;
 lexically scoped state is resolved and hoisted into typed chart registries;
 event effects lower to one ordered transactional action vector, including an
-explicit cursor effect; param Arrow types are authoritative declarations;
+explicit cursor effect; compiler-inferred param Arrow types are authoritative contracts;
 pipelines remain one compiled parent stage; native authoring-schema entries are
 paired with erased Rust lowerers; native and defined tools share one resolved
 behavior expansion; built-in widgets retain their outer measurement and
@@ -142,15 +143,16 @@ which is also the graduation path.
 
 Adopted 2026-07-22: **declaration headers distinguish instances, declared
 members, and keyed entries.** Runtime/chart instances use
-`<category> <type> as <name>` when named (`param float64 as width`,
-`mark symbol as points`, `mark group as layers`). Members whose parent
+`<category> <type> as <name>` when a runtime kind must be stated (`mark symbol
+as points`, `mark group as layers`). Scalar params instead use the same
+source-to-alias order as SQL projections: `param 640 as width`. Members whose parent
 already establishes their role omit `as` and put type/shape before name
 (`slot expr measure`, `field float64 x`, `variable row mpg`). Entries whose
 parent establishes both role and type use only their key (`equality { id {
 ... } }`, `dimensions: { mpg: { ... } }`). `as` otherwise retains its true
 source-to-alias meaning for imports, exports, and explicit transform outputs.
-Scalar params require `value:`; stores and selections are the reserved param
-types `param store` and `param selection`; mutation is target-resolved through
+Scalar params require a header initializer; stores and selections are the reserved param
+categories `param store` and `param selection`; mutation is target-resolved through
 one `set <path>` form. Logical dataflow groups are the language-owned
 `mark group` kind. Continuous-colorbar overlays are the `overlay:` mark-block
 property of a standard legend; there is no `container` declaration family.
@@ -566,9 +568,11 @@ distinct: `none` removes a channel property, while `NULL` is a data value.
 
 ### Physical Arrow Types
 
-Every param and store field names a physical Arrow type using one canonical,
-lowercase type algebra. It is DSL schema syntax, not an SQL expression and not
-a logical/semantic type alias:
+Every store field and compiler/schema-owned fixed param names a physical Arrow
+type using one canonical, lowercase type algebra. Authored scalar params do not
+repeat this syntax: DataFusion plans their initializer and its exact Arrow
+`DataType` becomes the param contract. The algebra below is DSL schema syntax,
+not an SQL expression and not a logical/semantic type alias:
 
 ```text
 arrow_type = boolean
@@ -601,10 +605,10 @@ positive and therefore do not admit a leading sign.
 Nested list/map elements and struct fields use the Arrow-schema nullability
 fixed by this v1 grammar (nullable); store-field nullability remains the
 separate trailing `nullable` modifier. Dictionary, union, run-end-encoded, and
-view types are not valid v1 param/store types. The authoring schema owns this
+view types are not valid v1 store or schema-fixed-param types. The authoring schema owns this
 closed inventory and canonical printer; aliases such as `double`, `varchar`,
-`array`, or SQL `timestamp` are rejected so an authored type maps to exactly one
-Arrow `DataType`. Atomic types use the existing semantic `Atom` value and
+`array`, or SQL `timestamp` are rejected so an authored store-field or
+schema-fixed type maps to exactly one Arrow `DataType`. Atomic types use the existing semantic `Atom` value and
 parameterized types use the existing `Call` value, so `list(float64)` encodes as
 `{"call":{"fn":"list","args":[{"atom":"float64"}]}}`; Arrow types add no AST
 variant or interchange tag.
@@ -616,14 +620,8 @@ namespace. Names must be non-empty and unique within one struct; an empty struct
 is `struct()`. For example:
 
 ```avenger
-param struct(
-    field(struct(
-      field(float64, 'x'),
-      field(float64, 'y')
-    ), 'position'),
-    field(list(utf8), 'labels')
-  ) as pointer_state {
-  value: NULL;
+param store as state {
+  field struct(field(float64, 'x'), field(list(utf8), 'labels')) pointer;
 }
 ```
 
@@ -646,18 +644,30 @@ physical type grammar.
 
 ### Typed Value Boundaries
 
-Declared Arrow types are exact at every param, store-field, table-param, and
-typed action boundary. Every authored RHS at such a boundary is a SQL scalar
-expression. The compiler plans the expression under the names and relation
-allowed by that boundary, then applies DataFusion's strict Arrow `CAST` to the
-declared destination type. There is no literal/nonliteral distinction:
-`value: 0;`, `value: (0);`, and `value: 1 - 1;` follow the same rule.
+Authored scalar-param initializers are the one type-defining boundary: the
+compiler plans the row-free SQL expression and uses its planned Arrow
+`DataType` without an outer destination cast. Every later consumer of that
+param—table arguments, actions, native fixed bindings, and host state—uses the
+inferred exact type. Store fields, schema-fixed generated params, cursor
+assignments, and other typed destinations continue to apply DataFusion's strict
+Arrow `CAST`. There is no literal/nonliteral distinction at those destination
+boundaries.
 
-The destination cast intentionally accepts the complete conversion matrix of
+An explicit authored `CAST` controls a scalar param's contract, while a bare
+`NULL` or otherwise untyped empty expression is rejected. For example,
+`param CAST('0.75' AS DOUBLE) as opacity;` is `Float64`, while `param 0.75 as
+opacity;` follows the pinned exact-number normalization and is
+`Decimal128(2, 2)`. Representative pinned results are `1` → `Int64`, `1.5` →
+`Decimal128(2, 1)`, `1e2` → `Decimal128(1, -2)`, `-0.0` → `Float64`, string
+literals and `upper(...)` → `Utf8`, Boolean literals → `Boolean`, and
+`CAST(... AS DATE)` → `Date32`. `arrow_cast` supplies exact Arrow types such as
+`Binary` that DataFusion's SQL `CAST` type spelling does not support.
+
+At typed consumers, the destination cast intentionally accepts the complete conversion matrix of
 the pinned DataFusion 54 / Arrow 58 implementation, including supported string
-parsing and lossy numeric conversions. For example, a `float64` param may use
-`value: '0.75';`, and an `int32` param may use `value: 3.9;` (producing `3`
-under the pinned cast); the pinned Boolean string kernel accepts forms such as
+parsing and lossy numeric conversions. For example, an `int32` store field or
+action destination may receive `3.9` (producing `3` under the pinned cast), and
+the pinned Boolean string kernel accepts forms such as
 `'yes'` and `'no'`. An invalid constant cast is a compilation error. A
 value-dependent runtime cast failure fails and rolls back the complete ordered
 event transaction; it never silently becomes `NULL` or a skipped assignment.
@@ -665,8 +675,10 @@ Authors who want failure-to-null semantics write an explicit inner
 `TRY_CAST(...)`, after which the destination's ordinary typed-null admission
 rules apply.
 
-`NULL` is strictly cast to the destination's typed null. DSL list, struct, and
-map value syntax recursively applies the same destination rule to its members.
+`NULL` is strictly cast to a known destination's typed null. Scalar-param
+initializers instead spell a typed null explicitly, for example `CAST(NULL AS
+DOUBLE)`. DSL list, struct, and map values at declared destinations recursively
+apply the same destination rule to their members.
 The declared target supplies the otherwise ambiguous shape of empty nested
 values, fixed-size-list length, struct field order/nullability, and map key and
 value types. Unknown struct fields, missing non-nullable fields, null map keys,
@@ -747,8 +759,9 @@ The boundary inventory is closed for v1:
 
 | Typed boundary | Expression environment | Destination |
 | --- | --- | --- |
-| scalar and generated param `value:` | row-free SQL and same-scope scalar-param dependencies | declared/exported Arrow type |
-| catalog-table param `value:` | self-contained row-free SQL | declared Arrow type |
+| authored scalar param initializer | row-free SQL and same-scope scalar-param dependencies | DataFusion-planned source type (type-defining; no outer cast) |
+| schema-generated param initializer | schema-owned row-free value | schema-fixed Arrow type |
+| catalog-table param initializer | self-contained row-free SQL | DataFusion-planned source type |
 | table/data-block argument | row-free SQL and visible scalar params | callee param type |
 | store initial-row field | row-free SQL and chart scalar params | declared field type |
 | `set <scalar-param>` and store row/key/patch RHS | ordered event or param-change environment | target param/field type |
@@ -850,9 +863,10 @@ widget <built-in-widget-kind> as <name> {
   ...
 }
 
-param <physical-arrow-type> as <name> {
-  value: <expression>;
-  ...
+param <sql-expression> as <name>;
+
+param <sql-expression> as <name> {
+  sharing: shared | free | level(<nonnegative-integer>);
 }
 
 param store as <name> {
@@ -880,7 +894,7 @@ equality {
 The body mode depends on the declaration. `chart` and `mark group` bodies are mixed
 container blocks with ordered child declarations. A `mark` body is mixed only
 to admit its optional inline `view` child alongside ordinary mark properties.
-Ordinary `transform` kinds, scalar params, `scale`, `axis`, `legend`, tools,
+Ordinary `transform` kinds, scalar-param sharing bodies, `scale`, `axis`, `legend`, tools,
 widgets, and selection params have property blocks;
 an inline `view` has a mixed body containing its properties and dependent
 transforms/render children; store params have mixed bodies with ordered
@@ -1110,9 +1124,7 @@ Scalar params and store params are value bindings. Scalars carry scalar values
 and stores carry table values; both are referenced with a named `$path`:
 
 ```avenger
-param int64 as min_amount {
-  value: 0;
-}
+param 0 as min_amount;
 
 param store as brush {
   field utf8 id;
@@ -1132,7 +1144,7 @@ mark symbol {
 Only named `$` binding references are valid. Positional placeholders such as `$1`,
 `$2`, and `?` are rejected. Scalar, store, and selection params occupy one
 collision-checked **param namespace** in each lexical scope: declaring
-`param int64 as x` and `param store as x`, or any other category pair, in the
+`param 0 as x` and `param store as x`, or any other category pair, in the
 same scope is an error. A `$name` reference first resolves the nearest param by
 name, then requires its category to be scalar or store and checks that value
 kind against the use site. It never skips an incompatible nearer binding to
@@ -1539,9 +1551,7 @@ data: {                                -- one-off derivation; `sales` is the
 
 data: { sql: SELECT * FROM 'customers.csv'; }   -- chart-owned file
 
-param utf8 as selected_region {
-  value: 'all';
-}
+param 'all' as selected_region;
 ```
 
 `values:` is the inline-row source for small, self-contained fixtures and
@@ -1931,8 +1941,8 @@ re-planning it:
 
 ```avenger
 table sql as borough_trips {
-  param utf8 as borough { value: 'Manhattan'; }
-  param int64 as min_fare { value: 0; }
+  param 'Manhattan' as borough;
+  param 0 as min_fare;
 
   sql:
     SELECT * FROM trips
@@ -1954,13 +1964,13 @@ Catalog tables take params, never slots, and two rules diverge from chart
 params because the catalog must remain a fully resolved, browsable
 surface:
 
-- **Every scalar param carries its physical Arrow type in the header and a
-  required `value:` initializer.** A
+- **Every scalar param carries a required row-free SQL initializer before
+  `as`; its DataFusion-planned Arrow type is the exact placeholder contract.** A
   bare `FROM borough_trips` is always
   valid — it binds the declared initial values. A query with genuinely required inputs is
   a `define transform`, which also differs in kind: it rewrites an
   upstream `input` relation mid-pipeline rather than acting as a source.
-  The type fixes placeholder schema independently of the initializer.
+  An explicit `CAST` fixes placeholder schema when a particular type is needed.
 - **Param values are scalar literals.** A placeholder holds a value, not
   an identifier — a table whose *columns* vary by caller is structural
   parameterization, which is `slot`/define territory.
@@ -1994,7 +2004,7 @@ data: {
 ```
 
 Arguments are named-only (`=>`, the standard table-function spelling the
-SQL parser already accepts); unbound params take their declared `value:`; a param
+SQL parser already accepts); unbound params take their initializer value; a param
 name may not collide with the data block's reserved properties (`table`,
 `sql`, `url`, `values`). Params and their initial values are part of the
 `avenger tables` listing, and the language server completes param names
@@ -2012,7 +2022,7 @@ forwards its params to the links it calls:
 table parquet as zones { path: 'data/zones.parquet'; }
 
 table sql as zoned_trips {
-  param utf8 as borough { value: 'Manhattan'; }
+  param 'Manhattan' as borough;
 
   sql:
     SELECT t.*, z."zone_name"
@@ -3105,7 +3115,7 @@ existing concrete owner instance of the target declaration, then applies the
 RHS to only the owner selected by `at current|start`. Without it, other owner
 instances remain unchanged. Later actions see the resulting working state, and
 failure rolls back both the removals and the write. Removed scalar-param owners
-fall back to the declared `value:`; removed store owners lazily fall back to
+fall back to the evaluated initializer; removed store owners lazily fall back to
 their declared initial rows. The modifier is invalid for selections, whose
 update kinds already distinguish all-clause and in-scope operations. It is
 redundant for `sharing: shared` and earns a warning. This is the DSL spelling
@@ -3337,13 +3347,12 @@ established above.
 ## Tools, Selections, Stores, And Views
 
 The same object syntax covers interaction state. `param` is the common state
-declaration category: a scalar header carries an exact physical Arrow type,
-while `store` and `selection` are reserved param types with category-specific
-bodies:
+declaration category: a scalar header maps one row-free SQL initializer to a
+name, while `store` and `selection` are reserved param categories with
+category-specific bodies:
 
 ```avenger
-param list(float64) as x_domain {
-  value: NULL;
+param CAST(NULL AS DOUBLE[]) as x_domain {
   sharing: shared;
 }
 
@@ -3370,31 +3379,25 @@ invalid because selections are consumed through typed selection references.
 Their bodies and mutation operations remain distinct because scalar
 replacement, table-row updates, and clause updates have different schemas.
 
-The exact physical type in every scalar param header is the type carried by the
-DataFusion placeholder and runtime `ScalarValue`; `value:` never infers or
-alters it and is required exactly once. Scalar params are nullable: `NULL` means
-the typed null of the declared Arrow type, including for non-`NULL` initial
-values and first-invocation temporal reads. Initial values, host
-bindings, table-function arguments, and action assignments follow the exact
-[Typed Value Boundaries](#typed-value-boundaries) rule: every authored SQL
-expression is strictly cast to the declared physical Arrow type. Host-provided
-Arrow values remain different: they already carry a physical type and must
-match the compiled interface exactly.
+The initializer's DataFusion-planned Arrow type is carried by the placeholder
+and runtime `ScalarValue`. Initializers are evaluated once, in dependency
+order, and are not reactive definitions. Scalar params remain nullable, but a
+bare `NULL` has no concrete type and is rejected; authors write `CAST(NULL AS
+DOUBLE)` or `arrow_cast` for Arrow types that SQL cannot name faithfully.
+Host bindings, table-function arguments, and action assignments follow the
+exact [Typed Value Boundaries](#typed-value-boundaries) rule and must consume or
+strictly cast to that inferred type.
 
-The DSL semantic model and `CompiledParamSpec` carry this `DataType`
-explicitly. The DSL type supplies destination context while planning and
-strictly casting literals, `NULL`, and initial-value expressions; placeholder
-fields, host bindings, and runtime assignment validation use that declared
-type. The ordinary Rust `Param` API is
-different because its initial/default value is already a precisely typed Arrow
-`ScalarValue`: `Param::new(name, value)` derives the compiled type from
-`value.data_type()` rather than requiring the Rust author to repeat it. DSL
-lowering evaluates `value:` through the compiler-owned strict destination cast
-and rejects an unsupported or value-invalid conversion before producing the
-compiled param specification.
+Core resolution stores `ParamTypeContract::Inferred` plus the symbolic
+initializer and remains DataFusion-free. Compiler analysis produces a
+generation-local `ParamTypeIndex<ParamId, DataType>` from the actual compile
+environment before catalog or chart planning. `CompiledParamSpec` and the
+ordinary Rust `Param` API then derive their exact contract from the resulting
+typed `ScalarValue`, so Rust and DSL runtime behavior agree without requiring
+the DSL author to repeat the type.
 
-Scalar params have no behavioral `kind:`. `store` and `selection` are closed
-header types, not metadata. Consumers impose role-specific type constraints at
+Scalar params have no behavioral `kind:` or authored `type:`. `store` and
+`selection` are closed header categories, not metadata. Consumers impose role-specific type constraints at
 the use site. `raw_domain: $x_domain` requires
 `list(float64)`. Cursor is not a param role: it is a write-only transactional
 event effect spelled `set cursor`, defined in [Events](#events). Removing a
@@ -3436,7 +3439,7 @@ key remains `(declaration identity, owner path)`, so hoisting does not alter
 facet sharing or component-instance isolation.
 
 Reads and event writes use the same owner-path calculation. A scalar param with
-no written value at its resolved owner uses its declared initial `value:`.
+no written value at its resolved owner uses its evaluated initializer.
 Declared store rows are likewise the immutable authored baseline for every
 owner. The root instance is seeded eagerly; an as-yet unwritten non-root
 `free` or `level(n)` owner reads those rows lazily at revision zero. Its first
@@ -3458,18 +3461,18 @@ For a raw-domain param, validation additionally requires its sharing to be at
 least as broad as the scale domain it controls; native tools may explicitly
 select a scope or mirror the target scale's sharing.
 
-Chart/component params are predeclared within their lexical scope, so defaults
+Chart/component params are predeclared within their lexical scope, so initializers
 may form an acyclic forward-reference graph:
 
 ```avenger
-param int64 as upper_limit { value: $lower_limit + 10; }
-param int64 as lower_limit { value: 0; }
+param $lower_limit + 10 as upper_limit;
+param 0 as lower_limit;
 ```
 
-Defaults are evaluated once in topological order when initial state is built;
+Initializers are planned, typed, and evaluated once in topological order when initial state is built;
 later writes to `lower_limit` do not reactively recompute `upper_limit`. Use an
 ordinary SQL expression at the consumption site when a derived live value is
-intended. Catalog-table params retain literal, self-contained defaults as
+intended. Catalog-table params retain self-contained row-free initializers as
 specified in [Data Catalogs](#data-catalogs).
 
 Tool kinds come from two sources: native built-ins registered by the host and
@@ -3857,9 +3860,7 @@ Chart-level properties live in the mixed `chart` body:
 
 ```avenger
 chart cartesian as sales {
-  param float64 as canvas_height {
-    value: 520.0;
-  }
+  param 520.0 as canvas_height;
 
   title: 'Sales by region' {
     align: center;
@@ -5060,7 +5061,7 @@ chrome.
 A custom tool definition composes the following language-level expansion
 content, all instance-scoped:
 
-- scalar `param <arrow-type> as <name>`, `param store as <name>`, and
+- scalar `param <sql-expression> as <name>`, `param store as <name>`, and
   `param selection as <name>` declarations
   (generated state);
 - `on` event bindings;
@@ -5081,7 +5082,7 @@ define tool drag_pan {
     default: left;
   }
 
-  param list(float64) as domain { value: NULL; }
+  param CAST(NULL AS DOUBLE[]) as domain;
 
   scale_edit {
     channel: axis;
@@ -5121,8 +5122,8 @@ avenger 1;
 export define tool wheel_zoom {
   slot number base { default: 1.05; }
 
-  param list(float64) as x_domain { value: NULL; }
-  param list(float64) as y_domain { value: NULL; }
+  param CAST(NULL AS DOUBLE[]) as x_domain;
+  param CAST(NULL AS DOUBLE[]) as y_domain;
 
   tool pan_scroll_zoom {
     x_domain_param: $x_domain;
@@ -6011,7 +6012,7 @@ therefore available throughout that scope, including before their textual
 declaration. Duplicate bindings are diagnosed during predeclaration before any
 body is resolved. Scalar, store, and selection params share one param
 namespace, so the same scope cannot reuse `state` across
-`param int64 as state`, `param store as state`, or `param selection as state`;
+`param 0 as state`, `param store as state`, or `param selection as state`;
 the other
 typed namespaces and public-interface collision rules determine remaining
 conflicts.
@@ -6052,13 +6053,14 @@ regardless of source order. After SQL name resolution, dependencies among
 are errors reported with the dependency path.
 
 Value bindings in a lexical scope are likewise predeclared before scalar-param
-initializers are resolved. A `value:` expression may reference another
+initializers are resolved. A header initializer may reference another
 compatible scalar param in that scope, including one declared later. Initializer
 dependencies must be acyclic and are evaluated in topological order when
 initial state is constructed; an initializer is not a reactive binding after
-construction. Catalog-table params retain their stricter existing contract:
-every `value:` is a self-contained scalar literal checked against the physical
-Arrow type in its header, so table-param initializers have no dependency graph.
+construction. Catalog-table params retain their stricter contract: every
+initializer is a self-contained row-free scalar SQL expression, so table-param
+initializers have no dependency graph; their types are still inferred by the
+same DataFusion planning pass.
 
 Definition slot defaults intentionally retain the simpler textual rule: a slot
 default may reference only an earlier compatible slot. Later-slot references
@@ -6222,8 +6224,14 @@ splice        = ident , ";" ;
 
 resource      = param | res | theme ;
                      (* data is a property: `data: { ... }` *)
-param         = "param" , param_type , bind , body ;
-param_type    = arrow_type | "store" | "selection" ;
+param         = "param" ,
+                ( sql_expr , bind , ( ";" | scalar_param_body )
+                | ( "store" | "selection" ) , bind , body ) ;
+scalar_param_body
+              = "{" , [ sharing_property ] , "}" ;
+sharing_property
+              = "sharing" , ":" ,
+                ( "shared" | "free" | "level" , "(" , number , ")" ) , ";" ;
 res           = "resource" , ident , bind , body ;   (* resource tiles as osm *)
 theme         = "theme" , "css" ,
                 ( "from" , string , [ "sha256" , string ] | ":" , string ) ,
@@ -6413,13 +6421,14 @@ lowerer.
   The key is not a binding. Clause identity remains the ordinary
   `id: <sql_expr>;` property; scene-query field maps likewise use `id:` inside
   anonymous objects.
-- A scalar param puts exactly one physical `arrow_type` in its header and its
-  body requires exactly one `value:` SQL scalar expression. `type:`,
-  `default:`, `kind:`, and inferred scalar types are invalid. `param store`
-  and `param selection` are reserved category types with their own body
-  schemas and do not take `value:`. `sharing:` is optional and defaults to
-  `shared`; chart/component scalar values may use the acyclic dependency rule,
-  while catalog-table scalar values remain self-contained literals.
+- A scalar param puts exactly one SQL scalar initializer before `as`; the
+  initializer's DataFusion-planned Arrow type is authoritative. Its optional
+  body accepts only `sharing:` and the empty body is canonically `;`. `type:`,
+  `value:`, `default:`, and `kind:` are invalid. `param store` and `param
+  selection` are reserved categories with their own body schemas. Sharing
+  defaults to `shared`; chart/component scalar initializers may use the acyclic
+  dependency rule, while catalog-table scalar initializers remain
+  self-contained and row-free.
 - Store fields are declared `field <arrow_type> <name> [nullable];`; nested
   struct members are `field(<arrow_type>, '<name>')`. Both are type-first, but
   nested Arrow names are strings so they can preserve names outside the DSL
@@ -6524,12 +6533,14 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    without an export, lexical `$name`, qualified `$instance.alias`, deeper
    paths, invalid quoted/numeric segments, non-binding path targets, wrong
    scalar/table use, same-scope param/store collisions, and nearest-binding
-   shadowing without kind-directed fallback. Param-schema fixtures require an
-   explicit canonical physical Arrow type for every param, reject `kind:` and
-   type aliases/inference, preserve typed `NULL`, validate defaults/host values/
-   table arguments/action results against the declared type, round-trip nested
-   type spellings, reject unsupported Arrow types, and check `raw_domain:`
-   use-site type constraints. Typed-boundary fixtures pin bare, parenthesized,
+   shadowing without kind-directed fallback. Param-schema fixtures require one
+   row-free SQL initializer before `as`, reject the removed typed header and
+   body `value:`/`kind:` forms, characterize DataFusion inference, reject bare
+   untyped `NULL`, validate host values/table arguments/action results against
+   the inferred type, preserve explicit typed nulls, reject unsupported Arrow
+   results, and check `raw_domain:` use-site type constraints. Store-field
+   fixtures continue to round-trip nested physical type spellings.
+   Typed-boundary fixtures pin bare, parenthesized,
    and compound SQL sources; recursive list, fixed-list, struct, map, and typed
    `NULL` values; string and lossy numeric conversions under the pinned cast
    matrix; strict versus authored `TRY_CAST`; exact numeric sources; exact host
@@ -7044,10 +7055,11 @@ Typed slots need no special node: `slot expr category;` is a `Decl` with
 such as `default`, `values`, `class`, `kind`, and `exposes` are ordinary
 properties in its body.
 Surface-header normalization likewise keeps the generic AST closed. A scalar
-`param float64 as width { value: 640.0; }` is a `param` declaration whose
-semantic `type` and `value` properties came from distinct source positions;
-the parser forbids an authored body `type:` and the canonical printer moves the
-semantic type back into the header. `param store` and `param selection`
+`param 640.0 as width;` is a `param` declaration whose
+semantic `value` property came from the header expression; the parser forbids
+authored body `type:` and `value:` properties and the canonical printer moves
+the semantic value back into the header. Its Arrow type exists only in the
+compiler-owned `ParamTypeIndex`, not the dependency-light AST. `param store` and `param selection`
 normalize to the existing `store` and `selection` declaration keywords.
 `mark group` remains `Decl { keyword: "mark", kind: "group" }` throughout
 parsing, printing, expansion, and resolution. A `legend.overlay` mark block is
@@ -7147,7 +7159,7 @@ Serde over these nodes defines the interchange form. Four rules:
 
 ```avenger
 table sql as borough_trips {
-  param utf8 as borough { value: 'Manhattan'; }
+  param 'Manhattan' as borough;
 
   sql: SELECT * FROM trips WHERE "borough" = $borough;
 }
@@ -7158,7 +7170,7 @@ table sql as borough_trips {
   "decl": "table", "kind": "sql", "name": "borough_trips",
   "children": [
     { "decl": "param", "name": "borough",
-      "props": { "type": { "atom": "utf8" }, "value": "Manhattan" } }
+      "props": { "value": "Manhattan" } }
   ],
   "props": {
     "sql": { "query": "SELECT * FROM trips WHERE \"borough\" = $borough" }

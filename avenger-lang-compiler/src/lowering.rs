@@ -33,9 +33,10 @@ use avenger_chart_core::{
     PatternLayerOperation, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
     PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
     SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
-    StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
-    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
-    item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    SerializableScalar, StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow,
+    StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec,
+    ViewRef, WeekStart, event, item_bbox_column_name, item_channel_column_name,
+    item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
@@ -46,14 +47,14 @@ use avenger_chart_lang_registry::{
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
-    ChartEntrypointId, DeclarationId, Diagnostic, ImportCapabilities, ParamId, ResolvedActionRoute,
-    ResolvedBinding, ResolvedChannelMember, ResolvedContextualAccess, ResolvedContextualAccessKind,
-    ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface, ResolvedExpression,
-    ResolvedHelperArgument, ResolvedIntervalBoundary, ResolvedModuleGraph, ResolvedOutputHandle,
-    ResolvedOutputShape, ResolvedParam, ResolvedQuery, ResolvedRelationTarget, ResolvedSelection,
-    ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
-    ResolvedTarget, ResolvedValue, ResolvedViewAxis, ResolvedViewField, SelectionId, SourceLabel,
-    SourceLoader, SourceSpan, StateSharing, StoreId,
+    ChartEntrypointId, DeclarationId, Diagnostic, ImportCapabilities, ParamId, ParamTypeContract,
+    ResolvedActionRoute, ResolvedBinding, ResolvedChannelMember, ResolvedContextualAccess,
+    ResolvedContextualAccessKind, ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface,
+    ResolvedExpression, ResolvedHelperArgument, ResolvedIntervalBoundary, ResolvedModuleGraph,
+    ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedQuery,
+    ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
+    ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue, ResolvedViewAxis,
+    ResolvedViewField, SelectionId, SourceLabel, SourceLoader, SourceSpan, StateSharing, StoreId,
     ast::{BindingTime, SqlExpression, SqlQuery, Visibility},
     contextual_access_signature,
     module_graph::resolve_relative_origin,
@@ -79,7 +80,8 @@ use sqlparser::{
 };
 
 use crate::{
-    CompiledChartArtifact, DependencyFingerprint, NativeRequirementSet,
+    CompiledChartArtifact, DependencyFingerprint, NativeRequirementSet, ParamTypeIndex,
+    ParamTypeProvenance,
     sql_profile::{
         exact_numeric_scalar, normalize_sql_expression, normalize_sql_query,
         physical_field_to_arrow, physical_type_to_arrow,
@@ -88,6 +90,82 @@ use crate::{
 
 pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PreparedParams {
+    pub values: BTreeMap<ParamId, Param>,
+    pub types: ParamTypeIndex,
+}
+
+pub(crate) fn prepare_module_params(
+    project: &ResolvedModuleGraph,
+    registry: &NativeRegistry,
+    context: &SessionContext,
+    source_loader: &dyn SourceLoader,
+    capabilities: &ImportCapabilities,
+) -> Result<PreparedParams, Vec<Diagnostic>> {
+    let mut lowerer = ModuleLowerer::new(project, registry, context, source_loader, capabilities);
+    for id in &project.param_initializer_order {
+        if let Err(mut diagnostic) = lowerer.lower_param(id) {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            return Err(vec![diagnostic]);
+        }
+    }
+    for id in project.params.keys() {
+        if !lowerer.params.contains_key(id)
+            && let Err(mut diagnostic) = lowerer.lower_param(id)
+        {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            return Err(vec![diagnostic]);
+        }
+    }
+    for requirement in &project.param_type_requirements {
+        let ResolvedTarget::Param(id) = &requirement.target else {
+            continue;
+        };
+        let Some(actual) = lowerer
+            .params
+            .get(id)
+            .map(|param| param.default.data_type())
+        else {
+            continue;
+        };
+        let expected = physical_type_to_arrow(&requirement.expected);
+        if actual != expected {
+            let mut diagnostic = Diagnostic::error(
+                "AVENGER-PARAM-002",
+                "parameter binding has the wrong inferred Arrow type",
+                SourceLabel::new(
+                    requirement.span,
+                    format!(
+                        "{} requires `{expected}`, but the bound param infers `{actual}`; cast its initializer explicitly",
+                        requirement.role
+                    ),
+                ),
+            );
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            return Err(vec![diagnostic]);
+        }
+    }
+    let mut types = ParamTypeIndex::default();
+    for (id, param) in &lowerer.params {
+        let provenance = match &project.params[id].type_contract {
+            ParamTypeContract::Inferred => ParamTypeProvenance::Inferred,
+            ParamTypeContract::SchemaFixed(_) => ParamTypeProvenance::SchemaFixed,
+        };
+        types.insert(id.clone(), param.default.data_type(), provenance);
+    }
+    Ok(PreparedParams {
+        values: lowerer.params,
+        types,
+    })
 }
 
 pub(crate) struct ChartDatasetAnalysis {
@@ -119,8 +197,11 @@ pub(crate) async fn lower_module_chart(
     context: &SessionContext,
     source_loader: &dyn SourceLoader,
     capabilities: &ImportCapabilities,
+    prepared_params: &PreparedParams,
 ) -> Result<LoweredChart, Vec<Diagnostic>> {
     let mut lowerer = ModuleLowerer::new(project, registry, context, source_loader, capabilities);
+    lowerer.params.clone_from(&prepared_params.values);
+    lowerer.param_types.clone_from(&prepared_params.types);
     let result = match lowerer.lower_entrypoint_state(entrypoint_id) {
         Ok(()) => lowerer.lower_one(entrypoint_id).await,
         Err(diagnostic) => Err(diagnostic),
@@ -145,12 +226,15 @@ pub(crate) async fn analyze_chart_datasets(
     context: &SessionContext,
     source_loader: &dyn SourceLoader,
     capabilities: &ImportCapabilities,
+    prepared_params: &PreparedParams,
 ) -> Result<Vec<ChartDatasetAnalysis>, Vec<Diagnostic>> {
     let mut analysis = Vec::new();
     let mut diagnostics = Vec::new();
     for (entrypoint_id, entrypoint) in &project.entrypoints {
         let mut lowerer =
             ModuleLowerer::new(project, registry, context, source_loader, capabilities);
+        lowerer.params.clone_from(&prepared_params.values);
+        lowerer.param_types.clone_from(&prepared_params.types);
         if let Err(mut diagnostic) = lowerer.lower_entrypoint_state(entrypoint_id) {
             project
                 .expansion_source_map
@@ -187,6 +271,7 @@ struct ModuleLowerer<'a> {
     source_loader: &'a dyn SourceLoader,
     capabilities: &'a ImportCapabilities,
     params: BTreeMap<ParamId, Param>,
+    param_types: ParamTypeIndex,
     stores: BTreeMap<StoreId, Store>,
     store_table_names: BTreeMap<StoreId, String>,
     selections: BTreeMap<SelectionId, Selection>,
@@ -216,6 +301,7 @@ impl<'a> ModuleLowerer<'a> {
             source_loader,
             capabilities,
             params: BTreeMap::new(),
+            param_types: ParamTypeIndex::default(),
             stores: BTreeMap::new(),
             store_table_names: BTreeMap::new(),
             selections: BTreeMap::new(),
@@ -289,11 +375,13 @@ impl<'a> ModuleLowerer<'a> {
                 format!("{entrypoint_id:?}"),
             )
         })?;
-        for id in &entrypoint.param_default_order {
-            self.lower_param(id)?;
+        for id in &entrypoint.param_initializer_order {
+            if !self.params.contains_key(id) {
+                self.lower_param(id)?;
+            }
         }
         // Native tool/widget exports have schema-provided defaults and do not
-        // participate in the authored param-default DAG. They still need the
+        // participate in the authored param-initializer DAG. They still need the
         // exact same typed parameter representation before their paired
         // lowerers run.
         for id in entrypoint.params.keys() {
@@ -670,13 +758,19 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_param(&mut self, id: &ParamId) -> Result<(), Diagnostic> {
         let param = &self.project.params[id];
-        let default = self.evaluate_param_default(&param.default, param)?;
+        let default = self.evaluate_param_initializer(&param.initializer, param)?;
         let runtime_name = self.param_runtime_name(param);
         let mut lowered = Param::new(runtime_name, default);
         if let Some(key) = param.migration_key.as_ref() {
             lowered =
                 lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
         }
+        let provenance = match &param.type_contract {
+            ParamTypeContract::Inferred => ParamTypeProvenance::Inferred,
+            ParamTypeContract::SchemaFixed(_) => ParamTypeProvenance::SchemaFixed,
+        };
+        self.param_types
+            .insert(id.clone(), lowered.default.data_type(), provenance);
         self.params.insert(id.clone(), lowered);
         Ok(())
     }
@@ -733,7 +827,7 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn evaluate_param_default(
+    fn evaluate_param_initializer(
         &self,
         value: &ResolvedValue,
         param: &ResolvedParam,
@@ -746,9 +840,53 @@ impl<'a> ModuleLowerer<'a> {
             )
         })?;
         let data = self.constant_expression_data(declaration)?;
-        let target = physical_type_to_arrow(&param.data_type);
-        let expr = self.typed_boundary_expr(value, &target, Some(&data), declaration, false)?;
-        self.evaluate_constant_boundary(expr, &target, declaration, "parameter default")
+        let source = self.boundary_source_value(value, Some(&data), declaration, false)?;
+        let (expr, target) = match &param.type_contract {
+            ParamTypeContract::Inferred => {
+                let target = source
+                    .get_type(data.schema())
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                if target == DataType::Null {
+                    return Err(Diagnostic::error(
+                        "AVENGER-PARAM-001",
+                        "parameter initializer has no concrete Arrow type",
+                        SourceLabel::new(
+                            declaration.span,
+                            "cast `NULL` or an untyped empty value to the intended SQL/Arrow type",
+                        ),
+                    ));
+                }
+                (source, target)
+            }
+            ParamTypeContract::SchemaFixed(data_type) => {
+                let target = physical_type_to_arrow(data_type);
+                (cast(source, target.clone()), target)
+            }
+        };
+        let value =
+            self.evaluate_constant_boundary(expr, &target, declaration, "parameter initializer")?;
+        if value.data_type() != target {
+            return Err(lowerer_error(
+                declaration,
+                format!(
+                    "parameter initializer evaluated as `{}`, expected planned type `{target}`",
+                    value.data_type()
+                ),
+            ));
+        }
+        serde_json::to_vec(&SerializableScalar::new(value.clone())).map_err(|error| {
+            Diagnostic::error(
+                "AVENGER-PARAM-003",
+                "parameter initializer produced an unsupported Arrow scalar",
+                SourceLabel::new(
+                    declaration.span,
+                    format!(
+                        "`{target}` cannot round-trip through compiled state serialization: {error}; choose a supported type or cast explicitly"
+                    ),
+                ),
+            )
+        })?;
+        Ok(value)
     }
 
     fn lower_store(&self, store: &ResolvedStore) -> Result<Store, Diagnostic> {
@@ -994,7 +1132,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|param| param.default.clone())
                     .ok_or_else(|| {
                         datafusion::error::DataFusionError::Plan(format!(
-                            "parameter default dependency `{}` was not lowered first",
+                            "parameter initializer dependency `{}` was not lowered first",
                             placeholder.id
                         ))
                     })?;
@@ -5299,7 +5437,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         crate::catalog::ensure_query_relations_registered(self.context, query)
             .map_err(|error| lowerer_error(declaration, error))?;
-        let sql = crate::catalog::expand_chart_sql(self.project, query, &sql)
+        let sql = crate::catalog::expand_chart_sql(self.project, &self.param_types, query, &sql)
             .map_err(|error| lowerer_error(declaration, error))?;
         normalize_sql_query(&sql).map_err(|error| lowerer_error(declaration, error))
     }
@@ -5498,9 +5636,13 @@ impl<'a> ModuleLowerer<'a> {
                                 relations: vec![relation.clone()],
                             };
                             invocation.relations[0].authored_path = authored_path;
-                            let sql =
-                                crate::catalog::expand_chart_sql(self.project, &invocation, &sql)
-                                    .map_err(|error| lowerer_error(declaration, error))?;
+                            let sql = crate::catalog::expand_chart_sql(
+                                self.project,
+                                &self.param_types,
+                                &invocation,
+                                &sql,
+                            )
+                            .map_err(|error| lowerer_error(declaration, error))?;
                             self.context
                                 .sql(&sql)
                                 .await

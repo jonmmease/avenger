@@ -1,8 +1,6 @@
 avenger 1;
 chart zerod as text_input {
-  param utf8 as query_state {
-    value: 'initial';
-  }
+  param 'initial' as query_state;
   widget text_input as query {
     commit: on_enter_or_blur;
     debounce_ms: 200;

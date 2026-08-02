@@ -21,19 +21,16 @@
   },
   "generated_state": [
     {
-      "data_type": {
-        "type": "utf8"
-      },
       "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
-      "default": {
-        "value": "null"
-      },
       "definition_local_seed": null,
       "generated_by": {
         "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
         "export_role": "value"
       },
       "id": "av1_35f672ba1b92c17a8ea68b0126b37086",
+      "initializer": {
+        "value": "null"
+      },
       "lexical_scope": "memory:provenance.avenger:0",
       "migration_key": "av1_bda4d5a3b1f58004cb1cbe955b40f48b",
       "owner_ancestry": [
@@ -41,7 +38,13 @@
       ],
       "sharing": "shared",
       "source_name": "choice.value",
-      "table_owner": null
+      "table_owner": null,
+      "type_contract": {
+        "source": "schema_fixed",
+        "type": {
+          "type": "utf8"
+        }
+      }
     }
   ],
   "public_targets": {

@@ -49,10 +49,8 @@ import {{ vega }} from 'data.avenger';
 
 chart cartesian as chart {{
   data: {{ table: 'vega.movies'; }}
-  param float64 as minimum {{ value: 5.0; }}
-  param struct(field(utf8, 'label'), field(int64, 'weight')) as config {{
-    value: {{ label: 'base'; weight: 2; }}
-  }}
+  param 5.0 as minimum;
+  param named_struct('label', 'base', 'weight', 2) as config;
   param store as selected {{
     field int64 id;
     field utf8 label;

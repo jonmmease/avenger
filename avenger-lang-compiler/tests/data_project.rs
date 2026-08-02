@@ -180,7 +180,7 @@ async fn data_project_reports_catalog_dag_argument_capability_and_option_failure
             r#"avenger 1;
                table inline as rows { values: [{ value: 1; }]; }
                table sql as filtered {
-                 param int64 as minimum { value: 0; }
+                 param 0 as minimum;
                  sql: SELECT * FROM rows WHERE value >= $minimum;
                }
                table sql as use_filtered { sql: SELECT * FROM filtered(1); }"#,
@@ -191,7 +191,7 @@ async fn data_project_reports_catalog_dag_argument_capability_and_option_failure
             r#"avenger 1;
                table inline as rows { values: [{ value: 1; }]; }
                table sql as filtered {
-                 param int64 as minimum { value: 0; }
+                 param 0 as minimum;
                  sql: SELECT * FROM rows WHERE value >= $minimum;
                }
                table sql as use_filtered {

@@ -5,9 +5,7 @@ chart cartesian as cartesian {
   data: {
     table: 'shared.points';
   }
-  param float64 as point_size {
-    value: 64.0;
-  }
+  param 64.0 as point_size;
   transform pass {
   }
   mark symbol as points {

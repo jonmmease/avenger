@@ -20,15 +20,9 @@ chart cartesian as chart {
     }
     plot: auto;
   }
-  param float64 as canvas_width {
-    value: 640.0;
-  }
-  param float64 as canvas_height {
-    value: 420.0;
-  }
-  param float64 as selected_size {
-    value: 80.0;
-  }
+  param CAST(640.0 AS DOUBLE) as canvas_width;
+  param CAST(420.0 AS DOUBLE) as canvas_height;
+  param CAST(80.0 AS DOUBLE) as selected_size;
   param store as dragged {
     primary_key: [id];
     field utf8 id;

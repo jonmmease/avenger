@@ -1,8 +1,6 @@
 avenger 1;
 chart zerod as button {
-  param utf8 as query {
-    value: 'initial';
-  }
+  param 'initial' as query;
   param store as history {
     primary_key: [id];
     field utf8 id;

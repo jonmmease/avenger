@@ -177,13 +177,25 @@ pub enum StateSharing {
     Level(u32),
 }
 
+/// The source of a scalar parameter's physical Arrow type.
+///
+/// Authored scalar params are inferred later by the DataFusion-backed compiler.
+/// Native widget/tool state can retain a schema-fixed physical contract without
+/// making the dependency-light resolver approximate SQL expression types.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "source", content = "type", rename_all = "snake_case")]
+pub enum ParamTypeContract {
+    Inferred,
+    SchemaFixed(PhysicalType),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedParam {
     pub id: ParamId,
     pub declaration: DeclarationId,
     pub source_name: String,
-    pub data_type: PhysicalType,
-    pub default: ResolvedValue,
+    pub type_contract: ParamTypeContract,
+    pub initializer: ResolvedValue,
     pub sharing: StateSharing,
     pub migration_key: Option<StateMigrationKey>,
     pub definition_local_seed: Option<DefinitionLocalSeed>,
@@ -264,7 +276,15 @@ pub struct DefinitionSchema {
 pub struct DefinitionExport {
     pub path: Vec<String>,
     pub target_kind: DefinitionExportKind,
-    pub data_type: Option<PhysicalType>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParamTypeRequirement {
+    pub target: ResolvedTarget,
+    pub expected: PhysicalType,
+    pub declaration: DeclarationId,
+    pub span: SourceSpan,
+    pub role: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -320,7 +340,8 @@ pub struct ResolvedModuleGraph {
     pub stores: BTreeMap<StoreId, ResolvedStore>,
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
     pub public_targets: BTreeMap<String, ResolvedTarget>,
-    pub param_default_order: Vec<ParamId>,
+    pub param_initializer_order: Vec<ParamId>,
+    pub param_type_requirements: Vec<ParamTypeRequirement>,
     /// Catalog tables keyed by their declaration-local SQL path. Import aliases
     /// are applied when a project analysis environment exposes a data pack;
     /// queries inside the pack continue to use these local paths.
@@ -424,7 +445,7 @@ pub struct ResolvedChartEntrypoint {
     pub stores: BTreeMap<StoreId, ResolvedStore>,
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
     pub public_targets: BTreeMap<String, ResolvedTarget>,
-    pub param_default_order: Vec<ParamId>,
+    pub param_initializer_order: Vec<ParamId>,
     pub reachable_items: BTreeSet<ModuleItemId>,
 }
 
@@ -968,7 +989,7 @@ struct Scope {
 
 #[derive(Clone, Debug)]
 enum StateSymbol {
-    Param(ParamId, Option<PhysicalType>),
+    Param(ParamId),
     Store(StoreId),
     Selection(SelectionId),
 }
@@ -976,7 +997,7 @@ enum StateSymbol {
 impl StateSymbol {
     fn target(&self) -> ResolvedTarget {
         match self {
-            Self::Param(id, _) => ResolvedTarget::Param(id.clone()),
+            Self::Param(id) => ResolvedTarget::Param(id.clone()),
             Self::Store(id) => ResolvedTarget::Store(id.clone()),
             Self::Selection(id) => ResolvedTarget::Selection(id.clone()),
         }
@@ -1040,10 +1061,10 @@ struct Resolver<'a> {
     imports: BTreeMap<SourceModuleId, BTreeMap<String, SourceModuleId>>,
     definitions: BTreeMap<ModuleItemId, DefinitionSchema>,
     params: BTreeMap<ParamId, ResolvedParam>,
-    param_types: BTreeMap<ParamId, PhysicalType>,
     stores: BTreeMap<StoreId, ResolvedStore>,
     selections: BTreeMap<SelectionId, ResolvedSelection>,
     param_dependencies: BTreeMap<ParamId, BTreeSet<ParamId>>,
+    param_type_requirements: Vec<ParamTypeRequirement>,
     table_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     relation_names: BTreeMap<(SourceModuleId, Vec<String>), ResolvedRelationId>,
     relation_declarations: BTreeMap<ResolvedRelationId, DeclarationId>,
@@ -1062,10 +1083,10 @@ impl<'a> Resolver<'a> {
             imports: BTreeMap::new(),
             definitions: BTreeMap::new(),
             params: BTreeMap::new(),
-            param_types: BTreeMap::new(),
             stores: BTreeMap::new(),
             selections: BTreeMap::new(),
             param_dependencies: BTreeMap::new(),
+            param_type_requirements: Vec::new(),
             table_dependencies: BTreeMap::new(),
             relation_names: BTreeMap::new(),
             relation_declarations: BTreeMap::new(),
@@ -1146,7 +1167,7 @@ impl<'a> Resolver<'a> {
         }
 
         self.prune_unused_lazy_exports(&mut files);
-        let param_default_order = self.check_param_dag();
+        let param_initializer_order = self.check_param_initializer_dag();
         let table_order = self.check_table_dag();
         let definition_import_order = self.definition_import_order();
         let mut public_targets = BTreeMap::new();
@@ -1191,7 +1212,7 @@ impl<'a> Resolver<'a> {
             .collect();
         let item_dependencies = self.build_item_dependency_graph(&files);
         let entrypoints =
-            self.resolved_entrypoints(&files, &param_default_order, &item_dependencies);
+            self.resolved_entrypoints(&files, &param_initializer_order, &item_dependencies);
         let authoring_items = AuthoringItemGraph {
             item_order: files
                 .iter()
@@ -1231,7 +1252,8 @@ impl<'a> Resolver<'a> {
                 stores: self.stores.clone(),
                 selections: self.selections.clone(),
                 public_targets,
-                param_default_order,
+                param_initializer_order,
+                param_type_requirements: self.param_type_requirements.clone(),
                 catalog_tables: self.resolved_catalog_tables(),
                 table_order,
                 definition_import_order,
@@ -1243,7 +1265,7 @@ impl<'a> Resolver<'a> {
     fn resolved_entrypoints(
         &self,
         files: &BTreeMap<SourceModuleId, ResolvedModule>,
-        param_default_order: &[ParamId],
+        param_initializer_order: &[ParamId],
         item_dependencies: &ItemDependencyGraph,
     ) -> BTreeMap<ChartEntrypointId, ResolvedChartEntrypoint> {
         let mut entrypoints = BTreeMap::new();
@@ -1299,7 +1321,7 @@ impl<'a> Resolver<'a> {
                 let mut origins = BTreeMap::new();
                 let mut collisions = Vec::new();
                 collect_public_targets(chart, &mut public_targets, &mut origins, &mut collisions);
-                let owned_param_order = param_default_order
+                let owned_param_order = param_initializer_order
                     .iter()
                     .filter(|param| {
                         self.params
@@ -1318,7 +1340,7 @@ impl<'a> Resolver<'a> {
                         stores,
                         selections,
                         public_targets,
-                        param_default_order: owned_param_order,
+                        param_initializer_order: owned_param_order,
                         reachable_items: std::iter::once(item.clone())
                             .chain(
                                 item_dependencies
@@ -1549,7 +1571,6 @@ impl<'a> Resolver<'a> {
                 match target {
                     ResolvedTarget::Param(id) => {
                         self.params.remove(&id);
-                        self.param_types.remove(&id);
                         self.param_dependencies.remove(&id);
                     }
                     ResolvedTarget::Store(id) => {
@@ -2116,16 +2137,7 @@ impl<'a> Resolver<'a> {
                                     let target_kind = target
                                         .map(definition_export_kind)
                                         .unwrap_or(DefinitionExportKind::Unknown);
-                                    let export = DefinitionExport {
-                                        path,
-                                        target_kind,
-                                        data_type: target.and_then(|target| {
-                                            (target.keyword.as_str() == "param")
-                                                .then(|| target.props.get("type"))
-                                                .flatten()
-                                                .and_then(|value| PhysicalType::parse(value).ok())
-                                        }),
-                                    };
+                                    let export = DefinitionExport { path, target_kind };
                                     if exports.insert(alias.clone(), export).is_some() {
                                         self.error(
                                             "AVENGER-RESOLVE-003",
@@ -3112,29 +3124,7 @@ impl<'a> Resolver<'a> {
                     id.as_str(),
                     &ancestry_text(ancestry),
                 ]));
-                let data_type = declaration.props.get("type").and_then(|value| {
-                    match PhysicalType::parse(value) {
-                        Ok(data_type) => Some(data_type),
-                        Err(error) => {
-                            self.error(
-                                "AVENGER-RESOLVE-030",
-                                "invalid param physical Arrow type",
-                                span,
-                                error.to_string(),
-                            );
-                            None
-                        }
-                    }
-                });
-                self.insert_state_symbol(
-                    scope,
-                    name,
-                    StateSymbol::Param(param_id.clone(), data_type.clone()),
-                    span,
-                );
-                if let Some(data_type) = data_type {
-                    self.param_types.insert(param_id.clone(), data_type);
-                }
+                self.insert_state_symbol(scope, name, StateSymbol::Param(param_id.clone()), span);
                 self.set_runtime_target(id, ResolvedTarget::Param(param_id));
             }
             "store" => {
@@ -3571,19 +3561,14 @@ impl<'a> Resolver<'a> {
                     &value_kind,
                     info.span,
                 ) {
-                    if let Some(expected) = export_physical_type(declaration, &value_kind)
-                        && self.target_physical_type(&target).as_ref() != Some(&expected)
-                    {
-                        self.error(
-                            "AVENGER-RESOLVE-029",
-                            "existing widget/tool state binding has the wrong Arrow type",
-                            info.span,
-                            format!(
-                                "export `{alias}` requires `{expected}`, but the bound state has {}",
-                                self.target_physical_type(&target)
-                                    .map_or_else(|| "an unknown type".to_owned(), |actual| format!("`{actual}`"))
-                            ),
-                        );
+                    if let Some(expected) = export_physical_type(declaration, &value_kind) {
+                        self.param_type_requirements.push(ParamTypeRequirement {
+                            target: target.clone(),
+                            expected,
+                            declaration: info.id.clone(),
+                            span: info.span,
+                            role: format!("export `{alias}`"),
+                        });
                     }
                     self.instances
                         .get_mut(&info.id)
@@ -3744,7 +3729,7 @@ impl<'a> Resolver<'a> {
             ]));
             let source_default =
                 default_property.and_then(|property| declaration.props.get(property));
-            let default = source_default
+            let initializer = source_default
                 .map(unresolved_value)
                 .unwrap_or(ResolvedValue::Null);
             self.params.insert(
@@ -3753,8 +3738,8 @@ impl<'a> Resolver<'a> {
                     id: id.clone(),
                     declaration: info.id.clone(),
                     source_name: format!("{}.{}", declaration.name_string(), alias),
-                    data_type: data_type.clone(),
-                    default,
+                    type_contract: ParamTypeContract::SchemaFixed(data_type),
+                    initializer,
                     sharing: StateSharing::Shared,
                     migration_key,
                     definition_local_seed,
@@ -3764,7 +3749,6 @@ impl<'a> Resolver<'a> {
                     table_owner: None,
                 },
             );
-            self.param_types.insert(id.clone(), data_type);
             return Some(ResolvedTarget::Param(id));
         }
         if value_kind == "selection" || value_kind.starts_with("selection<") {
@@ -5262,7 +5246,7 @@ impl<'a> Resolver<'a> {
     fn validate_core_declaration(&mut self, declaration: &Decl, span: SourceSpan, in_event: bool) {
         match declaration.keyword.as_str() {
             "param" => {
-                self.validate_core_property_names(declaration, &["type", "value", "sharing"], span);
+                self.validate_core_property_names(declaration, &["value", "sharing"], span);
                 if !declaration.children.is_empty() {
                     self.error(
                         "AVENGER-RESOLVE-045",
@@ -5271,15 +5255,13 @@ impl<'a> Resolver<'a> {
                         "`param` does not accept child declarations",
                     );
                 }
-                for required in ["type", "value"] {
-                    if declaration.props.get(required).is_none() {
-                        self.error(
-                            "AVENGER-RESOLVE-032",
-                            "incomplete param declaration",
-                            span,
-                            format!("every param requires `{required}:`"),
-                        );
-                    }
+                if declaration.props.get("value").is_none() {
+                    self.error(
+                        "AVENGER-RESOLVE-032",
+                        "incomplete param declaration",
+                        span,
+                        "every scalar param requires an initializer before `as`",
+                    );
                 }
             }
             "store" => {
@@ -7754,10 +7736,10 @@ impl<'a> Resolver<'a> {
                     .state_symbols
                     .get(&name)
                     .cloned();
-                let Some(StateSymbol::Param(id, Some(data_type))) = symbol else {
+                let Some(StateSymbol::Param(id)) = symbol else {
                     return;
                 };
-                let default = properties
+                let initializer = properties
                     .get("value")
                     .cloned()
                     .unwrap_or(ResolvedValue::Invalid);
@@ -7765,12 +7747,12 @@ impl<'a> Resolver<'a> {
                     parse_sharing(properties.get("sharing"), info.span, &mut self.diagnostics);
                 let (migration_key, definition_local_seed) =
                     self.state_identity(file, info, "param");
-                let dependencies = resolved_param_dependencies(&default);
+                let dependencies = resolved_param_dependencies(&initializer);
                 let table_owner = self.table_owner(&info.id);
-                if table_owner.is_some() && !is_self_contained_row_free(&default) {
+                if table_owner.is_some() && !is_self_contained_row_free(&initializer) {
                     self.error(
                         "AVENGER-RESOLVE-135",
-                        "catalog-table param default must be a self-contained row-free expression",
+                        "catalog-table param initializer must be a self-contained row-free expression",
                         info.span,
                         "table params may use scalar SQL but cannot read params, columns, relations, outputs, helpers, or contextual values",
                     );
@@ -7789,8 +7771,8 @@ impl<'a> Resolver<'a> {
                         id,
                         declaration: info.id.clone(),
                         source_name: name,
-                        data_type,
-                        default,
+                        type_contract: ParamTypeContract::Inferred,
+                        initializer,
                         sharing,
                         migration_key,
                         definition_local_seed,
@@ -8012,21 +7994,6 @@ impl<'a> Resolver<'a> {
                 generated_by: None,
             },
         );
-    }
-
-    fn target_physical_type(&self, target: &ResolvedTarget) -> Option<PhysicalType> {
-        match target {
-            ResolvedTarget::Param(id) => self.param_types.get(id).cloned(),
-            ResolvedTarget::DefinitionParam {
-                definition, alias, ..
-            } => self
-                .definitions
-                .values()
-                .find(|schema| &schema.declaration == definition)
-                .and_then(|schema| schema.exports.get(alias))
-                .and_then(|export| export.data_type.clone()),
-            _ => None,
-        }
     }
 
     fn install_sequential_transform(
@@ -9479,7 +9446,7 @@ impl<'a> Resolver<'a> {
         ResolvedValue::Array(resolved)
     }
 
-    fn check_param_dag(&mut self) -> Vec<ParamId> {
+    fn check_param_initializer_dag(&mut self) -> Vec<ParamId> {
         match topological_order(&self.param_dependencies) {
             Ok(order) => order,
             Err(cycle) => {
@@ -9492,7 +9459,7 @@ impl<'a> Resolver<'a> {
                     .unwrap_or_else(|| SourceSpan::empty(SourceId::new(0), 0));
                 self.error(
                     "AVENGER-RESOLVE-100",
-                    "param default dependency cycle",
+                    "param initializer dependency cycle",
                     span,
                     format!(
                         "cycle: {}",
@@ -12418,7 +12385,7 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
     let source = crate::SourceFile::new(
         SourceId::new(0),
         crate::SourceOrigin::Memory("<registry-type>".into()),
-        format!("avenger 1; chart cartesian {{ param {text} as value {{ value: NULL; }} }}"),
+        format!("avenger 1; chart cartesian {{ param store as rows {{ field {text} value; }} }}"),
     );
     let parsed = crate::syntax::parse_file(&source).ok()?;
     let chart = parsed
@@ -12427,7 +12394,8 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
         .into_iter()
         .find(|item| item.declaration.keyword.as_str() == "chart")?
         .declaration;
-    PhysicalType::parse(chart.children.first()?.props.get("type")?).ok()
+    let store = chart.children.first()?;
+    PhysicalType::parse(store.children.first()?.props.get("type")?).ok()
 }
 
 fn helpers_in_sql(sql: &str) -> Vec<ResolvedHelper> {

@@ -6,9 +6,7 @@ chart cartesian as cartesian {
   data: {
     table: 'shared.points';
   }
-  param float64 as point_size {
-    value: 64.0;
-  }
+  param CAST(64.0 AS DOUBLE) as point_size;
   transform pass {
   }
   mark symbol as points {
@@ -22,9 +20,7 @@ chart geo as geo {
   center_lon_lat: [-73.9857, 40.7484];
   projection: mercator;
   zoom: 10;
-  param float64 as station_size {
-    value: 80.0;
-  }
+  param CAST(80.0 AS DOUBLE) as station_size;
   mark symbol as station {
     lon_lat: [-73.9857, 40.7484];
     size: direct $station_size;
@@ -35,9 +31,7 @@ chart polar as polar {
   data: {
     table: 'shared.points';
   }
-  param float64 as point_size {
-    value: 72.0;
-  }
+  param CAST(72.0 AS DOUBLE) as point_size;
   transform pass {
   }
   mark symbol as points {

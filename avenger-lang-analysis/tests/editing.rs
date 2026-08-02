@@ -98,13 +98,14 @@ async fn resolved_workspace_analysis(
 async fn typed_boundary_hover_reports_sql_source_and_arrow_destination() {
     let source = r#"avenger 1;
 chart zerod as chart {
-  param int32 as narrowed { value: 3.9; }
-  param struct(field(int16, 'x'), field(utf8, 'label')) as nested {
-    value: { x: 1 + 2.5; label: upper('ok'); }
-  }
+  param CAST(3.9 AS INT) as narrowed;
   param store as rows {
     field int16 amount;
-    row { amount: '4'; }
+    field struct(field(int16, 'x'), field(utf8, 'label')) nested;
+    row {
+      amount: '4';
+      nested: { x: 1 + 2.5; label: upper('ok'); }
+    }
   }
   on cursor_moved as update {
     set narrowed = '9';
@@ -127,14 +128,35 @@ chart zerod as chart {
             .unwrap()
     };
 
-    let narrowed = hover_at("3.9");
+    let narrowed = hover_at("'9'");
     assert!(narrowed.markdown.contains("Typed SQL boundary"));
-    assert!(narrowed.markdown.contains("Decimal128"));
+    assert!(narrowed.markdown.contains("Utf8"));
     assert!(narrowed.markdown.contains("Int32"));
     assert!(narrowed.markdown.contains("strict DataFusion/Arrow `CAST`"));
 
+    let initializer = analysis
+        .hover(
+            &PositionRequest {
+                source: origin.clone(),
+                byte_offset: source.find("3.9").unwrap() + 1,
+                source_revision: revision.clone(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert!(
+        initializer
+            .as_ref()
+            .is_none_or(|hover| !hover.markdown.contains("Typed SQL boundary")),
+        "a param initializer establishes its own type: {initializer:?}"
+    );
+
     let nested = hover_at("1 + 2.5");
-    assert!(nested.markdown.contains("field `x`"), "{}", nested.markdown);
+    assert!(
+        nested.markdown.contains("field `nested.x`"),
+        "{}",
+        nested.markdown
+    );
     assert!(nested.markdown.contains("Int16"), "{}", nested.markdown);
 
     let store = hover_at("'4'");
@@ -221,8 +243,8 @@ fn semantic_tokens_and_safe_rename_share_authored_symbol_identity() {
     let source = r#"avenger 1;
 
 chart cartesian as chart {
-  param float64 as width { value: 10.0; }
-  param float64 as height { value: 20.0; }
+  param 10.0 as width;
+  param 20.0 as height;
   mark symbol as points { size: encoded $width; }
 }
 "#;
@@ -298,7 +320,7 @@ chart cartesian as chart {
     for edit in edits.iter().rev() {
         renamed.replace_range(edit.span.range.as_range(), &edit.new_text);
     }
-    assert!(renamed.contains("param float64 as canvas_width"));
+    assert!(renamed.contains("param 10.0 as canvas_width"));
     assert!(renamed.contains("$canvas_width"));
 
     assert!(matches!(
@@ -486,13 +508,13 @@ fn references_prefer_the_nearest_lexical_binding_when_names_repeat() {
 
 chart cartesian as first {
   -- | Width for the first chart.
-  param float64 as width { value: 10.0; }
+  param 10.0 as width;
   mark symbol as points { size: encoded $width; }
 }
 
 chart cartesian as second {
   -- | Width for the second chart.
-  param float64 as width { value: 20.0; }
+  param 20.0 as width;
   mark symbol as points { size: encoded $width; }
 }
 "#;
@@ -521,7 +543,7 @@ chart cartesian as second {
     );
     assert_eq!(
         definition.targets[0].selection_span.range.start,
-        source.find("param float64 as width").unwrap() + "param float64 as ".len()
+        source.find("param 10.0 as width").unwrap() + "param 10.0 as ".len()
     );
 
     let edit = analysis
@@ -536,11 +558,11 @@ fn nested_state_shadowing_resolves_each_reference_to_its_own_scope() {
 
 chart cartesian as chart {
   -- | Outer width.
-  param float64 as width { value: 10.0; }
+  param 10.0 as width;
 
   mark group as inner {
     -- | Inner width.
-    param float64 as width { value: 20.0; }
+    param 20.0 as width;
     mark symbol as inner_points { size: encoded $width; }
   }
 
@@ -658,10 +680,9 @@ chart cartesian as chart {
         .find(|action| action.title.contains("Declare parameter `$threshold`"))
         .unwrap();
     let inserted = &action.edit.sources[&origin].edits[0].new_text;
-    assert!(inserted.contains("param float64 as threshold"));
-    assert!(inserted.contains("value: NULL"));
+    assert!(inserted.contains("param CAST(NULL AS DOUBLE) as threshold;"));
 
-    let missing_as = "avenger 1; chart cartesian as chart { param float64 width { value: 1.0; } }";
+    let missing_as = "avenger 1; chart cartesian as chart { param 1.0 width; }";
     let (analysis, origin, revision) = workspace_analysis(missing_as);
     let start = missing_as.find("width").unwrap();
     let actions = analysis
@@ -1124,7 +1145,7 @@ async fn extract_definition_creates_a_compiling_file_and_infers_scalar_slots() {
     let chart = r#"avenger 1;
 
 chart cartesian as chart {
-  param float64 as point_size { value: 32.0; }
+  param 32.0 as point_size;
   mark group as cluster {
     -- keep this authored explanation
     mark symbol as point { x: direct 1; y: direct 2; size: encoded $point_size; }

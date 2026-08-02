@@ -1850,8 +1850,15 @@ fn missing_param_action(
         .take_while(|character| character.is_whitespace())
         .collect::<String>();
     let indent = format!("{parent_indent}  ");
+    let sql_type = match data_type {
+        "boolean" => "BOOLEAN",
+        "int64" => "BIGINT",
+        "float64" => "DOUBLE",
+        "utf8" => "VARCHAR",
+        _ => return,
+    };
     let declaration = format!(
-        "\n{indent}param {data_type} as {} {{\n{indent}  value: NULL;\n{indent}}}",
+        "\n{indent}param CAST(NULL AS {sql_type}) as {};",
         reference.name
     );
     output.push(quick_fix(

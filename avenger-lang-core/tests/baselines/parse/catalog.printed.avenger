@@ -14,9 +14,7 @@ catalog memory as local {
     }
     table sql as popular {
       sql: FROM vega.movies AS m SELECT m.* WHERE m.rating >= $minimum;
-      param float64 as minimum {
-        value: 8;
-      }
+      param 8 as minimum;
     }
   }
 }

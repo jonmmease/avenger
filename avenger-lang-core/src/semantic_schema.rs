@@ -181,11 +181,10 @@ fn param_body_schema() -> Value {
         "properties": {
             "props": object_properties_schema(
                 Map::from_iter([
-                    ("type".to_owned(), call_or_atom_schema()),
                     ("value".to_owned(), value_ref()),
                     ("sharing".to_owned(), sharing_schema()),
                 ]),
-                vec![json!("type"), json!("value")],
+                vec![json!("value")],
                 true,
             ),
             "children": { "maxItems": 0 },
@@ -770,10 +769,6 @@ fn binding_schema(kind: &str) -> Value {
         },
         "additionalProperties": false
     })
-}
-
-fn call_or_atom_schema() -> Value {
-    json!({ "oneOf": [tagged_schema("atom"), tagged_schema("call")] })
 }
 
 fn sharing_schema() -> Value {

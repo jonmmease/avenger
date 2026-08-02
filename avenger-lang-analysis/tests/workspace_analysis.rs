@@ -149,8 +149,8 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
     let directory = tempfile::tempdir().unwrap();
     let project_root = std::fs::canonicalize(directory.path()).unwrap();
     let chart = SourceOrigin::File(project_root.join("chart.avenger"));
-    let valid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam float64 as width { value: 640.0; } mark symbol as points { size: encoded $width; } }";
-    let invalid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam float64 as width { value: 640.0; mark symbol as points { size: encoded $width; }";
+    let valid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam CAST(640.0 AS DOUBLE) as width; mark symbol as points { size: encoded $width; } }";
+    let invalid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam CAST(640.0 AS DOUBLE) as width { mark symbol as points { size: encoded $width; }";
     let compiler = Compiler::builder()
         .project_root(&project_root)
         .source_loader(Arc::new(
@@ -200,7 +200,12 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
         .find(|symbol| symbol.name == "width")
         .unwrap();
     assert!(!width.identity.starts_with("syntax:"));
-    assert_eq!(width.detail.as_deref(), Some("param: float64"));
+    let detail = width.detail.as_deref().unwrap();
+    assert!(detail.starts_with("param: Float64"));
+    assert!(detail.contains("Initializer: `CAST(640.0 AS DOUBLE)`"));
+    assert!(detail.contains("Type source: inferred from the SQL initializer"));
+    assert!(detail.contains("Nullability: typed nulls are permitted"));
+    assert!(detail.contains("Sharing: `shared`"));
     let hover = merged
         .hover(
             &avenger_lang_analysis::PositionRequest {
@@ -212,7 +217,7 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
         )
         .unwrap()
         .unwrap();
-    assert!(hover.markdown.contains("param: float64"));
+    assert!(hover.markdown.contains("param: Float64"));
     assert!(hover.markdown.contains("Canvas width."));
 }
 

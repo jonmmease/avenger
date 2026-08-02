@@ -187,14 +187,18 @@ impl Printer {
 
     fn param(&mut self, decl: &Decl) {
         self.text("param ");
-        if let Some(data_type) = decl.props.get("type") {
-            self.value(data_type);
+        if let Some(initializer) = decl.props.get("value") {
+            self.value(initializer);
         } else {
-            self.text("unknown");
+            self.text("NULL");
         }
         self.text(" as ");
         self.text(name_or(&decl.name, "binding"));
-        self.body(&decl.props, &decl.children, &["type"]);
+        if decl.props.len() == 1 && decl.children.is_empty() {
+            self.line(";");
+        } else {
+            self.body(&decl.props, &decl.children, &["value"]);
+        }
     }
 
     fn state_param(&mut self, decl: &Decl) {

@@ -1,8 +1,6 @@
 avenger 1;
 chart zerod as checkbox {
-  param boolean as enabled_state {
-    value: true;
-  }
+  param true as enabled_state;
   widget checkbox as enabled {
     checked_param: $enabled_state;
     default: false;

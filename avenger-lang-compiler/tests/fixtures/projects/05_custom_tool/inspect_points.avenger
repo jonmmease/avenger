@@ -6,12 +6,8 @@ export define tool inspect_points {
   export enabled;
   export hovered;
   export chrome_layer.chrome as chrome;
-  param boolean as enabled {
-    value: true;
-  }
-  param list(float64) as x_domain {
-    value: NULL;
-  }
+  param true as enabled;
+  param CAST(NULL AS DOUBLE[]) as x_domain;
   param selection as hovered {
     empty: none;
   }

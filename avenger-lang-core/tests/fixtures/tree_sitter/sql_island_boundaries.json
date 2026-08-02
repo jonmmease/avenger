@@ -40,7 +40,7 @@
       "name": "aliased_expression",
       "root": "expression",
       "outer_delimiters": ["as", ";"],
-      "sites": ["output_source"]
+      "sites": ["param_initializer", "output_source"]
     }
   ],
   "boundary_cases": [
@@ -223,7 +223,7 @@
     {
       "id": "all_terminated_action_sites",
       "accepted": true,
-      "source": "avenger 1; chart cartesian { param float64 as width { value: 1.0; } param store as rows {} param selection as brush {} on pointermove { set width = event.coord.x; set rows = $rows; set brush = clear; set cursor = 'crosshair'; } }"
+      "source": "avenger 1; chart cartesian { param 1.0 as width; param store as rows {} param selection as brush {} on pointermove { set width = event.coord.x; set rows = $rows; set brush = clear; set cursor = 'crosshair'; } }"
     },
     {
       "id": "field_type_is_balanced",

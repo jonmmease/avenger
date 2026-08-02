@@ -61,6 +61,7 @@ pub enum SqlIslandSite {
     ChannelModePayload,
     PropertyValue,
     ArrayElement,
+    ParamInitializer,
     OutputSource,
     CursorActionRhs,
     StateActionRhs,
@@ -109,12 +110,13 @@ impl SqlIslandContext {
 }
 
 impl SqlIslandSite {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::QueryProperty,
         Self::ProjectionProperty,
         Self::ChannelModePayload,
         Self::PropertyValue,
         Self::ArrayElement,
+        Self::ParamInitializer,
         Self::OutputSource,
         Self::CursorActionRhs,
         Self::StateActionRhs,
@@ -127,6 +129,7 @@ impl SqlIslandSite {
             Self::ChannelModePayload => "channel_mode_payload",
             Self::PropertyValue => "property_value",
             Self::ArrayElement => "array_element",
+            Self::ParamInitializer => "param_initializer",
             Self::OutputSource => "output_source",
             Self::CursorActionRhs => "cursor_action_rhs",
             Self::StateActionRhs => "state_action_rhs",
@@ -140,7 +143,7 @@ impl SqlIslandSite {
             Self::ChannelModePayload | Self::PropertyValue => SqlIslandContext::PropertyExpression,
             Self::ArrayElement => SqlIslandContext::ArrayExpression,
             Self::CursorActionRhs | Self::StateActionRhs => SqlIslandContext::TerminatedExpression,
-            Self::OutputSource => SqlIslandContext::AliasedExpression,
+            Self::ParamInitializer | Self::OutputSource => SqlIslandContext::AliasedExpression,
         }
     }
 }
@@ -1115,53 +1118,65 @@ impl Parser {
         if self.word_is("as") {
             return Err(self.error(
                 "AVENGER-PARSE-031",
-                "param declarations require an Arrow type, `store`, or `selection` before `as`",
+                "scalar param declarations require an initializer before `as`",
             ));
         }
 
-        if self.consume_word("store") {
+        if self.word_is("store") && self.nth_word_is(1, "as") {
+            self.expect_word("store")?;
             self.expect_word("as")?;
             let binder = self.name()?;
             let body = self.body()?;
             return Ok(from_body(n("store"), None, Some(binder), body));
         }
-        if self.consume_word("selection") {
+        if self.word_is("selection") && self.nth_word_is(1, "as") {
+            self.expect_word("selection")?;
             self.expect_word("as")?;
             let binder = self.name()?;
             let body = self.body()?;
             return Ok(from_body(n("selection"), None, Some(binder), body));
         }
 
-        let data_type = self.physical_type_value()?;
-        PhysicalType::parse(&data_type).map_err(|error| {
-            self.error(
+        let checkpoint = self.index;
+        let legacy_type = self
+            .physical_type_value()
+            .ok()
+            .filter(|value| PhysicalType::parse(value).is_ok())
+            .is_some_and(|_| self.word_is("as"));
+        self.index = checkpoint;
+        if legacy_type {
+            return Err(self.error(
                 "AVENGER-PARSE-032",
-                format!("invalid param physical Arrow type: {error}"),
-            )
-        })?;
+                "scalar params infer their Arrow type; put a SQL initializer before `as` and use `CAST` when an exact type is required",
+            ));
+        }
+
+        let initializer = self.expression(BindingKind::Param, SqlIslandSite::ParamInitializer)?;
         if !self.consume_word("as") {
             return Err(self.error(
                 "AVENGER-PARSE-031",
-                "param declarations require `as <name>` after the Arrow type",
+                "scalar param declarations require `as <name>` after the initializer",
             ));
         }
         let binder = self.name()?;
-        let mut body = self.body()?;
-        if body.props.get("type").is_some() || body.props.get("default").is_some() {
+        let mut body = if self.consume(Token::SemiColon) {
+            Body::default()
+        } else {
+            self.body()?
+        };
+        if body.props.get("type").is_some()
+            || body.props.get("default").is_some()
+            || body.props.get("value").is_some()
+            || body.props.get("kind").is_some()
+        {
             return Err(self.error(
                 "AVENGER-PARSE-033",
-                "scalar param types belong in the header and `value:` replaces `default:`",
-            ));
-        }
-        if body.props.get("value").is_none() {
-            return Err(self.error(
-                "AVENGER-PARSE-033",
-                "scalar params require exactly one `value:` initializer",
+                "scalar params put the initializer before `as`; `type:`, `default:`, and `value:` are invalid body properties",
             ));
         }
         body.props
-            .insert(n("type"), data_type)
-            .expect("param body cannot author `type`");
+            .insert(n("value"), initializer)
+            .expect("param body cannot author `value`");
         Ok(from_body(n("param"), None, Some(binder), body))
     }
 
@@ -1907,6 +1922,20 @@ impl Parser {
             .is_some_and(|token| same_token(token.token(), expected))
     }
 
+    fn nth_word_is(&self, offset: usize, expected: &str) -> bool {
+        self.stream.tokens()[self.index..]
+            .iter()
+            .filter(|token| !is_trivia(token.class()))
+            .nth(offset)
+            .is_some_and(|token| {
+                matches!(
+                    token.token(),
+                    Token::Word(word)
+                        if word.quote_style.is_none() && word.value == expected
+                )
+            })
+    }
+
     fn bump(&mut self) {
         self.trivia();
         self.index += 1;
@@ -2383,7 +2412,7 @@ chart cartesian as example {
         let parsed = parse(
             r#"avenger 1;
 chart cartesian as chart {
-  param struct(field(float64, 'x')) as point { value: NULL; }
+  param CAST(NULL AS DOUBLE) as point;
   param store as rows { field float64 x nullable; }
   param selection as picked {}
   mark group as layer {}
@@ -2480,7 +2509,7 @@ chart cartesian as chart {
             "avenger 1; chart cartesian { param struct(field('x', float64)) as value { value: NULL; } }",
         );
         let error = parse_file(&nested).unwrap_err();
-        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-032");
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-033");
     }
 
     #[test]
@@ -2500,12 +2529,30 @@ chart cartesian as chart {
     }
 
     #[test]
-    fn scalar_params_require_value_and_reject_body_type_or_default() {
+    fn scalar_params_reject_removed_typed_headers() {
         for body in ["{}", "{ type: float64; value: 1; }", "{ default: 1; }"] {
             let source = SourceFile::new(
                 SourceId::new(11),
                 SourceOrigin::Memory("param.avenger".into()),
                 format!("avenger 1; chart cartesian {{ param float64 as value {body} }}"),
+            );
+            let error = parse_file(&source).unwrap_err();
+            assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-032");
+        }
+    }
+
+    #[test]
+    fn scalar_params_reject_removed_body_initializer_and_type_properties() {
+        for property in [
+            "value: 2;",
+            "type: float64;",
+            "default: 2;",
+            "kind: scalar;",
+        ] {
+            let source = SourceFile::new(
+                SourceId::new(11),
+                SourceOrigin::Memory("param-body.avenger".into()),
+                format!("avenger 1; chart cartesian {{ param 1 as value {{ {property} }} }}"),
             );
             let error = parse_file(&source).unwrap_err();
             assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-033");
@@ -2536,10 +2583,7 @@ chart cartesian as chart {
                 "avenger 1; public chart cartesian as chart {}",
                 "AVENGER-PARSE-044",
             ),
-            (
-                "avenger 1; param float64 as value { value: 1; }",
-                "AVENGER-PARSE-045",
-            ),
+            ("avenger 1; param 1 as value;", "AVENGER-PARSE-045"),
         ];
         for (source, code) in cases {
             let source = SourceFile::new(

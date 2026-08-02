@@ -1003,7 +1003,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                     ) {
                         self.pending_delimiter_owners.insert(end_position, id);
                     }
-                    if keyword == "output"
+                    if matches!(keyword.as_str(), "output" | "param")
                         && let Some((start, end)) =
                             self.output_island_bounds(declaration_position, end_position)
                     {
@@ -1376,23 +1376,30 @@ impl<'a> TolerantTreeBuilder<'a> {
     }
 
     fn find_header_end(&self, start: usize) -> usize {
-        (start..self.significant.len())
-            .find(|position| {
-                matches!(
-                    self.token_at_significant(*position).token(),
-                    Some(Token::LBrace | Token::SemiColon)
-                )
-            })
-            .unwrap_or(self.significant.len() - 1)
+        let mut depth = 0usize;
+        for position in start..self.significant.len() {
+            match self.token_at_significant(position).token() {
+                Some(Token::LParen | Token::LBracket) => depth += 1,
+                Some(Token::RParen | Token::RBracket) => depth = depth.saturating_sub(1),
+                Some(Token::LBrace | Token::SemiColon) if depth == 0 => return position,
+                _ => {}
+            }
+        }
+        self.significant.len() - 1
     }
 
     fn declaration_name(&self, start: usize, end: usize) -> Option<String> {
+        let mut depth = 0usize;
         for position in start..end {
-            if self
-                .word_at(position)
-                .is_some_and(|word| word.eq_ignore_ascii_case("as"))
-            {
-                return self.word_at(position + 1).map(str::to_owned);
+            match self.token_at_significant(position).token() {
+                Some(Token::LParen | Token::LBracket | Token::LBrace) => depth += 1,
+                Some(Token::RParen | Token::RBracket | Token::RBrace) => {
+                    depth = depth.saturating_sub(1)
+                }
+                Some(Token::Word(word)) if depth == 0 && word.value.eq_ignore_ascii_case("as") => {
+                    return self.word_at(position + 1).map(str::to_owned);
+                }
+                _ => {}
             }
         }
         let keyword = self.word_at(start)?;
@@ -1701,7 +1708,7 @@ mod tests {
         let source = SourceFile::new(
             SourceId::new(1),
             SourceOrigin::Memory("hierarchy".into()),
-            "avenger 1; chart cartesian as chart { public param float64 as width { value: 1.0; } mark symbol as points {} }",
+            "avenger 1; chart cartesian as chart { public param 1.0 as width; mark symbol as points {} }",
         );
         let parsed = parse_file_tolerant(&source);
         let chart = parsed

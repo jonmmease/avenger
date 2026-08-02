@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, SchemaRef};
 use avenger_chart_lang_registry::NativeRegistryProfileId;
-use avenger_lang_core::{DeclarationId, SourceMap, SourceSpan};
+use avenger_lang_core::{DeclarationId, ParamId, SourceMap, SourceSpan};
 use serde::{Deserialize, Serialize};
 
 use crate::{ModuleDependencyFingerprints, ModuleFingerprint};
@@ -196,6 +196,8 @@ pub struct ModuleAnalysis {
     pub dependency_fingerprints: ModuleDependencyFingerprints,
     pub functions: FunctionInventory,
     pub physical_type_constructors: Vec<String>,
+    /// Exact DataFusion-planned Arrow types for scalar parameters.
+    pub param_types: ParamTypeIndex,
     /// Exact planned types for configured channels on each primitive mark.
     pub mark_channels: BTreeMap<DeclarationId, Vec<AnalyzedMarkChannel>>,
     /// The immutable semantic model that produced this analysis.
@@ -213,6 +215,57 @@ pub struct FunctionInventory {
     pub window: Vec<String>,
 }
 
+/// Immutable exact Arrow type analysis for scalar parameters.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParamTypeIndex {
+    types: BTreeMap<ParamId, ParamTypeInfo>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParamTypeProvenance {
+    Inferred,
+    SchemaFixed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParamTypeInfo {
+    pub data_type: DataType,
+    pub provenance: ParamTypeProvenance,
+}
+
+impl ParamTypeIndex {
+    pub fn insert(
+        &mut self,
+        id: ParamId,
+        data_type: DataType,
+        provenance: ParamTypeProvenance,
+    ) -> Option<ParamTypeInfo> {
+        self.types.insert(
+            id,
+            ParamTypeInfo {
+                data_type,
+                provenance,
+            },
+        )
+    }
+
+    pub fn get(&self, id: &ParamId) -> Option<&DataType> {
+        self.types.get(id).map(|info| &info.data_type)
+    }
+
+    pub fn info(&self, id: &ParamId) -> Option<&ParamTypeInfo> {
+        self.types.get(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ParamId, &DataType)> {
+        self.types.iter().map(|(id, info)| (id, &info.data_type))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+}
+
 impl ModuleAnalysis {
     pub fn empty(
         sources: SourceMap,
@@ -228,6 +281,7 @@ impl ModuleAnalysis {
             dependency_fingerprints: ModuleDependencyFingerprints::default(),
             functions: FunctionInventory::default(),
             physical_type_constructors: physical_type_constructors(),
+            param_types: ParamTypeIndex::default(),
             mark_channels: BTreeMap::new(),
             resolved_module_graph: None,
         }

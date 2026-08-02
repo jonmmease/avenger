@@ -9,8 +9,9 @@ use avenger_chart_schema::{
 };
 use avenger_lang_core::{
     ByteSpan, ResolvedDeclaration, ResolvedModuleGraph, ResolvedOutputHandle, ResolvedTarget,
-    ResolvedValue, SourceFile, SourceId, SourceOrigin, SourceSpan, allowed_child_declarations,
-    ast::Visibility,
+    ResolvedValue, SourceFile, SourceId, SourceOrigin, SourceSpan, StateSharing,
+    allowed_child_declarations,
+    ast::{BindingTime, Visibility},
     sql::{LosslessTokenKind, TokenClass},
     syntax::{TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
 };
@@ -21,6 +22,7 @@ use crate::{
     CompletionResult, CompletionTextFormat, DatasetContext, HoverResult, NavigationResult,
     NavigationTarget, PositionRequest, RootAnalysis, SymbolKind, SyntaxAnalysis,
 };
+use avenger_lang_compiler::{ModuleAnalysis, ParamTypeProvenance};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CompletionOptions {
@@ -119,7 +121,7 @@ impl WorkspaceSemanticIndex {
             let Some(project) = analysis.resolved_module_graph.as_deref() else {
                 continue;
             };
-            index.enrich_from_resolved(project, syntax);
+            index.enrich_from_resolved(analysis, project, syntax);
         }
         // Install syntax-derived import bindings after semantic enrichment so
         // imported-name references point at the final declaration identities.
@@ -242,6 +244,7 @@ impl WorkspaceSemanticIndex {
 
     fn enrich_from_resolved(
         &mut self,
+        analysis: &ModuleAnalysis,
         project: &ResolvedModuleGraph,
         syntax: &BTreeMap<SourceOrigin, SyntaxAnalysis>,
     ) {
@@ -291,10 +294,30 @@ impl WorkspaceSemanticIndex {
         self.install_output_alias_symbols(project, syntax, &declarations);
 
         for param in project.params.values() {
+            let detail = analysis.param_types.info(&param.id).map_or_else(
+                || "param: type unavailable".to_owned(),
+                |type_info| {
+                    let provenance = match type_info.provenance {
+                        ParamTypeProvenance::Inferred => "inferred from the SQL initializer",
+                        ParamTypeProvenance::SchemaFixed => "fixed by a native schema",
+                    };
+                    let sharing = match param.sharing {
+                        StateSharing::Shared => "shared".to_owned(),
+                        StateSharing::Free => "free".to_owned(),
+                        StateSharing::Level(level) => format!("level({level})"),
+                    };
+                    format!(
+                        "param: {}\n\n- Initializer: `{}`\n- Type source: {}\n- Nullability: typed nulls are permitted\n- Sharing: `{sharing}`",
+                        type_info.data_type,
+                        resolved_value_summary(&param.initializer),
+                        provenance,
+                    )
+                },
+            );
             self.enrich_state_symbol(
                 &param.declaration.to_string(),
                 IndexedValueKind::Scalar,
-                format!("param: {}", param.data_type),
+                detail,
             );
         }
         for store in project.stores.values() {
@@ -707,6 +730,42 @@ impl WorkspaceSemanticIndex {
     }
 }
 
+fn resolved_value_summary(value: &ResolvedValue) -> String {
+    match value {
+        ResolvedValue::String(value) => format!("'{}'", value.replace('\'', "''")),
+        ResolvedValue::Number(value) | ResolvedValue::Atom(value) => value.clone(),
+        ResolvedValue::Boolean(value) => value.to_string(),
+        ResolvedValue::Null => "NULL".to_owned(),
+        ResolvedValue::Column(value) => format!("\"{}\"", value.replace('\"', "\"\"")),
+        ResolvedValue::Expression(value) => value.sql.clone(),
+        ResolvedValue::Binding(binding) => {
+            let mut value = format!("${}", binding.authored_path.join("."));
+            match binding.time {
+                BindingTime::Current => {}
+                BindingTime::Start => value.push_str("@start"),
+                BindingTime::Previous => value.push_str("@previous"),
+            }
+            value
+        }
+        ResolvedValue::Array(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(resolved_value_summary)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ResolvedValue::Call { function, args } => format!(
+            "{function}({})",
+            args.iter()
+                .map(resolved_value_summary)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => "<complex expression>".to_owned(),
+    }
+}
+
 fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> DocumentSemanticIndex {
     let mut output = DocumentSemanticIndex::default();
     let declaration_nodes = syntax
@@ -903,23 +962,13 @@ fn declaration_header(
             _ => Visibility::Default,
         };
     }
-    let header_end = tokens
-        .iter()
-        .position(|token| matches!(token.token, Some(Token::LBrace | Token::SemiColon)))
-        .unwrap_or(tokens.len());
+    let header_end = declaration_header_end(&tokens);
     let header = &tokens[..header_end];
-    let binder = header
-        .iter()
-        .position(|token| {
-            token
-                .word()
-                .is_some_and(|word| word.eq_ignore_ascii_case("as"))
-        })
-        .and_then(|index| header.get(index + 1));
+    let binder = top_level_word_position(header, "as").and_then(|index| header.get(index + 1));
     let recovered =
         fallback_name.and_then(|name| header.iter().rfind(|token| token.word() == Some(name)));
     let fallback = recovered.or_else(|| match keyword {
-        "define" | "param" => header.get(keyword_index + 2),
+        "define" => header.get(keyword_index + 2),
         _ => None,
     });
     let named = binder.or(fallback).filter(|token| token.word().is_some());
@@ -948,14 +997,7 @@ fn declaration_header(
         let kind_end = if keyword == "define" {
             (kind_start + 1).min(header.len())
         } else {
-            header
-                .iter()
-                .position(|token| {
-                    token
-                        .word()
-                        .is_some_and(|word| word.eq_ignore_ascii_case("as"))
-                })
-                .unwrap_or(header.len())
+            top_level_word_position(header, "as").unwrap_or(header.len())
         };
         let kind_tokens = header.get(kind_start..kind_end).unwrap_or_default();
         let mut path = String::new();
@@ -985,6 +1027,36 @@ fn declaration_header(
     }
     output.documentation = leading_doc_comment(syntax, span.range.start);
     output
+}
+
+fn declaration_header_end(tokens: &[SigToken<'_>]) -> usize {
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.token {
+            Some(Token::LParen | Token::LBracket) => depth += 1,
+            Some(Token::RParen | Token::RBracket) => depth = depth.saturating_sub(1),
+            Some(Token::LBrace | Token::SemiColon) if depth == 0 => return index,
+            _ => {}
+        }
+    }
+    tokens.len()
+}
+
+fn top_level_word_position(tokens: &[SigToken<'_>], expected: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.token {
+            Some(Token::LParen | Token::LBracket | Token::LBrace) => depth += 1,
+            Some(Token::RParen | Token::RBracket | Token::RBrace) => {
+                depth = depth.saturating_sub(1)
+            }
+            Some(Token::Word(word)) if depth == 0 && word.value.eq_ignore_ascii_case(expected) => {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn leading_doc_comment(syntax: &SyntaxAnalysis, start: usize) -> Option<String> {
@@ -1782,9 +1854,9 @@ fn declaration_header_contains(syntax: &SyntaxAnalysis, span: SourceSpan) -> boo
         {
             return false;
         }
-        let header_end = significant_tokens(syntax, Some(node.span))
-            .into_iter()
-            .find(|token| matches!(token.token, Some(Token::LBrace | Token::SemiColon)))
+        let tokens = significant_tokens(syntax, Some(node.span));
+        let header_end = tokens
+            .get(declaration_header_end(&tokens))
             .map_or(node.span.range.end, |token| token.span.range.end);
         span.range.end <= header_end
     })
@@ -1923,7 +1995,8 @@ impl<'a> QueryContext<'a> {
             if let Some(kind) = action_target {
                 complete_state_operations(kind, prefix, replacement, &mut items);
             }
-            if output_alias_context(text, replacement.range.start)
+            if (output_alias_context(text, replacement.range.start)
+                || param_alias_context(text, replacement.range.start))
                 && candidate_matches("as", prefix)
             {
                 items.push(item(
@@ -1931,7 +2004,7 @@ impl<'a> QueryContext<'a> {
                     replacement,
                     "as".to_owned(),
                     CompletionKind::Keyword,
-                    Some("output alias".to_owned()),
+                    Some("declaration alias".to_owned()),
                     None,
                     CompletionOrigin::Syntax,
                     false,
@@ -1992,25 +2065,35 @@ impl<'a> QueryContext<'a> {
                     "00",
                 ));
             }
-        } else if physical_type_header_context(text, cursor) {
-            complete_physical_types(prefix, replacement, &mut items);
-            if param_type_header_context(text, cursor) {
-                for parameter_type in ["store", "selection"] {
-                    if candidate_matches(parameter_type, prefix) {
-                        items.push(item(
-                            parameter_type.to_owned(),
-                            replacement,
-                            parameter_type.to_owned(),
-                            CompletionKind::Type,
-                            Some("parameter category".to_owned()),
-                            None,
-                            CompletionOrigin::Syntax,
-                            false,
-                            "00",
-                        ));
-                    }
+        } else if param_initializer_context(text, cursor) {
+            for (label, detail) in [
+                ("store", "table-valued parameter category"),
+                ("selection", "selection parameter category"),
+                ("CAST", "SQL cast expression"),
+                ("NULL", "SQL null literal; cast it to infer a concrete type"),
+                ("true", "SQL boolean literal"),
+                ("false", "SQL boolean literal"),
+            ] {
+                if candidate_matches(label, prefix) {
+                    items.push(item(
+                        label.to_owned(),
+                        replacement,
+                        label.to_owned(),
+                        if matches!(label, "store" | "selection") {
+                            CompletionKind::Type
+                        } else {
+                            CompletionKind::Keyword
+                        },
+                        Some(detail.to_owned()),
+                        None,
+                        CompletionOrigin::Syntax,
+                        false,
+                        "00",
+                    ));
                 }
             }
+        } else if physical_type_header_context(text, cursor) {
+            complete_physical_types(prefix, replacement, &mut items);
         } else if let Some(values) = fixed_header_candidates(text, cursor) {
             for value in values {
                 if candidate_matches(value, prefix) {
@@ -3483,7 +3566,7 @@ pub(crate) fn physical_type_spans(syntax: &SyntaxAnalysis) -> Vec<SourceSpan> {
             }
             continue;
         }
-        if !matches!(keyword.as_str(), "param" | "field") {
+        if keyword != "field" {
             continue;
         }
         let Some(keyword_index) = tokens
@@ -3492,12 +3575,9 @@ pub(crate) fn physical_type_spans(syntax: &SyntaxAnalysis) -> Vec<SourceSpan> {
         else {
             continue;
         };
-        let type_end = if keyword == "param" {
-            tokens.iter().position(|token| token.word() == Some("as"))
-        } else {
-            name.as_deref()
-                .and_then(|name| tokens.iter().rposition(|token| token.word() == Some(name)))
-        };
+        let type_end = name
+            .as_deref()
+            .and_then(|name| tokens.iter().rposition(|token| token.word() == Some(name)));
         let Some(type_end) = type_end else {
             continue;
         };
@@ -3682,19 +3762,16 @@ fn statement_fragment(text: &str, cursor: usize) -> &str {
     prefix[start..].trim_start()
 }
 
-fn param_type_header_context(text: &str, cursor: usize) -> bool {
+fn param_initializer_context(text: &str, cursor: usize) -> bool {
     let fragment = statement_fragment(text, cursor);
     fragment.strip_prefix("param").is_some_and(|rest| {
         rest.chars().next().is_some_and(char::is_whitespace)
-            && split_header_type(rest.trim_start()).is_none()
+            && !contains_top_level_word(rest, "as")
             && !struct_field_argument_is_name(fragment)
     })
 }
 
 fn physical_type_header_context(text: &str, cursor: usize) -> bool {
-    if param_type_header_context(text, cursor) {
-        return true;
-    }
     let fragment = statement_fragment(text, cursor);
     fragment.strip_prefix("field").is_some_and(|rest| {
         rest.chars().next().is_some_and(char::is_whitespace)
@@ -3850,37 +3927,23 @@ fn complete_state_operations(
 
 fn param_binder_context(text: &str, cursor: usize) -> bool {
     let fragment = statement_fragment(text, cursor);
-    let Some(data_type) = fragment.strip_prefix("param") else {
+    let Some(rest) = fragment.strip_prefix("param") else {
         return false;
     };
-    let Some((data_type, tail)) = split_header_type(data_type.trim_start()) else {
+    if !rest.chars().next().is_some_and(char::is_whitespace) {
         return false;
-    };
-    if tail == "as"
-        && fragment
+    }
+    let rest = rest.trim_start();
+    if matches!(rest.trim(), "store" | "selection") {
+        return fragment
             .chars()
             .next_back()
-            .is_some_and(char::is_whitespace)
-    {
+            .is_some_and(char::is_whitespace);
+    }
+    if contains_top_level_word(rest, "as") {
         return false;
     }
-    if tail.split_whitespace().count() > 1
-        || tail
-            .split_whitespace()
-            .next()
-            .is_some_and(|word| word != "as" && !"as".starts_with(word))
-    {
-        return false;
-    }
-    if matches!(data_type, "store" | "selection") {
-        return true;
-    }
-    let probe = SourceFile::new(
-        SourceId::new(u32::MAX),
-        SourceOrigin::Memory("completion-type-probe.avenger".to_owned()),
-        format!("avenger 1; chart cartesian {{ param {data_type} as value {{ value: NULL; }} }}"),
-    );
-    parse_file(&probe).is_ok()
+    avenger_lang_compiler::normalize_sql_expression(rest.trim()).is_ok()
 }
 
 fn field_nullable_context(text: &str, cursor: usize) -> bool {
@@ -4035,6 +4098,16 @@ fn output_alias_context(text: &str, prefix_start: usize) -> bool {
         return false;
     };
     source.chars().next().is_some_and(char::is_whitespace) && !contains_top_level_word(source, "as")
+}
+
+fn param_alias_context(text: &str, prefix_start: usize) -> bool {
+    let fragment = statement_fragment(text, prefix_start);
+    let Some(source) = fragment.strip_prefix("param") else {
+        return false;
+    };
+    source.chars().next().is_some_and(char::is_whitespace)
+        && !matches!(source.trim(), "store" | "selection")
+        && !contains_top_level_word(source, "as")
 }
 
 fn contains_top_level_word(value: &str, expected: &str) -> bool {
@@ -4529,10 +4602,7 @@ fn complete_physical_types(
 
 pub(crate) fn core_properties(keyword: &str) -> &'static [(&'static str, &'static str)] {
     match keyword {
-        "param" => &[
-            ("value", "Required initial scalar value."),
-            ("sharing", "State-sharing policy."),
-        ],
+        "param" => &[("sharing", "State-sharing policy.")],
         "store" => &[
             ("sharing", "State-sharing policy."),
             ("primary_key", "Fields that uniquely identify store rows."),
@@ -4699,7 +4769,7 @@ fn rank_and_deduplicate(items: &mut Vec<CompletionItem>, prefix: &str) {
 
 fn declaration_snippet(keyword: &str) -> String {
     match keyword {
-        "param" => "param ${1:float64} as ${2:name} {\n  value: ${3:NULL};\n  $0\n}".to_owned(),
+        "param" => "param ${1:CAST(NULL AS DOUBLE)} as ${2:name};$0".to_owned(),
         "param store" | "param selection" => {
             format!("{keyword} as ${{1:name}} {{\n  $0\n}}")
         }
@@ -4822,7 +4892,7 @@ mod tests {
 
     #[test]
     fn index_preserves_exact_binder_and_reference_spans() {
-        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 1.0; } mark symbol as points { size: $width; } }";
+        let text = "avenger 1; chart cartesian as chart { param CAST(1.0 AS DOUBLE) as width; mark symbol as points { size: $width; } }";
         let (origin, syntax) = fixture(text);
         let index = build_document_index(&origin, &syntax);
         let width = index
@@ -4906,7 +4976,7 @@ mod tests {
 
     #[test]
     fn completion_replacement_never_splits_unicode() {
-        let text = "avenger 1; chart cartesian as chart { param float64 as café { value: 1.0; } mark symbol { size: $caf; } }";
+        let text = "avenger 1; chart cartesian as chart { param 1.0 as café; mark symbol { size: $caf; } }";
         let (_, syntax) = fixture(text);
         let cursor = text.find("$caf").unwrap() + "$caf".len();
         let span = replacement_span(&syntax, cursor);
@@ -4915,16 +4985,18 @@ mod tests {
 
     #[test]
     fn unified_header_and_set_target_completion_use_semantic_categories() {
-        let types = completion_labels("avenger 1; chart cartesian { param | }");
-        assert!(types.contains(&"float64".to_owned()));
-        assert!(types.contains(&"store".to_owned()));
-        assert!(types.contains(&"selection".to_owned()));
+        let initializers = completion_labels("avenger 1; chart cartesian { param | }");
+        assert!(initializers.contains(&"CAST".to_owned()));
+        assert!(initializers.contains(&"NULL".to_owned()));
+        assert!(initializers.contains(&"store".to_owned()));
+        assert!(initializers.contains(&"selection".to_owned()));
+        assert!(!initializers.contains(&"float64".to_owned()));
 
         let fields = completion_labels("avenger 1; chart cartesian { field utf| }");
         assert!(fields.contains(&"utf8".to_owned()));
 
         let targets = completion_labels(
-            "avenger 1; chart cartesian { param float64 as width { value: 1; } param store as rows {} param selection as picked {} on click { set | = 1; } }",
+            "avenger 1; chart cartesian { param 1 as width; param store as rows {} param selection as picked {} on click { set | = 1; } }",
         );
         for target in ["width", "rows", "picked", "cursor"] {
             assert!(targets.contains(&target.to_owned()), "{targets:?}");
@@ -4955,7 +5027,7 @@ mod tests {
         );
 
         let scalar_modifiers = completion_labels(
-            "avenger 1; chart cartesian { param float64 as width { value: 1; } on click { set width | = 2; } }",
+            "avenger 1; chart cartesian { param 1 as width; on click { set width | = 2; } }",
         );
         assert!(
             scalar_modifiers.contains(&"at".to_owned()),
@@ -4979,13 +5051,13 @@ mod tests {
         );
 
         let bindings = completion_labels(
-            "avenger 1; chart cartesian { param float64 as width { value: 1; } param store as rows {} param selection as picked {} mark symbol { size: $|; } }",
+            "avenger 1; chart cartesian { param 1 as width; param store as rows {} param selection as picked {} mark symbol { size: $|; } }",
         );
         assert!(bindings.contains(&"$width".to_owned()));
         assert!(bindings.contains(&"$rows".to_owned()));
         assert!(!bindings.contains(&"$picked".to_owned()));
 
-        let binder = completion_labels("avenger 1; chart cartesian { param float64 | }");
+        let binder = completion_labels("avenger 1; chart cartesian { param 1 | }");
         assert!(binder.contains(&"as".to_owned()), "{binder:?}");
         assert!(!binder.contains(&"float64".to_owned()), "{binder:?}");
 
@@ -4995,9 +5067,9 @@ mod tests {
         assert!(field.contains(&"nullable".to_owned()), "{field:?}");
 
         let member = completion_labels(
-            "avenger 1; chart cartesian { param struct(field(float64, |)) as value { value: NULL; } }",
+            "avenger 1; chart cartesian { param CAST(NULL AS DOUBLE) as value { | } }",
         );
-        assert!(member.contains(&"'<name>'".to_owned()), "{member:?}");
+        assert!(member.contains(&"sharing".to_owned()), "{member:?}");
         assert!(!member.contains(&"float64".to_owned()), "{member:?}");
 
         let slot_name =

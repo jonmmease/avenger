@@ -2198,8 +2198,11 @@ mod tests {
         let first_state = first_bundle.app.app_state_mut().clone();
         let untouched_snapshot = runtime.block_on(first_state.snapshot_state());
 
-        fs::write(&chart, original.replace("value: 64.0;", "value: 256.0;"))
-            .expect("edit point-size default");
+        fs::write(
+            &chart,
+            original.replace("CAST(64.0 AS DOUBLE)", "CAST(256.0 AS DOUBLE)"),
+        )
+        .expect("edit point-size default");
         let second = runtime
             .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 2))
             .result
@@ -2225,7 +2228,7 @@ mod tests {
         );
         assert_ne!(
             second_scene, first_scene,
-            "the reloaded scene must reflect the newly authored param default"
+            "the reloaded scene must reflect the newly authored param initializer"
         );
 
         second_state
@@ -2235,8 +2238,11 @@ mod tests {
             )
             .expect("modify runtime point size");
         let modified_snapshot = runtime.block_on(second_state.snapshot_state());
-        fs::write(&chart, original.replace("value: 64.0;", "value: 512.0;"))
-            .expect("edit point-size default again");
+        fs::write(
+            &chart,
+            original.replace("CAST(64.0 AS DOUBLE)", "CAST(512.0 AS DOUBLE)"),
+        )
+        .expect("edit point-size default again");
         let third = runtime
             .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 3))
             .result
@@ -2251,10 +2257,41 @@ mod tests {
                 ),
             )
             .expect("prepare third cartesian generation");
+        let third_state = third_bundle.app.app_state_mut().clone();
         assert_eq!(
-            runtime.block_on(third_bundle.app.app_state_mut().params())["point_size"],
+            runtime.block_on(third_state.params())["point_size"],
             datafusion::scalar::ScalarValue::Float64(Some(321.0)),
             "runtime-modified state must continue to win across reloads"
+        );
+
+        let third_snapshot = runtime.block_on(third_state.snapshot_state());
+        fs::write(
+            &chart,
+            original.replace(
+                "param CAST(64.0 AS DOUBLE) as point_size;",
+                "param 64 as point_size;",
+            ),
+        )
+        .expect("change the inferred point-size type");
+        let fourth = runtime
+            .block_on(compiler.compile_chart_generation_attempt(&chart, Some("cartesian"), 4))
+            .result
+            .expect("compile type-changing cartesian generation");
+        let (mut fourth_bundle, report) = runtime
+            .block_on(
+                chart_avenger_app_with_default_runtime_resources_and_snapshot(
+                    fourth.artifact.compiled_plot().clone(),
+                    fourth.environment.session_context_arc(),
+                    ChartAppOptions::default(),
+                    &third_snapshot,
+                ),
+            )
+            .expect("prepare type-changing cartesian generation");
+        assert_eq!(report.params_migrated, 0);
+        assert_eq!(report.params_reset, 1);
+        assert_eq!(
+            runtime.block_on(fourth_bundle.app.app_state_mut().params())["point_size"],
+            datafusion::scalar::ScalarValue::Int64(Some(64))
         );
     }
 
@@ -2587,7 +2624,7 @@ mod tests {
 
         fs::write(
             &chart,
-            original_chart.replace("value: 180.0;", "value: 'not-a-number';"),
+            original_chart.replace("CAST(180.0 AS DOUBLE)", "CAST('not-a-number' AS DOUBLE)"),
         )
         .expect("prepare generation with an invalid constant cast");
         let failure = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 3));

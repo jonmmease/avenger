@@ -1,4 +1,2 @@
 avenger 1;
-param float64 as width {
-  value: 640;
-}
+param 640 as width;

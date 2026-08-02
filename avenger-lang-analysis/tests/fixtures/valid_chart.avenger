@@ -1,8 +1,6 @@
 avenger 1;
 chart cartesian as chart {
-  param float64 as width {
-    value: 640.0;
-  }
+  param CAST(640.0 AS DOUBLE) as width;
   mark symbol as points {
     size: encoded $width / 64.0;
     x: encoded "Horsepower";

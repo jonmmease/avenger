@@ -9,7 +9,7 @@ use std::{
 };
 
 use avenger_lang_core::{
-    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, ModuleItemId, PhysicalType,
+    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, ModuleItemId,
     ResolvedCatalogTable, ResolvedDeclaration, ResolvedModuleGraph, ResolvedQuery,
     ResolvedRelationId, ResolvedRelationTarget, ResolvedValue, SourceLabel, SourceOrigin,
     module_graph::normalize_path,
@@ -34,8 +34,8 @@ use sqlparser::{
 use crate::{
     AnalyzedColumn, AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironment, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    DependencyFingerprint, ModuleDatasetId, TableFactoryRegistry,
-    sql_profile::{normalize_sql_query, physical_type_to_arrow},
+    DependencyFingerprint, ModuleDatasetId, ParamTypeIndex, TableFactoryRegistry,
+    sql_profile::normalize_sql_query,
 };
 
 pub(crate) struct CatalogAnalysis {
@@ -65,6 +65,7 @@ struct ExternalCatalogRegistration {
 pub(crate) async fn register_and_analyze_catalog(
     project: &ResolvedModuleGraph,
     environment: &CompileEnvironment,
+    param_types: &ParamTypeIndex,
     options: CatalogOptions<'_>,
 ) -> Result<CatalogAnalysis, Diagnostic> {
     let context = environment.session_context();
@@ -110,8 +111,15 @@ pub(crate) async fn register_and_analyze_catalog(
         let declaration = declarations.get(id).copied().ok_or_else(|| {
             catalog_diagnostic(table, "AVENGER-DATA-001", "catalog declaration is missing")
         })?;
-        let (mut provider, logical_plan_fingerprint) =
-            create_table_provider(project, declaration, table, environment, &options).await?;
+        let (mut provider, logical_plan_fingerprint) = create_table_provider(
+            project,
+            declaration,
+            table,
+            environment,
+            param_types,
+            &options,
+        )
+        .await?;
         if matches!(
             declaration.properties.get("materialize"),
             Some(ResolvedValue::Atom(mode)) if mode == "session"
@@ -624,6 +632,7 @@ async fn create_table_provider(
     declaration: &ResolvedDeclaration,
     table: &ResolvedCatalogTable,
     environment: &CompileEnvironment,
+    param_types: &ParamTypeIndex,
     options: &CatalogOptions<'_>,
 ) -> Result<(Arc<dyn TableProvider>, Option<String>), Diagnostic> {
     let context = environment.session_context();
@@ -647,9 +656,9 @@ async fn create_table_provider(
             ensure_query_relations_registered(context, query).map_err(|message| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-108", message)
             })?;
-            let sql = expand_catalog_sql(project, query, Some(table), true).map_err(|message| {
-                declaration_diagnostic(declaration, "AVENGER-DATA-050", message)
-            })?;
+            let sql = expand_catalog_sql(project, param_types, query, Some(table), true).map_err(
+                |message| declaration_diagnostic(declaration, "AVENGER-DATA-050", message),
+            )?;
             context
                 .sql(&sql)
                 .await
@@ -1081,10 +1090,11 @@ fn ensure_schema(
 /// tables before handing the canonical query to DataFusion's parser.
 pub(crate) fn expand_chart_sql(
     project: &ResolvedModuleGraph,
+    param_types: &ParamTypeIndex,
     query: &ResolvedQuery,
     sql: &str,
 ) -> Result<String, String> {
-    expand_catalog_sql_with_sql(project, query, sql, None, false)
+    expand_catalog_sql_with_sql(project, param_types, query, sql, None, false)
 }
 
 pub(crate) fn ensure_query_relations_registered(
@@ -1121,15 +1131,24 @@ pub(crate) fn ensure_relation_registered(
 
 fn expand_catalog_sql(
     project: &ResolvedModuleGraph,
+    param_types: &ParamTypeIndex,
     query: &ResolvedQuery,
     caller: Option<&ResolvedCatalogTable>,
     bind_caller_defaults: bool,
 ) -> Result<String, String> {
-    expand_catalog_sql_with_sql(project, query, &query.sql, caller, bind_caller_defaults)
+    expand_catalog_sql_with_sql(
+        project,
+        param_types,
+        query,
+        &query.sql,
+        caller,
+        bind_caller_defaults,
+    )
 }
 
 fn expand_catalog_sql_with_sql(
     project: &ResolvedModuleGraph,
+    param_types: &ParamTypeIndex,
     query: &ResolvedQuery,
     sql: &str,
     caller: Option<&ResolvedCatalogTable>,
@@ -1137,12 +1156,13 @@ fn expand_catalog_sql_with_sql(
 ) -> Result<String, String> {
     let mut statement = parse_query_statement(sql)?;
     if bind_caller_defaults && let Some(caller) = caller {
-        let bindings = default_param_expressions(project, caller)?;
+        let bindings = default_param_expressions(project, param_types, caller)?;
         substitute_query_params(&mut statement, &bindings)?;
     }
     let relation_map = query_relation_map(query);
     let mut expander = TableFunctionExpander {
         project,
+        param_types,
         relations: &relation_map,
         error: None,
     };
@@ -1210,6 +1230,7 @@ fn rewrite_query_relations(
 
 struct TableFunctionExpander<'a> {
     project: &'a ResolvedModuleGraph,
+    param_types: &'a ParamTypeIndex,
     relations: &'a BTreeMap<Vec<String>, ResolvedRelationId>,
     error: Option<String>,
 }
@@ -1245,7 +1266,7 @@ impl VisitorMut for TableFunctionExpander<'_> {
         };
         let alias = alias.clone();
         let arguments = arguments.clone();
-        match instantiate_table_query(self.project, table, &arguments.args) {
+        match instantiate_table_query(self.project, self.param_types, table, &arguments.args) {
             Ok(subquery) => {
                 *table_factor = TableFactor::Derived {
                     lateral: false,
@@ -1265,6 +1286,7 @@ impl VisitorMut for TableFunctionExpander<'_> {
 
 fn instantiate_table_query(
     project: &ResolvedModuleGraph,
+    param_types: &ParamTypeIndex,
     table: &ResolvedCatalogTable,
     arguments: &[FunctionArg],
 ) -> Result<sqlparser::ast::Query, String> {
@@ -1284,7 +1306,7 @@ fn instantiate_table_query(
         Some(ResolvedValue::Query(query)) => query,
         _ => return Err(format!("table `{}` has no SQL query", table.path.join("."))),
     };
-    let mut bindings = default_param_expressions(project, table)?;
+    let mut bindings = default_param_expressions(project, param_types, table)?;
     let mut supplied = std::collections::BTreeSet::new();
     for argument in arguments {
         let FunctionArg::Named {
@@ -1320,10 +1342,10 @@ fn instantiate_table_query(
                 "table argument `{name}` must be a row-free scalar expression using only visible `$param` placeholders"
             ));
         }
-        bindings.insert(
-            name,
-            typed_expression(expression.clone(), &param.data_type)?,
-        );
+        let data_type = param_types
+            .get(&param.id)
+            .ok_or_else(|| format!("parameter `{name}` has no inferred Arrow type"))?;
+        bindings.insert(name, typed_expression(expression.clone(), data_type)?);
     }
 
     let mut statement = parse_query_statement(&query.sql)?;
@@ -1331,6 +1353,7 @@ fn instantiate_table_query(
     let relation_map = query_relation_map(query);
     let mut expander = TableFunctionExpander {
         project,
+        param_types,
         relations: &relation_map,
         error: None,
     };
@@ -1348,6 +1371,7 @@ fn instantiate_table_query(
 
 fn default_param_expressions(
     project: &ResolvedModuleGraph,
+    param_types: &ParamTypeIndex,
     table: &ResolvedCatalogTable,
 ) -> Result<BTreeMap<String, SqlExpr>, String> {
     table
@@ -1355,14 +1379,23 @@ fn default_param_expressions(
         .iter()
         .map(|id| {
             let param = &project.params[id];
-            let source = typed_boundary_value_sql(&param.default, &param.data_type)?;
+            let data_type = param_types.get(id).ok_or_else(|| {
+                format!(
+                    "table parameter `{}` has no inferred Arrow type",
+                    param.source_name
+                )
+            })?;
+            let source = strict_cast_arrow_sql(&row_free_value_sql(&param.initializer)?, data_type);
             Ok((param.source_name.clone(), parse_sql_expression(&source)?))
         })
         .collect()
 }
 
-fn typed_expression(expression: SqlExpr, data_type: &PhysicalType) -> Result<SqlExpr, String> {
-    let arrow_type = physical_type_to_arrow(data_type).to_string();
+fn typed_expression(
+    expression: SqlExpr,
+    data_type: &arrow::datatypes::DataType,
+) -> Result<SqlExpr, String> {
+    let arrow_type = data_type.to_string();
     parse_sql_expression(&format!(
         "arrow_cast(({expression}), '{}')",
         arrow_type.replace('\'', "''")
@@ -1509,99 +1542,6 @@ fn catalog_structural_literal_sql(value: &ResolvedValue) -> Result<String, Strin
     }
 }
 
-fn typed_boundary_value_sql(
-    value: &ResolvedValue,
-    target: &PhysicalType,
-) -> Result<String, String> {
-    let source = match (value, target) {
-        (ResolvedValue::Expression(expression), _)
-            if expression.bindings.is_empty()
-                && expression.helpers.is_empty()
-                && expression.contextual_accesses.is_empty()
-                && expression.references.is_empty() =>
-        {
-            expression.sql.clone()
-        }
-        (ResolvedValue::Array(values), PhysicalType::List(element))
-        | (ResolvedValue::Array(values), PhysicalType::LargeList(element)) => format!(
-            "[{}]",
-            values
-                .iter()
-                .map(|value| typed_boundary_value_sql(value, element))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ")
-        ),
-        (ResolvedValue::Array(values), PhysicalType::FixedSizeList { element, length }) => {
-            if usize::try_from(*length).ok() != Some(values.len()) {
-                return Err(format!(
-                    "fixed-size list boundary requires {length} values, found {}",
-                    values.len()
-                ));
-            }
-            format!(
-                "[{}]",
-                values
-                    .iter()
-                    .map(|value| typed_boundary_value_sql(value, element))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ")
-            )
-        }
-        (ResolvedValue::Object { properties, .. }, PhysicalType::Struct(fields)) => {
-            let unknown = properties
-                .keys()
-                .filter(|name| !fields.iter().any(|field| &field.name == *name))
-                .cloned()
-                .collect::<Vec<_>>();
-            if !unknown.is_empty() {
-                return Err(format!(
-                    "typed struct has unknown field(s): {}",
-                    unknown.join(", ")
-                ));
-            }
-            let mut arguments = Vec::with_capacity(fields.len() * 2);
-            for field in fields {
-                let value = match properties.get(&field.name) {
-                    Some(value) => typed_boundary_value_sql(value, &field.data_type)?,
-                    None if field.nullable => typed_null_sql(&field.data_type),
-                    None => {
-                        return Err(format!(
-                            "typed struct is missing non-nullable field `{}`",
-                            field.name
-                        ));
-                    }
-                };
-                arguments.push(format!("'{}'", field.name.replace('\'', "''")));
-                arguments.push(value);
-            }
-            format!("named_struct({})", arguments.join(", "))
-        }
-        (ResolvedValue::Object { properties, .. }, PhysicalType::Map { key, value }) => {
-            let keys = properties
-                .keys()
-                .map(|name| typed_boundary_value_sql(&ResolvedValue::String(name.clone()), key))
-                .collect::<Result<Vec<_>, _>>()?;
-            let values = properties
-                .values()
-                .map(|item| typed_boundary_value_sql(item, value))
-                .collect::<Result<Vec<_>, _>>()?;
-            let key_list = list_sql(&keys, key);
-            let value_list = list_sql(&values, value);
-            format!("map({key_list}, {value_list})")
-        }
-        (ResolvedValue::Array(_), _) => {
-            return Err(format!("array value cannot be cast to Arrow type {target}"));
-        }
-        (ResolvedValue::Object { .. }, _) => {
-            return Err(format!(
-                "object value cannot be cast to Arrow type {target}"
-            ));
-        }
-        (value, _) => row_free_value_sql(value)?,
-    };
-    Ok(strict_cast_sql(&source, target))
-}
-
 fn row_free_value_sql(value: &ResolvedValue) -> Result<String, String> {
     match value {
         ResolvedValue::Expression(expression)
@@ -1623,25 +1563,12 @@ fn row_free_value_sql(value: &ResolvedValue) -> Result<String, String> {
     }
 }
 
-fn strict_cast_sql(source: &str, target: &PhysicalType) -> String {
-    let arrow_type = physical_type_to_arrow(target).to_string();
+fn strict_cast_arrow_sql(source: &str, target: &arrow::datatypes::DataType) -> String {
+    let arrow_type = target.to_string();
     format!(
         "arrow_cast(({source}), '{}')",
         arrow_type.replace('\'', "''")
     )
-}
-
-fn typed_null_sql(target: &PhysicalType) -> String {
-    strict_cast_sql("NULL", target)
-}
-
-fn list_sql(values: &[String], element: &PhysicalType) -> String {
-    if values.is_empty() {
-        let list_type = PhysicalType::List(Box::new(element.clone()));
-        strict_cast_sql("[]", &list_type)
-    } else {
-        format!("[{}]", values.join(", "))
-    }
 }
 
 fn declaration_options(
