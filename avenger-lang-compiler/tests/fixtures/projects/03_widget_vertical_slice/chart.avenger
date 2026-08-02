@@ -1,33 +1,50 @@
 avenger 1;
-
 chart cartesian as chart {
   data: {
-    values: [
-      { category: 'A'; x: CAST(1.0 AS DOUBLE); y: CAST(2.0 AS DOUBLE); },
-      { category: 'B'; x: CAST(2.0 AS DOUBLE); y: CAST(3.0 AS DOUBLE); }
+    values: [ {
+      category: 'A';
+      x: CAST(1.0 AS DOUBLE);
+      y: CAST(2.0 AS DOUBLE);
+    }
+    , {
+      category: 'B';
+      x: CAST(2.0 AS DOUBLE);
+      y: CAST(3.0 AS DOUBLE);
+    }
     ];
   }
-
   widget radio_button_list as choice {
     data: {
-      values: [
-        { value: 'A'; label: 'Category A'; },
-        { value: 'B'; label: 'Category B'; }
+      values: [ {
+        label: 'Category A';
+        value: 'A';
+      }
+      , {
+        label: 'Category B';
+        value: 'B';
+      }
       ];
     }
     default: 'A';
     position: right;
   }
-
   mark group as selected_points {
     transform filter as selected {
       predicate: "category" = $choice.value;
     }
     mark symbol as points {
-      x: "x" { scale: linear { domain: [0.0, 3.0]; } }
-      y: "y" { scale: linear { domain: [0.0, 4.0]; } }
-      size: value 120.0;
-      fill: value '#5778a4';
+      fill: direct '#5778a4';
+      size: direct 120.0;
+      x: encoded "x" {
+        scale: linear {
+          domain: [0.0, 3.0];
+        }
+      }
+      y: encoded "y" {
+        scale: linear {
+          domain: [0.0, 4.0];
+        }
+      }
     }
   }
 }

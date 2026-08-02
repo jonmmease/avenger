@@ -1,11 +1,9 @@
 avenger 1;
-
 export define mark error_bar {
   slot channel x;
   slot channel y;
-
   mark rule {
-    x: channel.x;
-    y: channel.y;
+    x: encoded channel.x;
+    y: encoded channel.y;
   }
 }

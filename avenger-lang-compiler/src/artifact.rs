@@ -277,7 +277,7 @@ impl CompiledChartArtifact {
     }
 }
 
-pub const COMPILED_ARTIFACT_FORMAT_MAJOR: u16 = 2;
+pub const COMPILED_ARTIFACT_FORMAT_MAJOR: u16 = 3;
 const ARTIFACT_MAGIC: [u8; 8] = *b"AVNGRART";
 const ARTIFACT_PREFIX_LEN: usize = ARTIFACT_MAGIC.len() + 2 + 4;
 

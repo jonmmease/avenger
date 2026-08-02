@@ -1934,6 +1934,7 @@ fn compiler_options_fingerprint(options: &CompilerOptions) -> String {
     stable_hash(
         "avenger-compiler-options-v1",
         [
+            "avenger-language-profile-explicit-channel-modes-v1",
             options.native_registry.profile_id().as_str(),
             import_capabilities.as_str(),
             data_capabilities.as_str(),
@@ -2062,8 +2063,24 @@ fn native_requirements_for_entrypoint(
                     visit_value(value, modules);
                 }
             }
-            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            ResolvedValue::Channel {
+                expression: value, ..
+            }
+            | ResolvedValue::Pattern(value) => {
                 visit_value(value, modules);
+            }
+            ResolvedValue::ChannelValue(channel) => {
+                visit_value(&channel.head.expression, modules);
+                if let Some(otherwise) = &channel.otherwise {
+                    visit_value(&otherwise.expression, modules);
+                }
+                for condition in &channel.conditions {
+                    visit_value(&condition.predicate, modules);
+                    visit_value(&condition.branch.expression, modules);
+                }
+                for value in channel.configuration.values() {
+                    visit_value(value, modules);
+                }
             }
             ResolvedValue::Object {
                 head,
@@ -2207,8 +2224,30 @@ fn collect_chart_catalog_dependencies(
                     }
                 }
             }
-            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            ResolvedValue::Channel {
+                expression: value, ..
+            }
+            | ResolvedValue::Pattern(value) => {
                 visit_value(project, property, value, tables, names);
+            }
+            ResolvedValue::ChannelValue(channel) => {
+                visit_value(project, property, &channel.head.expression, tables, names);
+                if let Some(otherwise) = &channel.otherwise {
+                    visit_value(project, property, &otherwise.expression, tables, names);
+                }
+                for condition in &channel.conditions {
+                    visit_value(project, property, &condition.predicate, tables, names);
+                    visit_value(
+                        project,
+                        property,
+                        &condition.branch.expression,
+                        tables,
+                        names,
+                    );
+                }
+                for value in channel.configuration.values() {
+                    visit_value(project, property, value, tables, names);
+                }
             }
             ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
                 for value in values {

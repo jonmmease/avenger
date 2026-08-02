@@ -1707,7 +1707,7 @@ mod tests {
         let module = project.path().join("chart.avenger");
         fs::write(
             &module,
-            "avenger 1; chart cartesian as chart { data: { values: [{ x: 1; y: 2; }]; } mark symbol { x: \"x\"; y: \"y\"; } }",
+            "avenger 1; chart cartesian as chart { data: { values: [{ x: 1; y: 2; }]; } mark symbol { x: encoded \"x\"; y: encoded \"y\"; } }",
         )
         .unwrap();
         let output = project.path().join("dist/bundle.avenger");
@@ -2480,12 +2480,32 @@ mod tests {
         assert_eq!(cached_initial, uncached_initial);
 
         let definition_source = fs::read_to_string(&definition).expect("read mark definition");
+        fs::write(
+            &definition,
+            definition_source.replacen("size: direct", "size: encoded", 1),
+        )
+        .expect("edit channel mode");
+        let before_mode = cache.metrics();
+        let (mode_changed, _, _, _) =
+            compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 2);
+        let after_mode = cache.metrics();
+        assert_ne!(
+            mode_changed, cached_initial,
+            "mode-only edit must install the newly compiled scene"
+        );
+        assert!(
+            after_mode.hits > before_mode.hits,
+            "an identical SQL expression plan should hit across a mode-only reload: before={before_mode:?}, after={after_mode:?}"
+        );
+
+        let definition_source =
+            fs::read_to_string(&definition).expect("read mode-edited definition");
         fs::write(&definition, definition_source.replace("#7c3aed", "#dc2626"))
             .expect("edit mark style");
         let before_style = cache.metrics();
-        let (styled, _, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 2);
+        let (styled, _, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 3);
         let after_style = cache.metrics();
-        assert_ne!(styled, cached_initial, "style edit must change the scene");
+        assert_ne!(styled, mode_changed, "style edit must change the scene");
         assert!(
             after_style.hits > before_style.hits,
             "unchanged data plan should hit across a style-only reload: before={before_style:?}, after={after_style:?}"
@@ -2502,7 +2522,7 @@ mod tests {
         set_file_mtime(&data, original_mtime).expect("restore CSV modification time");
         let before_data = cache.metrics();
         let (changed_data, _, _, _) =
-            compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 3);
+            compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 4);
         let after_data = cache.metrics();
         assert_ne!(
             changed_data, styled,
@@ -2518,7 +2538,7 @@ mod tests {
             .build()
             .expect("build current uncached compiler");
         let (uncached_changed_data, _, _, _) =
-            compile_and_prepare_scene(&runtime, &current_uncached, &chart, 3);
+            compile_and_prepare_scene(&runtime, &current_uncached, &chart, 4);
         assert_eq!(changed_data, uncached_changed_data);
     }
 
@@ -2560,9 +2580,9 @@ mod tests {
 
         fs::write(
             &definition,
-            original_definition.replace("#7c3aed", "#dc2626"),
+            original_definition.replace("size: direct 180.0", "size: encoded 180.0"),
         )
-        .expect("prepare styled generation");
+        .expect("prepare mode-only generation");
         let success = runtime.block_on(compiler.compile_chart_generation_attempt(&chart, None, 2));
 
         fs::write(

@@ -108,7 +108,10 @@ fn native_body_schema(schema: &KindSchema, keyword: &str) -> Value {
         }
     }
     for (name, channel) in &schema.channels {
-        properties.insert(name.clone(), value_shape_schema(&channel.shape));
+        properties.insert(
+            name.clone(),
+            channel_value_schema(&channel.shape, !channel.required),
+        );
         if channel.required {
             required.push(json!(name));
         }
@@ -322,6 +325,157 @@ fn object_properties_schema(
     schema
 }
 
+fn channel_value_schema(shape: &ValueShape, optional: bool) -> Value {
+    if matches!(shape, ValueShape::ChannelConfig) {
+        return tagged_schema("block");
+    }
+    if matches!(shape, ValueShape::RasterDimensionChannel) {
+        let dimension = tagged_schema("dim");
+        let mut alternatives = vec![
+            dimension.clone(),
+            json!({
+                "type": "object",
+                "required": ["block"],
+                "properties": {
+                    "block": {
+                        "allOf": [
+                            { "$ref": "#/$defs/body" },
+                            {
+                                "required": ["head"],
+                                "properties": { "head": dimension }
+                            }
+                        ]
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ];
+        if optional {
+            alternatives.push(tagged_payload_schema("none", json!({ "const": true })));
+        }
+        return json!({ "oneOf": alternatives });
+    }
+
+    let expression = value_shape_schema(&ValueShape::SqlExpression);
+    let encoded = tagged_payload_schema("encoded", expression.clone());
+    let direct = tagged_payload_schema("direct", expression.clone());
+    let otherwise = conditional_channel_branch_schema(&expression, false);
+    let when = conditional_channel_declaration_schema(&expression);
+    let mut alternatives = vec![
+        encoded.clone(),
+        direct.clone(),
+        json!({
+            "type": "object",
+            "required": ["block"],
+            "properties": {
+                "block": {
+                    "allOf": [
+                        { "$ref": "#/$defs/body" },
+                        {
+                            "required": ["head"],
+                            "properties": {
+                                "head": { "oneOf": [encoded, direct] },
+                                "props": {
+                                    "type": "object",
+                                    "properties": { "otherwise": otherwise },
+                                    "additionalProperties": { "$ref": "#/$defs/value" }
+                                },
+                                "children": {
+                                    "type": "array",
+                                    "items": when
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        }),
+    ];
+    if matches!(shape, ValueShape::PatternChannel) {
+        alternatives.push(tagged_schema("pattern"));
+    }
+    if optional {
+        alternatives.push(tagged_payload_schema("none", json!({ "const": true })));
+    }
+    json!({ "oneOf": alternatives })
+}
+
+fn conditional_channel_branch_schema(expression: &Value, predicate: bool) -> Value {
+    let mut properties = serde_json::Map::from_iter([
+        ("encoded".to_owned(), expression.clone()),
+        ("direct".to_owned(), expression.clone()),
+    ]);
+    if predicate {
+        properties.insert("predicate".to_owned(), expression.clone());
+    }
+    let required_prefix = if predicate {
+        vec![json!("predicate")]
+    } else {
+        Vec::new()
+    };
+    let mut encoded_required = required_prefix.clone();
+    encoded_required.push(json!("encoded"));
+    let mut direct_required = required_prefix;
+    direct_required.push(json!("direct"));
+    let props = json!({
+        "type": "object",
+        "properties": properties,
+        "oneOf": [
+            {
+                "required": encoded_required,
+                "not": { "required": ["direct"] }
+            },
+            {
+                "required": direct_required,
+                "not": { "required": ["encoded"] }
+            }
+        ],
+        "additionalProperties": false
+    });
+    if predicate {
+        props
+    } else {
+        json!({
+            "type": "object",
+            "required": ["block"],
+            "properties": {
+                "block": {
+                    "allOf": [
+                        { "$ref": "#/$defs/body" },
+                        {
+                            "required": ["props"],
+                            "properties": {
+                                "props": props,
+                                "children": { "maxItems": 0 }
+                            },
+                            "not": { "required": ["head"] }
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+}
+
+fn conditional_channel_declaration_schema(expression: &Value) -> Value {
+    json!({
+        "allOf": [
+            { "$ref": "#/$defs/decl" },
+            {
+                "required": ["decl", "props"],
+                "properties": {
+                    "decl": { "const": "when" },
+                    "props": conditional_channel_branch_schema(expression, true),
+                    "children": { "maxItems": 0 }
+                }
+            }
+        ]
+    })
+}
+
 fn value_shape_schema(shape: &ValueShape) -> Value {
     match shape {
         ValueShape::Boolean => json!({ "type": "boolean" }),
@@ -347,9 +501,7 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
                 tagged_schema("col"),
                 tagged_schema("atom"),
                 tagged_schema("binding"),
-                tagged_schema("expr"),
-                tagged_schema("value"),
-                tagged_schema("block")
+                tagged_schema("expr")
             ]
         }),
         ValueShape::SqlProjection { .. } => tagged_schema("projection"),
@@ -363,7 +515,9 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::PatternChannel => json!({
             "oneOf": [
                 tagged_schema("pattern"),
-                value_shape_schema(&ValueShape::SqlExpression)
+                tagged_schema("encoded"),
+                tagged_schema("direct"),
+                tagged_schema("block")
             ]
         }),
         ValueShape::CoordinationScope => sharing_schema(),
@@ -445,7 +599,7 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         }),
         ValueShape::ChannelMap => json!({
             "type": "object",
-            "additionalProperties": value_shape_schema(&ValueShape::SqlExpression)
+            "additionalProperties": channel_value_schema(&ValueShape::SqlExpression, true)
         }),
         ValueShape::Object(fields) => object_value_schema(fields),
         ValueShape::Any => value_ref(),
@@ -589,6 +743,15 @@ fn tagged_schema(tag: &str) -> Value {
         "type": "object",
         "required": [tag],
         "properties": { tag: {} },
+        "additionalProperties": false
+    })
+}
+
+fn tagged_payload_schema(tag: &str, payload: Value) -> Value {
+    json!({
+        "type": "object",
+        "required": [tag],
+        "properties": { tag: payload },
         "additionalProperties": false
     })
 }

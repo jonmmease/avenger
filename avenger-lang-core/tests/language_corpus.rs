@@ -182,7 +182,10 @@ fn ast_json_round_trips_every_value_variant() {
             kind: RefKind::Mark,
             path: vec![name("layers"), name("points")],
         },
-        Value::Visual(Box::new(Value::Num(NumericLiteral::new("4").unwrap()))),
+        Value::Channel {
+            mode: avenger_lang_core::ast::ChannelMode::Direct,
+            expression: Box::new(Value::Num(NumericLiteral::new("4").unwrap())),
+        },
         Value::Dim(vec![name("pixels"), name("x_dim")]),
         Value::Pattern(Box::new(Value::Block {
             head: None,

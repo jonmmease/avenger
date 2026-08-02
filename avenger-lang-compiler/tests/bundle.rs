@@ -93,7 +93,7 @@ async fn module_bundle_preserves_all_entrypoints_while_chart_bundle_prunes_sibli
         root.path().join("library.avenger"),
         r#"avenger 1;
 export define mark badge {
-  mark symbol as glyph { x: "x"; y: "y"; }
+  mark symbol as glyph { x: encoded "x"; y: encoded "y"; }
 }
 "#,
     )
@@ -154,7 +154,7 @@ define transform private_identity {
 }
 export define mark badge {
   transform private_identity {}
-  mark symbol as glyph { x: "x"; y: "y"; }
+  mark symbol as glyph { x: encoded "x"; y: encoded "y"; }
 }
 "#,
     )
@@ -243,7 +243,7 @@ chart cartesian as chart {
   transform stats.summarize as summary {
     measures: sum("amount") AS Total;
   }
-  mark symbol { x: summary.Total; y: summary.Total; }
+  mark symbol { x: encoded summary.Total; y: encoded summary.Total; }
 }
 "#,
     )
@@ -289,7 +289,7 @@ async fn bundle_alpha_renames_colliding_exports_and_private_helpers() {
             format!(
                 r#"avenger 1;
 define mark helper {{
-  mark {helper_kind} as primitive {{ x: "x"; y: "y"; }}
+  mark {helper_kind} as primitive {{ x: encoded "x"; y: encoded "y"; }}
 }}
 export define mark badge {{
   mark helper as nested {{}}

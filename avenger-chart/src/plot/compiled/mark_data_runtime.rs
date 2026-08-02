@@ -19,7 +19,7 @@ use datafusion::{
     },
     common::{DFSchema, ScalarValue},
     dataframe::DataFrame,
-    logical_expr::{EmptyRelation, Expr, LogicalPlan, Operator, col, lit, when},
+    logical_expr::{EmptyRelation, Expr, LogicalPlan, Operator, cast, col, lit, when},
     prelude::SessionContext,
 };
 use datafusion_common::tree_node::{Transformed, TreeNode};
@@ -2564,23 +2564,37 @@ pub(crate) fn apply_channel_scale(
 
             let scale_key = strip_trailing_numbers(channel_name).to_string();
             let needs_color_conversion = matches!(channel_name, "fill" | "stroke" | "color");
+            let scale = scales.get(&scale_key);
+            let range_type = scale.map(|scale| scale.configured().config.range.data_type().clone());
 
             let apply_to_conditional =
                 |cond_val: &ConditionalValue| -> Result<Expr, AvengerChartError> {
                     match cond_val {
                         ConditionalValue::Scaled { expr } => {
-                            if let Some(scale) = scales.get(&scale_key) {
-                                expr.to_expr(ctx).and_then(|e| scale.to_expr(e))
+                            if let Some(scale) = scale {
+                                let scaled = expr.to_expr(ctx).and_then(|e| scale.to_expr(e))?;
+                                // Discrete scales use Arrow dictionary arrays internally.
+                                // Conditional CASE branches must agree on their physical
+                                // output type, so erase that storage optimization at this
+                                // boundary and use the configured range's logical type.
+                                Ok(cast(
+                                    scaled,
+                                    range_type
+                                        .clone()
+                                        .expect("configured scale has a range type"),
+                                ))
                             } else {
                                 expr.to_expr(ctx)
                             }
                         }
                         ConditionalValue::Value { expr } => {
                             let expr_df = expr.to_expr(ctx)?;
-                            if needs_color_conversion {
-                                Ok(convert_color_literal(&expr_df))
-                            } else {
-                                Ok(expr_df)
+                            match range_type.as_ref() {
+                                Some(DataType::List(_)) if needs_color_conversion => {
+                                    Ok(convert_color_literal(&expr_df))
+                                }
+                                Some(range_type) => Ok(cast(expr_df, range_type.clone())),
+                                None => Ok(expr_df),
                             }
                         }
                     }

@@ -1,66 +1,47 @@
 avenger 1;
-
 export schema tables as analytics {
   table inline as rows {
-    values: [
-      {
-        id: 1;
-        category: 'A';
-        amount: 10;
-        meta: { city: 'Boston'; rank: 1; }
-      },
-      {
-        id: 2;
-        category: 'B';
-        amount: 20;
-        meta: { city: 'New York'; rank: 2; }
-      },
+    values: [ {
+      amount: 10;
+      category: 'A';
+      id: 1;
+      meta: {
+        city: 'Boston';
+        rank: 1;
+      }
+    }
+    , {
+      amount: 20;
+      category: 'B';
+      id: 2;
+      meta: {
+        city: 'New York';
+        rank: 2;
+      }
+    }
     ];
   }
-
   table inline as labels {
-    values: [
-      { id: 1; label: 'first'; },
-      { id: 3; label: 'third'; },
+    values: [ {
+      id: 1;
+      label: 'first';
+    }
+    , {
+      id: 3;
+      label: 'third';
+    }
     ];
   }
-
   table sql as joined {
-    sql:
-      SELECT r.id AS row_id,
-             r.category,
-             r.amount,
-             r.meta,
-             l.label
-      FROM rows AS r
-      LEFT JOIN labels AS l ON r.id = l.id;
+    sql: SELECT r.id AS row_id, r.category, r.amount, r.meta, l.label FROM rows AS r LEFT JOIN labels AS l ON r.id = l.id;
   }
-
   table sql as adjusted {
-    sql:
-      SELECT row_id,
-             category AS group_name,
-             amount,
-             amount + 1 AS adjusted_amount,
-             meta,
-             label
-      FROM joined;
+    sql: SELECT row_id, category AS group_name, amount, amount + 1 AS adjusted_amount, meta, label FROM joined;
   }
-
   table sql as summarized {
-    sql:
-      SELECT group_name,
-             count(*) AS row_count,
-             sum(adjusted_amount) AS total
-      FROM adjusted
-      GROUP BY group_name;
+    sql: SELECT group_name, count(*) AS row_count, sum(adjusted_amount) AS total FROM adjusted GROUP BY group_name;
   }
-
   table sql as final {
-    sql:
-      SELECT group_name AS category,
-             total,
-             total * 2 AS doubled
-      FROM summarized;
+    sql: SELECT group_name AS category, total, total * 2 AS doubled FROM summarized;
   }
 }

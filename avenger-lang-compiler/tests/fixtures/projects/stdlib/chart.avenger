@@ -1,5 +1,5 @@
 avenger 1;
-
 import { error_bar } from 'std:marks/error_bar';
 
-chart cartesian as chart {}
+chart cartesian as chart {
+}

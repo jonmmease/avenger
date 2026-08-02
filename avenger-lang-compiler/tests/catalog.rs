@@ -768,7 +768,7 @@ async fn selected_chart_initializes_only_reachable_table_providers() {
              import { unused } from './unused.avenger';\
              chart cartesian as chart {\
                data: { table: 'used'; }\
-               mark symbol { x: 'x'; y: 'y'; }\
+               mark symbol { x: encoded 'x'; y: encoded 'y'; }\
              }",
             ContentVersion::new("chart-v1"),
         ))

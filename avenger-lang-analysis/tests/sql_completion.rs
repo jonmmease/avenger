@@ -58,8 +58,8 @@ chart cartesian as chart {{
     field utf8 label;
   }}
   mark symbol as points {{
-    x: {expression};
-    y: rating;
+    x: encoded {expression};
+    y: encoded rating;
   }}
   on cursor_moved as inspect {{
     target: mark points;
@@ -529,6 +529,17 @@ async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
 }
 
 #[tokio::test]
+async fn encoded_and_direct_channel_expressions_share_sql_completion() {
+    let fixture = fixture().await;
+    let encoded_source = chart_source("rat⟦cursor⟧");
+    let direct_source = encoded_source.replacen("x: encoded", "x: direct", 1);
+    let encoded = complete_marked(&fixture, &fixture.chart, encoded_source);
+    let direct = complete_marked(&fixture, &fixture.chart, direct_source);
+    assert_eq!(labels(&encoded), labels(&direct));
+    assert!(labels(&direct).contains(&"rating"));
+}
+
+#[tokio::test]
 async fn event_datum_completion_is_target_aware_and_always_quotes_fields() {
     let fixture = fixture().await;
     let completion = complete_marked(
@@ -862,13 +873,13 @@ async fn event_datum_completion_reports_union_coverage_and_type_conflicts() {
 chart cartesian as chart {
   mark symbol as numeric {
     data: { values: [{ id: 1; only_numeric: 2.0; }]; }
-    x: 1;
-    y: 1;
+    x: encoded 1;
+    y: encoded 1;
   }
   mark symbol as textual {
     data: { values: [{ id: 'one'; only_textual: true; }]; }
-    x: 2;
-    y: 2;
+    x: encoded 2;
+    y: encoded 2;
   }
   on click as inspect {
     filter: datum."id" IS NOT NULL;
@@ -946,7 +957,7 @@ async fn chained_transforms_complete_the_exact_input_and_output_stage() {
         &fixture,
         &fixture.chart,
         source.replace(
-            "SELECT category, total * 2.0 AS doubled\n        FROM input\n        ORDER BY category",
+            "SELECT category, total * 2.0 AS doubled FROM input ORDER BY category",
             "SELECT i.⟦cursor⟧\n        FROM input AS i",
         ),
     );
@@ -958,13 +969,13 @@ async fn chained_transforms_complete_the_exact_input_and_output_stage() {
     let final_output = complete_marked(
         &fixture,
         &fixture.chart,
-        source.replace("y: \"doubled\"", "y: dou⟦cursor⟧"),
+        source.replace("y: encoded \"doubled\"", "y: encoded dou⟦cursor⟧"),
     );
     assert!(labels(&final_output).contains(&"doubled"));
     let final_category = complete_marked(
         &fixture,
         &fixture.chart,
-        source.replace("y: \"doubled\"", "y: cat⟦cursor⟧"),
+        source.replace("y: encoded \"doubled\"", "y: encoded cat⟦cursor⟧"),
     );
     assert!(labels(&final_category).contains(&"category"));
     assert!(!labels(&final_output).contains(&"amount"));

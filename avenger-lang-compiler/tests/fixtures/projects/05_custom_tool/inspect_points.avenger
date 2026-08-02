@@ -1,11 +1,11 @@
 avenger 1;
-
 export define tool inspect_points {
-  slot ref target { kind: mark; }
+  slot ref target {
+    kind: mark;
+  }
   export enabled;
   export hovered;
   export chrome_layer.chrome as chrome;
-
   param boolean as enabled {
     value: true;
   }
@@ -18,30 +18,26 @@ export define tool inspect_points {
   param selection as nested_selected {
     empty: none;
   }
-
   scale_edit {
     channel: x;
     raw_domain: $x_domain;
   }
-
   tool point_selection as nested {
-    selection: nested_selected;
     fields: [id];
+    selection: nested_selected;
   }
-
   on click {
     target: mark target;
     set enabled = NOT $enabled;
     set hovered = clear;
   }
-
   mark group as chrome_layer {
     mark symbol as chrome {
-      x: "x";
-      y: "y";
-      fill: value '#dc2626';
-      size: value 24;
+      fill: direct '#dc2626';
+      size: direct 24;
       visible: $enabled;
+      x: encoded "x";
+      y: encoded "y";
     }
   }
 }

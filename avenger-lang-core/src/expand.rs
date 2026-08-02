@@ -1351,9 +1351,10 @@ impl Expander<'_> {
                     }
                 }
             }
-            Value::Visual(value) => {
-                Value::Visual(Box::new(self.expand_value(owner, value, Some(context))))
-            }
+            Value::Channel { mode, expression } => Value::Channel {
+                mode: *mode,
+                expression: Box::new(self.expand_value(owner, expression, Some(context))),
+            },
             Value::Pattern(value) => {
                 Value::Pattern(Box::new(self.expand_value(owner, value, Some(context))))
             }
@@ -1837,9 +1838,10 @@ fn value_generated_name_collision(value: &Value, generated: &BTreeSet<&str>) -> 
                     .iter()
                     .find_map(|child| declaration_generated_name_collision(child, generated))
             }),
-        Value::Visual(value) | Value::Pattern(value) => {
-            value_generated_name_collision(value, generated)
+        Value::Channel {
+            expression: value, ..
         }
+        | Value::Pattern(value) => value_generated_name_collision(value, generated),
         _ => None,
     }
 }
@@ -2031,8 +2033,23 @@ fn resolved_mark_blocks(
                     collect(value, output);
                 }
             }
-            crate::resolve::ResolvedValue::Visual(value)
+            crate::resolve::ResolvedValue::Channel {
+                expression: value, ..
+            }
             | crate::resolve::ResolvedValue::Pattern(value) => collect(value, output),
+            crate::resolve::ResolvedValue::ChannelValue(channel) => {
+                collect(&channel.head.expression, output);
+                if let Some(otherwise) = &channel.otherwise {
+                    collect(&otherwise.expression, output);
+                }
+                for condition in &channel.conditions {
+                    collect(&condition.predicate, output);
+                    collect(&condition.branch.expression, output);
+                }
+                for value in channel.configuration.values() {
+                    collect(value, output);
+                }
+            }
             crate::resolve::ResolvedValue::Call { args, .. } => {
                 for value in args {
                     collect(value, output);

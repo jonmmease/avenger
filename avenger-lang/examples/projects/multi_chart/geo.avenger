@@ -1,12 +1,13 @@
 avenger 1;
-
 chart geo as geo {
-  param float64 as station_size { value: 80.0; }
-  projection: mercator;
   center_lon_lat: [-73.9857, 40.7484];
+  projection: mercator;
   zoom: 10;
+  param float64 as station_size {
+    value: 80.0;
+  }
   mark symbol as station {
     lon_lat: [-73.9857, 40.7484];
-    size: $station_size;
+    size: encoded $station_size;
   }
 }

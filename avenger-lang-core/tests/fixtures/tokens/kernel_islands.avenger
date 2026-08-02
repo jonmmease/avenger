@@ -2,7 +2,7 @@ avenger 1;
 
 chart cartesian as kernel {
   param width: float64 = 640;
-  x: $width@start::double + coalesce("offset", 0) {
+  x: encoded $width@start::double + coalesce("offset", 0) {
     scale: linear;
   }
   data: {

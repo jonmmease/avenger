@@ -614,7 +614,10 @@ fn value_shape(value: &Value) -> String {
         Value::Query(_) => "SQL query",
         Value::Binding { .. } => "binding",
         Value::Ref { .. } => "reference",
-        Value::Visual(_) => "visual value",
+        Value::Channel { mode, .. } => match mode {
+            crate::ast::ChannelMode::Encoded => "encoded channel value",
+            crate::ast::ChannelMode::Direct => "direct channel value",
+        },
         Value::Dim(_) => "dimension",
         Value::Pattern(_) => "pattern",
         Value::Env(_) => "environment value",

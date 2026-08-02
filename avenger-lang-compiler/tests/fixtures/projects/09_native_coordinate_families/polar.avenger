@@ -1,10 +1,19 @@
 avenger 1;
-
 chart polar as polar {
-  data: { values: [{ theta: 0.5; radius: 2.0; }]; }
+  data: {
+    values: [ {
+      radius: 2.0;
+      theta: 0.5;
+    }
+    ];
+  }
   mark symbol as point {
-    theta: "theta";
-    r: "radius" { scale: linear { domain: [0.0, 2.5]; } }
-    size: value 80.0;
+    r: encoded "radius" {
+      scale: linear {
+        domain: [0.0, 2.5];
+      }
+    }
+    size: direct 80.0;
+    theta: encoded "theta";
   }
 }

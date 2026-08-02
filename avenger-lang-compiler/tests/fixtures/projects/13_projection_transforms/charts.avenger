@@ -1,85 +1,142 @@
 avenger 1;
-
 chart cartesian as aggregate_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'A'; amount: 3.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 3.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform aggregate as totals {
+    expressions:
+      sum("amount") AS total,
+      count(*) AS count;
     group_by: "category";
-    expressions: sum("amount") AS total, count(*) AS count;
   }
-  mark symbol { x: "category"; y: totals.total; }
+  mark symbol {
+    x: encoded "category";
+    y: encoded totals.total;
+  }
 }
 
 chart cartesian as join_aggregate_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'A'; amount: 3.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 3.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform join_aggregate as totals {
-    group_by: "category";
     expressions: sum("amount") AS total;
+    group_by: "category";
   }
-  mark symbol { x: "amount"; y: totals.total; }
+  mark symbol {
+    x: encoded "amount";
+    y: encoded totals.total;
+  }
 }
 
 chart cartesian as scalar_aggregate_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform scalar_aggregate as summary {
     evaluation: eager;
     expressions: avg("amount") AS average;
   }
-  mark symbol { x: "amount"; y: summary.average; }
+  mark symbol {
+    x: encoded "amount";
+    y: encoded summary.average;
+  }
 }
 
 chart cartesian as calculate_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform calculate as calculated {
     expressions: "amount" * 2.0 AS doubled;
   }
-  mark symbol { x: "amount"; y: calculated.doubled; }
+  mark symbol {
+    x: encoded "amount";
+    y: encoded calculated.doubled;
+  }
 }
 
 chart cartesian as window_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform window as numbered {
-    order_by: "amount";
     expressions: row_number() OVER () AS ordinal;
+    order_by: "amount";
   }
-  mark symbol { x: "amount"; y: numbered.ordinal; }
+  mark symbol {
+    x: encoded "amount";
+    y: encoded numbered.ordinal;
+  }
 }
 
 chart cartesian as select_chart {
   data: {
-    values: [
-      { category: 'A'; amount: 2.0; },
-      { category: 'B'; amount: 4.0; }
+    values: [ {
+      amount: 2.0;
+      category: 'A';
+    }
+    , {
+      amount: 4.0;
+      category: 'B';
+    }
     ];
   }
   transform select as selected {
-    expressions: "category", "amount" * 2.0 AS doubled;
+    expressions:
+      "category",
+      "amount" * 2.0 AS doubled;
   }
-  mark symbol { x: "category"; y: selected.doubled; }
+  mark symbol {
+    x: encoded "category";
+    y: encoded selected.doubled;
+  }
 }

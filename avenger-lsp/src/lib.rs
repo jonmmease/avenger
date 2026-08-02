@@ -1928,6 +1928,7 @@ fn detected_line_ending(text: &str) -> LineEnding {
 fn semantic_tokens_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
         token_types: vec![
+            SemanticTokenType::KEYWORD,
             SemanticTokenType::PARAMETER,
             SemanticTokenType::VARIABLE,
             SemanticTokenType::PROPERTY,
@@ -1979,14 +1980,15 @@ fn encode_semantic_tokens(
 
 fn semantic_token_type(kind: AvengerSemanticTokenKind) -> u32 {
     match kind {
-        AvengerSemanticTokenKind::Parameter => 0,
+        AvengerSemanticTokenKind::Keyword => 0,
+        AvengerSemanticTokenKind::Parameter => 1,
         AvengerSemanticTokenKind::Binding
         | AvengerSemanticTokenKind::Variable
-        | AvengerSemanticTokenKind::UnresolvedReference => 1,
-        AvengerSemanticTokenKind::Property | AvengerSemanticTokenKind::Field => 2,
-        AvengerSemanticTokenKind::Function => 3,
-        AvengerSemanticTokenKind::Type => 4,
-        AvengerSemanticTokenKind::Namespace => 5,
+        | AvengerSemanticTokenKind::UnresolvedReference => 2,
+        AvengerSemanticTokenKind::Property | AvengerSemanticTokenKind::Field => 3,
+        AvengerSemanticTokenKind::Function => 4,
+        AvengerSemanticTokenKind::Type => 5,
+        AvengerSemanticTokenKind::Namespace => 6,
     }
 }
 
@@ -2654,7 +2656,7 @@ chart cartesian as detail {
     async fn utf16_transcript_preserves_complex_type_and_unicode_name_spans() {
         let project = tempdir().unwrap();
         let chart = project.path().join("unicode.avenger");
-        let text = "avenger 1; chart cartesian as chart { title: '😀'; param struct(field(float64, 'x')) as café { value: NULL; } param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: $café; } }";
+        let text = "avenger 1; chart cartesian as chart { title: '😀'; param struct(field(float64, 'x')) as café { value: NULL; } param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: encoded $café; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -2969,7 +2971,7 @@ chart cartesian as detail {
         let mut replacement = String::new();
         for version in 2..=12 {
             replacement = format!(
-                "avenger 1; chart cartesian as chart {{ mark symbol as points {{ size: {version}; }} }}"
+                "avenger 1; chart cartesian as chart {{ mark symbol as points {{ size: encoded {version}; }} }}"
             );
             call(
                 &mut service,
@@ -3215,7 +3217,7 @@ chart cartesian as detail {
     async fn transcript_format_semantic_tokens_prepare_and_versioned_rename() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { siez: 12.0; size: $width; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { siez: 12.0; size: encoded $width; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -3677,7 +3679,7 @@ chart cartesian as detail {
     async fn transcript_completion_hover_definition_references_and_highlights() {
         let project = tempdir().unwrap();
         let chart = project.path().join("chart.avenger");
-        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { size: $wid; } }";
+        let text = "avenger 1; chart cartesian as chart { param float64 as width { value: 640.0; } mark symbol as points { size: encoded $wid; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
@@ -3862,7 +3864,7 @@ export schema tables as vega {
         let chart_text = r#"avenger 1;
 chart cartesian as chart {
   data: { table: 'vega.movies'; }
-  mark symbol { x: title; y: rating; }
+  mark symbol { x: encoded title; y: encoded rating; }
 }
 "#;
         fs::write(&data, valid).unwrap();

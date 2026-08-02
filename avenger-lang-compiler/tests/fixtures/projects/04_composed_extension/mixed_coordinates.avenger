@@ -1,13 +1,19 @@
 avenger 1;
-
 import * as acme from 'native:com.acme.compiler-fixture@1';
 
 chart acme.facet_column as mixed_coordinates {
-  cell cartesian as built_in at { column: 'built_in'; } {
-    mark acme.hexbin as built_in_mark {}
+  cell cartesian as built_in at {
+    column: 'built_in';
   }
-
-  cell acme.isometric as custom at { column: 'custom'; } {
-    mark acme.cube as custom_mark {}
+   {
+    mark acme.hexbin as built_in_mark {
+    }
+  }
+  cell acme.isometric as custom at {
+    column: 'custom';
+  }
+   {
+    mark acme.cube as custom_mark {
+    }
   }
 }

@@ -1,41 +1,50 @@
 avenger 1;
-
 export define mark error_bar {
-  slot channel category_axis { default: x; }
-  slot channel value_axis { default: y; }
+  slot channel category_axis {
+    default: x;
+  }
+  slot channel value_axis {
+    default: y;
+  }
   slot expr category;
   slot expr low;
   slot expr high;
   slot expr center;
-  slot enum mode { values: [show, hide]; default: show; }
-  slot block annotations { exposes: [point]; default: { } }
+  slot enum mode {
+    default: show;
+    values: [show, hide];
+  }
+  slot block annotations {
+    default: {
+    }
+    exposes: [point];
+  }
   export body.stem as stem;
   export body.point as point;
-
   transform filter {
     predicate: true;
   }
-
   mark group as body {
     mark rule as stem {
-      category_axis: category;
-      category_axis2: category;
-      value_axis: low;
-      value_axis2: high;
-      stroke: value '#374151';
-      stroke_width: value 2;
+      category_axis: encoded category;
+      category_axis2: encoded category;
+      stroke: direct '#374151';
+      stroke_width: direct 2;
+      value_axis: encoded low;
+      value_axis2: encoded high;
     }
-
     mark symbol as point {
-      category_axis: category;
-      value_axis: center;
-      fill: value '#111827';
-      size: value 42;
+      category_axis: encoded category;
+      fill: direct '#111827';
+      size: direct 42;
+      value_axis: encoded center;
     }
-
     match mode {
-      show { annotations; }
-      hide { }
+      show {
+        annotations;
+      }
+      hide {
+      }
     }
   }
 }

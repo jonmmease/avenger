@@ -1,20 +1,38 @@
 avenger 1;
-
 chart cartesian as subplot {
   data: {
-    values: [{ x: 1.0; y: 2.0; r: 3.0; theta: 0.5; category: 'a'; }];
+    values: [ {
+      category: 'a';
+      r: 3.0;
+      theta: 0.5;
+      x: 1.0;
+      y: 2.0;
+    }
+    ];
   }
   mark subplot as inset {
-    x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
-    y: avg("y") { scale: linear { domain: [0.0, 4.0]; } }
-    key: "category";
-    width: 120;
     height: 90;
+    key: encoded "category";
+    width: 120;
+    x: encoded avg("x") {
+      scale: linear {
+        domain: [0.0, 2.0];
+      }
+    }
+    y: encoded avg("y") {
+      scale: linear {
+        domain: [0.0, 4.0];
+      }
+    }
     plot polar {
       mark symbol {
-        r: "r" { scale: linear { domain: [0.0, 4.0]; } }
-        theta: "theta";
-        size: value 80.0;
+        r: encoded "r" {
+          scale: linear {
+            domain: [0.0, 4.0];
+          }
+        }
+        size: direct 80.0;
+        theta: encoded "theta";
       }
     }
   }

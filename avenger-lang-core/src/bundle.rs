@@ -302,8 +302,24 @@ fn collect_value_native_modules(value: &ResolvedValue, output: &mut BTreeSet<Nat
                 collect_value_native_modules(value, output);
             }
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_value_native_modules(value, output);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            collect_value_native_modules(&channel.head.expression, output);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_value_native_modules(&otherwise.expression, output);
+            }
+            for condition in &channel.conditions {
+                collect_value_native_modules(&condition.predicate, output);
+                collect_value_native_modules(&condition.branch.expression, output);
+            }
+            for value in channel.configuration.values() {
+                collect_value_native_modules(value, output);
+            }
         }
         ResolvedValue::Call { args, .. } => {
             for value in args {
@@ -487,6 +503,88 @@ fn rewrite_value(
                 )?;
             }
         }
+        (Value::Block { head, body }, Some(ResolvedValue::ChannelValue(channel))) => {
+            if let Some(Value::Channel { mode, expression }) = head.as_deref_mut()
+                && *mode == channel.head.mode
+            {
+                **expression = rewrite_value(
+                    (**expression).clone(),
+                    Some(&channel.head.expression),
+                    declaration_relations,
+                    names,
+                    native_aliases,
+                    resolved,
+                )?;
+            }
+            let property_names = body
+                .props
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>();
+            for property in property_names {
+                let Some(value) = body.props.get(property.as_str()).cloned() else {
+                    continue;
+                };
+                let rewritten = if property.as_str() == "otherwise" {
+                    if let Some(branch) = &channel.otherwise {
+                        rewrite_channel_branch_value(
+                            value,
+                            branch,
+                            declaration_relations,
+                            names,
+                            native_aliases,
+                            resolved,
+                        )?
+                    } else {
+                        value
+                    }
+                } else {
+                    rewrite_value(
+                        value,
+                        channel.configuration.get(property.as_str()),
+                        declaration_relations,
+                        names,
+                        native_aliases,
+                        resolved,
+                    )?
+                };
+                body.props.set(property, rewritten);
+            }
+            for (child, condition) in body
+                .children
+                .iter_mut()
+                .filter(|child| child.keyword.as_str() == "when")
+                .zip(&channel.conditions)
+            {
+                if let Some(predicate) = child.props.get("predicate").cloned() {
+                    child.props.set(
+                        Name::new("predicate").expect("static name"),
+                        rewrite_value(
+                            predicate,
+                            Some(&condition.predicate),
+                            declaration_relations,
+                            names,
+                            native_aliases,
+                            resolved,
+                        )?,
+                    );
+                }
+                let mode = condition.branch.mode.as_str();
+                if let Some(value) = child.props.get(mode).cloned() {
+                    child.props.set(
+                        Name::new(mode).expect("static mode"),
+                        rewrite_value(
+                            value,
+                            Some(&condition.branch.expression),
+                            declaration_relations,
+                            names,
+                            native_aliases,
+                            resolved,
+                        )?,
+                    );
+                }
+            }
+        }
         (
             Value::Block { head, body },
             Some(ResolvedValue::Object {
@@ -531,8 +629,42 @@ fn rewrite_value(
                 rewrite_declaration(child, semantic_child, names, native_aliases, resolved)?;
             }
         }
-        (Value::Visual(value), Some(ResolvedValue::Visual(semantic)))
-        | (Value::Pattern(value), Some(ResolvedValue::Pattern(semantic))) => {
+        (
+            Value::Channel {
+                mode,
+                expression: value,
+            },
+            Some(ResolvedValue::Channel {
+                mode: semantic_mode,
+                expression: semantic,
+            }),
+        ) if mode == semantic_mode => {
+            **value = rewrite_value(
+                (**value).clone(),
+                Some(semantic),
+                declaration_relations,
+                names,
+                native_aliases,
+                resolved,
+            )?;
+        }
+        (
+            Value::Channel {
+                mode,
+                expression: value,
+            },
+            Some(ResolvedValue::ChannelValue(channel)),
+        ) if *mode == channel.head.mode => {
+            **value = rewrite_value(
+                (**value).clone(),
+                Some(&channel.head.expression),
+                declaration_relations,
+                names,
+                native_aliases,
+                resolved,
+            )?;
+        }
+        (Value::Pattern(value), Some(ResolvedValue::Pattern(semantic))) => {
             **value = rewrite_value(
                 (**value).clone(),
                 Some(semantic),
@@ -561,6 +693,34 @@ fn rewrite_value(
             }
         }
         _ => {}
+    }
+    Ok(authored)
+}
+
+fn rewrite_channel_branch_value(
+    mut authored: Value,
+    branch: &crate::resolve::ResolvedChannelBranch,
+    declaration_relations: &[ResolvedRelationReference],
+    names: &BTreeMap<ModuleItemId, Name>,
+    native_aliases: &BTreeMap<NativeModuleId, Name>,
+    resolved: &ResolvedModuleGraph,
+) -> Result<Value, BundleFailure> {
+    let Value::Block { body, .. } = &mut authored else {
+        return Ok(authored);
+    };
+    let mode = branch.mode.as_str();
+    if let Some(value) = body.props.get(mode).cloned() {
+        body.props.set(
+            Name::new(mode).expect("static mode"),
+            rewrite_value(
+                value,
+                Some(&branch.expression),
+                declaration_relations,
+                names,
+                native_aliases,
+                resolved,
+            )?,
+        );
     }
     Ok(authored)
 }

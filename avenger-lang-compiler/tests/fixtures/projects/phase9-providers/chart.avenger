@@ -1,5 +1,5 @@
 avenger 1;
-
 import { local, warehouse } from './data.avenger';
 
-chart cartesian as chart {}
+chart cartesian as chart {
+}

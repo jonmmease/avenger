@@ -7,8 +7,8 @@
       "span": {
         "source": 1,
         "range": {
-          "start": 19,
-          "end": 133
+          "start": 18,
+          "end": 132
         }
       },
       "message": "DataFusion error: `Schema error: No field named missing. Valid fields are input.value.`"
@@ -20,8 +20,8 @@
         "span": {
           "source": 0,
           "range": {
-            "start": 122,
-            "end": 152
+            "start": 143,
+            "end": 175
           }
         },
         "message": "while expanding this definition instance"

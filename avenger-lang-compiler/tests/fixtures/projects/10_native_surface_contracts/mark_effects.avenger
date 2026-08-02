@@ -1,59 +1,76 @@
 avenger 1;
-
 chart cartesian as mark_effects {
-  data: { values: [
-    { name: 'A'; x: 1.0; y: 2.0; },
-    { name: 'B'; x: 2.0; y: 1.0; }
-  ]; }
-
+  data: {
+    values: [ {
+      name: 'A';
+      x: 1.0;
+      y: 2.0;
+    }
+    , {
+      name: 'B';
+      x: 2.0;
+      y: 1.0;
+    }
+    ];
+  }
   mark symbol as points {
-    x: "x" { scale: linear { domain: [0.0, 3.0]; } }
-    y: "y" { scale: linear { domain: [0.0, 3.0]; } }
-    size: value 80.0;
-
+    size: direct 80.0;
+    x: encoded "x" {
+      scale: linear {
+        domain: [0.0, 3.0];
+      }
+    }
+    y: encoded "y" {
+      scale: linear {
+        domain: [0.0, 3.0];
+      }
+    }
     adjust expr {
       x: item.channel.x + 4.0;
       y: item.channel.y - 2.0;
     }
-
     adjust nudge as nudged {
+      apply: {
+        x: nudged.x;
+        y: nudged.y;
+      }
       dx: 1.0;
       dy: -1.0;
-      apply: { x: nudged.x; y: nudged.y; }
     }
-
     adjust jitter as jittered {
+      apply: {
+        x: jittered.x;
+        y: jittered.y;
+      }
       axis: x;
-      width_px: 8.0;
       seed: 7;
-      apply: { x: jittered.x; y: jittered.y; }
+      width_px: 8.0;
     }
-
     adjust dodge as dodged {
+      apply: {
+        x: dodged.x;
+        y: dodged.y;
+      }
       axis: y;
       by: name;
       step_px: 3.0;
-      apply: { x: dodged.x; y: dodged.y; }
     }
-
     derive symbol as halos {
+      fill: '#00000000';
+      size: 140.0;
+      stroke: '#111827';
       x: item.channel.x;
       y: item.channel.y;
-      size: 140.0;
-      fill: '#00000000';
-      stroke: '#111827';
       zindex: 1;
     }
-
     derive rule as leaders {
+      stroke: '#6b7280';
       x: item.bbox.left;
       x2: item.bbox.right;
       y: item.bbox.bottom + 2.0;
       y2: item.bbox.bottom + 2.0;
-      stroke: '#6b7280';
       zindex: 2;
     }
-
     derive text as labels {
       text: item.data."name";
       x: item.channel.x;
@@ -61,21 +78,19 @@ chart cartesian as mark_effects {
       zindex: 5;
     }
   }
-
   mark rect as tiles {
-    x: "x";
-    x2: "x" + 0.25;
-    y: "y";
-    y2: "y" + 0.25;
-    fill: value '#dbeafe';
-
+    fill: direct '#dbeafe';
+    x: encoded "x";
+    x2: encoded "x" + 0.25;
+    y: encoded "y";
+    y2: encoded "y" + 0.25;
     derive rect as backplates {
+      fill: '#ffffff';
+      opacity: 0.25;
       x: item.bbox.left - 1.0;
       x2: item.bbox.right + 1.0;
       y: item.bbox.top - 1.0;
       y2: item.bbox.bottom + 1.0;
-      fill: '#ffffff';
-      opacity: 0.25;
       zindex: 0;
     }
   }

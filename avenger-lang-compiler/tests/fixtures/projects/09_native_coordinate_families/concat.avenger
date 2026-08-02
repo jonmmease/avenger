@@ -1,15 +1,27 @@
 avenger 1;
-
 chart hconcat as concat {
-  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  data: {
+    values: [ {
+      x: 1.0;
+      y: 2.0;
+    }
+    ];
+  }
   spacing: 12;
   cell cartesian as left {
-    mark symbol { x: "x"; y: "y"; }
+    mark symbol {
+      x: encoded "x";
+      y: encoded "y";
+    }
   }
   cell polar as right {
     mark symbol {
-      theta: "x";
-      r: "y" { scale: linear { domain: [0.0, 2.5]; } }
+      r: encoded "y" {
+        scale: linear {
+          domain: [0.0, 2.5];
+        }
+      }
+      theta: encoded "x";
     }
   }
 }

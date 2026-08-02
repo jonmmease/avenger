@@ -1,24 +1,34 @@
 avenger 1;
-
 chart cartesian as theme_parts {
-  theme css: 'point_pair::part(glyph) { fill: #dc2626; }';
-  data: { values: [{ x: 1.0; y: 2.0; }]; }
-
+  data: {
+    values: [ {
+      x: 1.0;
+      y: 2.0;
+    }
+    ];
+  }
+  theme css : 'point_pair::part(glyph) { fill: #dc2626; }';
   mark group as pair {
     component_kind: point_pair;
     export body.point as glyph;
-
     private mark group as body {
       mark symbol as point {
-        x: "x" { scale: linear { domain: [0.0, 3.0]; } }
-        y: "y" { scale: linear { domain: [0.0, 3.0]; } }
-        size: value 80.0;
+        size: direct 80.0;
+        x: encoded "x" {
+          scale: linear {
+            domain: [0.0, 3.0];
+          }
+        }
+        y: encoded "y" {
+          scale: linear {
+            domain: [0.0, 3.0];
+          }
+        }
       }
-
       public mark text as annotation {
-        x: "x";
-        y: "y";
-        text: value 'public';
+        text: direct 'public';
+        x: encoded "x";
+        y: encoded "y";
       }
     }
   }

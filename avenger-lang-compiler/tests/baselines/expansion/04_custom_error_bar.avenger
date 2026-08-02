@@ -24,23 +24,23 @@ chart cartesian as chart {
     }
     private mark group as __av_e2abdee41ce1_body {
       private mark rule as __av_e2abdee41ce1_stem {
-        stroke: value '#374151';
-        stroke_width: value 2;
-        x: "category";
-        x2: "category";
-        y: "low";
-        y2: "high";
+        stroke: direct '#374151';
+        stroke_width: direct 2;
+        x: encoded "category";
+        x2: encoded "category";
+        y: encoded "low";
+        y2: encoded "high";
       }
       private mark symbol as __av_e2abdee41ce1_point {
-        fill: value '#dc2626';
-        size: value 64;
-        x: "category";
-        y: "center";
+        fill: direct '#dc2626';
+        size: direct 64;
+        x: encoded "category";
+        y: encoded "center";
       }
       public mark text as labels {
-        text: "category";
-        x: "category";
-        y: "center";
+        text: encoded "category";
+        x: encoded "category";
+        y: encoded "center";
       }
     }
   }

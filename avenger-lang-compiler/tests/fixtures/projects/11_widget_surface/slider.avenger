@@ -1,23 +1,20 @@
 avenger 1;
-
 chart zerod as slider {
   param float64 as threshold_state {
     value: 2.5;
   }
-
   widget slider as threshold {
-    position: bottom;
-    min: 0.0;
-    max: 10.0;
-    step: 0.5;
     default: 4.0;
-    title: 'Threshold';
     format: '.1f';
+    max: 10.0;
+    min: 0.0;
+    position: bottom;
+    step: 0.5;
     throttle_ms: 16;
+    title: 'Threshold';
     value_param: $threshold_state;
   }
-
   mark text as value_label {
-    text: value $threshold.value;
+    text: direct $threshold.value;
   }
 }

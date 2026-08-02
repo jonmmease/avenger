@@ -1,46 +1,51 @@
 avenger 1;
-
 chart cartesian as chart {
+  data: {
+    values: [ {
+      id: 'a';
+      x: 1.0;
+      y: 2.0;
+    }
+    , {
+      id: 'b';
+      x: 3.0;
+      y: 4.0;
+    }
+    ];
+  }
   param float64 as drag_x {
-    value: 0.0;
     sharing: free;
+    value: 0.0;
   }
   param int64 as hover_count {
     value: 0;
   }
-
   param store as hovered {
+    primary_key: [id];
     field utf8 id;
     field float64 x;
-    primary_key: [id];
   }
-
   param selection as picked {
-    empty: none;
     combine: union;
+    empty: none;
   }
-
-  data: {
-    values: [
-      { id: 'a'; x: 1.0; y: 2.0; },
-      { id: 'b'; x: 3.0; y: 4.0; }
-    ];
-  }
-
   mark symbol as points {
-    x: "x";
-    y: "y";
+    x: encoded "x";
+    y: encoded "y";
   }
-
   on cursor_moved as drag {
     between: {
-      start: mouse_down {}
-      end: mouse_up {}
+      end: mouse_up {
+      }
+      start: mouse_down {
+      }
     }
-
     set drag_x at start = event.coord.x;
     set hovered = insert_rows {
-      row { id: 'drag'; x: event.coord.x; }
+      row {
+        id: 'drag';
+        x: event.coord.x;
+      }
     }
     set hover_count = (SELECT count(*) FROM $hovered);
     set picked = upsert_clauses {

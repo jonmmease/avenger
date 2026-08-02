@@ -1312,8 +1312,24 @@ fn collect_output_references<'a>(
                     collect_value(declaration, value, output);
                 }
             }
-            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            ResolvedValue::Channel {
+                expression: value, ..
+            }
+            | ResolvedValue::Pattern(value) => {
                 collect_value(declaration, value, output);
+            }
+            ResolvedValue::ChannelValue(channel) => {
+                collect_value(declaration, &channel.head.expression, output);
+                if let Some(otherwise) = &channel.otherwise {
+                    collect_value(declaration, &otherwise.expression, output);
+                }
+                for condition in &channel.conditions {
+                    collect_value(declaration, &condition.predicate, output);
+                    collect_value(declaration, &condition.branch.expression, output);
+                }
+                for value in channel.configuration.values() {
+                    collect_value(declaration, value, output);
+                }
             }
             ResolvedValue::Object {
                 head, properties, ..
@@ -1616,7 +1632,11 @@ fn resolve_local_import(importer: &SourceOrigin, specifier: &str) -> Option<Sour
     }
 }
 
-fn first_word_span(syntax: &SyntaxAnalysis, within: SourceSpan, name: &str) -> Option<SourceSpan> {
+pub(crate) fn first_word_span(
+    syntax: &SyntaxAnalysis,
+    within: SourceSpan,
+    name: &str,
+) -> Option<SourceSpan> {
     significant_tokens(syntax, Some(within))
         .into_iter()
         .find(|token| token.word().is_some_and(|word| word == name))
@@ -1889,7 +1909,7 @@ impl<'a> QueryContext<'a> {
         if let Some(sql) = sql {
             items.extend(sql.items);
             if let Some(property) = property_value_context(syntax, cursor)
-                .or_else(|| incomplete_core_property_value_context(text, cursor))
+                .or_else(|| incomplete_property_value_context(text, cursor))
             {
                 self.complete_property_value(
                     property,
@@ -2037,7 +2057,7 @@ impl<'a> QueryContext<'a> {
                 &mut items,
             );
         } else if let Some(property) = property_value_context(syntax, cursor)
-            .or_else(|| incomplete_core_property_value_context(text, cursor))
+            .or_else(|| incomplete_property_value_context(text, cursor))
         {
             self.complete_property_value(
                 property,
@@ -2229,7 +2249,44 @@ impl<'a> QueryContext<'a> {
         let Some(owner) = owner_symbol(self.index, origin, cursor) else {
             return;
         };
-        let authored = authored_properties(syntax, owner.scope_span, cursor);
+        let authored = if owner.keyword == "when" {
+            authored_declaration_properties(syntax, owner.scope_span)
+        } else {
+            authored_properties(syntax, owner.scope_span, cursor)
+        };
+        if owner.keyword == "when" {
+            if !authored.contains("predicate") && candidate_matches("predicate", prefix) {
+                output.push(item(
+                    "predicate".to_owned(),
+                    replacement,
+                    "predicate: ".to_owned(),
+                    CompletionKind::Property,
+                    Some("conditional channel predicate".to_owned()),
+                    Some("Boolean SQL expression evaluated for this ordered branch.".to_owned()),
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
+            if !authored.contains("encoded") && !authored.contains("direct") {
+                for mode in ["encoded", "direct"] {
+                    if candidate_matches(mode, prefix) {
+                        output.push(item(
+                            mode.to_owned(),
+                            replacement,
+                            format!("{mode}: "),
+                            CompletionKind::Property,
+                            Some("conditional channel mode".to_owned()),
+                            Some(channel_mode_docs(mode).to_owned()),
+                            CompletionOrigin::Syntax,
+                            false,
+                            "01",
+                        ));
+                    }
+                }
+            }
+            return;
+        }
         if owner.keyword == "slot"
             && let Some(shape) = declaration_header_role(syntax, owner)
         {
@@ -2346,6 +2403,26 @@ impl<'a> QueryContext<'a> {
             return;
         }
         let property_path = enclosing_property_path(syntax, cursor);
+        if property_path.last() == Some(&"otherwise") {
+            if !authored.contains("encoded") && !authored.contains("direct") {
+                for mode in ["encoded", "direct"] {
+                    if candidate_matches(mode, prefix) {
+                        output.push(item(
+                            mode.to_owned(),
+                            replacement,
+                            format!("{mode}: "),
+                            CompletionKind::Property,
+                            Some("conditional fallback mode".to_owned()),
+                            Some(channel_mode_docs(mode).to_owned()),
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        ));
+                    }
+                }
+            }
+            return;
+        }
         if property_path.last() == Some(&"legend") {
             let key = NativeKindKey::new(NativeKindNamespace::Legend, "standard");
             if let Some(schema) = self.registry.entries.get(&key) {
@@ -2363,6 +2440,8 @@ impl<'a> QueryContext<'a> {
                 && schema.channels.contains_key(property_path[0])
                 && enclosing_property(syntax, cursor).is_some()
             {
+                let encoded_effective = enclosing_property(syntax, cursor)
+                    .is_none_or(|property| channel_body_has_effective_encoded(syntax, property));
                 for (name, insertion, docs) in [
                     (
                         "scale",
@@ -2381,6 +2460,9 @@ impl<'a> QueryContext<'a> {
                         "Whether this channel contributes to automatic scale-domain inference (`infer` or `exclude`).",
                     ),
                 ] {
+                    if !encoded_effective {
+                        continue;
+                    }
                     if !authored.contains(name) && candidate_matches(name, prefix) {
                         output.push(item(
                             name.to_owned(),
@@ -2503,9 +2585,22 @@ impl<'a> QueryContext<'a> {
             }
             return;
         }
-        let property = owner
-            .and_then(|owner| schema_for_symbol(self.registry, owner, self.index))
-            .and_then(|schema| property_schema(schema, property_name));
+        let owner_schema =
+            owner.and_then(|owner| schema_for_symbol(self.registry, owner, self.index));
+        if let Some(channel) = owner_schema.and_then(|schema| schema.channels.get(property_name)) {
+            let has_head_mode = self.syntax.get(origin).is_some_and(|syntax| {
+                enclosing_property(syntax, cursor)
+                    .is_some_and(|property| channel_property_has_head_mode(syntax, property))
+            });
+            if !has_head_mode {
+                complete_channel_value(channel, prefix, replacement, output);
+            }
+            if prefix.starts_with('$') {
+                self.complete_bindings(prefix, replacement, origin, cursor, output);
+            }
+            return;
+        }
+        let property = owner_schema.and_then(|schema| property_schema(schema, property_name));
         if let Some(property) = property {
             complete_shape(property.shape, prefix, replacement, output);
             self.complete_reference_values(
@@ -3001,6 +3096,28 @@ impl<'a> QueryContext<'a> {
         cancellation: &AnalysisCancellation,
     ) -> Result<Option<HoverResult>, AnalysisQueryError> {
         let syntax = self.syntax(request, cancellation)?;
+        if let Some((span, mode, channel_name)) = channel_mode_at(syntax, request.byte_offset) {
+            let mut markdown = format!("`{mode}` channel mode\n\n{}", channel_mode_docs(mode));
+            if let Some(channel_name) = channel_name
+                && let Some(owner) = owner_symbol(self.index, &request.source, span.range.start)
+                && let Some(schema) = schema_for_symbol(self.registry, owner, self.index)
+                && let Some(channel) = schema.channels.get(&channel_name)
+            {
+                markdown.push_str(&format!(
+                    "\n\nChannel: `{channel_name}` on `{}`.",
+                    owner.detail.as_deref().unwrap_or(owner.keyword.as_str())
+                ));
+                if let Some(item_type) = &channel.item_type {
+                    markdown.push_str(&format!(" Expected Arrow output type: `{item_type}`."));
+                }
+            }
+            return Ok(Some(HoverResult {
+                span,
+                markdown,
+                generation: self.generation,
+                source_revision: request.source_revision.clone(),
+            }));
+        }
         if let Some((span, markdown)) = crate::sql_intelligence::contextual_hover(
             request,
             syntax,
@@ -3252,6 +3369,90 @@ impl<'a> QueryContext<'a> {
             generation: self.generation,
             source_revision: request.source_revision.clone(),
         })
+    }
+}
+
+fn channel_mode_at(
+    syntax: &SyntaxAnalysis,
+    offset: usize,
+) -> Option<(SourceSpan, &str, Option<String>)> {
+    for node in &syntax.parsed.nodes {
+        if node.span.range.start <= offset
+            && offset <= node.span.range.end
+            && let TolerantSyntaxNodeKind::ChannelMode { mode, .. } = &node.kind
+        {
+            let mut parent = node.parent;
+            let mut channel = None;
+            while let Some(id) = parent {
+                let Some(parent_node) = syntax.parsed.nodes.iter().find(|node| node.id == id)
+                else {
+                    break;
+                };
+                if let TolerantSyntaxNodeKind::Property { name } = &parent_node.kind
+                    && !matches!(
+                        name.as_str(),
+                        "encoded" | "direct" | "otherwise" | "predicate"
+                    )
+                {
+                    channel = Some(name.clone());
+                    break;
+                }
+                parent = parent_node.parent;
+            }
+            return Some((node.span, mode.as_str(), channel));
+        }
+    }
+    None
+}
+
+fn complete_channel_value(
+    channel: &avenger_chart_schema::ChannelSchema,
+    prefix: &str,
+    replacement: SourceSpan,
+    output: &mut Vec<CompletionItem>,
+) {
+    let mut push = |label: &str, insert: &str, detail: &str, rank: &str| {
+        if candidate_matches(label, prefix) {
+            output.push(item(
+                label.to_owned(),
+                replacement,
+                insert.to_owned(),
+                CompletionKind::Keyword,
+                Some(detail.to_owned()),
+                None,
+                CompletionOrigin::AuthoringSchema,
+                false,
+                rank,
+            ));
+        }
+    };
+    match &channel.shape {
+        ValueShape::ChannelConfig => {
+            push("{ }", "{ }", "configuration-only channel", "00");
+        }
+        ValueShape::RasterDimensionChannel => {
+            push("dim", "dim ", "raster dimension channel", "00");
+        }
+        _ => {
+            push(
+                "encoded",
+                "encoded ",
+                "apply the registered channel encoding policy",
+                "00",
+            );
+            push(
+                "direct",
+                "direct ",
+                "use the expression directly in channel output space",
+                "00",
+            );
+            if matches!(channel.shape, ValueShape::PatternChannel) {
+                push("pattern", "pattern { }", "structured direct pattern", "10");
+            }
+        }
+    }
+    if !channel.required {
+        push("none", "none;", "explicitly absent optional channel", "20");
     }
 }
 
@@ -3911,7 +4112,7 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
         .map(|(_, name)| name)
 }
 
-fn incomplete_core_property_value_context(text: &str, cursor: usize) -> Option<&str> {
+fn incomplete_property_value_context(text: &str, cursor: usize) -> Option<&str> {
     let prefix = &text[..cursor.min(text.len())];
     let start = prefix
         .rfind(['{', '}', ';', '\n'])
@@ -3922,7 +4123,7 @@ fn incomplete_core_property_value_context(text: &str, cursor: usize) -> Option<&
         return None;
     }
     let property = fragment[..colon].trim();
-    (!core_property_values(property).is_empty()).then_some(property)
+    (!property.is_empty()).then_some(property)
 }
 
 fn is_property_name_context(text: &str, cursor: usize) -> bool {
@@ -3967,6 +4168,33 @@ fn authored_properties(
         .collect()
 }
 
+fn authored_declaration_properties(syntax: &SyntaxAnalysis, scope: SourceSpan) -> BTreeSet<String> {
+    let declaration_owner = syntax
+        .parsed
+        .nodes
+        .iter()
+        .find(|node| {
+            matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. })
+                && node.span.range.start == scope.range.start
+        })
+        .map(|node| node.id);
+    syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.kind {
+            TolerantSyntaxNodeKind::Property { name }
+                if node.parent == declaration_owner
+                    && scope.range.start <= node.span.range.start
+                    && node.span.range.end <= scope.range.end =>
+            {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn enclosing_property(
     syntax: &SyntaxAnalysis,
     cursor: usize,
@@ -3981,6 +4209,75 @@ fn enclosing_property(
                 && cursor <= node.span.range.end
         })
         .min_by_key(|node| node.span.range.len())
+}
+
+fn channel_mode_docs(mode: &str) -> &'static str {
+    match mode {
+        "encoded" => {
+            "Evaluates the SQL expression through the channel policy registered by the active mark and coordinate profile. Scale-bearing policies create/apply a scale and participate in domain inference; identity policies remain unscaled."
+        }
+        "direct" => {
+            "Evaluates the SQL expression directly in the channel's output space. It bypasses scale creation, domain inference, and scale application; the expression may still vary by row."
+        }
+        _ => "Unknown channel evaluation mode.",
+    }
+}
+
+fn channel_property_has_head_mode(
+    syntax: &SyntaxAnalysis,
+    channel_property: &avenger_lang_core::syntax::TolerantSyntaxNode,
+) -> bool {
+    use avenger_lang_core::syntax::TolerantChannelModeRole;
+
+    syntax.parsed.nodes.iter().any(|node| {
+        matches!(
+            node.kind,
+            TolerantSyntaxNodeKind::ChannelMode {
+                role: TolerantChannelModeRole::Head,
+                ..
+            }
+        ) && node.parent == Some(channel_property.id)
+    })
+}
+
+pub(crate) fn channel_body_has_effective_encoded(
+    syntax: &SyntaxAnalysis,
+    channel_property: &avenger_lang_core::syntax::TolerantSyntaxNode,
+) -> bool {
+    use avenger_lang_core::syntax::TolerantChannelModeRole;
+
+    let is_descendant = |candidate: &avenger_lang_core::syntax::TolerantSyntaxNode| {
+        let mut parent = candidate.parent;
+        while let Some(id) = parent {
+            if id == channel_property.id {
+                return true;
+            }
+            parent = syntax
+                .parsed
+                .nodes
+                .iter()
+                .find(|node| node.id == id)
+                .and_then(|node| node.parent);
+        }
+        false
+    };
+    let mut head = None;
+    let mut otherwise = None;
+    let mut encoded_condition = false;
+    for node in &syntax.parsed.nodes {
+        let TolerantSyntaxNodeKind::ChannelMode { mode, role, .. } = &node.kind else {
+            continue;
+        };
+        if !is_descendant(node) {
+            continue;
+        }
+        match role {
+            TolerantChannelModeRole::Head => head = Some(mode.as_str()),
+            TolerantChannelModeRole::WhenBranch => encoded_condition |= mode == "encoded",
+            TolerantChannelModeRole::OtherwiseBranch => otherwise = Some(mode.as_str()),
+        }
+    }
+    encoded_condition || otherwise.or(head) == Some("encoded")
 }
 
 fn enclosing_property_path(syntax: &SyntaxAnalysis, cursor: usize) -> Vec<&str> {
@@ -4770,6 +5067,61 @@ mod tests {
     }
 
     #[test]
+    fn channel_value_completion_offers_only_context_legal_modes() {
+        let channel = completion_labels("avenger 1; chart cartesian { mark symbol { x: | } }");
+        assert!(channel.contains(&"encoded".to_owned()), "{channel:?}");
+        assert!(channel.contains(&"direct".to_owned()), "{channel:?}");
+        assert!(channel.contains(&"none".to_owned()), "{channel:?}");
+
+        let ordinary =
+            completion_labels("avenger 1; chart cartesian { transform filter { predicate: | } }");
+        assert!(!ordinary.contains(&"encoded".to_owned()), "{ordinary:?}");
+        assert!(!ordinary.contains(&"direct".to_owned()), "{ordinary:?}");
+
+        let branch = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'base' { when { | } } } }",
+        );
+        assert!(branch.contains(&"predicate".to_owned()), "{branch:?}");
+        assert!(branch.contains(&"encoded".to_owned()), "{branch:?}");
+        assert!(branch.contains(&"direct".to_owned()), "{branch:?}");
+
+        let selected_branch = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'base' { when { predicate: true; direct: 'hit'; | } } } }",
+        );
+        assert!(
+            !selected_branch.contains(&"encoded".to_owned()),
+            "{selected_branch:?}"
+        );
+        assert!(
+            !selected_branch.contains(&"direct".to_owned()),
+            "{selected_branch:?}"
+        );
+
+        let otherwise = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'base' { otherwise: { | } } } }",
+        );
+        assert!(otherwise.contains(&"encoded".to_owned()), "{otherwise:?}");
+        assert!(otherwise.contains(&"direct".to_owned()), "{otherwise:?}");
+
+        let direct_body = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: direct 'base' { | } } }",
+        );
+        assert!(
+            !direct_body.contains(&"scale".to_owned()),
+            "{direct_body:?}"
+        );
+        assert!(
+            !direct_body.contains(&"legend".to_owned()),
+            "{direct_body:?}"
+        );
+
+        let mixed_body = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: direct 'base' { when { predicate: true; encoded: 'kind'; } | } } }",
+        );
+        assert!(mixed_body.contains(&"scale".to_owned()), "{mixed_body:?}");
+    }
+
+    #[test]
     fn declaration_completion_emits_only_canonical_source_starters() {
         let labels = completion_labels("avenger 1; chart cartesian { | }");
         assert!(labels.contains(&"param store".to_owned()));
@@ -4786,15 +5138,16 @@ mod tests {
         let mark_kinds = completion_labels("avenger 1; chart cartesian { mark | }");
         assert!(mark_kinds.contains(&"group".to_owned()), "{mark_kinds:?}");
 
-        let channel_configs =
-            completion_labels("avenger 1; chart cartesian { mark symbol { fill: 'x' { | } } }");
+        let channel_configs = completion_labels(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'x' { | } } }",
+        );
         assert!(
             channel_configs.contains(&"legend".to_owned()),
             "{channel_configs:?}"
         );
 
         let legend_properties = completion_labels(
-            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { | } } } }",
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'x' { legend: { | } } } }",
         );
         assert!(
             legend_properties.contains(&"overlay".to_owned()),
@@ -4802,12 +5155,12 @@ mod tests {
         );
 
         let overlay_declarations = completion_labels(
-            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { overlay: { | } } } } }",
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'x' { legend: { overlay: { | } } } } }",
         );
         assert_eq!(overlay_declarations, vec!["mark"]);
 
         let overlay_mark_kinds = completion_labels(
-            "avenger 1; chart cartesian { mark symbol { fill: 'x' { legend: { overlay: { mark | } } } } }",
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'x' { legend: { overlay: { mark | } } } } }",
         );
         assert!(
             overlay_mark_kinds.contains(&"group".to_owned()),

@@ -1,26 +1,27 @@
 avenger 1;
-
 import { summarize } from 'summarize.avenger';
 
 chart cartesian as chart {
   data: {
-    values: [
-      { category: 'A'; value: 2.0; },
-      { category: 'B'; value: 4.0; }
+    values: [ {
+      category: 'A';
+      value: 2.0;
+    }
+    , {
+      category: 'B';
+      value: 4.0;
+    }
     ];
   }
-
   transform summarize as summary {
     measure: "value";
   }
-
   transform sql {
     query: SELECT * FROM input;
   }
-
   mark symbol as points {
-    x: "category";
-    y: summary.adjusted;
-    size: value 80;
+    size: direct 80;
+    x: encoded "category";
+    y: encoded summary.adjusted;
   }
 }

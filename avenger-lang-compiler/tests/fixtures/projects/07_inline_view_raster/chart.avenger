@@ -1,45 +1,68 @@
 avenger 1;
-
 chart cartesian as chart {
   data: {
-    values: [
-      { x: 0.0; y: 0.0; },
-      { x: 0.2; y: 0.8; },
-      { x: 0.4; y: 0.3; },
-      { x: 0.6; y: 0.7; },
-      { x: 0.8; y: 0.2; },
-      { x: 1.0; y: 1.0; }
+    values: [ {
+      x: 0.0;
+      y: 0.0;
+    }
+    , {
+      x: 0.2;
+      y: 0.8;
+    }
+    , {
+      x: 0.4;
+      y: 0.3;
+    }
+    , {
+      x: 0.6;
+      y: 0.7;
+    }
+    , {
+      x: 0.8;
+      y: 0.2;
+    }
+    , {
+      x: 1.0;
+      y: 1.0;
+    }
     ];
   }
-
   mark uniform_raster_2d as density {
+    opacity_by_total: {
+      scale: linear {
+        range: [0.15, 1.0];
+      }
+    }
+    raster: pixels.raster;
+    smooth: true;
+    x: dim pixels.x_dim {
+      axis: {
+        title: 'X';
+      }
+    }
+    y: dim pixels.y_dim {
+      axis: {
+        title: 'Y';
+      }
+    }
     view cartesian as viewport {
-      x_domain: "x";
-      y_domain: "y";
       stale_policy: retarget_cached;
       throttle_ms: 16;
-
+      x_domain: "x";
+      y_domain: "y";
       transform rasterize_2d as pixels {
-        x: "x";
-        y: "y";
         agg: count;
+        x: "x";
         x_dim: {
+          bins: 32;
           extent: [viewport.x.domain.start, viewport.x.domain.end];
-          bins: 32;
         }
+        y: "y";
         y_dim: {
-          extent: [viewport.y.domain.start, viewport.y.domain.end];
           bins: 32;
+          extent: [viewport.y.domain.start, viewport.y.domain.end];
         }
       }
     }
-
-    raster: pixels.raster;
-    x: dim pixels.x_dim { axis: { title: 'X'; } }
-    y: dim pixels.y_dim { axis: { title: 'Y'; } }
-    opacity_by_total: {
-      scale: linear { range: [0.15, 1.0]; }
-    }
-    smooth: true;
   }
 }

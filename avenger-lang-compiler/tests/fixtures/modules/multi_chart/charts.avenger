@@ -1,37 +1,48 @@
 avenger 1;
-
 import { pass } from './transforms.avenger';
 import { shared } from './data.avenger';
 
 chart cartesian as cartesian {
-  param float64 as point_size { value: 64.0; }
-  data: { table: 'shared.points'; }
-  transform pass { }
+  data: {
+    table: 'shared.points';
+  }
+  param float64 as point_size {
+    value: 64.0;
+  }
+  transform pass {
+  }
   mark symbol as points {
-    x: "x";
-    y: "y";
-    size: value $point_size;
+    size: direct $point_size;
+    x: encoded "x";
+    y: encoded "y";
   }
 }
 
 chart geo as geo {
-  param float64 as station_size { value: 80.0; }
-  projection: mercator;
   center_lon_lat: [-73.9857, 40.7484];
+  projection: mercator;
   zoom: 10;
+  param float64 as station_size {
+    value: 80.0;
+  }
   mark symbol as station {
     lon_lat: [-73.9857, 40.7484];
-    size: value $station_size;
+    size: direct $station_size;
   }
 }
 
 chart polar as polar {
-  param float64 as point_size { value: 72.0; }
-  data: { table: 'shared.points'; }
-  transform pass { }
+  data: {
+    table: 'shared.points';
+  }
+  param float64 as point_size {
+    value: 72.0;
+  }
+  transform pass {
+  }
   mark symbol as points {
-    theta: "theta";
-    r: "radius";
-    size: value $point_size;
+    r: encoded "radius";
+    size: direct $point_size;
+    theta: encoded "theta";
   }
 }

@@ -61,6 +61,12 @@ pub enum TolerantSyntaxNodeKind {
     Property {
         name: String,
     },
+    ChannelMode {
+        mode: String,
+        role: TolerantChannelModeRole,
+        expression_span: Option<SourceSpan>,
+        configuration_span: Option<SourceSpan>,
+    },
     SqlIsland {
         context: SqlIslandContext,
     },
@@ -69,6 +75,13 @@ pub enum TolerantSyntaxNodeKind {
         expected: char,
     },
     Error,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TolerantChannelModeRole {
+    Head,
+    WhenBranch,
+    OtherwiseBranch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1045,20 +1058,104 @@ impl<'a> TolerantTreeBuilder<'a> {
                     },
                     TolerantSyntaxNodeKind::Property { name: name.clone() },
                 );
-                if let Some(body_position) = (value_start..=value_end).find(|position| {
+                if matches!(name.as_str(), "encoded" | "direct")
+                    && let Some(role) = self.channel_branch_role(parent)
+                {
+                    let expression_span = if value_start < value_end {
+                        let first = self.token_at_significant_opt(value_start);
+                        let last = self.token_at_significant_opt(value_end.saturating_sub(1));
+                        first.zip(last).map(|(first, last)| SourceSpan {
+                            source: self.source.id,
+                            range: ByteSpan {
+                                start: first.span().range.start,
+                                end: last.span().range.end,
+                            },
+                        })
+                    } else {
+                        None
+                    };
+                    self.push_node(
+                        Some(property),
+                        token.span(),
+                        TolerantSyntaxNodeKind::ChannelMode {
+                            mode: name.clone(),
+                            role,
+                            expression_span,
+                            configuration_span: None,
+                        },
+                    );
+                }
+                let body_position = (value_start..=value_end).find(|position| {
                     self.token_at_significant_opt(*position)
                         .is_some_and(|token| matches!(token.token(), Some(Token::LBrace)))
-                }) {
+                });
+                let channel_mode = self.word_at(value_start).and_then(|word| {
+                    (word.eq_ignore_ascii_case("encoded") || word.eq_ignore_ascii_case("direct"))
+                        .then(|| {
+                            (
+                                self.token_at_significant(value_start).span(),
+                                word.to_ascii_lowercase(),
+                            )
+                        })
+                });
+                if let Some((span, mode)) = channel_mode {
+                    let expression_start = value_start + 1;
+                    let expression_end = body_position.unwrap_or(value_end);
+                    let expression_span = (expression_start < expression_end)
+                        .then(|| {
+                            let first = self.token_at_significant_opt(expression_start)?;
+                            let last = self.token_at_significant_opt(expression_end - 1)?;
+                            Some(SourceSpan {
+                                source: self.source.id,
+                                range: ByteSpan {
+                                    start: first.span().range.start,
+                                    end: last.span().range.end,
+                                },
+                            })
+                        })
+                        .flatten();
+                    let configuration_span = body_position.and_then(|start| {
+                        let first = self.token_at_significant_opt(start)?;
+                        let last = self.token_at_significant_opt(value_end)?;
+                        Some(SourceSpan {
+                            source: self.source.id,
+                            range: ByteSpan {
+                                start: first.span().range.start,
+                                end: last.span().range.end,
+                            },
+                        })
+                    });
+                    self.push_node(
+                        Some(property),
+                        span,
+                        TolerantSyntaxNodeKind::ChannelMode {
+                            mode,
+                            role: TolerantChannelModeRole::Head,
+                            expression_span,
+                            configuration_span,
+                        },
+                    );
+                }
+                if let Some(body_position) = body_position {
                     self.pending_delimiter_owners
                         .insert(body_position, property);
                 }
-                if value_start <= value_end
+                let island_start = if self.word_at(value_start).is_some_and(|word| {
+                    word.eq_ignore_ascii_case("encoded") || word.eq_ignore_ascii_case("direct")
+                }) {
+                    value_start + 1
+                } else {
+                    value_start
+                };
+                if island_start <= value_end
                     && let (Some(first), Some(last)) = (
-                        self.token_at_significant_opt(value_start),
+                        self.token_at_significant_opt(island_start),
                         self.token_at_significant_opt(value_end),
                     )
                 {
-                    let island_end = if matches!(last.token(), Some(Token::SemiColon)) {
+                    let island_end = if let Some(body_position) = body_position {
+                        self.token_at_significant(body_position).span().range.start
+                    } else if matches!(last.token(), Some(Token::SemiColon)) {
                         last.span().range.start
                     } else {
                         last.span().range.end
@@ -1077,7 +1174,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                                 context: if name.eq_ignore_ascii_case("sql") {
                                     SqlIslandContext::QueryProperty
                                 } else if name.eq_ignore_ascii_case("expressions")
-                                    || self.tokens_form_projection(value_start, value_end)
+                                    || self.tokens_form_projection(island_start, value_end)
                                 {
                                     SqlIslandContext::ProjectionProperty
                                 } else {
@@ -1111,6 +1208,22 @@ impl<'a> TolerantTreeBuilder<'a> {
                 format!("missing `{}`", matching_close(open.delimiter)),
                 SourceLabel::new(open.span, "opening delimiter is not closed"),
             ));
+        }
+    }
+
+    fn channel_branch_role(
+        &self,
+        parent: Option<TolerantSyntaxNodeId>,
+    ) -> Option<TolerantChannelModeRole> {
+        let parent = self.nodes.iter().find(|node| Some(node.id) == parent)?;
+        match &parent.kind {
+            TolerantSyntaxNodeKind::Declaration { keyword, .. } if keyword == "when" => {
+                Some(TolerantChannelModeRole::WhenBranch)
+            }
+            TolerantSyntaxNodeKind::Property { name } if name == "otherwise" => {
+                Some(TolerantChannelModeRole::OtherwiseBranch)
+            }
+            _ => None,
         }
     }
 
@@ -1689,6 +1802,32 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(islands, ["$width + 1"]);
+    }
+
+    #[test]
+    fn channel_mode_is_outside_the_tolerant_sql_island() {
+        let source = SourceFile::new(
+            SourceId::new(1),
+            SourceOrigin::Memory("channel-mode.avenger".into()),
+            "avenger 1; chart cartesian { mark symbol { x: encoded \"amount\" + 1; } }",
+        );
+        let parsed = parse_file_tolerant(&source);
+        let island = parsed
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(
+                    node.kind,
+                    TolerantSyntaxNodeKind::SqlIsland {
+                        context: super::SqlIslandContext::PropertyExpression
+                    }
+                )
+            })
+            .expect("channel expression island");
+        assert_eq!(
+            &source.text()[island.span.range.as_range()],
+            "\"amount\" + 1"
+        );
     }
 
     #[test]

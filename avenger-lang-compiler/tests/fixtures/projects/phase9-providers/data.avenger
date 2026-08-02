@@ -1,8 +1,7 @@
 avenger 1;
-
 export catalog iceberg as warehouse {
-  uri: 'https://catalog.example.invalid';
   token: env 'ICEBERG_TOKEN';
+  uri: 'https://catalog.example.invalid';
   schema namespace as analytics {
     path: ['organization', 'analytics'];
   }

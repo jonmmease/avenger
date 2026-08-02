@@ -596,7 +596,11 @@ pub enum ResolvedValue {
     Query(ResolvedQuery),
     Binding(ResolvedBinding),
     Reference(ResolvedReference),
-    Visual(Box<ResolvedValue>),
+    Channel {
+        mode: crate::ast::ChannelMode,
+        expression: Box<ResolvedValue>,
+    },
+    ChannelValue(ResolvedChannelValue),
     Dimension(ResolvedDimension),
     Pattern(Box<ResolvedValue>),
     Environment(String),
@@ -620,6 +624,42 @@ pub enum ResolvedValue {
     },
     DefinitionArgument(ResolvedTarget),
     Invalid,
+}
+
+/// One expression-bearing branch of a resolved authored channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedChannelBranch {
+    pub mode: crate::ast::ChannelMode,
+    pub expression: Box<ResolvedValue>,
+}
+
+/// One ordered conditional branch of a resolved authored channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedChannelCondition {
+    pub predicate: Box<ResolvedValue>,
+    pub branch: ResolvedChannelBranch,
+    pub span: SourceSpan,
+}
+
+/// Normalized semantic form for an expression-driven channel.
+///
+/// The authored head remains available for source-aligned expansion and
+/// bundling. `effective_fallback()` applies an authored `otherwise` when
+/// present. Shared configuration excludes the structural `otherwise`
+/// property, and conditions retain source order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedChannelValue {
+    pub head: ResolvedChannelBranch,
+    pub conditions: Vec<ResolvedChannelCondition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub otherwise: Option<ResolvedChannelBranch>,
+    pub configuration: BTreeMap<String, ResolvedValue>,
+}
+
+impl ResolvedChannelValue {
+    pub fn effective_fallback(&self) -> &ResolvedChannelBranch {
+        self.otherwise.as_ref().unwrap_or(&self.head)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -4391,6 +4431,17 @@ impl<'a> Resolver<'a> {
             let definition_slot = definition_schema
                 .as_ref()
                 .and_then(|schema| schema.slots.get(name.as_str()));
+            let native_channel = native_schema
+                .as_ref()
+                .and_then(|schema| {
+                    schema.channels.get(name.as_str()).or_else(|| {
+                        definition_channel
+                            .as_ref()
+                            .and_then(|(_, physical)| physical.as_deref())
+                            .and_then(|physical| schema.channels.get(physical))
+                    })
+                })
+                .cloned();
             let mut resolved = match definition_slot {
                 Some(slot) if slot.shape == "block" => {
                     // Caller-owned block content is hygienically resolved only
@@ -4419,7 +4470,25 @@ impl<'a> Resolver<'a> {
                     &mut mark_block_ordinal,
                 ),
             };
-            if let Some(shape) = native_schema
+            if let Some(channel) = native_channel {
+                self.normalize_definition_arguments(
+                    value_scope,
+                    value,
+                    &mut resolved,
+                    &channel.shape,
+                    info.span,
+                    event_context,
+                    declaration,
+                );
+                self.validate_channel_value(
+                    &resolved,
+                    &channel.shape,
+                    channel.required,
+                    name.as_str(),
+                    info.span,
+                );
+                self.normalize_resolved_channel(&mut resolved);
+            } else if let Some(shape) = native_schema
                 .as_ref()
                 .and_then(|schema| {
                     schema_property(schema, name.as_str()).or_else(|| {
@@ -4441,6 +4510,7 @@ impl<'a> Resolver<'a> {
                     declaration,
                 );
                 self.validate_value_shape(&resolved, &shape, name.as_str(), info.span);
+                self.normalize_channels_for_shape(&mut resolved, &shape);
             } else if let Some(slot) = definition_schema
                 .as_ref()
                 .and_then(|schema| schema.slots.get(name.as_str()))
@@ -4654,8 +4724,50 @@ impl<'a> Resolver<'a> {
         }
         match value {
             ResolvedValue::Query(query) => output.extend(query.relations.iter().cloned()),
-            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            ResolvedValue::Channel {
+                expression: value, ..
+            }
+            | ResolvedValue::Pattern(value) => {
                 self.collect_property_relation_references(module, property, value, span, output)
+            }
+            ResolvedValue::ChannelValue(channel) => {
+                self.collect_property_relation_references(
+                    module,
+                    property,
+                    &channel.head.expression,
+                    span,
+                    output,
+                );
+                if let Some(otherwise) = &channel.otherwise {
+                    self.collect_property_relation_references(
+                        module,
+                        property,
+                        &otherwise.expression,
+                        span,
+                        output,
+                    );
+                }
+                for condition in &channel.conditions {
+                    self.collect_property_relation_references(
+                        module,
+                        property,
+                        &condition.predicate,
+                        condition.span,
+                        output,
+                    );
+                    self.collect_property_relation_references(
+                        module,
+                        property,
+                        &condition.branch.expression,
+                        condition.span,
+                        output,
+                    );
+                }
+                for value in channel.configuration.values() {
+                    self.collect_property_relation_references(
+                        module, property, value, span, output,
+                    );
+                }
             }
             ResolvedValue::Array(values) => {
                 for value in values {
@@ -5533,9 +5645,10 @@ impl<'a> Resolver<'a> {
                 }
                 (ResolvedValue::Object { properties, .. }, ValueShape::ChannelMap) => {
                     for value in properties.values() {
-                        self.validate_value_shape(
+                        self.validate_channel_value(
                             value,
                             &ValueShape::SqlExpression,
+                            false,
                             property,
                             span,
                         );
@@ -5553,6 +5666,23 @@ impl<'a> Resolver<'a> {
             }
             return;
         }
+        if matches!(value, ResolvedValue::Channel { .. })
+            || matches!(
+                value,
+                ResolvedValue::Object {
+                    head: Some(head),
+                    ..
+                } if matches!(head.as_ref(), ResolvedValue::Channel { .. })
+            )
+        {
+            self.error(
+                "AVENGER-RESOLVE-202",
+                "channel mode is not valid for an ordinary property",
+                span,
+                format!("remove the mode qualifier from `{property}`"),
+            );
+            return;
+        }
         self.error(
             "AVENGER-RESOLVE-050",
             "property has the wrong value shape",
@@ -5563,6 +5693,306 @@ impl<'a> Resolver<'a> {
                 resolved_shape(value)
             ),
         );
+    }
+
+    fn validate_channel_value(
+        &mut self,
+        value: &ResolvedValue,
+        shape: &ValueShape,
+        required: bool,
+        property: &str,
+        span: SourceSpan,
+    ) {
+        if resolved_value_contains_invalid(value) {
+            return;
+        }
+        if matches!(shape, ValueShape::ChannelConfig) {
+            self.validate_value_shape(value, shape, property, span);
+            return;
+        }
+        if matches!(value, ResolvedValue::None) {
+            if required {
+                self.error(
+                    "AVENGER-RESOLVE-194",
+                    "required channel cannot be absent",
+                    span,
+                    format!("`{property}` requires an encoded or direct value"),
+                );
+            }
+            return;
+        }
+        if matches!(shape, ValueShape::RasterDimensionChannel) {
+            self.validate_value_shape(value, shape, property, span);
+            return;
+        }
+        if matches!(shape, ValueShape::PatternChannel) && matches!(value, ResolvedValue::Pattern(_))
+        {
+            return;
+        }
+
+        let (fallback, properties, children) = match value {
+            ResolvedValue::Channel { mode, expression } => {
+                self.validate_value_shape(expression, &ValueShape::SqlExpression, property, span);
+                ((*mode, expression.as_ref()), None, &[][..])
+            }
+            ResolvedValue::Object {
+                head: Some(head),
+                kind: None,
+                properties,
+                children,
+            } => {
+                let ResolvedValue::Channel { mode, expression } = head.as_ref() else {
+                    self.error(
+                        "AVENGER-RESOLVE-195",
+                        "channel mode must be explicit",
+                        span,
+                        format!("prefix `{property}` with `encoded` or `direct`"),
+                    );
+                    return;
+                };
+                self.validate_value_shape(expression, &ValueShape::SqlExpression, property, span);
+                (
+                    (*mode, expression.as_ref()),
+                    Some(properties),
+                    children.as_slice(),
+                )
+            }
+            _ => {
+                self.error(
+                    "AVENGER-RESOLVE-195",
+                    "channel mode must be explicit",
+                    span,
+                    format!("use `encoded <expression>` or `direct <expression>` for `{property}`"),
+                );
+                return;
+            }
+        };
+
+        let mut has_encoded = fallback.0 == crate::ast::ChannelMode::Encoded;
+        let mut has_otherwise = false;
+        if let Some(properties) = properties
+            && let Some(otherwise) = properties.get("otherwise")
+        {
+            has_otherwise = true;
+            has_encoded = self
+                .validate_conditional_channel_branch(otherwise, "otherwise", property, span)
+                .is_some_and(|mode| mode == crate::ast::ChannelMode::Encoded);
+        }
+        for child in children {
+            if child.keyword.as_str() != "when" {
+                self.error(
+                    "AVENGER-RESOLVE-196",
+                    "invalid channel child declaration",
+                    child.span,
+                    "channel bodies only accept ordered `when` declarations",
+                );
+                continue;
+            }
+            if !child.properties.contains_key("predicate") {
+                self.error(
+                    "AVENGER-RESOLVE-197",
+                    "conditional channel branch is missing its predicate",
+                    child.span,
+                    "add `predicate: <boolean expression>;`",
+                );
+            } else if let Some(predicate) = child.properties.get("predicate") {
+                self.validate_value_shape(
+                    predicate,
+                    &ValueShape::SqlExpression,
+                    "predicate",
+                    child.span,
+                );
+            }
+            let branch = ResolvedValue::Object {
+                head: None,
+                kind: None,
+                properties: child.properties.clone(),
+                children: Vec::new(),
+            };
+            if self
+                .validate_conditional_channel_branch(&branch, "when", property, child.span)
+                .is_some_and(|mode| mode == crate::ast::ChannelMode::Encoded)
+            {
+                has_encoded = true;
+            }
+        }
+
+        if !has_encoded
+            && let Some(properties) = properties
+            && let Some(name) = properties.keys().find(|name| {
+                matches!(
+                    name.as_str(),
+                    "scale" | "axis" | "legend" | "domain_contribution" | "band"
+                )
+            })
+        {
+            self.error(
+                "AVENGER-RESOLVE-198",
+                "direct channel cannot configure encoding policy",
+                span,
+                format!(
+                    "`{name}:` has no encoded effective branch{}",
+                    if has_otherwise {
+                        " after `otherwise` replaces the channel head"
+                    } else {
+                        ""
+                    }
+                ),
+            );
+        }
+    }
+
+    fn normalize_channels_for_shape(&self, value: &mut ResolvedValue, shape: &ValueShape) {
+        match (value, shape) {
+            (ResolvedValue::Object { properties, .. }, ValueShape::ChannelMap) => {
+                for value in properties.values_mut() {
+                    self.normalize_resolved_channel(value);
+                }
+            }
+            (ResolvedValue::Array(values), ValueShape::OneOrMany(inner)) => {
+                for value in values {
+                    self.normalize_channels_for_shape(value, inner);
+                }
+            }
+            (value, ValueShape::OneOrMany(inner)) => {
+                self.normalize_channels_for_shape(value, inner);
+            }
+            _ => {}
+        }
+    }
+
+    fn normalize_resolved_channel(&self, value: &mut ResolvedValue) {
+        let normalized = match value {
+            ResolvedValue::Channel { mode, expression } => Some(ResolvedChannelValue {
+                head: ResolvedChannelBranch {
+                    mode: *mode,
+                    expression: expression.clone(),
+                },
+                conditions: Vec::new(),
+                otherwise: None,
+                configuration: BTreeMap::new(),
+            }),
+            ResolvedValue::Object {
+                head: Some(head),
+                kind: None,
+                properties,
+                children,
+            } => {
+                let ResolvedValue::Channel { mode, expression } = head.as_ref() else {
+                    return;
+                };
+                let head = ResolvedChannelBranch {
+                    mode: *mode,
+                    expression: expression.clone(),
+                };
+                let otherwise = properties
+                    .get("otherwise")
+                    .and_then(resolved_channel_branch);
+                let conditions = children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "when")
+                    .filter_map(|child| {
+                        Some(ResolvedChannelCondition {
+                            predicate: Box::new(child.properties.get("predicate")?.clone()),
+                            branch: resolved_channel_branch_from_properties(&child.properties)?,
+                            span: child.span,
+                        })
+                    })
+                    .collect();
+                Some(ResolvedChannelValue {
+                    head,
+                    conditions,
+                    otherwise,
+                    configuration: properties
+                        .iter()
+                        .filter(|(name, _)| name.as_str() != "otherwise")
+                        .map(|(name, value)| (name.clone(), value.clone()))
+                        .collect(),
+                })
+            }
+            _ => None,
+        };
+        if let Some(normalized) = normalized {
+            *value = ResolvedValue::ChannelValue(normalized);
+        }
+    }
+
+    fn validate_conditional_channel_branch(
+        &mut self,
+        value: &ResolvedValue,
+        branch: &str,
+        channel: &str,
+        span: SourceSpan,
+    ) -> Option<crate::ast::ChannelMode> {
+        let ResolvedValue::Object {
+            head: None,
+            kind: None,
+            properties,
+            children,
+        } = value
+        else {
+            self.error(
+                "AVENGER-RESOLVE-199",
+                "conditional channel branch must be a property block",
+                span,
+                format!("`{branch}` on `{channel}` requires `encoded:` or `direct:`"),
+            );
+            return None;
+        };
+        if !children.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-199",
+                "conditional channel branch cannot contain declarations",
+                span,
+                format!("remove declarations from `{branch}` on `{channel}`"),
+            );
+        }
+        let encoded = properties.get("encoded");
+        let direct = properties.get("direct");
+        let removed_mode_count = usize::from(properties.contains_key("scaled"))
+            + usize::from(properties.contains_key("value"));
+        let mode = match (encoded, direct) {
+            (Some(value), None) => Some((crate::ast::ChannelMode::Encoded, value)),
+            (None, Some(value)) => Some((crate::ast::ChannelMode::Direct, value)),
+            _ => {
+                if removed_mode_count != 1 || encoded.is_some() || direct.is_some() {
+                    self.error(
+                        "AVENGER-RESOLVE-200",
+                        "conditional channel branch requires exactly one mode",
+                        span,
+                        format!("`{branch}` on `{channel}` needs one of `encoded:` or `direct:`"),
+                    );
+                }
+                None
+            }
+        };
+        for name in properties.keys() {
+            let allowed = matches!(name.as_str(), "encoded" | "direct")
+                || (name.as_str() == "predicate" && branch == "when");
+            if !allowed {
+                let (message, note) = match name.as_str() {
+                    "scaled" => (
+                        "removed conditional channel mode `scaled`",
+                        format!("replace `scaled:` with `encoded:` in `{branch}` on `{channel}`"),
+                    ),
+                    "value" => (
+                        "removed conditional channel mode `value`",
+                        format!("replace `value:` with `direct:` in `{branch}` on `{channel}`"),
+                    ),
+                    _ => (
+                        "unknown conditional channel property",
+                        format!("`{name}:` is not valid in `{branch}` on `{channel}`"),
+                    ),
+                };
+                self.error("AVENGER-RESOLVE-201", message, span, note);
+            }
+        }
+        if let Some((mode, expression)) = mode {
+            self.validate_value_shape(expression, &ValueShape::SqlExpression, mode.as_str(), span);
+            Some(mode)
+        } else {
+            None
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -5598,6 +6028,27 @@ impl<'a> Resolver<'a> {
             }
             ValueShape::SqlExpression => {
                 if let (
+                    Value::Channel {
+                        mode: source_mode,
+                        expression: source_expression,
+                    },
+                    ResolvedValue::Channel {
+                        mode: resolved_mode,
+                        expression: resolved_expression,
+                    },
+                ) = (source, &mut *resolved)
+                    && source_mode == resolved_mode
+                {
+                    self.normalize_definition_arguments(
+                        scope,
+                        source_expression,
+                        resolved_expression,
+                        &ValueShape::SqlExpression,
+                        span,
+                        in_event,
+                        owner,
+                    );
+                } else if let (
                     Value::Block {
                         head: Some(source_head),
                         ..
@@ -5879,7 +6330,10 @@ impl<'a> Resolver<'a> {
                     self.normalize_expression_argument(scope, argument, span);
                 }
             }
-            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            ResolvedValue::Channel {
+                expression: value, ..
+            }
+            | ResolvedValue::Pattern(value) => {
                 self.normalize_expression_argument(scope, value, span);
             }
             ResolvedValue::Object {
@@ -6275,9 +6729,10 @@ impl<'a> Resolver<'a> {
                 .resolve_reference(scope, *kind, path, span)
                 .map(ResolvedValue::Reference)
                 .unwrap_or(ResolvedValue::Invalid),
-            Value::Visual(value) => ResolvedValue::Visual(Box::new(
-                self.resolve_value(scope, value, span, in_event, owner),
-            )),
+            Value::Channel { mode, expression } => ResolvedValue::Channel {
+                mode: *mode,
+                expression: Box::new(self.resolve_value(scope, expression, span, in_event, owner)),
+            },
             Value::Dim(path) => self
                 .resolve_dimension(scope, path, span)
                 .map(ResolvedValue::Dimension)
@@ -6721,18 +7176,19 @@ impl<'a> Resolver<'a> {
                     })
                     .collect(),
             },
-            Value::Visual(value) => {
-                ResolvedValue::Visual(Box::new(self.resolve_value_with_mark_blocks(
+            Value::Channel { mode, expression } => ResolvedValue::Channel {
+                mode: *mode,
+                expression: Box::new(self.resolve_value_with_mark_blocks(
                     file,
                     owner_path,
                     scope,
-                    value,
+                    expression,
                     span,
                     in_event,
                     owner,
                     block_ordinal,
-                )))
-            }
+                )),
+            },
             Value::Pattern(value) => {
                 ResolvedValue::Pattern(Box::new(self.resolve_value_with_mark_blocks(
                     file,
@@ -7861,7 +8317,7 @@ impl<'a> Resolver<'a> {
                         | ResolvedValue::Call { .. }
                         | ResolvedValue::Expression(_)
                         | ResolvedValue::Binding(_)
-                        | ResolvedValue::Visual(_)
+                        | ResolvedValue::Channel { .. }
                 )
             }) {
                 self.error(
@@ -9417,8 +9873,24 @@ fn collect_item_dependencies_from_value(
                 collect_item_dependencies_from_value(value, from, output);
             }
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_item_dependencies_from_value(value, from, output);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            collect_item_dependencies_from_value(&channel.head.expression, from, output);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_item_dependencies_from_value(&otherwise.expression, from, output);
+            }
+            for condition in &channel.conditions {
+                collect_item_dependencies_from_value(&condition.predicate, from, output);
+                collect_item_dependencies_from_value(&condition.branch.expression, from, output);
+            }
+            for value in channel.configuration.values() {
+                collect_item_dependencies_from_value(value, from, output);
+            }
         }
         ResolvedValue::Call { args, .. } => {
             for value in args {
@@ -9836,7 +10308,10 @@ fn contains_overlay_mark_block(value: &Value) -> bool {
         Value::Array(values) | Value::Call { args: values, .. } => {
             values.iter().any(contains_overlay_mark_block)
         }
-        Value::Visual(value) | Value::Pattern(value) => contains_overlay_mark_block(value),
+        Value::Channel {
+            expression: value, ..
+        }
+        | Value::Pattern(value) => contains_overlay_mark_block(value),
         _ => false,
     }
 }
@@ -9863,7 +10338,10 @@ fn overlay_mark_blocks(declaration: &Decl) -> Vec<&crate::ast::Body> {
                     collect(value, output);
                 }
             }
-            Value::Visual(value) | Value::Pattern(value) => collect(value, output),
+            Value::Channel {
+                expression: value, ..
+            }
+            | Value::Pattern(value) => collect(value, output),
             _ => {}
         }
     }
@@ -9873,6 +10351,36 @@ fn overlay_mark_blocks(declaration: &Decl) -> Vec<&crate::ast::Body> {
         collect(value, &mut output);
     }
     output
+}
+
+fn resolved_channel_branch(value: &ResolvedValue) -> Option<ResolvedChannelBranch> {
+    let ResolvedValue::Object {
+        head: None,
+        kind: None,
+        properties,
+        children,
+    } = value
+    else {
+        return None;
+    };
+    if !children.is_empty() {
+        return None;
+    }
+    resolved_channel_branch_from_properties(properties)
+}
+
+fn resolved_channel_branch_from_properties(
+    properties: &BTreeMap<String, ResolvedValue>,
+) -> Option<ResolvedChannelBranch> {
+    let (mode, expression) = match (properties.get("encoded"), properties.get("direct")) {
+        (Some(expression), None) => (crate::ast::ChannelMode::Encoded, expression),
+        (None, Some(expression)) => (crate::ast::ChannelMode::Direct, expression),
+        _ => return None,
+    };
+    Some(ResolvedChannelBranch {
+        mode,
+        expression: Box::new(expression.clone()),
+    })
 }
 
 fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
@@ -10066,9 +10574,20 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             _ => false,
         },
         ValueShape::ChannelMap => match value {
-            ResolvedValue::Object { properties, .. } => properties
-                .values()
-                .all(|value| value_matches_shape(value, &ValueShape::SqlExpression)),
+            ResolvedValue::Object { properties, .. } => properties.values().all(|value| {
+                matches!(
+                    value,
+                    ResolvedValue::Channel { .. }
+                        | ResolvedValue::ChannelValue(_)
+                        | ResolvedValue::None
+                        | ResolvedValue::Pattern(_)
+                        | ResolvedValue::Object {
+                            head: Some(_),
+                            kind: None,
+                            ..
+                        }
+                )
+            }),
             _ => false,
         },
         ValueShape::Object(_) => matches!(value, ResolvedValue::Object { .. }),
@@ -10098,6 +10617,21 @@ fn is_self_contained_row_free(value: &ResolvedValue) -> bool {
             children,
             ..
         } => children.is_empty() && properties.values().all(is_self_contained_row_free),
+        ResolvedValue::ChannelValue(channel) => {
+            is_self_contained_row_free(&channel.head.expression)
+                && channel
+                    .otherwise
+                    .as_ref()
+                    .is_none_or(|branch| is_self_contained_row_free(&branch.expression))
+                && channel.conditions.iter().all(|condition| {
+                    is_self_contained_row_free(&condition.predicate)
+                        && is_self_contained_row_free(&condition.branch.expression)
+                })
+                && channel
+                    .configuration
+                    .values()
+                    .all(is_self_contained_row_free)
+        }
         _ => false,
     }
 }
@@ -10105,8 +10639,24 @@ fn is_self_contained_row_free(value: &ResolvedValue) -> bool {
 fn resolved_value_contains_invalid(value: &ResolvedValue) -> bool {
     match value {
         ResolvedValue::Invalid => true,
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
-            resolved_value_contains_invalid(value)
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => resolved_value_contains_invalid(value),
+        ResolvedValue::ChannelValue(channel) => {
+            resolved_value_contains_invalid(&channel.head.expression)
+                || channel
+                    .otherwise
+                    .as_ref()
+                    .is_some_and(|branch| resolved_value_contains_invalid(&branch.expression))
+                || channel.conditions.iter().any(|condition| {
+                    resolved_value_contains_invalid(&condition.predicate)
+                        || resolved_value_contains_invalid(&condition.branch.expression)
+                })
+                || channel
+                    .configuration
+                    .values()
+                    .any(resolved_value_contains_invalid)
         }
         ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
             values.iter().any(resolved_value_contains_invalid)
@@ -10240,7 +10790,6 @@ fn is_expression_value(value: &ResolvedValue) -> bool {
             | ResolvedValue::Atom(_)
             | ResolvedValue::Expression(_)
             | ResolvedValue::Binding(_)
-            | ResolvedValue::Visual(_)
             | ResolvedValue::Object { .. }
             | ResolvedValue::DefinitionArgument(_)
     )
@@ -10323,8 +10872,24 @@ fn collect_value_targets(value: &ResolvedValue, targets: &mut BTreeSet<ResolvedT
                     .map(|reference| reference.target.clone()),
             );
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_value_targets(value, targets);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            collect_value_targets(&channel.head.expression, targets);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_value_targets(&otherwise.expression, targets);
+            }
+            for condition in &channel.conditions {
+                collect_value_targets(&condition.predicate, targets);
+                collect_value_targets(&condition.branch.expression, targets);
+            }
+            for value in channel.configuration.values() {
+                collect_value_targets(value, targets);
+            }
         }
         ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
             for value in values {
@@ -10419,7 +10984,11 @@ fn resolved_shape(value: &ResolvedValue) -> &'static str {
         ResolvedValue::Query(_) => "SQL query",
         ResolvedValue::Binding(_) => "binding",
         ResolvedValue::Reference(_) => "reference",
-        ResolvedValue::Visual(_) => "visual value",
+        ResolvedValue::Channel { mode, .. } => match mode {
+            crate::ast::ChannelMode::Encoded => "encoded channel value",
+            crate::ast::ChannelMode::Direct => "direct channel value",
+        },
+        ResolvedValue::ChannelValue(_) => "resolved channel value",
         ResolvedValue::Dimension(_) => "dimension",
         ResolvedValue::Pattern(_) => "pattern",
         ResolvedValue::Environment(_) => "environment value",
@@ -10661,8 +11230,23 @@ fn resolved_value_has_forbidden_stream_binding(value: &ResolvedValue) -> bool {
                         .any(resolved_value_has_forbidden_stream_binding)
                 })
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
-            resolved_value_has_forbidden_stream_binding(value)
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => resolved_value_has_forbidden_stream_binding(value),
+        ResolvedValue::ChannelValue(channel) => {
+            resolved_value_has_forbidden_stream_binding(&channel.head.expression)
+                || channel.otherwise.as_ref().is_some_and(|branch| {
+                    resolved_value_has_forbidden_stream_binding(&branch.expression)
+                })
+                || channel.conditions.iter().any(|condition| {
+                    resolved_value_has_forbidden_stream_binding(&condition.predicate)
+                        || resolved_value_has_forbidden_stream_binding(&condition.branch.expression)
+                })
+                || channel
+                    .configuration
+                    .values()
+                    .any(resolved_value_has_forbidden_stream_binding)
         }
         ResolvedValue::Call { args, .. } => {
             args.iter().any(resolved_value_has_forbidden_stream_binding)
@@ -10763,8 +11347,24 @@ fn collect_param_dependencies(value: &ResolvedValue, output: &mut BTreeSet<Param
                 collect_param_dependencies(value, output);
             }
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_param_dependencies(value, output);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            collect_param_dependencies(&channel.head.expression, output);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_param_dependencies(&otherwise.expression, output);
+            }
+            for condition in &channel.conditions {
+                collect_param_dependencies(&condition.predicate, output);
+                collect_param_dependencies(&condition.branch.expression, output);
+            }
+            for value in channel.configuration.values() {
+                collect_param_dependencies(value, output);
+            }
         }
         _ => {}
     }
@@ -10909,7 +11509,10 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             kind: *kind,
             authored_path: path.iter().map(ToString::to_string).collect(),
         }),
-        Value::Visual(value) => ResolvedValue::Visual(Box::new(unresolved_value(value))),
+        Value::Channel { mode, expression } => ResolvedValue::Channel {
+            mode: *mode,
+            expression: Box::new(unresolved_value(expression)),
+        },
         Value::Dim(path) => ResolvedValue::Dimension(ResolvedDimension {
             target: ResolvedOutputHandle {
                 producer: DeclarationId("unresolved".to_owned()),
@@ -11029,8 +11632,19 @@ fn normalize_definition_value_references(
                 })
                 .collect();
         }
-        (Value::Visual(source), ResolvedValue::Visual(resolved))
-        | (Value::Pattern(source), ResolvedValue::Pattern(resolved)) => {
+        (
+            Value::Channel {
+                mode: source_mode,
+                expression: source,
+            },
+            ResolvedValue::Channel {
+                mode: resolved_mode,
+                expression: resolved,
+            },
+        ) if source_mode == resolved_mode => {
+            normalize_definition_value_references(source, resolved, definition, slots);
+        }
+        (Value::Pattern(source), ResolvedValue::Pattern(resolved)) => {
             normalize_definition_value_references(source, resolved, definition, slots);
         }
         (Value::Array(sources), ResolvedValue::Array(resolved)) => {
@@ -11161,7 +11775,10 @@ fn collect_sql_identifier_values(value: &Value, output: &mut BTreeSet<String>) {
                 collect_sql_identifier_values(value, output);
             }
         }
-        Value::Visual(value) | Value::Pattern(value) => {
+        Value::Channel {
+            expression: value, ..
+        }
+        | Value::Pattern(value) => {
             collect_sql_identifier_values(value, output);
         }
         _ => {}
@@ -11481,7 +12098,10 @@ fn value_declaration_preorder<'a>(value: &'a Value, visit: &mut impl FnMut(&'a D
                 value_declaration_preorder(value, visit);
             }
         }
-        Value::Visual(value) | Value::Pattern(value) => {
+        Value::Channel {
+            expression: value, ..
+        }
+        | Value::Pattern(value) => {
             value_declaration_preorder(value, visit);
         }
         _ => {}
@@ -11604,7 +12224,10 @@ fn collect_definition_slot_dependencies(
                 collect_definition_slot_dependencies(value, slots, output);
             }
         }
-        Value::Visual(value) | Value::Pattern(value) => {
+        Value::Channel {
+            expression: value, ..
+        }
+        | Value::Pattern(value) => {
             collect_definition_slot_dependencies(value, slots, output);
         }
         Value::Block { head, body } => {
@@ -11647,7 +12270,10 @@ fn count_definition_value_uses(declaration: &Decl, slot: &str) -> usize {
                         .map(|child| count_definition_value_uses(child, slot))
                         .sum::<usize>()
             }
-            Value::Visual(value) | Value::Pattern(value) => count_value(value, slot),
+            Value::Channel {
+                expression: value, ..
+            }
+            | Value::Pattern(value) => count_value(value, slot),
             _ => 0,
         }
     }
@@ -11727,7 +12353,10 @@ fn count_definition_output_projection_uses(declaration: &Decl, slot: &str) -> us
                         .map(|child| count_definition_output_projection_uses(child, slot))
                         .sum::<usize>()
             }
-            Value::Visual(value) | Value::Pattern(value) => count_value(value, slot),
+            Value::Channel {
+                expression: value, ..
+            }
+            | Value::Pattern(value) => count_value(value, slot),
             _ => 0,
         }
     }

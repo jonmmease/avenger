@@ -1,23 +1,20 @@
 avenger 1;
-
 chart zerod as text_input {
   param utf8 as query_state {
     value: 'initial';
   }
-
   widget text_input as query {
-    position: top;
-    default: 'fallback';
-    placeholder: 'Search';
     commit: on_enter_or_blur;
     debounce_ms: 200;
+    default: 'fallback';
+    placeholder: 'Search';
+    position: top;
     value_param: $query_state;
   }
-
   mark text as cursor_label {
-    text: value $query.cursor_position;
+    text: direct $query.cursor_position;
   }
   mark text as selection_label {
-    text: value $query.selected_text;
+    text: direct $query.selected_text;
   }
 }

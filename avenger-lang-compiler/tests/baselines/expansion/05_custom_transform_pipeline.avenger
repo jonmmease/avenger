@@ -28,8 +28,8 @@ chart cartesian as chart {
     query: SELECT * FROM input;
   }
   mark symbol as points {
-    size: value 80;
-    x: "category";
-    y: summary.adjusted;
+    size: direct 80;
+    x: encoded "category";
+    y: encoded summary.adjusted;
   }
 }

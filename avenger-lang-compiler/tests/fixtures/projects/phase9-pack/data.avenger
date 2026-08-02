@@ -1,10 +1,14 @@
 avenger 1;
-
 export schema tables as vega {
   table inline as movies {
-    values: [
-      { title: 'A'; rating: 8.5; },
-      { title: 'B'; rating: 7.0; },
+    values: [ {
+      rating: 8.5;
+      title: 'A';
+    }
+    , {
+      rating: 7.0;
+      title: 'B';
+    }
     ];
   }
   table sql as popular {

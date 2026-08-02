@@ -1,10 +1,17 @@
 avenger 1;
-
 export define mark badge {
   mark symbol as glyph {
-    x: "x" { scale: linear { domain: [0.0, 2.0]; } }
-    y: "y" { scale: linear { domain: [0.0, 4.0]; } }
-    size: value 180.0;
-    fill: value '#7c3aed';
+    fill: direct '#7c3aed';
+    size: direct 180.0;
+    x: encoded "x" {
+      scale: linear {
+        domain: [0.0, 2.0];
+      }
+    }
+    y: encoded "y" {
+      scale: linear {
+        domain: [0.0, 4.0];
+      }
+    }
   }
 }

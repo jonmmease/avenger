@@ -1,14 +1,26 @@
 avenger 1;
-
 chart facet_wrap as facet {
   data: {
-    values: [
-      { region: 'east'; category: 'a'; value: 2.0; },
-      { region: 'west'; category: 'b'; value: 3.0; }
+    values: [ {
+      category: 'a';
+      region: 'east';
+      value: 2.0;
+    }
+    , {
+      category: 'b';
+      region: 'west';
+      value: 3.0;
+    }
     ];
   }
-  facet: "region" { slots: shared; }
+  facet: "region" {
+    slots: shared;
+  }
   cell cartesian {
-    mark symbol { x: "category"; y: "value"; size: value 256.0; }
+    mark symbol {
+      size: direct 256.0;
+      x: encoded "category";
+      y: encoded "value";
+    }
   }
 }

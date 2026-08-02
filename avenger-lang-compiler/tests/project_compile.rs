@@ -344,8 +344,8 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
     fs::write(
         module_path(&invalid.0),
         "avenger 1;\
-         chart cartesian as a { data: { table: 'missing_a'; } mark symbol { x: 'x'; y: 'y'; } }\
-         chart cartesian as b { data: { table: 'missing_b'; } mark symbol { x: 'x'; y: 'y'; } }",
+         chart cartesian as a { data: { table: 'missing_a'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }\
+         chart cartesian as b { data: { table: 'missing_b'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
     )
     .unwrap();
     let invalid_root = invalid.0.clone();
@@ -385,7 +385,7 @@ async fn private_lexical_renames_preserve_compiled_behavior_and_state_identity()
         project.0.join("marks.avenger"),
         r#"avenger 1;
 export define mark badge {
-  mark symbol as glyph { x: "x"; y: "y"; }
+  mark symbol as glyph { x: encoded "x"; y: encoded "y"; }
 }
 "#,
     )
@@ -418,10 +418,10 @@ chart cartesian as chart {{
   param float64 as point_size {{ value: 64.0; }}
   mark {private_mark} as points {{}}
   mark symbol as state_probe {{
-    x: "x";
-    y: "y";
-    size: $point_size;
-    visible: value false;
+    x: encoded "x";
+    y: encoded "y";
+    size: direct $point_size;
+    visible: false;
   }}
 }}
 "#
@@ -564,7 +564,7 @@ async fn project_compile_cancellation_publishes_no_partial_analysis_or_artifacts
         module_path(&project.0),
         "avenger 1;\
          import { rows } from './data.avenger';\
-         chart cartesian as chart { data: { table: 'rows'; } mark symbol { x: 'x'; y: 'y'; } }",
+         chart cartesian as chart { data: { table: 'rows'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
     )
     .unwrap();
     let entered = Arc::new(Notify::new());

@@ -58,9 +58,8 @@ pub enum SqlIslandRoot {
 pub enum SqlIslandSite {
     QueryProperty,
     ProjectionProperty,
-    ValuePropertyPayload,
+    ChannelModePayload,
     PropertyValue,
-    ArrayValuePayload,
     ArrayElement,
     OutputSource,
     CursorActionRhs,
@@ -110,12 +109,11 @@ impl SqlIslandContext {
 }
 
 impl SqlIslandSite {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::QueryProperty,
         Self::ProjectionProperty,
-        Self::ValuePropertyPayload,
+        Self::ChannelModePayload,
         Self::PropertyValue,
-        Self::ArrayValuePayload,
         Self::ArrayElement,
         Self::OutputSource,
         Self::CursorActionRhs,
@@ -126,9 +124,8 @@ impl SqlIslandSite {
         match self {
             Self::QueryProperty => "query_property",
             Self::ProjectionProperty => "projection_property",
-            Self::ValuePropertyPayload => "value_property_payload",
+            Self::ChannelModePayload => "channel_mode_payload",
             Self::PropertyValue => "property_value",
-            Self::ArrayValuePayload => "array_value_payload",
             Self::ArrayElement => "array_element",
             Self::OutputSource => "output_source",
             Self::CursorActionRhs => "cursor_action_rhs",
@@ -140,10 +137,8 @@ impl SqlIslandSite {
         match self {
             Self::QueryProperty => SqlIslandContext::QueryProperty,
             Self::ProjectionProperty => SqlIslandContext::ProjectionProperty,
-            Self::ValuePropertyPayload | Self::PropertyValue => {
-                SqlIslandContext::PropertyExpression
-            }
-            Self::ArrayValuePayload | Self::ArrayElement => SqlIslandContext::ArrayExpression,
+            Self::ChannelModePayload | Self::PropertyValue => SqlIslandContext::PropertyExpression,
+            Self::ArrayElement => SqlIslandContext::ArrayExpression,
             Self::CursorActionRhs | Self::StateActionRhs => SqlIslandContext::TerminatedExpression,
             Self::OutputSource => SqlIslandContext::AliasedExpression,
         }
@@ -730,12 +725,25 @@ impl Parser {
             self.expect(Token::SemiColon, "`;` after array")?;
             return Ok(value);
         }
-        if self.word_is("value") {
-            self.expect_word("value")?;
-            let inner = self.expression(BindingKind::Param, SqlIslandSite::ValuePropertyPayload)?;
-            return self
-                .terminated(inner)
-                .map(|value| Value::Visual(Box::new(value)));
+        if self.legacy_value_qualifier() {
+            return Err(self.error(
+                "AVENGER-PARSE-046",
+                "the `value` channel qualifier was removed; use `direct`",
+            ));
+        }
+        if self.word_is("encoded") || self.word_is("direct") {
+            let mode = if self.word_is("encoded") {
+                crate::ast::ChannelMode::Encoded
+            } else {
+                crate::ast::ChannelMode::Direct
+            };
+            self.bump();
+            let expression =
+                self.expression(BindingKind::Param, SqlIslandSite::ChannelModePayload)?;
+            return self.terminated(Value::Channel {
+                mode,
+                expression: Box::new(expression),
+            });
         }
         if self.word_is("dim") {
             self.expect_word("dim")?;
@@ -884,11 +892,6 @@ impl Parser {
                     head: None,
                     body: self.body()?,
                 }
-            } else if self.word_is("value") {
-                self.expect_word("value")?;
-                Value::Visual(Box::new(
-                    self.expression(BindingKind::Param, SqlIslandSite::ArrayValuePayload)?,
-                ))
             } else if self.word_is("pattern") {
                 self.expect_word("pattern")?;
                 Value::Pattern(Box::new(Value::Block {
@@ -1820,6 +1823,34 @@ impl Parser {
         self.word() == Some(expected)
     }
 
+    fn legacy_value_qualifier(&mut self) -> bool {
+        if !self.word_is("value") {
+            return false;
+        }
+        self.stream.tokens()[self.index..]
+            .iter()
+            .filter(|token| !is_trivia(token.class()))
+            .nth(1)
+            .is_some_and(|token| {
+                matches!(
+                    token.token(),
+                    Token::Word(_)
+                        | Token::Number(_, _)
+                        | Token::SingleQuotedString(_)
+                        | Token::DoubleQuotedString(_)
+                        | Token::TripleSingleQuotedString(_)
+                        | Token::TripleDoubleQuotedString(_)
+                        | Token::DollarQuotedString(_)
+                        | Token::NationalStringLiteral(_)
+                        | Token::EscapedStringLiteral(_)
+                        | Token::UnicodeStringLiteral(_)
+                        | Token::HexStringLiteral(_)
+                        | Token::Placeholder(_)
+                        | Token::LParen
+                )
+            })
+    }
+
     fn word(&mut self) -> Option<&str> {
         self.trivia();
         match self.stream.token(self.index)?.token() {
@@ -2450,6 +2481,22 @@ chart cartesian as chart {
         );
         let error = parse_file(&nested).unwrap_err();
         assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-032");
+    }
+
+    #[test]
+    fn parse_rejects_removed_value_channel_qualifier() {
+        for expression in ["42", "$width"] {
+            let source = SourceFile::new(
+                SourceId::new(1),
+                SourceOrigin::Memory("legacy-channel-value.avenger".into()),
+                format!(
+                    "avenger 1; chart cartesian {{ mark symbol {{ x: value {expression}; }} }}"
+                ),
+            );
+            let error = parse_file(&source).unwrap_err();
+            assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-046");
+            assert!(error.diagnostic().message.contains("use `direct`"));
+        }
     }
 
     #[test]

@@ -1,5 +1,4 @@
 avenger 1;
-
 export define transform broken {
   output result;
   transform sql {

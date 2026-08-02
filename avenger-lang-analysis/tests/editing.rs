@@ -167,7 +167,7 @@ fn canonical_formatting_is_a_comment_preserving_fixpoint_and_rejects_invalid_sou
     let source = r#"avenger 1; chart cartesian as chart {
  z: 2; -- trailing
  -- before mark
- mark symbol as points { x: value 1; }
+ mark symbol as points { x: direct 1; }
 }
 "#;
     let (analysis, origin, revision) = workspace_analysis(source);
@@ -175,7 +175,7 @@ fn canonical_formatting_is_a_comment_preserving_fixpoint_and_rejects_invalid_sou
         .format_document(
             &DocumentRequest {
                 source: origin.clone(),
-                source_revision: revision,
+                source_revision: revision.clone(),
             },
             LineEnding::Lf,
             &AnalysisCancellation::default(),
@@ -223,7 +223,7 @@ fn semantic_tokens_and_safe_rename_share_authored_symbol_identity() {
 chart cartesian as chart {
   param float64 as width { value: 10.0; }
   param float64 as height { value: 20.0; }
-  mark symbol as points { size: $width; }
+  mark symbol as points { size: encoded $width; }
 }
 "#;
     let (analysis, origin, revision) = workspace_analysis(source);
@@ -248,6 +248,23 @@ chart cartesian as chart {
             .iter()
             .any(|token| token.kind == SemanticTokenKind::Property)
     );
+    let encoded = source.find("encoded").unwrap();
+    assert!(tokens.tokens.iter().any(|token| {
+        token.kind == SemanticTokenKind::Keyword && token.span.range.start == encoded
+    }));
+    let mode_hover = analysis
+        .hover(
+            &PositionRequest {
+                source: origin.clone(),
+                byte_offset: encoded + 1,
+                source_revision: revision.clone(),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(mode_hover.markdown.contains("scale"));
+    assert!(mode_hover.markdown.contains("domain inference"));
     assert!(matches!(
         analysis.semantic_tokens(
             &DocumentRequest {
@@ -302,7 +319,7 @@ chart cartesian as chart {
   transform aggregate as totals {
     expressions: sum("amount") AS total;
   }
-  mark symbol { x: totals.total; y: totals.total; }
+  mark symbol { x: encoded totals.total; y: encoded totals.total; }
 }"#;
     let (analysis, origin, revision) = resolved_workspace_analysis(source).await;
     let alias_start = source.find("AS total").unwrap() + "AS ".len();
@@ -320,11 +337,15 @@ chart cartesian as chart {
             &AnalysisCancellation::default(),
         )
         .unwrap();
-    assert!(semantic.tokens.iter().any(|token| {
-        token.span.range.start == alias_start
-            && token.kind == SemanticTokenKind::Field
-            && token.modifiers.declaration
-    }));
+    assert!(
+        semantic.tokens.iter().any(|token| {
+            token.span.range.start == alias_start
+                && token.kind == SemanticTokenKind::Field
+                && token.modifiers.declaration
+        }),
+        "{:#?}",
+        semantic.tokens
+    );
     let hover = analysis
         .hover(&request, &AnalysisCancellation::default())
         .unwrap()
@@ -466,13 +487,13 @@ fn references_prefer_the_nearest_lexical_binding_when_names_repeat() {
 chart cartesian as first {
   -- | Width for the first chart.
   param float64 as width { value: 10.0; }
-  mark symbol as points { size: $width; }
+  mark symbol as points { size: encoded $width; }
 }
 
 chart cartesian as second {
   -- | Width for the second chart.
   param float64 as width { value: 20.0; }
-  mark symbol as points { size: $width; }
+  mark symbol as points { size: encoded $width; }
 }
 "#;
     let (analysis, origin, revision) = workspace_analysis(source);
@@ -520,10 +541,10 @@ chart cartesian as chart {
   mark group as inner {
     -- | Inner width.
     param float64 as width { value: 20.0; }
-    mark symbol as inner_points { size: $width; }
+    mark symbol as inner_points { size: encoded $width; }
   }
 
-  mark symbol as outer_points { size: $width; }
+  mark symbol as outer_points { size: encoded $width; }
 }
 "#;
     let (analysis, origin, revision) = workspace_analysis(source);
@@ -599,7 +620,7 @@ fn local_quick_fixes_are_mechanical_and_typed() {
 chart cartesian as chart {
   mark symbol as points {
     siez: 10.0;
-    size: $threshold;
+    size: encoded $threshold;
   }
 }
 "#;
@@ -654,7 +675,7 @@ chart cartesian as chart {
                         end: start + "width".len(),
                     },
                 },
-                source_revision: revision,
+                source_revision: revision.clone(),
                 diagnostic_codes: Vec::new(),
             },
             &AnalysisCancellation::default(),
@@ -664,6 +685,82 @@ chart cartesian as chart {
         actions
             .iter()
             .any(|action| action.title == "Add missing `as` binder")
+    );
+}
+
+#[test]
+fn channel_mode_migration_actions_are_contextual_and_mechanical() {
+    fn actions(source: &str, needle: &str) -> Vec<avenger_lang_analysis::CodeAction> {
+        let (analysis, origin, revision) = workspace_analysis(source);
+        let start = source.find(needle).unwrap();
+        analysis
+            .code_actions(
+                &CodeActionRequest {
+                    source: origin.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&origin].parsed.tokens.source(),
+                        range: ByteSpan {
+                            start,
+                            end: start + needle.len(),
+                        },
+                    },
+                    source_revision: revision,
+                    diagnostic_codes: match needle {
+                        "x: \"x\"" => vec!["AVENGER-RESOLVE-195".to_owned()],
+                        "scale:" => vec!["AVENGER-RESOLVE-198".to_owned()],
+                        _ => Vec::new(),
+                    },
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+    }
+
+    let modern_source = r#"avenger 1;
+chart cartesian as chart {
+  mark symbol as points {
+    x: "x";
+    stroke: direct '#000000' {
+      scale: linear;
+    }
+  }
+}
+"#;
+    let bare_actions = actions(modern_source, "x: \"x\"");
+    assert!(
+        bare_actions
+            .iter()
+            .any(|action| action.title == "Add `encoded` channel mode"),
+        "actions={bare_actions:#?}"
+    );
+    assert!(
+        actions(
+            "avenger 1; chart cartesian { mark symbol { y: value 1; } }",
+            "value 1"
+        )
+        .iter()
+        .any(|action| action.title == "Use `direct` channel mode")
+    );
+    assert!(
+        actions(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'a' { when { predicate: true; scaled: 'b'; } } } }",
+            "scaled:"
+        )
+            .iter()
+            .any(|action| action.title == "Use `encoded:` channel branch")
+    );
+    assert!(
+        actions(
+            "avenger 1; chart cartesian { mark symbol { fill: encoded 'a' { otherwise: { value: 'b'; } } } }",
+            "value:"
+        )
+            .iter()
+            .any(|action| action.title == "Use `direct:` channel branch")
+    );
+    assert!(
+        actions(modern_source, "scale:")
+            .iter()
+            .any(|action| action.title == "Remove ineffective `scale:` channel configuration")
     );
 }
 
@@ -947,7 +1044,7 @@ async fn inline_definition_uses_the_compilers_canonical_expansion() {
     let definition_path = root.join("badge.avenger");
     let chart = "avenger 1; import { badge } from 'badge.avenger'; chart cartesian as chart { mark badge as imported {} }";
     let definition =
-        "avenger 1; export define mark badge { mark symbol as body { x: value 1; y: value 2; } }";
+        "avenger 1; export define mark badge { mark symbol as body { x: direct 1; y: direct 2; } }";
     std::fs::write(&chart_path, chart).unwrap();
     std::fs::write(&definition_path, definition).unwrap();
     let chart_origin = SourceOrigin::File(chart_path.clone());
@@ -1030,7 +1127,7 @@ chart cartesian as chart {
   param float64 as point_size { value: 32.0; }
   mark group as cluster {
     -- keep this authored explanation
-    mark symbol as point { x: value 1; y: value 2; size: $point_size; }
+    mark symbol as point { x: direct 1; y: direct 2; size: encoded $point_size; }
   }
 }
 "#;
@@ -1086,7 +1183,7 @@ chart cartesian as chart {
     let definition = &action.edit.create_files[&definition_origin];
     assert!(definition.contains("export define mark cluster"));
     assert!(definition.contains("slot expr point_size"));
-    assert!(definition.contains("size: point_size"));
+    assert!(definition.contains("size: encoded point_size"));
     assert!(definition.contains("-- keep this authored explanation"));
 
     let mut extracted = chart.to_owned();

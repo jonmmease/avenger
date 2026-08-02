@@ -444,7 +444,12 @@ fn token_kernel_sql_island_boundaries_share_one_stream() {
         .unwrap();
     let x_colon = first_significant(stream.tokens(), x + 1);
     assert!(matches!(stream.tokens()[x_colon].token(), Token::Colon));
-    let expression_start = first_significant(stream.tokens(), x_colon + 1);
+    let mode = first_significant(stream.tokens(), x_colon + 1);
+    assert!(matches!(
+        stream.tokens()[mode].token(),
+        Token::Word(word) if word.value.eq_ignore_ascii_case("encoded")
+    ));
+    let expression_start = first_significant(stream.tokens(), mode + 1);
     let expression = parse_sql_expression(&stream, expression_start).unwrap();
     let expression_end = first_significant(stream.tokens(), expression.next_token);
     assert!(matches!(

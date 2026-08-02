@@ -1,28 +1,47 @@
 avenger 1;
-
 chart responsive as shapes {
-  resource tiles as osm {}
-  theme css: '.chart { color: red; }';
+  resource tiles as osm {
+  }
+  theme css : '.chart { color: red; }';
   mark group as container {
-    variable row mpg {}
-    cell cartesian as left at { row: 0; column: 1; } {
+    variable row mpg {
+    }
+    cell cartesian as left at {
+      column: 1;
+      row: 0;
+    }
+     {
       plot polar {
-        mark arc {}
+        mark arc {
+        }
       }
     }
-    part label {}
-    level 0 {}
-    adjust stack as stacked {}
-    derive density as kde {}
-    layer background {}
-    when {}
-    row {}
+    part label {
+    }
+    level 0 {
+    }
+    adjust stack as stacked {
+    }
+    derive density as kde {
+    }
+    layer background {
+    }
+    when {
+    }
+    row {
+    }
     field struct(field(float64, 'x'), field(list(utf8), 'labels')) payload nullable;
-    key {}
-    fields {}
-    scale_hint {}
-    widget slider as opacity {}
-    view raster as image {}
-    tool pan;
+    key {
+    }
+    fields {
+    }
+    scale_hint {
+    }
+    widget slider as opacity {
+    }
+    view raster as image {
+    }
+    tool pan {
+    }
   }
 }

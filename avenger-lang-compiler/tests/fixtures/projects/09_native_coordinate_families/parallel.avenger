@@ -1,27 +1,32 @@
 avenger 1;
-
 chart parallel as parallel {
+  data: {
+    values: [ {
+      horsepower: 110.0;
+      mileage: 21.0;
+    }
+    , {
+      horsepower: 75.0;
+      mileage: 35.0;
+    }
+    ];
+  }
   dimensions: {
     horsepower: {
       axis: {
-        title: 'Horsepower';
         grid: true;
+        title: 'Horsepower';
       }
     }
-    mileage: {}
+    mileage: {
+    }
   }
   order: [horsepower, mileage];
-  data: {
-    values: [
-      { horsepower: 110.0; mileage: 21.0; },
-      { horsepower: 75.0; mileage: 35.0; }
-    ];
-  }
   mark parallel_line as line {
     dimensions: {
-      horsepower: "horsepower";
-      mileage: "mileage";
+      horsepower: encoded "horsepower";
+      mileage: encoded "mileage";
     }
-    stroke: value '#4682b4';
+    stroke: direct '#4682b4';
   }
 }

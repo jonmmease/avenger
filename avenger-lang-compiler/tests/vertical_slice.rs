@@ -322,26 +322,26 @@ chart cartesian as chart {
     ];
   }
   mark symbol as points {
-    x: "x";
-    y: "y";
-    fill: "value" {
+    x: encoded "x";
+    y: encoded "y";
+    fill: encoded "value" {
       legend: {
         overlay: {
           mark group as thresholds {
             data: { values: [{ lo: 2.0; hi: 7.0; }]; }
             mark rect as band {
-              x: 0.0;
-              x2: 1.0;
-              y: "lo";
-              y2: "hi";
-              fill: value 'rgba(37, 99, 235, 0.20)';
+              x: encoded 0.0;
+              x2: encoded 1.0;
+              y: encoded "lo";
+              y2: encoded "hi";
+              fill: direct 'rgba(37, 99, 235, 0.20)';
             }
           }
           mark rule as midpoint {
-            x: 0.0;
-            x2: 1.0;
-            y: 5.0;
-            stroke: value '#1d4ed8';
+            x: encoded 0.0;
+            x2: encoded 1.0;
+            y: encoded 5.0;
+            stroke: direct '#1d4ed8';
           }
         }
       }
@@ -381,9 +381,9 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
             }
           }
           mark symbol as point {
-            x: summarized.total;
-            y: summarized.total;
-            size: value 80.0;
+            x: encoded summarized.total;
+            y: encoded summarized.total;
+            size: direct 80.0;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -406,12 +406,12 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
 }
 
 #[tokio::test]
-async fn native_surface_bare_channel_literals_scale_and_value_literals_bypass() {
+async fn native_surface_explicit_channel_modes_map_to_runtime_policy() {
     let source = r#"avenger 1;
         chart cartesian as chart {
           mark symbol as point {
-            x: 1.0;
-            y: value 2.0;
+            x: encoded 1.0;
+            y: direct 2.0;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -421,12 +421,88 @@ async fn native_surface_bare_channel_literals_scale_and_value_literals_bypass() 
     let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
     assert!(
         json.contains("\"Scaled\""),
-        "bare channel literal did not lower as scaled: {json}"
+        "encoded channel literal did not lower as scaled: {json}"
     );
     assert!(
         json.contains("\"Value\""),
-        "explicit value literal did not bypass scaling: {json}"
+        "direct channel literal did not bypass scaling: {json}"
     );
+}
+
+#[tokio::test]
+async fn explicit_channel_modes_control_transform_output_metadata() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ amount: 1.0; }, { amount: 4.0; }, { amount: 9.0; }]; }
+  transform bin as bins {
+    field: "amount";
+    maxbins: 3;
+  }
+  mark rect as bars {
+    x: encoded bins.start;
+    x2: direct bins.end;
+    y: direct 0.0;
+    y2: direct 20.0;
+  }
+}
+"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(
+        json.contains("\"Scaled\""),
+        "encoded transform output did not preserve channel metadata: {json}"
+    );
+    assert!(
+        json.contains("\"Value\""),
+        "direct transform output did not discard scale metadata: {json}"
+    );
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn mixed_conditional_channel_modes_lower_in_source_order() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: {
+    values: [
+      { x: 1.0; category: 'A'; selected: false; alert: true; },
+      { x: 2.0; category: 'B'; selected: true; alert: false; }
+    ];
+  }
+  mark symbol as points {
+    x: encoded "x";
+    y: direct "x" * 20.0;
+    fill: encoded "category" {
+      when { predicate: "selected"; direct: '#2563eb'; }
+      when { predicate: "alert"; encoded: "category"; }
+      otherwise: { direct: '#94a3b8'; }
+      legend: { title: 'Category'; }
+    }
+  }
+}
+"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"Conditional\""), "{json}");
+    assert!(json.contains("\"Value\""), "{json}");
+    assert!(json.contains("\"Scaled\""), "{json}");
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
 }
 
 #[tokio::test]
@@ -435,14 +511,14 @@ async fn native_surface_common_mark_state_and_channel_domain_policy_are_preserve
         chart cartesian as chart {
           data: { values: [{ x: 1.0; y: 2.0; category: 'A'; }]; }
           mark symbol as point {
-            x: "x" {
+            x: encoded "x" {
               domain_contribution: exclude;
               scale: linear {
                 domain: [0.0, 2.0];
               }
             }
-            y: "y";
-            fill_pattern: "category" {
+            y: encoded "y";
+            fill_pattern: encoded "category" {
               domain_contribution: exclude;
             }
             visible: true;
@@ -483,15 +559,15 @@ async fn native_surface_statistical_compound_marks_lower_with_public_parts() {
             ];
           }
           mark box_plot as summary {
-            x: "category";
-            y: "amount";
+            x: encoded "category";
+            y: encoded "amount";
             orientation: vertical;
             extent: 1.5;
-            fill: "category";
+            fill: encoded "category";
           }
           mark violin as distribution {
-            x: "category";
-            y: "amount";
+            x: encoded "category";
+            y: encoded "amount";
             orientation: vertical;
             bandwidth: 0.0;
             steps: 40;
@@ -501,7 +577,7 @@ async fn native_surface_statistical_compound_marks_lower_with_public_parts() {
             density_data_scope: level(1);
             width: 0.8;
             width_normalization: per_violin;
-            fill: "category";
+            fill: encoded "category";
           }
         }"#;
     let compiler = source_compiler(source, None);
@@ -560,8 +636,8 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
             double_click_clear: true;
           }
           mark symbol as points {
-            x: "x";
-            y: "y";
+            x: encoded "x";
+            y: encoded "y";
             details: [id];
           }
         }"#;
@@ -598,7 +674,7 @@ chart cartesian as chart {
   param selection as second_selection { empty: none; }
   tool point_selection as first { selection: first_selection; fields: [id]; }
   tool point_selection as second { selection: second_selection; fields: [id]; }
-  mark symbol as points { x: "x"; y: "y"; details: [id]; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; details: [id]; }
 }"#;
     let artifact = source_compiler(source, None)
         .compile_chart("chart.avenger", None)
@@ -672,10 +748,10 @@ async fn native_surface_concat_cells_lower_as_mixed_coordinate_subplots() {
 
           cell cartesian as left {
             label: 'Left cell';
-            mark symbol { x: "x"; y: "y"; }
+            mark symbol { x: encoded "x"; y: encoded "y"; }
           }
           cell polar as right {
-            mark symbol { theta: "x"; r: "y"; size: value 100; }
+            mark symbol { theta: encoded "x"; r: encoded "y"; size: direct 100; }
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -711,7 +787,7 @@ async fn native_surface_vconcat_grid_and_wrap_lower_through_registered_packs() {
               data: {{ values: [{{ x: 1.0; y: 2.0; }}]; }}
               {properties}
               cell cartesian {placement} {{
-                mark symbol {{ x: "x"; y: "y"; }}
+                mark symbol {{ x: encoded "x"; y: encoded "y"; }}
               }}
             }}"#
         );
@@ -765,7 +841,7 @@ async fn native_surface_facets_lower_configured_dimensions_and_nested_cells() {
               ]; }}
               {dimensions}
               cell cartesian as leaf {{
-                mark rect {{ x: "category"; y: "value"; }}
+                mark rect {{ x: encoded "category"; y: encoded "value"; }}
               }}
             }}"#
         );
@@ -796,11 +872,11 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
 
           cell cartesian {
             when: repeat.row_id <> repeat.column_id;
-            mark symbol { x: repeat.column; y: repeat.row; }
+            mark symbol { x: encoded repeat.column; y: encoded repeat.row; }
           }
           cell zerod {
             when: repeat.row_id = repeat.column_id;
-            mark text { text: repeat.row_title; }
+            mark text { text: encoded repeat.row_title; }
           }
         }"#;
     let artifact = source_compiler(grid, None)
@@ -817,7 +893,7 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
           variable item hp { expr: "hp"; }
           responsive_columns: 180;
           cell cartesian {
-            mark symbol { x: repeat.item; y: repeat.item; }
+            mark symbol { x: encoded repeat.item; y: encoded repeat.item; }
           }
         }"#;
     let artifact = source_compiler(wrap, None)
@@ -833,17 +909,17 @@ async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() 
     for (coordinate, placement, child_coordinate, child_channels) in [
         (
             "cartesian",
-            r#"x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
-               y: avg("y") { scale: linear { domain: [0.0, 4.0]; } }
-               key: "category"; width: 120; height: 90;"#,
+            r#"x: encoded avg("x") { scale: linear { domain: [0.0, 2.0]; } }
+               y: encoded avg("y") { scale: linear { domain: [0.0, 4.0]; } }
+               key: encoded "category"; width: 120; height: 90;"#,
             "polar",
-            r#"r: "r"; theta: "theta";"#,
+            r#"r: encoded "r"; theta: encoded "theta";"#,
         ),
         (
             "polar",
-            r#"r: avg("r"); theta: avg("theta"); key: "category"; width: 100; height: 80;"#,
+            r#"r: encoded avg("r"); theta: encoded avg("theta"); key: encoded "category"; width: 100; height: 80;"#,
             "cartesian",
-            r#"x: "x"; y: "y";"#,
+            r#"x: encoded "x"; y: encoded "y";"#,
         ),
     ] {
         let source = format!(
@@ -935,10 +1011,10 @@ chart parallel as chart {
   order: [first, second];
   data: { values: [{ x: 1.0; y: 2.0; }]; }
   mark parallel_line {
-    dimensions: { first: "x"; second: "y"; }
+    dimensions: { first: encoded "x"; second: encoded "y"; }
   }
   mark parallel_symbol {
-    dimensions: { first: "x" + 1; second: "y"; }
+    dimensions: { first: encoded "x" + 1; second: encoded "y"; }
   }
 }"#;
     source_compiler(valid, None)
@@ -1003,13 +1079,13 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
           }
           data: { values: [{ category: 'A'; x: 1.0; y: 2.0; }]; }
           mark symbol as point {
-            x: "x" { scale: linear { domain: [0.0, 4.0]; } axis: { title: 'X'; } }
-            y: "y" { scale: linear; axis: { title: 'Y'; } }
-            fill: "category" {
+            x: encoded "x" { scale: linear { domain: [0.0, 4.0]; } axis: { title: 'X'; } }
+            y: encoded "y" { scale: linear; axis: { title: 'Y'; } }
+            fill: encoded "category" {
               scale: ordinal { domain: ['A', 'B']; range: ['#5778a4', '#e49444']; }
               legend: { title: 'Category'; position: right; }
             }
-            size: value 80.0;
+            size: direct 80.0;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -1038,7 +1114,7 @@ async fn direct_canvas_params_remain_available_for_host_resize_binding() {
             plot: auto;
           }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
-          mark symbol { x: "x"; y: "y"; }
+          mark symbol { x: encoded "x"; y: encoded "y"; }
         }"#;
     let artifact = source_compiler(source, None)
         .compile_chart("chart.avenger", None)
@@ -1067,7 +1143,7 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
             datetime_timezone: 'Europe/Paris';
           }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
-          mark symbol { x: "x"; y: "y"; }
+          mark symbol { x: encoded "x"; y: encoded "y"; }
         }"#;
     let artifact = source_compiler(source, None)
         .compile_chart("chart.avenger", None)
@@ -1089,7 +1165,7 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
         chart cartesian as chart {
           theme css from 'theme.css';
           data: { values: [{ x: 1.0; y: 2.0; }]; }
-          mark symbol { x: "x"; y: "y"; }
+          mark symbol { x: encoded "x"; y: encoded "y"; }
         }"#;
     let root = std::env::temp_dir().join(format!("avenger-theme-test-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
@@ -1595,7 +1671,7 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               transform filter {
                 predicate: viewport.x.pixels > 0;
               }
-              mark symbol { x: "x"; y: "y"; }
+              mark symbol { x: encoded "x"; y: encoded "y"; }
             }
           }
         }"#;
@@ -1622,12 +1698,12 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
               transform filter {
                 predicate: viewport.x.pixels > 0;
               }
-              mark symbol { x: "x"; y: "y"; }
+              mark symbol { x: encoded "x"; y: encoded "y"; }
             }
           }"#,
         r#"mark symbol as viewed_point {
-            x: "x";
-            y: "y";
+            x: encoded "x";
+            y: encoded "y";
             view cartesian as viewport {
               x_domain: "x";
               y_domain: "y";
@@ -1690,7 +1766,7 @@ async fn native_surface_geo_tile_resources_lower_through_typed_references() {
           }
           mark symbol as station {
             lon_lat: [-73.9857, 40.7484];
-            size: value 64.0;
+            size: direct 64.0;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -1714,10 +1790,10 @@ async fn mark_channel_access_preserves_the_referenced_expression_type() {
         chart cartesian as chart {
           data: { values: [{ row: 1; }]; }
           mark rect as interval {
-            x: 'a';
-            x2: channel.x || '-end';
-            y: 0.0;
-            y2: 1.0;
+            x: encoded 'a';
+            x2: encoded channel.x || '-end';
+            y: encoded 0.0;
+            y2: encoded 1.0;
           }
         }"#;
     source_compiler(source, None)
@@ -1738,8 +1814,8 @@ async fn item_data_access_preserves_struct_physical_types() {
             }];
           }
           mark symbol as points {
-            x: "x";
-            y: "y";
+            x: encoded "x";
+            y: encoded "y";
             derive text as labels {
               text: 'present';
               x: item.channel.x;
@@ -1769,9 +1845,9 @@ async fn event_domain_facet_and_legend_property_accesses_lower() {
             ];
           }
           mark symbol as points {
-            x: "x";
-            y: "y";
-            fill: "value" {
+            x: encoded "x";
+            y: encoded "y";
+            fill: encoded "value" {
               legend: { title: 'Value'; }
             }
           }
@@ -1807,7 +1883,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
           }
           param selection as picked { empty: none; combine: union; }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
-          mark symbol as points { x: "x"; y: "y"; }
+          mark symbol as points { x: encoded "x"; y: encoded "y"; }
           on cursor_moved as drag {
             target: mark points;
             filter: $enabled AND (selection_contains(picked, datum."x") OR true);
@@ -2169,7 +2245,7 @@ async fn native_surface_text_input_editing_exports_are_reference_driven() {
             position: top;
           }
           mark text as cursor_label {
-            text: $query.cursor_position;
+            text: direct $query.cursor_position;
           }
         }"#;
     let referenced = source_compiler(referenced, None)
@@ -2207,7 +2283,7 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
             "missing data column",
             r#"avenger 1; chart cartesian as chart {
                 data: { values: [{ x: 1.0; y: 2.0; }]; }
-                mark symbol as point { x: "missing"; y: "y"; }
+                mark symbol as point { x: encoded "missing"; y: encoded "y"; }
             }"#,
             None,
             "missing",
@@ -2216,7 +2292,7 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
             "invalid scale config",
             r#"avenger 1; chart cartesian as chart {
                 data: { values: [{ x: 1.0; y: 2.0; }]; }
-                mark symbol as point { x: "x" { scale: linear { zero: 'yes'; } } y: "y"; }
+                mark symbol as point { x: encoded "x" { scale: linear { zero: 'yes'; } } y: encoded "y"; }
             }"#,
             None,
             "zero",
@@ -2226,8 +2302,8 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
             r#"avenger 1; chart cartesian as chart {
                 data: { values: [{ x: 1.0; y: 2.0; }]; }
                 mark symbol as point {
-                    x: "x";
-                    y: "y";
+                    x: encoded "x";
+                    y: encoded "y";
                     exclude_from_scale_domains: true;
                 }
             }"#,
@@ -2239,8 +2315,8 @@ async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
             r#"avenger 1; chart cartesian as chart {
                 data: { values: [{ x: 1.0; y: 2.0; }]; }
                 mark symbol as point {
-                    x: "x" { domain_contribution: maybe; }
-                    y: "y";
+                    x: encoded "x" { domain_contribution: maybe; }
+                    y: encoded "y";
                 }
             }"#,
             None,
@@ -2422,7 +2498,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         " as stem;",
         " as point;",
         "private mark group as __av_",
-        "fill: value '#dc2626';",
+        "fill: direct '#dc2626';",
         "public mark text as labels",
         "widget slider as threshold",
     ] {
@@ -2719,7 +2795,7 @@ chart cartesian as chart {
   transform summarize as stats {
     measures: sum("amount") AS total, avg("amount") AS average;
   }
-  mark symbol { x: stats.total; y: stats.average; }
+  mark symbol { x: encoded stats.total; y: encoded stats.average; }
 }
 "#,
         None,
@@ -2758,7 +2834,7 @@ chart cartesian as chart {
   transform broken as projected {
     columns: "amount" + 1 AS adjusted;
   }
-  mark symbol { x: "category"; y: projected.adjusted; }
+  mark symbol { x: encoded "category"; y: encoded projected.adjusted; }
 }
 "#,
         None,
@@ -2858,7 +2934,7 @@ chart cartesian as chart {
     values: [{ category: 'A'; value: 2.0; __private_existing: 1.0; }];
   }
   transform summarize as summary { measure: "value"; }
-  mark symbol { x: "category"; y: summary.adjusted; }
+  mark symbol { x: encoded "category"; y: encoded summary.adjusted; }
 }
 "#,
     )

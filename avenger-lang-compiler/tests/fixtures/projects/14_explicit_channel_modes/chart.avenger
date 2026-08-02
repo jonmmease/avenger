@@ -1,0 +1,32 @@
+avenger 1;
+chart cartesian as chart {
+  data: {
+    values: [
+      { x: 1.0; y: 1.0; category: 'alpha'; selected: false; },
+      { x: 2.0; y: 2.0; category: 'beta'; selected: true; },
+      { x: 3.0; y: 3.0; category: 'alpha'; selected: true; },
+      { x: 4.0; y: 2.0; category: 'beta'; selected: false; }
+    ];
+  }
+  mark symbol as points {
+    x: encoded "x" {
+      axis: { title: 'X'; }
+    }
+    y: encoded "y" {
+      axis: { title: 'Y'; }
+    }
+    fill: direct '#94a3b8' {
+      when {
+        predicate: "selected";
+        direct: '#dc2626';
+      }
+      when {
+        predicate: "category" = 'alpha';
+        encoded: "category";
+      }
+    }
+    size: direct 220.0;
+    stroke: direct '#0f172a';
+    stroke_width: direct 1.0;
+  }
+}

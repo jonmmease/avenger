@@ -1,40 +1,57 @@
 avenger 1;
-
 chart cartesian as chart {
   data: {
-    values: [
-      { category: 'A'; amount: CAST(2.0 AS DOUBLE); },
-      { category: 'A'; amount: CAST(3.0 AS DOUBLE); },
-      { category: 'B'; amount: CAST(4.0 AS DOUBLE); },
-      { category: 'B'; amount: CAST(6.0 AS DOUBLE); }
+    values: [ {
+      amount: CAST(2.0 AS DOUBLE);
+      category: 'A';
+    }
+    , {
+      amount: CAST(3.0 AS DOUBLE);
+      category: 'A';
+    }
+    , {
+      amount: CAST(4.0 AS DOUBLE);
+      category: 'B';
+    }
+    , {
+      amount: CAST(6.0 AS DOUBLE);
+      category: 'B';
+    }
     ];
   }
-
   mark group as summarized {
     transform aggregate as totals {
-      group_by: ["category"];
       expressions: sum("amount") AS total;
+      group_by: ["category"];
     }
     transform sql as doubled {
-      query:
-        SELECT category, total * 2.0 AS doubled
-        FROM input
-        ORDER BY category;
+      query: SELECT category, total * 2.0 AS doubled FROM input ORDER BY category;
     }
     mark symbol as points {
-      x: "category" {
+      fill: encoded "category" {
+        legend: {
+          position: right;
+          title: 'Category';
+        }
+        scale: ordinal {
+          range: ['#5778a4', '#e49444'];
+        }
+      }
+      size: direct 100.0;
+      x: encoded "category" {
+        axis: {
+          title: 'Category';
+        }
         scale: point;
-        axis: { title: 'Category'; }
       }
-      y: "doubled" {
-        scale: linear { zero: true; }
-        axis: { title: 'Doubled Total'; }
+      y: encoded "doubled" {
+        axis: {
+          title: 'Doubled Total';
+        }
+        scale: linear {
+          zero: true;
+        }
       }
-      fill: "category" {
-        scale: ordinal { range: ['#5778a4', '#e49444']; }
-        legend: { title: 'Category'; position: right; }
-      }
-      size: value 100.0;
     }
   }
 }

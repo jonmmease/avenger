@@ -177,14 +177,14 @@ fn blessing_enabled() -> bool {
 fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
     let manifest = load_manifest();
     assert_eq!(manifest.schema_version, 1);
-    assert_eq!(manifest.cases.len(), 46, "one case per selected chart");
+    assert_eq!(manifest.cases.len(), 47, "one case per selected chart");
     assert_eq!(
         manifest
             .cases
             .iter()
             .filter(|case| case.expectation == FixtureExpectation::Visual)
             .count(),
-        45
+        46
     );
 
     let mut owners = BTreeMap::new();
@@ -239,7 +239,7 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
 
     let owned = owners.into_keys().collect::<BTreeSet<_>>();
     let discovered = discovered_sources();
-    assert_eq!(owned.len(), 60, "reviewed fixture inventory changed");
+    assert_eq!(owned.len(), 61, "reviewed fixture inventory changed");
     assert_eq!(
         owned, discovered,
         "update visual_cases.json for fixture drift"

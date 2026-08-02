@@ -45,23 +45,23 @@ chart cartesian as chart {
     }
     private mark group as __av_d485012cfe02_chrome_layer {
       private mark symbol as __av_d485012cfe02_chrome {
-        fill: value '#dc2626';
-        size: value 24;
+        fill: direct '#dc2626';
+        size: direct 24;
         visible: $__av_d485012cfe02_enabled;
-        x: "x";
-        y: "y";
+        x: encoded "x";
+        y: encoded "y";
       }
     }
   }
   mark symbol as points {
     details: [id];
-    size: value 80;
-    x: "x" {
+    size: direct 80;
+    x: encoded "x" {
       scale: linear {
         domain: [0.0, 3.0];
       }
     }
-    y: "y" {
+    y: encoded "y" {
       scale: linear {
         domain: [0.0, 3.0];
       }

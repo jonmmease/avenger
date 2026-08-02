@@ -12,7 +12,7 @@ chart cartesian as chart {
     }
 
     mark symbol as points {
-        x: "Horsepower";
-        y: ⟦cursor⟧;
+        x: encoded "Horsepower";
+        y: encoded ⟦cursor⟧;
     }
 }

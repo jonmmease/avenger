@@ -80,7 +80,7 @@ chart cartesian as chart {
   param int64 as upper { value: $lower + 10; }
   param int64 as lower { value: 0; }
   mark group as points {
-    mark symbol as dots { x: "x"; y: "y"; }
+    mark symbol as dots { x: encoded "x"; y: encoded "y"; }
   }
 }
 "#,
@@ -111,8 +111,8 @@ async fn resolved_configured_value_preserves_its_value_head() {
 avenger 1;
 chart cartesian {
   mark symbol as dots {
-    x: "x" { scale: linear; }
-    y: "y";
+    x: encoded "x" { scale: linear; }
+    y: encoded "y";
   }
 }
 "#,
@@ -134,22 +134,15 @@ chart cartesian {
         .iter()
         .find(|declaration| declaration.keyword == "mark")
         .unwrap();
-    let avenger_lang_core::ResolvedValue::Object {
-        head,
-        kind,
-        properties,
-        ..
-    } = &mark.properties["x"]
-    else {
-        panic!("configured channel must resolve to an object")
+    let avenger_lang_core::ResolvedValue::ChannelValue(channel) = &mark.properties["x"] else {
+        panic!("configured channel must resolve to normalized channel semantics")
     };
     assert_eq!(
-        head.as_deref(),
-        Some(&avenger_lang_core::ResolvedValue::Column("x".into()))
+        channel.head.expression.as_ref(),
+        &avenger_lang_core::ResolvedValue::Column("x".into())
     );
-    assert_eq!(kind, &None);
     assert!(
-        matches!(properties.get("scale"), Some(avenger_lang_core::ResolvedValue::Atom(value)) if value == "linear")
+        matches!(channel.configuration.get("scale"), Some(avenger_lang_core::ResolvedValue::Atom(value)) if value == "linear")
     );
 }
 
@@ -163,11 +156,12 @@ avenger 1;
 chart cartesian {
   data: { values: [{ x: 1.0; y: 2.0; }]; }
   mark subplot {
-    x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
-    y: avg("y");
-    plot polar { mark symbol { r: value 1.0; theta: value 0.0; } }
+    x: encoded avg("x") { scale: linear { domain: [0.0, 2.0]; } }
+    y: encoded avg("y");
+    plot polar { mark symbol { r: direct 1.0; theta: direct 0.0; } }
   }
 }
+
 "#,
         )],
         "configured_aggregate_channel.avenger",
@@ -187,13 +181,105 @@ chart cartesian {
         .iter()
         .find(|declaration| declaration.keyword == "mark")
         .unwrap();
-    let avenger_lang_core::ResolvedValue::Object { head, .. } = &mark.properties["x"] else {
-        panic!("configured aggregate channel must resolve to an object")
+    let avenger_lang_core::ResolvedValue::ChannelValue(channel) = &mark.properties["x"] else {
+        panic!("configured aggregate channel must resolve to normalized channel semantics")
     };
     assert!(matches!(
-        head.as_deref(),
-        Some(avenger_lang_core::ResolvedValue::Expression(_))
+        channel.head.expression.as_ref(),
+        avenger_lang_core::ResolvedValue::Expression(_)
     ));
+}
+
+#[tokio::test]
+async fn conditional_channels_normalize_modes_order_and_effective_fallback() {
+    let source = r#"avenger 1;
+chart cartesian {
+  mark symbol as points {
+    fill: encoded "category" {
+      when { predicate: "selected"; direct: '#2563eb'; }
+      when { predicate: "alert"; encoded: "alert_category"; }
+      otherwise: { direct: '#94a3b8'; }
+      legend: { title: 'Category'; }
+    }
+  }
+}
+"#;
+    let project = project(&[("chart.avenger", source)], "chart.avenger").await;
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = &resolved.source_modules.values().next().unwrap().roots[0];
+    let mark = &chart.children[0];
+    let ResolvedValue::ChannelValue(channel) = &mark.properties["fill"] else {
+        panic!("channel must be normalized")
+    };
+    assert_eq!(
+        channel.head.mode,
+        avenger_lang_core::ast::ChannelMode::Encoded
+    );
+    assert_eq!(channel.conditions.len(), 2);
+    assert_eq!(
+        channel.conditions[0].branch.mode,
+        avenger_lang_core::ast::ChannelMode::Direct
+    );
+    assert_eq!(
+        channel.conditions[1].branch.mode,
+        avenger_lang_core::ast::ChannelMode::Encoded
+    );
+    assert_eq!(
+        channel.otherwise.as_ref().unwrap().mode,
+        avenger_lang_core::ast::ChannelMode::Direct
+    );
+    assert_eq!(
+        channel.effective_fallback().mode,
+        avenger_lang_core::ast::ChannelMode::Direct
+    );
+    assert!(channel.configuration.contains_key("legend"));
+}
+
+#[tokio::test]
+async fn channel_mode_contract_reports_focused_diagnostics() {
+    for (body, expected) in [
+        ("mark symbol { x: 1.0; }", "AVENGER-RESOLVE-195"),
+        (
+            "mark symbol { x: direct 1.0 { scale: linear; } }",
+            "AVENGER-RESOLVE-198",
+        ),
+        (
+            "mark symbol { visible: direct true; }",
+            "AVENGER-RESOLVE-202",
+        ),
+        (
+            "mark box_plot { x: none; y: encoded 1.0; }",
+            "AVENGER-RESOLVE-194",
+        ),
+        (
+            "mark symbol { fill: encoded 'a' { when { predicate: true; encoded: 'a'; direct: 'b'; } } }",
+            "AVENGER-RESOLVE-200",
+        ),
+        (
+            "mark symbol { fill: encoded 'a' { when { predicate: true; scaled: 'a'; } } }",
+            "AVENGER-RESOLVE-201",
+        ),
+        (
+            "mark symbol { fill: encoded 'a' { otherwise: { value: 'a'; } } }",
+            "AVENGER-RESOLVE-201",
+        ),
+    ] {
+        let source = format!("avenger 1; chart cartesian {{ {body} }}");
+        let project = project(&[("chart.avenger", &source)], "chart.avenger").await;
+        let failure = resolve_module_graph(&project, &bootstrap_schema())
+            .result
+            .unwrap_err();
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_str() == expected),
+            "{body}: {:?}",
+            failure.diagnostics
+        );
+    }
 }
 
 #[tokio::test]
@@ -205,7 +291,7 @@ async fn typed_object_does_not_satisfy_a_configured_expression_shape() {
 avenger 1;
 chart facet_wrap {
   facet: "region" { slots: shared; }
-  cell cartesian { mark symbol { x: "x"; y: "y"; } }
+  cell cartesian { mark symbol { x: encoded "x"; y: encoded "y"; } }
 }
 "#,
         )],
@@ -225,7 +311,7 @@ chart facet_wrap {
 avenger 1;
 chart facet_wrap {
   facet: linear { slots: shared; }
-  cell cartesian { mark symbol { x: "x"; y: "y"; } }
+  cell cartesian { mark symbol { x: encoded "x"; y: encoded "y"; } }
 }
 "#,
         )],
@@ -273,7 +359,7 @@ chart cartesian {
   param int64 as state { value: 1; }
   mark group {
     param selection as state {}
-    mark symbol { x: "x"; y: "y"; size: $state; }
+    mark symbol { x: encoded "x"; y: encoded "y"; size: encoded $state; }
   }
 }"#,
         )],
@@ -323,7 +409,7 @@ avenger 1;
 chart cartesian as namespaces {
   private param int64 as shared_value { value: 0; }
   private param selection as shared {}
-  mark symbol as shared { x: "x"; y: "y"; }
+  mark symbol as shared { x: encoded "x"; y: encoded "y"; }
   on click as shared {
     target: mark shared;
     set shared = clear;
@@ -363,8 +449,8 @@ avenger 1;
 chart cartesian {
   param selection as picked {}
   param selection as picked {}
-  mark symbol as points { x: "x"; y: "y"; }
-  mark symbol as points { x: "x"; y: "y"; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; }
   on click as handler {}
   on click as handler {}
 }
@@ -571,9 +657,9 @@ chart cartesian as contracts {
   widget radio_button_list as expanded {
     data: { values: [{ value: 'a'; label: 'A'; }]; }
     position: top;
-    mark symbol { x: "x"; y: "y"; }
+    mark symbol { x: encoded "x"; y: encoded "y"; }
   }
-  mark symbol { x: not_sql(); y: "y";
+  mark symbol { x: encoded not_sql(); y: encoded "y";
     view cartesian {}
     view cartesian {}
   }
@@ -637,7 +723,7 @@ chart cartesian as chart {
     export internal as value;
   }
   private mark group as implementation {
-    public mark symbol as visible { x: "x"; y: "y"; }
+    public mark symbol as visible { x: encoded "x"; y: encoded "y"; }
   }
   param int64 as copied { value: $controls.value; }
 }
@@ -692,8 +778,8 @@ chart cartesian {
 avenger 1;
 chart cartesian as exports {
   mark group as component {
-    private mark symbol as first { x: "x"; y: "y"; }
-    private mark symbol as second { x: "x"; y: "y"; }
+    private mark symbol as first { x: encoded "x"; y: encoded "y"; }
+    private mark symbol as second { x: encoded "x"; y: encoded "y"; }
     export first as glyph;
     export second as glyph;
   }
@@ -772,7 +858,7 @@ avenger 1;
 chart cartesian {
   param int64 as a { value: $b; }
   param int64 as b { value: $a; }
-  mark symbol { x: "x"; bogus: 1; }
+  mark symbol { x: encoded "x"; bogus: 1; }
   resource tiles as missing_url { kind: xyz; }
 }
 "#,
@@ -808,8 +894,8 @@ async fn resolve_validates_registered_adjustment_schemas_and_binders() {
 avenger 1;
 chart cartesian {
   mark symbol {
-    x: "x";
-    y: "y";
+    x: encoded "x";
+    y: encoded "y";
     adjust expr { x: item.channel.x; }
     adjust nudge as nudged { dx: 1.0; }
     adjust jitter {
@@ -935,9 +1021,9 @@ export define mark point_pair {
   slot expr vertical_value;
   mark group as body {
     mark symbol as point {
-      horizontal: horizontal_value;
-      vertical: vertical_value;
-      size: channel.horizontal + 1;
+      horizontal: encoded horizontal_value;
+      vertical: encoded vertical_value;
+      size: encoded channel.horizontal + 1;
     }
   }
   export body.point as point;
@@ -962,13 +1048,21 @@ export define mark point_pair {
         point.property_channels.get("horizontal"),
         Some(ResolvedTarget::DefinitionChannel { name, .. }) if name == "horizontal"
     ));
+    let Some(avenger_lang_core::ResolvedValue::ChannelValue(horizontal)) =
+        point.properties.get("horizontal")
+    else {
+        panic!("definition channel head")
+    };
     assert!(matches!(
-        point.properties.get("horizontal"),
-        Some(avenger_lang_core::ResolvedValue::DefinitionArgument(
+        &*horizontal.head.expression,
+        avenger_lang_core::ResolvedValue::DefinitionArgument(
             ResolvedTarget::DefinitionSlot { name, .. }
-        )) if name == "horizontal_value"
+        ) if name == "horizontal_value"
     ));
-    let avenger_lang_core::ResolvedValue::Expression(size) = &point.properties["size"] else {
+    let avenger_lang_core::ResolvedValue::ChannelValue(size) = &point.properties["size"] else {
+        panic!("definition channel helper expression")
+    };
+    let avenger_lang_core::ResolvedValue::Expression(size) = &*size.head.expression else {
         panic!("definition channel helper expression")
     };
     assert!(matches!(
@@ -1044,7 +1138,7 @@ avenger 1;
 import { project } from 'project.avenger';
 chart cartesian as chart {
   transform project as projected { measure: "x"; }
-  mark symbol { x: projected.result; y: "y"; }
+  mark symbol { x: encoded projected.result; y: encoded "y"; }
 }
 "#,
             ),
@@ -1079,10 +1173,14 @@ export define transform project {
         .unwrap();
     let transform = &chart.roots[0].children[0];
     assert!(transform.transform_outputs.contains_key("result"));
-    let avenger_lang_core::ResolvedValue::Expression(expression) =
+    let avenger_lang_core::ResolvedValue::ChannelValue(channel) =
         &chart.roots[0].children[1].properties["x"]
     else {
         panic!("definition output expression")
+    };
+    let avenger_lang_core::ResolvedValue::Expression(expression) = channel.head.expression.as_ref()
+    else {
+        panic!("definition output channel expression")
     };
     assert!(matches!(
         expression.references.as_slice(),
@@ -1130,7 +1228,7 @@ chart cartesian as chart {
       x_domain: "x";
       y_domain: "y";
       transform filter as visible { predicate: viewport.x.pixels > 0; }
-      mark symbol as points { x: "x"; y: "y"; }
+      mark symbol as points { x: encoded "x"; y: encoded "y"; }
     }
   }
 }
@@ -1167,9 +1265,9 @@ chart cartesian {
     view cartesian as viewport {
       x_domain: "x";
       y_domain: "y";
-      mark symbol { x: "x"; y: "y"; }
+      mark symbol { x: encoded "x"; y: encoded "y"; }
     }
-    mark symbol { x: viewport.x.pixels + 0; y: "y"; }
+    mark symbol { x: encoded viewport.x.pixels + 0; y: encoded "y"; }
   }
 }
 "#,
@@ -1202,7 +1300,7 @@ chart cartesian {
     public view cartesian as reusable {
       export child;
       view cartesian as nested {
-        mark symbol as child { x: "x"; y: "y"; }
+        mark symbol as child { x: encoded "x"; y: encoded "y"; }
       }
     }
   }
@@ -1255,7 +1353,7 @@ async fn resolve_named_runtime_ids_ignore_irrelevant_sibling_order() {
 avenger 1;
 chart cartesian as stable {
   param boolean as unrelated { value: true; }
-  mark symbol as stable_mark { x: "x"; y: "y"; }
+  mark symbol as stable_mark { x: encoded "x"; y: encoded "y"; }
   widget radio_button_list as stable_widget {
     data: { values: [{ value: 1; label: 'one'; }]; }
     position: top;
@@ -1274,7 +1372,7 @@ chart cartesian as stable {
     data: { values: [{ value: 1; label: 'one'; }]; }
     position: top;
   }
-  mark symbol as stable_mark { x: "x"; y: "y"; }
+  mark symbol as stable_mark { x: encoded "x"; y: encoded "y"; }
   param boolean as unrelated { value: true; }
 }
 "#,
@@ -1335,7 +1433,7 @@ avenger 1;
 chart cartesian as provenance {
   mark group as composite {
     component_kind: point_pair;
-    mark symbol as point { x: "x"; y: "y"; }
+    mark symbol as point { x: encoded "x"; y: encoded "y"; }
     export point as glyph;
   }
   widget radio_button_list as choice {
@@ -1394,19 +1492,19 @@ import { band } from 'band.avenger';
 chart cartesian as chart {
   data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
   mark symbol as points {
-    x: "x";
-    y: "y";
-    fill: "value" {
+    x: encoded "x";
+    y: encoded "y";
+    fill: encoded "value" {
       legend: {
         overlay: {
           mark group as thresholds {
             data: { values: [{ lo: 2.0; hi: 7.0; }]; }
             mark rect as band {
-              x: 0.0;
-              x2: 1.0;
-              y: "lo";
-              y2: "hi";
-              fill: value 'rgba(37, 99, 235, 0.20)';
+              x: encoded 0.0;
+              x2: encoded 1.0;
+              y: encoded "lo";
+              y2: encoded "hi";
+              fill: direct 'rgba(37, 99, 235, 0.20)';
             }
           }
           mark band as imported_band {}
@@ -1423,11 +1521,11 @@ chart cartesian as chart {
 avenger 1;
 export define mark band {
   mark rect {
-    x: 0.0;
-    x2: 1.0;
-    y: 3.0;
-    y2: 4.0;
-    fill: value 'rgba(220, 38, 38, 0.20)';
+    x: encoded 0.0;
+    x2: encoded 1.0;
+    y: encoded 3.0;
+    y2: encoded 4.0;
+    fill: direct 'rgba(220, 38, 38, 0.20)';
   }
 }
 "#,
@@ -1446,15 +1544,12 @@ export define mark band {
         .unwrap()
         .roots[0];
     let mark = &chart.children[0];
-    let ResolvedValue::Object {
-        properties: fill, ..
-    } = &mark.properties["fill"]
-    else {
+    let ResolvedValue::ChannelValue(fill) = &mark.properties["fill"] else {
         panic!("configured fill channel")
     };
     let ResolvedValue::Object {
         properties: legend, ..
-    } = &fill["legend"]
+    } = &fill.configuration["legend"]
     else {
         panic!("legend block")
     };
@@ -1495,7 +1590,7 @@ async fn resolve_legend_overlay_rejects_empty_properties_and_non_mark_children()
         ),
     ] {
         let source = format!(
-            "avenger 1; chart cartesian {{ mark symbol {{ fill: 1.0 {{ legend: {{ {overlay} }} }} }} }}"
+            "avenger 1; chart cartesian {{ mark symbol {{ fill: encoded 1.0 {{ legend: {{ {overlay} }} }} }} }}"
         );
         let project = project(&[("chart.avenger", &source)], "chart.avenger").await;
         let failure = resolve_module_graph(&project, &bootstrap_schema())
@@ -1527,7 +1622,7 @@ chart cartesian as pipeline {
   transform aggregate as stats {
     expressions: sum("amount") AS total;
   }
-  mark symbol as points { x: stats.total; y: "y"; }
+  mark symbol as points { x: encoded stats.total; y: encoded "y"; }
 }
 "#,
         )],
@@ -1541,8 +1636,12 @@ chart cartesian as pipeline {
     let transform = &root.children[0];
     assert!(transform.transform_outputs.contains_key("total"));
     let mark = &root.children[1];
-    let avenger_lang_core::ResolvedValue::Expression(expression) = &mark.properties["x"] else {
+    let avenger_lang_core::ResolvedValue::ChannelValue(channel) = &mark.properties["x"] else {
         panic!("x expression")
+    };
+    let avenger_lang_core::ResolvedValue::Expression(expression) = channel.head.expression.as_ref()
+    else {
+        panic!("x channel expression")
     };
     assert!(matches!(
         expression.references.as_slice(),
@@ -1558,7 +1657,7 @@ chart cartesian as pipeline {
             r#"
 avenger 1;
 chart cartesian as future {
-  mark symbol { x: stats.total; y: "y"; }
+  mark symbol { x: encoded stats.total; y: encoded "y"; }
   transform aggregate as stats {
     expressions: sum("amount") AS total;
   }
@@ -1615,7 +1714,7 @@ chart cartesian {
   transform select as projected {
     expressions: "category", "amount" * 2 AS doubled;
   }
-  mark symbol { x: "category"; y: projected.doubled; }
+  mark symbol { x: encoded "category"; y: encoded projected.doubled; }
 }
 "#,
         )],
@@ -1672,7 +1771,7 @@ chart cartesian as pipeline {
       expressions: sum(first.total) AS final;
     }
   }
-  mark symbol as points { x: summarized.final; y: "y"; }
+  mark symbol as points { x: encoded summarized.final; y: encoded "y"; }
 }
 "#,
         )],
@@ -1832,7 +1931,7 @@ chart cartesian as wrong_bindings {
     query:
       SELECT * FROM $scalar;
   }
-  mark symbol { x: $relation + 1; y: "y"; }
+  mark symbol { x: encoded $relation + 1; y: encoded "y"; }
 }
 "#,
         )],
@@ -1997,7 +2096,7 @@ async fn resolve_event_routes_temporal_reads_and_ordered_typed_actions() {
 avenger 1;
 chart cartesian as events {
   param int8 as x { value: 0; }
-  mark symbol as points { x: "x"; y: "y"; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; }
   on cursor_moved as drag {
     target: mark points;
     scope: plot;
@@ -2073,7 +2172,7 @@ avenger 1;
 chart cartesian as helpers {
   param float64 as cursor_x { value: 0; }
   param selection as picked {}
-  mark symbol as points { x: channel.y + 1; y: "y"; }
+  mark symbol as points { x: encoded channel.y + 1; y: encoded "y"; }
   on click {
     target: mark points;
     filter: selection_contains(picked, datum."id") = true;
@@ -2090,8 +2189,12 @@ chart cartesian as helpers {
         .result
         .unwrap();
     let root = &resolved.source_modules.values().next().unwrap().roots[0];
-    let avenger_lang_core::ResolvedValue::Expression(x) = &root.children[2].properties["x"] else {
+    let avenger_lang_core::ResolvedValue::ChannelValue(channel) = &root.children[2].properties["x"]
+    else {
         panic!("mark channel expression")
+    };
+    let avenger_lang_core::ResolvedValue::Expression(x) = channel.head.expression.as_ref() else {
+        panic!("mark channel SQL expression")
     };
     assert!(matches!(
         x.contextual_accesses.as_slice(),
@@ -2139,7 +2242,7 @@ chart cartesian as helpers {
             r#"
 avenger 1;
 chart cartesian as bad_helpers {
-  mark symbol as points { x: channel.missing + 1; y: "y"; }
+  mark symbol as points { x: encoded channel.missing + 1; y: encoded "y"; }
   on click { target: mark points; filter: event.coord.missing > 0; }
 }
 "#,
@@ -2169,7 +2272,7 @@ async fn resolve_datum_fields_are_contextual_and_reject_removed_forms() {
 avenger 1;
 chart cartesian as datum_chart {
   data: { values: [{ id: 1; }]; }
-  mark symbol as points { x: 1; y: 1; }
+  mark symbol as points { x: encoded 1; y: encoded 1; }
   on click {
     target: mark points;
     filter: DATUM."id" = datum."id";
@@ -2235,7 +2338,7 @@ chart cartesian as bad_datum {{
             r#"
 avenger 1;
 chart cartesian as outside {
-  mark symbol { x: datum."id"; y: 1; }
+  mark symbol { x: encoded datum."id"; y: encoded 1; }
 }
 "#,
         )],
@@ -2268,8 +2371,8 @@ chart cartesian as events {
     primary_key: [id];
   }
   param selection as picked { empty: none; combine: union; }
-  cell cartesian as overview { mark symbol as points { x: "x"; y: "y"; } }
-  cell cartesian as detail { mark symbol as points { x: "x"; y: "y"; } }
+  cell cartesian as overview { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
+  cell cartesian as detail { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
   on cursor_moved as drag {
     target: marks [overview.points, detail.points];
     scope: subplots [overview, detail];
@@ -2352,7 +2455,7 @@ async fn resolve_rejects_invalid_scene_query_mark_targets() {
 avenger 1;
 chart cartesian as bad_scene_targets {
   param selection as picked { empty: none; combine: union; }
-  mark group as panel { mark symbol as points { x: "x"; y: "y"; } }
+  mark group as panel { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
   widget radio_button_list as choice {
     data: { values: [{ value: 'a'; label: 'A'; }]; }
     position: top;

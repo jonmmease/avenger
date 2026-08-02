@@ -1,42 +1,46 @@
 avenger 1;
-
 import { error_bar } from 'error_bar.avenger';
 
 chart cartesian as chart {
   data: {
-    values: [
-      { category: 'A'; low: 1.0; high: 3.0; center: 2.0; },
-      { category: 'B'; low: 2.0; high: 5.0; center: 3.5; }
+    values: [ {
+      category: 'A';
+      center: 2.0;
+      high: 3.0;
+      low: 1.0;
+    }
+    , {
+      category: 'B';
+      center: 3.5;
+      high: 5.0;
+      low: 2.0;
+    }
     ];
   }
-
   mark error_bar as errors {
-    category_axis: x;
-    value_axis: y;
-    category: "category";
-    low: "low";
-    high: "high";
-    center: "center";
-    mode: show;
     annotations: {
       mark text as labels {
-        x: "category";
-        y: "center";
-        text: "category";
+        text: encoded "category";
+        x: encoded "category";
+        y: encoded "center";
       }
     }
-
+    category: "category";
+    category_axis: x;
+    center: "center";
+    high: "high";
+    low: "low";
+    mode: show;
+    value_axis: y;
     part point {
-      fill: value '#dc2626';
-      size: value 64;
+      fill: direct '#dc2626';
+      size: direct 64;
     }
   }
-
   widget slider as threshold {
-    position: bottom;
-    min: 0.0;
-    max: 10.0;
     default: 2.0;
+    max: 10.0;
+    min: 0.0;
+    position: bottom;
   }
-
 }

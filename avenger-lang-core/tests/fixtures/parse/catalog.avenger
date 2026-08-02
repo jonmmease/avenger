@@ -1,21 +1,28 @@
 avenger 1;
-
 catalog memory as local {
   schema tables as vega {
     table inline as movies {
-      values: [
-        { title: 'A'; rating: 8.5; },
-        { title: 'B'; rating: 7.25; },
+      values: [ {
+        rating: 8.5;
+        title: 'A';
+      }
+      , {
+        rating: 7.25;
+        title: 'B';
+      }
       ];
     }
     table sql as popular {
-      param float64 as minimum { value: 8; }
       sql: FROM vega.movies AS m SELECT m.* WHERE m.rating >= $minimum;
+      param float64 as minimum {
+        value: 8;
+      }
     }
   }
 }
 
 catalog iceberg as warehouse {
   uri: 'https://example.invalid/catalog';
-  schema namespace as analytics {}
+  schema namespace as analytics {
+  }
 }

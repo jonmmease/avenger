@@ -1,35 +1,66 @@
 avenger 1;
-
 chart cartesian as chart {
   data: {
-    values: [
-      { x: CAST(1.0 AS DOUBLE); y: CAST(2.5 AS DOUBLE); },
-      { x: CAST(2.0 AS DOUBLE); y: CAST(3.2 AS DOUBLE); },
-      { x: CAST(3.0 AS DOUBLE); y: CAST(4.8 AS DOUBLE); },
-      { x: CAST(4.0 AS DOUBLE); y: CAST(3.1 AS DOUBLE); },
-      { x: CAST(5.0 AS DOUBLE); y: CAST(5.9 AS DOUBLE); },
-      { x: CAST(6.0 AS DOUBLE); y: CAST(7.2 AS DOUBLE); },
-      { x: CAST(7.0 AS DOUBLE); y: CAST(6.5 AS DOUBLE); },
-      { x: CAST(8.0 AS DOUBLE); y: CAST(8.1 AS DOUBLE); },
-      { x: CAST(9.0 AS DOUBLE); y: CAST(7.8 AS DOUBLE); },
-      { x: CAST(10.0 AS DOUBLE); y: CAST(9.5 AS DOUBLE); }
+    values: [ {
+      x: CAST(1.0 AS DOUBLE);
+      y: CAST(2.5 AS DOUBLE);
+    }
+    , {
+      x: CAST(2.0 AS DOUBLE);
+      y: CAST(3.2 AS DOUBLE);
+    }
+    , {
+      x: CAST(3.0 AS DOUBLE);
+      y: CAST(4.8 AS DOUBLE);
+    }
+    , {
+      x: CAST(4.0 AS DOUBLE);
+      y: CAST(3.1 AS DOUBLE);
+    }
+    , {
+      x: CAST(5.0 AS DOUBLE);
+      y: CAST(5.9 AS DOUBLE);
+    }
+    , {
+      x: CAST(6.0 AS DOUBLE);
+      y: CAST(7.2 AS DOUBLE);
+    }
+    , {
+      x: CAST(7.0 AS DOUBLE);
+      y: CAST(6.5 AS DOUBLE);
+    }
+    , {
+      x: CAST(8.0 AS DOUBLE);
+      y: CAST(8.1 AS DOUBLE);
+    }
+    , {
+      x: CAST(9.0 AS DOUBLE);
+      y: CAST(7.8 AS DOUBLE);
+    }
+    , {
+      x: CAST(10.0 AS DOUBLE);
+      y: CAST(9.5 AS DOUBLE);
+    }
     ];
   }
-
   mark group as points {
     mark symbol as dots {
-      x: "x" {
+      fill: direct '#4682b4';
+      size: direct 100.0;
+      stroke: direct '#000000';
+      stroke_width: direct 1.0;
+      x: encoded "x" {
+        axis: {
+          title: 'X Value';
+        }
         scale: linear;
-        axis: { title: 'X Value'; }
       }
-      y: "y" {
+      y: encoded "y" {
+        axis: {
+          title: 'Y Value';
+        }
         scale: linear;
-        axis: { title: 'Y Value'; }
       }
-      size: value 100.0;
-      fill: value '#4682b4';
-      stroke: value '#000000';
-      stroke_width: value 1.0;
     }
   }
 }

@@ -1,11 +1,24 @@
 avenger 1;
-
 chart cartesian {
-  typed: linear { enabled: true; }
-  column: "amount" { enabled: true; }
-  binding: $radius { enabled: true; }
-  qualified: stats.q1 { enabled: true; }
-  literal: 42 { enabled: true; }
-  parenthesized: (42) { enabled: true; }
-  call: clamp("score", 0, 1) { enabled: true; }
+  binding: $radius {
+    enabled: true;
+  }
+  call: clamp("score", 0, 1) {
+    enabled: true;
+  }
+  column: "amount" {
+    enabled: true;
+  }
+  literal: 42 {
+    enabled: true;
+  }
+  parenthesized: (42) {
+    enabled: true;
+  }
+  qualified: stats.q1 {
+    enabled: true;
+  }
+  typed: linear {
+    enabled: true;
+  }
 }

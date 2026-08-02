@@ -5,5 +5,5 @@ chart cartesian as chart {
         value: 640.0
 
     mark symbol as points {
-        x: "Horsepower";
-        y: amount + ;
+        x: encoded "Horsepower";
+        y: encoded amount + ;

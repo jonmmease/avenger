@@ -14,8 +14,8 @@ define mark badge {
   export points as marks;
   private mark group as implementation {
     public mark symbol as points {
-      size: $radius;
-      x: channel.x;
+      size: encoded $radius;
+      x: encoded channel.x;
     }
     match style {
       dot {

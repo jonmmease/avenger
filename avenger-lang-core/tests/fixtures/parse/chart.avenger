@@ -2,29 +2,36 @@ avenger 1;
 import * as data from './catalog.avenger';
 
 chart cartesian as values {
-  string_value: 'Avenger';
-  exact_integer: 9007199254740993;
-  decimal_value: 12345678901234567890.12345678901234567890;
-  negative_zero: -0;
-  exponent_value: 1.25E+003;
-  boolean_value: true;
-  null_value: null;
-  column_value: "Horsepower";
+  array_value: [1, 'two', 3, none];
   atom_value: median;
-  expression_value: (1 + 2) * 3;
   binding_value: $width@start;
-  data: $rows;
-  ref_value: mark points;
-  visual_value: value 42;
-  dimension_value: dim pixels.x_dim;
-  pattern_value: pattern { angle: 45; }
-  environment_value: env 'AVENGER_TOKEN';
-  none_value: none;
-  array_value: [1, 'two', value 3, none];
-  block_value: { enabled: true; }
-  configured_value: "amount" { scale: linear { nice: true; } }
+  block_value: {
+    enabled: true;
+  }
+  boolean_value: true;
   call_value: span(0, 100);
-
+  channel_value: direct 42;
+  column_value: "Horsepower";
+  configured_value: "amount" {
+    scale: linear {
+      nice: true;
+    }
+  }
+  data: $rows;
+  decimal_value: 12345678901234567890.12345678901234567890;
+  dimension_value: dim pixels.x_dim;
+  environment_value: env 'AVENGER_TOKEN';
+  exact_integer: 9007199254740993;
+  exponent_value: 1.25e3;
+  expression_value: (1 + 2) * 3;
+  negative_zero: -0;
+  none_value: none;
+  null_value: null;
+  pattern_value: pattern {
+    angle: 45;
+  }
+  ref_value: mark points;
+  string_value: 'Avenger';
   param float64 as width {
     value: 640;
   }
@@ -32,6 +39,6 @@ chart cartesian as values {
     schema: struct(field(float64, 'x'));
   }
   mark symbol as points {
-    x: "Horsepower";
+    x: encoded "Horsepower";
   }
 }

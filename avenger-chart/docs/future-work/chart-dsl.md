@@ -17,8 +17,8 @@ cut and its per-phase gates — is
 
 Adopted decisions (2026-07-07): a required `avenger 1;` version pragma; SQL
 string semantics everywhere with mandatory double-quoted data columns and
-bare identifiers reserved for DSL names; `value` as the only unscaled
-spelling; SQL-shaped contextual accesses (`channel.x`, `event.coord.x`,
+bare identifiers reserved for DSL names; explicit `encoded` and `direct`
+channel modes; SQL-shaped contextual accesses (`channel.x`, `event.coord.x`,
 `datum."field"`, ...) for compiler-provided values; operation functions retain
 bare DSL-space arguments and strings only where their signature explicitly
 accepts data-space names; `sql:` restricted
@@ -88,7 +88,7 @@ single-key tagged values, SQL islands as canonical text, closed node set —
 under round-trip laws (printing is total and canonical, one layout
 engine shared with `avenger fmt`; `parse(print(ast)) == ast`), so specs are produced and
 consumed without the Rust library, validated structurally by a frozen
-hand-written core JSON Schema (closed fifteen-tag value inventory) and
+hand-written core JSON Schema (closed sixteen-tag value inventory) and
 semantically by a full JSON Schema generated from the authoring schema;
 and the EBNF grammar below.
 
@@ -189,6 +189,17 @@ identifiers. A constrained `slot outputs` carries the same named projection
 shape through a custom transform definition and makes its caller-authored
 aliases that instance's public output handles.
 
+Adopted 2026-08-02: **every expression-driven channel states its evaluation
+mode explicitly.** `encoded <sql-expression>` applies the channel policy
+registered by the active mark and coordinate profile, including a scale when
+that policy is scale-bearing. `direct <sql-expression>` uses the evaluated
+value in the channel's output space and bypasses scale creation, domain
+inference, and scale application. Both accept the same arbitrary scalar SQL
+expressions; neither means “constant.” Ordered conditional branches use the
+parallel `encoded:` and `direct:` properties. Bare channel expressions, the
+old `value <expression>` qualifier, and the old conditional `scaled:` and
+`value:` properties are not part of language version 1.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
@@ -211,8 +222,9 @@ aliases that instance's public output handles.
 - Data columns are always double-quoted (`"horsepower"`); a bare identifier
   is never a column. Bare names belong to the DSL: kinds, properties, enum
   values, transform aliases, contextual namespaces, and intrinsic operations.
-- `value` is the only unscaled spelling. A bare expression in a channel slot
-  is always scaled; `value '#2563eb'` is a literal visual value.
+- Every expression-driven channel chooses `encoded` or `direct` explicitly.
+  `encoded` invokes the registered channel policy; `direct` bypasses scale and
+  domain processing but still accepts row-varying SQL expressions.
 - Scalar, store, and selection params share one param namespace. `$name`
   references the nearest scalar-valued param or table-valued store, and `$component.alias`
   references an exported binding; the surrounding scalar or relation-valued slot
@@ -479,7 +491,7 @@ from SQL:
 | Form | Meaning | Example |
 | --- | --- | --- |
 | `'...'` | string literal | `title: 'Horsepower';` |
-| `"..."` | data column reference | `x: "horsepower";` |
+| `"..."` | data column reference | `x: encoded "horsepower";` |
 | bare identifier | DSL name: kind, property, enum value, alias, contextual namespace, intrinsic operation | `scale: linear`, `totals.amount`, `median(...)` |
 | `$name` | lexical value-binding reference | `"mpg" >= $min_mpg`, `data: $brush` |
 | `$path.to.name` | exported value-binding reference | `"mpg" >= $controls.min_mpg` |
@@ -534,19 +546,23 @@ what makes the rest of the language unambiguous:
   shadows a struct-bearing column name earns an editor warning, and the
   quoted form always reaches the data.
 
-Literal channel values use the `value` prefix — the only unscaled spelling.
-A bare expression in a channel slot is always a scaled expression:
+Expression-driven channel values always state how their SQL expression enters
+the channel:
 
 ```avenger
-fill: "region";                 -- scaled: column feeds a scale
-fill: value '#2563eb';          -- unscaled literal color
-stroke: none;                   -- explicitly absent visual value
-text: value 'Total';            -- literal text (not column "Total")
+fill: encoded "region";                 -- registered encoding policy
+fill: direct '#2563eb';                 -- direct output-space color
+opacity: direct coalesce("alpha", 1.0); -- direct may vary by row
+stroke: none;                           -- explicitly absent channel
+text: direct 'Total';                   -- literal text (not column "Total")
 ```
 
-`none` is the DSL's absent-visual-value literal; SQL `NULL` remains `NULL`
-inside SQL expression slots. The two are distinct: `none` removes a visual
-property, `NULL` is a data value.
+`encoded` does not promise that a scale exists: text and coordinate-owned
+layout channels may have an identity/no-scale encoding policy. `direct` does
+promise that no scale is created or applied and that the expression does not
+contribute to scale-domain inference. `none` is the DSL's absent-channel
+literal; SQL `NULL` remains `NULL` inside SQL expression slots. The two are
+distinct: `none` removes a channel property, while `NULL` is a data value.
 
 ### Physical Arrow Types
 
@@ -891,9 +907,9 @@ chart cartesian as sales_by_category {
     }
 
     mark rect as bars {
-      x: "category";
-      y: 0;
-      y2: totals.total;
+      x: encoded "category";
+      y: encoded 0;
+      y2: encoded totals.total;
     }
   }
 }
@@ -958,8 +974,8 @@ Anonymous declarations are allowed where the object does not need a public name:
 
 ```avenger
 mark rule {
-  x: 0;
-  x2: 1;
+  x: encoded 0;
+  x2: encoded 1;
 }
 ```
 
@@ -988,9 +1004,9 @@ chart cartesian as example {
     }
 
     mark rect as bars {
-      x: "category";
-      y: 0;
-      y2: totals.total;
+      x: encoded "category";
+      y: encoded 0;
+      y2: encoded totals.total;
     }
   }
 }
@@ -1037,7 +1053,7 @@ legal for the particular property.
 
 ```avenger
 mark rect as box {
-  x: stats.q1 {
+  x: encoded stats.q1 {
     scale: linear {
       domain: [0, 36];
       nice: true;
@@ -1048,8 +1064,8 @@ mark rect as box {
     }
   }
 
-  fill: value '#bfdbfe';
-  stroke_width: value 1.5;
+  fill: direct '#bfdbfe';
+  stroke_width: direct 1.5;
 }
 ```
 
@@ -1072,8 +1088,8 @@ mark group as layers {
   }
 
   mark symbol as points {
-    x: "x";
-    y: "y";
+    x: encoded "x";
+    y: encoded "y";
   }
 }
 ```
@@ -1085,7 +1101,7 @@ are double-quoted; strings are single-quoted; bare names are DSL names:
 
 ```avenger
 filter: "amount" >= $min_amount and "region" = $selected_region;
-x: log("amount" + 1);
+x: encoded log("amount" + 1);
 visible: "amount" is not null;
 label: "category" || ': ' || cast("amount" as varchar);
 ```
@@ -1109,7 +1125,7 @@ transform filter {
 
 mark symbol {
   data: $brush;
-  x: "x";
+  x: encoded "x";
 }
 ```
 
@@ -1188,8 +1204,8 @@ transform bin as b {
 }
 
 mark rect as bins {
-  x: b.start;
-  x2: b.end;
+  x: encoded b.start;
+  x2: encoded b.end;
 }
 ```
 
@@ -1200,8 +1216,8 @@ SQL AST nodes before DataFusion planning. Channel references use `channel`:
 
 ```avenger
 mark rect as bars {
-  x: "category";
-  x2: channel.x {
+  x: encoded "category";
+  x2: encoded channel.x {
     band: 1.0;
   }
 }
@@ -1504,7 +1520,7 @@ graduation path when an inline block outgrows its chart.
 chart cartesian as sales_by_region {
   data: { table: 'sales'; }            -- reference a catalog table
 
-  mark rect { x: "region"; y: "amount"; }
+  mark rect { x: encoded "region"; y: encoded "amount"; }
 }
 ```
 
@@ -2063,9 +2079,9 @@ chart cartesian as cars_scatter {
   data: { table: 'vega.cars'; }
 
   mark symbol {
-    x: "Horsepower";
-    y: "Miles_per_Gallon";
-    fill: "Origin";
+    x: encoded "Horsepower";
+    y: encoded "Miles_per_Gallon";
+    fill: encoded "Origin";
   }
 }
 ```
@@ -2108,8 +2124,8 @@ mark group as manual_box_plot {
     }
 
     mark rect as box {
-      x: stats.q1;
-      x2: stats.q3;
+      x: encoded stats.q1;
+      x2: encoded stats.q3;
     }
   }
 }
@@ -2152,7 +2168,7 @@ transform calculate {
 }
 
 mark rect {
-  y: "total";
+  y: encoded "total";
 }
 ```
 
@@ -2276,20 +2292,34 @@ custom transforms are built and shared without touching Rust.
 
 ## Channels
 
-A mark channel is a property. Simple channels use a scaled expression, a
-`value` literal, or `none`:
+A mark channel is a property. Simple expression-driven channels use an
+explicit `encoded` or `direct` mode; optional channels may use `none`:
 
 ```avenger
-x: "amount";
-fill: value '#2563eb';
-opacity: value 0.85;
+x: encoded "amount";
+fill: direct '#2563eb';
+opacity: direct coalesce("row_opacity", 0.85);
 stroke: none;
 ```
+
+`encoded` evaluates its SQL expression and passes the result through the
+channel policy registered by the active mark and coordinate profile. On a
+scale-bearing channel this includes scale resolution, domain contribution,
+and range encoding. On an identity-policy channel it remains encoded even
+though no scale object is used. `direct` evaluates the same class of SQL
+scalar expression and uses the result directly in the channel's declared
+output space. It may reference columns, params, contextual values, or
+transform outputs; it is not restricted to literals or constants.
+
+For a position channel, a direct result is already in the output space
+declared by the coordinate profile. It is not normalized or implicitly
+scaled. The authoring schema states that output type and space when the
+profile knows them.
 
 Configured channels attach a block to the value:
 
 ```avenger
-x: "amount" {
+x: encoded "amount" {
   domain_contribution: infer;
   scale: linear {
     zero: true;
@@ -2301,7 +2331,7 @@ x: "amount" {
   }
 }
 
-fill: "region" {
+fill: encoded "region" {
   scale: ordinal {
     range: ['#5778a4', '#e49444', '#d1615d'];
   }
@@ -2312,7 +2342,7 @@ fill: "region" {
 }
 ```
 
-`domain_contribution` controls whether the scaled values from this channel
+`domain_contribution` controls whether the encoded values from this channel
 participate in automatic scale-domain inference:
 
 - `infer` is the default;
@@ -2324,7 +2354,7 @@ in scale type inference, scale and guide configuration, rendering, and any
 explicit or `raw_domain` domain. Other channels that resolve to the same scale
 continue to contribute normally, so primary and secondary position channels
 such as `x` and `x2` are controlled independently. A conditional channel has
-one `domain_contribution` policy for all of its scaled branches. Scaled pattern
+one `domain_contribution` policy for all of its encoded branches. Encoded pattern
 channels such as `fill_pattern` follow the same rule.
 
 An inferred scale whose only matching channels use
@@ -2334,7 +2364,7 @@ channel or configure an explicit or raw domain.
 Position-channel configuration lives in the same block:
 
 ```avenger
-y: "group" {
+y: encoded "group" {
   scale: band {
     domain: ['Alpha', 'Beta', 'Gamma', 'Delta'];
   }
@@ -2345,7 +2375,7 @@ y: "group" {
   band: 0.26;
 }
 
-y2: "group" {
+y2: encoded "group" {
   band: 0.74;
 }
 ```
@@ -2354,13 +2384,13 @@ Conditionals are ordered `when` child declarations inside the channel block —
 first match wins — with an optional `otherwise`:
 
 ```avenger
-fill: "region" {
+fill: encoded "region" {
   when {
-    predicate: selection_contains(picked, datum."id");
-    value: '#2563eb';
+    predicate: selection_contains($picked, datum."id");
+    direct: '#2563eb';
   }
   otherwise: {
-    value: '#cbd5e1';
+    direct: '#cbd5e1';
   }
   legend: {
     title: 'Region';
@@ -2368,9 +2398,32 @@ fill: "region" {
 }
 ```
 
-Branch payloads are `value: ...;` (literal) or `scaled: <sql-expr>;`
-(scaled), mapping to `ConditionalValue`. Channel-level `scale`, `axis`,
-`legend`, and coordination properties still apply to scaled branches.
+The channel head is the fallback branch unless an `otherwise:` block replaces
+it. Each `when` requires exactly one `predicate:` and exactly one of
+`encoded:` or `direct:`. `when` declarations are evaluated in source order
+and the first matching predicate wins. An `otherwise:` block likewise
+contains exactly one of the two mode properties. Branch payloads accept full
+scalar SQL expressions and modes may be mixed freely:
+
+```avenger
+fill: direct '#94a3b8' {
+  when {
+    predicate: "selected";
+    direct: '#2563eb';
+  }
+  when {
+    predicate: "use_category_color";
+    encoded: "category";
+  }
+}
+```
+
+Channel-level `scale`, `axis`, `legend`, `domain_contribution`, and other
+encoding-policy configuration is legal exactly when at least one effective
+branch is encoded. Only effective encoded branches participate in scale type
+inference and domain collection. An `otherwise:` replacement makes the head
+ineffective for those purposes. A direct-only conditional cannot carry scale
+or guide configuration.
 
 ### Scale Resolution
 
@@ -2391,15 +2444,15 @@ the language-owned ordering and locality rules in this section.
 
 A channel occurrence is **scale-bearing** when all of the following hold:
 
-1. its payload is a bare/scaled expression or a conditional channel with
-   scaled branches, rather than `value`, `none`, or an entirely unscaled
+1. its payload has an effective `encoded` branch, rather than `direct`,
+   `none`, or an entirely direct conditional;
    payload;
 2. the active coordinate profile says that the channel uses a scale; and
 3. the channel resolves to a scale kind, either explicitly or by the inference
    procedure below.
 
-`value` and `none` never create, configure, or contribute to a scale. An
-unscaled branch of an otherwise scale-bearing conditional also does not
+`direct` and `none` never create, configure, or contribute to a scale. A
+direct branch of an otherwise scale-bearing conditional also does not
 contribute a domain value. Coordinate-owned partition/layout inputs, such as
 facet dimensions, may use channel-shaped syntax without being scale-bearing;
 the coordinate's versioned schema declares that distinction.
@@ -2440,9 +2493,10 @@ after expansion.
 #### Scale-kind inference
 
 The compiler first determines the effective physical Arrow input type from the
-first scaled input with a statically known non-`Null` Arrow type in resolved
-mark traversal order. For a conditional channel, only scaled branches
-participate in this check; unscaled branches are typed as `Null`. An Arrow
+first encoded input with a statically known non-`Null` Arrow type in resolved
+mark traversal order. For a conditional channel, only encoded branches
+participate in this check; direct branches are typed as `Null` in the
+compiler-only domain expression. An Arrow
 `List<T>` input is inferred from `T`. Every later contributor must be
 compatible with the selected scale's domain type; otherwise compilation or
 logical planning fails rather than silently selecting a second scale type.
@@ -2487,12 +2541,12 @@ registers `band`, `linear`, `log`, `nested_band`, `ordinal`, `point`, `pow`,
 Unless an explicit non-raw `domain:` is configured, the local domain
 contributor multiset for a scale contains:
 
-- the scaled input expression of every matching channel occurrence on every
+- the encoded input expression of every matching channel occurrence on every
   mark in the plot;
 - every matching mark-owned domain source declared by the native profile,
   such as the generated channels of a native compound mark; and
-- every scaled branch of a matching conditional channel, represented as one
-  conditional expression whose unscaled branches produce `null`.
+- every encoded branch of a matching conditional channel, represented as one
+  conditional expression whose direct branches produce `null`.
 
 Each expression is evaluated against that occurrence's data context after its
 group/view transforms. `mark group` descendants remain in the containing
@@ -2538,7 +2592,7 @@ configuration. An ordinary channel can configure its coordination target in
 the same channel block:
 
 ```avenger
-x: "height" {
+x: encoded "height" {
   domain_scope: shared;
   domain_group: 'height';
 }
@@ -2650,7 +2704,7 @@ Scale blocks are typed property objects; unknown properties are delegated to
 the scale implementation schema:
 
 ```avenger
-x: "amount" {
+x: encoded "amount" {
   scale: linear {
     domain: [0, 100];
     raw_domain: $x_domain;
@@ -2665,7 +2719,7 @@ x: "amount" {
   }
 }
 
-fill: "category" {
+fill: encoded "category" {
   scale: ordinal {
     domain: ['A', 'B', 'C'];
     order_by: sum("amount");
@@ -2691,7 +2745,7 @@ Nested categorical positions use the `nested([...])` channel expression with
 ordered `level` child declarations:
 
 ```avenger
-x: nested(["region", "category"]) {
+x: encoded nested(["region", "category"]) {
   level 0 {
     scope: shared;
     padding_inner: 0.08;
@@ -2721,7 +2775,7 @@ Colorbar overlays are local mark blocks hosted by a standard legend in the
 injected Cartesian colorbar coordinate space:
 
 ```avenger
-fill: "value" {
+fill: encoded "value" {
   scale: linear { domain: [0, 100]; }
   legend: {
     title: 'Value';
@@ -2729,12 +2783,12 @@ fill: "value" {
     overlay: {
       mark group as thresholds {
         mark rule as warning {
-          x: 80;
-          x2: 80;
-          y: 0;
-          y2: 1;
-          stroke: value '#111827';
-          stroke_width: value 2;
+          x: encoded 80;
+          x2: encoded 80;
+          y: encoded 0;
+          y2: encoded 1;
+          stroke: direct '#111827';
+          stroke_width: direct 2;
         }
       }
     }
@@ -3476,7 +3530,7 @@ widget slider as min_fare {
 
 mark rule {
   visible: $show_trend.checked;
-  y: $min_fare.value;
+  y: encoded $min_fare.value;
 }
 ```
 
@@ -3629,8 +3683,8 @@ mark group as viewed_points {
     }
 
     mark symbol as points {
-      x: "x";
-      y: "y";
+      x: encoded "x";
+      y: encoded "y";
     }
   }
 }
@@ -3680,32 +3734,32 @@ chart cartesian {
         }
 
         mark rule as whiskers {
-          x: whisker.whisker_low;
-          x2: whisker.whisker_high;
-          y: "group" { band: 0.5; }
-          y2: "group" { band: 0.5; }
-          stroke: value '#475569';
-          stroke_width: value 1.5;
+          x: encoded whisker.whisker_low;
+          x2: encoded whisker.whisker_high;
+          y: encoded "group" { band: 0.5; }
+          y2: encoded "group" { band: 0.5; }
+          stroke: direct '#475569';
+          stroke_width: direct 1.5;
           zindex: 1;
         }
 
         mark rule as lower_cap {
-          x: whisker.whisker_low;
-          x2: whisker.whisker_low;
-          y: "group" { band: 0.32; }
-          y2: "group" { band: 0.68; }
-          stroke: value '#475569';
-          stroke_width: value 1.5;
+          x: encoded whisker.whisker_low;
+          x2: encoded whisker.whisker_low;
+          y: encoded "group" { band: 0.32; }
+          y2: encoded "group" { band: 0.68; }
+          stroke: direct '#475569';
+          stroke_width: direct 1.5;
           zindex: 2;
         }
 
         mark rule as upper_cap {
-          x: whisker.whisker_high;
-          x2: whisker.whisker_high;
-          y: "group" { band: 0.32; }
-          y2: "group" { band: 0.68; }
-          stroke: value '#475569';
-          stroke_width: value 1.5;
+          x: encoded whisker.whisker_high;
+          x2: encoded whisker.whisker_high;
+          y: encoded "group" { band: 0.32; }
+          y2: encoded "group" { band: 0.68; }
+          stroke: direct '#475569';
+          stroke_width: direct 1.5;
           zindex: 2;
         }
       }
@@ -3718,12 +3772,12 @@ chart cartesian {
         }
 
         mark symbol as outliers {
-          x: "value";
-          y: "group" { band: 0.5; }
-          fill: value '#f97316';
-          stroke: value '#ffffff';
-          stroke_width: value 1.25;
-          size: value 95;
+          x: encoded "value";
+          y: encoded "group" { band: 0.5; }
+          fill: direct '#f97316';
+          stroke: direct '#ffffff';
+          stroke_width: direct 1.25;
+          size: direct 95;
           zindex: 5;
         }
       }
@@ -3739,7 +3793,7 @@ chart cartesian {
       }
 
       mark rect as box {
-        x: stats.q1 {
+        x: encoded stats.q1 {
           scale: linear {
             domain: [0, 36];
           }
@@ -3748,8 +3802,8 @@ chart cartesian {
             grid: true;
           }
         }
-        x2: stats.q3;
-        y: "group" {
+        x2: encoded stats.q3;
+        y: encoded "group" {
           scale: band {
             domain: ['Alpha', 'Beta', 'Gamma', 'Delta'];
           }
@@ -3759,20 +3813,20 @@ chart cartesian {
           }
           band: 0.26;
         }
-        y2: "group" { band: 0.74; }
-        fill: value '#bfdbfe';
-        stroke: value '#2563eb';
-        stroke_width: value 1.5;
+        y2: encoded "group" { band: 0.74; }
+        fill: direct '#bfdbfe';
+        stroke: direct '#2563eb';
+        stroke_width: direct 1.5;
         zindex: 3;
       }
 
       mark rule as median {
-        x: stats.median;
-        x2: stats.median;
-        y: "group" { band: 0.24; }
-        y2: "group" { band: 0.76; }
-        stroke: value '#1e3a8a';
-        stroke_width: value 2.2;
+        x: encoded stats.median;
+        x2: encoded stats.median;
+        y: encoded "group" { band: 0.24; }
+        y2: encoded "group" { band: 0.76; }
+        stroke: direct '#1e3a8a';
+        stroke_width: direct 2.2;
         zindex: 4;
       }
     }
@@ -3833,7 +3887,7 @@ chart cartesian as sales {
   time: { timezone: 'UTC'; week_start: monday; }
   format: { number_locale: 'en-US'; datetime_locale: 'en-US'; }
 
-  mark rect { x: "region"; y: "sales"; }
+  mark rect { x: encoded "region"; y: encoded "sales"; }
 }
 ```
 
@@ -3845,8 +3899,8 @@ may bind that parameter to virtual-canvas resize input. Constants and compound
 expressions remain chart-controlled because a host cannot invert them safely.
 This direct binding is the resize declaration; there is no separate
 `layout.resize` property.
-Non-channel color-valued properties take plain strings — `value` marks
-unscaled *channel* values only.
+Non-channel color-valued properties take plain strings. The `direct` mode is
+needed only at an expression-driven channel boundary.
 
 ## Composition
 
@@ -3863,11 +3917,11 @@ chart hconcat as overview {
 
   cell cartesian as left {
     label: 'Totals over time';        -- cell caption (heading law: never title/subtitle)
-    mark line { x: "date"; y: "total"; }
+    mark line { x: encoded "date"; y: encoded "total"; }
   }
 
   cell cartesian as right {
-    mark rect { x: "category"; y: "amount"; }
+    mark rect { x: encoded "category"; y: encoded "amount"; }
   }
 }
 ```
@@ -3884,15 +3938,19 @@ chart grid_concat as overview_grid {
   row_heights: [auto, fr(1)];
 
   cell cartesian as overview at { row: 0; column: 0; column_span: 2; } {
-    mark line { x: "date"; y: "total"; }
+    mark line { x: encoded "date"; y: encoded "total"; }
   }
 
   cell cartesian as detail at { row: 1; column: 0; } {
-    mark symbol { x: "date"; y: "value"; fill: "category"; }
+    mark symbol {
+      x: encoded "date";
+      y: encoded "value";
+      fill: encoded "category";
+    }
   }
 
   cell zerod as badge at { row: 1; column: 1; } {
-    mark text { text: value 'Summary'; }
+    mark text { text: direct 'Summary'; }
   }
 }
 ```
@@ -3905,9 +3963,15 @@ chart wrap_concat as small_multiples {
   responsive_columns: 220;
   spacing: 10;
 
-  cell cartesian { mark symbol { x: "horsepower"; y: "mpg"; } }
-  cell cartesian { mark rect { x: "cylinders"; y: count(*); } }
-  cell polar { mark line { theta: "month"; radius: "sales"; } }
+  cell cartesian {
+    mark symbol { x: encoded "horsepower"; y: encoded "mpg"; }
+  }
+  cell cartesian {
+    mark rect { x: encoded "cylinders"; y: encoded count(*); }
+  }
+  cell polar {
+    mark line { theta: encoded "month"; radius: encoded "sales"; }
+  }
 }
 ```
 
@@ -3934,7 +3998,7 @@ chart facet as by_region_segment {
   }
 
   cell cartesian {
-    mark rect { x: "category"; y: "sales"; }
+    mark rect { x: encoded "category"; y: encoded "sales"; }
   }
 }
 ```
@@ -3951,7 +4015,11 @@ chart facet_wrap as cars_by_origin {
   }
 
   cell cartesian {
-    mark symbol { x: "horsepower"; y: "mpg"; fill: "origin"; }
+    mark symbol {
+      x: encoded "horsepower";
+      y: encoded "mpg";
+      fill: encoded "origin";
+    }
   }
 }
 ```
@@ -3962,8 +4030,8 @@ Mark-level facet data scope is a normal mark property: `filtered` (default),
 ```avenger
 mark rule as global_median {
   facet_data_scope: broadcast;
-  x: median("value");
-  x2: median("value");
+  x: encoded median("value");
+  x2: encoded median("value");
 }
 ```
 
@@ -4001,12 +4069,16 @@ chart repeat_grid as scatter_matrix {
 
   cell cartesian {
     when: repeat.row_id <> repeat.column_id;
-    mark symbol { x: repeat.column; y: repeat.row; fill: "origin"; }
+    mark symbol {
+      x: encoded repeat.column;
+      y: encoded repeat.row;
+      fill: encoded "origin";
+    }
   }
 
   cell zerod {
     when: repeat.row_id = repeat.column_id;
-    mark text { text: repeat.row_title; }
+    mark text { text: encoded repeat.row_title; }
   }
 }
 ```
@@ -4028,19 +4100,23 @@ mark subplot as mini {
   plot_size: { width: 132; height: 102; }
 
   plot cartesian {
-    mark line { x: "time"; y: "value"; }
+    mark line { x: encoded "time"; y: encoded "value"; }
   }
 }
 
 mark subplot as inset {
-  x: avg("x");
-  y: avg("y");
+  x: encoded avg("x");
+  y: encoded avg("y");
   width: 140;
   height: 90;
   key: "category";
 
   plot cartesian {
-    mark symbol { x: "local_x"; y: "local_y"; fill: "group"; }
+    mark symbol {
+      x: encoded "local_x";
+      y: encoded "local_y";
+      fill: encoded "group";
+    }
   }
 }
 ```
@@ -4067,14 +4143,14 @@ chart cartesian as mpg_by_origin {
     extent: 1.5;
 
     part box {
-      fill: "origin" { legend: none; }
-      stroke: value '#1f2937';
-      opacity: value 0.55;
+      fill: encoded "origin" { legend: none; }
+      stroke: direct '#1f2937';
+      opacity: direct 0.55;
     }
-    part median { stroke: value '#111827'; stroke_width: value 2; }
-    part whiskers { stroke: value '#374151'; }
-    part caps { stroke: value '#374151'; }
-    part outliers { size: value 28; fill: value '#ffffff'; stroke: "origin"; }
+    part median { stroke: direct '#111827'; stroke_width: direct 2; }
+    part whiskers { stroke: direct '#374151'; }
+    part caps { stroke: direct '#374151'; }
+    part outliers { size: direct 28; fill: direct '#ffffff'; stroke: encoded "origin"; }
   }
 
   mark violin as mpg_density {
@@ -4084,7 +4160,7 @@ chart cartesian as mpg_by_origin {
     values: "mpg";
     width_normalization: per_violin;
 
-    part body { fill: "origin"; opacity: value 0.58; }
+    part body { fill: encoded "origin"; opacity: direct 0.58; }
   }
 }
 ```
@@ -4108,9 +4184,9 @@ transform adjustments bind an output alias and route fields through `apply`:
 
 ```avenger
 mark symbol as points {
-  x: "displacement";
-  y: "mpg";
-  fill: "origin";
+  x: encoded "displacement";
+  y: encoded "mpg";
+  fill: encoded "origin";
 
   adjust expr {
     x: item.channel.x + 4;
@@ -4144,9 +4220,9 @@ not ordinary mark-channel slots: they evaluate after the source item's
 channels have been scaled and assign the derived primitive's item-space
 attributes directly. They therefore do not request or contribute to scales,
 and a literal in a `derive` body remains a direct item-space literal without
-the `value` prefix. This is a context distinction rather than a second
-ordinary-channel spelling; `value` remains the only way to bypass a scale in
-an ordinary mark channel or `part` override.
+a mode qualifier. This is a context distinction rather than a second
+ordinary-channel spelling; ordinary mark channels and `part` overrides always
+state `encoded` or `direct`.
 
 ## Themes And CSS
 
@@ -4208,20 +4284,20 @@ chart cartesian as styled {
     @media (width <= 640px) { axis label { font-size: 10px; } }
   ';
 
-  mark symbol { x: "x"; y: "y"; }
+  mark symbol { x: encoded "x"; y: encoded "y"; }
 }
 ```
 
 ## Pattern Fill
 
 Pattern fill is a structured channel value with ordered `layer` children;
-scaled patterns use a pattern-valued scale range (array elements may be
+encoded patterns use a pattern-valued scale range (array elements may be
 `none` or `pattern { ... }` objects):
 
 ```avenger
 mark rect as bars {
-  x: "category";
-  y: "value";
+  x: encoded "category";
+  y: encoded "value";
 
   fill_pattern: pattern {
     anchor: plot;
@@ -4233,7 +4309,7 @@ mark rect as bars {
 ```
 
 ```avenger
-fill_pattern: "scenario" {
+fill_pattern: encoded "scenario" {
   scale: ordinal {
     range: [
       none,
@@ -4332,14 +4408,14 @@ chart geo as map {
 
   mark geo_shape as boroughs {
     geometry: "geom";
-    fill: "borough";
-    stroke: value '#ffffff';
+    fill: encoded "borough";
+    stroke: direct '#ffffff';
   }
 
   mark symbol as stations {
     lon_lat: ["lon", "lat"];
-    size: "ridership";
-    fill: value '#ef4444';
+    size: encoded "ridership";
+    fill: direct '#ef4444';
   }
 }
 ```
@@ -4460,11 +4536,11 @@ chart parallel as cars_parallel {
 
   mark parallel_line as lines {
     dimensions: {
-      mpg: "mpg";
-      horsepower: "horsepower" { scale: linear { nice: true; } }
+      mpg: encoded "mpg";
+      horsepower: encoded "horsepower" { scale: linear { nice: true; } }
     }
-    stroke: "origin";
-    opacity: value 0.35;
+    stroke: encoded "origin";
+    opacity: direct 0.35;
   }
 
   mark parallel_axis_overlay as mpg_overlay {
@@ -4484,8 +4560,8 @@ When the defaults are sufficient, the chart-level map may be omitted entirely:
 chart parallel as compact_parallel {
   mark parallel_line as lines {
     dimensions: {
-      mpg: "miles_per_gallon";
-      horsepower: "engine_horsepower";
+      mpg: encoded "miles_per_gallon";
+      horsepower: encoded "engine_horsepower";
     }
   }
 }
@@ -4501,11 +4577,11 @@ valid mark and channel set:
 ```avenger
 chart zerod as badge {
   mark symbol as status_dot {
-    size: value 160;
-    fill: "status";
-    shape: value 'circle';
+    size: direct 160;
+    fill: encoded "status";
+    shape: direct 'circle';
   }
-  mark text as label { text: "status_label"; }
+  mark text as label { text: encoded "status_label"; }
 }
 ```
 
@@ -4552,27 +4628,27 @@ export define mark error_bar {
     }
 
     mark rule as bar {
-      x: category { band: 0.5; }
-      x2: category { band: 0.5; }
-      y: stats.lo;
-      y2: stats.hi;
-      stroke: value '#374151';
-      stroke_width: value 1.5;
+      x: encoded category { band: 0.5; }
+      x2: encoded category { band: 0.5; }
+      y: encoded stats.lo;
+      y2: encoded stats.hi;
+      stroke: direct '#374151';
+      stroke_width: direct 1.5;
     }
 
     mark rule as caps {
-      x: category { band: 0.5 - cap_width / 2; }
-      x2: category { band: 0.5 + cap_width / 2; }
-      y: stats.lo;
-      y2: stats.lo;
-      stroke: value '#374151';
+      x: encoded category { band: 0.5 - cap_width / 2; }
+      x2: encoded category { band: 0.5 + cap_width / 2; }
+      y: encoded stats.lo;
+      y2: encoded stats.lo;
+      stroke: direct '#374151';
     }
 
     mark symbol as center {
-      x: category { band: 0.5; }
-      y: stats.mid;
-      size: value 42;
-      fill: value '#111827';
+      x: encoded category { band: 0.5; }
+      y: encoded stats.mid;
+      size: direct 42;
+      fill: direct '#111827';
     }
   }
 }
@@ -4647,10 +4723,10 @@ define mark error_bar {
     }
 
     mark rule as bar {
-      band_axis: category { band: 0.5; }
-      value_axis: stats.lo;
-      value_axis2: stats.hi;
-      stroke: value '#374151';
+      band_axis: encoded category { band: 0.5; }
+      value_axis: encoded stats.lo;
+      value_axis2: encoded stats.hi;
+      stroke: direct '#374151';
     }
   }
 }
@@ -4704,8 +4780,8 @@ define mark distribution_summary {
   slot block outlier_marks {
     default: {
       mark symbol as outliers {
-        band_axis: category { band: 0.5; }
-        value_axis: values;
+        band_axis: encoded category { band: 0.5; }
+        value_axis: encoded values;
       }
     }
   }
@@ -4733,10 +4809,10 @@ mark distribution_summary as mpg_summary {
 
   outlier_marks: {
     mark text {
-      band_axis: category { band: 0.5; }
-      value_axis: values;
-      text: datum."name";
-      font_size: value 9;
+      band_axis: encoded category { band: 0.5; }
+      value_axis: encoded values;
+      text: direct datum."name";
+      font_size: direct 9;
     }
   }
 }
@@ -4764,10 +4840,10 @@ define mark trend_panel {
     }
 
     mark line as trend {
-      time_axis: "week";
-      value_axis: "avg_value";
-      stroke: value '#2563eb';
-      stroke_width: value 2;
+      time_axis: encoded "week";
+      value_axis: encoded "avg_value";
+      stroke: direct '#2563eb';
+      stroke_width: direct 2;
     }
 
     annotations;
@@ -4782,11 +4858,11 @@ mark trend_panel as rev {
 
   annotations: {
     mark rule as target {
-      time_axis: min("week");
-      time_axis2: max("week");
-      value_axis: 120000;
-      value_axis2: 120000;
-      stroke: value '#dc2626';
+      time_axis: encoded min("week");
+      time_axis2: encoded max("week");
+      value_axis: encoded 120000;
+      value_axis2: encoded 120000;
+      stroke: direct '#dc2626';
       stroke_dash: [4, 3];
     }
   }
@@ -4863,8 +4939,8 @@ chart cartesian as sales_errors {
     measure: "amount";
     zindex: 3;
 
-    part bar { stroke: value '#dc2626'; stroke_width: value 2; }
-    part center { fill: value '#dc2626'; }
+    part bar { stroke: direct '#dc2626'; stroke_width: direct 2; }
+    part center { fill: direct '#dc2626'; }
   }
 }
 ```
@@ -5096,14 +5172,14 @@ chart cartesian as explorer {
   tool hover_highlight as hover { target: points; }
 
   mark symbol as points {
-    x: "horsepower";
-    y: "mpg";
-    fill: "origin" {
+    x: encoded "horsepower";
+    y: encoded "mpg";
+    fill: encoded "origin" {
       when {
         predicate: selection_contains(hover.hovered, datum."id");
-        value: '#dc2626';
+        direct: '#dc2626';
       }
-      otherwise: { scaled: "origin"; }
+      otherwise: { encoded: "origin"; }
     }
   }
 }
@@ -5290,9 +5366,9 @@ chart cartesian as region_shares {
     }
 
     mark rect {
-      x: "region";
-      y: s.share;
-      fill: "year";
+      x: encoded "region";
+      y: encoded s.share;
+      fill: encoded "year";
     }
   }
 }
@@ -5456,7 +5532,12 @@ transform simple_stack as s {
   mode: center;
 }
 
-mark rect { x: "category"; y: s.start; y2: s.end; fill: "segment"; }
+mark rect {
+  x: encoded "category";
+  y: encoded s.start;
+  y2: encoded s.end;
+  fill: encoded "segment";
+}
 ```
 
 The arms use the shared base through ordinary pipeline chaining: `match`
@@ -5539,8 +5620,8 @@ define mark distribution_summary {
             predicate: values < fence.lo or values > fence.hi;
           }
           mark symbol as outliers {
-            band_axis: category { band: 0.5; }
-            value_axis: values;
+            band_axis: encoded category { band: 0.5; }
+            value_axis: encoded values;
           }
         }
       }
@@ -5874,19 +5955,19 @@ mark group as errs {
 
   private mark group as body {
     mark rule as bar {
-      x: "category";
-      y: "lo";
-      y2: "hi";
+      x: encoded "category";
+      y: encoded "lo";
+      y2: encoded "hi";
     }
     mark symbol as center {
-      x: "category";
-      y: "mid";
+      x: encoded "category";
+      y: encoded "mid";
     }
 
     public mark text as annotation {
-      x: "category";
-      y: "hi";
-      text: value 'high';
+      x: encoded "category";
+      y: encoded "hi";
+      text: direct 'high';
     }
   }
 }
@@ -6211,7 +6292,7 @@ value         = body                                 (* anonymous object *)
               | ident , body                         (* typed object: linear { ... } *)
               | typed_ref
               | array , ";"
-              | "value" , sql_expr , terminator      (* unscaled literal value *)
+              | channel_mode , sql_expr , terminator (* expression-driven channel *)
               | "dim" , qual , ( body | ";" )        (* raster dimension handle *)
               | "pattern" , body
               | "env" , string , ";"                 (* environment variable, capability-gated *)
@@ -6223,8 +6304,9 @@ value         = body                                 (* anonymous object *)
               | sql_expr , terminator ;              (* default expression slot *)
 terminator    = body | ";" ;                         (* config block or semicolon *)
 array         = "[" , [ elem , { "," , elem } , [ "," ] ] , "]" ;
-elem          = body | sql_expr | "value" , sql_expr | "pattern" , body | "none" ;
+elem          = body | sql_expr | "pattern" , body | "none" ;
 qual          = ident , { "." , ident } ;
+channel_mode  = "encoded" | "direct" ;
 
 sql_expr      = ? one sqlparser expression accepted by AvengerSqlDialect ? ;
 sql_projection
@@ -6366,15 +6448,15 @@ lowerer.
   `body` elements. Those bodies must contain only scalar-literal properties and
   no children; all other arrays admit only the element shapes declared by their
   authoring schema.
-- Keywords are contextual. `value`, `pattern`, `dim`, `env`, and
+- Keywords are contextual. `encoded`, `direct`, `pattern`, `dim`, `env`, and
   `none` are recognized only in value-prefix position (immediately after
-  `:`);
+  `:`); `encoded` and `direct` are also property names inside conditional
+  channel branch blocks;
   `level`, `part`, and the other declaration keywords only in
   declaration-head position; `group` is recognized as a mark kind after
   `mark`, and `overlay` is an ordinary schema-known property name. A property
-  may therefore be named `value`
-  (conditional branch payloads are) without colliding with the `value`
-  prefix.
+  may therefore be named `value`, `encoded`, or `direct` outside those
+  structural positions without turning the same words into SQL keywords.
 - Ordered semantics: all child declarations preserve one cross-kind source
   order (`transform` dataflow, mark/group scene order, `cell` placement,
   `when` branch priority, `level` index order, `set` action order); properties
@@ -6783,9 +6865,10 @@ examples plus explicit invariants, not from grammars.
 **The traps list** — each entry contradicts a lookalike prior:
 
 - Double quotes are *data columns*; single quotes are strings
-  (`x: "mpg"`, `title: 'MPG'`) — the inverse of every familiar language.
-- Literal visual values need `value` (`fill: value '#4682b4'`; bare
-  `'red'` is a scaled string, `"red"` is a column reference).
+  (`x: encoded "mpg"`, `title: 'MPG'`) — the inverse of every familiar language.
+- Every expression-driven channel needs a mode (`fill: direct '#4682b4'`;
+  `fill: encoded "category"`). Both modes accept arbitrary scalar SQL
+  expressions; `direct` means bypass the channel scale, not “constant.”
 - Bare identifiers are language-space names — kinds, properties, enums,
   aliases, slots — never columns.
 - Helper arguments use the shape required by their signature. DSL-space names
@@ -6794,7 +6877,7 @@ examples plus explicit invariants, not from grammars.
 - `avenger 1;` first; imports precede a non-empty ordered module-item list;
   a multi-chart module names every chart; `;` terminates a
   property unless a `{ }` config block follows; channel config attaches
-  after the value (`x: "hp" { axis: { title: 'HP'; } }`).
+  after the value (`x: encoded "hp" { axis: { title: 'HP'; } }`).
 - No loops or conditionals: repetition is data (`fold`, `repeat`,
   `facet`); modes are `match`, in definitions only.
 
@@ -6928,7 +7011,7 @@ enum Value {
     Binding(BindingKind, Vec<Name>, BindingTime),
                                       // $name or $component.alias[@time]
     Ref(RefKind, Vec<Name>),         // selection hover.hovered, mark layers.points
-    Visual(Box<Value>),              // value <literal/expression>
+    Channel(ChannelMode, Box<Value>),// encoded/direct <SQL expression>
     Dim(Vec<Name>),                  // dim pixels.x_dim; exactly two segments
     Pattern(Box<Value>),
     Env(String),
@@ -6944,6 +7027,7 @@ struct NumericLiteral {
 
 enum BindingKind { Param, Store }
 enum BindingTime { Current, Start, Previous } // Current is omitted in source/JSON
+enum ChannelMode { Encoded, Direct }
 ```
 
 `SqlProjection` contains one or more parsed SQL select items in source order
@@ -6998,7 +7082,7 @@ tree and source map, not semantic AST identity.
 `Block` is the one composite: an optional *head* value plus a body. All
 three surface shapes lower to it — a bare block (`data: { ... }`, no
 head), a typed object (`scale: linear { ... }`, an `Atom` head), and a
-configured value (`x: "amount" { scale: ... }`,
+configured value (`x: encoded "amount" { scale: ... }`,
 `title: 'Sales' { align: center; }`, `x: dim pixels.x_dim { axis: ... }` —
 the value being configured is the head, whatever its variant). The concrete
 parser deterministically treats a lone `ident` head as the typed-object form;
@@ -7026,16 +7110,16 @@ Serde over these nodes defines the interchange form. Four rules:
   `{"ref": {"kind": "selection", "path": ["hover", "hovered"]}}`,
   `{"env": "ICEBERG_TOKEN"}`, `{"expr": "..."}`,
   `{"projection": "... AS name, ..."}`, `{"query": "..."}`. The
-  inventory is closed — fifteen tags: `num`, `col`, `atom`, `binding`, `expr`,
-  `projection`, `query`, `value`, `dim`, `ref`, `pattern`, `env`, `none`, `block`,
-  `call` — pinned by the core schema below. The `block` tag carries the
+  inventory is closed — sixteen tags: `num`, `col`, `atom`, `binding`, `expr`,
+  `projection`, `query`, `encoded`, `direct`, `dim`, `ref`, `pattern`, `env`,
+  `none`, `block`, `call` — pinned by the core schema below. The `block` tag carries the
   optional head beside `props` and `children`
   (`{"block": {"head": {"col": "amount"}, "props": ...}}`); a typed
   object is simply a `block` whose head is an `atom`. Imports encode their
   `source`, optional `sha256`, and explicit named or namespace `clause`;
   module items encode `exported` plus their generic `declaration`.
-  The prefix tags have deliberately distinct payload shapes: `value` and
-  `pattern` contain another value, `dim` contains one two-segment dotted name,
+  The prefix tags have deliberately distinct payload shapes: `encoded`,
+  `direct`, and `pattern` contain another value, `dim` contains one two-segment dotted name,
   `env` contains a non-empty string, and `none` is exactly `true`. A one-segment binding path uses the compact string payload; a qualified path
   uses an array of two or more path segments. `kind` is always explicit in
   interchange even though source spelling and contextual typing make it
@@ -7086,7 +7170,7 @@ A configured channel shows the head in play — the same `block` tag at
 both altitudes:
 
 ```avenger
-x: "amount" {
+x: encoded "amount" {
   scale: linear { nice: true; }
 }
 ```
@@ -7095,7 +7179,7 @@ x: "amount" {
 {
   "x": {
     "block": {
-      "head": { "col": "amount" },
+      "head": { "encoded": { "col": "amount" } },
       "props": {
         "scale": { "block": { "head": { "atom": "linear" },
                               "props": { "nice": true } } }
@@ -7306,7 +7390,8 @@ reject malformed trees early and cheaply.
         "binding": { "$ref": "#/$defs/binding" },
         "expr": { "type": "string", "minLength": 1 },
         "query": { "type": "string", "minLength": 1 },
-        "value": { "$ref": "#/$defs/value" },
+        "encoded": { "$ref": "#/$defs/value" },
+        "direct": { "$ref": "#/$defs/value" },
         "dim": {
           "type": "string",
           "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*$"
@@ -7374,7 +7459,7 @@ semantics; an ASCII-only regex fallback is non-conforming because source names
 such as `café` and `Δvalue` are valid.
 
 The instance corpus for this schema includes accept/reject and bidirectional
-round-trip cases for every one of the fifteen tags, including exact `num`
+round-trip cases for every one of the sixteen tags, including exact `num`
 spelling, two-segment `dim`, string `env`, boolean-true `none`, compact and
 qualified binding paths, canonical SQL `projection`, and headed/headless
 blocks. It also covers well-formed
@@ -7508,10 +7593,11 @@ position, advance the outer cursor by the SQL parser's consumed token count,
 then inspect the next DSL token:
 
 ```text
-x: amount { ... }
+x: encoded amount { ... }
 ```
 
-In this example, SQL consumes `amount`, then the DSL parser sees `{` and parses
+In this example, the outer parser consumes `encoded`, SQL consumes `amount`,
+then the DSL parser sees `{` and parses
 the channel configuration block. If a SQL expression itself contains braces,
 such as a dictionary/map literal accepted by the chosen SQL dialect, SQL
 consumes those braces before the DSL parser resumes. This avoids making `{`
@@ -8602,12 +8688,12 @@ SQL islands should be parsed strictly when possible, then recovered locally if
 they fail:
 
 ```text
-x: amount + ;
+x: encoded amount + ;
 ```
 
 For this example, the CST and analysis tree keep the surrounding mark and
-property plus an `SqlError` recovery node containing the raw token range for
-`amount +`, and report the SQL diagnostic on that span. `SqlError` is not a
+property plus its `encoded` mode and an `SqlError` recovery node containing the
+raw token range for `amount +`, and report the SQL diagnostic on that span. `SqlError` is not a
 `Value` variant in the strict AST, cannot serialize to interchange JSON, and
 cannot reach resolution or lowering.
 
@@ -8615,8 +8701,9 @@ SQL island recovery boundaries depend on the slot:
 
 - Expression property: stop at a top-level `;`, top-level `{`, `}`, EOF, or a
   plausible next `identifier:`.
-- Channel and `value` payload: stop at a top-level `{` so
-  `x: amount { ... }` still separates the SQL value from configuration.
+- Channel-mode payload: begin after `encoded` or `direct` and stop at a
+  top-level `{` so `x: encoded amount { ... }` still separates the SQL
+  expression from configuration.
 - Explicit output expression: stop before the top-level `as` that introduces
   the required public output name. SQL-internal `AS` tokens inside a complete
   expression remain owned by the SQL parser.

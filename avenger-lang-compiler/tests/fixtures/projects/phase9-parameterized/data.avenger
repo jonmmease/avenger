@@ -1,42 +1,47 @@
 avenger 1;
-
 export schema tables as local {
   table inline as trips {
-    values: [
-      { borough: 'Manhattan'; fare: 12; },
-      { borough: 'Queens'; fare: 18; },
+    values: [ {
+      borough: 'Manhattan';
+      fare: 12;
+    }
+    , {
+      borough: 'Queens';
+      fare: 18;
+    }
     ];
   }
-
   table sql as borough_trips {
-    param utf8 as borough { value: 'Man' || 'hattan'; }
-    param int64 as min_fare { value: (2 * 0.5); }
-    sql:
-      SELECT "borough", "fare"
-      FROM local.trips
-      WHERE "borough" = $borough AND "fare" >= $min_fare;
+    sql: SELECT "borough", "fare" FROM local.trips WHERE "borough" = $borough AND "fare" >= $min_fare;
+    param utf8 as borough {
+      value: 'Man' || 'hattan';
+    }
+    param int64 as min_fare {
+      value: (2 * 0.5);
+    }
   }
-
   table sql as forwarded {
-    param utf8 as requested { value: 'Queens'; }
-    sql:
-      SELECT "borough", "fare"
-      FROM borough_trips(borough => $requested, min_fare => 10);
+    sql: SELECT "borough", "fare" FROM borough_trips(borough => $requested, min_fare => 10);
+    param utf8 as requested {
+      value: 'Queens';
+    }
   }
-
   table sql as configured {
-    param struct(field(utf8, 'label'), field(int64, 'weight')) as config {
-      value: { label: upper('base'); weight: 1 + 1.5; }
-    }
     sql: SELECT $config AS settings;
-  }
-
-  table sql as configured_forwarded {
-    param struct(field(utf8, 'label'), field(int64, 'weight')) as forwarded_settings {
-      value: { label: upper('forwarded'); weight: 1 + 2.5; }
+    param struct(field(utf8, 'label'), field(int64, 'weight')) as config {
+      value: {
+        label: upper('base');
+        weight: 1 + 1.5;
+      }
     }
-    sql:
-      SELECT *
-      FROM configured(config => $forwarded_settings);
+  }
+  table sql as configured_forwarded {
+    sql: SELECT * FROM configured(config => $forwarded_settings);
+    param struct(field(utf8, 'label'), field(int64, 'weight')) as forwarded_settings {
+      value: {
+        label: upper('forwarded');
+        weight: 1 + 2.5;
+      }
+    }
   }
 }

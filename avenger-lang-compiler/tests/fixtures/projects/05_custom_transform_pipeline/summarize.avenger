@@ -1,28 +1,15 @@
 avenger 1;
-
 export define transform summarize {
   slot expr measure;
   output doubled;
   output adjusted;
-
   transform sql as calculate {
-    query:
-      SELECT *,
-        measure * 2.0 AS __private_doubled,
-        measure * 3.0 AS __private_tripled
-      FROM input;
+    query: SELECT *, measure * 2.0 AS __private_doubled, measure * 3.0 AS __private_tripled FROM input;
   }
-
   transform filter {
     predicate: true;
   }
-
   transform sql as finalize {
-    query:
-      SELECT *,
-        __private_doubled AS doubled,
-        __private_tripled + 1.0 AS adjusted,
-        99.0 AS __private_scratch
-      FROM input;
+    query: SELECT *, __private_doubled AS doubled, __private_tripled + 1.0 AS adjusted, 99.0 AS __private_scratch FROM input;
   }
 }

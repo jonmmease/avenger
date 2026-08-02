@@ -2,7 +2,7 @@ avenger 1;
 import * as data from './catalog.avenger';
 
 chart cartesian as values {
-  array_value: [1, 'two', value 3, none];
+  array_value: [1, 'two', 3, none];
   atom_value: median;
   binding_value: $width@start;
   block_value: {
@@ -10,6 +10,7 @@ chart cartesian as values {
   }
   boolean_value: true;
   call_value: span(0, 100);
+  channel_value: direct 42;
   column_value: "Horsepower";
   configured_value: "amount" {
     scale: linear {
@@ -31,7 +32,6 @@ chart cartesian as values {
   }
   ref_value: mark points;
   string_value: 'Avenger';
-  visual_value: value 42;
   param float64 as width {
     value: 640;
   }
@@ -39,6 +39,6 @@ chart cartesian as values {
     schema: struct(field(float64, 'x'));
   }
   mark symbol as points {
-    x: "Horsepower";
+    x: encoded "Horsepower";
   }
 }

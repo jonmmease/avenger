@@ -1,8 +1,14 @@
 avenger 1;
-
 import { badge } from '../marks/badge.avenger';
 
 chart cartesian as chart {
-  data: { values: [{ x: 1.0; y: 2.0; }]; }
-  mark badge as imported_badge {}
+  data: {
+    values: [ {
+      x: 1.0;
+      y: 2.0;
+    }
+    ];
+  }
+  mark badge as imported_badge {
+  }
 }

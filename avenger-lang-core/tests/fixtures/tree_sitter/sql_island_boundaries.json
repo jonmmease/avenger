@@ -22,7 +22,7 @@
       "name": "property_expression",
       "root": "expression",
       "outer_delimiters": [";", "{"],
-      "sites": ["value_property_payload", "property_value"]
+      "sites": ["channel_mode_payload", "property_value"]
     },
     {
       "name": "terminated_expression",
@@ -34,7 +34,7 @@
       "name": "array_expression",
       "root": "expression",
       "outer_delimiters": [",", "]"],
-      "sites": ["array_value_payload", "array_element"]
+      "sites": ["array_element"]
     },
     {
       "name": "aliased_expression",
@@ -203,7 +203,7 @@
     {
       "id": "configured_and_terminated_forms",
       "accepted": true,
-      "source": "avenger 1; define mark sample { slot channel x; output $width + 1 as result; mark symbol as points { x: coalesce(\"x\", 0) { scale: linear {} } filter: \"x\" > 0; } }"
+      "source": "avenger 1; define mark sample { slot channel x; output $width + 1 as result; mark symbol as points { x: encoded coalesce(\"x\", 0) { scale: linear {} } filter: \"x\" > 0; } }"
     },
     {
       "id": "terminated_output_cannot_open_configuration",
@@ -213,7 +213,7 @@
     {
       "id": "mixed_structural_array",
       "accepted": true,
-      "source": "avenger 1; chart cartesian { values: [{ id: 'object'; }, value coalesce(1, 2), pattern { angle: 45; }, none, coalesce([1, 2], [3, 4])]; }"
+      "source": "avenger 1; chart cartesian { values: [{ id: 'object'; }, coalesce(1, 2), pattern { angle: 45; }, none, coalesce([1, 2], [3, 4])]; }"
     },
     {
       "id": "invalid_middle_array_expression",

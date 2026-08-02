@@ -266,7 +266,7 @@ impl Serialize for Value {
             Self::Ref { kind, path } => {
                 tagged(serializer, "ref", &RefPayloadRef { kind: *kind, path })
             }
-            Self::Visual(value) => tagged(serializer, "value", value),
+            Self::Channel { mode, expression } => tagged(serializer, mode.as_str(), expression),
             Self::Dim(path) => tagged(serializer, "dim", &dotted_path(path)),
             Self::Pattern(value) => tagged(serializer, "pattern", value),
             Self::Env(value) => tagged(serializer, "env", value),
@@ -381,7 +381,14 @@ impl<'de> Deserialize<'de> for Value {
                     "query" => Value::Query(Box::new(
                         SqlQuery::parse(&map.next_value::<String>()?).map_err(de::Error::custom)?,
                     )),
-                    "value" => Value::Visual(Box::new(map.next_value()?)),
+                    "encoded" => Value::Channel {
+                        mode: crate::ast::ChannelMode::Encoded,
+                        expression: Box::new(map.next_value()?),
+                    },
+                    "direct" => Value::Channel {
+                        mode: crate::ast::ChannelMode::Direct,
+                        expression: Box::new(map.next_value()?),
+                    },
                     "dim" => Value::Dim(
                         parse_dotted_dim(&map.next_value::<String>()?)
                             .map_err(de::Error::custom)?,
@@ -457,7 +464,8 @@ const VALUE_TAGS: &[&str] = &[
     "expr",
     "projection",
     "query",
-    "value",
+    "encoded",
+    "direct",
     "dim",
     "ref",
     "pattern",
@@ -750,7 +758,7 @@ mod tests {
                 .as_object()
                 .unwrap()
                 .len(),
-            15
+            16
         );
     }
 

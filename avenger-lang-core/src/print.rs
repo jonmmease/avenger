@@ -556,9 +556,10 @@ impl Printer {
                     self.indent -= 1;
                 }
             }
-            Value::Visual(value) => {
-                self.text("value ");
-                self.value(value);
+            Value::Channel { mode, expression } => {
+                self.text(mode.as_str());
+                self.text(" ");
+                self.value(expression);
                 self.line(";");
             }
             Value::Dim(path) => {
@@ -615,9 +616,10 @@ impl Printer {
                 self.text(" ");
                 self.path(path);
             }
-            Value::Visual(value) => {
-                self.text("value ");
-                self.value(value);
+            Value::Channel { mode, expression } => {
+                self.text(mode.as_str());
+                self.text(" ");
+                self.value(expression);
             }
             Value::Dim(path) => {
                 self.text("dim ");

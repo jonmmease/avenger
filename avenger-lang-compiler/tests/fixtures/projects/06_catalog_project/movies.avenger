@@ -1,11 +1,12 @@
 avenger 1;
-
 import { vega } from 'data.avenger';
 
 chart cartesian as movies {
-  data: { table: 'vega.popular'; }
+  data: {
+    table: 'vega.popular';
+  }
   mark symbol {
-    x: "year";
-    y: "rating";
+    x: encoded "year";
+    y: encoded "rating";
   }
 }

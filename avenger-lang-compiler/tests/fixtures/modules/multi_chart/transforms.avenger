@@ -1,5 +1,6 @@
 avenger 1;
-
 export define transform pass {
-  transform filter { predicate: true; }
+  transform filter {
+    predicate: true;
+  }
 }

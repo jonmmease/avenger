@@ -339,7 +339,10 @@ pub enum Value {
         kind: RefKind,
         path: Vec<Name>,
     },
-    Visual(Box<Value>),
+    Channel {
+        mode: ChannelMode,
+        expression: Box<Value>,
+    },
     Dim(Vec<Name>),
     Pattern(Box<Value>),
     Env(String),
@@ -353,6 +356,22 @@ pub enum Value {
         function: Name,
         args: Vec<Value>,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelMode {
+    Encoded,
+    Direct,
+}
+
+impl ChannelMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Encoded => "encoded",
+            Self::Direct => "direct",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

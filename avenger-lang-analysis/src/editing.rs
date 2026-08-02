@@ -91,6 +91,14 @@ pub(crate) fn semantic_tokens(
         });
     };
     let mut tokens = Vec::new();
+    let channel_mode_spans = channel_mode_semantic_spans(syntax);
+    for span in &channel_mode_spans {
+        tokens.push(SemanticToken {
+            span: *span,
+            kind: SemanticTokenKind::Keyword,
+            modifiers: SemanticTokenModifiers::default(),
+        });
+    }
     for symbol in &document.symbols {
         tokens.push(SemanticToken {
             span: symbol.selection_span,
@@ -103,7 +111,11 @@ pub(crate) fn semantic_tokens(
             },
         });
     }
-    for span in document.property_names.keys() {
+    for span in document
+        .property_names
+        .keys()
+        .filter(|span| !channel_mode_spans.contains(span))
+    {
         tokens.push(SemanticToken {
             span: *span,
             kind: SemanticTokenKind::Property,
@@ -187,6 +199,20 @@ pub(crate) fn semantic_tokens(
         generation: analysis.generation,
         source_revision: request.source_revision.clone(),
     })
+}
+
+fn channel_mode_semantic_spans(syntax: &crate::SyntaxAnalysis) -> BTreeSet<SourceSpan> {
+    syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.kind {
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::ChannelMode { .. } => {
+                Some(node.span)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn semantic_reference_span(
@@ -574,6 +600,7 @@ pub(crate) fn code_actions(
     missing_as_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
+    channel_mode_actions(analysis, request, &mut actions);
     contextual_reference_actions(analysis, request, &mut actions);
     inline_definition_action(analysis, request, &mut actions);
     extract_definition_action(analysis, request, &mut actions);
@@ -585,6 +612,267 @@ pub(crate) fn code_actions(
     });
     actions.dedup_by(|left, right| left.title == right.title && left.edit == right.edit);
     Ok(actions)
+}
+
+fn channel_mode_actions(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    for node in syntax.parsed.nodes.iter().filter(|node| {
+        matches!(
+            &node.kind,
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name }
+                if matches!(
+                    name.as_str(),
+                    "scale" | "axis" | "legend" | "domain_contribution" | "band"
+                )
+        ) && spans_overlap(node.span, request.range)
+    }) {
+        if request
+            .diagnostic_codes
+            .iter()
+            .any(|code| code == "AVENGER-RESOLVE-198")
+        {
+            let mut parent = node.parent;
+            while let Some(id) = parent {
+                let Some(candidate) = syntax.parsed.nodes.iter().find(|node| node.id == id) else {
+                    break;
+                };
+                if matches!(
+                    candidate.kind,
+                    avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { .. }
+                ) && !crate::intelligence::channel_body_has_effective_encoded(syntax, candidate)
+                {
+                    let avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name } =
+                        &node.kind
+                    else {
+                        unreachable!("filtered property node")
+                    };
+                    output.push(quick_fix(
+                        format!("Remove ineffective `{name}:` channel configuration"),
+                        request,
+                        node.span,
+                        String::new(),
+                        true,
+                    ));
+                    break;
+                }
+                parent = candidate.parent;
+            }
+            continue;
+        }
+        let Some(owner) = crate::intelligence::owner_symbol(
+            &analysis.semantic_index,
+            &request.source,
+            node.span.range.start,
+        ) else {
+            continue;
+        };
+        let Some(schema) = crate::intelligence::schema_for_symbol(
+            &analysis.registry,
+            owner,
+            &analysis.semantic_index,
+        ) else {
+            continue;
+        };
+        let mut parent = node.parent;
+        let mut channel_property = None;
+        while let Some(id) = parent {
+            let Some(candidate) = syntax.parsed.nodes.iter().find(|node| node.id == id) else {
+                break;
+            };
+            if let avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name } =
+                &candidate.kind
+                && schema.channels.contains_key(name)
+            {
+                channel_property = Some(candidate);
+                break;
+            }
+            parent = candidate.parent;
+        }
+        let Some(channel_property) = channel_property else {
+            continue;
+        };
+        if crate::intelligence::channel_body_has_effective_encoded(syntax, channel_property) {
+            continue;
+        }
+        let avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name } = &node.kind
+        else {
+            unreachable!("filtered property node")
+        };
+        output.push(quick_fix(
+            format!("Remove ineffective `{name}:` channel configuration"),
+            request,
+            node.span,
+            String::new(),
+            true,
+        ));
+    }
+    for node in syntax.parsed.nodes.iter().filter(|node| {
+        matches!(
+            node.kind,
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { .. }
+        ) && spans_overlap(node.span, request.range)
+    }) {
+        let avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name } = &node.kind
+        else {
+            continue;
+        };
+        if matches!(name.as_str(), "scaled" | "value")
+            && has_property_ancestor(&syntax.parsed.nodes, node.parent)
+            && let Some(span) = crate::intelligence::first_word_span(syntax, node.span, name)
+        {
+            let replacement = if name == "scaled" {
+                "encoded"
+            } else {
+                "direct"
+            };
+            output.push(quick_fix(
+                format!("Use `{replacement}:` channel branch"),
+                request,
+                span,
+                replacement.to_owned(),
+                true,
+            ));
+            continue;
+        }
+
+        let significant = syntax
+            .parsed
+            .tokens
+            .tokens()
+            .iter()
+            .filter(|token| {
+                node.span.range.start <= token.span().range.start
+                    && token.span().range.end <= node.span.range.end
+                    && !matches!(
+                        token.kind(),
+                        LosslessTokenKind::Token(
+                            TokenClass::Whitespace(_) | TokenClass::Comment(_)
+                        ) | LosslessTokenKind::Eof
+                    )
+            })
+            .collect::<Vec<_>>();
+        let colon = significant
+            .iter()
+            .position(|token| matches!(token.token(), Some(Token::Colon)));
+        let first = colon.and_then(|colon| significant.get(colon + 1));
+        if first.is_some_and(|token| {
+            matches!(
+                token.token(),
+                Some(Token::Word(word))
+                    if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("value")
+            )
+        }) && colon.is_some_and(|colon| significant.get(colon + 2).is_some())
+        {
+            output.push(quick_fix(
+                "Use `direct` channel mode".to_owned(),
+                request,
+                first.expect("checked first token").span(),
+                "direct".to_owned(),
+                true,
+            ));
+            continue;
+        }
+
+        if request
+            .diagnostic_codes
+            .iter()
+            .any(|code| code == "AVENGER-RESOLVE-195")
+        {
+            let Some(first) = first else {
+                continue;
+            };
+            output.push(quick_fix(
+                "Add `encoded` channel mode".to_owned(),
+                request,
+                SourceSpan::empty(first.span().source, first.span().range.start),
+                "encoded ".to_owned(),
+                true,
+            ));
+            continue;
+        }
+
+        let owner = crate::intelligence::owner_symbol(
+            &analysis.semantic_index,
+            &request.source,
+            node.span.range.start,
+        );
+        let Some(owner) = owner else {
+            continue;
+        };
+        let Some(channel) = crate::intelligence::schema_for_symbol(
+            &analysis.registry,
+            owner,
+            &analysis.semantic_index,
+        )
+        .and_then(|schema| schema.channels.get(name)) else {
+            continue;
+        };
+        if matches!(
+            channel.shape,
+            ValueShape::ChannelConfig | ValueShape::RasterDimensionChannel
+        ) {
+            continue;
+        }
+        let Some(colon) = significant
+            .iter()
+            .position(|token| matches!(token.token(), Some(Token::Colon)))
+        else {
+            continue;
+        };
+        let Some(first) = significant.get(colon + 1) else {
+            continue;
+        };
+        let first_word = match first.token() {
+            Some(Token::Word(word)) if word.quote_style.is_none() => {
+                Some(word.value.to_ascii_lowercase())
+            }
+            _ => None,
+        };
+        match first_word.as_deref() {
+            Some("encoded" | "direct" | "none" | "pattern" | "dim") => {}
+            Some("value") if significant.get(colon + 2).is_some() => {
+                output.push(quick_fix(
+                    "Use `direct` channel mode".to_owned(),
+                    request,
+                    first.span(),
+                    "direct".to_owned(),
+                    true,
+                ));
+            }
+            _ => output.push(quick_fix(
+                "Add `encoded` channel mode".to_owned(),
+                request,
+                SourceSpan::empty(first.span().source, first.span().range.start),
+                "encoded ".to_owned(),
+                true,
+            )),
+        }
+    }
+}
+
+fn has_property_ancestor(
+    nodes: &[avenger_lang_core::syntax::TolerantSyntaxNode],
+    mut parent: Option<avenger_lang_core::syntax::TolerantSyntaxNodeId>,
+) -> bool {
+    while let Some(id) = parent {
+        let Some(node) = nodes.iter().find(|node| node.id == id) else {
+            return false;
+        };
+        if matches!(
+            node.kind,
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { .. }
+        ) {
+            return true;
+        }
+        parent = node.parent;
+    }
+    false
 }
 
 fn contextual_reference_actions(

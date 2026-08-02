@@ -17,7 +17,7 @@ chart cartesian as chart {
         sql: FROM vega.movies AS m SELECT m.*;
     }
     mark symbol as points {
-        x: "Horsepower";
+        x: encoded "Horsepower";
         size: [$width, 2.0];
     }
 }

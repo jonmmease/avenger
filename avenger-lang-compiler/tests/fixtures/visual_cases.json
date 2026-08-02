@@ -325,6 +325,14 @@
       "review": "reviewed"
     },
     {
+      "root": "14_explicit_channel_modes/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "14_explicit_channel_modes/chart.avenger"
+      ],
+      "review": "reviewed"
+    },
+    {
       "root": "phase9-files/chart.avenger",
       "expectation": "visual",
       "sources": [

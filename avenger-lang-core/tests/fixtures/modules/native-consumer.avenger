@@ -1,11 +1,9 @@
 avenger 1;
-
-import * as acme
-  from 'native:com.acme.avenger.visuals@1';
+import * as acme from 'native:com.acme.avenger.visuals@1';
 
 chart acme.isometric {
   mark acme.hexbin as bins {
-    x: "x";
-    y: "y";
+    x: encoded "x";
+    y: encoded "y";
   }
 }

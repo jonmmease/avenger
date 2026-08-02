@@ -1,27 +1,27 @@
 avenger 1;
-
 import { badge } from 'marks/badge.avenger';
 import { files } from 'data.avenger';
 
 chart cartesian as chart {
-  data: { table: 'files.rows'; }
-
+  data: {
+    table: 'files.rows';
+  }
+  layout: {
+    canvas: {
+      height: $canvas_height;
+      width: $canvas_width;
+    }
+    plot: auto;
+  }
   param float64 as canvas_width {
     value: 640.0;
   }
-
   param float64 as canvas_height {
     value: 420.0;
   }
-
   param float64 as point_size {
     value: 180.0;
   }
-
-  layout: {
-    canvas: { width: $canvas_width; height: $canvas_height; }
-    plot: auto;
+  mark badge as imported_badge {
   }
-
-  mark badge as imported_badge {}
 }

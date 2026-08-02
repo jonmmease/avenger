@@ -1,13 +1,11 @@
 avenger 1;
-
 chart cartesian as chart {
-    param float64 as width {
-        value: 640.0;
-    }
-
-    mark symbol as points {
-        x: "Horsepower";
-        y: "Miles_per_Gallon";
-        size: $width / 64.0;
-    }
+  param float64 as width {
+    value: 640.0;
+  }
+  mark symbol as points {
+    size: encoded $width / 64.0;
+    x: encoded "Horsepower";
+    y: encoded "Miles_per_Gallon";
+  }
 }

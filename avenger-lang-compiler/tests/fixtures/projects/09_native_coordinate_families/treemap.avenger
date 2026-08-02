@@ -1,18 +1,24 @@
 avenger 1;
-
 chart treemap as treemap {
   data: {
-    values: [
-      { region: 'east'; category: 'a'; value: 2.0; },
-      { region: 'west'; category: 'b'; value: 3.0; }
+    values: [ {
+      category: 'a';
+      region: 'east';
+      value: 2.0;
+    }
+    , {
+      category: 'b';
+      region: 'west';
+      value: 3.0;
+    }
     ];
   }
   path: ["region", "category"];
   value: sum("value");
   mark tree_rect as cells {
-    fill: "region";
+    fill: encoded "region";
   }
   mark tree_label as labels {
-    text: "category";
+    text: encoded "category";
   }
 }

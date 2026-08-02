@@ -1,16 +1,17 @@
 avenger 1;
-
 import { local } from 'data.avenger';
 
 chart cartesian as chart {
-  param utf8 as selected { value: 'Manhattan'; }
   data: {
-    table: 'local.borough_trips';
     borough: concat($selected, '');
     min_fare: 2 + 3.5;
+    table: 'local.borough_trips';
+  }
+  param utf8 as selected {
+    value: 'Manhattan';
   }
   mark symbol {
-    x: "borough";
-    y: "fare";
+    x: encoded "borough";
+    y: encoded "fare";
   }
 }

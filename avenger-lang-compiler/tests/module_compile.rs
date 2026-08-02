@@ -142,7 +142,7 @@ define transform attach_country_name {
 chart cartesian {
   data: { values: [{ country_code: 'US'; value: 1.0; }]; }
   transform attach_country_name as enriched {}
-  mark text { text: "country_name"; x: value 1.0; y: "value"; }
+  mark text { text: encoded "country_name"; x: direct 1.0; y: encoded "value"; }
 }
 "#,
             ContentVersion::new("chart-v1"),

@@ -51,8 +51,8 @@ chart cartesian as chart {
     mode: show;
     measure: "value";
     zindex: 2;
-    annotations: { mark text as label { x: "x"; y: "y"; text: value 'ok'; } }
-    part point { fill: value '#dc2626'; }
+    annotations: { mark text as label { x: encoded "x"; y: encoded "y"; text: direct 'ok'; } }
+    part point { fill: direct '#dc2626'; }
   }
 }
 "#,
@@ -66,7 +66,7 @@ export define mark summary {
   slot enum mode { values: [show, hide]; default: show; }
   slot block annotations { exposes: [point]; default: { } }
   export point;
-  mark symbol as point { x: "x"; y: measure; }
+  mark symbol as point { x: encoded "x"; y: encoded measure; }
   match mode {
     show { annotations; }
     hide { }
@@ -92,13 +92,13 @@ import { summary } from 'summary.avenger';
 chart cartesian as chart {
   mark summary as result {
     part point {
-      fill: "category" {
+      fill: encoded "category" {
         when {
           predicate: true;
-          value: '#dc2626';
+          direct: '#dc2626';
         }
         otherwise: {
-          value: '#94a3b8';
+          direct: '#94a3b8';
         }
       }
     }
@@ -113,9 +113,9 @@ avenger 1;
 export define mark summary {
   export point;
   mark symbol as point {
-    x: "x";
-    y: "y";
-    fill: "series" {
+    x: encoded "x";
+    y: encoded "y";
+    fill: encoded "series" {
       legend: {
         title: 'Original';
       }
@@ -133,7 +133,7 @@ export define mark summary {
     let chart = project.requested_modules.first().unwrap();
     let text = expanded.texts.get(chart).unwrap();
 
-    assert!(text.contains("fill: \"category\" {"), "{text}");
+    assert!(text.contains("fill: encoded \"category\" {"), "{text}");
     assert!(text.contains("predicate: true;"), "{text}");
     assert!(text.contains("otherwise: {"), "{text}");
     assert!(!text.contains("\"series\""), "{text}");
@@ -156,7 +156,7 @@ chart cartesian as chart {
   mark summary as result {
     part point {
       adjust expr {
-        size: 2.0;
+        size: direct 2.0;
       }
     }
   }
@@ -169,7 +169,7 @@ chart cartesian as chart {
 avenger 1;
 export define mark summary {
   export point;
-  mark symbol as point { x: "x"; y: "y"; }
+  mark symbol as point { x: encoded "x"; y: encoded "y"; }
 }
 "#,
         ),
@@ -243,7 +243,7 @@ avenger 1;
 import { picker } from 'picker.avenger';
 chart cartesian {
   param boolean as state { value: true; }
-  mark symbol as points { x: "x"; y: "y"; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; }
   tool picker;
   tool picker as wrong_target { target: $state; }
 }
@@ -356,7 +356,7 @@ chart cartesian as chart {
             r#"
 avenger 1;
 export define mark capturing {
-  mark symbol as glyph { x: "x"; y: "y"; visible: $ambient; }
+  mark symbol as glyph { x: encoded "x"; y: encoded "y"; visible: $ambient; }
 }
 "#,
         ),
@@ -365,7 +365,7 @@ export define mark capturing {
             r#"
 avenger 1;
 export define mark private_component {
-  mark symbol as hidden { x: "x"; y: "y"; }
+  mark symbol as hidden { x: encoded "x"; y: encoded "y"; }
 }
 "#,
         ),
@@ -376,8 +376,8 @@ avenger 1;
 export define mark colliding {
   export first as duplicate;
   export second as duplicate;
-  mark symbol as first { x: "x"; y: "y"; }
-  mark symbol as second { x: "x"; y: "y"; }
+  mark symbol as first { x: encoded "x"; y: encoded "y"; }
+  mark symbol as second { x: encoded "x"; y: encoded "y"; }
 }
 "#,
         ),
@@ -441,7 +441,7 @@ chart cartesian {
 avenger 1;
 export define mark shell {
   slot block content;
-  mark symbol { x: "x"; y: "y"; content; }
+  mark symbol { x: encoded "x"; y: encoded "y"; content; }
 }
 "#,
         ),
@@ -482,12 +482,12 @@ chart cartesian as chart {
         set cursor = crosshair;
       }
       mark text as label {
-        band_axis: "category";
-        value_axis: "value";
-        text: value 'ok';
+        band_axis: encoded "category";
+        value_axis: encoded "value";
+        text: direct 'ok';
       }
     }
-    part point { fill: value '#dc2626'; }
+    part point { fill: direct '#dc2626'; }
   }
   mark summary as hidden {
     band_axis: x;
@@ -495,7 +495,7 @@ chart cartesian as chart {
     measure: "value";
     mode: hide;
     annotations: {
-      mark text as hidden_label { x: "x"; y: "y"; text: value 'not selected'; }
+      mark text as hidden_label { x: encoded "x"; y: encoded "y"; text: direct 'not selected'; }
     }
   }
   widget slider as threshold {
@@ -521,9 +521,9 @@ export define mark summary {
   export body.point as point;
   mark group as body {
     mark symbol as point {
-      band_axis: "category";
-      value_axis: measure;
-      size: cap_width * 100;
+      band_axis: encoded "category";
+      value_axis: encoded measure;
+      size: encoded cap_width * 100;
     }
     match mode {
       show { annotations; }
@@ -551,12 +551,12 @@ export define mark summary {
     assert!(text.contains("export __av_"), "{text}");
     assert!(text.contains(" as point;"), "{text}");
     assert!(text.contains("private mark group as __av_"), "{text}");
-    assert!(text.contains("y: \"category\";"), "{text}");
-    assert!(text.contains("x: \"value\";"), "{text}");
+    assert!(text.contains("y: encoded \"category\";"), "{text}");
+    assert!(text.contains("x: encoded \"value\";"), "{text}");
     assert!(text.contains("public mark text as label"), "{text}");
     assert!(!text.contains("hidden_label"), "{text}");
     assert!(text.contains("target: mark __av_"), "{text}");
-    assert!(text.contains("fill: value '#dc2626';"), "{text}");
+    assert!(text.contains("fill: direct '#dc2626';"), "{text}");
     assert!(text.contains("widget slider as threshold"), "{text}");
     assert!(!expanded.source_map.mappings.is_empty());
 
@@ -576,9 +576,9 @@ import { band } from 'band.avenger';
 chart cartesian as chart {
   data: { values: [{ x: 1.0; y: 2.0; value: 5.0; }]; }
   mark symbol as points {
-    x: "x";
-    y: "y";
-    fill: "value" {
+    x: encoded "x";
+    y: encoded "y";
+    fill: encoded "value" {
       legend: {
         overlay: {
           mark band as imported_band {}
@@ -595,11 +595,11 @@ chart cartesian as chart {
 avenger 1;
 export define mark band {
   mark rect {
-    x: 0.0;
-    x2: 1.0;
-    y: 3.0;
-    y2: 4.0;
-    fill: value 'rgba(220, 38, 38, 0.20)';
+    x: encoded 0.0;
+    x2: encoded 1.0;
+    y: encoded 3.0;
+    y2: encoded 4.0;
+    fill: direct 'rgba(220, 38, 38, 0.20)';
   }
 }
 "#,
@@ -634,8 +634,8 @@ chart cartesian as chart {
   mark shell as instance {
     content: {
       mark symbol as caller_mark {
-        x: "x";
-        y: "y";
+        x: encoded "x";
+        y: encoded "y";
         visible: $enabled;
       }
     }
@@ -652,7 +652,7 @@ export define mark shell {
   slot block content { exposes: [inside]; default: { } }
   export inside;
   param boolean as enabled { value: true; }
-  mark symbol as inside { x: "x"; y: "y"; visible: $enabled; }
+  mark symbol as inside { x: encoded "x"; y: encoded "y"; visible: $enabled; }
   content;
 }
 "#,
@@ -718,7 +718,7 @@ avenger 1;
 export define mark shell {
   export local as exposed;
   param boolean as local { value: true; }
-  mark symbol { x: "x"; y: "y"; visible: $local; }
+  mark symbol { x: encoded "x"; y: encoded "y"; visible: $local; }
 }
 "#,
         "exposed",
@@ -730,7 +730,7 @@ avenger 1;
 export define mark shell {
   export local as renamed_export;
   param boolean as local { value: true; }
-  mark symbol { x: "x"; y: "y"; visible: $local; }
+  mark symbol { x: encoded "x"; y: encoded "y"; visible: $local; }
 }
 "#,
         "renamed_export",
@@ -742,7 +742,7 @@ avenger 1;
 export define mark shell {
   export renamed_state as exposed;
   param boolean as renamed_state { value: true; }
-  mark symbol { x: "x"; y: "y"; visible: $renamed_state; }
+  mark symbol { x: encoded "x"; y: encoded "y"; visible: $renamed_state; }
 }
 "#,
         "exposed",
@@ -824,7 +824,7 @@ chart cartesian {
     measure: "value";
     keys: ["group", "region"];
   }
-  mark symbol { x: "group"; y: rolled.value; }
+  mark symbol { x: encoded "group"; y: encoded rolled.value; }
 }
 "#,
         ),
@@ -884,7 +884,7 @@ chart cartesian {
   transform summarize as stats {
     measures: sum("amount") AS Total, avg("amount") AS average;
   }
-  mark symbol { x: stats.Total; y: stats.average; }
+  mark symbol { x: encoded stats.Total; y: encoded stats.average; }
 }
 "#,
         ),
@@ -1106,7 +1106,7 @@ async fn expansion_rejects_an_authored_private_binder_matching_its_generated_nam
     let definition = r#"
 avenger 1;
 export define mark shell {
-  mark symbol as inside { x: "x"; y: "y"; }
+  mark symbol as inside { x: encoded "x"; y: encoded "y"; }
 }
 "#;
     let first_chart = r#"
@@ -1138,7 +1138,7 @@ chart cartesian as chart {
 avenger 1;
 import {{ shell }} from 'shell.avenger';
 chart cartesian as chart {{
-  private mark symbol as {generated} {{ x: "x"; y: "y"; }}
+  private mark symbol as {generated} {{ x: encoded "x"; y: encoded "y"; }}
   mark shell as instance {{}}
 }}
 "#
@@ -1171,7 +1171,7 @@ async fn expansion_inlines_tool_state_events_references_and_exports() {
 avenger 1;
 import { hover } from 'hover.avenger';
 chart cartesian {
-  mark symbol as points { x: "x"; y: "y"; }
+  mark symbol as points { x: encoded "x"; y: encoded "y"; }
   tool hover as highlighter { target: points; }
 }
 "#,

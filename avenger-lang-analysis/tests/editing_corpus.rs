@@ -156,7 +156,7 @@ fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
     let (project_root, files) = compiler_fixture_files();
     assert_eq!(
         files.len(),
-        63,
+        64,
         "fixture additions should update this corpus gate"
     );
 
@@ -182,7 +182,7 @@ fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
         compiler.language_host().authoring_schema().clone(),
     );
     let cancellation = AnalysisCancellation::default();
-    assert_eq!(analysis.semantic_index.documents.len(), 63);
+    assert_eq!(analysis.semantic_index.documents.len(), 64);
     for (origin, syntax) in &analysis.syntax {
         assert!(analysis.semantic_index.documents.contains_key(origin));
         let request = DocumentRequest {
@@ -338,10 +338,10 @@ fn channel_domain_contribution_property_and_values_complete() {
         r#"avenger 1;
 chart cartesian as chart {
   mark symbol {
-    x: "x" {
+    x: encoded "x" {
       ⟦cursor⟧
     }
-    y: "y";
+    y: encoded "y";
   }
 }"#,
     );
@@ -355,10 +355,10 @@ chart cartesian as chart {
         r#"avenger 1;
 chart cartesian as chart {
   mark symbol {
-    x: "x" {
+    x: encoded "x" {
       domain_contribution: ⟦cursor⟧
     }
-    y: "y";
+    y: encoded "y";
   }
 }"#,
     );

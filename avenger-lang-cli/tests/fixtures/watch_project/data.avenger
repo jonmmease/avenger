@@ -1,5 +1,4 @@
 avenger 1;
-
 export schema tables as files {
   table csv as rows {
     path: 'data/rows.csv';

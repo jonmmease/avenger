@@ -1,25 +1,30 @@
 avenger 1;
-
 import { cursor_tool, dot, pass } from 'library.avenger';
 
 chart cartesian as chart {
-  data: { values: [{ x: 1.0; y: 2.0; }]; }
-
-  transform pass { }
-
-  mark dot as points { }
-  tool cursor_tool as pointer { target: mark points.glyph; }
-
-  widget slider as threshold {
-    position: bottom;
-    min: 0.0;
-    max: 10.0;
-    default: 2.0;
+  data: {
+    values: [ {
+      x: 1.0;
+      y: 2.0;
+    }
+    ];
   }
-
+  transform pass {
+  }
+  mark dot as points {
+  }
+  tool cursor_tool as pointer {
+    target: mark points.glyph;
+  }
+  widget slider as threshold {
+    default: 2.0;
+    max: 10.0;
+    min: 0.0;
+    position: bottom;
+  }
   widget text_input as search {
-    position: top;
     default: '';
     placeholder: 'Filter';
+    position: top;
   }
 }

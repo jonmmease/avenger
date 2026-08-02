@@ -25,17 +25,17 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     ChartAction, ChartEventBinding, ChartEventStream, ChartEventType,
-    CompiledScalarExpressionProgram, DataTransformExecutionContext, DataTransformStage,
-    DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec,
-    DerivedTextMarkSpec, ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment,
-    MarkAdjustmentCompileContext, MarkAdjustmentSpec, Param as ChartParam, PatternAnchor,
-    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
-    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PrimitiveMarkEffects,
-    SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
-    SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, StateMigrationKey, StoreData,
-    StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme,
-    TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event, item_bbox_column_name,
-    item_channel_column_name, item_data_column_name,
+    CompiledScalarExpressionProgram, ConditionalValue, DataTransformExecutionContext,
+    DataTransformStage, DefaultLogicalExprNodeExt, DerivedPrimitiveMarkSpec, DerivedRectMarkSpec,
+    DerivedRuleMarkSpec, DerivedSymbolMarkSpec, DerivedTextMarkSpec, ExpressionMarkAdjustmentSpec,
+    FormattingContext, ItemChannelAssignment, MarkAdjustmentCompileContext, MarkAdjustmentSpec,
+    Param as ChartParam, PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
+    PatternLayerOperation, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions,
+    PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
+    SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate,
+    StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
+    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
+    item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
@@ -71,6 +71,7 @@ use datafusion::{
     logical_expr::{Expr, ExprSchemable, LogicalPlan, TableScan, cast, col, lit},
     prelude::{SessionContext, make_array, named_struct},
 };
+use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use sqlparser::{
     ast::{Expr as SqlExpr, Value as SqlValue, VisitMut, VisitorMut},
@@ -3761,9 +3762,12 @@ impl<'a> ModuleLowerer<'a> {
                 NativeValue::String(value.clone())
             }
             ResolvedValue::Null => NativeValue::Scalar(ScalarValue::Null),
+            ResolvedValue::ChannelValue(_) => {
+                return self.channel_value(value, data, declaration);
+            }
             ResolvedValue::Column(_)
             | ResolvedValue::Expression(_)
-            | ResolvedValue::Visual(_)
+            | ResolvedValue::Channel { .. }
             | ResolvedValue::Binding(_) => {
                 NativeValue::Expr(self.expression_value(value, data, declaration)?)
             }
@@ -3939,31 +3943,53 @@ impl<'a> ModuleLowerer<'a> {
         declaration: &ResolvedDeclaration,
     ) -> Result<NativeValue, Diagnostic> {
         let data_expr = match value {
-            ResolvedValue::Object { head, .. } => match head {
+            ResolvedValue::ChannelValue(channel) => {
+                self.channel_data_expr(&channel.effective_fallback().expression, data, declaration)?
+            }
+            ResolvedValue::Object {
+                head, properties, ..
+            } => match properties
+                .get("otherwise")
+                .and_then(conditional_branch_expression)
+                .or(head.as_deref())
+            {
                 Some(head) => self.channel_data_expr(head, data, declaration)?,
                 None => lit(1.0_f64),
             },
             _ => self.channel_data_expr(value, data, declaration)?,
         };
         let mut channel = match value {
+            ResolvedValue::ChannelValue(resolved) => {
+                self.lower_resolved_channel_value(resolved, data, declaration)?
+            }
             ResolvedValue::Object {
-                head, properties, ..
+                head,
+                properties,
+                children,
+                ..
             } => {
                 // Configuration-only channels (for example a raster's
                 // opacity-by-total scale) intentionally omit a data head. A
                 // scaled numeric seed asks the native owner/runtime to supply
                 // the real values while retaining ordinary scale metadata.
-                let channel = match head {
+                let mut channel = match head {
                     Some(head) => self.raw_channel_value(head, data, declaration)?,
                     None => ChannelValue::from(lit(1.0_f64)),
                 };
+                if !children.is_empty() || properties.contains_key("otherwise") {
+                    channel = self.apply_channel_conditions(
+                        channel,
+                        children,
+                        properties.get("otherwise"),
+                        data,
+                        declaration,
+                    )?;
+                }
                 self.apply_channel_configs(channel, properties, data, declaration)?
             }
             _ => self.raw_channel_value(value, data, declaration)?,
         };
-        if matches!(value, ResolvedValue::Visual(_)) {
-            channel = channel.no_scale();
-        } else if channel.get_scale_config().is_none()
+        if channel.get_scale_config().is_none()
             && matches!(
                 &channel,
                 ChannelValue::Scaled { .. } | ChannelValue::Conditional { .. }
@@ -3987,6 +4013,108 @@ impl<'a> ModuleLowerer<'a> {
         Ok(NativeValue::Channel(Box::new(ChannelExpr::new(
             data_expr, channel,
         ))))
+    }
+
+    fn lower_resolved_channel_value(
+        &self,
+        resolved: &avenger_lang_core::ResolvedChannelValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChannelValue, Diagnostic> {
+        let fallback = resolved.effective_fallback();
+        let mut channel = self.raw_resolved_channel_branch(fallback, data, declaration)?;
+        if !resolved.conditions.is_empty() {
+            let conditions = resolved
+                .conditions
+                .iter()
+                .map(|condition| {
+                    let predicate =
+                        self.expression_value(&condition.predicate, data, declaration)?;
+                    let predicate = LogicalExprNode::from_default_expr(predicate)
+                        .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                    let branch =
+                        self.resolved_conditional_branch(&condition.branch, data, declaration)?;
+                    Ok((predicate, branch))
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?;
+            let otherwise = self.resolved_conditional_branch(fallback, data, declaration)?;
+            channel = match channel {
+                ChannelValue::Scaled {
+                    scale_config,
+                    nested_band_config,
+                    legend_config,
+                    axis_config,
+                    domain_coordination,
+                    transform_scope,
+                    scale_domain_inference,
+                    ..
+                } => ChannelValue::Conditional {
+                    conditions,
+                    otherwise,
+                    scale_config,
+                    nested_band_config,
+                    legend_config,
+                    axis_config,
+                    domain_coordination,
+                    transform_scope,
+                    scale_domain_inference,
+                },
+                ChannelValue::Value { .. } => ChannelValue::Conditional {
+                    conditions,
+                    otherwise,
+                    scale_config: None,
+                    nested_band_config: None,
+                    legend_config: None,
+                    axis_config: None,
+                    domain_coordination: None,
+                    transform_scope: None,
+                    scale_domain_inference: ScaleDomainInference::Infer,
+                },
+                ChannelValue::Conditional { .. } => {
+                    return Err(lowerer_error(
+                        declaration,
+                        "authored channel conditions cannot wrap a conditional transform output",
+                    ));
+                }
+            };
+        }
+        self.apply_channel_configs(channel, &resolved.configuration, data, declaration)
+    }
+
+    fn raw_resolved_channel_branch(
+        &self,
+        branch: &avenger_lang_core::ResolvedChannelBranch,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChannelValue, Diagnostic> {
+        match branch.mode {
+            avenger_lang_core::ast::ChannelMode::Encoded => {
+                self.raw_channel_value(&branch.expression, data, declaration)
+            }
+            avenger_lang_core::ast::ChannelMode::Direct => Ok(ChannelValue::from(
+                self.channel_data_expr(&branch.expression, data, declaration)?,
+            )
+            .no_scale()),
+        }
+    }
+
+    fn resolved_conditional_branch(
+        &self,
+        branch: &avenger_lang_core::ResolvedChannelBranch,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ConditionalValue, Diagnostic> {
+        let expression = self.channel_data_expr(&branch.expression, data, declaration)?;
+        let expression = LogicalExprNode::from_default_expr(expression)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        Ok(match branch.mode {
+            avenger_lang_core::ast::ChannelMode::Encoded => {
+                ConditionalValue::Scaled { expr: expression }
+            }
+            avenger_lang_core::ast::ChannelMode::Direct => {
+                ConditionalValue::Value { expr: expression }
+            }
+        })
     }
 
     fn channel_data_expr(
@@ -4016,7 +4144,12 @@ impl<'a> ModuleLowerer<'a> {
             }),
             ResolvedValue::Boolean(value) => Ok(lit(*value)),
             ResolvedValue::Null => Ok(lit(ScalarValue::Null)),
-            ResolvedValue::Visual(inner) => self.expression_value(inner, data, declaration),
+            ResolvedValue::ChannelValue(channel) => {
+                self.channel_data_expr(&channel.effective_fallback().expression, data, declaration)
+            }
+            ResolvedValue::Channel {
+                expression: inner, ..
+            } => self.channel_data_expr(inner, data, declaration),
             _ => self.expression_value(value, data, declaration),
         }
     }
@@ -4030,6 +4163,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Result<ChannelValue, Diagnostic> {
         for (name, config) in properties {
             channel = match name.as_str() {
+                "otherwise" => channel,
                 "scale" => self.apply_scale(channel, config, data, declaration)?,
                 "axis" => self.apply_axis(channel, config, data, declaration)?,
                 "legend" => self.apply_legend(channel, config, data, declaration)?,
@@ -4094,10 +4228,136 @@ impl<'a> ModuleLowerer<'a> {
             }
             ResolvedValue::Boolean(value) => scaled_literal_channel(lit(*value)),
             ResolvedValue::Null => scaled_literal_channel(lit(ScalarValue::Null)),
-            ResolvedValue::Visual(inner) => {
-                ChannelValue::from(self.expression_value(inner, data, declaration)?).no_scale()
-            }
+            ResolvedValue::Channel { mode, expression } => match mode {
+                avenger_lang_core::ast::ChannelMode::Encoded => {
+                    self.raw_channel_value(expression, data, declaration)?
+                }
+                avenger_lang_core::ast::ChannelMode::Direct => {
+                    ChannelValue::from(self.channel_data_expr(expression, data, declaration)?)
+                        .no_scale()
+                }
+            },
             _ => ChannelValue::from(self.expression_value(value, data, declaration)?),
+        })
+    }
+
+    fn apply_channel_conditions(
+        &self,
+        base: ChannelValue,
+        children: &[ResolvedDeclaration],
+        otherwise: Option<&ResolvedValue>,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChannelValue, Diagnostic> {
+        let mut conditions = Vec::new();
+        for child in children {
+            if child.keyword.as_str() != "when" {
+                continue;
+            }
+            let predicate = child.properties.get("predicate").ok_or_else(|| {
+                lowerer_error(child, "conditional channel branch is missing `predicate:`")
+            })?;
+            let predicate = self.expression_value(predicate, data, child)?;
+            let value = self.lower_conditional_branch(
+                &ResolvedValue::Object {
+                    head: None,
+                    kind: None,
+                    properties: child.properties.clone(),
+                    children: Vec::new(),
+                },
+                data,
+                child,
+            )?;
+            conditions.push((
+                LogicalExprNode::from_default_expr(predicate)
+                    .map_err(|error| lowerer_error(child, error.to_string()))?,
+                value,
+            ));
+        }
+
+        let otherwise = match otherwise {
+            Some(value) => self.lower_conditional_branch(value, data, declaration)?,
+            None => channel_fallback(&base).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    "a conditional channel cannot use an already-conditional value as its fallback",
+                )
+            })?,
+        };
+
+        Ok(match base {
+            ChannelValue::Scaled {
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                scale_domain_inference,
+            },
+            ChannelValue::Value { .. } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config: None,
+                nested_band_config: None,
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+                scale_domain_inference: ScaleDomainInference::Infer,
+            },
+            ChannelValue::Conditional { .. } => {
+                return Err(lowerer_error(
+                    declaration,
+                    "authored channel conditions cannot wrap a conditional transform output",
+                ));
+            }
+        })
+    }
+
+    fn lower_conditional_branch(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ConditionalValue, Diagnostic> {
+        let ResolvedValue::Object { properties, .. } = value else {
+            return Err(lowerer_error(
+                declaration,
+                "conditional channel branch must be a property block",
+            ));
+        };
+        let (mode, value) = match (properties.get("encoded"), properties.get("direct")) {
+            (Some(value), None) => (avenger_lang_core::ast::ChannelMode::Encoded, value),
+            (None, Some(value)) => (avenger_lang_core::ast::ChannelMode::Direct, value),
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    "conditional channel branch requires exactly one of `encoded:` or `direct:`",
+                ));
+            }
+        };
+        let expression = self.channel_data_expr(value, data, declaration)?;
+        let expression = LogicalExprNode::from_default_expr(expression)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        Ok(match mode {
+            avenger_lang_core::ast::ChannelMode::Encoded => {
+                ConditionalValue::Scaled { expr: expression }
+            }
+            avenger_lang_core::ast::ChannelMode::Direct => {
+                ConditionalValue::Value { expr: expression }
+            }
         })
     }
 
@@ -4281,7 +4541,9 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(function.call(args))
             }
-            ResolvedValue::Visual(inner) => self.expression_value(inner, data, declaration),
+            ResolvedValue::Channel {
+                expression: inner, ..
+            } => self.expression_value(inner, data, declaration),
             _ => Err(lowerer_error(
                 declaration,
                 format!("value `{value:?}` is not a SQL expression"),
@@ -4373,9 +4635,9 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(function.call(args))
             }
-            ResolvedValue::Visual(inner) => {
-                self.boundary_source_value(inner, data, declaration, event)
-            }
+            ResolvedValue::Channel {
+                expression: inner, ..
+            } => self.boundary_source_value(inner, data, declaration, event),
             _ if event => self.event_expression_value(value, data, declaration),
             _ => self.expression_value(value, data, declaration),
         }
@@ -5618,8 +5880,29 @@ fn collect_legend_overlay_blocks<'a>(
                 collect_legend_overlay_blocks(nested, overlays);
             }
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_legend_overlay_blocks(value, overlays);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            if let Some(legend) = channel.configuration.get("legend")
+                && let Some((id, children)) = legend_overlay_block(legend)
+            {
+                overlays.push((id.clone(), children));
+            }
+            collect_legend_overlay_blocks(&channel.head.expression, overlays);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_legend_overlay_blocks(&otherwise.expression, overlays);
+            }
+            for condition in &channel.conditions {
+                collect_legend_overlay_blocks(&condition.predicate, overlays);
+                collect_legend_overlay_blocks(&condition.branch.expression, overlays);
+            }
+            for value in channel.configuration.values() {
+                collect_legend_overlay_blocks(value, overlays);
+            }
         }
         ResolvedValue::Call { args, .. } => {
             for nested in args {
@@ -6252,12 +6535,29 @@ fn is_direct_reference_sql(sql: &str, path: &[String]) -> bool {
     candidate == bare || candidate == quoted
 }
 
-/// DSL channel literals are expressions and therefore scaled by default.
+fn conditional_branch_expression(value: &ResolvedValue) -> Option<&ResolvedValue> {
+    let ResolvedValue::Object { properties, .. } = value else {
+        return None;
+    };
+    match (properties.get("encoded"), properties.get("direct")) {
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn channel_fallback(value: &ChannelValue) -> Option<ConditionalValue> {
+    match value {
+        ChannelValue::Scaled { expr, .. } => Some(ConditionalValue::Scaled { expr: expr.clone() }),
+        ChannelValue::Value { expr } => Some(ConditionalValue::Value { expr: expr.clone() }),
+        ChannelValue::Conditional { .. } => None,
+    }
+}
+
+/// Encoded DSL channel literals use the ordinary registered channel policy.
 ///
 /// Do not use `ChannelValue`'s primitive `From` implementations here: those
 /// intentionally provide identity-value ergonomics to Rust chart authors.
-/// The DSL's explicit `value` form converts this scaled value with
-/// `ChannelValue::no_scale`.
+/// The DSL compiler applies `.no_scale()` only for explicit `direct` mode.
 fn scaled_literal_channel(expr: Expr) -> ChannelValue {
     ChannelValue::from(expr)
 }
@@ -6346,8 +6646,24 @@ fn collect_private_physical_columns_from_value(
                 collect_private_physical_columns(child, output);
             }
         }
-        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+        ResolvedValue::Channel {
+            expression: value, ..
+        }
+        | ResolvedValue::Pattern(value) => {
             collect_private_physical_columns_from_value(value, output);
+        }
+        ResolvedValue::ChannelValue(channel) => {
+            collect_private_physical_columns_from_value(&channel.head.expression, output);
+            if let Some(otherwise) = &channel.otherwise {
+                collect_private_physical_columns_from_value(&otherwise.expression, output);
+            }
+            for condition in &channel.conditions {
+                collect_private_physical_columns_from_value(&condition.predicate, output);
+                collect_private_physical_columns_from_value(&condition.branch.expression, output);
+            }
+            for value in channel.configuration.values() {
+                collect_private_physical_columns_from_value(value, output);
+            }
         }
         _ => {}
     }
@@ -6390,11 +6706,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dsl_channel_literals_are_scaled_until_value_bypasses_the_scale() {
-        let bare = scaled_literal_channel(lit(80_i64));
-        assert!(matches!(bare, ChannelValue::Scaled { .. }));
+    fn dsl_encoded_and_direct_modes_adapt_to_existing_rust_channel_variants() {
+        let encoded = scaled_literal_channel(lit(80_i64));
+        assert!(matches!(encoded, ChannelValue::Scaled { .. }));
 
-        let explicit_value = scaled_literal_channel(lit(80_i64)).no_scale();
-        assert!(matches!(explicit_value, ChannelValue::Value { .. }));
+        let direct = scaled_literal_channel(lit(80_i64)).no_scale();
+        assert!(matches!(direct, ChannelValue::Value { .. }));
     }
 }

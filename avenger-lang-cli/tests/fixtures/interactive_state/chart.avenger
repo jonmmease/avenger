@@ -1,89 +1,123 @@
 avenger 1;
-
 chart cartesian as chart {
+  data: {
+    values: [ {
+      id: 'a';
+      x: 1.0;
+      y: 2.0;
+    }
+    , {
+      id: 'b';
+      x: 3.0;
+      y: 4.0;
+    }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: $canvas_height;
+      width: $canvas_width;
+    }
+    plot: auto;
+  }
   param float64 as canvas_width {
     value: 640.0;
   }
-
   param float64 as canvas_height {
     value: 420.0;
   }
-
   param float64 as selected_size {
     value: 80.0;
   }
-
   param store as dragged {
+    primary_key: [id];
     field utf8 id;
     field float64 x;
     field float64 y;
-    primary_key: [id];
   }
-
   param selection as picked {
-    empty: none;
     combine: union;
+    empty: none;
   }
-
-  layout: {
-    canvas: { width: $canvas_width; height: $canvas_height; }
-    plot: auto;
-  }
-
-  data: {
-    values: [
-      { id: 'a'; x: 1.0; y: 2.0; },
-      { id: 'b'; x: 3.0; y: 4.0; }
-    ];
-  }
-
   mark symbol as points {
-    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
-    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
-    size: value 180.0;
-    fill: value '#2563eb';
+    fill: direct '#2563eb';
+    size: direct 180.0;
+    x: encoded "x" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
+    y: encoded "y" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
   }
-
   mark symbol as selection_indicator {
-    data: { values: [{ x: 4.5; y: 4.5; }]; }
-    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
-    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
-    size: value $selected_size;
-    fill: value '#f59e0b';
+    data: {
+      values: [ {
+        x: 4.5;
+        y: 4.5;
+      }
+      ];
+    }
+    fill: direct '#f59e0b';
+    size: direct $selected_size;
+    x: encoded "x" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
+    y: encoded "y" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
   }
-
   mark symbol as drag_indicator {
     data: $dragged;
-    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
-    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
-    size: value 260.0;
-    fill: value '#dc2626';
+    fill: direct '#dc2626';
+    size: direct 260.0;
+    x: encoded "x" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
+    y: encoded "y" {
+      scale: linear {
+        domain: [0.0, 5.0];
+      }
+    }
   }
-
   on click as toggle_point {
     target: mark points;
     set picked = toggle_clauses {
       clause {
         id: 'clicked';
         equality {
-          id { field: "id"; value: datum."id"; }
+          id {
+            field: "id";
+            value: datum."id";
+          }
         }
       }
     }
-    set selected_size = CASE
-      WHEN selection_contains(picked, datum."id") THEN 520.0
-      ELSE 80.0
-    END;
+    set selected_size = CASE WHEN selection_contains(picked, datum."id") THEN 520.0 ELSE 80.0 END;
   }
-
   on cursor_moved as drag {
-    filter: datum."id" IS NULL;
     between: {
-      start: mouse_down {}
-      end: mouse_up {}
+      end: mouse_up {
+      }
+      start: mouse_down {
+      }
     }
+    filter: datum."id" IS NULL;
     set dragged = upsert_rows {
-      row { id: 'drag'; x: event.coord.x; y: event.coord.y; }
+      row {
+        id: 'drag';
+        x: event.coord.x;
+        y: event.coord.y;
+      }
     }
     set cursor = 'crosshair';
   }

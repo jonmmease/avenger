@@ -1,5 +1,4 @@
 avenger 1;
-
 chart cartesian {
   on pointermove {
     set brush = update {
@@ -20,9 +19,14 @@ chart cartesian {
         }
       }
       fields {
-        values: [
-          { id: 'x'; field: "x"; },
-          { id: 'category'; field: "category"; },
+        values: [ {
+          field: "x";
+          id: 'x';
+        }
+        , {
+          field: "category";
+          id: 'category';
+        }
         ];
       }
     }

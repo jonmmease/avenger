@@ -1,11 +1,12 @@
 avenger 1;
-
 import { analytics } from 'data.avenger';
 
 chart cartesian as chart {
-  data: { table: 'analytics.final'; }
+  data: {
+    table: 'analytics.final';
+  }
   mark symbol {
-    x: "category";
-    y: "doubled";
+    x: encoded "category";
+    y: encoded "doubled";
   }
 }

@@ -880,6 +880,12 @@ impl SyntaxAnalysis {
                 declaration_keyword: None,
                 property_name: None,
             },
+            Some(TolerantSyntaxNodeKind::ChannelMode { .. }) => SyntaxContext {
+                kind: SyntaxContextKind::Expression,
+                span: node.unwrap().span,
+                declaration_keyword: None,
+                property_name: None,
+            },
             Some(TolerantSyntaxNodeKind::Error | TolerantSyntaxNodeKind::MissingToken { .. }) => {
                 SyntaxContext {
                     kind: SyntaxContextKind::Error,
@@ -1022,6 +1028,7 @@ pub struct NavigationResult {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SemanticTokenKind {
+    Keyword,
     Binding,
     Parameter,
     Variable,

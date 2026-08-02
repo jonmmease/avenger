@@ -1,14 +1,18 @@
 avenger 1;
-
 import { pass, shared } from 'shared.avenger';
 
 chart cartesian as cartesian {
-  param float64 as point_size { value: 64.0; }
-  data: { table: 'shared.points'; }
-  transform pass { }
+  data: {
+    table: 'shared.points';
+  }
+  param float64 as point_size {
+    value: 64.0;
+  }
+  transform pass {
+  }
   mark symbol as points {
-    x: "x";
-    y: "y";
-    size: $point_size;
+    size: encoded $point_size;
+    x: encoded "x";
+    y: encoded "y";
   }
 }

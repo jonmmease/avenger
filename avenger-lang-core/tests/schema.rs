@@ -143,13 +143,64 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             true,
             r#"avenger 1; chart cartesian as chart {
-                mark symbol as dots { x: "x"; y: "y"; }
+                mark symbol as dots { x: encoded "x"; y: encoded "y"; }
             }"#,
         ),
         (
             true,
             r#"avenger 1; chart cartesian as chart {
-                mark symbol as dots { x: "x"; }
+                mark symbol as dots { x: encoded "x"; }
+            }"#,
+        ),
+        (
+            true,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots {
+                    fill: direct '#94a3b8' {
+                        when { predicate: "selected"; encoded: "kind"; }
+                        otherwise: { direct: '#2563eb'; }
+                    }
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots {
+                    fill: direct '#94a3b8' {
+                        when { direct: '#2563eb'; }
+                    }
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots {
+                    fill: direct '#94a3b8' {
+                        when { predicate: true; encoded: "kind"; direct: '#2563eb'; }
+                    }
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots {
+                    fill: direct '#94a3b8' {
+                        otherwise: { predicate: true; direct: '#2563eb'; }
+                    }
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots {
+                    fill: direct '#94a3b8' {
+                        mark symbol { fill: direct '#2563eb'; }
+                    }
+                }
             }"#,
         ),
         (
@@ -167,7 +218,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                mark symbol as dots { x: "x"; y: "y"; bogus: 1; }
+                mark symbol as dots { x: encoded "x"; y: encoded "y"; bogus: 1; }
             }"#,
         ),
         (
@@ -199,7 +250,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
                 widget radio_button_list as choice {
                     data: { values: [{ value: 1; label: 'one'; }]; }
                     position: top;
-                    mark symbol { x: "x"; y: "y"; }
+                    mark symbol { x: encoded "x"; y: encoded "y"; }
                 }
             }"#,
         ),
@@ -215,13 +266,13 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param int64 as limit { value: 1; mark symbol { x: "x"; y: "y"; } }
+                param int64 as limit { value: 1; mark symbol { x: encoded "x"; y: encoded "y"; } }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param selection as picked { mark symbol { x: "x"; y: "y"; } }
+                param selection as picked { mark symbol { x: encoded "x"; y: encoded "y"; } }
             }"#,
         ),
         (
@@ -239,7 +290,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                on click { mark symbol { x: "x"; y: "y"; } }
+                on click { mark symbol { x: encoded "x"; y: encoded "y"; } }
             }"#,
         ),
     ];
