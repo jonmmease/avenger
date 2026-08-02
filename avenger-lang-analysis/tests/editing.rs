@@ -271,8 +271,17 @@ chart cartesian as chart {
             .any(|token| token.kind == SemanticTokenKind::Property)
     );
     let encoded = source.find("encoded").unwrap();
+    assert!(
+        !tokens
+            .tokens
+            .iter()
+            .any(|token| token.span.range.start == encoded)
+    );
+    let width_reference = source.rfind("$width").unwrap() + 1;
     assert!(tokens.tokens.iter().any(|token| {
-        token.kind == SemanticTokenKind::Keyword && token.span.range.start == encoded
+        token.kind == SemanticTokenKind::Parameter
+            && token.span.range.start == width_reference
+            && &source[token.span.range.as_range()] == "width"
     }));
     let mode_hover = analysis
         .hover(

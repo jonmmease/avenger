@@ -92,13 +92,9 @@ pub(crate) fn semantic_tokens(
     };
     let mut tokens = Vec::new();
     let channel_mode_spans = channel_mode_semantic_spans(syntax);
-    for span in &channel_mode_spans {
-        tokens.push(SemanticToken {
-            span: *span,
-            kind: SemanticTokenKind::Keyword,
-            modifiers: SemanticTokenModifiers::default(),
-        });
-    }
+    // Channel modes are syntax-highlighted as constants by the grammar. Keep
+    // them out of the generic property tokens below without emitting an LSP
+    // token that would override the editor's theme-specific constant style.
     for symbol in &document.symbols {
         tokens.push(SemanticToken {
             span: symbol.selection_span,
