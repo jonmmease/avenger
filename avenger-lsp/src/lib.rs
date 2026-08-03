@@ -36,7 +36,10 @@ use avenger_lang_core::{
     SourceFile, SourceMap, SourceOrigin, module_graph::normalize_path,
 };
 use documents::{DocumentStore, OpenDocument};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Event as NotifyEvent, EventKind as NotifyEventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::{CreateKind, ModifyKind, RemoveKind},
+};
 use position::{PositionEncoding, PositionIndex};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -174,6 +177,7 @@ struct ServerState {
 struct Workspace {
     service: AnalysisService,
     ambient_modules: BTreeSet<SourceOrigin>,
+    disk_sources: Arc<StdMutex<BTreeSet<SourceOrigin>>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -547,7 +551,7 @@ impl Backend {
                 Arc::new(latest.with_syntax(generation, syntax))
             }
         } else {
-            let known_sources = scan_avenger_files(&root).into_iter().collect();
+            let known_sources = workspace.disk_sources().into_iter().collect();
             Arc::new(WorkspaceAnalysis::syntax_only(
                 generation,
                 root,
@@ -737,11 +741,12 @@ impl Backend {
         let runtime = tokio::runtime::Handle::current();
         let watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
-                if event.is_ok() {
-                    let backend = backend.clone();
-                    let root = watched_root.clone();
-                    runtime.spawn(async move { backend.schedule_semantic(root).await });
-                }
+                let Ok(event) = event else {
+                    return;
+                };
+                let backend = backend.clone();
+                let root = watched_root.clone();
+                runtime.spawn(async move { backend.handle_watcher_event(root, event).await });
             },
             notify::Config::default(),
         );
@@ -762,6 +767,37 @@ impl Backend {
                     .await
             }
         }
+    }
+
+    async fn handle_watcher_event(&self, root: PathBuf, event: NotifyEvent) {
+        let update = watcher_source_update(&root, &event);
+        if matches!(update, WatcherSourceUpdate::None) {
+            return;
+        }
+        let workspace = {
+            let state = self.inner.state.read().await;
+            if state.shutting_down {
+                return;
+            }
+            state.workspaces.get(&root).cloned()
+        };
+        let Some(workspace) = workspace else {
+            return;
+        };
+        match update {
+            WatcherSourceUpdate::None => return,
+            WatcherSourceUpdate::Paths(paths) => workspace.update_disk_sources(paths),
+            WatcherSourceUpdate::Rescan => {
+                let scan_root = root.clone();
+                let Ok(sources) =
+                    tokio::task::spawn_blocking(move || scan_avenger_files(&scan_root)).await
+                else {
+                    return;
+                };
+                workspace.replace_disk_sources(sources);
+            }
+        }
+        self.schedule_semantic(root).await;
     }
 
     async fn stop_workspace(&self, root: &Path) {
@@ -1815,16 +1851,32 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        let roots = {
+        let updates = {
             let state = self.inner.state.read().await;
-            params
-                .changes
-                .iter()
-                .filter_map(|change| change.uri.to_file_path())
-                .filter_map(|path| owning_workspace(&state.workspaces, &path))
-                .collect::<BTreeSet<_>>()
+            let mut updates = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
+            for change in &params.changes {
+                let Some(path) = change.uri.to_file_path() else {
+                    continue;
+                };
+                let path = path.into_owned();
+                if !is_avenger_source_path(&path) {
+                    continue;
+                }
+                let Some(root) = owning_workspace(&state.workspaces, &path) else {
+                    continue;
+                };
+                updates.entry(root).or_default().push(path);
+            }
+            updates
         };
-        for root in roots {
+        for (root, paths) in updates {
+            let workspace = {
+                let state = self.inner.state.read().await;
+                state.workspaces.get(&root).cloned()
+            };
+            if let Some(workspace) = workspace {
+                workspace.update_disk_sources(paths);
+            }
             self.schedule_semantic(root).await;
         }
     }
@@ -1840,10 +1892,41 @@ impl Workspace {
         settings: &AvengerSettings,
     ) -> Result<Self, avenger_lang_compiler::CompilerBuildError> {
         let compiler = Compiler::builder().project_root(&path).build()?;
+        let disk_sources = scan_avenger_files(&path);
         Ok(Self {
             service: AnalysisService::new(compiler),
             ambient_modules: configured_ambient_modules(&path, settings),
+            disk_sources: Arc::new(StdMutex::new(disk_sources)),
         })
+    }
+
+    fn disk_sources(&self) -> BTreeSet<SourceOrigin> {
+        self.disk_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn update_disk_sources(&self, paths: Vec<PathBuf>) {
+        let mut sources = self
+            .disk_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for path in paths {
+            let origin = SourceOrigin::File(normalize_existing_path(path.clone()));
+            if path.is_file() {
+                sources.insert(origin);
+            } else {
+                sources.remove(&origin);
+            }
+        }
+    }
+
+    fn replace_disk_sources(&self, replacement: BTreeSet<SourceOrigin>) {
+        *self
+            .disk_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = replacement;
     }
 }
 
@@ -1917,7 +2000,7 @@ fn uri_for_origin(origin: &SourceOrigin) -> Option<Uri> {
 
 fn semantic_input(state: &ServerState, workspace_root: &Path) -> Option<SemanticInput> {
     let workspace = state.workspaces.get(workspace_root)?.clone();
-    let mut origins = scan_avenger_files(workspace_root);
+    let mut origins = workspace.disk_sources();
     let mut open_documents = BTreeMap::new();
     let mut versions = BTreeMap::new();
     for document in state.documents.values() {
@@ -2004,8 +2087,64 @@ fn configured_ambient_modules(
         .collect()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum WatcherSourceUpdate {
+    None,
+    Paths(Vec<PathBuf>),
+    Rescan,
+}
+
+fn watcher_source_update(root: &Path, event: &NotifyEvent) -> WatcherSourceUpdate {
+    if event.need_rescan() {
+        return WatcherSourceUpdate::Rescan;
+    }
+    let paths = event
+        .paths
+        .iter()
+        .filter(|path| !workspace_path_is_ignored(root, path))
+        .cloned()
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return WatcherSourceUpdate::None;
+    }
+    let directory_change = matches!(
+        event.kind,
+        NotifyEventKind::Create(CreateKind::Folder)
+            | NotifyEventKind::Remove(RemoveKind::Folder)
+            | NotifyEventKind::Modify(ModifyKind::Name(_))
+    ) && paths.iter().any(|path| !is_avenger_source_path(path));
+    if directory_change {
+        return WatcherSourceUpdate::Rescan;
+    }
+    let paths = paths
+        .into_iter()
+        .filter(|path| is_avenger_source_path(path))
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        WatcherSourceUpdate::None
+    } else {
+        WatcherSourceUpdate::Paths(paths)
+    }
+}
+
+fn is_avenger_source_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("avenger"))
+}
+
+fn workspace_path_is_ignored(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        name.starts_with('.') || matches!(name.as_ref(), "target" | "node_modules")
+    })
+}
+
 fn scan_avenger_files(root: &Path) -> BTreeSet<SourceOrigin> {
-    fn visit(path: &Path, depth: usize, output: &mut BTreeSet<SourceOrigin>) {
+    fn visit(root: &Path, path: &Path, depth: usize, output: &mut BTreeSet<SourceOrigin>) {
         if depth > 64 {
             return;
         }
@@ -2014,21 +2153,20 @@ fn scan_avenger_files(root: &Path) -> BTreeSet<SourceOrigin> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                let hidden = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with('.') || name == "target");
-                if !hidden {
-                    visit(&path, depth + 1, output);
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                if !workspace_path_is_ignored(root, &path) {
+                    visit(root, &path, depth + 1, output);
                 }
-            } else if path.to_string_lossy().ends_with(".avenger") {
+            } else if file_type.is_file() && is_avenger_source_path(&path) {
                 output.insert(SourceOrigin::File(normalize_existing_path(path)));
             }
         }
     }
     let mut output = BTreeSet::new();
-    visit(root, 0, &mut output);
+    visit(root, root, 0, &mut output);
     output
 }
 
@@ -2455,9 +2593,83 @@ mod tests {
 
     use super::{
         Backend, CANCELLED_COMPLETION_WORKERS, CancelAnalysisOnDrop, INVALID_COMPLETION_RANGES,
-        LspServerConfig, Workspace, completion_item,
+        LspServerConfig, WatcherSourceUpdate, Workspace, completion_item, normalize_existing_path,
         position::{PositionEncoding, PositionIndex},
+        scan_avenger_files, watcher_source_update,
     };
+
+    #[test]
+    fn watcher_updates_only_avenger_sources_and_ignores_build_artifacts() {
+        use notify::{
+            Event, EventKind,
+            event::{CreateKind, DataChange, ModifyKind},
+        };
+
+        let root = std::path::Path::new("/workspace");
+        let rust = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(root.join("src/lib.rs"));
+        assert_eq!(
+            watcher_source_update(root, &rust),
+            WatcherSourceUpdate::None
+        );
+
+        let build_output = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(root.join("target/generated.avenger"));
+        assert_eq!(
+            watcher_source_update(root, &build_output),
+            WatcherSourceUpdate::None
+        );
+
+        let chart = root.join("charts/main.avenger");
+        let source = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(chart.clone());
+        assert_eq!(
+            watcher_source_update(root, &source),
+            WatcherSourceUpdate::Paths(vec![chart])
+        );
+
+        let directory =
+            Event::new(EventKind::Create(CreateKind::Folder)).add_path(root.join("charts/new"));
+        assert_eq!(
+            watcher_source_update(root, &directory),
+            WatcherSourceUpdate::Rescan
+        );
+    }
+
+    #[test]
+    fn workspace_source_inventory_is_cached_and_incrementally_updated() {
+        let directory = tempdir().unwrap();
+        let chart = directory.path().join("chart.avenger");
+        fs::write(&chart, "avenger 1; chart cartesian {}").unwrap();
+        fs::create_dir(directory.path().join("target")).unwrap();
+        fs::write(
+            directory.path().join("target/generated.avenger"),
+            "avenger 1; chart cartesian {}",
+        )
+        .unwrap();
+
+        let scanned = scan_avenger_files(directory.path());
+        assert_eq!(scanned.len(), 1);
+        assert!(scanned.contains(&SourceOrigin::File(normalize_existing_path(chart.clone()))));
+
+        let workspace = Workspace::new(directory.path().to_path_buf()).unwrap();
+        assert_eq!(workspace.disk_sources().len(), 1);
+        let second = directory.path().join("second.avenger");
+        fs::write(&second, "avenger 1; chart polar {}").unwrap();
+        workspace.update_disk_sources(vec![second.clone()]);
+        assert!(
+            workspace
+                .disk_sources()
+                .contains(&SourceOrigin::File(normalize_existing_path(second.clone())))
+        );
+        fs::remove_file(&second).unwrap();
+        workspace.update_disk_sources(vec![second.clone()]);
+        assert!(
+            !workspace
+                .disk_sources()
+                .contains(&SourceOrigin::File(normalize_existing_path(second)))
+        );
+    }
 
     #[test]
     fn dropping_a_completion_request_cancels_its_worker_token() {
@@ -3767,6 +3979,7 @@ chart cartesian as detail {
             Workspace {
                 service: AnalysisService::new(compiler),
                 ambient_modules: Default::default(),
+                disk_sources: Arc::new(StdMutex::new(scan_avenger_files(&root))),
             },
         );
         call(
