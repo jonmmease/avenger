@@ -26,6 +26,15 @@ keyed predicates, sparse parallel frame configuration, output aliases, and
 target-resolved `set` actions retain their semantic categories in symbols,
 navigation, hover, completion, and generated edits.
 
+Completion follows two explicit authored namespaces. Data/output columns are
+offered only after an opening double quote and are inserted as canonical SQL
+quoted identifiers; a bare word or `relation.` never produces column
+candidates. Scalar params are offered only after `$`, and table-valued stores
+use the same prefix only in relation positions. Inside a quoted identifier the
+menu contains only scoped columns or legal relation-path members. This policy
+already applies even though strict diagnostics for every manually authored
+bare-column form are tracked separately.
+
 ## Running
 
 From this workspace:
@@ -69,6 +78,14 @@ cancels the preceding task, and generation, document-version, source-revision,
 and native-registry-profile checks prevent stale publication. Broken roots
 retain compatible last-good semantic information while healthy roots remain
 independent.
+
+Completion captures the document revision and workspace generation before it
+runs on a blocking worker. Client cancellation drops the request guard and
+cancels analysis; a document edit or sibling project edit suppresses any
+result computed from the older snapshot. A bounded workspace-owned SQL cache
+reuses exact authored analyses across compatible generations and never caches
+completion-repaired text as valid source. Missing/stale semantic metadata
+produces syntax-aware results with `isIncomplete`, never invented columns.
 
 The server prefers UTF-8 positions when the client offers them and otherwise
 uses required UTF-16 positions. Rename and code actions require versioned

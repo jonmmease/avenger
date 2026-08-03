@@ -4565,10 +4565,18 @@ impl<'a> Resolver<'a> {
                 .kind
                 .as_ref()
                 .is_some_and(|kind| kind.as_str() == "pipeline");
+        let transform_definition = declaration.keyword.as_str() == "define"
+            && declaration
+                .kind
+                .as_ref()
+                .is_some_and(|kind| kind.as_str() == "transform");
+        let deferred_outputs = pipeline || transform_definition;
         let resolution_order = (0..declaration.children.len())
-            .filter(|index| !pipeline || declaration.children[*index].keyword.as_str() != "output")
+            .filter(|index| {
+                !deferred_outputs || declaration.children[*index].keyword.as_str() != "output"
+            })
             .chain((0..declaration.children.len()).filter(|index| {
-                pipeline && declaration.children[*index].keyword.as_str() == "output"
+                deferred_outputs && declaration.children[*index].keyword.as_str() == "output"
             }))
             .collect::<Vec<_>>();
         let mut transform_outputs = BTreeMap::new();
@@ -6431,6 +6439,7 @@ impl<'a> Resolver<'a> {
                 value,
                 &ValueShape::SqlProjection {
                     policy: avenger_chart_schema::ProjectionPolicy::Named,
+                    expression_mode: avenger_chart_schema::ProjectionExpressionMode::Scalar,
                 },
             ),
             _ => false,
@@ -10384,7 +10393,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                     } if is_expression_value(head)
                 )
         }
-        ValueShape::SqlProjection { policy } => {
+        ValueShape::SqlProjection { policy, .. } => {
             let ResolvedValue::Projection(projection) = value else {
                 return false;
             };
@@ -10904,7 +10913,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::Identifier => "identifier",
         ValueShape::Atom { .. } => "enum atom",
         ValueShape::SqlExpression => "SQL expression",
-        ValueShape::SqlProjection { policy } => match policy {
+        ValueShape::SqlProjection { policy, .. } => match policy {
             avenger_chart_schema::ProjectionPolicy::Named => {
                 "named SQL projection list (`expression AS name, ...`)"
             }

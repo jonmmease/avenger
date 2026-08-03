@@ -11,16 +11,21 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{
+        Arc, Mutex as StdMutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
 use avenger_lang_analysis::{
     AnalysisCancellation, AnalysisGeneration, AnalysisService,
     CodeActionKind as AnalysisCodeActionKind, CodeActionRequest,
-    CompletionKind as AvengerCompletionKind, CompletionOptions as AnalysisCompletionOptions,
-    CompletionTextFormat, DocumentRequest, DocumentSnapshot, LineEnding, PositionRequest,
-    RenameError, SemanticTokenKind as AvengerSemanticTokenKind,
+    CompletionInvocation as AnalysisCompletionInvocation,
+    CompletionOptions as AnalysisCompletionOptions,
+    CompletionSemanticKind as AnalysisCompletionSemanticKind, CompletionTextFormat,
+    DocumentRequest, DocumentSnapshot, LineEnding, PositionRequest, RenameError,
+    SemanticTokenKind as AvengerSemanticTokenKind,
     SemanticTokenModifiers as AvengerSemanticTokenModifiers, SourceRevision, SourceTextEdit,
     SyntaxAnalysis, VersionedSourceEdits, WorkspaceAnalysis,
     WorkspaceEdit as AnalysisWorkspaceEdit, WorkspaceSnapshot, analyze_syntax,
@@ -43,6 +48,35 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server, jsonrpc, ls_t
 const SERVER_NAME: &str = "avenger-lsp";
 const PIN_IMPORT_ACTION_KIND: &str = "source.pinImport";
 const WATCH_CHART_COMMAND: &str = "avenger.watchChart";
+static INVALID_COMPLETION_RANGES: AtomicU64 = AtomicU64::new(0);
+static CANCELLED_COMPLETION_WORKERS: AtomicU64 = AtomicU64::new(0);
+
+struct CancelAnalysisOnDrop {
+    cancellation: AnalysisCancellation,
+    armed: bool,
+}
+
+impl CancelAnalysisOnDrop {
+    fn new(cancellation: AnalysisCancellation) -> Self {
+        Self {
+            cancellation,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CancelAnalysisOnDrop {
+    fn drop(&mut self) {
+        if self.armed {
+            CANCELLED_COMPLETION_WORKERS.fetch_add(1, Ordering::Relaxed);
+            self.cancellation.cancel();
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -461,7 +495,13 @@ impl Backend {
         &self,
         uri: &Uri,
         position: Position,
-    ) -> Option<(OpenDocument, Arc<WorkspaceAnalysis>, PositionRequest, bool)> {
+    ) -> Option<(
+        OpenDocument,
+        Arc<WorkspaceAnalysis>,
+        PositionRequest,
+        bool,
+        AnalysisGeneration,
+    )> {
         let (document, root, workspace, generation, syntax, latest, snippets) = {
             let state = self.inner.state.read().await;
             let document = state.documents.get(uri)?.clone();
@@ -530,7 +570,36 @@ impl Backend {
                 source_revision: revision,
             },
             snippets,
+            generation,
         ))
+    }
+
+    async fn completion_snapshot_is_current(
+        &self,
+        uri: &Uri,
+        document_version: i32,
+        source_revision: &SourceRevision,
+        workspace_generation: AnalysisGeneration,
+    ) -> bool {
+        let state = self.inner.state.read().await;
+        let Some(document) = state.documents.get(uri) else {
+            return false;
+        };
+        if document.version != document_version
+            || SourceRevision::from_text(&document.text) != *source_revision
+        {
+            return false;
+        }
+        let Some(path) = uri.to_file_path().map(|path| path.into_owned()) else {
+            return false;
+        };
+        let Some(root) = owning_workspace(&state.workspaces, &path) else {
+            return false;
+        };
+        state
+            .workspace_generations
+            .get(&root)
+            .is_some_and(|current| *current == workspace_generation.get())
     }
 
     async fn workspace_edit(
@@ -857,8 +926,8 @@ impl LanguageServer for Backend {
                         ".".to_owned(),
                         "@".to_owned(),
                         ":".to_owned(),
-                        "'".to_owned(),
                         "\"".to_owned(),
+                        "'".to_owned(),
                     ]),
                     ..Default::default()
                 }),
@@ -1131,7 +1200,7 @@ impl LanguageServer for Backend {
     async fn code_lens(&self, params: CodeLensParams) -> jsonrpc::Result<Option<Vec<CodeLens>>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
-        let Some((document, analysis, request, _)) =
+        let Some((document, analysis, request, _, _)) =
             self.query_snapshot(&uri, Position::new(0, 0)).await
         else {
             return Ok(None);
@@ -1176,7 +1245,7 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<Vec<TextEdit>>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
-        let Some((document, analysis, request, _)) =
+        let Some((document, analysis, request, _, _)) =
             self.query_snapshot(&uri, Position::new(0, 0)).await
         else {
             return Ok(None);
@@ -1209,7 +1278,7 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::SemanticTokensResult>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
-        let Some((document, analysis, request, _)) =
+        let Some((document, analysis, request, _, _)) =
             self.query_snapshot(&uri, Position::new(0, 0)).await
         else {
             return Ok(None);
@@ -1247,7 +1316,7 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<PrepareRenameResponse>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
-        let Some((document, analysis, request, _)) =
+        let Some((document, analysis, request, _, _)) =
             self.query_snapshot(&uri, params.position).await
         else {
             return Ok(None);
@@ -1275,7 +1344,7 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::WorkspaceEdit>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document_position.text_document.uri;
-        let Some((_, analysis, request, _)) = self
+        let Some((_, analysis, request, _, _)) = self
             .query_snapshot(&uri, params.text_document_position.position)
             .await
         else {
@@ -1298,7 +1367,7 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<CodeActionResponse>> {
         let _permit = self.request_permit().await?;
         let uri = params.text_document.uri;
-        let Some((document, analysis, position_request, _)) =
+        let Some((document, analysis, position_request, _, _)) =
             self.query_snapshot(&uri, params.range.start).await
         else {
             return Ok(None);
@@ -1453,7 +1522,7 @@ impl LanguageServer for Backend {
             .positions
             .position(data.range_start)
             .map_err(|error| jsonrpc::Error::invalid_params(error.to_string()))?;
-        let Some((document, analysis, position_request, _)) =
+        let Some((document, analysis, position_request, _, _)) =
             self.query_snapshot(&data.uri, position).await
         else {
             return Err(jsonrpc::Error::invalid_params(
@@ -1535,27 +1604,75 @@ impl LanguageServer for Backend {
         params: CompletionParams,
     ) -> jsonrpc::Result<Option<CompletionResponse>> {
         let _permit = self.request_permit().await?;
+        let invocation = params
+            .context
+            .as_ref()
+            .map(|context| {
+                if context.trigger_kind == CompletionTriggerKind::TRIGGER_CHARACTER {
+                    AnalysisCompletionInvocation::TriggerCharacter(
+                        context.trigger_character.clone().unwrap_or_default(),
+                    )
+                } else if context.trigger_kind
+                    == CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS
+                {
+                    AnalysisCompletionInvocation::TriggerForIncompleteCompletions
+                } else {
+                    AnalysisCompletionInvocation::Invoked
+                }
+            })
+            .unwrap_or_default();
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        let Some((document, analysis, request, snippets)) =
+        let Some((document, analysis, request, snippets, generation)) =
             self.query_snapshot(&uri, position).await
         else {
             return Ok(None);
         };
+        let request_revision = request.source_revision.clone();
         let cancellation = AnalysisCancellation::default();
-        let result = analysis.complete(
-            &request,
-            AnalysisCompletionOptions { snippets },
-            &cancellation,
-        );
-        let Ok(result) = result else {
+        let mut cancel_on_drop = CancelAnalysisOnDrop::new(cancellation.clone());
+        let worker_cancellation = cancellation.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            analysis.complete(
+                &request,
+                AnalysisCompletionOptions {
+                    snippets,
+                    invocation,
+                },
+                &worker_cancellation,
+            )
+        })
+        .await;
+        cancel_on_drop.disarm();
+        let result = worker.ok().and_then(Result::ok);
+        drop(cancel_on_drop);
+        let Some(result) = result else {
             return Ok(None);
         };
-        let items = result
-            .items
-            .into_iter()
-            .filter_map(|item| completion_item(item, &document.positions))
-            .collect();
+        if !self
+            .completion_snapshot_is_current(&uri, document.version, &request_revision, generation)
+            .await
+        {
+            return Ok(None);
+        }
+        let mut items = Vec::with_capacity(result.items.len());
+        for item in result.items {
+            match completion_item(item, &document.positions) {
+                Ok(item) => items.push(item),
+                Err(error) => {
+                    debug_assert!(
+                        false,
+                        "analysis produced an invalid completion range for {}: {error}",
+                        uri.as_str()
+                    );
+                    tracing::warn!(
+                        source = %uri.as_str(),
+                        %error,
+                        "dropping completion item with an invalid authored range"
+                    );
+                }
+            }
+        }
         Ok(Some(CompletionResponse::List(CompletionList {
             is_incomplete: result.is_incomplete,
             items,
@@ -1566,7 +1683,7 @@ impl LanguageServer for Backend {
         let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
+        let Some((document, analysis, request, _, _)) = self.query_snapshot(&uri, position).await
         else {
             return Ok(None);
         };
@@ -1593,7 +1710,7 @@ impl LanguageServer for Backend {
         let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
+        let Some((_, analysis, request, _, _)) = self.query_snapshot(&uri, position).await else {
             return Ok(None);
         };
         let cancellation = AnalysisCancellation::default();
@@ -1609,7 +1726,7 @@ impl LanguageServer for Backend {
         let _permit = self.request_permit().await?;
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
+        let Some((_, analysis, request, _, _)) = self.query_snapshot(&uri, position).await else {
             return Ok(None);
         };
         let cancellation = AnalysisCancellation::default();
@@ -1632,7 +1749,7 @@ impl LanguageServer for Backend {
         let _permit = self.request_permit().await?;
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
+        let Some((document, analysis, request, _, _)) = self.query_snapshot(&uri, position).await
         else {
             return Ok(None);
         };
@@ -2212,27 +2329,40 @@ fn symbol_kind(kind: avenger_lang_analysis::SymbolKind) -> SymbolKind {
 fn completion_item(
     item: avenger_lang_analysis::CompletionItem,
     positions: &PositionIndex,
-) -> Option<tower_lsp_server::ls_types::CompletionItem> {
+) -> Result<tower_lsp_server::ls_types::CompletionItem, String> {
     let range = positions
         .lsp_range(item.replacement.range.as_range())
-        .ok()?;
-    Some(tower_lsp_server::ls_types::CompletionItem {
+        .map_err(|error| {
+            INVALID_COMPLETION_RANGES.fetch_add(1, Ordering::Relaxed);
+            error.to_string()
+        })?;
+    Ok(tower_lsp_server::ls_types::CompletionItem {
         label: item.label,
-        kind: Some(match item.kind {
-            AvengerCompletionKind::Keyword => CompletionItemKind::KEYWORD,
-            AvengerCompletionKind::Declaration => CompletionItemKind::CLASS,
-            AvengerCompletionKind::Property => CompletionItemKind::PROPERTY,
-            AvengerCompletionKind::EnumValue => CompletionItemKind::ENUM_MEMBER,
-            AvengerCompletionKind::Variable => CompletionItemKind::VARIABLE,
-            AvengerCompletionKind::Field => CompletionItemKind::FIELD,
-            AvengerCompletionKind::Function => CompletionItemKind::FUNCTION,
-            AvengerCompletionKind::Type => CompletionItemKind::TYPE_PARAMETER,
-            AvengerCompletionKind::Module => CompletionItemKind::MODULE,
-            AvengerCompletionKind::Catalog | AvengerCompletionKind::Schema => {
+        kind: Some(match item.semantic_kind {
+            AnalysisCompletionSemanticKind::DslKeyword
+            | AnalysisCompletionSemanticKind::SqlKeyword
+            | AnalysisCompletionSemanticKind::SqlOperator => CompletionItemKind::KEYWORD,
+            AnalysisCompletionSemanticKind::Declaration => CompletionItemKind::CLASS,
+            AnalysisCompletionSemanticKind::NativeKind => CompletionItemKind::CONSTRUCTOR,
+            AnalysisCompletionSemanticKind::Property
+            | AnalysisCompletionSemanticKind::ContextualMember => CompletionItemKind::PROPERTY,
+            AnalysisCompletionSemanticKind::EnumValue => CompletionItemKind::ENUM_MEMBER,
+            AnalysisCompletionSemanticKind::ScalarParam
+            | AnalysisCompletionSemanticKind::SelectionParam => CompletionItemKind::VARIABLE,
+            AnalysisCompletionSemanticKind::StoreParam => CompletionItemKind::STRUCT,
+            AnalysisCompletionSemanticKind::DataColumn
+            | AnalysisCompletionSemanticKind::StructField => CompletionItemKind::FIELD,
+            AnalysisCompletionSemanticKind::ContextualRoot => CompletionItemKind::VARIABLE,
+            AnalysisCompletionSemanticKind::WindowName => CompletionItemKind::VARIABLE,
+            AnalysisCompletionSemanticKind::ScalarFunction
+            | AnalysisCompletionSemanticKind::AggregateFunction
+            | AnalysisCompletionSemanticKind::WindowFunction
+            | AnalysisCompletionSemanticKind::TableFunction => CompletionItemKind::FUNCTION,
+            AnalysisCompletionSemanticKind::SqlType => CompletionItemKind::TYPE_PARAMETER,
+            AnalysisCompletionSemanticKind::Relation => CompletionItemKind::STRUCT,
+            AnalysisCompletionSemanticKind::Catalog | AnalysisCompletionSemanticKind::Schema => {
                 CompletionItemKind::MODULE
             }
-            AvengerCompletionKind::Table => CompletionItemKind::STRUCT,
-            AvengerCompletionKind::Snippet => CompletionItemKind::SNIPPET,
         }),
         detail: item.detail,
         documentation: item.documentation.map(|value| {
@@ -2303,20 +2433,149 @@ mod tests {
     use std::{
         collections::BTreeMap,
         fs,
-        sync::{Arc, Mutex as StdMutex},
+        sync::{Arc, Mutex as StdMutex, atomic::Ordering},
         time::Duration,
     };
 
-    use avenger_lang_analysis::{AnalysisGeneration, AnalysisService};
+    use avenger_lang_analysis::{
+        AnalysisCancellation, AnalysisGeneration, AnalysisService,
+        CompletionItem as AnalysisCompletionItem, CompletionKind as AnalysisCompletionKind,
+        CompletionOrigin as AnalysisCompletionOrigin,
+        CompletionQualification as AnalysisCompletionQualification, CompletionSemanticKind,
+        CompletionTextFormat as AnalysisCompletionTextFormat,
+        CompletionValidity as AnalysisCompletionValidity,
+    };
     use avenger_lang_compiler::Compiler;
-    use avenger_lang_core::SourceOrigin;
+    use avenger_lang_core::{ByteSpan, SourceId, SourceOrigin, SourceSpan};
     use futures::StreamExt;
     use serde_json::json;
     use tempfile::tempdir;
     use tower::{Service, ServiceExt};
     use tower_lsp_server::{ClientSocket, LspService, jsonrpc::Request, ls_types::*};
 
-    use super::{Backend, LspServerConfig, Workspace};
+    use super::{
+        Backend, CANCELLED_COMPLETION_WORKERS, CancelAnalysisOnDrop, INVALID_COMPLETION_RANGES,
+        LspServerConfig, Workspace, completion_item,
+        position::{PositionEncoding, PositionIndex},
+    };
+
+    #[test]
+    fn dropping_a_completion_request_cancels_its_worker_token() {
+        let cancellation = AnalysisCancellation::default();
+        {
+            let _guard = CancelAnalysisOnDrop::new(cancellation.clone());
+            assert!(!cancellation.is_cancelled());
+        }
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_request_future_cancels_the_completion_worker() {
+        let cancellation = AnalysisCancellation::default();
+        let worker_cancellation = cancellation.clone();
+        let before = CANCELLED_COMPLETION_WORKERS.load(Ordering::Relaxed);
+        let task = tokio::spawn(async move {
+            let _guard = CancelAnalysisOnDrop::new(worker_cancellation);
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        task.abort();
+        let _ = task.await;
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            CANCELLED_COMPLETION_WORKERS.load(Ordering::Relaxed),
+            before + 1
+        );
+    }
+
+    #[test]
+    fn completed_completion_request_does_not_report_cancellation() {
+        let cancellation = AnalysisCancellation::default();
+        let before = CANCELLED_COMPLETION_WORKERS.load(Ordering::Relaxed);
+        {
+            let mut guard = CancelAnalysisOnDrop::new(cancellation.clone());
+            guard.disarm();
+        }
+        assert!(!cancellation.is_cancelled());
+        assert_eq!(CANCELLED_COMPLETION_WORKERS.load(Ordering::Relaxed), before);
+    }
+
+    #[test]
+    fn completion_wire_edits_preserve_quoted_unicode_and_count_invalid_ranges() {
+        fn column(
+            source: SourceId,
+            range: std::ops::Range<usize>,
+            label: &str,
+            insert: &str,
+        ) -> AnalysisCompletionItem {
+            AnalysisCompletionItem {
+                label: label.to_owned(),
+                replacement: SourceSpan {
+                    source,
+                    range: ByteSpan {
+                        start: range.start,
+                        end: range.end,
+                    },
+                },
+                insert_text: insert.to_owned(),
+                insert_text_format: AnalysisCompletionTextFormat::PlainText,
+                kind: AnalysisCompletionKind::Field,
+                semantic_kind: CompletionSemanticKind::DataColumn,
+                semantic_identity: format!("column:{label}"),
+                match_text: label.to_owned(),
+                qualification: AnalysisCompletionQualification::Unqualified,
+                data_type: Some("Utf8".to_owned()),
+                nullable: Some(true),
+                source_stage: Some("test".to_owned()),
+                expected_type_compatible: None,
+                confidence: 100,
+                semantic_proximity: 100,
+                usage_prevalence: 0,
+                validity: AnalysisCompletionValidity::Strict,
+                detail: Some("Utf8 · nullable".to_owned()),
+                documentation: None,
+                filter_text: Some(insert.to_owned()),
+                sort_key: "00".to_owned(),
+                origin: AnalysisCompletionOrigin::DatasetSchema,
+                deprecated: false,
+            }
+        }
+
+        let text: Arc<str> = Arc::from("😀\r\nSELECT w.\"café\", w.\"a\"\"b\"");
+        let positions = PositionIndex::new(Arc::clone(&text), PositionEncoding::Utf16);
+        let source = SourceId::new(7);
+        for (authored, label, insert) in [
+            ("\"café\"", "café", "\"café\""),
+            ("\"a\"\"b\"", "a\"b", "\"a\"\"b\""),
+        ] {
+            let start = text.find(authored).unwrap();
+            let item = completion_item(
+                column(source, start..start + authored.len(), label, insert),
+                &positions,
+            )
+            .unwrap();
+            assert_eq!(item.filter_text.as_deref(), Some(insert));
+            let Some(CompletionTextEdit::Edit(edit)) = item.text_edit else {
+                panic!("expected text edit")
+            };
+            assert_eq!(edit.new_text, insert);
+            assert_eq!(edit.range.start.line, 1);
+            assert_eq!(
+                edit.range.start.character,
+                text[text.find("SELECT").unwrap()..start]
+                    .encode_utf16()
+                    .count() as u32
+            );
+        }
+
+        let before = INVALID_COMPLETION_RANGES.load(Ordering::Relaxed);
+        let invalid = column(source, text.len()..text.len() + 1, "bad", "\"bad\"");
+        assert!(completion_item(invalid, &positions).is_err());
+        assert_eq!(
+            INVALID_COMPLETION_RANGES.load(Ordering::Relaxed),
+            before + 1
+        );
+    }
 
     #[tokio::test]
     async fn initializes_and_shuts_down_in_memory() {
@@ -2355,6 +2614,17 @@ mod tests {
         assert!(result.capabilities.rename_provider.is_some());
         assert!(result.capabilities.workspace_symbol_provider.is_some());
         assert!(result.capabilities.code_lens_provider.is_some());
+        let completion = result
+            .capabilities
+            .completion_provider
+            .as_ref()
+            .expect("completion capabilities");
+        assert_eq!(completion.resolve_provider, Some(false));
+        let expected_triggers = ["$", ".", "@", ":", "\"", "'"].map(str::to_owned);
+        assert_eq!(
+            completion.trigger_characters.as_deref(),
+            Some(expected_triggers.as_slice())
+        );
         assert_eq!(
             result.server_info.as_ref().map(|info| info.name.as_str()),
             Some("avenger-lsp")
@@ -2951,6 +3221,20 @@ chart cartesian as detail {
             .unwrap()
             .cancellation
             .clone();
+        let (initial_document, _, initial_request, _, initial_generation) = backend
+            .query_snapshot(&chart_uri, Position::new(0, 0))
+            .await
+            .unwrap();
+        assert!(
+            backend
+                .completion_snapshot_is_current(
+                    &chart_uri,
+                    initial_document.version,
+                    &initial_request.source_revision,
+                    initial_generation,
+                )
+                .await
+        );
 
         call(
             &mut service,
@@ -2967,6 +3251,31 @@ chart cartesian as detail {
         )
         .await;
         let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        assert!(
+            !backend
+                .completion_snapshot_is_current(
+                    &chart_uri,
+                    initial_document.version,
+                    &initial_request.source_revision,
+                    initial_generation,
+                )
+                .await,
+            "a sibling edit must stale the captured workspace generation"
+        );
+        let (pre_edit_document, _, pre_edit_request, _, pre_edit_generation) = backend
+            .query_snapshot(&chart_uri, Position::new(0, 0))
+            .await
+            .unwrap();
+        assert!(
+            backend
+                .completion_snapshot_is_current(
+                    &chart_uri,
+                    pre_edit_document.version,
+                    &pre_edit_request.source_revision,
+                    pre_edit_generation,
+                )
+                .await
+        );
 
         let mut replacement = String::new();
         for version in 2..=12 {
@@ -3015,7 +3324,18 @@ chart cartesian as detail {
             backend.document(&second_chart_uri).await.unwrap().version,
             2
         );
-        let (_, stale_analysis, _, _) = backend
+        assert!(
+            !backend
+                .completion_snapshot_is_current(
+                    &chart_uri,
+                    pre_edit_document.version,
+                    &pre_edit_request.source_revision,
+                    pre_edit_generation,
+                )
+                .await,
+            "an edited document must stale its captured completion snapshot"
+        );
+        let (_, stale_analysis, _, _, _) = backend
             .query_snapshot(&chart_uri, Position::new(0, 0))
             .await
             .unwrap();
@@ -3729,7 +4049,11 @@ chart cartesian as detail {
                 .id(2)
                 .params(json!({
                     "textDocument": { "uri": chart_uri },
-                    "position": { "line": 0, "character": completion_offset }
+                    "position": { "line": 0, "character": completion_offset },
+                    "context": {
+                        "triggerKind": 2,
+                        "triggerCharacter": "$"
+                    }
                 }))
                 .finish(),
         )
@@ -3746,6 +4070,7 @@ chart cartesian as detail {
             .find(|item| item.label == "$width")
             .expect("width completion");
         assert!(matches!(width.text_edit, Some(CompletionTextEdit::Edit(_))));
+        assert_eq!(width.filter_text.as_deref(), Some("$width"));
 
         let reference_offset = text.find("$wid").unwrap() + 2;
         let hover = call(
@@ -3857,14 +4182,14 @@ export schema tables as vega {
     values: [{ title: 'A'; rating: 8.5; }];
   }
   table sql as popular {
-    sql: SELECT title, rating FROM vega.movies;
+    sql: SELECT "title", "rating" FROM vega.movies;
   }
 }
 "#;
         let chart_text = r#"avenger 1;
 chart cartesian as chart {
   data: { table: 'vega.movies'; }
-  mark symbol { x: encoded title; y: encoded rating; }
+  mark symbol { x: encoded "title"; y: encoded "rating"; }
 }
 "#;
         fs::write(&data, valid).unwrap();
@@ -3952,15 +4277,15 @@ chart cartesian as chart {
             (
                 2,
                 valid.replace(
-                    "SELECT title, rating FROM vega.movies",
-                    "FROM vega.movies AS m SELECT m.",
+                    "SELECT \"title\", \"rating\" FROM vega.movies",
+                    "FROM vega.movies AS m SELECT m.\"",
                 ),
             ),
             (
                 3,
                 valid.replace(
-                    "SELECT title, rating FROM vega.movies",
-                    "SELECT m. FROM vega.movies AS m",
+                    "SELECT \"title\", \"rating\" FROM vega.movies",
+                    "SELECT m.\" FROM vega.movies AS m",
                 ),
             ),
         ] {
@@ -3975,7 +4300,7 @@ chart cartesian as chart {
             )
             .await;
             let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
-            let cursor = edited.find("m.").unwrap() + 2;
+            let cursor = edited.find("m.\"").unwrap() + 3;
             let completion = call(
                 &mut service,
                 Request::build("textDocument/completion")
@@ -4003,10 +4328,123 @@ chart cartesian as chart {
                 let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit else {
                     panic!("expected exact text edit for {expected}")
                 };
-                assert_eq!(edit.range.start, edit.range.end);
+                assert_eq!(edit.range.start.line, edit.range.end.line);
+                assert_eq!(edit.range.start.character + 1, edit.range.end.character);
+                assert_eq!(edit.new_text, format!("\"{expected}\""));
+                assert_eq!(
+                    item.filter_text.as_deref(),
+                    Some(format!("\"{expected}\"").as_str())
+                );
                 assert!(item.detail.is_some());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn transcript_completion_is_silent_in_lexically_and_structurally_invalid_domains() {
+        fn position(text: &str, offset: usize) -> serde_json::Value {
+            let prefix = &text[..offset];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count();
+            let character = prefix
+                .rsplit_once('\n')
+                .map_or(prefix.len(), |(_, line)| line.len());
+            json!({ "line": line, "character": character })
+        }
+
+        let project = tempdir().unwrap();
+        let chart = project.path().join("completion-silence.avenger");
+        let text = r#"avenger 1;
+chart cartesian as chart {
+  param 1 as invented_name;
+  mark symbol as points {
+    x: encoded 'string text';
+    y: encoded rat;
+    size: encoded 1 /* comment text */;
+  }
+}
+"#;
+        fs::write(&chart, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "general": { "positionEncodings": ["utf-8"] },
+                        "textDocument": { "completion": { "completionItem": {} } }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "silence" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        for (ordinal, (name, offset)) in [
+            (
+                "SQL string",
+                text.find("string text").unwrap() + "string".len(),
+            ),
+            (
+                "SQL comment",
+                text.find("comment text").unwrap() + "comment".len(),
+            ),
+            ("bare column-like word", text.find("rat;").unwrap() + 3),
+            (
+                "invented binder name",
+                text.find("invented_name").unwrap() + "invented".len(),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let response = call(
+                &mut service,
+                Request::build("textDocument/completion")
+                    .id(10 + ordinal as i64)
+                    .params(json!({
+                        "textDocument": { "uri": chart_uri },
+                        "position": position(text, offset),
+                        "context": { "triggerKind": 3 }
+                    }))
+                    .finish(),
+            )
+            .await
+            .unwrap_or_else(|| panic!("missing completion response for {name}"));
+            let completion: CompletionResponse =
+                serde_json::from_value(serde_json::to_value(response.result().unwrap()).unwrap())
+                    .unwrap();
+            let CompletionResponse::List(completion) = completion else {
+                panic!("expected completion list for {name}")
+            };
+            assert!(
+                completion.items.is_empty(),
+                "{name}: {:#?}",
+                completion.items
+            );
+        }
+
+        let shutdown = call(&mut service, Request::build("shutdown").id(99).finish())
+            .await
+            .unwrap();
+        assert!(shutdown.is_ok());
     }
 
     #[tokio::test]
@@ -4042,7 +4480,7 @@ chart cartesian as chart {
   transform sql as rows {
     query:
       FROM vega.movies AS m
-      SELECT m.title, m.rating;
+      SELECT m."title", m."rating";
   }
   mark dot as points {}
 }
@@ -4135,7 +4573,7 @@ chart cartesian as chart {
         })
         .await
         .expect("semantic analysis timeout");
-        let cursor = chart_text.find("m.title").unwrap() + 2;
+        let cursor = chart_text.find("m.\"title\"").unwrap() + 3;
         let completion = call(
             &mut service,
             Request::build("textDocument/completion")

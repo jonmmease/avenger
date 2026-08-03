@@ -7,6 +7,6 @@ chart cartesian as chart {
 
     mark symbol as points {
         x: encoded "Horsepower";
-        y: encoded ⟦cursor⟧;
+        y: encoded $⟦cursor⟧;
     }
 }

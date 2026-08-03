@@ -4,17 +4,21 @@
 //! Protocol adapters such as `avenger-lsp` are responsible for translating
 //! these contracts to editor-specific positions and wire types.
 
+mod completion_rank;
 mod editing;
 mod intelligence;
 mod sql_intelligence;
 
 pub use editing::RenameError;
 pub use intelligence::{
-    AnalysisQueryError, CompletionOptions, DocumentSemanticIndex, IndexedBinding, IndexedReference,
-    IndexedSymbol, IndexedValueKind, WorkspaceSemanticIndex,
+    AnalysisQueryError, CompletionInvocation, CompletionOptions, DocumentSemanticIndex,
+    IndexedBinding, IndexedReference, IndexedSymbol, IndexedValueKind, SqlIslandDescriptor,
+    SqlIslandOwner, WorkspaceSemanticIndex,
 };
 pub use sql_intelligence::{
-    SqlCompletionDebug, SqlCompletionMetrics, SqlExpectedRole, SqlRepairStrategy,
+    SqlClauseItemDebug, SqlCompletionDebug, SqlCompletionMetrics, SqlCursorPathDebug,
+    SqlCursorSentinelKind, SqlIntent, SqlItemParseStatus, SqlLexicalMode, SqlQueryBlockDebug,
+    SqlRepairStrategy, SqlScopeRelationDebug,
 };
 
 use std::{
@@ -78,6 +82,7 @@ pub struct WorkspaceAnalysis {
     pub dataset_contexts: BTreeMap<SourceOrigin, Vec<DatasetContext>>,
     pub registry: avenger_chart_schema::NativeSchemaSnapshot,
     pub semantic_index: WorkspaceSemanticIndex,
+    completion_cache: Arc<sql_intelligence::SqlCompletionCache>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +91,15 @@ pub struct DatasetContext {
     pub stage: DatasetStageId,
     pub stage_kind: DatasetStageKind,
     pub span: SourceSpan,
+    /// Stable-enough tolerant declaration ancestry used to reconnect a
+    /// last-good semantic stage after edits shift authored byte offsets.
+    pub owner_path: Vec<DatasetContextOwner>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DatasetContextOwner {
+    pub keyword: String,
+    pub name: String,
 }
 
 impl WorkspaceAnalysis {
@@ -110,6 +124,7 @@ impl WorkspaceAnalysis {
             dataset_contexts: BTreeMap::new(),
             registry,
             semantic_index,
+            completion_cache: Arc::new(sql_intelligence::SqlCompletionCache::default()),
         }
     }
 
@@ -131,6 +146,7 @@ impl WorkspaceAnalysis {
             dataset_contexts: self.dataset_contexts.clone(),
             registry: self.registry.clone(),
             semantic_index,
+            completion_cache: Arc::clone(&self.completion_cache),
         }
     }
 
@@ -178,8 +194,43 @@ impl WorkspaceAnalysis {
             &self.semantic_index,
             &self.semantic_roots,
             &self.dataset_contexts,
+            &self.completion_cache,
         )
         .complete(request, options, cancellation)
+    }
+
+    /// Return the editor-neutral SQL cursor classification used by
+    /// completion. This is intended for golden corpora and troubleshooting;
+    /// clients should continue using `complete` for candidate results.
+    pub fn debug_sql_completion(
+        &self,
+        request: &PositionRequest,
+        options: CompletionOptions,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Option<SqlCompletionDebug>, AnalysisQueryError> {
+        cancellation
+            .check()
+            .map_err(|_| AnalysisQueryError::Cancelled)?;
+        let syntax = self
+            .syntax
+            .get(&request.source)
+            .ok_or(AnalysisQueryError::UnknownSource)?;
+        if syntax.revision != request.source_revision {
+            return Err(AnalysisQueryError::StaleRevision);
+        }
+        Ok(sql_intelligence::complete_sql(
+            request,
+            syntax,
+            &self.registry,
+            &self.semantic_index,
+            &self.semantic_roots,
+            &self.dataset_contexts,
+            &options.invocation,
+            options.snippets,
+            &self.completion_cache,
+            cancellation,
+        )
+        .map(|output| output.debug))
     }
 
     pub fn format_document(
@@ -246,6 +297,7 @@ impl WorkspaceAnalysis {
             &self.semantic_index,
             &self.semantic_roots,
             &self.dataset_contexts,
+            &self.completion_cache,
         )
         .hover(request, cancellation)
     }
@@ -264,6 +316,7 @@ impl WorkspaceAnalysis {
             &self.semantic_index,
             &self.semantic_roots,
             &self.dataset_contexts,
+            &self.completion_cache,
         )
         .definition(request, cancellation)
     }
@@ -283,6 +336,7 @@ impl WorkspaceAnalysis {
             &self.semantic_index,
             &self.semantic_roots,
             &self.dataset_contexts,
+            &self.completion_cache,
         )
         .references(request, include_declaration, cancellation)
     }
@@ -355,11 +409,15 @@ impl WorkspaceAnalysis {
 #[derive(Clone)]
 pub struct AnalysisService {
     compiler: Compiler,
+    completion_cache: Arc<sql_intelligence::SqlCompletionCache>,
 }
 
 impl AnalysisService {
     pub fn new(compiler: Compiler) -> Self {
-        Self { compiler }
+        Self {
+            compiler,
+            completion_cache: Arc::new(sql_intelligence::SqlCompletionCache::default()),
+        }
     }
 
     pub fn compiler(&self) -> &Compiler {
@@ -502,6 +560,7 @@ impl AnalysisService {
                                 stage: stage.clone(),
                                 stage_kind: dataset.provenance.stage_kind.clone(),
                                 span: dataset.provenance.stage_span,
+                                owner_path: Vec::new(),
                             });
                     }
                 }
@@ -519,6 +578,14 @@ impl AnalysisService {
         }
         cancellation.check()?;
         let semantic_index = WorkspaceSemanticIndex::build(&syntax, &semantic_roots);
+        for (origin, contexts) in &mut dataset_contexts {
+            let Some(document) = semantic_index.documents.get(origin) else {
+                continue;
+            };
+            for context in contexts {
+                context.owner_path = dataset_context_owner_path(document, context.span);
+            }
+        }
         Ok(WorkspaceAnalysis {
             generation: snapshot.generation,
             project_root: snapshot.project_root,
@@ -528,8 +595,42 @@ impl AnalysisService {
             dataset_contexts,
             registry,
             semantic_index,
+            completion_cache: Arc::clone(&self.completion_cache),
         })
     }
+}
+
+pub(crate) fn dataset_context_owner_path(
+    document: &intelligence::DocumentSemanticIndex,
+    span: SourceSpan,
+) -> Vec<DatasetContextOwner> {
+    let Some(mut current) = document
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| {
+            symbol.declaration_span.range.start <= span.range.start
+                && span.range.end <= symbol.declaration_span.range.end
+        })
+        .min_by_key(|(_, symbol)| symbol.declaration_span.range.len())
+        .map(|(index, _)| index)
+    else {
+        return Vec::new();
+    };
+    let mut output = Vec::new();
+    loop {
+        let symbol = &document.symbols[current];
+        output.push(DatasetContextOwner {
+            keyword: symbol.keyword.clone(),
+            name: symbol.name.clone(),
+        });
+        let Some(parent) = symbol.parent else {
+            break;
+        };
+        current = parent;
+    }
+    output.reverse();
+    output
 }
 
 #[derive(Clone, Debug, Default)]
@@ -727,10 +828,54 @@ pub enum CompletionKind {
     Snippet,
 }
 
+/// Editor-neutral semantic identity of a completion candidate. Presentation
+/// kinds are intentionally coarser and are mapped only at the LSP boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CompletionSemanticKind {
+    DslKeyword,
+    Declaration,
+    NativeKind,
+    Property,
+    EnumValue,
+    DataColumn,
+    Relation,
+    Catalog,
+    Schema,
+    ScalarParam,
+    StoreParam,
+    SelectionParam,
+    StructField,
+    ContextualRoot,
+    ContextualMember,
+    WindowName,
+    ScalarFunction,
+    AggregateFunction,
+    WindowFunction,
+    TableFunction,
+    SqlType,
+    SqlKeyword,
+    SqlOperator,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompletionTextFormat {
     PlainText,
     Snippet,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CompletionQualification {
+    #[default]
+    Unqualified,
+    Qualified,
+    Ambiguous,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CompletionValidity {
+    #[default]
+    Strict,
+    Scaffold,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -752,6 +897,18 @@ pub struct CompletionItem {
     pub insert_text: String,
     pub insert_text_format: CompletionTextFormat,
     pub kind: CompletionKind,
+    pub semantic_kind: CompletionSemanticKind,
+    pub semantic_identity: String,
+    pub match_text: String,
+    pub qualification: CompletionQualification,
+    pub data_type: Option<String>,
+    pub nullable: Option<bool>,
+    pub source_stage: Option<String>,
+    pub expected_type_compatible: Option<bool>,
+    pub confidence: u16,
+    pub semantic_proximity: u16,
+    pub usage_prevalence: u32,
+    pub validity: CompletionValidity,
     pub detail: Option<String>,
     pub documentation: Option<String>,
     pub filter_text: Option<String>,
@@ -863,8 +1020,8 @@ impl SyntaxAnalysis {
                 declaration_keyword: None,
                 property_name: Some(name.clone()),
             },
-            Some(TolerantSyntaxNodeKind::SqlIsland { context }) => SyntaxContext {
-                kind: match context {
+            Some(TolerantSyntaxNodeKind::SqlIsland { site, .. }) => SyntaxContext {
+                kind: match site.context() {
                     avenger_lang_core::syntax::SqlIslandContext::QueryProperty => {
                         SyntaxContextKind::Query
                     }
@@ -887,6 +1044,31 @@ impl SyntaxAnalysis {
                 property_name: None,
             },
             Some(TolerantSyntaxNodeKind::Error | TolerantSyntaxNodeKind::MissingToken { .. }) => {
+                if let Some(island) = self
+                    .parsed
+                    .nodes
+                    .iter()
+                    .filter(|candidate| {
+                        matches!(candidate.kind, TolerantSyntaxNodeKind::SqlIsland { .. })
+                            && candidate.span.range.start <= byte_offset
+                            && byte_offset <= candidate.span.range.end
+                    })
+                    .min_by_key(|candidate| candidate.span.range.len())
+                    && let TolerantSyntaxNodeKind::SqlIsland { site, .. } = &island.kind
+                {
+                    return SyntaxContext {
+                        kind: if site.context()
+                            == avenger_lang_core::syntax::SqlIslandContext::QueryProperty
+                        {
+                            SyntaxContextKind::Query
+                        } else {
+                            SyntaxContextKind::Expression
+                        },
+                        span: island.span,
+                        declaration_keyword: None,
+                        property_name: None,
+                    };
+                }
                 SyntaxContext {
                     kind: SyntaxContextKind::Error,
                     span: node.unwrap().span,

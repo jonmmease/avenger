@@ -29,9 +29,9 @@ use crate::{
     CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompiledChartArtifact,
     CompiledModule, CompilerLimits, CompilerOptions, DatasetLineage, DatasetProvenance,
     DatasetStageId, DatasetStageKind, DefaultCompileEnvironmentFactory, DefaultSourceLoader,
-    DependencyFingerprint, LanguageHost, LocalResourceLimits, ModuleAnalysis, ModuleDatasetId,
-    ModuleDependencyFingerprints, ModuleFingerprint, NativeRequirementSet, SourceLoaderLimits,
-    TableFactoryRegistry,
+    DependencyFingerprint, FunctionCategory, FunctionMetadata, LanguageHost, LocalResourceLimits,
+    ModuleAnalysis, ModuleDatasetId, ModuleDependencyFingerprints, ModuleFingerprint,
+    NativeRequirementSet, SourceLoaderLimits, TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
     lowering::{PreparedParams, analyze_chart_datasets, lower_module_chart, prepare_module_params},
 };
@@ -773,12 +773,56 @@ impl Compiler {
         analysis.param_types.clone_from(&prepared_params.types);
         analysis.resolved_module_graph = Some(Arc::new(project.clone()));
         let state = environment.session_context().state();
-        analysis.functions.scalar = state.scalar_functions().keys().cloned().collect();
-        analysis.functions.aggregate = state.aggregate_functions().keys().cloned().collect();
-        analysis.functions.window = state.window_functions().keys().cloned().collect();
-        analysis.functions.scalar.sort();
-        analysis.functions.aggregate.sort();
-        analysis.functions.window.sort();
+        macro_rules! collect_udfs {
+            ($functions:expr, $category:expr) => {
+                for (name, function) in $functions {
+                    let signature = function.signature();
+                    let documentation = function.documentation();
+                    let parameter_names = signature.parameter_names.clone().unwrap_or_else(|| {
+                        documentation
+                            .and_then(|docs| docs.arguments.as_ref())
+                            .map(|arguments| {
+                                arguments.iter().map(|(name, _)| name.clone()).collect()
+                            })
+                            .unwrap_or_default()
+                    });
+                    analysis.functions.functions.push(FunctionMetadata {
+                        name: name.clone(),
+                        category: $category,
+                        signature: Some(format!("{:?}", signature.type_signature)),
+                        parameter_names,
+                        return_type: None,
+                        volatility: Some(format!("{:?}", signature.volatility)),
+                        description: documentation.map(|docs| docs.description.clone()),
+                        syntax_example: documentation.map(|docs| docs.syntax_example.clone()),
+                        arguments: documentation
+                            .and_then(|docs| docs.arguments.clone())
+                            .unwrap_or_default(),
+                    });
+                }
+            };
+        }
+        collect_udfs!(state.scalar_functions(), FunctionCategory::Scalar);
+        collect_udfs!(state.aggregate_functions(), FunctionCategory::Aggregate);
+        collect_udfs!(state.window_functions(), FunctionCategory::Window);
+        for name in state.table_functions().keys() {
+            analysis.functions.functions.push(FunctionMetadata {
+                name: name.clone(),
+                category: FunctionCategory::Table,
+                signature: None,
+                parameter_names: Vec::new(),
+                return_type: None,
+                volatility: None,
+                description: None,
+                syntax_example: None,
+                arguments: Vec::new(),
+            });
+        }
+        analysis.functions.functions.sort_by(|left, right| {
+            left.category
+                .cmp(&right.category)
+                .then(left.name.cmp(&right.name))
+        });
         analysis.lineage = catalog.lineage.clone();
         let mut pending_datasets = BTreeMap::new();
         for (_, dataset) in catalog.datasets.iter() {

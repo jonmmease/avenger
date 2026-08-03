@@ -308,6 +308,7 @@ pub enum ValueShape {
     SqlExpression,
     SqlProjection {
         policy: ProjectionPolicy,
+        expression_mode: ProjectionExpressionMode,
     },
     SqlQuery,
     /// A channel configuration block with no authored data head. Native
@@ -376,6 +377,15 @@ pub enum ProjectionPolicy {
     /// Direct column references may be unaliased; computed expressions must
     /// use an explicit `AS <name>` alias.
     Select,
+}
+
+/// SQL function families admitted by a projection-list property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionExpressionMode {
+    Scalar,
+    Aggregate,
+    Window,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

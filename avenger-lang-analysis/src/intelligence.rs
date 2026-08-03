@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use avenger_chart_schema::{
@@ -13,20 +13,32 @@ use avenger_lang_core::{
     allowed_child_declarations,
     ast::{BindingTime, Visibility},
     sql::{LosslessTokenKind, TokenClass},
-    syntax::{TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
+    syntax::{SqlIslandSite, TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
 };
 use sqlparser::tokenizer::Token;
 
+use crate::completion_rank::{candidate_matches, rank_and_deduplicate};
 use crate::{
     AnalysisCancellation, AnalysisGeneration, CompletionItem, CompletionKind, CompletionOrigin,
-    CompletionResult, CompletionTextFormat, DatasetContext, HoverResult, NavigationResult,
-    NavigationTarget, PositionRequest, RootAnalysis, SymbolKind, SyntaxAnalysis,
+    CompletionQualification, CompletionResult, CompletionSemanticKind, CompletionTextFormat,
+    CompletionValidity, DatasetContext, HoverResult, NavigationResult, NavigationTarget,
+    PositionRequest, RootAnalysis, SymbolKind, SyntaxAnalysis,
 };
 use avenger_lang_compiler::{ModuleAnalysis, ParamTypeProvenance};
+use sha2::{Digest, Sha256};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompletionOptions {
     pub snippets: bool,
+    pub invocation: CompletionInvocation,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompletionInvocation {
+    #[default]
+    Invoked,
+    TriggerCharacter(String),
+    TriggerForIncompleteCompletions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -86,6 +98,26 @@ pub struct DocumentSemanticIndex {
     pub symbols: Vec<IndexedSymbol>,
     pub references: Vec<IndexedReference>,
     pub property_names: BTreeMap<SourceSpan, String>,
+    pub sql_islands: Vec<SqlIslandDescriptor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlIslandDescriptor {
+    pub identity: String,
+    pub authored_fingerprint: String,
+    pub site: SqlIslandSite,
+    pub span: SourceSpan,
+    pub declaration_keyword: Option<String>,
+    pub declaration_name: Option<String>,
+    pub declaration_path: Vec<SqlIslandOwner>,
+    pub property_path: Vec<String>,
+    pub channel_mode: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlIslandOwner {
+    pub keyword: String,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -851,6 +883,23 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         }
     }
 
+    output.sql_islands = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter_map(|node| sql_island_descriptor(syntax, node))
+        .collect();
+    for island in &mut output.sql_islands {
+        island.identity = format!(
+            "sql-island:{}:{}:{}:{}:{}",
+            origin.canonical_uri(),
+            island.site.manifest_name(),
+            island.property_path.join("."),
+            island.span.range.start,
+            island.authored_fingerprint
+        );
+    }
+
     for (alias, selection_span, declaration_span) in scan_import_aliases(syntax) {
         let ordinal = output.symbols.len();
         output.symbols.push(IndexedSymbol {
@@ -921,6 +970,95 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         .collect::<Vec<_>>();
     output.references.extend(alias_references);
     output
+}
+
+fn sql_island_descriptor(
+    syntax: &SyntaxAnalysis,
+    node: &avenger_lang_core::syntax::TolerantSyntaxNode,
+) -> Option<SqlIslandDescriptor> {
+    let TolerantSyntaxNodeKind::SqlIsland { site, fingerprint } = &node.kind else {
+        return None;
+    };
+    let mut declaration_keyword = None;
+    let mut declaration_name = None;
+    let mut declaration_path = Vec::new();
+    let mut property_path = Vec::new();
+    let mut parent = node.parent;
+    while let Some(id) = parent {
+        let ancestor = &syntax.parsed.nodes[id.get() as usize];
+        match &ancestor.kind {
+            TolerantSyntaxNodeKind::Property { name } => property_path.push(name.clone()),
+            TolerantSyntaxNodeKind::Declaration { keyword, name } => {
+                if declaration_keyword.is_none() {
+                    declaration_keyword = Some(keyword.clone());
+                    declaration_name = name.clone();
+                }
+                declaration_path.push(SqlIslandOwner {
+                    keyword: keyword.clone(),
+                    name: name.clone().unwrap_or_else(|| keyword.clone()),
+                });
+            }
+            _ => {}
+        }
+        parent = ancestor.parent;
+    }
+    property_path.reverse();
+    declaration_path.reverse();
+    let channel_mode = syntax.parsed.nodes.iter().find_map(|candidate| {
+        let TolerantSyntaxNodeKind::ChannelMode {
+            mode,
+            expression_span: Some(expression_span),
+            ..
+        } = &candidate.kind
+        else {
+            return None;
+        };
+        (expression_span.range.start <= node.span.range.start
+            && node.span.range.end <= expression_span.range.end)
+            .then(|| mode.clone())
+    });
+    let occurrence = syntax
+        .parsed
+        .nodes
+        .iter()
+        .take(node.id.get() as usize)
+        .filter(|candidate| {
+            candidate.parent == node.parent
+                && matches!(
+                    &candidate.kind,
+                    TolerantSyntaxNodeKind::SqlIsland {
+                        site: candidate_site,
+                        ..
+                    } if candidate_site == site
+                )
+        })
+        .count();
+    let mut identity = Sha256::new();
+    identity.update(b"avenger-sql-island-identity-v1\0");
+    identity.update(site.manifest_name().as_bytes());
+    for owner in &declaration_path {
+        identity.update(b"\0owner\0");
+        identity.update(owner.keyword.as_bytes());
+        identity.update(b"\0");
+        identity.update(owner.name.as_bytes());
+    }
+    for property in &property_path {
+        identity.update(b"\0property\0");
+        identity.update(property.as_bytes());
+    }
+    identity.update(b"\0occurrence\0");
+    identity.update((occurrence as u64).to_le_bytes());
+    Some(SqlIslandDescriptor {
+        identity: format!("{:x}", identity.finalize()),
+        authored_fingerprint: fingerprint.clone(),
+        site: *site,
+        span: node.span,
+        declaration_keyword,
+        declaration_name,
+        declaration_path,
+        property_path,
+        channel_mode,
+    })
 }
 
 #[derive(Default)]
@@ -1900,13 +2038,113 @@ fn value_kind(keyword: &str) -> IndexedValueKind {
 
 pub(crate) struct QueryContext<'a> {
     generation: AnalysisGeneration,
-    project_root: &'a Path,
+    _project_root: &'a Path,
     known_sources: &'a [SourceOrigin],
     registry: &'a NativeSchemaSnapshot,
     syntax: &'a BTreeMap<SourceOrigin, SyntaxAnalysis>,
     index: &'a WorkspaceSemanticIndex,
     semantic_roots: &'a BTreeMap<String, RootAnalysis>,
     dataset_contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+    completion_cache: &'a crate::sql_intelligence::SqlCompletionCache,
+}
+
+#[derive(Clone, Debug)]
+enum StructuralCursorState {
+    Nothing,
+    NameInvention,
+    ImportClause,
+    ImportMember(ScannedImport),
+    ImportPath(String),
+    ImportSource,
+    ImportTail,
+    TokenInsertion(&'static [&'static str]),
+    StructFieldName,
+    ParamBinder,
+    FieldNullable,
+    ParamHeader,
+    PhysicalType,
+    FixedHeader(&'static [&'static str]),
+    SetModifier(&'static [&'static str]),
+    SetTarget,
+    StateOperation(IndexedValueKind),
+    DeclarationKind {
+        namespace: NativeKindNamespace,
+        typed: String,
+    },
+    DeclarationTail,
+    PropertyValue(String),
+    PropertyName,
+    Declaration,
+}
+
+fn structural_cursor_state(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+    prefix: &str,
+    set_target_kind: Option<IndexedValueKind>,
+    action_target: Option<IndexedValueKind>,
+) -> StructuralCursorState {
+    let text = syntax.parsed.tokens.text();
+    if let Some(state) = version_header_state(syntax, cursor) {
+        state
+    } else if let Some(state) = export_cursor_state(syntax, cursor) {
+        state
+    } else if name_invention_context(syntax, cursor) {
+        StructuralCursorState::NameInvention
+    } else if let Some(import) = scan_imports(syntax).into_iter().find(|import| {
+        import
+            .member_span
+            .is_some_and(|span| span.range.start <= cursor && cursor <= span.range.end)
+    }) {
+        StructuralCursorState::ImportMember(import)
+    } else if let Some(import_prefix) = import_prefix(text, cursor) {
+        StructuralCursorState::ImportPath(import_prefix.to_owned())
+    } else if let Some(state) = import_cursor_state(syntax, cursor) {
+        state
+    } else if structural_noncode_context(syntax, cursor) {
+        StructuralCursorState::Nothing
+    } else if struct_field_name_context(syntax, cursor) {
+        StructuralCursorState::StructFieldName
+    } else if param_binder_context(syntax, cursor) {
+        StructuralCursorState::ParamBinder
+    } else if field_name_invention_context(syntax, cursor) {
+        StructuralCursorState::NameInvention
+    } else if field_nullable_context(syntax, cursor) {
+        StructuralCursorState::FieldNullable
+    } else if param_initializer_context(syntax, cursor) {
+        StructuralCursorState::ParamHeader
+    } else if physical_type_header_context(syntax, cursor) {
+        StructuralCursorState::PhysicalType
+    } else if let Some(values) = fixed_header_candidates(syntax, cursor) {
+        StructuralCursorState::FixedHeader(values)
+    } else if let Some(values) = set_modifier_candidates(syntax, cursor, set_target_kind) {
+        StructuralCursorState::SetModifier(values)
+    } else if set_target_context(syntax, cursor) {
+        StructuralCursorState::SetTarget
+    } else if let Some(kind) = action_target {
+        StructuralCursorState::StateOperation(kind)
+    } else if let Some((namespace, typed, complete)) = declaration_kind_context(syntax, cursor) {
+        if complete {
+            StructuralCursorState::DeclarationTail
+        } else {
+            StructuralCursorState::DeclarationKind { namespace, typed }
+        }
+    } else if let Some(property) = property_value_context(syntax, cursor)
+        .map(str::to_owned)
+        .or_else(|| incomplete_property_value_context(syntax, cursor))
+    {
+        StructuralCursorState::PropertyValue(property)
+    } else if is_property_name_context(syntax, cursor) {
+        StructuralCursorState::PropertyName
+    } else if prefix.starts_with('$') {
+        // `$` is a namespace entry character, never a reason to fall back to
+        // unrelated declaration or property candidates.
+        StructuralCursorState::Nothing
+    } else if declaration_start_context(syntax, cursor) {
+        StructuralCursorState::Declaration
+    } else {
+        StructuralCursorState::Nothing
+    }
 }
 
 impl<'a> QueryContext<'a> {
@@ -1920,16 +2158,18 @@ impl<'a> QueryContext<'a> {
         index: &'a WorkspaceSemanticIndex,
         semantic_roots: &'a BTreeMap<String, RootAnalysis>,
         dataset_contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+        completion_cache: &'a crate::sql_intelligence::SqlCompletionCache,
     ) -> Self {
         Self {
             generation,
-            project_root,
+            _project_root: project_root,
             known_sources,
             registry,
             syntax,
             index,
             semantic_roots,
             dataset_contexts,
+            completion_cache,
         }
     }
 
@@ -1963,252 +2203,409 @@ impl<'a> QueryContext<'a> {
         let replacement = replacement_span(syntax, cursor);
         let prefix = &text[replacement.range.start..cursor];
         let mut items = Vec::new();
-        let set_target = set_action_target(text, cursor);
-        let set_target_kind =
-            set_target.and_then(|target| self.state_target_kind(&request.source, cursor, target));
-        let action_target = set_action_rhs_target(text, cursor).and(set_target_kind);
+        let set_target = set_action_target(syntax, cursor);
+        let set_target_kind = set_target
+            .as_deref()
+            .and_then(|target| self.state_target_kind(&request.source, cursor, target));
+        let action_target = set_action_rhs_target(syntax, cursor).and(set_target_kind);
+        let structural_state =
+            structural_cursor_state(syntax, cursor, prefix, set_target_kind, action_target);
+        let structural_token_insertion =
+            matches!(&structural_state, StructuralCursorState::TokenInsertion(_));
 
-        let sql = crate::sql_intelligence::complete_sql(
-            request,
-            syntax,
-            self.registry,
-            self.index,
-            self.semantic_roots,
-            self.dataset_contexts,
-            cancellation,
-        );
+        // Store and selection RHS forms begin with a structural operation
+        // (`insert_rows`, `toggle_clauses`, ...), not a scalar SQL operand.
+        // The tolerant parser still retains the RHS as an exact SQL-island
+        // site for scalar targets, so make this one semantic distinction
+        // before invoking SQL candidate providers.
+        let sql = if matches!(&structural_state, StructuralCursorState::StateOperation(_)) {
+            None
+        } else {
+            crate::sql_intelligence::complete_sql(
+                request,
+                syntax,
+                self.registry,
+                self.index,
+                self.semantic_roots,
+                self.dataset_contexts,
+                &options.invocation,
+                options.snippets,
+                self.completion_cache,
+                cancellation,
+            )
+        };
+        let sql_domain = sql.is_some();
         let sql_incomplete = sql.as_ref().is_some_and(|result| result.is_incomplete);
         if let Some(sql) = sql {
             items.extend(sql.items);
-            if let Some(property) = property_value_context(syntax, cursor)
-                .or_else(|| incomplete_property_value_context(text, cursor))
-            {
-                self.complete_property_value(
-                    property,
-                    prefix,
-                    replacement,
-                    cursor,
-                    &request.source,
-                    &mut items,
-                );
-            }
-            if let Some(kind) = action_target {
-                complete_state_operations(kind, prefix, replacement, &mut items);
-            }
-            if (output_alias_context(text, replacement.range.start)
-                || param_alias_context(text, replacement.range.start))
-                && candidate_matches("as", prefix)
-            {
-                items.push(item(
-                    "as".to_owned(),
-                    replacement,
-                    "as".to_owned(),
-                    CompletionKind::Keyword,
-                    Some("declaration alias".to_owned()),
-                    None,
-                    CompletionOrigin::Syntax,
-                    false,
-                    "00",
-                ));
-            }
-        } else if let Some(import) = scan_imports(syntax).into_iter().find(|import| {
-            import
-                .member_span
-                .is_some_and(|span| span.range.start <= cursor && cursor <= span.range.end)
-        }) {
-            self.complete_import_members(&request.source, &import, prefix, replacement, &mut items);
-        } else if let Some(import_prefix) = import_prefix(text, cursor) {
-            self.complete_imports(import_prefix, replacement, &mut items);
-        } else if prefix.starts_with('$') {
-            self.complete_bindings(prefix, replacement, &request.source, cursor, &mut items);
-        } else if struct_field_name_context(text, cursor) {
-            if candidate_matches("'<name>'", prefix) {
-                let mut candidate = item(
-                    "'<name>'".to_owned(),
-                    replacement,
-                    "'${1:name}'".to_owned(),
-                    CompletionKind::Snippet,
-                    Some("Arrow struct member name".to_owned()),
-                    None,
-                    CompletionOrigin::Syntax,
-                    false,
-                    "00",
-                );
-                candidate.insert_text_format = CompletionTextFormat::Snippet;
-                items.push(candidate);
-            }
-        } else if param_binder_context(text, cursor) {
-            if candidate_matches("as", prefix) {
-                items.push(item(
-                    "as".to_owned(),
-                    replacement,
-                    "as".to_owned(),
-                    CompletionKind::Keyword,
-                    Some("parameter binder".to_owned()),
-                    None,
-                    CompletionOrigin::Syntax,
-                    false,
-                    "00",
-                ));
-            }
-        } else if field_nullable_context(text, cursor) {
-            if candidate_matches("nullable", prefix) {
-                items.push(item(
-                    "nullable".to_owned(),
-                    replacement,
-                    "nullable".to_owned(),
-                    CompletionKind::Keyword,
-                    Some("nullable Arrow field".to_owned()),
-                    None,
-                    CompletionOrigin::Syntax,
-                    false,
-                    "00",
-                ));
-            }
-        } else if param_initializer_context(text, cursor) {
-            for (label, detail) in [
-                ("store", "table-valued parameter category"),
-                ("selection", "selection parameter category"),
-                ("CAST", "SQL cast expression"),
-                ("NULL", "SQL null literal; cast it to infer a concrete type"),
-                ("true", "SQL boolean literal"),
-                ("false", "SQL boolean literal"),
-            ] {
-                if candidate_matches(label, prefix) {
-                    items.push(item(
-                        label.to_owned(),
-                        replacement,
-                        label.to_owned(),
-                        if matches!(label, "store" | "selection") {
-                            CompletionKind::Type
-                        } else {
-                            CompletionKind::Keyword
-                        },
-                        Some(detail.to_owned()),
-                        None,
-                        CompletionOrigin::Syntax,
-                        false,
-                        "00",
-                    ));
-                }
-            }
-        } else if physical_type_header_context(text, cursor) {
-            complete_physical_types(prefix, replacement, &mut items);
-        } else if let Some(values) = fixed_header_candidates(text, cursor) {
-            for value in values {
-                if candidate_matches(value, prefix) {
-                    items.push(item(
-                        (*value).to_owned(),
-                        replacement,
-                        (*value).to_owned(),
-                        CompletionKind::Keyword,
-                        Some("declaration header".to_owned()),
-                        None,
-                        CompletionOrigin::Syntax,
-                        false,
-                        "00",
-                    ));
-                }
-            }
-        } else if let Some(values) = set_modifier_candidates(text, cursor, set_target_kind) {
-            for value in values {
-                if candidate_matches(value, prefix) {
-                    items.push(item(
-                        (*value).to_owned(),
-                        replacement,
-                        (*value).to_owned(),
-                        CompletionKind::Keyword,
-                        Some("state action modifier".to_owned()),
-                        None,
-                        CompletionOrigin::Syntax,
-                        false,
-                        "00",
-                    ));
-                }
-            }
-        } else if set_target_context(text, cursor) {
-            self.complete_state_targets(prefix, replacement, &request.source, cursor, &mut items);
-        } else if let Some(kind) = action_target {
-            complete_state_operations(kind, prefix, replacement, &mut items);
-        } else if let Some((namespace, typed)) = declaration_kind_context(text, cursor) {
-            self.complete_native_kinds(
-                namespace,
-                typed,
-                replacement,
-                &request.source,
-                cursor,
-                &mut items,
-            );
-        } else if let Some(property) = property_value_context(syntax, cursor)
-            .or_else(|| incomplete_property_value_context(text, cursor))
-        {
-            self.complete_property_value(
-                property,
-                prefix,
-                replacement,
-                cursor,
-                &request.source,
-                &mut items,
-            );
-        } else if is_property_name_context(text, cursor) {
-            let nested_property = enclosing_property(syntax, cursor).is_some();
-            if inside_legend_overlay_block(syntax, cursor) {
-                if candidate_matches("mark", prefix) {
-                    let mut candidate = item(
-                        "mark".to_owned(),
-                        replacement,
-                        declaration_snippet("mark"),
-                        CompletionKind::Keyword,
-                        Some("legend overlay mark".to_owned()),
-                        Some(
-                            "A Cartesian mark local to this continuous-colorbar overlay."
-                                .to_owned(),
-                        ),
-                        CompletionOrigin::AuthoringSchema,
-                        false,
-                        "00",
-                    );
-                    candidate.insert_text_format = CompletionTextFormat::Snippet;
-                    items.push(candidate);
-                }
-            } else {
-                self.complete_properties(
-                    syntax,
-                    &request.source,
-                    cursor,
-                    prefix,
-                    replacement,
-                    &mut items,
-                );
-            }
-            if !nested_property && !inside_legend_overlay_block(syntax, cursor) {
-                self.complete_declarations(
-                    &request.source,
-                    cursor,
-                    prefix,
-                    replacement,
-                    options,
-                    &mut items,
-                );
-            }
         } else {
-            self.complete_declarations(
-                &request.source,
-                cursor,
-                prefix,
-                replacement,
-                options,
-                &mut items,
-            );
-            if prefix.starts_with('$') || prefix.is_empty() {
-                self.complete_bindings(prefix, replacement, &request.source, cursor, &mut items);
+            match structural_state {
+                StructuralCursorState::Nothing | StructuralCursorState::NameInvention => {}
+                StructuralCursorState::ImportClause => {
+                    for (label, insert_text, detail) in [
+                        (
+                            "named import",
+                            "{ ${1:name} } from '${2:./module.avenger}';$0",
+                            "import selected module exports",
+                        ),
+                        (
+                            "namespace import",
+                            "* as ${1:namespace} from '${2:./module.avenger}';$0",
+                            "import all public exports under one namespace",
+                        ),
+                    ] {
+                        let mut candidate = item(
+                            label.to_owned(),
+                            replacement,
+                            if options.snippets {
+                                insert_text.to_owned()
+                            } else if label == "named import" {
+                                "{ } from ''".to_owned()
+                            } else {
+                                "* as namespace from ''".to_owned()
+                            },
+                            CompletionKind::Snippet,
+                            Some(detail.to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        );
+                        candidate.insert_text_format = if options.snippets {
+                            CompletionTextFormat::Snippet
+                        } else {
+                            CompletionTextFormat::PlainText
+                        };
+                        candidate.validity = CompletionValidity::Scaffold;
+                        items.push(candidate);
+                    }
+                }
+                StructuralCursorState::ImportMember(import) => self.complete_import_members(
+                    &request.source,
+                    &import,
+                    prefix,
+                    replacement,
+                    &mut items,
+                ),
+                StructuralCursorState::ImportPath(import_prefix) => {
+                    self.complete_imports(&request.source, &import_prefix, replacement, &mut items);
+                }
+                StructuralCursorState::ImportSource => {
+                    self.complete_import_source_starts(
+                        &request.source,
+                        replacement,
+                        options.snippets,
+                        &mut items,
+                    );
+                }
+                StructuralCursorState::ImportTail => {
+                    for (label, insert_text, detail) in [
+                        (";", ";", "finish the import"),
+                        (
+                            "sha256",
+                            if options.snippets {
+                                "sha256 '${1:digest}';$0"
+                            } else {
+                                "sha256 ''"
+                            },
+                            "pin the imported module bytes",
+                        ),
+                    ] {
+                        let mut candidate = item(
+                            label.to_owned(),
+                            replacement,
+                            insert_text.to_owned(),
+                            CompletionKind::Keyword,
+                            Some(detail.to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            if label == ";" { "00" } else { "10" },
+                        );
+                        if label == "sha256" && options.snippets {
+                            candidate.insert_text_format = CompletionTextFormat::Snippet;
+                            candidate.validity = CompletionValidity::Scaffold;
+                        }
+                        items.push(candidate);
+                    }
+                }
+                StructuralCursorState::TokenInsertion(values) => {
+                    let insertion = SourceSpan::empty(replacement.source, cursor);
+                    for value in values {
+                        items.push(item(
+                            (*value).to_owned(),
+                            insertion,
+                            (*value).to_owned(),
+                            CompletionKind::Keyword,
+                            Some("required structural delimiter".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        ));
+                    }
+                }
+                StructuralCursorState::StructFieldName => {
+                    if candidate_matches("'<name>'", prefix) {
+                        let mut candidate = item(
+                            "'<name>'".to_owned(),
+                            replacement,
+                            "'${1:name}'".to_owned(),
+                            CompletionKind::Snippet,
+                            Some("Arrow struct member name".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        );
+                        candidate.insert_text_format = CompletionTextFormat::Snippet;
+                        candidate.validity = CompletionValidity::Scaffold;
+                        items.push(candidate);
+                    }
+                }
+                StructuralCursorState::ParamBinder => {
+                    if candidate_matches("as", prefix) {
+                        items.push(item(
+                            "as".to_owned(),
+                            replacement,
+                            "as".to_owned(),
+                            CompletionKind::Keyword,
+                            Some("parameter binder".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        ));
+                    }
+                }
+                StructuralCursorState::FieldNullable => {
+                    if candidate_matches("nullable", prefix) {
+                        items.push(item(
+                            "nullable".to_owned(),
+                            replacement,
+                            "nullable".to_owned(),
+                            CompletionKind::Keyword,
+                            Some("nullable Arrow field".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        ));
+                    }
+                }
+                StructuralCursorState::ParamHeader => {
+                    for (label, detail) in [
+                        ("store", "table-valued parameter category"),
+                        ("selection", "selection parameter category"),
+                        ("CAST", "SQL cast expression"),
+                        ("NULL", "SQL null literal; cast it to infer a concrete type"),
+                        ("true", "SQL boolean literal"),
+                        ("false", "SQL boolean literal"),
+                    ] {
+                        if candidate_matches(label, prefix) {
+                            items.push(item(
+                                label.to_owned(),
+                                replacement,
+                                label.to_owned(),
+                                if matches!(label, "store" | "selection") {
+                                    CompletionKind::Type
+                                } else {
+                                    CompletionKind::Keyword
+                                },
+                                Some(detail.to_owned()),
+                                None,
+                                CompletionOrigin::Syntax,
+                                false,
+                                "00",
+                            ));
+                        }
+                    }
+                }
+                StructuralCursorState::PhysicalType => {
+                    complete_physical_types(prefix, replacement, &mut items);
+                }
+                StructuralCursorState::FixedHeader(values) => {
+                    for value in values {
+                        if candidate_matches(value, prefix) {
+                            items.push(item(
+                                (*value).to_owned(),
+                                replacement,
+                                (*value).to_owned(),
+                                CompletionKind::Keyword,
+                                Some("declaration header".to_owned()),
+                                None,
+                                CompletionOrigin::Syntax,
+                                false,
+                                "00",
+                            ));
+                        }
+                    }
+                }
+                StructuralCursorState::SetModifier(values) => {
+                    for value in values {
+                        if candidate_matches(value, prefix) {
+                            items.push(item(
+                                (*value).to_owned(),
+                                replacement,
+                                (*value).to_owned(),
+                                CompletionKind::Keyword,
+                                Some("state action modifier".to_owned()),
+                                None,
+                                CompletionOrigin::Syntax,
+                                false,
+                                "00",
+                            ));
+                        }
+                    }
+                }
+                StructuralCursorState::SetTarget => self.complete_state_targets(
+                    prefix,
+                    replacement,
+                    &request.source,
+                    cursor,
+                    &mut items,
+                ),
+                StructuralCursorState::StateOperation(kind) => {
+                    complete_state_operations(kind, prefix, replacement, &mut items);
+                }
+                StructuralCursorState::DeclarationKind { namespace, typed } => self
+                    .complete_native_kinds(
+                        namespace,
+                        &typed,
+                        replacement,
+                        &request.source,
+                        cursor,
+                        &mut items,
+                    ),
+                StructuralCursorState::DeclarationTail => {
+                    for (label, insert_text, detail, validity) in [
+                        (
+                            "as",
+                            "as ",
+                            "bind a source name",
+                            CompletionValidity::Strict,
+                        ),
+                        (
+                            "body",
+                            if options.snippets {
+                                "{\n  $0\n}"
+                            } else {
+                                "{ }"
+                            },
+                            "anonymous declaration body",
+                            CompletionValidity::Scaffold,
+                        ),
+                    ] {
+                        if !candidate_matches(label, prefix) {
+                            continue;
+                        }
+                        let mut candidate = item(
+                            label.to_owned(),
+                            replacement,
+                            insert_text.to_owned(),
+                            CompletionKind::Keyword,
+                            Some(detail.to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            if label == "as" { "00" } else { "10" },
+                        );
+                        candidate.validity = validity;
+                        if options.snippets && validity == CompletionValidity::Scaffold {
+                            candidate.insert_text_format = CompletionTextFormat::Snippet;
+                        }
+                        items.push(candidate);
+                    }
+                }
+                StructuralCursorState::PropertyValue(property) => self.complete_property_value(
+                    &property,
+                    prefix,
+                    replacement,
+                    cursor,
+                    &request.source,
+                    options.snippets,
+                    &mut items,
+                ),
+                StructuralCursorState::PropertyName => {
+                    let nested_property = enclosing_property(syntax, cursor).is_some();
+                    let legend_overlay = inside_legend_overlay_block(syntax, cursor);
+                    if legend_overlay {
+                        if candidate_matches("mark", prefix) {
+                            let mut candidate = item(
+                                "mark".to_owned(),
+                                replacement,
+                                declaration_snippet("mark"),
+                                CompletionKind::Keyword,
+                                Some("legend overlay mark".to_owned()),
+                                Some(
+                                    "A Cartesian mark local to this continuous-colorbar overlay."
+                                        .to_owned(),
+                                ),
+                                CompletionOrigin::AuthoringSchema,
+                                false,
+                                "00",
+                            );
+                            candidate.insert_text_format = CompletionTextFormat::Snippet;
+                            candidate.validity = CompletionValidity::Scaffold;
+                            items.push(candidate);
+                        }
+                    } else {
+                        self.complete_properties(
+                            syntax,
+                            &request.source,
+                            cursor,
+                            prefix,
+                            replacement,
+                            &mut items,
+                        );
+                    }
+                    if !nested_property && !legend_overlay {
+                        self.complete_declarations(
+                            &request.source,
+                            cursor,
+                            prefix,
+                            replacement,
+                            &options,
+                            &mut items,
+                        );
+                    }
+                }
+                StructuralCursorState::Declaration => self.complete_declarations(
+                    &request.source,
+                    cursor,
+                    prefix,
+                    replacement,
+                    &options,
+                    &mut items,
+                ),
             }
         }
 
         cancellation
             .check()
             .map_err(|_| AnalysisQueryError::Cancelled)?;
-        rank_and_deduplicate(&mut items, prefix);
+        if !sql_domain {
+            if prefix.starts_with('$') {
+                items.retain(|item| {
+                    matches!(
+                        item.semantic_kind,
+                        CompletionSemanticKind::ScalarParam
+                            | CompletionSemanticKind::StoreParam
+                            | CompletionSemanticKind::SelectionParam
+                    )
+                });
+            }
+            annotate_structural_usage_prevalence(&mut items, self.index);
+            rank_and_deduplicate(
+                &mut items,
+                if structural_token_insertion {
+                    ""
+                } else {
+                    prefix
+                },
+                &options.invocation,
+            );
+        }
         Ok(CompletionResult {
             items,
             is_incomplete: sql_incomplete,
@@ -2226,6 +2623,7 @@ impl<'a> QueryContext<'a> {
         cursor: usize,
         output: &mut Vec<CompletionItem>,
     ) {
+        let output_start = output.len();
         let overlay_mark = namespace == NativeKindNamespace::Mark
             && self
                 .syntax
@@ -2317,6 +2715,10 @@ impl<'a> QueryContext<'a> {
                 false,
                 "00",
             ));
+        }
+        for item in &mut output[output_start..] {
+            item.semantic_kind = CompletionSemanticKind::NativeKind;
+            item.semantic_identity = format!("NativeKind:{namespace:?}:{}", item.label);
         }
     }
 
@@ -2518,7 +2920,8 @@ impl<'a> QueryContext<'a> {
             }
             return;
         }
-        if let Some(schema) = schema_for_symbol(self.registry, owner, self.index) {
+        let owner_schema = schema_for_symbol(self.registry, owner, self.index);
+        if let Some(schema) = owner_schema {
             if property_path.len() == 1
                 && schema.channels.contains_key(property_path[0])
                 && enclosing_property(syntax, cursor).is_some()
@@ -2598,7 +3001,12 @@ impl<'a> QueryContext<'a> {
             return;
         }
         for &(name, docs) in core_properties(&owner.keyword) {
-            if authored.contains(name) || !candidate_matches(name, prefix) {
+            if authored.contains(name)
+                || owner_schema.is_some_and(|schema| {
+                    schema.properties.contains_key(name) || schema.channels.contains_key(name)
+                })
+                || !candidate_matches(name, prefix)
+            {
                 continue;
             }
             output.push(item(
@@ -2623,6 +3031,7 @@ impl<'a> QueryContext<'a> {
         replacement: SourceSpan,
         cursor: usize,
         origin: &SourceOrigin,
+        snippets: bool,
         output: &mut Vec<CompletionItem>,
     ) {
         let owner = owner_symbol(self.index, origin, cursor);
@@ -2679,13 +3088,20 @@ impl<'a> QueryContext<'a> {
                 complete_channel_value(channel, prefix, replacement, output);
             }
             if prefix.starts_with('$') {
-                self.complete_bindings(prefix, replacement, origin, cursor, output);
+                self.complete_bindings(
+                    prefix,
+                    replacement,
+                    origin,
+                    cursor,
+                    &[IndexedValueKind::Scalar],
+                    output,
+                );
             }
             return;
         }
         let property = owner_schema.and_then(|schema| property_schema(schema, property_name));
         if let Some(property) = property {
-            complete_shape(property.shape, prefix, replacement, output);
+            complete_shape(property.shape, prefix, replacement, snippets, output);
             self.complete_reference_values(
                 property.shape,
                 prefix,
@@ -2713,10 +3129,14 @@ impl<'a> QueryContext<'a> {
         if property_name == "type" || owner.is_some_and(|owner| owner.keyword == "field") {
             complete_physical_types(prefix, replacement, output);
         }
-        if prefix.starts_with('$')
-            || property.is_some_and(|property| shape_accepts_binding(property.shape))
-        {
-            self.complete_bindings(prefix, replacement, origin, cursor, output);
+        if prefix.starts_with('$') {
+            let allowed = property
+                .map(|property| binding_kinds(property.shape))
+                .unwrap_or_else(|| match property_name {
+                    "data" => vec![IndexedValueKind::Table],
+                    _ => Vec::new(),
+                });
+            self.complete_bindings(prefix, replacement, origin, cursor, &allowed, output);
         }
     }
 
@@ -2726,16 +3146,22 @@ impl<'a> QueryContext<'a> {
         replacement: SourceSpan,
         origin: &SourceOrigin,
         cursor: usize,
+        allowed: &[IndexedValueKind],
         output: &mut Vec<CompletionItem>,
     ) {
+        if allowed.is_empty() {
+            return;
+        }
         let typed = prefix.strip_prefix('$').unwrap_or(prefix);
         let document = self.index.documents.get(origin);
         if let Some(document) = document {
             for symbol in &document.symbols {
                 if !matches!(
                     symbol.value_kind,
-                    IndexedValueKind::Scalar | IndexedValueKind::Table
-                ) || symbol.selection_span.range.start >= cursor
+                    IndexedValueKind::Scalar
+                        | IndexedValueKind::Table
+                        | IndexedValueKind::Selection
+                ) || !allowed.contains(&symbol.value_kind)
                     || !scope_visible(document, symbol, cursor)
                     || !candidate_matches(&symbol.name, typed)
                 {
@@ -2743,7 +3169,7 @@ impl<'a> QueryContext<'a> {
                 }
                 let label = format!("${}", symbol.name);
                 let bucket = format!("00:{:020}", symbol.selection_span.range.start);
-                output.push(item(
+                let mut completion = item(
                     label.clone(),
                     replacement,
                     label,
@@ -2753,19 +3179,29 @@ impl<'a> QueryContext<'a> {
                     CompletionOrigin::LexicalScope,
                     false,
                     &bucket,
-                ));
+                );
+                completion.semantic_kind = match symbol.value_kind {
+                    IndexedValueKind::Scalar => CompletionSemanticKind::ScalarParam,
+                    IndexedValueKind::Table => CompletionSemanticKind::StoreParam,
+                    IndexedValueKind::Selection => CompletionSemanticKind::SelectionParam,
+                    _ => unreachable!(),
+                };
+                completion.semantic_identity =
+                    format!("{:?}:{}", completion.semantic_kind, symbol.identity);
+                output.push(completion);
             }
         }
         for binding in self.index.public_bindings.values() {
             if !matches!(
                 binding.value_kind,
-                IndexedValueKind::Scalar | IndexedValueKind::Table
-            ) || !candidate_matches(&binding.path, typed)
+                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
+            ) || !allowed.contains(&binding.value_kind)
+                || !candidate_matches(&binding.path, typed)
             {
                 continue;
             }
             let label = format!("${}", binding.path);
-            output.push(item(
+            let mut completion = item(
                 label.clone(),
                 replacement,
                 label,
@@ -2775,7 +3211,16 @@ impl<'a> QueryContext<'a> {
                 CompletionOrigin::LexicalScope,
                 false,
                 "10",
-            ));
+            );
+            completion.semantic_kind = match binding.value_kind {
+                IndexedValueKind::Scalar => CompletionSemanticKind::ScalarParam,
+                IndexedValueKind::Table => CompletionSemanticKind::StoreParam,
+                IndexedValueKind::Selection => CompletionSemanticKind::SelectionParam,
+                _ => unreachable!(),
+            };
+            completion.semantic_identity =
+                format!("{:?}:{}", completion.semantic_kind, binding.path);
+            output.push(completion);
         }
         if let Some((base, qualifier)) = typed.split_once('@') {
             for temporal in ["start", "previous"] {
@@ -2812,8 +3257,7 @@ impl<'a> QueryContext<'a> {
             if !matches!(
                 symbol.value_kind,
                 IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
-            ) || symbol.selection_span.range.start >= cursor
-                || !scope_visible(document, symbol, cursor)
+            ) || !scope_visible(document, symbol, cursor)
                 || !candidate_matches(&symbol.name, prefix)
             {
                 continue;
@@ -2978,16 +3422,28 @@ impl<'a> QueryContext<'a> {
         cursor: usize,
         prefix: &str,
         replacement: SourceSpan,
-        options: CompletionOptions,
+        options: &CompletionOptions,
         output: &mut Vec<CompletionItem>,
     ) {
         let parent = owner_symbol(self.index, origin, cursor);
         let keywords: Vec<&str> = if let Some(parent) = parent {
             allowed_child_declarations(&parent.keyword).collect()
         } else {
-            vec![
-                "import", "export", "chart", "define", "catalog", "schema", "table",
-            ]
+            let has_prior_module_item = self.index.documents.get(origin).is_some_and(|document| {
+                document.symbols.iter().any(|symbol| {
+                    symbol.parent.is_none()
+                        && symbol.declaration_span.range.start < cursor
+                        && matches!(
+                            symbol.keyword.as_str(),
+                            "chart" | "define" | "catalog" | "schema" | "table"
+                        )
+                })
+            });
+            let mut keywords = vec!["export", "chart", "define", "catalog", "schema", "table"];
+            if !has_prior_module_item {
+                keywords.insert(0, "import");
+            }
+            keywords
         };
         for keyword in keywords {
             if keyword == "mark" && candidate_matches("mark group", prefix) {
@@ -3045,63 +3501,111 @@ impl<'a> QueryContext<'a> {
 
     fn complete_imports(
         &self,
+        importer: &SourceOrigin,
         prefix: &str,
         replacement: SourceSpan,
         output: &mut Vec<CompletionItem>,
     ) {
-        for origin in self.known_sources {
-            let SourceOrigin::File(path) = origin else {
-                continue;
-            };
-            let Ok(relative) = path.strip_prefix(self.project_root) else {
-                continue;
-            };
-            let path = relative.to_string_lossy().replace('\\', "/");
+        for (path, detail, origin) in self.import_source_inventory(importer) {
             if candidate_matches(&path, prefix) {
                 output.push(item(
                     path.clone(),
                     replacement,
                     path,
                     CompletionKind::Module,
-                    Some("local Avenger source".to_owned()),
+                    Some(detail),
                     None,
-                    CompletionOrigin::Syntax,
+                    origin,
                     false,
                     "10",
                 ));
             }
         }
-        for standard in ["std:marks/error_bar"] {
-            if candidate_matches(standard, prefix) {
-                output.push(item(
-                    standard.to_owned(),
-                    replacement,
-                    standard.to_owned(),
-                    CompletionKind::Module,
-                    Some("standard library".to_owned()),
-                    None,
-                    CompletionOrigin::Syntax,
-                    false,
-                    "20",
-                ));
+    }
+
+    fn complete_import_source_starts(
+        &self,
+        importer: &SourceOrigin,
+        replacement: SourceSpan,
+        snippets: bool,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        let mut scaffold = item(
+            "'<module>'".to_owned(),
+            replacement,
+            if snippets {
+                "'${1:./module.avenger}'".to_owned()
+            } else {
+                "''".to_owned()
+            },
+            CompletionKind::Snippet,
+            Some("exact Avenger module origin".to_owned()),
+            None,
+            CompletionOrigin::Syntax,
+            false,
+            "00",
+        );
+        scaffold.insert_text_format = if snippets {
+            CompletionTextFormat::Snippet
+        } else {
+            CompletionTextFormat::PlainText
+        };
+        scaffold.validity = CompletionValidity::Scaffold;
+        output.push(scaffold);
+        for (path, detail, origin) in self.import_source_inventory(importer) {
+            output.push(item(
+                path.clone(),
+                replacement,
+                format!("'{path}'"),
+                CompletionKind::Module,
+                Some(detail),
+                None,
+                origin,
+                false,
+                "10",
+            ));
+        }
+    }
+
+    fn import_source_inventory(
+        &self,
+        importer: &SourceOrigin,
+    ) -> Vec<(String, String, CompletionOrigin)> {
+        let mut output = Vec::new();
+        for origin in self.known_sources {
+            let (SourceOrigin::File(importer), SourceOrigin::File(path)) = (importer, origin)
+            else {
+                continue;
+            };
+            if importer == path {
+                continue;
             }
+            let Some(path) = relative_module_path(importer, path) else {
+                continue;
+            };
+            output.push((
+                path,
+                "local Avenger source".to_owned(),
+                CompletionOrigin::Syntax,
+            ));
+        }
+        for standard in ["std:datasets", "std:marks", "std:tools", "std:transforms"] {
+            output.push((
+                standard.to_owned(),
+                "standard library module".to_owned(),
+                CompletionOrigin::Syntax,
+            ));
         }
         for module in self.registry.modules.keys() {
-            let module = module.as_str();
-            if candidate_matches(module, prefix) {
-                output.push(item(
-                    module.to_owned(),
-                    replacement,
-                    module.to_owned(),
-                    CompletionKind::Module,
-                    Some("host-provided native module".to_owned()),
-                    None,
-                    CompletionOrigin::AuthoringSchema,
-                    false,
-                    "30",
-                ));
-            }
+            output.push((
+                module.as_str().to_owned(),
+                "host-provided native module".to_owned(),
+                CompletionOrigin::AuthoringSchema,
+            ));
         }
+        output.sort_by(|left, right| left.0.cmp(&right.0));
+        output.dedup_by(|left, right| left.0 == right.0);
+        output
     }
 
     fn complete_import_members(
@@ -3738,97 +4242,365 @@ fn collect_reference_namespaces(shape: &ValueShape, output: &mut BTreeSet<Native
     }
 }
 
-fn declaration_kind_context(text: &str, cursor: usize) -> Option<(NativeKindNamespace, &str)> {
-    let prefix = &text[..cursor.min(text.len())];
-    let start = prefix
-        .rfind(['{', '}', ';', '\n'])
-        .map_or(0, |position| position + 1);
-    let fragment = prefix[start..].trim_start();
-    let mut words = fragment.split_whitespace();
-    let keyword = words.next()?;
+fn declaration_kind_context(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+) -> Option<(NativeKindNamespace, String, bool)> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let tokens = if tokens.first().and_then(SigToken::word) == Some("export") {
+        &tokens[1..]
+    } else {
+        &tokens[..]
+    };
+    let keyword = tokens.first()?.word()?;
     let namespace = namespace_for_keyword(keyword)?;
-    let typed = words.next().unwrap_or("");
-    if words.next().is_some() {
+    if tokens[1..]
+        .iter()
+        .any(|token| token.word().is_none() && !matches!(token.token, Some(Token::Period)))
+    {
         return None;
     }
-    Some((namespace, typed))
+    let typed = statement_source_after(syntax, tokens, 1, cursor)
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let complete =
+        !typed.is_empty() && !typed.ends_with('.') && cursor_has_gap_after(tokens.last(), cursor);
+    Some((namespace, typed, complete))
 }
 
-fn statement_fragment(text: &str, cursor: usize) -> &str {
-    let prefix = &text[..cursor.min(text.len())];
-    let start = prefix
-        .rfind(['{', '}', ';', '\n'])
-        .map_or(0, |position| position + 1);
-    prefix[start..].trim_start()
+fn export_cursor_state(syntax: &SyntaxAnalysis, cursor: usize) -> Option<StructuralCursorState> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let export = tokens
+        .first()
+        .filter(|token| token.word() == Some("export"))?;
+    const EXPORTABLE: &[&str] = &["catalog", "chart", "define", "schema", "table"];
+    match &tokens[1..] {
+        [] if cursor_has_gap_after(Some(export), cursor) => {
+            Some(StructuralCursorState::FixedHeader(EXPORTABLE))
+        }
+        [partial]
+            if partial.word().is_some()
+                && !cursor_has_gap_after(Some(partial), cursor)
+                && EXPORTABLE
+                    .iter()
+                    .any(|candidate| candidate.starts_with(partial.word().unwrap())) =>
+        {
+            Some(StructuralCursorState::FixedHeader(EXPORTABLE))
+        }
+        _ => None,
+    }
 }
 
-fn param_initializer_context(text: &str, cursor: usize) -> bool {
-    let fragment = statement_fragment(text, cursor);
-    fragment.strip_prefix("param").is_some_and(|rest| {
-        rest.chars().next().is_some_and(char::is_whitespace)
-            && !contains_top_level_word(rest, "as")
-            && !struct_field_argument_is_name(fragment)
+fn structural_statement_start(syntax: &SyntaxAnalysis, cursor: usize) -> usize {
+    significant_tokens(syntax, None)
+        .into_iter()
+        .filter(|token| token.span.range.end <= cursor)
+        .filter(|token| {
+            matches!(
+                token.token,
+                Some(Token::LBrace | Token::RBrace | Token::SemiColon)
+            )
+        })
+        .map(|token| token.span.range.end)
+        .next_back()
+        .unwrap_or_default()
+}
+
+fn structural_statement_tokens(syntax: &SyntaxAnalysis, cursor: usize) -> Vec<SigToken<'_>> {
+    let start = structural_statement_start(syntax, cursor);
+    significant_tokens(syntax, None)
+        .into_iter()
+        .filter(|token| start <= token.span.range.start && token.span.range.start < cursor)
+        .collect()
+}
+
+fn version_header_state(syntax: &SyntaxAnalysis, cursor: usize) -> Option<StructuralCursorState> {
+    let text = syntax.parsed.tokens.text();
+    if text[..cursor.min(text.len())].contains(';') {
+        return None;
+    }
+    let tokens = significant_tokens(syntax, None)
+        .into_iter()
+        .filter(|token| token.span.range.start < cursor)
+        .collect::<Vec<_>>();
+    match tokens.as_slice() {
+        [] => Some(StructuralCursorState::FixedHeader(&["avenger 1;"])),
+        [keyword]
+            if keyword
+                .word()
+                .is_some_and(|word| "avenger".starts_with(word)) =>
+        {
+            if keyword.word() == Some("avenger") && cursor_has_gap_after(Some(keyword), cursor) {
+                Some(StructuralCursorState::FixedHeader(&["1"]))
+            } else {
+                Some(StructuralCursorState::FixedHeader(&["avenger 1;"]))
+            }
+        }
+        [keyword, version]
+            if keyword.word() == Some("avenger")
+                && version.raw.parse::<u32>().ok() == Some(avenger_lang_core::LANGUAGE_MAJOR) =>
+        {
+            Some(StructuralCursorState::TokenInsertion(&[";"]))
+        }
+        _ => Some(StructuralCursorState::Nothing),
+    }
+}
+
+fn import_cursor_state(syntax: &SyntaxAnalysis, cursor: usize) -> Option<StructuralCursorState> {
+    let all = significant_tokens(syntax, None);
+    let statement_start = all
+        .iter()
+        .rposition(|token| {
+            token.span.range.start < cursor && matches!(token.token, Some(Token::SemiColon))
+        })
+        .map_or(0, |index| index + 1);
+    let tokens = all[statement_start..]
+        .iter()
+        .filter(|token| token.span.range.start < cursor)
+        .cloned()
+        .collect::<Vec<_>>();
+    let import = tokens
+        .first()
+        .filter(|token| token.word() == Some("import"))?;
+    let clause = &tokens[1..];
+    if clause.is_empty() {
+        return cursor_has_gap_after(Some(import), cursor)
+            .then_some(StructuralCursorState::ImportClause);
+    }
+
+    let clause_end = match clause.first().and_then(|token| token.token) {
+        Some(Token::LBrace) => {
+            let Some(close) = clause
+                .iter()
+                .position(|token| matches!(token.token, Some(Token::RBrace)))
+            else {
+                return Some(StructuralCursorState::Nothing);
+            };
+            close + 1
+        }
+        Some(Token::Mul) => {
+            let as_index = clause.iter().position(|token| token.word() == Some("as"));
+            let Some(as_index) = as_index else {
+                return Some(StructuralCursorState::FixedHeader(&["as"]));
+            };
+            if clause.get(as_index + 1).and_then(SigToken::word).is_none() {
+                return Some(StructuralCursorState::NameInvention);
+            }
+            as_index + 2
+        }
+        _ => return Some(StructuralCursorState::ImportClause),
+    };
+
+    let tail = &clause[clause_end..];
+    if tail.is_empty() {
+        return Some(StructuralCursorState::FixedHeader(&["from"]));
+    }
+    if tail.first().and_then(SigToken::word) != Some("from") {
+        return Some(StructuralCursorState::FixedHeader(&["from"]));
+    }
+    if tail.len() == 1 {
+        return cursor_has_gap_after(tail.first(), cursor)
+            .then_some(StructuralCursorState::ImportSource);
+    }
+    let Some(source) = unquote(tail[1].raw) else {
+        return Some(StructuralCursorState::Nothing);
+    };
+    if tail[1].span.range.start < cursor && cursor <= tail[1].span.range.end {
+        // `import_prefix` owns completion while the source string is active.
+        return Some(StructuralCursorState::Nothing);
+    }
+    if tail.len() == 2 {
+        return Some(StructuralCursorState::ImportTail);
+    }
+    if tail[2].word() == Some("sha256") {
+        if tail.len() == 3 {
+            return Some(StructuralCursorState::FixedHeader(&["'<sha256>'"]));
+        }
+        if unquote(tail[3].raw).is_some() && tail.len() == 4 {
+            return Some(StructuralCursorState::TokenInsertion(&[";"]));
+        }
+        return Some(StructuralCursorState::Nothing);
+    }
+    if matches!(tail[2].token, Some(Token::SemiColon)) {
+        return Some(StructuralCursorState::Nothing);
+    }
+    let _ = source;
+    Some(StructuralCursorState::ImportTail)
+}
+
+fn declaration_start_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    match tokens.as_slice() {
+        [] => true,
+        [token] => token.word().is_some(),
+        _ => false,
+    }
+}
+
+fn structural_noncode_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    syntax.parsed.tokens.tokens().iter().any(|token| {
+        let span = token.span().range;
+        if !(span.start < cursor && cursor <= span.end) {
+            return false;
+        }
+        match token.kind() {
+            LosslessTokenKind::Token(TokenClass::Comment(_)) => true,
+            LosslessTokenKind::Token(TokenClass::String) => {
+                let raw = syntax.parsed.tokens.raw(token);
+                let closed = match raw.as_bytes() {
+                    [b'\'', .., b'\''] | [b'"', .., b'"'] => true,
+                    _ if raw.starts_with('$') => {
+                        let Some(second) = raw[1..].find('$').map(|offset| offset + 1) else {
+                            return true;
+                        };
+                        raw.len() >= 2 * (second + 1) && raw.ends_with(&raw[..=second])
+                    }
+                    _ => false,
+                };
+                cursor < span.end || !closed
+            }
+            _ => false,
+        }
     })
 }
 
-fn physical_type_header_context(text: &str, cursor: usize) -> bool {
-    let fragment = statement_fragment(text, cursor);
-    fragment.strip_prefix("field").is_some_and(|rest| {
-        rest.chars().next().is_some_and(char::is_whitespace)
-            && !rest.contains(';')
-            && split_header_type(rest.trim_start()).is_none()
-            && !struct_field_argument_is_name(fragment)
-    })
+fn cursor_has_gap_after(token: Option<&SigToken<'_>>, cursor: usize) -> bool {
+    token.is_some_and(|token| token.span.range.end < cursor)
 }
 
-fn set_target_context(text: &str, cursor: usize) -> bool {
-    let fragment = statement_fragment(text, cursor);
-    fragment.strip_prefix("set").is_some_and(|rest| {
-        rest.chars().next().is_some_and(char::is_whitespace)
-            && !rest.contains('=')
-            && rest.split_whitespace().count() <= 1
-    })
+fn statement_source_after<'a>(
+    syntax: &'a SyntaxAnalysis,
+    tokens: &[SigToken<'_>],
+    first: usize,
+    cursor: usize,
+) -> Option<&'a str> {
+    let start = tokens.get(first)?.span.range.start;
+    let text = syntax.parsed.tokens.text();
+    text.get(start..cursor.min(text.len()))
 }
 
-fn set_action_target(text: &str, cursor: usize) -> Option<&str> {
-    let fragment = statement_fragment(text, cursor);
-    let rest = fragment.strip_prefix("set")?;
-    rest.chars()
-        .next()
-        .is_some_and(char::is_whitespace)
-        .then_some(())?;
-    rest.trim_start()
-        .split(|character: char| character.is_whitespace() || character == '=')
-        .next()
-        .filter(|target| !target.is_empty())
+fn contains_top_level_word_tokens(tokens: &[SigToken<'_>], expected: &str) -> bool {
+    top_level_word_indices(tokens, expected).next().is_some()
 }
 
-fn set_action_rhs_target(text: &str, cursor: usize) -> Option<&str> {
-    let fragment = statement_fragment(text, cursor);
-    fragment
-        .contains('=')
-        .then(|| set_action_target(text, cursor))?
+fn top_level_word_indices<'a>(
+    tokens: &'a [SigToken<'a>],
+    expected: &'a str,
+) -> impl DoubleEndedIterator<Item = usize> + 'a {
+    let mut depth = 0usize;
+    tokens
+        .iter()
+        .enumerate()
+        .filter_map(move |(index, token)| match token.token {
+            Some(Token::LParen | Token::LBracket) => {
+                depth += 1;
+                None
+            }
+            Some(Token::RParen | Token::RBracket) => {
+                depth = depth.saturating_sub(1);
+                None
+            }
+            Some(Token::Word(word)) if depth == 0 && word.value.eq_ignore_ascii_case(expected) => {
+                Some(index)
+            }
+            _ => None,
+        })
+}
+
+fn name_invention_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let Some(as_index) = top_level_word_indices(&tokens, "as").next_back() else {
+        return false;
+    };
+    let suffix = &tokens[as_index + 1..];
+    suffix.is_empty()
+        || (suffix.len() == 1
+            && suffix[0].word().is_some()
+            && !cursor_has_gap_after(suffix.last(), cursor))
+}
+
+fn param_initializer_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    tokens
+        .first()
+        .is_some_and(|token| token.word() == Some("param"))
+        && cursor_has_gap_after(tokens.first(), cursor)
+        && !contains_top_level_word_tokens(&tokens[1..], "as")
+        && !struct_field_argument_is_name(&tokens)
+}
+
+fn physical_type_header_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let Some(field) = tokens.first().filter(|token| token.word() == Some("field")) else {
+        return false;
+    };
+    if !cursor_has_gap_after(Some(field), cursor)
+        || tokens
+            .iter()
+            .any(|token| matches!(token.token, Some(Token::SemiColon)))
+        || struct_field_argument_is_name(&tokens)
+    {
+        return false;
+    }
+    let Some(rest) = statement_source_after(syntax, &tokens, 1, cursor) else {
+        return true;
+    };
+    split_header_type(rest.trim_start()).is_none()
+}
+
+fn set_target_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    tokens
+        .first()
+        .is_some_and(|token| token.word() == Some("set"))
+        && cursor_has_gap_after(tokens.first(), cursor)
+        && !tokens
+            .iter()
+            .any(|token| matches!(token.token, Some(Token::Eq)))
+        && tokens.len() <= 2
+}
+
+fn set_action_target(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let set = tokens.first().filter(|token| token.word() == Some("set"))?;
+    cursor_has_gap_after(Some(set), cursor).then_some(())?;
+    let target = tokens.get(1)?;
+    if matches!(target.token, Some(Token::Eq)) {
+        return None;
+    }
+    Some(target.raw.trim_start_matches('$').to_owned())
+}
+
+fn set_action_rhs_target(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    tokens
+        .iter()
+        .any(|token| matches!(token.token, Some(Token::Eq)))
+        .then(|| set_action_target(syntax, cursor))?
 }
 
 fn set_modifier_candidates(
-    text: &str,
+    syntax: &SyntaxAnalysis,
     cursor: usize,
     target_kind: Option<IndexedValueKind>,
 ) -> Option<&'static [&'static str]> {
-    let fragment = statement_fragment(text, cursor);
-    let rest = fragment.strip_prefix("set")?.trim_start();
-    if rest.contains('=') {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let set = tokens.first().filter(|token| token.word() == Some("set"))?;
+    if !cursor_has_gap_after(Some(set), cursor)
+        || tokens
+            .iter()
+            .any(|token| matches!(token.token, Some(Token::Eq)))
+    {
         return None;
     }
-    let mut words = rest.split_whitespace();
-    words.next()?;
-    let tail = words.collect::<Vec<_>>();
+    let target = tokens.get(1)?;
+    let tail = tokens[2..]
+        .iter()
+        .map(SigToken::word)
+        .collect::<Option<Vec<_>>>()?;
     if tail.is_empty() {
-        if !fragment
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace)
-        {
+        if !cursor_has_gap_after(Some(target), cursor) {
             return None;
         }
         return Some(if target_kind == Some(IndexedValueKind::Selection) {
@@ -3839,14 +4611,7 @@ fn set_modifier_candidates(
     }
     match tail.as_slice() {
         [partial] if "at".starts_with(*partial) => Some(&["at"]),
-        ["at"]
-            if fragment
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace) =>
-        {
-            Some(&["current", "start"])
-        }
+        ["at"] if cursor_has_gap_after(tokens.last(), cursor) => Some(&["current", "start"]),
         ["at", partial] if "current".starts_with(*partial) || "start".starts_with(*partial) => {
             Some(&["current", "start"])
         }
@@ -3856,14 +4621,7 @@ fn set_modifier_candidates(
         {
             Some(&["replacing"])
         }
-        ["replacing"]
-            if fragment
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace) =>
-        {
-            Some(&["scopes"])
-        }
+        ["replacing"] if cursor_has_gap_after(tokens.last(), cursor) => Some(&["scopes"]),
         ["replacing", partial] if "scopes".starts_with(*partial) => Some(&["scopes"]),
         _ => None,
     }
@@ -3925,49 +4683,85 @@ fn complete_state_operations(
     }
 }
 
-fn param_binder_context(text: &str, cursor: usize) -> bool {
-    let fragment = statement_fragment(text, cursor);
-    let Some(rest) = fragment.strip_prefix("param") else {
+fn param_binder_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let Some(param) = tokens.first().filter(|token| token.word() == Some("param")) else {
         return false;
     };
-    if !rest.chars().next().is_some_and(char::is_whitespace) {
+    if !cursor_has_gap_after(Some(param), cursor) || !cursor_has_gap_after(tokens.last(), cursor) {
         return false;
     }
-    let rest = rest.trim_start();
-    if matches!(rest.trim(), "store" | "selection") {
-        return fragment
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace);
+    if tokens.len() == 2
+        && tokens
+            .get(1)
+            .and_then(SigToken::word)
+            .is_some_and(|word| matches!(word, "store" | "selection"))
+    {
+        return true;
     }
-    if contains_top_level_word(rest, "as") {
+    if contains_top_level_word_tokens(&tokens[1..], "as") {
         return false;
     }
+    let Some(rest) = statement_source_after(syntax, &tokens, 1, cursor) else {
+        return false;
+    };
     avenger_lang_compiler::normalize_sql_expression(rest.trim()).is_ok()
 }
 
-fn field_nullable_context(text: &str, cursor: usize) -> bool {
-    let fragment = statement_fragment(text, cursor);
-    let Some(rest) = fragment.strip_prefix("field") else {
+fn field_nullable_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let Some(field) = tokens.first().filter(|token| token.word() == Some("field")) else {
+        return false;
+    };
+    if !cursor_has_gap_after(Some(field), cursor) || struct_field_argument_is_name(&tokens) {
+        return false;
+    }
+    let Some(rest) = statement_source_after(syntax, &tokens, 1, cursor) else {
         return false;
     };
     let Some((data_type, tail)) = split_header_type(rest.trim_start()) else {
         return false;
     };
-    let words = tail.split_whitespace().collect::<Vec<_>>();
-    if words.is_empty()
-        || words.len() > 2
-        || words
-            .get(1)
-            .is_some_and(|word| !"nullable".starts_with(*word))
-        || (words.len() == 1
-            && !fragment
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace))
-    {
+    if !physical_type_is_valid(data_type) {
         return false;
     }
+    let words = tail.split_whitespace().collect::<Vec<_>>();
+    let gap = cursor_has_gap_after(tokens.last(), cursor);
+    match words.as_slice() {
+        [] => true,
+        [word] if gap => *word != "nullable",
+        [partial] => "nullable".starts_with(*partial),
+        [name, partial] if *name != "nullable" && !gap => "nullable".starts_with(*partial),
+        _ => false,
+    }
+}
+
+fn field_name_invention_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let Some(field) = tokens.first().filter(|token| token.word() == Some("field")) else {
+        return false;
+    };
+    if !cursor_has_gap_after(Some(field), cursor) || struct_field_argument_is_name(&tokens) {
+        return false;
+    }
+    let Some(rest) = statement_source_after(syntax, &tokens, 1, cursor) else {
+        return false;
+    };
+    let Some((data_type, tail)) = split_header_type(rest.trim_start()) else {
+        return false;
+    };
+    if !physical_type_is_valid(data_type) {
+        return false;
+    }
+    let words = tail.split_whitespace().collect::<Vec<_>>();
+    match words.as_slice() {
+        ["nullable"] => cursor_has_gap_after(tokens.last(), cursor),
+        [name] => !cursor_has_gap_after(tokens.last(), cursor) && !"nullable".starts_with(*name),
+        _ => false,
+    }
+}
+
+fn physical_type_is_valid(data_type: &str) -> bool {
     let probe = SourceFile::new(
         SourceId::new(u32::MAX),
         SourceOrigin::Memory("completion-field-type-probe.avenger".to_owned()),
@@ -4010,67 +4804,46 @@ fn split_header_type(value: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn struct_field_name_context(text: &str, cursor: usize) -> bool {
-    struct_field_argument_is_name(statement_fragment(text, cursor))
+fn struct_field_name_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    struct_field_argument_is_name(&structural_statement_tokens(syntax, cursor))
 }
 
-fn struct_field_argument_is_name(fragment: &str) -> bool {
-    let mut stack = Vec::<(String, usize)>::new();
-    let mut identifier = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    for character in fragment.chars() {
-        if let Some(active_quote) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == active_quote {
-                quote = None;
+fn struct_field_argument_is_name(tokens: &[SigToken<'_>]) -> bool {
+    let mut stack = Vec::<(Option<&str>, usize)>::new();
+    let mut previous_word = None;
+    for token in tokens {
+        match token.token {
+            Some(Token::Word(word)) => previous_word = Some(word.value.as_str()),
+            Some(Token::LParen) => {
+                stack.push((previous_word.take(), 0));
             }
-            continue;
-        }
-        match character {
-            '\'' | '"' => {
-                quote = Some(character);
-                identifier.clear();
-            }
-            character if character.is_alphanumeric() || character == '_' => {
-                identifier.push(character)
-            }
-            '(' => {
-                stack.push((std::mem::take(&mut identifier), 0));
-            }
-            ',' => {
+            Some(Token::Comma) => {
                 if let Some((_, argument)) = stack.last_mut() {
                     *argument += 1;
                 }
-                identifier.clear();
+                previous_word = None;
             }
-            ')' => {
+            Some(Token::RParen) => {
                 stack.pop();
-                identifier.clear();
+                previous_word = None;
             }
-            character if character.is_whitespace() => {}
-            _ => identifier.clear(),
+            _ => previous_word = None,
         }
     }
     stack
         .last()
-        .is_some_and(|(function, argument)| function == "field" && *argument >= 1)
+        .is_some_and(|(function, argument)| *function == Some("field") && *argument >= 1)
 }
 
-fn fixed_header_candidates(text: &str, cursor: usize) -> Option<&'static [&'static str]> {
-    let fragment = statement_fragment(text, cursor);
-    let mut words = fragment.split_whitespace();
-    let keyword = words.next()?;
-    let remaining = words.count();
-    if remaining > 1
-        || (remaining == 1
-            && fragment
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace))
+fn fixed_header_candidates(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+) -> Option<&'static [&'static str]> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let keyword = tokens.first()?.word()?;
+    if tokens.len() > 2
+        || tokens.iter().any(|token| token.word().is_none())
+        || (tokens.len() == 2 && cursor_has_gap_after(tokens.last(), cursor))
     {
         return None;
     }
@@ -4090,75 +4863,6 @@ fn fixed_header_candidates(text: &str, cursor: usize) -> Option<&'static [&'stat
         "variable" => Some(&["row", "column", "item"]),
         _ => None,
     }
-}
-
-fn output_alias_context(text: &str, prefix_start: usize) -> bool {
-    let fragment = statement_fragment(text, prefix_start);
-    let Some(source) = fragment.strip_prefix("output") else {
-        return false;
-    };
-    source.chars().next().is_some_and(char::is_whitespace) && !contains_top_level_word(source, "as")
-}
-
-fn param_alias_context(text: &str, prefix_start: usize) -> bool {
-    let fragment = statement_fragment(text, prefix_start);
-    let Some(source) = fragment.strip_prefix("param") else {
-        return false;
-    };
-    source.chars().next().is_some_and(char::is_whitespace)
-        && !matches!(source.trim(), "store" | "selection")
-        && !contains_top_level_word(source, "as")
-}
-
-fn contains_top_level_word(value: &str, expected: &str) -> bool {
-    let mut depth = 0usize;
-    let mut quote = None;
-    let mut escaped = false;
-    let mut word = String::new();
-    let flush = |word: &mut String, depth: usize| {
-        let matched = depth == 0 && word.eq_ignore_ascii_case(expected);
-        word.clear();
-        matched
-    };
-    for character in value.chars() {
-        if let Some(active_quote) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-        match character {
-            '\'' | '"' => {
-                if flush(&mut word, depth) {
-                    return true;
-                }
-                quote = Some(character);
-            }
-            '(' | '[' => {
-                if flush(&mut word, depth) {
-                    return true;
-                }
-                depth += 1;
-            }
-            ')' | ']' => {
-                if flush(&mut word, depth) {
-                    return true;
-                }
-                depth = depth.saturating_sub(1);
-            }
-            character if character.is_alphanumeric() || character == '_' => word.push(character),
-            _ => {
-                if flush(&mut word, depth) {
-                    return true;
-                }
-            }
-        }
-    }
-    flush(&mut word, depth)
 }
 
 fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str> {
@@ -4185,26 +4889,24 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
         .map(|(_, name)| name)
 }
 
-fn incomplete_property_value_context(text: &str, cursor: usize) -> Option<&str> {
-    let prefix = &text[..cursor.min(text.len())];
-    let start = prefix
-        .rfind(['{', '}', ';', '\n'])
-        .map_or(0, |position| position + 1);
-    let fragment = &prefix[start..];
-    let colon = fragment.find(':')?;
-    if fragment[colon + 1..].contains(':') {
+fn incomplete_property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let colons = tokens
+        .iter()
+        .filter(|token| matches!(token.token, Some(Token::Colon)))
+        .count();
+    if colons != 1 {
         return None;
     }
-    let property = fragment[..colon].trim();
-    (!property.is_empty()).then_some(property)
+    tokens.first().and_then(SigToken::word).map(str::to_owned)
 }
 
-fn is_property_name_context(text: &str, cursor: usize) -> bool {
-    let prefix = &text[..cursor.min(text.len())];
-    let start = prefix
-        .rfind(['{', '}', ';', '\n'])
-        .map_or(0, |position| position + 1);
-    !prefix[start..].contains(':')
+fn is_property_name_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    tokens.len() <= 1
+        && !tokens
+            .iter()
+            .any(|token| matches!(token.token, Some(Token::Colon)))
 }
 
 fn authored_properties(
@@ -4492,6 +5194,7 @@ fn complete_shape(
     shape: &ValueShape,
     prefix: &str,
     replacement: SourceSpan,
+    snippets: bool,
     output: &mut Vec<CompletionItem>,
 ) {
     match shape {
@@ -4531,27 +5234,260 @@ fn complete_shape(
         }
         ValueShape::Union(shapes) => {
             for shape in shapes {
-                complete_shape(shape, prefix, replacement, output);
+                complete_shape(shape, prefix, replacement, snippets, output);
             }
         }
         ValueShape::OneOrMany(shape) | ValueShape::Array(shape) => {
-            complete_shape(shape, prefix, replacement, output)
+            if candidate_matches("[value]", prefix) {
+                push_shape_scaffold(
+                    "[value]",
+                    if snippets { "[${1:value}]" } else { "[]" },
+                    "array value",
+                    replacement,
+                    snippets,
+                    output,
+                );
+            }
+            if matches!(
+                shape.as_ref(),
+                ValueShape::Atom { .. } | ValueShape::Boolean
+            ) {
+                complete_shape(shape, prefix, replacement, snippets, output);
+            }
         }
-        _ => {}
+        ValueShape::Integer => push_shape_scaffold(
+            "integer",
+            if snippets { "${1:0}" } else { "0" },
+            "integer literal",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::Number | ValueShape::RasterDimension => push_shape_scaffold(
+            "number",
+            if snippets { "${1:0.0}" } else { "0.0" },
+            "numeric literal",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::String => push_shape_scaffold(
+            "string",
+            if snippets { "'${1:value}'" } else { "''" },
+            "string literal",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::Identifier => push_shape_scaffold(
+            "identifier",
+            if snippets { "${1:name}" } else { "name" },
+            "source identifier",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::Object(_)
+        | ValueShape::Map(_)
+        | ValueShape::ChannelMap
+        | ValueShape::ChannelConfig
+        | ValueShape::WidgetData
+        | ValueShape::ParamChangeAction => push_shape_scaffold(
+            "block",
+            if snippets { "{\n  $0\n}" } else { "{ }" },
+            "structured value",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::MarkBlock => push_shape_scaffold(
+            "mark block",
+            if snippets {
+                "{\n  mark ${1:kind} as ${2:name} {\n    $0\n  }\n}"
+            } else {
+                "{ }"
+            },
+            "local mark block",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::PatternChannel => push_shape_scaffold(
+            "pattern",
+            if snippets {
+                "pattern {\n  $0\n}"
+            } else {
+                "pattern { }"
+            },
+            "pattern channel value",
+            replacement,
+            snippets,
+            output,
+        ),
+        ValueShape::CoordinationScope => {
+            for value in ["shared", "free"] {
+                if candidate_matches(value, prefix) {
+                    output.push(item(
+                        value.to_owned(),
+                        replacement,
+                        value.to_owned(),
+                        CompletionKind::EnumValue,
+                        Some("coordination scope".to_owned()),
+                        None,
+                        CompletionOrigin::AuthoringSchema,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            push_shape_scaffold(
+                "level",
+                if snippets {
+                    "level(${1:0})"
+                } else {
+                    "level(0)"
+                },
+                "coordination level",
+                replacement,
+                snippets,
+                output,
+            );
+        }
+        ValueShape::FacetDataScope => {
+            for value in ["filtered", "broadcast"] {
+                if candidate_matches(value, prefix) {
+                    output.push(item(
+                        value.to_owned(),
+                        replacement,
+                        value.to_owned(),
+                        CompletionKind::EnumValue,
+                        Some("facet data scope".to_owned()),
+                        None,
+                        CompletionOrigin::AuthoringSchema,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            push_shape_scaffold(
+                "level",
+                if snippets {
+                    "level(${1:0})"
+                } else {
+                    "level(0)"
+                },
+                "facet level",
+                replacement,
+                snippets,
+                output,
+            );
+        }
+        ValueShape::Any => {
+            for (label, insert, detail) in [
+                (
+                    "boolean",
+                    if snippets { "${1:true}" } else { "true" },
+                    "boolean value",
+                ),
+                (
+                    "number",
+                    if snippets { "${1:0.0}" } else { "0.0" },
+                    "numeric value",
+                ),
+                (
+                    "string",
+                    if snippets { "'${1:value}'" } else { "''" },
+                    "string value",
+                ),
+                (
+                    "block",
+                    if snippets { "{\n  $0\n}" } else { "{ }" },
+                    "structured value",
+                ),
+            ] {
+                if candidate_matches(label, prefix) {
+                    push_shape_scaffold(label, insert, detail, replacement, snippets, output);
+                }
+            }
+        }
+        ValueShape::SqlExpression
+        | ValueShape::SqlProjection { .. }
+        | ValueShape::SqlQuery
+        | ValueShape::ConfiguredExpression(_)
+        | ValueShape::ConfiguredReference { .. }
+        | ValueShape::RasterDimensionChannel
+        | ValueShape::ScalarBinding
+        | ValueShape::TableBinding
+        | ValueShape::SelectionBinding
+        | ValueShape::TypedReference { .. } => {
+            // These shapes route to SQL, channel, or reference providers that
+            // own their semantic candidate sets. Keeping this arm explicit
+            // makes a newly added ValueShape a compile-time completion audit.
+        }
     }
 }
 
-fn shape_accepts_binding(shape: &ValueShape) -> bool {
+fn push_shape_scaffold(
+    label: &str,
+    insert: &str,
+    detail: &str,
+    replacement: SourceSpan,
+    snippets: bool,
+    output: &mut Vec<CompletionItem>,
+) {
+    let mut candidate = item(
+        label.to_owned(),
+        replacement,
+        insert.to_owned(),
+        CompletionKind::Snippet,
+        Some(detail.to_owned()),
+        None,
+        CompletionOrigin::AuthoringSchema,
+        false,
+        "20",
+    );
+    candidate.insert_text_format = if snippets {
+        CompletionTextFormat::Snippet
+    } else {
+        CompletionTextFormat::PlainText
+    };
+    candidate.validity = CompletionValidity::Scaffold;
+    output.push(candidate);
+}
+
+fn binding_kinds(shape: &ValueShape) -> Vec<IndexedValueKind> {
+    let mut output = BTreeSet::new();
+    collect_binding_kinds(shape, &mut output);
+    output.into_iter().collect()
+}
+
+fn collect_binding_kinds(shape: &ValueShape, output: &mut BTreeSet<IndexedValueKind>) {
     match shape {
-        ValueShape::ScalarBinding
-        | ValueShape::TableBinding
-        | ValueShape::SelectionBinding
-        | ValueShape::SqlExpression
-        | ValueShape::SqlProjection { .. }
-        | ValueShape::SqlQuery
-        | ValueShape::Any => true,
-        ValueShape::Union(shapes) => shapes.iter().any(shape_accepts_binding),
-        _ => false,
+        ValueShape::ScalarBinding | ValueShape::SqlExpression => {
+            output.insert(IndexedValueKind::Scalar);
+        }
+        ValueShape::TableBinding | ValueShape::SqlQuery => {
+            output.insert(IndexedValueKind::Table);
+        }
+        ValueShape::SelectionBinding => {
+            output.insert(IndexedValueKind::Selection);
+        }
+        ValueShape::Any => {
+            output.extend([
+                IndexedValueKind::Scalar,
+                IndexedValueKind::Table,
+                IndexedValueKind::Selection,
+            ]);
+        }
+        ValueShape::Union(shapes) => {
+            for shape in shapes {
+                collect_binding_kinds(shape, output);
+            }
+        }
+        ValueShape::OneOrMany(shape) | ValueShape::Array(shape) => {
+            collect_binding_kinds(shape, output);
+        }
+        _ => {}
     }
 }
 
@@ -4713,9 +5649,30 @@ fn import_prefix(text: &str, cursor: usize) -> Option<&str> {
     (!value.contains(quote)).then_some(value)
 }
 
-fn candidate_matches(candidate: &str, typed: &str) -> bool {
-    let typed = typed.trim_start_matches('$').to_ascii_lowercase();
-    candidate.to_ascii_lowercase().contains(&typed)
+fn relative_module_path(importer: &Path, target: &Path) -> Option<String> {
+    let base = importer.parent()?;
+    let base = base.components().collect::<Vec<_>>();
+    let target = target.components().collect::<Vec<_>>();
+    let common = base
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return None;
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..base.len() {
+        relative.push("..");
+    }
+    for component in &target[common..] {
+        relative.push(component.as_os_str());
+    }
+    let mut relative = relative.to_string_lossy().replace('\\', "/");
+    if !relative.starts_with("../") && relative != ".." {
+        relative.insert_str(0, "./");
+    }
+    Some(relative)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4730,14 +5687,28 @@ fn item(
     deprecated: bool,
     bucket: &str,
 ) -> CompletionItem {
+    let semantic_kind = structural_semantic_kind(kind, origin);
+    let semantic_identity = format!("{semantic_kind:?}:{origin:?}:{label}");
     CompletionItem {
         filter_text: Some(label.clone()),
         sort_key: format!("{bucket}:{}", label.to_ascii_lowercase()),
+        match_text: label.clone(),
         label,
         replacement,
         insert_text,
         insert_text_format: CompletionTextFormat::PlainText,
         kind,
+        semantic_kind,
+        semantic_identity,
+        qualification: CompletionQualification::Unqualified,
+        data_type: None,
+        nullable: None,
+        source_stage: None,
+        expected_type_compatible: None,
+        confidence: 100,
+        semantic_proximity: 50,
+        usage_prevalence: 0,
+        validity: CompletionValidity::Strict,
         detail,
         documentation,
         origin,
@@ -4745,26 +5716,64 @@ fn item(
     }
 }
 
-fn rank_and_deduplicate(items: &mut Vec<CompletionItem>, prefix: &str) {
-    let typed = prefix.trim_start_matches('$').to_ascii_lowercase();
-    for item in items.iter_mut() {
-        let label = item.label.trim_start_matches('$').to_ascii_lowercase();
-        let match_rank = if label == typed {
-            "0"
-        } else if label.starts_with(&typed) {
-            "1"
-        } else {
-            "2"
-        };
-        item.sort_key = format!("{match_rank}:{}", item.sort_key);
+fn structural_semantic_kind(
+    kind: CompletionKind,
+    origin: CompletionOrigin,
+) -> CompletionSemanticKind {
+    match kind {
+        CompletionKind::Keyword => CompletionSemanticKind::DslKeyword,
+        CompletionKind::Declaration | CompletionKind::Snippet => {
+            CompletionSemanticKind::Declaration
+        }
+        CompletionKind::Property => CompletionSemanticKind::Property,
+        CompletionKind::EnumValue => CompletionSemanticKind::EnumValue,
+        CompletionKind::Variable => CompletionSemanticKind::ScalarParam,
+        CompletionKind::Field => {
+            if origin == CompletionOrigin::DatasetSchema {
+                CompletionSemanticKind::DataColumn
+            } else {
+                CompletionSemanticKind::StructField
+            }
+        }
+        CompletionKind::Function => CompletionSemanticKind::ScalarFunction,
+        CompletionKind::Type => CompletionSemanticKind::SqlType,
+        CompletionKind::Module => CompletionSemanticKind::Relation,
+        CompletionKind::Catalog => CompletionSemanticKind::Catalog,
+        CompletionKind::Schema => CompletionSemanticKind::Schema,
+        CompletionKind::Table => {
+            if origin == CompletionOrigin::LexicalScope {
+                CompletionSemanticKind::StoreParam
+            } else {
+                CompletionSemanticKind::Relation
+            }
+        }
     }
-    items.sort_by(|left, right| {
-        left.sort_key
-            .cmp(&right.sort_key)
-            .then_with(|| left.label.cmp(&right.label))
-    });
-    items
-        .dedup_by(|left, right| left.label == right.label && left.insert_text == right.insert_text);
+}
+
+fn annotate_structural_usage_prevalence(
+    items: &mut [CompletionItem],
+    index: &WorkspaceSemanticIndex,
+) {
+    for item in items {
+        let name = item.label.trim_start_matches('$');
+        let count = index
+            .documents
+            .values()
+            .map(|document| {
+                document
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.name.eq_ignore_ascii_case(name))
+                    .count()
+                    + document
+                        .references
+                        .iter()
+                        .filter(|reference| reference.name.eq_ignore_ascii_case(name))
+                        .count()
+            })
+            .sum::<usize>();
+        item.usage_prevalence = u32::try_from(count).unwrap_or(u32::MAX);
+    }
 }
 
 fn declaration_snippet(keyword: &str) -> String {
@@ -4864,6 +5873,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -4873,6 +5883,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         )
         .complete(
             &PositionRequest {
@@ -4907,6 +5918,103 @@ mod tests {
             .find(|reference| reference.name == "width")
             .unwrap();
         assert_eq!(&text[reference.span.range.as_range()], "$width");
+    }
+
+    #[test]
+    fn semantic_index_preserves_exact_sql_island_sites_and_owners() {
+        let text = r#"avenger 1;
+define transform sample {
+  param 1 + 2 as offset;
+  output $offset + 1 as adjusted;
+  expressions: "value" AS copied;
+}
+chart cartesian {
+  sql: SELECT 1;
+  values: [1 + 2, none, { enabled: true; }];
+  mark symbol as points {
+    x: encoded "value";
+    opacity: $offset;
+  }
+  on click {
+    set cursor = 'crosshair';
+    set offset = $offset + 1;
+  }
+}"#;
+        let (origin, syntax) = fixture(text);
+        let index = build_document_index(&origin, &syntax);
+        let sites = index
+            .sql_islands
+            .iter()
+            .map(|island| island.site)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(sites, SqlIslandSite::ALL.into_iter().collect());
+        assert!(
+            index
+                .sql_islands
+                .iter()
+                .all(|island| island.authored_fingerprint.len() == 64)
+        );
+        assert_eq!(
+            index
+                .sql_islands
+                .iter()
+                .map(|island| &island.identity)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            index.sql_islands.len()
+        );
+
+        let channel = index
+            .sql_islands
+            .iter()
+            .find(|island| island.site == SqlIslandSite::ChannelModePayload)
+            .unwrap();
+        assert_eq!(channel.declaration_keyword.as_deref(), Some("mark"));
+        assert_eq!(channel.declaration_name.as_deref(), Some("points"));
+        assert_eq!(channel.property_path, ["x"]);
+        assert_eq!(channel.channel_mode.as_deref(), Some("encoded"));
+
+        let array = index
+            .sql_islands
+            .iter()
+            .find(|island| island.site == SqlIslandSite::ArrayElement)
+            .unwrap();
+        assert_eq!(&text[array.span.range.as_range()], "1 + 2");
+        assert_eq!(array.property_path, ["values"]);
+
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = crate::sql_intelligence::SqlCompletionCache::default();
+        for island in &index.sql_islands {
+            let request = PositionRequest {
+                source: origin.clone(),
+                byte_offset: island.span.range.end,
+                source_revision: syntax.revision.clone(),
+            };
+            let completion = crate::sql_intelligence::complete_sql(
+                &request,
+                &syntax,
+                compiler.language_host().authoring_schema(),
+                &WorkspaceSemanticIndex {
+                    documents: BTreeMap::from([(origin.clone(), index.clone())]),
+                    ..WorkspaceSemanticIndex::default()
+                },
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &CompletionInvocation::Invoked,
+                true,
+                &cache,
+                &AnalysisCancellation::default(),
+            )
+            .unwrap_or_else(|| panic!("site {:?} was not routed to SQL", island.site));
+            assert_eq!(completion.debug.site, island.site);
+            assert!(completion.debug.repair_attempts <= 6);
+            assert!(
+                completion
+                    .items
+                    .iter()
+                    .all(|item| item.replacement.range.end <= text.len())
+            );
+        }
     }
 
     #[test]
@@ -4950,6 +6058,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -4959,6 +6068,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         );
         let result = context
             .complete(
@@ -4975,12 +6085,225 @@ mod tests {
     }
 
     #[test]
+    fn authored_name_binders_do_not_dump_semantic_candidates() {
+        for marked in [
+            "avenger 1; chart cartesian as |",
+            "avenger 1; chart cartesian { mark symbol as | }",
+            "avenger 1; chart cartesian { param CAST(1 AS DOUBLE) as wi| }",
+            "avenger 1; chart cartesian { param store as rows { field int64 nullable | } }",
+            "avenger 1; chart cartesian { param store as rows { field int64 ident| } }",
+        ] {
+            assert!(completion_labels(marked).is_empty(), "{marked}");
+        }
+    }
+
+    #[test]
+    fn declaration_and_field_headers_follow_token_boundaries() {
+        let declaration = completion_labels("avenger 1; chart cartesian {\n  mark symbol\n  |\n}");
+        assert_eq!(declaration, ["as", "body"]);
+
+        let field_type = completion_labels(
+            "avenger 1; chart cartesian { param store as rows {\n  field utf|\n} }",
+        );
+        assert!(field_type.contains(&"utf8".to_owned()), "{field_type:?}");
+
+        let nullable = completion_labels(
+            "avenger 1; chart cartesian { param store as rows {\n  field int64\n  |\n} }",
+        );
+        assert_eq!(nullable, ["nullable"]);
+    }
+
+    #[test]
+    fn structural_completion_is_silent_in_strings_comments_and_unknown_statements() {
+        for source in [
+            "avenger 1; chart cartesian { -- |\n }",
+            "avenger 1; chart cartesian { 'unterminated| }",
+            "avenger 1; chart cartesian { nonsense extra | }",
+        ] {
+            let labels = completion_labels(source);
+            assert!(labels.is_empty(), "{source}: {labels:?}");
+        }
+    }
+
+    #[test]
+    fn every_value_shape_has_an_explicit_structural_completion_strategy() {
+        use avenger_chart_schema::{EnumValueSchema, ProjectionExpressionMode, ProjectionPolicy};
+
+        let shapes = vec![
+            ValueShape::Boolean,
+            ValueShape::Integer,
+            ValueShape::Number,
+            ValueShape::String,
+            ValueShape::Identifier,
+            ValueShape::Atom {
+                values: vec![EnumValueSchema {
+                    value: "sample".to_owned(),
+                    docs: "sample enum".to_owned(),
+                }],
+            },
+            ValueShape::SqlExpression,
+            ValueShape::SqlProjection {
+                policy: ProjectionPolicy::Named,
+                expression_mode: ProjectionExpressionMode::Scalar,
+            },
+            ValueShape::SqlQuery,
+            ValueShape::ChannelConfig,
+            ValueShape::ConfiguredExpression(BTreeMap::new()),
+            ValueShape::ConfiguredReference {
+                namespaces: BTreeSet::new(),
+                properties: BTreeMap::new(),
+            },
+            ValueShape::PatternChannel,
+            ValueShape::CoordinationScope,
+            ValueShape::FacetDataScope,
+            ValueShape::RasterDimension,
+            ValueShape::RasterDimensionChannel,
+            ValueShape::ScalarBinding,
+            ValueShape::TableBinding,
+            ValueShape::SelectionBinding,
+            ValueShape::WidgetData,
+            ValueShape::ParamChangeAction,
+            ValueShape::MarkBlock,
+            ValueShape::TypedReference {
+                namespaces: BTreeSet::new(),
+            },
+            ValueShape::Union(vec![ValueShape::Boolean, ValueShape::String]),
+            ValueShape::OneOrMany(Box::new(ValueShape::Boolean)),
+            ValueShape::Array(Box::new(ValueShape::Number)),
+            ValueShape::Map(Box::new(ValueShape::String)),
+            ValueShape::ChannelMap,
+            ValueShape::Object(BTreeMap::new()),
+            ValueShape::Any,
+        ];
+        assert_eq!(
+            shapes.len(),
+            31,
+            "update the completion audit for ValueShape"
+        );
+        let replacement = SourceSpan {
+            source: SourceId::new(0),
+            range: ByteSpan::empty(0),
+        };
+        for shape in &shapes {
+            let mut output = Vec::new();
+            complete_shape(shape, "", replacement, true, &mut output);
+            assert!(
+                output.iter().all(|item| item.replacement == replacement),
+                "{shape:?}"
+            );
+        }
+
+        let mut any = Vec::new();
+        complete_shape(&ValueShape::Any, "", replacement, true, &mut any);
+        assert_eq!(
+            any.iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["boolean", "number", "string", "block"]
+        );
+    }
+
+    #[test]
+    #[ignore = "developer aid for refreshing the structural exact-list corpus"]
+    fn record_structural_exact_list_candidates() {
+        for (name, source) in [
+            ("empty", "|"),
+            ("version", "avenger |"),
+            ("version_terminator", "avenger 1|"),
+            ("module", "avenger 1; |"),
+            ("module_after_item", "avenger 1; chart cartesian {} |"),
+            ("export", "avenger 1; export |"),
+            ("export_chart_kind", "avenger 1; export chart |"),
+            ("import", "avenger 1; import |"),
+            ("import_star", "avenger 1; import * |"),
+            ("import_namespace_binder", "avenger 1; import * as |"),
+            ("import_namespace_from", "avenger 1; import * as acme |"),
+            ("import_named_from", "avenger 1; import { foo } |"),
+            ("import_source", "avenger 1; import { foo } from |"),
+            (
+                "import_tail",
+                "avenger 1; import { foo } from './foo.avenger' |",
+            ),
+            (
+                "import_hash",
+                "avenger 1; import { foo } from './foo.avenger' sha256 |",
+            ),
+            (
+                "import_hash_end",
+                "avenger 1; import { foo } from './foo.avenger' sha256 'abc' |",
+            ),
+            ("chart_kind", "avenger 1; chart |"),
+            ("chart_tail", "avenger 1; chart cartesian |"),
+            ("chart_name", "avenger 1; chart cartesian as | {}"),
+            ("chart_body", "avenger 1; chart cartesian { | }"),
+            ("mark_kind", "avenger 1; chart cartesian { mark | }"),
+            (
+                "mark_body",
+                "avenger 1; chart cartesian { mark symbol { | } }",
+            ),
+            (
+                "channel_mode",
+                "avenger 1; chart cartesian { mark symbol { x: | } }",
+            ),
+            (
+                "boolean_value",
+                "avenger 1; chart cartesian { mark symbol { visible: |; } }",
+            ),
+            ("param_header", "avenger 1; chart cartesian { param | }"),
+            (
+                "store_body",
+                "avenger 1; chart cartesian { param store as rows { | } }",
+            ),
+            (
+                "field_type",
+                "avenger 1; chart cartesian { param store as rows { field | } }",
+            ),
+            (
+                "field_nullable",
+                "avenger 1; chart cartesian { param store as rows { field int64 name | } }",
+            ),
+            (
+                "set_target",
+                "avenger 1; chart cartesian { param 1 as width; on click { set | } }",
+            ),
+            (
+                "set_scalar_tail",
+                "avenger 1; chart cartesian { param 1 as width; on click { set width | } }",
+            ),
+            ("comment", "avenger 1; chart cartesian { -- |\n }"),
+            ("unknown", "avenger 1; chart cartesian { nonsense extra | }"),
+        ] {
+            eprintln!("{name}: {:?}", completion_labels(source));
+        }
+    }
+
+    #[test]
     fn completion_replacement_never_splits_unicode() {
         let text = "avenger 1; chart cartesian as chart { param 1.0 as café; mark symbol { size: $caf; } }";
         let (_, syntax) = fixture(text);
         let cursor = text.find("$caf").unwrap() + "$caf".len();
         let span = replacement_span(&syntax, cursor);
         assert_eq!(&text[span.range.as_range()], "$caf");
+    }
+
+    #[test]
+    fn local_import_paths_are_relative_to_the_importing_module() {
+        assert_eq!(
+            relative_module_path(
+                Path::new("/project/charts/main.avenger"),
+                Path::new("/project/lib/marks.avenger")
+            )
+            .as_deref(),
+            Some("../lib/marks.avenger")
+        );
+        assert_eq!(
+            relative_module_path(
+                Path::new("/project/charts/main.avenger"),
+                Path::new("/project/charts/shared.avenger")
+            )
+            .as_deref(),
+            Some("./shared.avenger")
+        );
     }
 
     #[test]
@@ -5054,7 +6377,7 @@ mod tests {
             "avenger 1; chart cartesian { param 1 as width; param store as rows {} param selection as picked {} mark symbol { size: $|; } }",
         );
         assert!(bindings.contains(&"$width".to_owned()));
-        assert!(bindings.contains(&"$rows".to_owned()));
+        assert!(!bindings.contains(&"$rows".to_owned()));
         assert!(!bindings.contains(&"$picked".to_owned()));
 
         let binder = completion_labels("avenger 1; chart cartesian { param 1 | }");
@@ -5288,6 +6611,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -5297,6 +6621,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         );
         let reference_start = chart_text.find("defs.badge").unwrap();
         let navigation = context
@@ -5355,6 +6680,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -5364,6 +6690,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         );
         let reference_start = chart_text.find("mark dot").unwrap() + "mark ".len();
         let navigation = context
@@ -5405,6 +6732,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -5414,6 +6742,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         );
         let reference_start = chart_text.find("transform pass").unwrap() + "transform ".len();
         let navigation = context
@@ -5467,6 +6796,7 @@ mod tests {
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
         let semantic_roots = BTreeMap::new();
         let dataset_contexts = BTreeMap::new();
+        let completion_cache = crate::sql_intelligence::SqlCompletionCache::default();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -5476,6 +6806,7 @@ mod tests {
             &index,
             &semantic_roots,
             &dataset_contexts,
+            &completion_cache,
         );
         let reference = chart_text.find("mark dot").unwrap() + "mark d".len();
         for (chart_origin, definition_origin) in origins {

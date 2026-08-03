@@ -2,7 +2,7 @@ use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
     sql::LosslessTokenKind,
     syntax::{
-        SqlIslandContext, SyntaxLimits, TolerantParsedFile, TolerantSyntaxNodeKind,
+        SqlIslandSite, SyntaxLimits, TolerantParsedFile, TolerantSyntaxNodeKind,
         parse_file_tolerant, parse_file_tolerant_with_limits,
     },
 };
@@ -181,7 +181,8 @@ chart acme.cartesian as chart {
             matches!(
                 node.kind,
                 TolerantSyntaxNodeKind::SqlIsland {
-                    context: SqlIslandContext::QueryProperty
+                    site: SqlIslandSite::QueryProperty,
+                    ..
                 }
             )
         })

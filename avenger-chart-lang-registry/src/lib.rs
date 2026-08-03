@@ -2014,7 +2014,7 @@ fn validate_value_shape(
             ResolvedValue::Output(NativeOutputValue::Expr(_) | NativeOutputValue::Channel(_)),
             ValueShape::SqlExpression,
         ) => true,
-        (ResolvedValue::Projection(items), ValueShape::SqlProjection { policy }) => {
+        (ResolvedValue::Projection(items), ValueShape::SqlProjection { policy, .. }) => {
             !items.is_empty()
                 && items.iter().all(|item| match policy {
                     avenger_chart_schema::ProjectionPolicy::Named => item.alias.is_some(),

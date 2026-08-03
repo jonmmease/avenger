@@ -19,8 +19,8 @@ mod sql_profile;
 pub use analysis::{
     AnalyzedColumn, AnalyzedDataset, AnalyzedMarkChannel, ColumnLineage, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    FunctionInventory, ModuleAnalysis, ModuleDatasetId, ParamTypeIndex, ParamTypeInfo,
-    ParamTypeProvenance, physical_type_to_arrow,
+    FunctionCategory, FunctionInventory, FunctionMetadata, ModuleAnalysis, ModuleDatasetId,
+    ParamTypeIndex, ParamTypeInfo, ParamTypeProvenance, physical_type_to_arrow,
 };
 pub use artifact::{
     ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,

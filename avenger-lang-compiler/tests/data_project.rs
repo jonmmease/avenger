@@ -305,20 +305,20 @@ async fn data_project_sql_frontend_corpus_reaches_the_datafusion_planning_bounda
         .unwrap();
 
     let corpus = [
-        "SELECT m.title, m.rating FROM movies AS m WHERE m.rating > 0",
-        "FROM movies AS m SELECT m.title, m.rating WHERE m.rating > 0",
-        "WITH filtered AS (SELECT * FROM movies WHERE rating > 0) \
-         SELECT title FROM filtered",
-        "SELECT category, sum(rating) AS total FROM movies GROUP BY category",
-        "SELECT m.title, avg(r.value) AS mean_rating FROM movies AS m \
-         LEFT JOIN ratings AS r ON m.id = r.movie_id GROUP BY m.title",
-        "SELECT title FROM movies AS m WHERE EXISTS \
-         (SELECT 1 FROM ratings AS r WHERE r.movie_id = m.id)",
-        "SELECT category FROM movies UNION ALL SELECT category FROM movies",
+        "SELECT m.\"title\", m.\"rating\" FROM movies AS m WHERE m.\"rating\" > 0",
+        "FROM movies AS m SELECT m.\"title\", m.\"rating\" WHERE m.\"rating\" > 0",
+        "WITH filtered AS (SELECT * FROM movies WHERE \"rating\" > 0) \
+         SELECT \"title\" FROM filtered",
+        "SELECT \"category\", sum(\"rating\") AS total FROM movies GROUP BY \"category\"",
+        "SELECT m.\"title\", avg(r.\"value\") AS mean_rating FROM movies AS m \
+         LEFT JOIN ratings AS r ON m.\"id\" = r.\"movie_id\" GROUP BY m.\"title\"",
+        "SELECT \"title\" FROM movies AS m WHERE EXISTS \
+         (SELECT 1 FROM ratings AS r WHERE r.\"movie_id\" = m.\"id\")",
+        "SELECT \"category\" FROM movies UNION ALL SELECT \"category\" FROM movies",
         "VALUES (1, 'one'), (2, 'two')",
-        "SELECT title, row_number() OVER \
-         (PARTITION BY category ORDER BY rating) AS ordinal FROM movies",
-        "SELECT nested.title FROM (SELECT title FROM movies) AS nested",
+        "SELECT \"title\", row_number() OVER \
+         (PARTITION BY \"category\" ORDER BY \"rating\") AS ordinal FROM movies",
+        "SELECT nested.\"title\" FROM (SELECT \"title\" FROM movies) AS nested",
     ];
 
     for source in corpus {
@@ -327,5 +327,69 @@ async fn data_project_sql_frontend_corpus_reaches_the_datafusion_planning_bounda
             panic!("frontend-accepted SQL did not plan: {canonical}\n{error}")
         });
         assert!(!planned.schema().fields().is_empty(), "{canonical}");
+    }
+}
+
+#[tokio::test]
+async fn data_project_advanced_sql_forms_match_datafusion_54() {
+    let context = SessionContext::new();
+    let movies = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("title", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, true),
+        Field::new("rating", DataType::Float64, true),
+    ]));
+    context
+        .register_table(
+            "movies",
+            Arc::new(MemTable::try_new(movies, vec![vec![]]).unwrap()),
+        )
+        .unwrap();
+
+    let accepted = [
+        // Recursive CTEs are visible to their recursive term only when the
+        // query explicitly opts into recursive semantics.
+        "WITH RECURSIVE seq AS (SELECT 1 AS n UNION ALL \
+         SELECT \"n\" + 1 AS n FROM seq WHERE \"n\" < 3) SELECT \"n\" FROM seq",
+        // A lateral derived relation may correlate to relations on its left.
+        "SELECT m.\"title\", d.\"score\" FROM movies AS m CROSS JOIN LATERAL \
+         (SELECT m.\"rating\" * 2 AS score) AS d",
+        "SELECT row_number() OVER ratings AS ordinal FROM movies \
+         WINDOW ratings AS (PARTITION BY \"category\" ORDER BY \"rating\")",
+        "SELECT * EXCLUDE (\"category\") FROM movies",
+        "SELECT * EXCEPT (\"category\") FROM movies",
+        "SELECT * REPLACE (\"rating\" * 2 AS rating) FROM movies",
+        "SELECT \"title\", row_number() OVER (ORDER BY \"rating\") AS ordinal \
+         FROM movies QUALIFY row_number() OVER (ORDER BY \"rating\") = 1",
+    ];
+
+    for source in accepted {
+        let canonical = SqlQuery::parse(source).unwrap().canonical_sql();
+        let planned = context.sql(&canonical).await.unwrap_or_else(|error| {
+            panic!("frontend-accepted advanced SQL did not plan: {canonical}\n{error}")
+        });
+        assert!(!planned.schema().fields().is_empty(), "{canonical}");
+    }
+
+    for (source, expected) in [
+        (
+            "SELECT \"title\" FROM movies QUALIFY \"rating\" > 0",
+            "QUALIFY clause requires window functions",
+        ),
+        (
+            "SELECT \"category\", count(*) AS count FROM movies GROUP BY \"category\" \
+             QUALIFY row_number() OVER () > 0 AND \"rating\" > 0",
+            "must appear in the GROUP BY clause or must be part of an aggregate function",
+        ),
+    ] {
+        let canonical = SqlQuery::parse(source).unwrap().canonical_sql();
+        let error = context
+            .sql(&canonical)
+            .await
+            .expect_err("query must reach the documented DataFusion QUALIFY restriction");
+        assert!(
+            error.to_string().contains(expected),
+            "unexpected error for {canonical}: {error}"
+        );
     }
 }

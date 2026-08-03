@@ -10,8 +10,8 @@ use avenger_chart_lang_types::{
 };
 use avenger_chart_schema::{
     BodyMode, ChildRule, DynamicOutputSource, DynamicTransformOutputSchema, EnumValueSchema,
-    KindSchema, NativeKindKey, NativeKindNamespace, ProjectionPolicy, PropertySchema,
-    TransformOutputSchema, ValueShape,
+    KindSchema, NativeKindKey, NativeKindNamespace, ProjectionExpressionMode, ProjectionPolicy,
+    PropertySchema, TransformOutputSchema, ValueShape,
 };
 use datafusion::{
     common::{Column, ScalarValue},
@@ -157,6 +157,7 @@ fn aggregate_definition() -> TransformLanguageDefinition {
         PropertySchema::optional(
             ValueShape::SqlProjection {
                 policy: ProjectionPolicy::Named,
+                expression_mode: ProjectionExpressionMode::Aggregate,
             },
             "Named aggregate expressions written as `expression AS output`.",
         ),
@@ -251,6 +252,7 @@ fn calculate_definition() -> TransformLanguageDefinition {
         PropertySchema::required(
             ValueShape::SqlProjection {
                 policy: ProjectionPolicy::Named,
+                expression_mode: ProjectionExpressionMode::Scalar,
             },
             "Named row expressions written as `expression AS output`.",
         ),
@@ -288,6 +290,7 @@ fn select_definition() -> TransformLanguageDefinition {
         PropertySchema::required(
             ValueShape::SqlProjection {
                 policy: ProjectionPolicy::Select,
+                expression_mode: ProjectionExpressionMode::Scalar,
             },
             "Ordered direct columns and explicitly aliased computed expressions.",
         ),
@@ -1165,6 +1168,7 @@ fn window_definition() -> TransformLanguageDefinition {
         PropertySchema::required(
             ValueShape::SqlProjection {
                 policy: ProjectionPolicy::Named,
+                expression_mode: ProjectionExpressionMode::Window,
             },
             "Named SQL window expressions written as `expression AS output`.",
         ),

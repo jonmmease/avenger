@@ -98,15 +98,6 @@ impl SqlIslandContext {
             | Self::AliasedExpression => SqlIslandRoot::Expression,
         }
     }
-
-    pub const fn outer_delimiters(self) -> &'static [&'static str] {
-        match self {
-            Self::QueryProperty | Self::ProjectionProperty | Self::TerminatedExpression => &[";"],
-            Self::PropertyExpression => &[";", "{"],
-            Self::ArrayExpression => &[",", "]"],
-            Self::AliasedExpression => &["as", ";"],
-        }
-    }
 }
 
 impl SqlIslandSite {
@@ -144,6 +135,24 @@ impl SqlIslandSite {
             Self::ArrayElement => SqlIslandContext::ArrayExpression,
             Self::CursorActionRhs | Self::StateActionRhs => SqlIslandContext::TerminatedExpression,
             Self::ParamInitializer | Self::OutputSource => SqlIslandContext::AliasedExpression,
+        }
+    }
+
+    /// DSL-owned tokens that may immediately follow this exact SQL island.
+    ///
+    /// Delimiter ownership is site-specific. In particular, param
+    /// initializers end at `as`, while definition outputs may either bind a
+    /// computed value with `as` or use the identity-output `;` form.
+    pub const fn outer_delimiters(self) -> &'static [&'static str] {
+        match self {
+            Self::QueryProperty
+            | Self::ProjectionProperty
+            | Self::CursorActionRhs
+            | Self::StateActionRhs => &[";"],
+            Self::ChannelModePayload | Self::PropertyValue => &[";", "{"],
+            Self::ArrayElement => &[",", "]"],
+            Self::ParamInitializer => &["as"],
+            Self::OutputSource => &["as", ";"],
         }
     }
 }

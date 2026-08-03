@@ -1819,6 +1819,49 @@ chart cartesian {
 }
 
 #[tokio::test]
+async fn transform_definition_outputs_may_forward_reference_child_stages() {
+    let valid = project(
+        &[(
+            "definition.avenger",
+            r#"
+avenger 1;
+define transform binned {
+  slot expr field;
+  output bins.start as start;
+  transform bin as bins {
+    field: field;
+    maxbins: 10;
+  }
+}
+"#,
+        )],
+        "definition.avenger",
+    )
+    .await;
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let definition = &resolved.source_modules.values().next().unwrap().roots[0];
+    let output = definition
+        .children
+        .iter()
+        .find(|child| child.keyword == "output")
+        .expect("output declaration");
+    let avenger_lang_core::ResolvedValue::Expression(source) =
+        output.properties.values().next().expect("output source")
+    else {
+        panic!("definition output source")
+    };
+    assert!(matches!(
+        source.references.as_slice(),
+        [avenger_lang_core::ResolvedSqlReference {
+            target: ResolvedTarget::Output(_),
+            ..
+        }]
+    ));
+}
+
+#[tokio::test]
 async fn resolve_table_dag_orders_relations_and_reports_cycles() {
     let valid_project = project(
         &[

@@ -8915,7 +8915,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "named"
+              "policy": "named",
+              "expression_mode": "aggregate"
             }
           },
           "required": false,
@@ -9108,7 +9109,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "named"
+              "policy": "named",
+              "expression_mode": "scalar"
             }
           },
           "required": true,
@@ -9371,7 +9373,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "named"
+              "policy": "named",
+              "expression_mode": "aggregate"
             }
           },
           "required": true,
@@ -9970,7 +9973,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "named"
+              "policy": "named",
+              "expression_mode": "aggregate"
             }
           },
           "required": true,
@@ -10015,7 +10019,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "select"
+              "policy": "select",
+              "expression_mode": "scalar"
             }
           },
           "required": true,
@@ -10754,7 +10759,8 @@
           "shape": {
             "shape": "sql_projection",
             "detail": {
-              "policy": "named"
+              "policy": "named",
+              "expression_mode": "window"
             }
           },
           "required": true,

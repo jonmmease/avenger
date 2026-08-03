@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "authority": {
     "spec": "avenger-chart/docs/future-work/chart-dsl.md",
     "parser": "avenger-lang-core/src/syntax/parser.rs",
@@ -9,44 +9,49 @@
     {
       "name": "query_property",
       "root": "query",
-      "outer_delimiters": [";"],
       "sites": ["query_property"]
     },
     {
       "name": "projection_property",
       "root": "projection",
-      "outer_delimiters": [";"],
       "sites": ["projection_property"]
     },
     {
       "name": "property_expression",
       "root": "expression",
-      "outer_delimiters": [";", "{"],
       "sites": ["channel_mode_payload", "property_value"]
     },
     {
       "name": "terminated_expression",
       "root": "expression",
-      "outer_delimiters": [";"],
       "sites": ["cursor_action_rhs", "state_action_rhs"]
     },
     {
       "name": "array_expression",
       "root": "expression",
-      "outer_delimiters": [",", "]"],
       "sites": ["array_element"]
     },
     {
       "name": "aliased_expression",
       "root": "expression",
-      "outer_delimiters": ["as", ";"],
       "sites": ["param_initializer", "output_source"]
     }
+  ],
+  "sites": [
+    {"name": "query_property", "context": "query_property", "outer_delimiters": [";"]},
+    {"name": "projection_property", "context": "projection_property", "outer_delimiters": [";"]},
+    {"name": "channel_mode_payload", "context": "property_expression", "outer_delimiters": [";", "{"]},
+    {"name": "property_value", "context": "property_expression", "outer_delimiters": [";", "{"]},
+    {"name": "array_element", "context": "array_expression", "outer_delimiters": [",", "]"]},
+    {"name": "param_initializer", "context": "aliased_expression", "outer_delimiters": ["as"]},
+    {"name": "output_source", "context": "aliased_expression", "outer_delimiters": ["as", ";"]},
+    {"name": "cursor_action_rhs", "context": "terminated_expression", "outer_delimiters": [";"]},
+    {"name": "state_action_rhs", "context": "terminated_expression", "outer_delimiters": [";"]}
   ],
   "boundary_cases": [
     {
       "id": "query_standard_semicolon",
-      "context": "query_property",
+      "site": "query_property",
       "source": "SELECT ';,{[]}' AS punctuation;",
       "island": "SELECT ';,{[]}' AS punctuation",
       "outer": ";",
@@ -54,7 +59,7 @@
     },
     {
       "id": "query_from_first_semicolon",
-      "context": "query_property",
+      "site": "query_property",
       "source": "FROM vega.movies AS m SELECT m.\"title\";",
       "island": "FROM vega.movies AS m SELECT m.\"title\"",
       "outer": ";",
@@ -62,7 +67,7 @@
     },
     {
       "id": "query_ddl_rejected",
-      "context": "query_property",
+      "site": "query_property",
       "source": "CREATE TABLE t (x INT);",
       "island": "CREATE TABLE t (x INT)",
       "outer": ";",
@@ -70,7 +75,7 @@
     },
     {
       "id": "query_dml_rejected",
-      "context": "query_property",
+      "site": "query_property",
       "source": "INSERT INTO t VALUES (1);",
       "island": "INSERT INTO t VALUES (1)",
       "outer": ";",
@@ -78,7 +83,15 @@
     },
     {
       "id": "property_expression_semicolon",
-      "context": "property_expression",
+      "site": "property_value",
+      "source": "\"amount\" + coalesce($offset, 0);",
+      "island": "\"amount\" + coalesce($offset, 0)",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "channel_mode_payload_semicolon",
+      "site": "channel_mode_payload",
       "source": "\"amount\" + coalesce($offset, 0);",
       "island": "\"amount\" + coalesce($offset, 0)",
       "outer": ";",
@@ -86,7 +99,7 @@
     },
     {
       "id": "projection_list_semicolon",
-      "context": "projection_property",
+      "site": "projection_property",
       "source": "sum(x) AS total, avg(y) AS average;",
       "island": "sum(x) AS total, avg(y) AS average",
       "outer": ";",
@@ -94,7 +107,7 @@
     },
     {
       "id": "property_expression_configuration",
-      "context": "property_expression",
+      "site": "property_value",
       "source": "coalesce(\"amount\", [1, 2][1]){enabled: true;}",
       "island": "coalesce(\"amount\", [1, 2][1])",
       "outer": "{",
@@ -102,7 +115,7 @@
     },
     {
       "id": "property_expression_delimiters_in_comment",
-      "context": "property_expression",
+      "site": "property_value",
       "source": "coalesce(\"amount\", 0)/* ; { , ] */{enabled: true;}",
       "island": "coalesce(\"amount\", 0)/* ; { , ] */",
       "outer": "{",
@@ -110,7 +123,7 @@
     },
     {
       "id": "terminated_scalar_subquery",
-      "context": "terminated_expression",
+      "site": "state_action_rhs",
       "source": "(SELECT count(*) FROM $rows WHERE \"note\" = ';,{}[]');",
       "island": "(SELECT count(*) FROM $rows WHERE \"note\" = ';,{}[]')",
       "outer": ";",
@@ -118,15 +131,23 @@
     },
     {
       "id": "terminated_temporal_binding",
-      "context": "terminated_expression",
+      "site": "state_action_rhs",
       "source": "$width@previous + 1;",
       "island": "$width@previous + 1",
       "outer": ";",
       "accepted": true
     },
     {
+      "id": "cursor_action_expression",
+      "site": "cursor_action_rhs",
+      "source": "CASE WHEN $dragging THEN 'grabbing' ELSE 'default' END;",
+      "island": "CASE WHEN $dragging THEN 'grabbing' ELSE 'default' END",
+      "outer": ";",
+      "accepted": true
+    },
+    {
       "id": "terminated_incomplete_call",
-      "context": "terminated_expression",
+      "site": "state_action_rhs",
       "source": "coalesce(1,;",
       "island": "coalesce(1,",
       "outer": ";",
@@ -134,7 +155,7 @@
     },
     {
       "id": "aliased_qualified_column",
-      "context": "aliased_expression",
+      "site": "output_source",
       "source": "b.start as start",
       "island": "b.start ",
       "outer": "as",
@@ -142,7 +163,7 @@
     },
     {
       "id": "aliased_nested_cast",
-      "context": "aliased_expression",
+      "site": "param_initializer",
       "source": "CAST(value AS float64) + 1 as adjusted",
       "island": "CAST(value AS float64) + 1 ",
       "outer": "as",
@@ -150,7 +171,7 @@
     },
     {
       "id": "aliased_case_comment",
-      "context": "aliased_expression",
+      "site": "param_initializer",
       "source": "CASE WHEN x > 0 THEN x ELSE 0 END /* public */ as positive",
       "island": "CASE WHEN x > 0 THEN x ELSE 0 END /* public */ ",
       "outer": "as",
@@ -158,7 +179,7 @@
     },
     {
       "id": "identity_output_semicolon",
-      "context": "aliased_expression",
+      "site": "output_source",
       "source": "count;",
       "island": "count",
       "outer": ";",
@@ -166,7 +187,7 @@
     },
     {
       "id": "array_nested_array_comma",
-      "context": "array_expression",
+      "site": "array_element",
       "source": "coalesce([1, 2], [3, 4]),next",
       "island": "coalesce([1, 2], [3, 4])",
       "outer": ",",
@@ -174,15 +195,16 @@
     },
     {
       "id": "array_struct_comma",
-      "context": "array_expression",
+      "site": "array_element",
       "source": "{key: '],}', nested: {enabled: true}},next",
       "island": "{key: '],}', nested: {enabled: true}}",
       "outer": ",",
+      "tolerant_sql_island": false,
       "accepted": true
     },
     {
       "id": "array_closing_bracket",
-      "context": "array_expression",
+      "site": "array_element",
       "source": "coalesce(1, 2)]",
       "island": "coalesce(1, 2)",
       "outer": "]",

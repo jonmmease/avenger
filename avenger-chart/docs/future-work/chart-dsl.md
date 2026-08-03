@@ -1660,10 +1660,14 @@ compiler should use the SQL tokenizer/parser to find the statement boundary
 rather than splitting naively on the first semicolon, so semicolons inside
 SQL strings or comments remain valid.
 
-Inside a full `sql:` statement, ordinary SQL identifier rules apply — bare
-table and column names are normal there. The mandatory column quoting rule
-governs the DSL's *expression slots*, where there is no `FROM` clause to
-disambiguate.
+Inside a full `sql:` statement, ordinary SQL query structure applies, but the
+language-wide column rule does not change: every identifier used as a data or
+output column is double-quoted. Relation paths, relation aliases, function
+names, SQL keywords, and the binder introduced after projection `AS` remain
+bare where SQL permits them. Once a projection alias is referenced as an
+output column—for example from `ORDER BY` or an enclosing query—it is quoted
+like every other column. This keeps column syntax uniform across full queries,
+projection lists, and scalar expression islands.
 
 Statement policy: only query statements are accepted — standard `SELECT`,
 `FROM`-first `SELECT` (both including set operations such as `UNION`), and
@@ -1678,18 +1682,18 @@ ordering:
 
 ```sql
 FROM vega.movies AS m
-SELECT m.title, m.rating
+SELECT m."title", m."rating"
 ```
 
 It has the same meaning, logical plan, and output schema as:
 
 ```sql
-SELECT m.title, m.rating
+SELECT m."title", m."rating"
 FROM vega.movies AS m
 ```
 
 This ordering is particularly useful while authoring: by the time the user
-types `SELECT m.`, the language server already knows the relation and alias
+types `SELECT m."`, the language server already knows the relation and alias
 scope and can complete columns. The shared Avenger SQL dialect is pinned to the
 `sqlparser-rs` Generic-dialect feature surface used by DataFusion, including
 `supports_from_first_select`; compiler, language server, formatter, and editor
@@ -7671,6 +7675,7 @@ context. The fixed boundary contexts are:
 | reserved `sql:` or `query:` property | property name, `:`, and terminating `;` | one query (`SELECT`, `FROM`-first `SELECT`, set operation, or `VALUES`) | top-level `;` |
 | reserved `expressions:` property or structurally evident `slot outputs` argument | property name, `:`, terminating `;`, and semantic alias policy | one non-empty SQL projection list | top-level `;` |
 | ordinary/configurable property, channel value, filter, or `value` payload | property/prefix and optional configuration body | one scalar expression | top-level `;` or the configuration `{` |
+| scalar `param <expr> as <name>` initializer | `param`, top-level `as`, declared name, and `;` | one row-free scalar expression | top-level `as` |
 | explicit `output <expr> as <name>` | `output`, top-level `as`, public name, and `;` | one scalar expression | top-level `as` |
 | `set ... =` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
 | structural array element | outer `[]`, commas, anonymous bodies, and `value`/`pattern`/`none` prefixes | one scalar expression for that element | top-level `,` or `]` |
@@ -7842,7 +7847,7 @@ frontend islands, and DataFusion receives them only at the planning boundary.
 The SQL grammar must give `FROM`-first queries the same stable relation,
 alias, projection, and clause nodes as standard ordering wherever the adapted
 upstream permits. Highlight and recovery fixtures must include an incomplete
-`FROM vega.movies AS m SELECT m.` because that is the authoring shape that
+`FROM vega.movies AS m SELECT m."` because that is the authoring shape that
 motivates the syntax guarantee.
 
 The first combined grammar can parse declarations, property blocks, inherited
@@ -8781,7 +8786,7 @@ uses its last successful project-analysis snapshot plus the tolerant syntax
 tree to identify cursor scope. For SQL it may replace the cursor with a unique
 sentinel identifier, parse the patched island, and inspect the resulting AST
 without trying to plan the nonexistent sentinel column. `FROM`-first syntax
-makes the common `FROM vega.movies AS m SELECT m.` case especially reliable
+makes the common `FROM vega.movies AS m SELECT m."` case especially reliable
 because the relation scope precedes the incomplete projection.
 
 The detailed incomplete-input recovery, query-scope, candidate, ranking,

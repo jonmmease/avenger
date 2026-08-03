@@ -7,29 +7,31 @@
 //! expression planner and are never executed.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ops::Range,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
 
 use arrow::datatypes::DataType;
-use avenger_chart_schema::{NativeKindNamespace, NativeSchemaSnapshot};
+use avenger_chart_schema::{
+    NativeKindNamespace, NativeSchemaSnapshot, ProjectionExpressionMode, ValueShape,
+};
 use avenger_lang_compiler::{
-    AnalyzedDataset, DatasetStageKind, ModuleAnalysis, physical_type_to_arrow,
+    AnalyzedDataset, DatasetStageKind, FunctionCategory, ModuleAnalysis, physical_type_to_arrow,
 };
 use avenger_lang_core::{
-    ByteSpan, INTRINSIC_OPERATION_SIGNATURES, IntrinsicOperationContext, PhysicalType,
-    SourceOrigin, SourceSpan,
+    ByteSpan, INTRINSIC_OPERATION_SIGNATURES, IntrinsicOperationContext, PhysicalType, SourceFile,
+    SourceId, SourceOrigin, SourceSpan,
     ast::{SqlExpression, SqlProjection, SqlQuery},
     contextual_access_signature,
     resolve::{
         DeclarationId, ResolvedDeclaration, ResolvedEventScope, ResolvedEventSurface,
         ResolvedKindBinding, ResolvedTarget,
     },
-    sql::{LosslessTokenKind, TokenClass},
+    sql::{LosslessTokenKind, LosslessTokenStream, TokenClass, tokenize_lossless},
     syntax::{SqlIslandContext, SqlIslandRoot, TolerantSyntaxNodeKind},
 };
 use datafusion::{
@@ -41,27 +43,113 @@ use datafusion::{common::DFSchema, execution::SessionStateBuilder, logical_expr:
 use sha2::{Digest, Sha256};
 use sqlparser::tokenizer::Token;
 
+use crate::completion_rank::{candidate_matches, rank_and_deduplicate};
 use crate::{
-    AnalysisCancellation, CompletionItem, CompletionKind, CompletionOrigin, CompletionTextFormat,
+    AnalysisCancellation, CompletionInvocation, CompletionItem, CompletionKind, CompletionOrigin,
+    CompletionQualification, CompletionSemanticKind, CompletionTextFormat, CompletionValidity,
     DatasetContext, DocumentSemanticIndex, IndexedValueKind, PositionRequest, RootAnalysis,
     SyntaxAnalysis, WorkspaceSemanticIndex,
 };
 
-const MAX_REPAIR_ATTEMPTS: usize = 4;
+const MAX_REPAIR_ATTEMPTS: usize = 6;
+const MAX_PREFIX_FALLBACK_TOKENS: usize = 32;
 
-/// Semantic categories that may legally satisfy the cursor position.
+/// Exact syntactic/semantic intentions that may legally satisfy the cursor.
+///
+/// This is deliberately more precise than the former coarse role set: the
+/// candidate layer can distinguish query starts, clause transitions, binders,
+/// qualified members, and expression states without inferring intent from a
+/// broad `Expression` or `Clause` bucket.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SqlExpectedRole {
-    Clause,
-    Relation,
-    Catalog,
-    Schema,
-    Expression,
-    QualifierMember,
-    Function,
-    Type,
+pub enum SqlIntent {
+    QueryStart,
+    ClauseTransition,
+    RelationPath,
+    QuotedColumn,
+    ExpressionOperand,
+    ExpressionOperator,
+    QualifiedMember,
+    FunctionName,
+    TypeName,
     Binding,
-    Alias,
+    NameBinder,
+    CteName,
+    CteBodyStart,
+    WindowName,
+    WildcardModifier,
+    Nothing,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum QueryClause {
+    #[default]
+    Start,
+    With,
+    Select,
+    From,
+    Join,
+    On,
+    Using,
+    Where,
+    GroupBy,
+    Having,
+    Window,
+    Qualify,
+    OrderBy,
+    Limit,
+    Offset,
+    Fetch,
+    SetOperation,
+    Values,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CteHeaderState {
+    Name,
+    RecursiveKeyword,
+    AfterName,
+    AfterAs,
+    BodyComplete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CaseStage {
+    Case,
+    When,
+    Then,
+    Else,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParentScopePolicy {
+    Correlated,
+    IsolatedDerived,
+    Lateral { boundary: usize },
+}
+
+impl QueryClause {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::With => "with",
+            Self::Select => "select",
+            Self::From => "from",
+            Self::Join => "join",
+            Self::On => "on",
+            Self::Using => "using",
+            Self::Where => "where",
+            Self::GroupBy => "group_by",
+            Self::Having => "having",
+            Self::Window => "window",
+            Self::Qualify => "qualify",
+            Self::OrderBy => "order_by",
+            Self::Limit => "limit",
+            Self::Offset => "offset",
+            Self::Fetch => "fetch",
+            Self::SetOperation => "set_operation",
+            Self::Values => "values",
+        }
+    }
 }
 
 /// The deliberately small recovery matrix used before consulting semantic
@@ -72,21 +160,102 @@ pub enum SqlRepairStrategy {
     QualifierMember,
     EmptyExpression,
     MissingRelation,
+    MissingType,
+    QueryStart,
     TrailingComma,
     CloseDelimiters,
+    ParsablePrefix,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SqlCursorSentinelKind {
+    Expression,
+    QuotedMember,
+    Relation,
+    Type,
+    QueryStart,
 }
 
 /// Test/telemetry view of one completion classification.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SqlCompletionDebug {
     pub island: SourceSpan,
-    pub roles: BTreeSet<SqlExpectedRole>,
+    pub site: avenger_lang_core::syntax::SqlIslandSite,
+    pub lexical_mode: SqlLexicalMode,
+    pub cursor_path: Option<SqlCursorPathDebug>,
+    pub intents: BTreeSet<SqlIntent>,
     pub repair: SqlRepairStrategy,
+    pub sentinel: Option<SqlCursorSentinelKind>,
     pub repair_attempts: usize,
     pub token_count: usize,
     pub expression_planned: bool,
     pub repaired_parse: bool,
     pub synthetic_ranges: Vec<Range<usize>>,
+    pub scope_relations: Vec<SqlScopeRelationDebug>,
+    pub query_blocks: Vec<SqlQueryBlockDebug>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlCursorPathDebug {
+    pub clause: String,
+    pub nesting_depth: usize,
+    pub item_index: usize,
+    pub qualifier: Option<String>,
+    pub replacement: SourceSpan,
+    pub ast_path: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SqlItemParseStatus {
+    Parsed,
+    Cursor,
+    Empty,
+    Unparsed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlClauseItemDebug {
+    pub clause: String,
+    pub index: usize,
+    pub span: SourceSpan,
+    pub status: SqlItemParseStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlQueryBlockDebug {
+    pub index: usize,
+    pub parent: Option<usize>,
+    pub depth: usize,
+    pub span: SourceSpan,
+    pub active: bool,
+    pub items: Vec<SqlClauseItemDebug>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlScopeRelationDebug {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SqlLexicalMode {
+    Code,
+    DoubleQuotedIdentifier,
+    SingleQuotedString,
+    DollarQuotedString,
+    LineComment,
+    BlockComment,
+    Binding,
+    TemporalQualifier,
+}
+
+#[derive(Clone, Debug)]
+struct SqlCursorContext {
+    mode: SqlLexicalMode,
+    replacement: SourceSpan,
+    decoded_prefix: String,
+    synthetic_closer: Option<String>,
 }
 
 /// Process-local proof counters. The latter two counters intentionally remain
@@ -96,17 +265,23 @@ pub struct SqlCompletionMetrics {
     pub requests: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
+    pub cache_evictions: u64,
     pub logical_expression_plans: u64,
     pub logical_query_plans: u64,
+    pub invalid_candidates: u64,
     pub physical_plans: u64,
+    pub scans: u64,
+    pub collects: u64,
     pub executions: u64,
 }
 
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 static CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static CACHE_EVICTIONS: AtomicU64 = AtomicU64::new(0);
 static LOGICAL_EXPRESSION_PLANS: AtomicU64 = AtomicU64::new(0);
 static LOGICAL_QUERY_PLANS: AtomicU64 = AtomicU64::new(0);
+static INVALID_CANDIDATES: AtomicU64 = AtomicU64::new(0);
 
 impl SqlCompletionMetrics {
     pub fn snapshot() -> Self {
@@ -114,9 +289,13 @@ impl SqlCompletionMetrics {
             requests: REQUESTS.load(Ordering::Relaxed),
             cache_hits: CACHE_HITS.load(Ordering::Relaxed),
             cache_misses: CACHE_MISSES.load(Ordering::Relaxed),
+            cache_evictions: CACHE_EVICTIONS.load(Ordering::Relaxed),
             logical_expression_plans: LOGICAL_EXPRESSION_PLANS.load(Ordering::Relaxed),
             logical_query_plans: LOGICAL_QUERY_PLANS.load(Ordering::Relaxed),
+            invalid_candidates: INVALID_CANDIDATES.load(Ordering::Relaxed),
             physical_plans: 0,
+            scans: 0,
+            collects: 0,
             executions: 0,
         }
     }
@@ -125,7 +304,6 @@ impl SqlCompletionMetrics {
 pub(crate) struct SqlCompletionOutput {
     pub items: Vec<CompletionItem>,
     pub is_incomplete: bool,
-    #[allow(dead_code)]
     pub debug: SqlCompletionDebug,
 }
 
@@ -146,8 +324,11 @@ impl SqlToken<'_> {
     }
 
     fn is_word(&self, expected: &str) -> bool {
-        self.word()
-            .is_some_and(|word| word.eq_ignore_ascii_case(expected))
+        matches!(
+            self.token,
+            Some(Token::Word(word))
+                if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(expected)
+        )
     }
 
     fn is_period(&self) -> bool {
@@ -194,12 +375,23 @@ struct QueryScope {
     projection_aliases: Vec<ColumnMetadata>,
     ctes: Vec<RelationMetadata>,
     projection_aliases_visible: bool,
+    /// Number of duplicate source occurrences collapsed by USING/NATURAL
+    /// joins for each output name. Raw source-column counts minus this value
+    /// determine whether an unqualified output remains ambiguous.
+    merged_column_reductions: BTreeMap<String, usize>,
+}
+
+#[derive(Clone, Debug)]
+struct QuerySkeleton {
+    blocks: Vec<SqlQueryBlockDebug>,
+    active_block: usize,
 }
 
 #[derive(Clone, Debug)]
 struct CachedSqlAnalysis {
-    roles: BTreeSet<SqlExpectedRole>,
+    intents: BTreeSet<SqlIntent>,
     repair: SqlRepairStrategy,
+    sentinel: Option<SqlCursorSentinelKind>,
     repair_attempts: usize,
     token_count: usize,
     catalog: Vec<RelationMetadata>,
@@ -213,6 +405,7 @@ struct CachedSqlAnalysis {
 struct RepairedSql {
     text: String,
     generated: Vec<Range<usize>>,
+    authored_start: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -234,24 +427,106 @@ impl RepairedSql {
                 generated_before += generated.len();
             }
         }
-        Some(repaired_offset.saturating_sub(generated_before))
+        Some(
+            self.authored_start
+                .saturating_add(repaired_offset.saturating_sub(generated_before)),
+        )
     }
 }
 
 struct RecoveryResult {
     strategy: SqlRepairStrategy,
+    sentinel: Option<SqlCursorSentinelKind>,
     attempts: usize,
     repaired: RepairedSql,
     parsed: bool,
 }
 
-static SQL_ANALYSIS_CACHE: OnceLock<Mutex<BTreeMap<String, Arc<CachedSqlAnalysis>>>> =
-    OnceLock::new();
+const SQL_CACHE_MAX_ENTRIES: usize = 256;
+const SQL_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 
-fn sql_analysis_cache() -> &'static Mutex<BTreeMap<String, Arc<CachedSqlAnalysis>>> {
-    SQL_ANALYSIS_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+#[derive(Debug, Default)]
+struct SqlCompletionCacheState {
+    entries: BTreeMap<String, (Arc<CachedSqlAnalysis>, usize)>,
+    recency: VecDeque<String>,
+    bytes: usize,
 }
 
+/// Bounded, workspace-owned authored SQL analysis cache. The owning
+/// `AnalysisService` shares it across published generations; independent
+/// workspaces and tests never share completion state.
+#[derive(Debug, Default)]
+pub(crate) struct SqlCompletionCache {
+    state: Mutex<SqlCompletionCacheState>,
+}
+
+impl SqlCompletionCache {
+    fn get(&self, key: &str) -> Option<Arc<CachedSqlAnalysis>> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let value = state.entries.get(key)?.0.clone();
+        state.recency.retain(|candidate| candidate != key);
+        state.recency.push_back(key.to_owned());
+        Some(value)
+    }
+
+    fn insert(&self, key: String, value: Arc<CachedSqlAnalysis>) {
+        let estimated_bytes = estimate_cached_analysis_bytes(&key, &value);
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, bytes)) = state.entries.remove(&key) {
+            state.bytes = state.bytes.saturating_sub(bytes);
+            state.recency.retain(|candidate| candidate != &key);
+        }
+        state.bytes = state.bytes.saturating_add(estimated_bytes);
+        state.entries.insert(key.clone(), (value, estimated_bytes));
+        state.recency.push_back(key);
+        while state.entries.len() > SQL_CACHE_MAX_ENTRIES || state.bytes > SQL_CACHE_MAX_BYTES {
+            let Some(oldest) = state.recency.pop_front() else {
+                break;
+            };
+            if let Some((_, bytes)) = state.entries.remove(&oldest) {
+                state.bytes = state.bytes.saturating_sub(bytes);
+                CACHE_EVICTIONS.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn len_and_bytes(&self) -> (usize, usize) {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (state.entries.len(), state.bytes)
+    }
+}
+
+fn estimate_cached_analysis_bytes(key: &str, value: &CachedSqlAnalysis) -> usize {
+    let relation_bytes = value
+        .catalog
+        .iter()
+        .chain(value.scope.relations.iter())
+        .chain(value.scope.ctes.iter())
+        .map(|relation| {
+            relation.path.iter().map(String::len).sum::<usize>()
+                + relation.alias.as_ref().map_or(0, String::len)
+                + relation.detail.len()
+                + relation
+                    .columns
+                    .iter()
+                    .map(|column| column.name.len() + column.stage.len() + 128)
+                    .sum::<usize>()
+        })
+        .sum::<usize>();
+    key.len() + relation_bytes + value.token_count * 64 + 512
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn complete_sql(
     request: &PositionRequest,
     syntax: &SyntaxAnalysis,
@@ -259,6 +534,9 @@ pub(crate) fn complete_sql(
     semantic_index: &WorkspaceSemanticIndex,
     semantic_roots: &BTreeMap<String, RootAnalysis>,
     dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+    invocation: &CompletionInvocation,
+    snippets: bool,
+    cache: &SqlCompletionCache,
     cancellation: &AnalysisCancellation,
 ) -> Option<SqlCompletionOutput> {
     cancellation.check().ok()?;
@@ -272,41 +550,164 @@ pub(crate) fn complete_sql(
                 && request.byte_offset <= node.span.range.end
         })
         .min_by_key(|node| node.span.range.len())?;
-    let TolerantSyntaxNodeKind::SqlIsland { context } = node.kind else {
+    let TolerantSyntaxNodeKind::SqlIsland { site, .. } = &node.kind else {
         return None;
     };
+    let site = *site;
+    let context = site.context();
+    if site == avenger_lang_core::syntax::SqlIslandSite::PropertyValue
+        && !property_value_accepts_sql(
+            semantic_index,
+            registry,
+            &request.source,
+            request.byte_offset,
+            node.span,
+        )
+    {
+        return None;
+    }
+    if site == avenger_lang_core::syntax::SqlIslandSite::PropertyValue
+        && let Some(owner) =
+            crate::intelligence::owner_symbol(semantic_index, &request.source, request.byte_offset)
+        && owner.keyword == "slot"
+        && owner.native_kind.as_deref() != Some("expr")
+    {
+        // Non-expression definition-slot defaults are structural values. In
+        // particular, channel defaults enumerate physical channel identities
+        // and must not be captured by the generic SQL property island.
+        return None;
+    }
 
     REQUESTS.fetch_add(1, Ordering::Relaxed);
-    let replacement = sql_replacement_span(syntax, node.span, request.byte_offset);
     let text = syntax.parsed.tokens.text();
-    let prefix = &text[replacement.range.start..request.byte_offset.min(text.len())];
-    let (project, dataset_context) = project_at(
+    let cursor_context = sql_cursor_context(text, node.span, request.byte_offset);
+    let replacement = cursor_context.replacement;
+    let prefix = cursor_context.decoded_prefix.as_str();
+    if matches!(
+        cursor_context.mode,
+        SqlLexicalMode::SingleQuotedString
+            | SqlLexicalMode::DollarQuotedString
+            | SqlLexicalMode::LineComment
+            | SqlLexicalMode::BlockComment
+    ) {
+        return Some(SqlCompletionOutput {
+            items: Vec::new(),
+            is_incomplete: false,
+            debug: SqlCompletionDebug {
+                island: node.span,
+                site,
+                lexical_mode: cursor_context.mode,
+                cursor_path: None,
+                intents: BTreeSet::from([SqlIntent::Nothing]),
+                repair: SqlRepairStrategy::None,
+                sentinel: None,
+                repair_attempts: 0,
+                token_count: 0,
+                expression_planned: false,
+                repaired_parse: false,
+                synthetic_ranges: cursor_context
+                    .synthetic_closer
+                    .as_ref()
+                    .map(|closer| {
+                        request.byte_offset..request.byte_offset.saturating_add(closer.len())
+                    })
+                    .into_iter()
+                    .collect(),
+                scope_relations: Vec::new(),
+                query_blocks: Vec::new(),
+            },
+        });
+    }
+    let current_owner_path = semantic_index
+        .documents
+        .get(&request.source)
+        .and_then(|document| {
+            document
+                .sql_islands
+                .iter()
+                .find(|descriptor| descriptor.span == node.span)
+        })
+        .map(|descriptor| {
+            descriptor
+                .declaration_path
+                .iter()
+                .map(|owner| crate::DatasetContextOwner {
+                    keyword: owner.keyword.clone(),
+                    name: owner.name.clone(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let (project, dataset_context) = project_at_owner(
         &request.source,
         request.byte_offset,
         semantic_roots,
         dataset_contexts,
+        &current_owner_path,
     );
-    let tokens = island_tokens(syntax, node.span);
+    let repaired_token_stream =
+        patched_completion_token_stream(syntax, node.span, request.byte_offset, &cursor_context);
+    let mut tokens = repaired_token_stream.as_ref().map_or_else(
+        || island_tokens(syntax, node.span),
+        |stream| {
+            island_tokens_from_stream(
+                stream,
+                node.span,
+                cursor_context
+                    .synthetic_closer
+                    .as_ref()
+                    .map(|closer| (request.byte_offset, closer.len())),
+            )
+        },
+    );
+    if repaired_token_stream.is_some() {
+        tokens.retain(|token| {
+            token.span.range.start != cursor_context.replacement.range.start
+                || token.span.range.end != request.byte_offset
+        });
+    }
+    truncate_at_outer_delimiter(&mut tokens, site, request.byte_offset);
+    let skeleton = build_query_skeleton(
+        text,
+        node.span,
+        &tokens,
+        request.byte_offset,
+        context.root(),
+    );
+    cancellation.check().ok()?;
     let document = semantic_index.documents.get(&request.source);
+    let projection_mode = projection_expression_mode(
+        semantic_index,
+        registry,
+        &request.source,
+        request.byte_offset,
+        node.span,
+    );
     let cache_key = sql_cache_key(request, node.span, project, dataset_context);
-    let cached = sql_analysis_cache()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&cache_key)
-        .cloned();
+    let cached = cache.get(&cache_key);
     let cached = if let Some(cached) = cached {
         CACHE_HITS.fetch_add(1, Ordering::Relaxed);
         cached
     } else {
         CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
-        let roles = expected_roles(&tokens, request.byte_offset, context, prefix);
+        let intents = expected_intents(&tokens, request.byte_offset, context, prefix, &skeleton);
         let recovery = recover_sql(
             &text[node.span.range.as_range()],
             request.byte_offset.saturating_sub(node.span.range.start),
             context.root(),
             &tokens,
             request.byte_offset,
-            &roles,
+            &intents,
+            cursor_context
+                .replacement
+                .range
+                .start
+                .saturating_sub(node.span.range.start)
+                ..cursor_context
+                    .replacement
+                    .range
+                    .end
+                    .saturating_sub(node.span.range.start),
         );
         debug_assert!(
             recovery
@@ -320,16 +721,36 @@ pub(crate) fn complete_sql(
             document,
             request.byte_offset,
             project,
+            site,
+            node.span,
         ));
-        let active_depth = cursor_depth(&tokens, request.byte_offset);
+        cancellation.check().ok()?;
+        // Parentheses used by functions, USING, casts, and expressions do not
+        // introduce a SQL name scope. The skeleton's active query-block depth
+        // does; using raw cursor depth here made sources disappear inside
+        // ordinary parenthesized constructs.
+        let active_depth = skeleton.blocks[skeleton.active_block].depth;
         let mut scope = build_query_scope(
             &tokens,
             request.byte_offset,
             active_depth,
+            context.root(),
             &catalog,
             project,
             dataset_context,
         );
+        cancellation.check().ok()?;
+        if matches!(
+            site,
+            avenger_lang_core::syntax::SqlIslandSite::ParamInitializer
+                | avenger_lang_core::syntax::SqlIslandSite::OutputSource
+                | avenger_lang_core::syntax::SqlIslandSite::CursorActionRhs
+                | avenger_lang_core::syntax::SqlIslandSite::StateActionRhs
+        ) {
+            scope
+                .relations
+                .retain(|relation| relation.detail != "exact pipeline input");
+        }
         if context.root() == SqlIslandRoot::Expression
             && let Some(datum) = event_datum_relation(project, &request.source, request.byte_offset)
         {
@@ -340,9 +761,19 @@ pub(crate) fn complete_sql(
                 &text[node.span.range.as_range()],
                 &catalog,
                 &mut scope,
+                &tokens,
+                request.byte_offset,
+                node.span.range.start,
             );
         }
-        let expression_planned = if matches!(
+        cancellation.check().ok()?;
+        let expression_planned = if !matches!(
+            site,
+            avenger_lang_core::syntax::SqlIslandSite::ParamInitializer
+                | avenger_lang_core::syntax::SqlIslandSite::OutputSource
+                | avenger_lang_core::syntax::SqlIslandSite::CursorActionRhs
+                | avenger_lang_core::syntax::SqlIslandSite::StateActionRhs
+        ) && matches!(
             context.root(),
             SqlIslandRoot::Expression | SqlIslandRoot::Projection
         ) {
@@ -369,8 +800,9 @@ pub(crate) fn complete_sql(
             false
         };
         let cached = Arc::new(CachedSqlAnalysis {
-            roles,
+            intents,
             repair: recovery.strategy,
+            sentinel: recovery.sentinel,
             repair_attempts: recovery.attempts,
             token_count: tokens.len(),
             catalog,
@@ -379,40 +811,106 @@ pub(crate) fn complete_sql(
             repaired_parse: recovery.parsed,
             synthetic_ranges: recovery.repaired.generated,
         });
-        let mut cache = sql_analysis_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if cache.len() >= 512
-            && let Some(oldest) = cache.keys().next().cloned()
-        {
-            cache.remove(&oldest);
-        }
         cache.insert(cache_key, Arc::clone(&cached));
         cached
     };
-    let roles = &cached.roles;
+    cancellation.check().ok()?;
+    let mut effective_intents = cached.intents.clone();
+    if cursor_context.mode == SqlLexicalMode::DoubleQuotedIdentifier {
+        let before_quote = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| token.span.range.end <= replacement.range.start)
+            .map(|(index, _)| index)
+            .next_back();
+        if type_position(&tokens, before_quote) {
+            effective_intents.clear();
+            effective_intents.insert(SqlIntent::TypeName);
+        } else if before_quote
+            .and_then(|index| tokens.get(index))
+            .is_some_and(|token| token.is_word("as"))
+        {
+            effective_intents.clear();
+            effective_intents.insert(SqlIntent::NameBinder);
+        } else if context.root() == SqlIslandRoot::Query
+            && matches!(
+                query_clause_at(&tokens, request.byte_offset),
+                QueryClause::From | QueryClause::Join
+            )
+        {
+            effective_intents.clear();
+            effective_intents.insert(SqlIntent::RelationPath);
+        } else {
+            let qualified = before_quote
+                .and_then(|index| tokens.get(index))
+                .is_some_and(SqlToken::is_period);
+            effective_intents.clear();
+            effective_intents.insert(SqlIntent::QuotedColumn);
+            if qualified {
+                effective_intents.insert(SqlIntent::QualifiedMember);
+            }
+        }
+    }
+    let named_window_reference = context.root() == SqlIslandRoot::Query
+        && named_window_reference_position(&tokens, request.byte_offset, prefix);
+    let wildcard_modifier = context.root() == SqlIslandRoot::Query
+        && wildcard_modifier_position(&tokens, request.byte_offset, prefix);
+    if named_window_reference {
+        effective_intents.clear();
+        effective_intents.insert(SqlIntent::WindowName);
+    } else if wildcard_modifier {
+        effective_intents.clear();
+        effective_intents.insert(SqlIntent::WildcardModifier);
+    }
+    let intents = &effective_intents;
     let catalog = &cached.catalog;
     let scope = &cached.scope;
 
     let mut items = Vec::new();
     let mut incomplete = project.is_none();
+    let mut resolved_qualified_member = false;
     let qualifier = qualifier_before(text, node.span, replacement.range.start);
-    let quoted_qualifier = quoted_qualifier_before(text, node.span, replacement.range.start);
-    let qualifier = quoted_qualifier
-        .as_ref()
-        .map(|(qualifier, _)| qualifier.clone())
-        .or(qualifier);
-    let member_replacement = quoted_qualifier
-        .map(|(_, quote_start)| SourceSpan {
-            source: replacement.source,
-            range: ByteSpan {
-                start: quote_start,
-                end: replacement.range.end,
-            },
-        })
-        .unwrap_or(replacement);
+    let bare_relation_member = cursor_context.mode == SqlLexicalMode::Code
+        && qualifier.as_deref().is_some_and(|qualifier| {
+            scope
+                .relations
+                .iter()
+                .any(|relation| relation.visible_name().eq_ignore_ascii_case(qualifier))
+        });
+    let cursor_path = sql_cursor_path_debug(
+        &tokens,
+        request.byte_offset,
+        qualifier.clone(),
+        replacement,
+        &skeleton,
+    );
+    let member_replacement = replacement;
+    if named_window_reference {
+        complete_named_windows(
+            prefix,
+            replacement,
+            &tokens,
+            request.byte_offset,
+            &mut items,
+        );
+    }
 
-    if (roles.contains(&SqlExpectedRole::QualifierMember) || qualifier.is_some())
+    if cursor_context.mode == SqlLexicalMode::DoubleQuotedIdentifier
+        && intents.contains(&SqlIntent::QuotedColumn)
+        && ((context.root() == SqlIslandRoot::Query
+            && tokens
+                .iter()
+                .any(|token| token.is_word("from") || token.is_word("join")))
+            || dataset_context.is_some())
+        && scope
+            .relations
+            .iter()
+            .all(|relation| relation.columns.is_empty())
+    {
+        incomplete = true;
+    }
+
+    if (intents.contains(&SqlIntent::QualifiedMember) || qualifier.is_some())
         && let Some(qualifier) = qualifier.as_deref()
     {
         let contextual = complete_contextual_qualifier(
@@ -431,32 +929,76 @@ pub(crate) fn complete_sql(
                 qualifier,
                 prefix,
                 member_replacement,
-                roles,
+                intents,
                 scope,
                 catalog,
                 document,
                 project,
+                &request.source,
                 request.byte_offset,
+                site,
+                cursor_context.mode == SqlLexicalMode::DoubleQuotedIdentifier,
                 &mut items,
             )
         });
+        resolved_qualified_member = found;
+        if cursor_context.mode == SqlLexicalMode::Code
+            && context.root() == SqlIslandRoot::Query
+            && query_clause_at(&tokens, request.byte_offset) == QueryClause::Select
+            && scope
+                .relations
+                .iter()
+                .any(|relation| relation.visible_name().eq_ignore_ascii_case(qualifier))
+        {
+            let mut wildcard = candidate(
+                "*",
+                "*",
+                replacement,
+                CompletionKind::Keyword,
+                Some(format!("all columns from {qualifier}")),
+                CompletionOrigin::QueryScope,
+                "00",
+            );
+            wildcard.semantic_kind = CompletionSemanticKind::SqlOperator;
+            wildcard.semantic_identity = format!("QualifiedWildcard:{qualifier}");
+            items.push(wildcard);
+        }
         incomplete |= !found;
     }
-    if roles.contains(&SqlExpectedRole::Relation)
-        || roles.contains(&SqlExpectedRole::Catalog)
-        || roles.contains(&SqlExpectedRole::Schema)
-    {
-        complete_relations(prefix, replacement, scope, catalog, &mut items);
+    if intents.contains(&SqlIntent::RelationPath) {
+        complete_relations(
+            prefix,
+            replacement,
+            scope,
+            catalog,
+            cursor_context.mode == SqlLexicalMode::DoubleQuotedIdentifier,
+            &mut items,
+        );
         complete_table_bindings(
             prefix,
             replacement,
             document,
             request.byte_offset,
             project,
+            site,
+            node.span,
             &mut items,
         );
+        complete_table_functions(prefix, replacement, project, snippets, &mut items);
     }
-    if roles.contains(&SqlExpectedRole::Expression) || roles.contains(&SqlExpectedRole::Function) {
+    if intents.contains(&SqlIntent::ExpressionOperand)
+        || intents.contains(&SqlIntent::QuotedColumn)
+        || intents.contains(&SqlIntent::FunctionName)
+    {
+        complete_definition_slots(
+            prefix,
+            replacement,
+            document,
+            request.byte_offset,
+            site,
+            node.span,
+            &mut items,
+        );
         complete_contextual_roots(
             prefix,
             replacement,
@@ -467,12 +1009,17 @@ pub(crate) fn complete_sql(
             registry,
             &mut items,
         );
-        complete_columns(prefix, replacement, scope, &mut items);
+        if qualifier.is_none() {
+            complete_columns(prefix, replacement, scope, &mut items);
+        }
         complete_scalar_bindings(
             prefix,
             replacement,
             document,
             request.byte_offset,
+            project,
+            site,
+            node.span,
             &mut items,
         );
         complete_functions(
@@ -480,63 +1027,349 @@ pub(crate) fn complete_sql(
             replacement,
             project,
             enclosing_event(project, &request.source, request.byte_offset).is_some(),
+            context,
+            &tokens,
+            request.byte_offset,
+            projection_mode,
+            snippets,
             &mut items,
         );
     }
-    if roles.contains(&SqlExpectedRole::Type) {
+    if intents.contains(&SqlIntent::TypeName) {
         complete_types(prefix, replacement, &mut items);
     }
-    if roles.contains(&SqlExpectedRole::Binding) {
-        complete_scalar_bindings(
-            prefix,
-            replacement,
-            document,
-            request.byte_offset,
-            &mut items,
-        );
-        complete_table_bindings(
-            prefix,
-            replacement,
-            document,
-            request.byte_offset,
-            project,
-            &mut items,
-        );
+    if intents.contains(&SqlIntent::Binding) {
+        if intents.contains(&SqlIntent::RelationPath) {
+            complete_table_bindings(
+                prefix,
+                replacement,
+                document,
+                request.byte_offset,
+                project,
+                site,
+                node.span,
+                &mut items,
+            );
+        } else {
+            complete_scalar_bindings(
+                prefix,
+                replacement,
+                document,
+                request.byte_offset,
+                project,
+                site,
+                node.span,
+                &mut items,
+            );
+        }
     }
-    if roles.contains(&SqlExpectedRole::Alias) {
-        complete_projection_alias(
+    if !intents.contains(&SqlIntent::NameBinder) && !intents.contains(&SqlIntent::CteName) {
+        complete_temporal_qualifiers(
             prefix,
             replacement,
+            document,
+            request.byte_offset,
+            &mut items,
+        );
+        complete_keywords(
+            prefix,
+            replacement,
+            intents,
+            context,
             &tokens,
             request.byte_offset,
             &mut items,
         );
     }
-    complete_temporal_qualifiers(
-        prefix,
-        replacement,
-        document,
-        request.byte_offset,
-        &mut items,
-    );
-    complete_keywords(prefix, replacement, roles, &mut items);
+    if named_window_reference {
+        items.retain(|item| item.semantic_kind == CompletionSemanticKind::WindowName);
+    } else if wildcard_modifier {
+        items.retain(|item| {
+            item.semantic_kind == CompletionSemanticKind::SqlKeyword
+                && matches!(
+                    item.label.as_str(),
+                    "EXCLUDE" | "EXCEPT" | "REPLACE" | "ILIKE"
+                )
+        });
+    }
+
+    let outer_binder = match site {
+        avenger_lang_core::syntax::SqlIslandSite::ParamInitializer => {
+            Some(("parameter binder", "ParamBinder:as"))
+        }
+        avenger_lang_core::syntax::SqlIslandSite::OutputSource => {
+            Some(("output binder", "OutputBinder:as"))
+        }
+        _ => None,
+    };
+    let outer_binder_ready = outer_binder.is_some()
+        && replacement.range.start >= node.span.range.start
+        && SqlExpression::parse(
+            text[node.span.range.start..replacement.range.start]
+                .trim_end()
+                .trim(),
+        )
+        .is_ok();
+    if outer_binder_ready {
+        items.clear();
+        if candidate_matches("as", prefix) {
+            let (detail, identity) = outer_binder.unwrap();
+            let mut binder = candidate(
+                "as",
+                "as",
+                replacement,
+                CompletionKind::Keyword,
+                Some(detail.to_owned()),
+                CompletionOrigin::Syntax,
+                "00",
+            );
+            binder.semantic_kind = CompletionSemanticKind::SqlKeyword;
+            binder.semantic_identity = identity.to_owned();
+            items.push(binder);
+        }
+    }
 
     cancellation.check().ok()?;
-    rank_and_deduplicate(&mut items, prefix);
+    retain_candidates_for_lexical_mode(&mut items, cursor_context.mode);
+    if resolved_qualified_member
+        && cursor_context.mode == SqlLexicalMode::Code
+        && !bare_relation_member
+    {
+        items.retain(|item| {
+            matches!(
+                item.semantic_kind,
+                CompletionSemanticKind::ContextualMember
+                    | CompletionSemanticKind::StructField
+                    | CompletionSemanticKind::Relation
+                    | CompletionSemanticKind::Catalog
+                    | CompletionSemanticKind::Schema
+            )
+        });
+    }
+    if context.root() == SqlIslandRoot::Query
+        && matches!(
+            skeleton.active_clause(&tokens, request.byte_offset),
+            QueryClause::Limit | QueryClause::Offset | QueryClause::Fetch
+        )
+    {
+        items.retain(|item| item.semantic_kind != CompletionSemanticKind::DataColumn);
+    }
+    if skeleton.active_clause(&tokens, request.byte_offset) == QueryClause::Using
+        && cursor_context.mode != SqlLexicalMode::DoubleQuotedIdentifier
+    {
+        items.clear();
+    } else if skeleton.active_clause(&tokens, request.byte_offset) == QueryClause::Using {
+        let mut seen = BTreeSet::new();
+        items.retain_mut(|item| {
+            if item.semantic_kind != CompletionSemanticKind::DataColumn
+                || !seen.insert(item.label.to_ascii_lowercase())
+            {
+                return false;
+            }
+            item.insert_text = quote_identifier(&item.label);
+            item.filter_text = Some(item.insert_text.clone());
+            item.qualification = CompletionQualification::Unqualified;
+            item.semantic_identity = format!("UsingColumn:{}", item.label);
+            if let Some(detail) = &mut item.detail {
+                detail.push_str(" · merged USING column");
+            }
+            true
+        });
+    }
+    if bare_relation_member {
+        // Authored columns are always double quoted. A bare relation member can
+        // therefore only be the qualified wildcard; fields become available
+        // after the author opens a quoted identifier (`relation."`).
+        items.retain(|item| {
+            item.semantic_kind == CompletionSemanticKind::SqlOperator && item.insert_text == "*"
+        });
+    }
+    if let Some(expected) = expected_completion_type(
+        semantic_index,
+        registry,
+        &request.source,
+        request.byte_offset,
+        node.span,
+    ) {
+        for item in &mut items {
+            if let Some(data_type) = item.data_type.as_deref() {
+                item.expected_type_compatible = Some(expected.accepts(data_type));
+            }
+        }
+    }
+    let invalid_candidates = completion_invariant_violations(&items, cursor_context.mode);
+    if invalid_candidates != 0 {
+        INVALID_CANDIDATES.fetch_add(invalid_candidates as u64, Ordering::Relaxed);
+    }
+    debug_assert_eq!(invalid_candidates, 0);
+    annotate_usage_prevalence(&mut items, &tokens, semantic_index);
+    rank_and_deduplicate(&mut items, prefix, invocation);
     Some(SqlCompletionOutput {
         items,
         is_incomplete: incomplete,
         debug: SqlCompletionDebug {
             island: node.span,
-            roles: roles.clone(),
+            site,
+            lexical_mode: cursor_context.mode,
+            cursor_path: Some(cursor_path),
+            intents: intents.clone(),
             repair: cached.repair,
+            sentinel: cached.sentinel,
             repair_attempts: cached.repair_attempts,
             token_count: cached.token_count,
             expression_planned: cached.expression_planned,
             repaired_parse: cached.repaired_parse,
             synthetic_ranges: cached.synthetic_ranges.clone(),
+            scope_relations: scope
+                .relations
+                .iter()
+                .chain(scope.ctes.iter())
+                .map(|relation| SqlScopeRelationDebug {
+                    name: relation.visible_name().to_owned(),
+                    columns: relation
+                        .columns
+                        .iter()
+                        .map(|column| format!("{}: {}", column.name, column.data_type))
+                        .collect(),
+                    detail: relation.detail.clone(),
+                })
+                .collect(),
+            query_blocks: skeleton.blocks.clone(),
         },
     })
+}
+
+fn property_value_accepts_sql(
+    index: &WorkspaceSemanticIndex,
+    registry: &NativeSchemaSnapshot,
+    origin: &SourceOrigin,
+    cursor: usize,
+    island: SourceSpan,
+) -> bool {
+    let Some(descriptor) = index.documents.get(origin).and_then(|document| {
+        document
+            .sql_islands
+            .iter()
+            .find(|descriptor| descriptor.span == island)
+    }) else {
+        return true;
+    };
+    let Some(first) = descriptor.property_path.first() else {
+        return true;
+    };
+    if matches!(
+        first.as_str(),
+        "data"
+            | "target"
+            | "scope"
+            | "surface"
+            | "between"
+            | "sharing"
+            | "empty"
+            | "combine"
+            | "mode"
+            | "consume"
+            | "settle_exact"
+            | "domain_contribution"
+            | "layout"
+            | "theme"
+            | "time"
+            | "format"
+            | "guide"
+            | "id"
+    ) {
+        return false;
+    }
+    let Some(owner) = crate::intelligence::owner_symbol(index, origin, cursor) else {
+        // Core SQL-bearing properties such as event `filter` have no native
+        // registry owner and remain expression islands.
+        return true;
+    };
+    let Some(schema) = crate::intelligence::schema_for_symbol(registry, owner, index) else {
+        return true;
+    };
+    let Some(property) = crate::intelligence::property_schema(schema, first) else {
+        return true;
+    };
+    let mut shape = property.shape;
+    for name in descriptor.property_path.iter().skip(1) {
+        shape = match shape {
+            ValueShape::Object(properties) | ValueShape::ConfiguredExpression(properties) => {
+                let Some(property) = properties.get(name) else {
+                    return false;
+                };
+                &property.shape
+            }
+            ValueShape::ConfiguredReference { properties, .. } => {
+                let Some(property) = properties.get(name) else {
+                    return false;
+                };
+                &property.shape
+            }
+            ValueShape::Array(element)
+            | ValueShape::OneOrMany(element)
+            | ValueShape::Map(element) => element,
+            _ => return false,
+        };
+    }
+    shape_accepts_sql(shape)
+}
+
+fn shape_accepts_sql(shape: &ValueShape) -> bool {
+    match shape {
+        ValueShape::SqlExpression | ValueShape::ConfiguredExpression(_) => true,
+        ValueShape::Union(shapes) => shapes.iter().any(shape_accepts_sql),
+        _ => false,
+    }
+}
+
+fn complete_definition_slots(
+    prefix: &str,
+    replacement: SourceSpan,
+    document: Option<&DocumentSemanticIndex>,
+    cursor: usize,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    island: SourceSpan,
+    output: &mut Vec<CompletionItem>,
+) {
+    let Some(document) = document else {
+        return;
+    };
+    let is_output = site == avenger_lang_core::syntax::SqlIslandSite::OutputSource;
+    let owner = document
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.declaration_span.range.start <= island.range.start
+                && island.range.end <= symbol.declaration_span.range.end
+        })
+        .min_by_key(|symbol| symbol.declaration_span.range.len());
+    let is_slot_default = site == avenger_lang_core::syntax::SqlIslandSite::PropertyValue
+        && owner.is_some_and(|owner| owner.keyword == "slot");
+    if !is_output && !is_slot_default {
+        return;
+    }
+    for slot in document.symbols.iter().filter(|symbol| {
+        symbol.keyword == "slot"
+            && symbol.selection_span.range.start < cursor
+            && symbol_visible(document, symbol, cursor)
+            && candidate_matches(&symbol.name, prefix)
+    }) {
+        let mut item = candidate(
+            &slot.name,
+            &slot.name,
+            replacement,
+            CompletionKind::Variable,
+            slot.detail
+                .clone()
+                .or_else(|| Some("definition slot".to_owned())),
+            CompletionOrigin::LexicalScope,
+            "00",
+        );
+        item.semantic_kind = CompletionSemanticKind::ContextualMember;
+        item.semantic_identity = format!("DefinitionSlot:{}", slot.identity);
+        output.push(item);
+    }
 }
 
 pub(crate) fn contextual_hover(
@@ -553,8 +1386,8 @@ pub(crate) fn contextual_hover(
         .filter(|node| {
             matches!(
                 node.kind,
-                TolerantSyntaxNodeKind::SqlIsland { context }
-                    if context.root() == SqlIslandRoot::Expression
+                TolerantSyntaxNodeKind::SqlIsland { site, .. }
+                    if site.context().root() == SqlIslandRoot::Expression
             ) && node.span.range.start <= request.byte_offset
                 && request.byte_offset <= node.span.range.end
         })
@@ -601,8 +1434,8 @@ pub(crate) fn typed_boundary_hover(
         .filter(|node| {
             matches!(
                 node.kind,
-                TolerantSyntaxNodeKind::SqlIsland { context }
-                    if context.root() == SqlIslandRoot::Expression
+                TolerantSyntaxNodeKind::SqlIsland { site, .. }
+                    if site.context().root() == SqlIslandRoot::Expression
             ) && node.span.range.start <= request.byte_offset
                 && request.byte_offset <= node.span.range.end
         })
@@ -803,10 +1636,10 @@ pub(crate) fn contextual_semantic_token_spans(
     };
     let mut output = Vec::new();
     for node in &syntax.parsed.nodes {
-        let TolerantSyntaxNodeKind::SqlIsland { context } = node.kind else {
+        let TolerantSyntaxNodeKind::SqlIsland { site, .. } = &node.kind else {
             continue;
         };
-        if context.root() != SqlIslandRoot::Expression {
+        if site.context().root() != SqlIslandRoot::Expression {
             continue;
         }
         let cursor = node.span.range.start;
@@ -1206,17 +2039,45 @@ fn project_at<'a>(
     roots: &'a BTreeMap<String, RootAnalysis>,
     contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
 ) -> (Option<&'a ModuleAnalysis>, Option<&'a DatasetContext>) {
-    let context = contexts
+    project_at_owner(origin, cursor, roots, contexts, &[])
+}
+
+fn project_at_owner<'a>(
+    origin: &SourceOrigin,
+    cursor: usize,
+    roots: &'a BTreeMap<String, RootAnalysis>,
+    contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+    current_owner_path: &[crate::DatasetContextOwner],
+) -> (Option<&'a ModuleAnalysis>, Option<&'a DatasetContext>) {
+    let source_contexts = contexts
         .iter()
         .find(|(candidate, _)| same_origin(candidate, origin))
-        .map(|(_, contexts)| contexts)
+        .map(|(_, contexts)| contexts);
+    let context = source_contexts
         .and_then(|contexts| {
-            contexts
-                .iter()
-                .filter(|context| {
-                    context.span.range.start <= cursor && cursor <= context.span.range.end
+            (!current_owner_path.is_empty())
+                .then(|| {
+                    contexts
+                        .iter()
+                        .filter(|context| context.owner_path == current_owner_path)
+                        .min_by_key(|context| {
+                            (
+                                context.span.range.len(),
+                                std::cmp::Reverse(context.stage.ordinal),
+                            )
+                        })
                 })
-                .min_by_key(|context| context.span.range.len())
+                .flatten()
+        })
+        .or_else(|| {
+            source_contexts.and_then(|contexts| {
+                contexts
+                    .iter()
+                    .filter(|context| {
+                        context.span.range.start <= cursor && cursor <= context.span.range.end
+                    })
+                    .min_by_key(|context| context.span.range.len())
+            })
         });
     if let Some(context) = context {
         return (
@@ -1237,6 +2098,113 @@ fn project_at<'a>(
     (project, None)
 }
 
+fn projection_expression_mode(
+    index: &WorkspaceSemanticIndex,
+    registry: &NativeSchemaSnapshot,
+    origin: &SourceOrigin,
+    cursor: usize,
+    island: SourceSpan,
+) -> Option<ProjectionExpressionMode> {
+    let document = index.documents.get(origin)?;
+    let descriptor = document
+        .sql_islands
+        .iter()
+        .find(|descriptor| descriptor.span == island)?;
+    if descriptor.site.context().root() != SqlIslandRoot::Projection {
+        return None;
+    }
+    let property = descriptor.property_path.last()?;
+    let owner = crate::intelligence::owner_symbol(index, origin, cursor)?;
+    let schema = crate::intelligence::schema_for_symbol(registry, owner, index)?;
+    let property = crate::intelligence::property_schema(schema, property)?;
+    match property.shape {
+        ValueShape::SqlProjection {
+            expression_mode, ..
+        } => Some(*expression_mode),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug)]
+enum ExpectedCompletionType {
+    Boolean,
+    Integer,
+    Number,
+    String,
+    Arrow(String),
+}
+
+impl ExpectedCompletionType {
+    fn accepts(&self, data_type: &str) -> bool {
+        let data_type = data_type.to_ascii_lowercase();
+        match self {
+            Self::Boolean => data_type == "boolean",
+            Self::Integer => data_type.starts_with("int") || data_type.starts_with("uint"),
+            Self::Number => {
+                data_type.starts_with("int")
+                    || data_type.starts_with("uint")
+                    || data_type.starts_with("float")
+                    || data_type.starts_with("decimal")
+            }
+            Self::String => {
+                data_type == "utf8" || data_type == "largeutf8" || data_type == "utf8view"
+            }
+            Self::Arrow(expected) => expected.eq_ignore_ascii_case(&data_type),
+        }
+    }
+}
+
+fn expected_completion_type(
+    index: &WorkspaceSemanticIndex,
+    registry: &NativeSchemaSnapshot,
+    origin: &SourceOrigin,
+    cursor: usize,
+    island: SourceSpan,
+) -> Option<ExpectedCompletionType> {
+    let document = index.documents.get(origin)?;
+    let descriptor = document
+        .sql_islands
+        .iter()
+        .find(|descriptor| descriptor.span == island)?;
+    let first = descriptor.property_path.first()?;
+    let owner = crate::intelligence::owner_symbol(index, origin, cursor)?;
+    let schema = crate::intelligence::schema_for_symbol(registry, owner, index)?;
+    if let Some(channel) = schema.channels.get(first)
+        && descriptor.channel_mode.as_deref() == Some("direct")
+    {
+        return channel
+            .item_type
+            .as_ref()
+            .map(|value| ExpectedCompletionType::Arrow(value.clone()));
+    }
+    let property = crate::intelligence::property_schema(schema, first)?;
+    let mut shape = property.shape;
+    for name in descriptor.property_path.iter().skip(1) {
+        shape = match shape {
+            ValueShape::Object(properties) | ValueShape::ConfiguredExpression(properties) => {
+                &properties.get(name)?.shape
+            }
+            ValueShape::ConfiguredReference { properties, .. } => &properties.get(name)?.shape,
+            ValueShape::Array(element)
+            | ValueShape::OneOrMany(element)
+            | ValueShape::Map(element) => element,
+            _ => return None,
+        };
+    }
+    if descriptor.site == avenger_lang_core::syntax::SqlIslandSite::ArrayElement {
+        while let ValueShape::Array(element) | ValueShape::OneOrMany(element) = shape {
+            shape = element;
+        }
+    }
+    match shape {
+        ValueShape::Boolean => Some(ExpectedCompletionType::Boolean),
+        ValueShape::Integer => Some(ExpectedCompletionType::Integer),
+        ValueShape::Number | ValueShape::RasterDimension => Some(ExpectedCompletionType::Number),
+        ValueShape::String | ValueShape::Identifier => Some(ExpectedCompletionType::String),
+        _ => None,
+    }
+}
+
 fn same_origin(left: &SourceOrigin, right: &SourceOrigin) -> bool {
     if left == right || left.canonical_uri() == right.canonical_uri() {
         return true;
@@ -1252,15 +2220,51 @@ fn same_origin(left: &SourceOrigin, right: &SourceOrigin) -> bool {
 }
 
 fn island_tokens<'a>(syntax: &'a SyntaxAnalysis, island: SourceSpan) -> Vec<SqlToken<'a>> {
+    island_tokens_from_stream(&syntax.parsed.tokens, island, None)
+}
+
+fn patched_completion_token_stream(
+    syntax: &SyntaxAnalysis,
+    island: SourceSpan,
+    cursor: usize,
+    context: &SqlCursorContext,
+) -> Option<LosslessTokenStream> {
+    let closer = context.synthetic_closer.as_deref()?;
+    if context.mode != SqlLexicalMode::DoubleQuotedIdentifier {
+        return None;
+    }
+    let text = syntax.parsed.tokens.text();
+    if cursor < island.range.start || cursor > island.range.end || cursor > text.len() {
+        return None;
+    }
+    let mut patched = String::with_capacity(text.len() + closer.len());
+    patched.push_str(&text[..cursor]);
+    patched.push_str(closer);
+    patched.push_str(&text[cursor..]);
+    let source = SourceFile::new(
+        syntax.parsed.tokens.source(),
+        SourceOrigin::Memory("completion-patched-token-view".to_owned()),
+        patched,
+    );
+    Some(tokenize_lossless(&source))
+}
+
+fn island_tokens_from_stream<'a>(
+    stream: &'a LosslessTokenStream,
+    island: SourceSpan,
+    synthetic_insertion: Option<(usize, usize)>,
+) -> Vec<SqlToken<'a>> {
     let mut depth = 0_usize;
-    syntax
-        .parsed
-        .tokens
+    let patched_end = island
+        .range
+        .end
+        .saturating_add(synthetic_insertion.map_or(0, |(_, length)| length));
+    stream
         .tokens()
         .iter()
         .filter(|token| {
             island.range.start <= token.span().range.start
-                && token.span().range.end <= island.range.end
+                && token.span().range.end <= patched_end
                 && !matches!(
                     token.kind(),
                     LosslessTokenKind::Token(TokenClass::Whitespace(_) | TokenClass::Comment(_))
@@ -1271,10 +2275,21 @@ fn island_tokens<'a>(syntax: &'a SyntaxAnalysis, island: SourceSpan) -> Vec<SqlT
             if matches!(token.token(), Some(Token::RParen | Token::RBracket)) {
                 depth = depth.saturating_sub(1);
             }
+            let map_offset = |offset: usize| {
+                synthetic_insertion.map_or(offset, |(synthetic, length)| {
+                    offset.saturating_sub(offset.saturating_sub(synthetic).min(length))
+                })
+            };
             let output = SqlToken {
                 token: token.token(),
-                raw: syntax.parsed.tokens.raw(token),
-                span: token.span(),
+                raw: stream.raw(token),
+                span: SourceSpan {
+                    source: island.source,
+                    range: ByteSpan {
+                        start: map_offset(token.span().range.start),
+                        end: map_offset(token.span().range.end),
+                    },
+                },
                 depth,
             };
             if matches!(token.token(), Some(Token::LParen | Token::LBracket)) {
@@ -1283,6 +2298,27 @@ fn island_tokens<'a>(syntax: &'a SyntaxAnalysis, island: SourceSpan) -> Vec<SqlT
             output
         })
         .collect()
+}
+
+fn truncate_at_outer_delimiter(
+    tokens: &mut Vec<SqlToken<'_>>,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    cursor: usize,
+) {
+    let delimiters = site.outer_delimiters();
+    if let Some(index) = tokens.iter().position(|token| {
+        token.depth == 0
+            && token.span.range.start >= cursor
+            && delimiters.iter().any(|delimiter| {
+                if delimiter.eq_ignore_ascii_case("as") {
+                    token.is_word("as")
+                } else {
+                    token.raw == *delimiter
+                }
+            })
+    }) {
+        tokens.truncate(index);
+    }
 }
 
 fn cursor_depth(tokens: &[SqlToken<'_>], cursor: usize) -> usize {
@@ -1295,8 +2331,187 @@ fn cursor_depth(tokens: &[SqlToken<'_>], cursor: usize) -> usize {
         })
 }
 
-fn sql_replacement_span(syntax: &SyntaxAnalysis, island: SourceSpan, cursor: usize) -> SourceSpan {
-    let text = syntax.parsed.tokens.text();
+fn sql_cursor_context(text: &str, island: SourceSpan, cursor: usize) -> SqlCursorContext {
+    #[derive(Clone, Debug)]
+    enum ScanState {
+        Code,
+        Single { start: usize },
+        Double { start: usize },
+        Dollar { delimiter: String },
+        LineComment,
+        BlockComment { depth: usize },
+    }
+
+    let cursor = cursor.min(island.range.end).min(text.len());
+    let bytes = text.as_bytes();
+    let mut state = ScanState::Code;
+    let mut offset = island.range.start;
+    while offset < cursor {
+        match &mut state {
+            ScanState::Code => {
+                if bytes.get(offset..offset + 2) == Some(b"--") {
+                    state = ScanState::LineComment;
+                    offset += 2;
+                } else if bytes.get(offset..offset + 2) == Some(b"/*") {
+                    state = ScanState::BlockComment { depth: 1 };
+                    offset += 2;
+                } else if bytes[offset] == b'\'' {
+                    state = ScanState::Single { start: offset };
+                    offset += 1;
+                } else if bytes[offset] == b'"' {
+                    state = ScanState::Double { start: offset };
+                    offset += 1;
+                } else if bytes[offset] == b'$' {
+                    if let Some((delimiter, end)) = dollar_quote_opener(text, offset, cursor) {
+                        state = ScanState::Dollar { delimiter };
+                        offset = end;
+                    } else {
+                        offset += 1;
+                    }
+                } else {
+                    offset += text[offset..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            ScanState::Single { .. } => {
+                if bytes[offset] == b'\'' {
+                    if bytes.get(offset + 1) == Some(&b'\'') && offset + 1 < cursor {
+                        offset += 2;
+                    } else {
+                        state = ScanState::Code;
+                        offset += 1;
+                    }
+                } else {
+                    offset += text[offset..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            ScanState::Double { .. } => {
+                if bytes[offset] == b'"' {
+                    if bytes.get(offset + 1) == Some(&b'"') && offset + 1 < cursor {
+                        offset += 2;
+                    } else {
+                        state = ScanState::Code;
+                        offset += 1;
+                    }
+                } else {
+                    offset += text[offset..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            ScanState::Dollar { delimiter } => {
+                if text[offset..].starts_with(delimiter.as_str()) {
+                    offset += delimiter.len();
+                    state = ScanState::Code;
+                } else {
+                    offset += text[offset..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            ScanState::LineComment => {
+                if matches!(bytes[offset], b'\n' | b'\r') {
+                    state = ScanState::Code;
+                }
+                offset += 1;
+            }
+            ScanState::BlockComment { depth } => {
+                if bytes.get(offset..offset + 2) == Some(b"/*") {
+                    *depth += 1;
+                    offset += 2;
+                } else if bytes.get(offset..offset + 2) == Some(b"*/") {
+                    *depth -= 1;
+                    offset += 2;
+                    if *depth == 0 {
+                        state = ScanState::Code;
+                    }
+                } else {
+                    offset += text[offset..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+        }
+    }
+
+    match state {
+        ScanState::Double { start } => {
+            let end = quoted_identifier_end(text, cursor, island.range.end);
+            let authored = &text[start + 1..cursor];
+            SqlCursorContext {
+                mode: SqlLexicalMode::DoubleQuotedIdentifier,
+                replacement: SourceSpan {
+                    source: island.source,
+                    range: ByteSpan { start, end },
+                },
+                decoded_prefix: authored.replace("\"\"", "\""),
+                synthetic_closer: (end == cursor).then(|| "\"".to_owned()),
+            }
+        }
+        ScanState::Single { start } => {
+            let end = single_quoted_end(text, cursor, island.range.end);
+            SqlCursorContext {
+                mode: SqlLexicalMode::SingleQuotedString,
+                replacement: SourceSpan {
+                    source: island.source,
+                    range: ByteSpan { start, end },
+                },
+                decoded_prefix: String::new(),
+                synthetic_closer: (end == cursor).then(|| "'".to_owned()),
+            }
+        }
+        ScanState::Dollar { delimiter } => SqlCursorContext {
+            mode: SqlLexicalMode::DollarQuotedString,
+            replacement: SourceSpan::empty(island.source, cursor),
+            decoded_prefix: String::new(),
+            synthetic_closer: (!text[cursor..island.range.end.min(text.len())]
+                .contains(&delimiter))
+            .then_some(delimiter),
+        },
+        ScanState::LineComment => SqlCursorContext {
+            mode: SqlLexicalMode::LineComment,
+            replacement: SourceSpan::empty(island.source, cursor),
+            decoded_prefix: String::new(),
+            synthetic_closer: None,
+        },
+        ScanState::BlockComment { depth } => SqlCursorContext {
+            mode: SqlLexicalMode::BlockComment,
+            replacement: SourceSpan::empty(island.source, cursor),
+            decoded_prefix: String::new(),
+            synthetic_closer: (!text[cursor..island.range.end.min(text.len())].contains("*/"))
+                .then(|| "*/".repeat(depth)),
+        },
+        ScanState::Code => {
+            let replacement = sql_word_replacement_span(text, island, cursor);
+            let authored = &text[replacement.range.start..cursor];
+            let mode = if authored.starts_with('$') && authored.contains('@') {
+                SqlLexicalMode::TemporalQualifier
+            } else if authored.starts_with('$') {
+                SqlLexicalMode::Binding
+            } else {
+                SqlLexicalMode::Code
+            };
+            SqlCursorContext {
+                mode,
+                replacement,
+                decoded_prefix: authored.to_owned(),
+                synthetic_closer: None,
+            }
+        }
+    }
+}
+
+fn single_quoted_end(text: &str, cursor: usize, limit: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut end = cursor;
+    while end < limit.min(text.len()) {
+        if bytes[end] == b'\'' {
+            if bytes.get(end + 1) == Some(&b'\'') && end + 1 < limit {
+                end += 2;
+            } else {
+                return end + 1;
+            }
+        } else {
+            end += text[end..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    cursor
+}
+
+fn sql_word_replacement_span(text: &str, island: SourceSpan, cursor: usize) -> SourceSpan {
     let cursor = cursor.min(island.range.end).min(text.len());
     let mut start = cursor;
     while start > island.range.start {
@@ -1322,12 +2537,84 @@ fn sql_replacement_span(syntax: &SyntaxAnalysis, island: SourceSpan, cursor: usi
     }
 }
 
-fn expected_roles(
+fn dollar_quote_opener(text: &str, start: usize, limit: usize) -> Option<(String, usize)> {
+    let bytes = text.as_bytes();
+    if bytes.get(start) != Some(&b'$') {
+        return None;
+    }
+    let mut end = start + 1;
+    while end < limit {
+        match bytes[end] {
+            b'$' => {
+                let delimiter = text[start..=end].to_owned();
+                return Some((delimiter, end + 1));
+            }
+            byte if byte == b'_' || byte.is_ascii_alphanumeric() => end += 1,
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn quoted_identifier_end(text: &str, cursor: usize, limit: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut end = cursor;
+    while end < limit.min(text.len()) {
+        if matches!(bytes[end], b'\n' | b'\r') {
+            // Canonical authored column identifiers do not span lines. During
+            // editing, treating a later quote in the following SQL/DSL as the
+            // closer would swallow the suffix and destroy FROM-first scope.
+            return cursor;
+        }
+        if bytes[end].is_ascii_whitespace() && quoted_suffix_starts_sql_clause(text, end, limit) {
+            // An unterminated identifier before an intact same-line clause is
+            // another common editor state. A quote in that clause (for
+            // example EXCLUDE ("id")) belongs to the suffix, not to the
+            // identifier currently being completed.
+            return cursor;
+        }
+        if bytes[end] == b'"' {
+            if bytes.get(end + 1) == Some(&b'"') && end + 1 < limit {
+                end += 2;
+            } else {
+                return end + 1;
+            }
+        } else {
+            end += text[end..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    cursor
+}
+
+fn quoted_suffix_starts_sql_clause(text: &str, whitespace: usize, limit: usize) -> bool {
+    let limit = limit.min(text.len());
+    let mut start = whitespace;
+    while start < limit && text.as_bytes()[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    let mut end = start;
+    while end < limit
+        && (text.as_bytes()[end].is_ascii_alphanumeric() || text.as_bytes()[end] == b'_')
+    {
+        end += 1;
+    }
+    if start == end || end >= limit || text.as_bytes()[end] == b'"' {
+        return false;
+    }
+    let word = &text[start..end];
+    is_clause_word(word)
+        || ["as", "by", "window", "filter", "over"]
+            .iter()
+            .any(|candidate| word.eq_ignore_ascii_case(candidate))
+}
+
+fn expected_intents(
     tokens: &[SqlToken<'_>],
     cursor: usize,
     context: SqlIslandContext,
     prefix: &str,
-) -> BTreeSet<SqlExpectedRole> {
+    skeleton: &QuerySkeleton,
+) -> BTreeSet<SqlIntent> {
     let before = tokens
         .iter()
         .enumerate()
@@ -1347,45 +2634,122 @@ fn expected_roles(
             Some(index)
         }
     });
-    let mut roles = BTreeSet::new();
-    if prefix.starts_with('$') {
-        roles.insert(SqlExpectedRole::Binding);
-    }
+    let mut intents = BTreeSet::new();
     if previous.is_some_and(SqlToken::is_period) {
-        roles.insert(SqlExpectedRole::QualifierMember);
-        roles.insert(SqlExpectedRole::Expression);
+        intents.insert(SqlIntent::QualifiedMember);
+        intents.insert(SqlIntent::ExpressionOperand);
         if before.is_some_and(|index| qualifier_is_relation_path(tokens, index)) {
-            roles.insert(SqlExpectedRole::Catalog);
-            roles.insert(SqlExpectedRole::Schema);
-            roles.insert(SqlExpectedRole::Relation);
+            intents.insert(SqlIntent::RelationPath);
         }
-        return roles;
+        return intents;
     }
     if type_position(tokens, structural_before) {
-        roles.insert(SqlExpectedRole::Type);
-        return roles;
+        intents.insert(SqlIntent::TypeName);
+        return intents;
     }
-    if context.root() == SqlIslandRoot::Projection
-        && structural_before
-            .and_then(|index| tokens.get(index))
-            .is_some_and(|token| token.is_word("as"))
+    if context.root() == SqlIslandRoot::Query
+        && let Some(state) = cte_header_state(tokens, cursor, prefix)
     {
-        roles.insert(SqlExpectedRole::Alias);
-        return roles;
+        intents.insert(match state {
+            CteHeaderState::Name => SqlIntent::CteName,
+            CteHeaderState::AfterAs => SqlIntent::CteBodyStart,
+            CteHeaderState::RecursiveKeyword
+            | CteHeaderState::AfterName
+            | CteHeaderState::BodyComplete => SqlIntent::ClauseTransition,
+        });
+        return intents;
+    }
+    if structural_before
+        .and_then(|index| tokens.get(index))
+        .is_some_and(|token| token.is_word("as"))
+    {
+        intents.insert(SqlIntent::NameBinder);
+        return intents;
     }
     if relation_position(tokens, structural_before, cursor) {
-        roles.insert(SqlExpectedRole::Relation);
-        roles.insert(SqlExpectedRole::Catalog);
-        roles.insert(SqlExpectedRole::Schema);
-        roles.insert(SqlExpectedRole::Binding);
+        intents.insert(SqlIntent::RelationPath);
+        if prefix.starts_with('$') {
+            intents.insert(SqlIntent::Binding);
+        }
     } else {
-        roles.insert(SqlExpectedRole::Expression);
-        roles.insert(SqlExpectedRole::Function);
-        if context.root() == SqlIslandRoot::Query {
-            roles.insert(SqlExpectedRole::Clause);
+        let clause = skeleton.active_clause(tokens, cursor);
+        if context.root() == SqlIslandRoot::Query
+            && matches!(
+                clause,
+                QueryClause::Start | QueryClause::With | QueryClause::SetOperation
+            )
+        {
+            intents.insert(if clause == QueryClause::Start {
+                SqlIntent::QueryStart
+            } else {
+                SqlIntent::ClauseTransition
+            });
+        } else if expression_operand_position(tokens, structural_before, clause) {
+            intents.insert(SqlIntent::ExpressionOperand);
+            intents.insert(SqlIntent::FunctionName);
+            if prefix.starts_with('$') {
+                intents.insert(SqlIntent::Binding);
+            }
+            if context.root() == SqlIslandRoot::Query {
+                intents.insert(SqlIntent::ClauseTransition);
+            }
+        } else {
+            intents.insert(SqlIntent::ExpressionOperator);
+            if context.root() == SqlIslandRoot::Query {
+                intents.insert(SqlIntent::ClauseTransition);
+            }
         }
     }
-    roles
+    if intents.is_empty() {
+        intents.insert(SqlIntent::Nothing);
+    }
+    intents
+}
+
+fn expression_operand_position(
+    tokens: &[SqlToken<'_>],
+    before: Option<usize>,
+    clause: QueryClause,
+) -> bool {
+    let Some(index) = before else {
+        return true;
+    };
+    let token = &tokens[index];
+    if token.is_comma()
+        || matches!(token.token, Some(Token::LParen | Token::LBracket))
+        || matches!(
+            token.raw,
+            "+" | "-"
+                | "*"
+                | "/"
+                | "%"
+                | "="
+                | "=="
+                | "!="
+                | "<>"
+                | "<"
+                | ">"
+                | "<="
+                | ">="
+                | "||"
+                | "::"
+        )
+    {
+        return true;
+    }
+    if [
+        "select", "where", "on", "using", "having", "qualify", "by", "when", "then", "else", "and",
+        "or", "not", "between", "in", "like", "ilike", "rlike",
+    ]
+    .iter()
+    .any(|word| token.is_word(word))
+    {
+        return true;
+    }
+    matches!(
+        clause,
+        QueryClause::Limit | QueryClause::Offset | QueryClause::Fetch
+    ) && token.is_word(clause.name())
 }
 
 fn qualifier_is_relation_path(tokens: &[SqlToken<'_>], period: usize) -> bool {
@@ -1433,21 +2797,21 @@ fn type_position(tokens: &[SqlToken<'_>], before: Option<usize>) -> bool {
 fn select_repair(
     tokens: &[SqlToken<'_>],
     cursor: usize,
-    roles: &BTreeSet<SqlExpectedRole>,
+    intents: &BTreeSet<SqlIntent>,
 ) -> (SqlRepairStrategy, usize) {
     let previous = tokens.iter().rfind(|token| token.span.range.end <= cursor);
     let candidates = [
-        roles
-            .contains(&SqlExpectedRole::QualifierMember)
+        intents
+            .contains(&SqlIntent::QualifiedMember)
             .then_some(SqlRepairStrategy::QualifierMember),
         previous
             .is_some_and(SqlToken::is_comma)
             .then_some(SqlRepairStrategy::TrailingComma),
-        roles
-            .contains(&SqlExpectedRole::Relation)
+        intents
+            .contains(&SqlIntent::RelationPath)
             .then_some(SqlRepairStrategy::MissingRelation),
-        roles
-            .contains(&SqlExpectedRole::Expression)
+        intents
+            .contains(&SqlIntent::ExpressionOperand)
             .then_some(SqlRepairStrategy::EmptyExpression),
         (tokens
             .iter()
@@ -1478,10 +2842,12 @@ fn recover_sql(
     root: SqlIslandRoot,
     tokens: &[SqlToken<'_>],
     absolute_cursor: usize,
-    roles: &BTreeSet<SqlExpectedRole>,
+    intents: &BTreeSet<SqlIntent>,
+    replacement: Range<usize>,
 ) -> RecoveryResult {
+    let sentinel = cursor_sentinel(intents, root);
     let mut strategies = vec![SqlRepairStrategy::None];
-    let preferred = select_repair(tokens, absolute_cursor, roles).0;
+    let preferred = select_repair(tokens, absolute_cursor, intents).0;
     if preferred != SqlRepairStrategy::None {
         strategies.push(preferred);
     }
@@ -1489,19 +2855,29 @@ fn recover_sql(
         .iter()
         .rfind(|token| token.span.range.end <= absolute_cursor);
     for strategy in [
-        roles
-            .contains(&SqlExpectedRole::QualifierMember)
+        intents
+            .contains(&SqlIntent::QualifiedMember)
             .then_some(SqlRepairStrategy::QualifierMember),
         previous
             .is_some_and(SqlToken::is_comma)
             .then_some(SqlRepairStrategy::TrailingComma),
-        roles
-            .contains(&SqlExpectedRole::Relation)
+        intents
+            .contains(&SqlIntent::RelationPath)
             .then_some(SqlRepairStrategy::MissingRelation),
-        roles
-            .contains(&SqlExpectedRole::Expression)
+        intents
+            .contains(&SqlIntent::TypeName)
+            .then_some(SqlRepairStrategy::MissingType),
+        (root == SqlIslandRoot::Query
+            && intents.contains(&SqlIntent::QueryStart)
+            && tokens
+                .iter()
+                .all(|token| token.span.range.start >= absolute_cursor))
+        .then_some(SqlRepairStrategy::QueryStart),
+        intents
+            .contains(&SqlIntent::ExpressionOperand)
             .then_some(SqlRepairStrategy::EmptyExpression),
         Some(SqlRepairStrategy::CloseDelimiters),
+        Some(SqlRepairStrategy::ParsablePrefix),
     ]
     .into_iter()
     .flatten()
@@ -1514,7 +2890,30 @@ fn recover_sql(
 
     let mut fallback = None;
     for (attempt, strategy) in strategies.iter().copied().enumerate() {
-        let repaired = build_repaired_sql(authored, cursor, strategy);
+        let authored_start = if strategy == SqlRepairStrategy::ParsablePrefix {
+            tokens
+                .iter()
+                .filter(|token| token.span.range.end <= absolute_cursor)
+                .rev()
+                .take(MAX_PREFIX_FALLBACK_TOKENS)
+                .last()
+                .map_or(0, |token| {
+                    token
+                        .span
+                        .range
+                        .start
+                        .saturating_sub(absolute_cursor.saturating_sub(cursor))
+                })
+        } else {
+            0
+        };
+        let repaired = build_repaired_sql(
+            authored,
+            replacement.clone(),
+            strategy,
+            sentinel,
+            authored_start,
+        );
         let parsed = match root {
             SqlIslandRoot::Query => SqlQuery::parse(&repaired.text).is_ok(),
             SqlIslandRoot::Projection => SqlProjection::parse(&repaired.text).is_ok(),
@@ -1522,6 +2921,7 @@ fn recover_sql(
         };
         fallback = Some(RecoveryResult {
             strategy,
+            sentinel,
             attempts: attempt + 1,
             repaired,
             parsed,
@@ -1532,40 +2932,167 @@ fn recover_sql(
     }
     fallback.unwrap_or_else(|| RecoveryResult {
         strategy: SqlRepairStrategy::None,
+        sentinel,
         attempts: 0,
-        repaired: build_repaired_sql(authored, cursor, SqlRepairStrategy::None),
+        repaired: build_repaired_sql(authored, replacement, SqlRepairStrategy::None, sentinel, 0),
         parsed: false,
     })
 }
 
-fn build_repaired_sql(authored: &str, cursor: usize, strategy: SqlRepairStrategy) -> RepairedSql {
-    let cursor = cursor.min(authored.len());
+fn cursor_sentinel(
+    intents: &BTreeSet<SqlIntent>,
+    root: SqlIslandRoot,
+) -> Option<SqlCursorSentinelKind> {
+    if intents.contains(&SqlIntent::TypeName) {
+        Some(SqlCursorSentinelKind::Type)
+    } else if intents.contains(&SqlIntent::QualifiedMember) {
+        Some(SqlCursorSentinelKind::QuotedMember)
+    } else if intents.contains(&SqlIntent::RelationPath) {
+        Some(SqlCursorSentinelKind::Relation)
+    } else if root == SqlIslandRoot::Query && intents.contains(&SqlIntent::QueryStart) {
+        Some(SqlCursorSentinelKind::QueryStart)
+    } else if intents.contains(&SqlIntent::ExpressionOperand)
+        || intents.contains(&SqlIntent::FunctionName)
+        || intents.contains(&SqlIntent::ExpressionOperator)
+    {
+        Some(SqlCursorSentinelKind::Expression)
+    } else {
+        None
+    }
+}
+
+fn sentinel_text(sentinel: Option<SqlCursorSentinelKind>) -> &'static str {
+    match sentinel {
+        Some(SqlCursorSentinelKind::Expression) => "NULL",
+        Some(SqlCursorSentinelKind::QuotedMember) => "\"__avenger_cursor_member\"",
+        Some(SqlCursorSentinelKind::Relation) => "__avenger_cursor_relation",
+        Some(SqlCursorSentinelKind::Type) => "BIGINT",
+        Some(SqlCursorSentinelKind::QueryStart) => "SELECT NULL",
+        None => "",
+    }
+}
+
+fn sentinel_for_repair(strategy: SqlRepairStrategy) -> Option<SqlCursorSentinelKind> {
+    match strategy {
+        SqlRepairStrategy::QualifierMember => Some(SqlCursorSentinelKind::QuotedMember),
+        SqlRepairStrategy::MissingRelation => Some(SqlCursorSentinelKind::Relation),
+        SqlRepairStrategy::MissingType => Some(SqlCursorSentinelKind::Type),
+        SqlRepairStrategy::QueryStart => Some(SqlCursorSentinelKind::QueryStart),
+        SqlRepairStrategy::EmptyExpression
+        | SqlRepairStrategy::TrailingComma
+        | SqlRepairStrategy::CloseDelimiters
+        | SqlRepairStrategy::ParsablePrefix => Some(SqlCursorSentinelKind::Expression),
+        SqlRepairStrategy::None => None,
+    }
+}
+
+fn build_repaired_sql(
+    authored: &str,
+    replacement: Range<usize>,
+    strategy: SqlRepairStrategy,
+    sentinel: Option<SqlCursorSentinelKind>,
+    authored_start: usize,
+) -> RepairedSql {
+    let authored_start = authored_start.min(authored.len());
+    let start = replacement.start.clamp(authored_start, authored.len());
+    let end = replacement.end.clamp(start, authored.len());
     let marker = match strategy {
-        SqlRepairStrategy::QualifierMember => "__avenger_cursor_member",
-        SqlRepairStrategy::EmptyExpression | SqlRepairStrategy::TrailingComma => "NULL",
-        SqlRepairStrategy::MissingRelation => "__avenger_cursor_relation",
-        SqlRepairStrategy::CloseDelimiters | SqlRepairStrategy::None => "",
+        SqlRepairStrategy::QualifierMember
+        | SqlRepairStrategy::EmptyExpression
+        | SqlRepairStrategy::MissingRelation
+        | SqlRepairStrategy::MissingType
+        | SqlRepairStrategy::QueryStart
+        | SqlRepairStrategy::TrailingComma
+        | SqlRepairStrategy::CloseDelimiters
+        | SqlRepairStrategy::ParsablePrefix => sentinel_text(sentinel),
+        SqlRepairStrategy::None => "",
     };
-    let mut text = String::with_capacity(authored.len() + marker.len() + 8);
-    text.push_str(&authored[..cursor]);
+    let keep_suffix = strategy != SqlRepairStrategy::ParsablePrefix;
+    let mut text = String::with_capacity(authored.len() + marker.len() + 16);
+    text.push_str(&authored[authored_start..start]);
     let mut generated = Vec::new();
     if !marker.is_empty() {
-        generated.push(cursor..cursor + marker.len());
+        let marker_start = text.len();
+        generated.push(marker_start..marker_start + marker.len());
         text.push_str(marker);
     }
-    text.push_str(&authored[cursor..]);
-    if strategy == SqlRepairStrategy::CloseDelimiters {
-        let missing = authored
-            .matches('(')
-            .count()
-            .saturating_sub(authored.matches(')').count());
-        if missing > 0 {
-            let start = text.len();
-            text.extend(std::iter::repeat_n(')', missing));
-            generated.push(start..text.len());
+    if keep_suffix {
+        text.push_str(&authored[end..]);
+    }
+    if matches!(
+        strategy,
+        SqlRepairStrategy::CloseDelimiters | SqlRepairStrategy::ParsablePrefix
+    ) {
+        let closers = minimum_sql_closers(&text);
+        if !closers.is_empty() {
+            let closer_start = text.len();
+            text.push_str(&closers);
+            generated.push(closer_start..text.len());
         }
     }
-    RepairedSql { text, generated }
+    RepairedSql {
+        text,
+        generated,
+        authored_start,
+    }
+}
+
+fn minimum_sql_closers(authored: &str) -> String {
+    #[derive(Clone, Copy)]
+    enum Delimiter {
+        Paren,
+        Bracket,
+        Case,
+    }
+
+    let source = SourceFile::new(
+        SourceId::new(u32::MAX),
+        SourceOrigin::Memory("completion-minimum-closers.sql".to_owned()),
+        authored.to_owned(),
+    );
+    let stream = tokenize_lossless(&source);
+    let mut stack = Vec::new();
+    for token in stream.tokens() {
+        match token.token() {
+            Some(Token::LParen) => stack.push(Delimiter::Paren),
+            Some(Token::LBracket) => stack.push(Delimiter::Bracket),
+            Some(Token::RParen) => {
+                if matches!(stack.last(), Some(Delimiter::Paren)) {
+                    stack.pop();
+                }
+            }
+            Some(Token::RBracket) => {
+                if matches!(stack.last(), Some(Delimiter::Bracket)) {
+                    stack.pop();
+                }
+            }
+            Some(Token::Word(word))
+                if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("case") =>
+            {
+                stack.push(Delimiter::Case);
+            }
+            Some(Token::Word(word))
+                if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("end") =>
+            {
+                if let Some(case) = stack
+                    .iter()
+                    .rposition(|delimiter| matches!(delimiter, Delimiter::Case))
+                {
+                    stack.remove(case);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut output = String::new();
+    for delimiter in stack.into_iter().rev() {
+        match delimiter {
+            Delimiter::Paren => output.push(')'),
+            Delimiter::Bracket => output.push(']'),
+            Delimiter::Case => output.push_str(" END"),
+        }
+    }
+    output
 }
 
 fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
@@ -1573,12 +3100,11 @@ fn relation_catalog(project: &ModuleAnalysis) -> Vec<RelationMetadata> {
         .datasets
         .iter()
         .filter_map(|(stage, dataset)| {
-            let path = dataset.qualified_path.clone().or_else(|| {
-                dataset
-                    .qualified_name
-                    .as_ref()
-                    .map(|name| vec![name.clone()])
-            })?;
+            // Only authored catalog/schema/table paths belong in the public
+            // relation namespace. Compiler-internal `chart:...` stage names
+            // are implementation identities; pipeline sites expose their
+            // effective relation as `input` instead.
+            let path = dataset.qualified_path.clone()?;
             let lineage = project.lineage.get(stage);
             Some(RelationMetadata {
                 path,
@@ -2147,6 +3673,7 @@ fn build_query_scope(
     tokens: &[SqlToken<'_>],
     cursor: usize,
     active_depth: usize,
+    root: SqlIslandRoot,
     catalog: &[RelationMetadata],
     project: Option<&ModuleAnalysis>,
     context: Option<&DatasetContext>,
@@ -2157,44 +3684,247 @@ fn build_query_scope(
     };
     let mut available = catalog.to_vec();
     available.extend(scope.ctes.clone());
+    let implicit_input = project
+        .and_then(|project| input_dataset(project, context, cursor))
+        .map(|input| {
+            let stage = &input.stage;
+            RelationMetadata {
+                path: vec!["input".to_owned()],
+                alias: Some("input".to_owned()),
+                columns: input
+                    .columns
+                    .iter()
+                    .map(|column| ColumnMetadata {
+                        name: column.name.clone(),
+                        qualifier: Some("input".to_owned()),
+                        data_type: column.data_type.clone(),
+                        nullable: column.nullable,
+                        stage: format!("{}#{}", stage.dataset.as_str(), stage.ordinal),
+                        lineage: None,
+                        detail: None,
+                    })
+                    .collect(),
+                detail: "exact pipeline input".to_owned(),
+                scope_depth: active_depth,
+            }
+        });
+    if let Some(input) = &implicit_input {
+        available.push(input.clone());
+    }
+    let clause = query_clause_at(tokens, cursor);
+    let (arm_start, arm_end) = active_set_arm(tokens, cursor, active_depth);
+    let parent_policy = parent_scope_policy(tokens, cursor, active_depth);
 
     for (index, token) in tokens.iter().enumerate() {
-        if token.depth > active_depth || !(token.is_word("from") || token.is_word("join")) {
+        if token.depth > active_depth
+            || (token.depth == active_depth && !(arm_start..arm_end).contains(&index))
+            || !token_in_cursor_scope(tokens, index, cursor)
+            || (!matches!(clause, QueryClause::Select) && token.span.range.start > cursor)
+            || !(token.is_word("from") || token.is_word("join"))
+        {
             continue;
+        }
+        if token.depth < active_depth {
+            match parent_policy {
+                ParentScopePolicy::IsolatedDerived => continue,
+                ParentScopePolicy::Lateral { boundary } if token.span.range.start >= boundary => {
+                    continue;
+                }
+                ParentScopePolicy::Correlated | ParentScopePolicy::Lateral { .. } => {}
+            }
         }
         if let Some(relation) = relation_after(tokens, index + 1, token.depth, &available) {
             scope.relations.push(relation);
         }
     }
 
-    if let Some(project) = project
-        && let Some(input) = input_dataset(project, context, cursor)
+    if root != SqlIslandRoot::Query
+        && let Some(input) = implicit_input
     {
-        let stage = &input.stage;
-        scope.relations.push(RelationMetadata {
-            path: vec!["input".to_owned()],
-            alias: Some("input".to_owned()),
-            columns: input
-                .columns
-                .iter()
-                .map(|column| ColumnMetadata {
-                    name: column.name.clone(),
-                    qualifier: Some("input".to_owned()),
-                    data_type: column.data_type.clone(),
-                    nullable: column.nullable,
-                    stage: format!("{}#{}", stage.dataset.as_str(), stage.ordinal),
-                    lineage: None,
-                    detail: None,
-                })
-                .collect(),
-            detail: "exact pipeline input".to_owned(),
-            scope_depth: active_depth,
-        });
+        scope.relations.push(input);
     }
     deduplicate_relations(&mut scope.relations);
     scope.projection_aliases = projection_aliases(tokens, active_depth, &scope.relations);
     scope.projection_aliases_visible = projection_aliases_visible(tokens, cursor, active_depth);
+    scope.merged_column_reductions =
+        joined_column_reductions(tokens, active_depth, arm_start, arm_end, &scope.relations);
+    if clause == QueryClause::Using {
+        let active = scope
+            .relations
+            .iter()
+            .filter(|relation| relation.scope_depth == active_depth)
+            .collect::<Vec<_>>();
+        let intersection = active
+            .split_last()
+            .map_or_else(BTreeSet::new, |(newest, prior)| {
+                newest
+                    .columns
+                    .iter()
+                    .map(|column| column.name.to_ascii_lowercase())
+                    .filter(|name| {
+                        prior.iter().any(|relation| {
+                            relation
+                                .columns
+                                .iter()
+                                .any(|column| column.name.eq_ignore_ascii_case(name))
+                        })
+                    })
+                    .collect::<BTreeSet<_>>()
+            });
+        for relation in &mut scope.relations {
+            relation
+                .columns
+                .retain(|column| intersection.contains(&column.name.to_ascii_lowercase()));
+        }
+    }
     scope
+}
+
+fn parent_scope_policy(
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    active_depth: usize,
+) -> ParentScopePolicy {
+    let Some(open) = active_open_paren(tokens, cursor, active_depth) else {
+        return ParentScopePolicy::Correlated;
+    };
+    let open_token = &tokens[open];
+    let previous = tokens[..open]
+        .iter()
+        .rev()
+        .find(|token| token.depth == open_token.depth);
+    if previous.is_some_and(|token| token.is_word("lateral")) {
+        return ParentScopePolicy::Lateral {
+            boundary: open_token.span.range.start,
+        };
+    }
+    if previous
+        .is_some_and(|token| token.is_word("from") || token.is_word("join") || token.is_comma())
+    {
+        ParentScopePolicy::IsolatedDerived
+    } else {
+        ParentScopePolicy::Correlated
+    }
+}
+
+fn joined_column_reductions(
+    tokens: &[SqlToken<'_>],
+    depth: usize,
+    arm_start: usize,
+    arm_end: usize,
+    relations: &[RelationMetadata],
+) -> BTreeMap<String, usize> {
+    let mut reductions = BTreeMap::<String, usize>::new();
+    let arm_end = arm_end.min(tokens.len());
+    let arm_start = arm_start.min(arm_end);
+    let arm = &tokens[arm_start..arm_end];
+    for (offset, token) in arm.iter().enumerate() {
+        if token.depth != depth || !token.is_word("using") {
+            continue;
+        }
+        let Some(open) = tokens
+            .get(arm_start + offset + 1)
+            .filter(|token| matches!(token.token, Some(Token::LParen)))
+            .map(|_| arm_start + offset + 1)
+        else {
+            continue;
+        };
+        let close = matching_close(tokens, open).unwrap_or(arm_end);
+        for name in tokens[open + 1..close.min(tokens.len())]
+            .iter()
+            .filter_map(SqlToken::word)
+            .map(str::to_ascii_lowercase)
+        {
+            *reductions.entry(name).or_default() += 1;
+        }
+    }
+
+    let active_relations = relations
+        .iter()
+        .filter(|relation| relation.scope_depth == depth)
+        .collect::<Vec<_>>();
+    let mut left_columns = active_relations
+        .first()
+        .map(|relation| {
+            relation
+                .columns
+                .iter()
+                .map(|column| column.name.to_ascii_lowercase())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let join_indices = arm
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| token.depth == depth && token.is_word("join"))
+        .map(|(offset, _)| arm_start + offset)
+        .collect::<Vec<_>>();
+    for (ordinal, join) in join_indices.into_iter().enumerate() {
+        let Some(right) = active_relations.get(ordinal + 1) else {
+            break;
+        };
+        let boundary = tokens[..join]
+            .iter()
+            .rposition(|token| {
+                token.depth == depth
+                    && (token.is_word("from") || token.is_word("join") || token.is_comma())
+            })
+            .map_or(arm_start, |index| index + 1);
+        let natural = tokens[boundary..join]
+            .iter()
+            .any(|token| token.depth == depth && token.is_word("natural"));
+        let right_columns = right
+            .columns
+            .iter()
+            .map(|column| column.name.to_ascii_lowercase())
+            .collect::<BTreeSet<_>>();
+        if natural {
+            for name in left_columns.intersection(&right_columns) {
+                *reductions.entry(name.clone()).or_default() += 1;
+            }
+        }
+        left_columns.extend(right_columns);
+    }
+    reductions
+}
+
+fn active_set_arm(tokens: &[SqlToken<'_>], cursor: usize, depth: usize) -> (usize, usize) {
+    let mut start = 0;
+    let mut end = tokens.len();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.depth != depth
+            || !(token.is_word("union") || token.is_word("except") || token.is_word("intersect"))
+        {
+            continue;
+        }
+        if token.span.range.end <= cursor {
+            start = index + 1;
+        } else if token.span.range.start >= cursor {
+            end = index;
+            break;
+        }
+    }
+    (start, end)
+}
+
+fn token_in_cursor_scope(tokens: &[SqlToken<'_>], index: usize, cursor: usize) -> bool {
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    if token.depth == 0 {
+        return true;
+    }
+    tokens[..index]
+        .iter()
+        .enumerate()
+        .rev()
+        .any(|(open, candidate)| {
+            candidate.depth + 1 == token.depth
+                && matches!(candidate.token, Some(Token::LParen))
+                && candidate.span.range.start < cursor
+                && matching_close(tokens, open)
+                    .is_none_or(|close| tokens[close].span.range.end >= cursor)
+        })
 }
 
 /// Replace heuristic projection metadata with DataFusion's qualified output
@@ -2205,69 +3935,93 @@ fn reconcile_query_output_with_datafusion(
     authored: &str,
     catalog: &[RelationMetadata],
     scope: &mut QueryScope,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    island_start: usize,
 ) {
-    let Ok(query) = SqlQuery::parse(authored) else {
-        return;
-    };
     let context = SessionContext::new();
     for relation in catalog.iter().chain(scope.relations.iter()) {
         let _ = register_schema_only_relation(&context, relation);
     }
-    for binding in query.bindings() {
-        if binding.kind != avenger_lang_core::ast::BindingKind::Store {
-            continue;
-        }
-        let Some(name) = binding
-            .path
-            .first()
-            .map(|name| format!("${}", name.as_str()))
-        else {
-            continue;
-        };
-        let Some(relation) = catalog
-            .iter()
-            .chain(scope.relations.iter())
-            .find(|relation| {
-                relation
-                    .path
-                    .last()
-                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&name))
-            })
-        else {
-            continue;
-        };
-        let synthetic = RelationMetadata {
-            path: vec![binding.synthetic_identifier.clone()],
-            ..relation.clone()
-        };
-        let _ = register_schema_only_relation(&context, &synthetic);
+    let mut probes = vec![authored];
+    let (clause, clause_index) = query_clause_and_index(tokens, cursor);
+    if matches!(
+        clause,
+        QueryClause::Where
+            | QueryClause::Having
+            | QueryClause::Qualify
+            | QueryClause::OrderBy
+            | QueryClause::Limit
+            | QueryClause::Offset
+    ) && let Some(index) = clause_index
+        && let Some(end) = tokens[index].span.range.start.checked_sub(island_start)
+        && end <= authored.len()
+    {
+        probes.push(authored[..end].trim_end());
     }
 
-    let Ok(canonical) = avenger_lang_compiler::normalize_sql_query(&query.ast().to_string()) else {
-        return;
-    };
-    let Ok(plan) = futures::executor::block_on(context.state().create_logical_plan(&canonical))
-    else {
-        return;
-    };
-    LOGICAL_QUERY_PLANS.fetch_add(1, Ordering::Relaxed);
-    scope.projection_aliases = plan
-        .schema()
-        .iter()
-        .map(|(qualifier, field)| ColumnMetadata {
-            name: field.name().clone(),
-            qualifier: qualifier.map(ToString::to_string),
-            data_type: field.data_type().clone(),
-            nullable: field.is_nullable(),
-            stage: "DataFusion query output".to_owned(),
-            lineage: scope
-                .projection_aliases
+    for probe in probes {
+        let Ok(query) = SqlQuery::parse(probe) else {
+            continue;
+        };
+        for binding in query.bindings() {
+            if binding.kind != avenger_lang_core::ast::BindingKind::Store {
+                continue;
+            }
+            let Some(name) = binding
+                .path
+                .first()
+                .map(|name| format!("${}", name.as_str()))
+            else {
+                continue;
+            };
+            let Some(relation) = catalog
                 .iter()
-                .find(|column| column.name.eq_ignore_ascii_case(field.name()))
-                .and_then(|column| column.lineage.clone()),
-            detail: None,
-        })
-        .collect();
+                .chain(scope.relations.iter())
+                .find(|relation| {
+                    relation
+                        .path
+                        .last()
+                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&name))
+                })
+            else {
+                continue;
+            };
+            let synthetic = RelationMetadata {
+                path: vec![binding.synthetic_identifier.clone()],
+                ..relation.clone()
+            };
+            let _ = register_schema_only_relation(&context, &synthetic);
+        }
+
+        let Ok(canonical) = avenger_lang_compiler::normalize_sql_query(&query.ast().to_string())
+        else {
+            continue;
+        };
+        let Ok(plan) = futures::executor::block_on(context.state().create_logical_plan(&canonical))
+        else {
+            continue;
+        };
+        LOGICAL_QUERY_PLANS.fetch_add(1, Ordering::Relaxed);
+        scope.projection_aliases = plan
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| ColumnMetadata {
+                name: field.name().clone(),
+                qualifier: qualifier.map(ToString::to_string),
+                data_type: field.data_type().clone(),
+                nullable: field.is_nullable(),
+                stage: "DataFusion query output".to_owned(),
+                lineage: scope
+                    .projection_aliases
+                    .iter()
+                    .find(|column| column.name.eq_ignore_ascii_case(field.name()))
+                    .and_then(|column| column.lineage.clone()),
+                detail: None,
+            })
+            .collect();
+        return;
+    }
 }
 
 fn register_schema_only_relation(
@@ -2364,6 +4118,12 @@ fn collect_ctes(
         return output;
     };
     let mut index = with_index + 1;
+    let recursive = tokens
+        .get(index)
+        .is_some_and(|token| token.is_word("recursive"));
+    if recursive {
+        index += 1;
+    }
     while index < tokens.len() {
         let Some(name) = tokens.get(index).and_then(SqlToken::word) else {
             break;
@@ -2371,7 +4131,26 @@ fn collect_ctes(
         if tokens[index].span.range.start > cursor {
             break;
         }
-        let Some(as_index) = (index + 1..tokens.len()).find(|candidate| {
+        let mut explicit_names = Vec::new();
+        let search_start = if tokens
+            .get(index + 1)
+            .is_some_and(|token| matches!(token.token, Some(Token::LParen)))
+        {
+            let names_open = index + 1;
+            let Some(names_close) = matching_close(tokens, names_open) else {
+                break;
+            };
+            explicit_names.extend(
+                tokens[names_open + 1..names_close]
+                    .iter()
+                    .filter_map(SqlToken::word)
+                    .map(str::to_owned),
+            );
+            names_close + 1
+        } else {
+            index + 1
+        };
+        let Some(as_index) = (search_start..tokens.len()).find(|candidate| {
             tokens[*candidate].depth == tokens[index].depth && tokens[*candidate].is_word("as")
         }) else {
             break;
@@ -2383,13 +4162,89 @@ fn collect_ctes(
             break;
         };
         let close = matching_close(tokens, as_index + 1).unwrap_or(tokens.len());
+        let cursor_in_body = open.span.range.start < cursor
+            && (close >= tokens.len() || cursor <= tokens[close].span.range.end);
+        if cursor_in_body && !recursive {
+            // A non-recursive CTE is not in scope within its own body. Prior
+            // CTEs remain visible, while later declarations never do.
+            break;
+        }
         let mut relations = catalog.to_vec();
         relations.extend(output.clone());
-        let columns = projection_aliases(
-            &tokens[as_index + 2..close.min(tokens.len())],
-            open.depth + 1,
-            &relations,
-        );
+        let body = &tokens[as_index + 2..close.min(tokens.len())];
+        let seed_columns = projection_aliases(body, open.depth + 1, &relations);
+        if recursive {
+            let cte_name = name.to_owned();
+            let declared_columns = if explicit_names.is_empty() {
+                seed_columns
+                    .iter()
+                    .cloned()
+                    .map(|mut column| {
+                        column.qualifier = Some(cte_name.clone());
+                        column
+                    })
+                    .collect()
+            } else {
+                explicit_names
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, name)| {
+                        let mut column =
+                            seed_columns
+                                .get(ordinal)
+                                .cloned()
+                                .unwrap_or_else(|| ColumnMetadata {
+                                    name: name.clone(),
+                                    qualifier: Some(cte_name.clone()),
+                                    data_type: DataType::Null,
+                                    nullable: true,
+                                    stage: "recursive CTE declaration".to_owned(),
+                                    lineage: None,
+                                    detail: Some(
+                                        "recursive CTE output type pending planning".to_owned(),
+                                    ),
+                                });
+                        column.name.clone_from(name);
+                        column.qualifier = Some(cte_name.clone());
+                        column
+                    })
+                    .collect()
+            };
+            relations.push(RelationMetadata {
+                path: vec![cte_name.clone()],
+                alias: None,
+                columns: declared_columns,
+                detail: "recursive common table expression".to_owned(),
+                scope_depth: tokens[index].depth,
+            });
+        }
+        let inferred_columns = projection_aliases(body, open.depth + 1, &relations);
+        let columns = if explicit_names.is_empty() {
+            inferred_columns
+        } else {
+            explicit_names
+                .iter()
+                .enumerate()
+                .map(|(ordinal, explicit_name)| {
+                    let mut column =
+                        inferred_columns
+                            .get(ordinal)
+                            .cloned()
+                            .unwrap_or_else(|| ColumnMetadata {
+                                name: explicit_name.clone(),
+                                qualifier: Some(name.to_owned()),
+                                data_type: DataType::Null,
+                                nullable: true,
+                                stage: "explicit CTE output declaration".to_owned(),
+                                lineage: None,
+                                detail: Some("CTE output type pending planning".to_owned()),
+                            });
+                    column.name.clone_from(explicit_name);
+                    column.qualifier = Some(name.to_owned());
+                    column
+                })
+                .collect()
+        };
         output.push(RelationMetadata {
             path: vec![name.to_owned()],
             alias: None,
@@ -2397,6 +4252,9 @@ fn collect_ctes(
             detail: "common table expression".to_owned(),
             scope_depth: tokens[index].depth,
         });
+        if cursor_in_body {
+            break;
+        }
         index = close.saturating_add(1);
         if !tokens.get(index).is_some_and(SqlToken::is_comma) {
             break;
@@ -2422,10 +4280,18 @@ fn relation_after(
     depth: usize,
     available: &[RelationMetadata],
 ) -> Option<RelationMetadata> {
+    let start = if tokens
+        .get(start)
+        .is_some_and(|token| token.is_word("lateral"))
+    {
+        start + 1
+    } else {
+        start
+    };
     let first = tokens.get(start)?;
     if matches!(first.token, Some(Token::LParen)) {
         let close = matching_close(tokens, start).unwrap_or(tokens.len());
-        let alias = alias_after(tokens, close, depth);
+        let alias = alias_after(tokens, close.saturating_add(1), depth);
         let columns = projection_aliases(
             &tokens[start + 1..close.min(tokens.len())],
             first.depth + 1,
@@ -2459,6 +4325,7 @@ fn relation_after(
         }
         if token.raw.starts_with('$') {
             path.push(token.raw.to_owned());
+            index += 1;
         }
         break;
     }
@@ -2551,6 +4418,7 @@ fn projection_aliases(
     }) {
         let item = &tokens[item_start..item_end];
         if item.iter().any(|token| token.raw == "*") {
+            let mut expanded = Vec::new();
             if let Some(qualifier) = item
                 .windows(2)
                 .find(|pair| pair[1].is_period())
@@ -2560,15 +4428,18 @@ fn projection_aliases(
                     .iter()
                     .find(|relation| relation.visible_name().eq_ignore_ascii_case(qualifier))
                 {
-                    output.extend(relation.columns.clone());
+                    expanded.extend(relation.columns.clone());
                 }
             } else {
-                output.extend(
+                expanded.extend(
                     relations
                         .iter()
                         .flat_map(|relation| relation.columns.clone()),
                 );
             }
+            let excluded = wildcard_excluded_columns(item);
+            expanded.retain(|column| !excluded.contains(&column.name.to_ascii_lowercase()));
+            output.extend(expanded);
         } else if let Some(as_index) = item.iter().rposition(|token| token.is_word("as")) {
             if let Some(alias) = item.get(as_index + 1).and_then(SqlToken::word) {
                 output.push(ColumnMetadata {
@@ -2600,6 +4471,21 @@ fn projection_aliases(
     }
     deduplicate_columns(&mut output);
     output
+}
+
+fn wildcard_excluded_columns(item: &[SqlToken<'_>]) -> BTreeSet<String> {
+    let Some(start) = item
+        .iter()
+        .position(|token| token.is_word("exclude") || token.is_word("except"))
+    else {
+        return BTreeSet::new();
+    };
+    item[start + 1..]
+        .iter()
+        .take_while(|token| !token.is_word("replace") && !token.is_word("ilike"))
+        .filter_map(SqlToken::word)
+        .map(str::to_ascii_lowercase)
+        .collect()
 }
 
 fn input_dataset<'a>(
@@ -2645,18 +4531,39 @@ fn qualifier_before(text: &str, island: SourceSpan, start: usize) -> Option<Stri
     let mut parts = Vec::new();
     loop {
         let end = position;
-        while position > island.range.start {
-            let character = text[..position].chars().next_back().unwrap();
-            if character == '_' || character == '$' || character.is_alphanumeric() {
+        let part = if text[..position].ends_with('"') {
+            position -= 1;
+            let quoted_end = position;
+            let mut opening = None;
+            while position > island.range.start {
+                let character = text[..position].chars().next_back().unwrap();
                 position -= character.len_utf8();
-            } else {
-                break;
+                if character == '"' {
+                    if position > island.range.start && text[..position].ends_with('"') {
+                        position -= 1;
+                    } else {
+                        opening = Some(position);
+                        break;
+                    }
+                }
             }
-        }
+            let opening = opening?;
+            text[opening + 1..quoted_end].replace("\"\"", "\"")
+        } else {
+            while position > island.range.start {
+                let character = text[..position].chars().next_back().unwrap();
+                if character == '_' || character == '$' || character.is_alphanumeric() {
+                    position -= character.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            text[position..end].to_owned()
+        };
         if position == end {
             break;
         }
-        parts.push(text[position..end].to_owned());
+        parts.push(part);
         if position <= island.range.start || !text[..position].ends_with('.') {
             break;
         }
@@ -2664,31 +4571,6 @@ fn qualifier_before(text: &str, island: SourceSpan, start: usize) -> Option<Stri
     }
     parts.reverse();
     (!parts.is_empty()).then(|| parts.join("."))
-}
-
-fn quoted_qualifier_before(
-    text: &str,
-    island: SourceSpan,
-    start: usize,
-) -> Option<(String, usize)> {
-    let quote = start.checked_sub(1)?;
-    if quote < island.range.start || text.as_bytes().get(quote) != Some(&b'"') {
-        return None;
-    }
-    let period = quote.checked_sub(1)?;
-    if period < island.range.start || text.as_bytes().get(period) != Some(&b'.') {
-        return None;
-    }
-    let mut position = period;
-    while position > island.range.start {
-        let character = text[..position].chars().next_back()?;
-        if character == '_' || character == '$' || character.is_alphanumeric() {
-            position -= character.len_utf8();
-        } else {
-            break;
-        }
-    }
-    (position < period).then(|| (text[position..period].to_owned(), quote))
 }
 
 #[derive(Clone, Debug)]
@@ -2997,7 +4879,7 @@ fn complete_contextual_roots(
         .copied()
         .find(|declaration| declaration.keyword == "mark");
     if mark.is_some() && !mark_channels(project, mark.unwrap(), registry, false).is_empty() {
-        complete_fixed_members(
+        complete_contextual_root_members(
             prefix,
             replacement,
             &[("channel", "Channels on the current mark.")],
@@ -3005,7 +4887,7 @@ fn complete_contextual_roots(
         );
     }
     if event.is_some() {
-        complete_fixed_members(
+        complete_contextual_root_members(
             prefix,
             replacement,
             &[
@@ -3022,7 +4904,7 @@ fn complete_contextual_roots(
             || syntax_contains_declaration(syntax, cursor, "adjust")
             || syntax_contains_declaration(syntax, cursor, "derive"))
     {
-        complete_fixed_members(
+        complete_contextual_root_members(
             prefix,
             replacement,
             &[("item", "Source item-frame context.")],
@@ -3034,13 +4916,27 @@ fn complete_contextual_roots(
         .filter(|declaration| declaration.keyword == "view")
     {
         if let Some(name) = view.name.as_deref() {
-            complete_fixed_members(
+            complete_contextual_root_members(
                 prefix,
                 replacement,
                 &[(name, "Lexically scoped inline view.")],
                 output,
             );
         }
+    }
+}
+
+fn complete_contextual_root_members(
+    prefix: &str,
+    replacement: SourceSpan,
+    members: &[(&str, &str)],
+    output: &mut Vec<CompletionItem>,
+) {
+    let start = output.len();
+    complete_fixed_members(prefix, replacement, members, output);
+    for item in &mut output[start..] {
+        item.semantic_kind = CompletionSemanticKind::ContextualRoot;
+        item.semantic_identity = format!("ContextualRoot:{}", item.label);
     }
 }
 
@@ -3052,7 +4948,7 @@ fn complete_fixed_members(
 ) {
     for (name, detail) in members {
         if candidate_matches(name, prefix) {
-            output.push(candidate(
+            let mut item = candidate(
                 name,
                 name,
                 replacement,
@@ -3060,7 +4956,10 @@ fn complete_fixed_members(
                 Some((*detail).to_owned()),
                 CompletionOrigin::AuthoringSchema,
                 "00",
-            ));
+            );
+            item.semantic_kind = CompletionSemanticKind::ContextualMember;
+            item.semantic_identity = format!("ContextualMember:{name}");
+            output.push(item);
         }
     }
 }
@@ -3086,7 +4985,7 @@ fn complete_contextual_channels(
                     )
                 },
             );
-            output.push(candidate(
+            let mut item = candidate(
                 &channel.name,
                 &channel.name,
                 replacement,
@@ -3094,7 +4993,12 @@ fn complete_contextual_channels(
                 Some(detail),
                 CompletionOrigin::AuthoringSchema,
                 "00",
-            ));
+            );
+            item.semantic_kind = CompletionSemanticKind::ContextualMember;
+            item.semantic_identity = format!("ContextualMember:{}", channel.name);
+            item.data_type = channel.data_type.clone();
+            item.nullable = channel.nullable;
+            output.push(item);
         }
     }
 }
@@ -3124,15 +5028,64 @@ fn complete_qualifier(
     qualifier: &str,
     prefix: &str,
     replacement: SourceSpan,
-    roles: &BTreeSet<SqlExpectedRole>,
+    intents: &BTreeSet<SqlIntent>,
     scope: &QueryScope,
     catalog: &[RelationMetadata],
     document: Option<&DocumentSemanticIndex>,
     project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
     cursor: usize,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    quoted_mode: bool,
     output: &mut Vec<CompletionItem>,
 ) -> bool {
     let parts = qualifier.split('.').collect::<Vec<_>>();
+    if intents.contains(&SqlIntent::RelationPath) {
+        let prefix_path = qualifier.split('.').collect::<Vec<_>>();
+        let mut seen = BTreeSet::new();
+        for relation in catalog {
+            if relation.path.len() <= prefix_path.len()
+                || !relation
+                    .path
+                    .iter()
+                    .zip(&prefix_path)
+                    .all(|(left, right)| left.eq_ignore_ascii_case(right))
+            {
+                continue;
+            }
+            let member = &relation.path[prefix_path.len()];
+            if seen.insert(member.to_ascii_lowercase()) && candidate_matches(member, prefix) {
+                let kind = if relation.path.len() == prefix_path.len() + 1 {
+                    CompletionKind::Table
+                } else if prefix_path.is_empty() {
+                    CompletionKind::Catalog
+                } else {
+                    CompletionKind::Schema
+                };
+                let insert = if quoted_mode {
+                    quote_identifier(member)
+                } else {
+                    member.clone()
+                };
+                let mut item = candidate(
+                    member,
+                    &insert,
+                    replacement,
+                    kind,
+                    Some(relation.detail.clone()),
+                    CompletionOrigin::Catalog,
+                    "10",
+                );
+                if quoted_mode {
+                    item.filter_text = Some(quote_identifier(member));
+                }
+                output.push(item);
+            }
+        }
+        if !seen.is_empty() {
+            return true;
+        }
+    }
     if let Some(relation) = scope
         .relations
         .iter()
@@ -3162,45 +5115,207 @@ fn complete_qualifier(
         complete_physical_struct_fields(prefix, replacement, fields, qualifier, output);
         return true;
     }
-    if roles.contains(&SqlExpectedRole::Relation)
-        || roles.contains(&SqlExpectedRole::Catalog)
-        || roles.contains(&SqlExpectedRole::Schema)
+    if !quoted_mode
+        && (complete_resolved_output_handle_members(
+            qualifier,
+            prefix,
+            replacement,
+            project,
+            origin,
+            cursor,
+            site,
+            output,
+        ) || complete_output_handle_members(
+            qualifier,
+            prefix,
+            replacement,
+            document,
+            cursor,
+            output,
+        ))
     {
-        let prefix_path = qualifier.split('.').collect::<Vec<_>>();
-        let mut seen = BTreeSet::new();
-        for relation in catalog {
-            if relation.path.len() <= prefix_path.len()
-                || !relation
-                    .path
-                    .iter()
-                    .zip(&prefix_path)
-                    .all(|(left, right)| left.eq_ignore_ascii_case(right))
-            {
-                continue;
-            }
-            let member = &relation.path[prefix_path.len()];
-            if seen.insert(member.to_ascii_lowercase()) && candidate_matches(member, prefix) {
-                let kind = if relation.path.len() == prefix_path.len() + 1 {
-                    CompletionKind::Table
-                } else if prefix_path.is_empty() {
-                    CompletionKind::Catalog
-                } else {
-                    CompletionKind::Schema
-                };
-                output.push(candidate(
-                    member,
-                    member,
-                    replacement,
-                    kind,
-                    Some(relation.detail.clone()),
-                    CompletionOrigin::Catalog,
-                    "10",
-                ));
-            }
-        }
-        return !seen.is_empty();
+        return true;
     }
     false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_resolved_output_handle_members(
+    qualifier: &str,
+    prefix: &str,
+    replacement: SourceSpan,
+    project: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    cursor: usize,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    output: &mut Vec<CompletionItem>,
+) -> bool {
+    if qualifier.contains('.') {
+        return false;
+    }
+    let Some(resolved) = project.and_then(|project| project.resolved_module_graph.as_deref())
+    else {
+        return false;
+    };
+    let enclosing = declaration_path_at(project, origin, cursor)
+        .into_iter()
+        .next()
+        .map(|declaration| {
+            resolved
+                .expansion_source_map
+                .authored_span(declaration.span)
+                .range
+        });
+    let mut candidates = Vec::new();
+    for root in resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+    {
+        collect_output_handle_declarations(
+            root,
+            resolved,
+            origin,
+            enclosing,
+            qualifier,
+            &mut candidates,
+        );
+    }
+    let Some(declaration) = candidates.into_iter().max_by_key(|declaration| {
+        resolved
+            .expansion_source_map
+            .authored_span(declaration.span)
+            .range
+            .start
+    }) else {
+        return false;
+    };
+    let declaration_visible = resolved
+        .expansion_source_map
+        .authored_span(declaration.span)
+        .range
+        .start
+        < cursor;
+    if !declaration_visible && site != avenger_lang_core::syntax::SqlIslandSite::OutputSource {
+        // The qualifier is known, but ordinary expressions remain
+        // stage-sequential. Treat the member position as resolved so generic
+        // SQL keywords do not leak into the invalid future-alias access.
+        return true;
+    }
+    for (name, handle) in &declaration.transform_outputs {
+        if !candidate_matches(name, prefix) {
+            continue;
+        }
+        let detail = match handle.shape {
+            avenger_lang_core::ResolvedOutputShape::Expression => "transform output expression",
+            avenger_lang_core::ResolvedOutputShape::RasterDimension => {
+                "transform raster-dimension output"
+            }
+            avenger_lang_core::ResolvedOutputShape::Opaque => "opaque transform output",
+        };
+        let mut item = candidate(
+            name,
+            name,
+            replacement,
+            CompletionKind::Field,
+            Some(format!("{detail} of `{qualifier}`")),
+            CompletionOrigin::LexicalScope,
+            "00",
+        );
+        item.semantic_kind = CompletionSemanticKind::ContextualMember;
+        item.semantic_identity = format!(
+            "OutputHandle:{}:{}:{}",
+            handle.producer, handle.ordinal, handle.name
+        );
+        item.semantic_proximity = 100;
+        output.push(item);
+    }
+    true
+}
+
+fn collect_output_handle_declarations<'a>(
+    declaration: &'a ResolvedDeclaration,
+    resolved: &avenger_lang_core::ResolvedModuleGraph,
+    origin: &SourceOrigin,
+    enclosing: Option<ByteSpan>,
+    qualifier: &str,
+    output: &mut Vec<&'a ResolvedDeclaration>,
+) {
+    let authored = resolved
+        .expansion_source_map
+        .authored_span(declaration.span);
+    if let Some(source) = resolved.sources.get(authored.source)
+        && same_origin(&source.origin, origin)
+        && enclosing.is_none_or(|scope| {
+            scope.start <= authored.range.start && authored.range.end <= scope.end
+        })
+        && declaration.keyword == "transform"
+        && declaration
+            .name
+            .as_deref()
+            .is_some_and(|name| name.eq_ignore_ascii_case(qualifier))
+        && !declaration.transform_outputs.is_empty()
+    {
+        output.push(declaration);
+    }
+    for child in &declaration.children {
+        collect_output_handle_declarations(child, resolved, origin, enclosing, qualifier, output);
+    }
+}
+
+fn complete_output_handle_members(
+    qualifier: &str,
+    prefix: &str,
+    replacement: SourceSpan,
+    document: Option<&DocumentSemanticIndex>,
+    cursor: usize,
+    output: &mut Vec<CompletionItem>,
+) -> bool {
+    let Some(document) = document else {
+        return false;
+    };
+    let parts = qualifier.split('.').collect::<Vec<_>>();
+    if parts.len() != 1 {
+        return false;
+    }
+    let Some((parent_index, parent)) = document
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| {
+            symbol.keyword == "transform"
+                && symbol.name.eq_ignore_ascii_case(parts[0])
+                && symbol.selection_span.range.start < cursor
+                && symbol_visible(document, symbol, cursor)
+        })
+        .max_by_key(|(_, symbol)| symbol.selection_span.range.start)
+    else {
+        return false;
+    };
+    for handle in document.symbols.iter().filter(|symbol| {
+        symbol.parent == Some(parent_index)
+            && symbol.value_kind == IndexedValueKind::Output
+            && candidate_matches(&symbol.name, prefix)
+    }) {
+        let mut item = candidate(
+            &handle.name,
+            &handle.name,
+            replacement,
+            CompletionKind::Field,
+            handle
+                .detail
+                .clone()
+                .or_else(|| Some(format!("output handle of `{}`", parent.name))),
+            CompletionOrigin::LexicalScope,
+            "00",
+        );
+        item.semantic_kind = CompletionSemanticKind::ContextualMember;
+        item.semantic_identity = format!("OutputHandle:{}:{}", parent.identity, handle.identity);
+        item.documentation = handle.documentation.clone();
+        item.semantic_proximity = 100;
+        output.push(item);
+    }
+    true
 }
 
 fn resolve_struct_chain<'a>(
@@ -3238,7 +5353,7 @@ fn complete_struct_fields(
 ) {
     for field in fields {
         if candidate_matches(field.name(), prefix) {
-            output.push(candidate(
+            let mut item = candidate(
                 field.name(),
                 field.name(),
                 replacement,
@@ -3250,7 +5365,12 @@ fn complete_struct_fields(
                 )),
                 CompletionOrigin::DatasetSchema,
                 "00",
-            ));
+            );
+            item.semantic_kind = CompletionSemanticKind::StructField;
+            item.semantic_identity = format!("StructField:{qualifier}:{}", field.name());
+            item.data_type = Some(field.data_type().to_string());
+            item.nullable = Some(field.is_nullable());
+            output.push(item);
         }
     }
 }
@@ -3261,20 +5381,9 @@ fn complete_column_members(
     relation: &RelationMetadata,
     output: &mut Vec<CompletionItem>,
 ) {
-    let quoted_members = relation.visible_name().eq_ignore_ascii_case("datum")
-        && relation.detail.starts_with("logical pre-scale");
-    let typed = if quoted_members {
-        prefix.trim_start_matches('"').replace("\"\"", "\"")
-    } else {
-        prefix.to_owned()
-    };
     for column in &relation.columns {
-        if candidate_matches(&column.name, &typed) {
-            let insert = if quoted_members {
-                format!("\"{}\"", column.name.replace('"', "\"\""))
-            } else {
-                column.name.clone()
-            };
+        if candidate_matches(&column.name, prefix) {
+            let insert = quote_identifier(&column.name);
             output.push(column_candidate(column, &insert, replacement, "00"));
         }
     }
@@ -3285,8 +5394,41 @@ fn complete_relations(
     replacement: SourceSpan,
     scope: &QueryScope,
     catalog: &[RelationMetadata],
+    quoted_mode: bool,
     output: &mut Vec<CompletionItem>,
 ) {
+    if quoted_mode {
+        let mut seen = BTreeSet::new();
+        for relation in scope.ctes.iter().chain(catalog.iter()) {
+            let Some(label) = relation.path.first() else {
+                continue;
+            };
+            if !seen.insert(label.to_ascii_lowercase()) || !candidate_matches(label, prefix) {
+                continue;
+            }
+            let kind = if relation.path.len() == 1 {
+                CompletionKind::Table
+            } else {
+                CompletionKind::Catalog
+            };
+            let mut item = candidate(
+                label,
+                &quote_identifier(label),
+                replacement,
+                kind,
+                Some(relation.detail.clone()),
+                if relation.path.len() == 1 {
+                    CompletionOrigin::QueryScope
+                } else {
+                    CompletionOrigin::Catalog
+                },
+                "00",
+            );
+            item.filter_text = Some(quote_identifier(label));
+            output.push(item);
+        }
+        return;
+    }
     for relation in scope.ctes.iter().chain(catalog.iter()) {
         let label = relation.path.join(".");
         if candidate_matches(&label, prefix) {
@@ -3336,35 +5478,61 @@ fn complete_columns(
                 .get(&column.name.to_ascii_lowercase())
                 .copied()
                 .unwrap_or_default()
+                .saturating_sub(
+                    scope
+                        .merged_column_reductions
+                        .get(&column.name.to_ascii_lowercase())
+                        .copied()
+                        .unwrap_or_default(),
+                )
                 > 1;
             let insert = if ambiguous && !relation.visible_name().is_empty() {
-                format!("{}.{}", relation.visible_name(), column.name)
+                format!(
+                    "{}.{}",
+                    relation.visible_name(),
+                    quote_identifier(&column.name)
+                )
             } else {
-                column.name.clone()
+                quote_identifier(&column.name)
             };
             if candidate_matches(&column.name, prefix) || candidate_matches(&insert, prefix) {
-                output.push(column_candidate(
+                let mut item = column_candidate(
                     column,
                     &insert,
                     replacement,
                     if ambiguous { "10" } else { "00" },
-                ));
+                );
+                if ambiguous {
+                    item.qualification = CompletionQualification::Ambiguous;
+                }
+                output.push(item);
             }
         }
     }
     if scope.projection_aliases_visible {
         for alias in &scope.projection_aliases {
             if candidate_matches(&alias.name, prefix) {
-                output.push(column_candidate(alias, &alias.name, replacement, "10"));
+                output.push(column_candidate(
+                    alias,
+                    &quote_identifier(&alias.name),
+                    replacement,
+                    "10",
+                ));
             }
         }
     }
+}
+
+fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
 }
 
 fn table_binding_relations(
     document: Option<&DocumentSemanticIndex>,
     cursor: usize,
     project: Option<&ModuleAnalysis>,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    island: SourceSpan,
 ) -> Vec<RelationMetadata> {
     let Some(document) = document else {
         return Vec::new();
@@ -3378,8 +5546,7 @@ fn table_binding_relations(
         .iter()
         .filter(|symbol| {
             symbol.value_kind == IndexedValueKind::Table
-                && symbol.selection_span.range.start < cursor
-                && symbol_visible(document, symbol, cursor)
+                && binding_symbol_visible(document, symbol, cursor, site, island)
         })
         .filter_map(|symbol| {
             let store = resolved
@@ -3418,11 +5585,17 @@ fn binding_struct_fields<'a>(
     let mut parts = qualifier.trim_start_matches('$').split('.');
     let name = parts.next()?;
     let document = document?;
+    let island = document
+        .sql_islands
+        .iter()
+        .filter(|island| island.span.range.start <= cursor && cursor <= island.span.range.end)
+        .min_by_key(|island| island.span.range.len());
     if !document.symbols.iter().any(|symbol| {
         symbol.value_kind == IndexedValueKind::Scalar
             && symbol.name.eq_ignore_ascii_case(name)
-            && symbol.selection_span.range.start < cursor
-            && symbol_visible(document, symbol, cursor)
+            && island.is_some_and(|island| {
+                binding_symbol_visible(document, symbol, cursor, island.site, island.span)
+            })
     }) {
         return None;
     }
@@ -3456,7 +5629,7 @@ fn complete_physical_struct_fields(
 ) {
     for field in fields {
         if candidate_matches(field.name(), prefix) {
-            output.push(candidate(
+            let mut item = candidate(
                 field.name(),
                 field.name(),
                 replacement,
@@ -3468,7 +5641,12 @@ fn complete_physical_struct_fields(
                 )),
                 CompletionOrigin::LexicalScope,
                 "00",
-            ));
+            );
+            item.semantic_kind = CompletionSemanticKind::StructField;
+            item.semantic_identity = format!("StructField:{qualifier}:{}", field.name());
+            item.data_type = Some(field.data_type().to_string());
+            item.nullable = Some(field.is_nullable());
+            output.push(item);
         }
     }
 }
@@ -3504,6 +5682,48 @@ fn symbol_visible(
     candidate.parent.is_none()
 }
 
+fn binding_symbol_visible(
+    document: &DocumentSemanticIndex,
+    candidate: &crate::IndexedSymbol,
+    cursor: usize,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    island: SourceSpan,
+) -> bool {
+    if !symbol_visible(document, candidate, cursor) {
+        return false;
+    }
+    if site != avenger_lang_core::syntax::SqlIslandSite::ParamInitializer {
+        return true;
+    }
+    let Some(owner_index) = document
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| {
+            symbol.declaration_span.range.start <= island.range.start
+                && island.range.end <= symbol.declaration_span.range.end
+        })
+        .min_by_key(|(_, symbol)| symbol.declaration_span.range.len())
+        .map(|(index, _)| index)
+    else {
+        return true;
+    };
+    let owner = &document.symbols[owner_index];
+    if candidate.identity == owner.identity {
+        return false;
+    }
+    let mut ancestor = Some(owner_index);
+    while let Some(index) = ancestor {
+        let symbol = &document.symbols[index];
+        if symbol.keyword == "table" {
+            // Catalog-table param initializers are deliberately self-contained.
+            return false;
+        }
+        ancestor = symbol.parent;
+    }
+    true
+}
+
 fn column_candidate(
     column: &ColumnMetadata,
     insert: &str,
@@ -3524,7 +5744,7 @@ fn column_candidate(
     if let Some(lineage) = &column.lineage {
         detail.push_str(&format!(" · from {lineage}"));
     }
-    candidate(
+    let mut item = candidate(
         &column.name,
         insert,
         replacement,
@@ -3532,14 +5752,27 @@ fn column_candidate(
         Some(detail),
         CompletionOrigin::DatasetSchema,
         bucket,
-    )
+    );
+    item.data_type = Some(column.data_type.to_string());
+    item.nullable = Some(column.nullable);
+    item.source_stage = Some(column.stage.clone());
+    item.filter_text = Some(quote_identifier(&column.name));
+    item.semantic_proximity = 100;
+    if insert.contains(".\"") {
+        item.qualification = CompletionQualification::Qualified;
+    }
+    item
 }
 
+#[allow(clippy::too_many_arguments)]
 fn complete_scalar_bindings(
     prefix: &str,
     replacement: SourceSpan,
     document: Option<&DocumentSemanticIndex>,
     cursor: usize,
+    project: Option<&ModuleAnalysis>,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    island: SourceSpan,
     output: &mut Vec<CompletionItem>,
 ) {
     let typed = prefix.trim_start_matches('$');
@@ -3548,15 +5781,14 @@ fn complete_scalar_bindings(
     };
     for symbol in &document.symbols {
         if symbol.value_kind != IndexedValueKind::Scalar
-            || symbol.selection_span.range.start >= cursor
-            || !symbol_visible(document, symbol, cursor)
+            || !binding_symbol_visible(document, symbol, cursor, site, island)
             || !candidate_matches(&symbol.name, typed)
         {
             continue;
         }
         let label = format!("${}", symbol.name);
         let bucket = format!("00:{:020}", symbol.selection_span.range.start);
-        output.push(candidate(
+        let mut item = candidate(
             &label,
             &label,
             replacement,
@@ -3564,16 +5796,37 @@ fn complete_scalar_bindings(
             symbol.detail.clone(),
             CompletionOrigin::LexicalScope,
             &bucket,
-        ));
+        );
+        if let Some(data_type) = project
+            .and_then(|project| {
+                project
+                    .resolved_module_graph
+                    .as_deref()
+                    .map(|graph| (project, graph))
+            })
+            .and_then(|(project, graph)| {
+                graph
+                    .params
+                    .values()
+                    .find(|param| param.source_name.eq_ignore_ascii_case(&symbol.name))
+                    .and_then(|param| project.param_types.get(&param.id))
+            })
+        {
+            item.data_type = Some(data_type.to_string());
+        }
+        output.push(item);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn complete_table_bindings(
     prefix: &str,
     replacement: SourceSpan,
     document: Option<&DocumentSemanticIndex>,
     cursor: usize,
     project: Option<&ModuleAnalysis>,
+    site: avenger_lang_core::syntax::SqlIslandSite,
+    island: SourceSpan,
     output: &mut Vec<CompletionItem>,
 ) {
     let typed = prefix.trim_start_matches('$');
@@ -3582,8 +5835,7 @@ fn complete_table_bindings(
     };
     for symbol in &document.symbols {
         if symbol.value_kind != IndexedValueKind::Table
-            || symbol.selection_span.range.start >= cursor
-            || !symbol_visible(document, symbol, cursor)
+            || !binding_symbol_visible(document, symbol, cursor, site, island)
             || !candidate_matches(&symbol.name, typed)
         {
             continue;
@@ -3643,11 +5895,8 @@ fn complete_temporal_qualifiers(
     });
     if !in_handler
         || !document.symbols.iter().any(|symbol| {
-            matches!(
-                symbol.value_kind,
-                IndexedValueKind::Scalar | IndexedValueKind::Table
-            ) && symbol.name.eq_ignore_ascii_case(base)
-                && symbol.selection_span.range.start < cursor
+            symbol.value_kind == IndexedValueKind::Scalar
+                && symbol.name.eq_ignore_ascii_case(base)
                 && symbol_visible(document, symbol, cursor)
         })
     {
@@ -3669,33 +5918,64 @@ fn complete_temporal_qualifiers(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn complete_functions(
     prefix: &str,
     replacement: SourceSpan,
     project: Option<&ModuleAnalysis>,
     in_event: bool,
+    context: SqlIslandContext,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    projection_mode: Option<ProjectionExpressionMode>,
+    snippets: bool,
     output: &mut Vec<CompletionItem>,
 ) {
-    let inventories = project.into_iter().flat_map(|project| {
-        [
-            ("scalar", project.functions.scalar.as_slice()),
-            ("aggregate", project.functions.aggregate.as_slice()),
-            ("window", project.functions.window.as_slice()),
-        ]
-    });
-    for (kind, functions) in inventories {
-        for function in functions {
-            if candidate_matches(function, prefix) {
-                output.push(candidate(
-                    function,
-                    &format!("{function}()"),
-                    replacement,
-                    CompletionKind::Function,
-                    Some(format!("DataFusion {kind} function")),
-                    CompletionOrigin::FunctionRegistry,
-                    "10",
-                ));
+    let clause = query_clause_at(tokens, cursor);
+    for function in project
+        .into_iter()
+        .flat_map(|project| &project.functions.functions)
+        .filter(|function| function.category != FunctionCategory::Table)
+        .filter(|function| {
+            function_category_is_legal(function.category, context, clause, projection_mode)
+        })
+    {
+        if candidate_matches(&function.name, prefix) {
+            let category = match function.category {
+                FunctionCategory::Scalar => "scalar",
+                FunctionCategory::Aggregate => "aggregate",
+                FunctionCategory::Window => "window",
+                FunctionCategory::Table => unreachable!(),
+            };
+            let mut detail = format!("DataFusion {category} function");
+            if let Some(signature) = &function.signature {
+                detail.push_str(&format!(" · {signature}"));
             }
+            if let Some(volatility) = &function.volatility {
+                detail.push_str(&format!(" · {volatility}"));
+            }
+            let (insert, text_format) =
+                function_insert(&function.name, &function.parameter_names, snippets);
+            let mut item = candidate(
+                &function.name,
+                &insert,
+                replacement,
+                CompletionKind::Function,
+                Some(detail),
+                CompletionOrigin::FunctionRegistry,
+                "10",
+            );
+            item.documentation = function.description.clone();
+            item.insert_text_format = text_format;
+            item.data_type = function.return_type.clone();
+            item.semantic_kind = match function.category {
+                FunctionCategory::Scalar => CompletionSemanticKind::ScalarFunction,
+                FunctionCategory::Aggregate => CompletionSemanticKind::AggregateFunction,
+                FunctionCategory::Window => CompletionSemanticKind::WindowFunction,
+                FunctionCategory::Table => CompletionSemanticKind::TableFunction,
+            };
+            item.semantic_identity = format!("{:?}:{}", function.category, function.name);
+            output.push(item);
         }
     }
     for operation in INTRINSIC_OPERATION_SIGNATURES.iter().filter(|signature| {
@@ -3705,9 +5985,15 @@ fn complete_functions(
                 .contains(&IntrinsicOperationContext::EventExpression)
     }) {
         if candidate_matches(operation.name, prefix) {
-            output.push(candidate(
+            let argument_names = operation
+                .arguments
+                .iter()
+                .map(|argument| argument.as_str().replace(' ', "_"))
+                .collect::<Vec<_>>();
+            let (insert, text_format) = function_insert(operation.name, &argument_names, snippets);
+            let mut item = candidate(
                 operation.name,
-                &format!("{}()", operation.name),
+                &insert,
                 replacement,
                 CompletionKind::Function,
                 Some(format!(
@@ -3717,9 +6003,189 @@ fn complete_functions(
                 )),
                 CompletionOrigin::FunctionRegistry,
                 "00",
-            ));
+            );
+            item.insert_text_format = text_format;
+            item.documentation = Some(operation.docs.to_owned());
+            item.data_type = operation.result.arrow_type().map(str::to_owned);
+            output.push(item);
         }
     }
+}
+
+fn function_category_is_legal(
+    category: FunctionCategory,
+    context: SqlIslandContext,
+    clause: QueryClause,
+    projection_mode: Option<ProjectionExpressionMode>,
+) -> bool {
+    if context.root() == SqlIslandRoot::Query && clause == QueryClause::Using {
+        return false;
+    }
+    match category {
+        FunctionCategory::Scalar => true,
+        FunctionCategory::Aggregate => match context.root() {
+            SqlIslandRoot::Projection => matches!(
+                projection_mode,
+                Some(ProjectionExpressionMode::Aggregate | ProjectionExpressionMode::Window)
+            ),
+            SqlIslandRoot::Query => matches!(
+                clause,
+                QueryClause::Select
+                    | QueryClause::Having
+                    | QueryClause::Qualify
+                    | QueryClause::OrderBy
+            ),
+            SqlIslandRoot::Expression => false,
+        },
+        FunctionCategory::Window => match context.root() {
+            SqlIslandRoot::Projection => projection_mode == Some(ProjectionExpressionMode::Window),
+            SqlIslandRoot::Query => matches!(
+                clause,
+                QueryClause::Select | QueryClause::Qualify | QueryClause::OrderBy
+            ),
+            SqlIslandRoot::Expression => false,
+        },
+        FunctionCategory::Table => false,
+    }
+}
+
+fn complete_table_functions(
+    prefix: &str,
+    replacement: SourceSpan,
+    project: Option<&ModuleAnalysis>,
+    snippets: bool,
+    output: &mut Vec<CompletionItem>,
+) {
+    for function in project
+        .into_iter()
+        .flat_map(|project| &project.functions.functions)
+        .filter(|function| function.category == FunctionCategory::Table)
+    {
+        if !candidate_matches(&function.name, prefix) {
+            continue;
+        }
+        let (insert, text_format) =
+            function_insert(&function.name, &function.parameter_names, snippets);
+        let mut item = candidate(
+            &function.name,
+            &insert,
+            replacement,
+            CompletionKind::Function,
+            Some("DataFusion table function".to_owned()),
+            CompletionOrigin::FunctionRegistry,
+            "10",
+        );
+        item.semantic_kind = CompletionSemanticKind::TableFunction;
+        item.semantic_identity = format!("TableFunction:{}", function.name);
+        item.insert_text_format = text_format;
+        item.documentation = function.description.clone();
+        output.push(item);
+    }
+}
+
+fn named_window_reference_position(tokens: &[SqlToken<'_>], cursor: usize, prefix: &str) -> bool {
+    let last = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| token.span.range.end <= cursor)
+        .map(|(index, _)| index)
+        .next_back();
+    let structural = last.and_then(|index| {
+        (!prefix.is_empty()
+            && tokens[index].span.range.end == cursor
+            && tokens[index].span.range.start < cursor)
+            .then(|| index.checked_sub(1))
+            .flatten()
+            .or(Some(index))
+    });
+    structural.is_some_and(|index| tokens[index].is_word("over"))
+}
+
+fn complete_named_windows(
+    prefix: &str,
+    replacement: SourceSpan,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    output: &mut Vec<CompletionItem>,
+) {
+    let depth = cursor_depth(tokens, cursor);
+    let Some(mut index) = tokens
+        .iter()
+        .enumerate()
+        .find(|(_, token)| token.depth == depth && token.is_word("window"))
+        .map(|(index, _)| index + 1)
+    else {
+        return;
+    };
+    while index < tokens.len() {
+        let Some(name) = tokens
+            .get(index)
+            .filter(|token| token.depth == depth)
+            .and_then(SqlToken::word)
+        else {
+            break;
+        };
+        let Some(as_index) = tokens[index + 1..]
+            .iter()
+            .position(|token| token.depth == depth && token.is_word("as"))
+            .map(|offset| index + 1 + offset)
+        else {
+            break;
+        };
+        if candidate_matches(name, prefix) {
+            let mut item = candidate(
+                name,
+                name,
+                replacement,
+                CompletionKind::Variable,
+                Some("named SQL window".to_owned()),
+                CompletionOrigin::QueryScope,
+                "00",
+            );
+            item.semantic_kind = CompletionSemanticKind::WindowName;
+            item.semantic_identity = format!("WindowName:{name}");
+            output.push(item);
+        }
+        let Some(open) = tokens
+            .get(as_index + 1)
+            .filter(|token| token.depth == depth && matches!(token.token, Some(Token::LParen)))
+            .map(|_| as_index + 1)
+        else {
+            break;
+        };
+        let Some(close) = matching_close(tokens, open) else {
+            break;
+        };
+        index = close + 1;
+        if tokens
+            .get(index)
+            .is_some_and(|token| token.depth == depth && token.is_comma())
+        {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+}
+
+fn function_insert(
+    name: &str,
+    parameter_names: &[String],
+    snippets: bool,
+) -> (String, CompletionTextFormat) {
+    if !snippets {
+        return (format!("{name}()"), CompletionTextFormat::PlainText);
+    }
+    let arguments = parameter_names
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| format!("${{{}:{parameter}}}", index + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    (
+        format!("{name}({arguments})$0"),
+        CompletionTextFormat::Snippet,
+    )
 }
 
 fn complete_types(prefix: &str, replacement: SourceSpan, output: &mut Vec<CompletionItem>) {
@@ -3745,126 +6211,915 @@ fn complete_types(prefix: &str, replacement: SourceSpan, output: &mut Vec<Comple
     }
 }
 
-fn complete_projection_alias(
+fn complete_keywords(
     prefix: &str,
     replacement: SourceSpan,
+    intents: &BTreeSet<SqlIntent>,
+    context: SqlIslandContext,
     tokens: &[SqlToken<'_>],
     cursor: usize,
     output: &mut Vec<CompletionItem>,
 ) {
-    let Some(as_index) = tokens
+    if context.root() == SqlIslandRoot::Query
+        && let Some(state) = cte_header_state(tokens, cursor, prefix)
+    {
+        match state {
+            CteHeaderState::Name => {}
+            CteHeaderState::RecursiveKeyword => {
+                push_sql_words(prefix, replacement, &["RECURSIVE"], false, output)
+            }
+            CteHeaderState::AfterName => {
+                push_sql_words(prefix, replacement, &["AS"], false, output)
+            }
+            CteHeaderState::AfterAs => {
+                if candidate_matches("(", prefix) {
+                    let mut scaffold = candidate(
+                        "(",
+                        "(",
+                        replacement,
+                        CompletionKind::Keyword,
+                        Some("open the CTE query body".to_owned()),
+                        CompletionOrigin::Syntax,
+                        "00",
+                    );
+                    scaffold.semantic_kind = CompletionSemanticKind::SqlOperator;
+                    scaffold.semantic_identity = "CteBodyOpen".to_owned();
+                    scaffold.validity = CompletionValidity::Scaffold;
+                    output.push(scaffold);
+                }
+            }
+            CteHeaderState::BodyComplete => {
+                push_sql_words(
+                    prefix,
+                    replacement,
+                    &["SELECT", "FROM", "VALUES"],
+                    false,
+                    output,
+                );
+            }
+        }
+        return;
+    }
+    if intents.contains(&SqlIntent::TypeName)
+        || intents.contains(&SqlIntent::NameBinder)
+        || intents.contains(&SqlIntent::CteName)
+    {
+        return;
+    }
+    if intents.contains(&SqlIntent::RelationPath) {
+        push_sql_words(prefix, replacement, &["LATERAL"], false, output);
+        return;
+    }
+
+    if context.root() != SqlIslandRoot::Query {
+        if intents.contains(&SqlIntent::ExpressionOperand) {
+            let mut keywords = vec!["CASE", "CAST", "NULL", "TRUE", "FALSE"];
+            if tokens.iter().any(|token| token.is_word("case")) {
+                keywords.extend(["WHEN", "THEN", "ELSE", "END"]);
+            }
+            push_sql_words(prefix, replacement, &keywords, false, output);
+        }
+        if intents.contains(&SqlIntent::ExpressionOperator) {
+            if context.root() == SqlIslandRoot::Projection {
+                push_sql_words(prefix, replacement, &["AS"], false, output);
+            }
+            push_sql_words(
+                prefix,
+                replacement,
+                &["AND", "OR", "IS NULL", "IS NOT NULL"],
+                true,
+                output,
+            );
+        }
+        return;
+    }
+
+    if wildcard_modifier_position(tokens, cursor, prefix) {
+        push_sql_words(
+            prefix,
+            replacement,
+            &["EXCLUDE", "EXCEPT", "REPLACE", "ILIKE"],
+            false,
+            output,
+        );
+        return;
+    }
+    if inside_window_specification(tokens, cursor) {
+        push_sql_words(
+            prefix,
+            replacement,
+            &["PARTITION BY", "ORDER BY", "ROWS", "RANGE", "GROUPS"],
+            false,
+            output,
+        );
+        return;
+    }
+
+    if intents.contains(&SqlIntent::ExpressionOperand) {
+        let mut operands = vec!["CASE", "CAST", "NULL", "TRUE", "FALSE"];
+        let clause = query_clause_at(tokens, cursor);
+        let depth = cursor_depth(tokens, cursor);
+        let has_payload = query_clause_and_index(tokens, cursor)
+            .1
+            .is_some_and(|index| {
+                tokens[index + 1..].iter().any(|token| {
+                    token.span.range.start < cursor
+                        && token.depth == depth
+                        && !token.is_comma()
+                        && !token.is_period()
+                })
+            });
+        if clause == QueryClause::Select && !has_payload {
+            operands.extend(["DISTINCT", "ALL"]);
+        }
+        if tokens.iter().any(|token| token.is_word("case")) {
+            operands.extend(["WHEN", "THEN", "ELSE", "END"]);
+        }
+        push_sql_words(prefix, replacement, &operands, false, output);
+        return;
+    }
+
+    if let Some(keywords) = case_transition_keywords(tokens, cursor) {
+        push_sql_words(prefix, replacement, keywords, false, output);
+        return;
+    }
+
+    let (clause, clause_index) = query_clause_and_index(tokens, cursor);
+    let depth = cursor_depth(tokens, cursor);
+    let has_payload = clause_index.is_some_and(|index| {
+        tokens[index + 1..].iter().any(|token| {
+            token.span.range.start < cursor
+                && token.depth == depth
+                && !token.is_comma()
+                && !token.is_period()
+        })
+    });
+    let has_window = tokens.iter().any(|token| token.is_word("over"));
+    let mut keywords = Vec::new();
+    let mut operators = Vec::new();
+    match clause {
+        QueryClause::Start => keywords.extend(["SELECT", "FROM", "WITH", "VALUES"]),
+        QueryClause::With => keywords.extend(["SELECT", "FROM", "VALUES"]),
+        QueryClause::Select if !has_payload => {
+            keywords.extend(["DISTINCT", "ALL", "CASE", "CAST", "NULL", "TRUE", "FALSE"])
+        }
+        QueryClause::Select => {
+            keywords.extend(["AS", "FROM", "FILTER", "OVER"]);
+        }
+        QueryClause::From => {
+            keywords.extend([
+                "AS",
+                "JOIN",
+                "LEFT JOIN",
+                "RIGHT JOIN",
+                "FULL JOIN",
+                "INNER JOIN",
+                "CROSS JOIN",
+                "WHERE",
+                "GROUP BY",
+                "HAVING",
+                "WINDOW",
+                "ORDER BY",
+                "LIMIT",
+                "OFFSET",
+                "FETCH",
+                "UNION ALL",
+                "EXCEPT",
+                "INTERSECT",
+            ]);
+            if has_window {
+                keywords.push("QUALIFY");
+            }
+        }
+        QueryClause::Join => keywords.extend(["AS", "ON", "USING"]),
+        QueryClause::Using => {}
+        QueryClause::On | QueryClause::Where if !has_payload => {
+            keywords.extend(["CASE", "CAST", "NULL", "TRUE", "FALSE"])
+        }
+        QueryClause::On | QueryClause::Where => {
+            operators.extend(["AND", "OR", "IS NULL", "IS NOT NULL"]);
+            keywords.extend([
+                "JOIN",
+                "LEFT JOIN",
+                "RIGHT JOIN",
+                "FULL JOIN",
+                "GROUP BY",
+                "HAVING",
+                "WINDOW",
+                "ORDER BY",
+                "LIMIT",
+                "OFFSET",
+                "FETCH",
+            ]);
+            if has_window {
+                keywords.push("QUALIFY");
+            }
+        }
+        QueryClause::GroupBy
+        | QueryClause::Having
+        | QueryClause::Qualify
+        | QueryClause::OrderBy
+            if !has_payload =>
+        {
+            keywords.extend(["CASE", "CAST", "NULL", "TRUE", "FALSE"])
+        }
+        QueryClause::GroupBy => {
+            keywords.extend(["HAVING", "WINDOW", "ORDER BY", "LIMIT", "OFFSET", "FETCH"])
+        }
+        QueryClause::Having => {
+            operators.extend(["AND", "OR", "IS NULL", "IS NOT NULL"]);
+            keywords.extend(["WINDOW", "ORDER BY", "LIMIT", "OFFSET", "FETCH"]);
+            if has_window {
+                keywords.push("QUALIFY");
+            }
+        }
+        QueryClause::Window => keywords.extend(["QUALIFY", "ORDER BY", "LIMIT", "OFFSET", "FETCH"]),
+        QueryClause::Qualify => {
+            operators.extend(["AND", "OR", "IS NULL", "IS NOT NULL"]);
+            keywords.extend(["ORDER BY", "LIMIT", "OFFSET", "FETCH"]);
+        }
+        QueryClause::OrderBy => keywords.extend([
+            "ASC",
+            "DESC",
+            "NULLS FIRST",
+            "NULLS LAST",
+            "LIMIT",
+            "OFFSET",
+            "FETCH",
+        ]),
+        QueryClause::Limit => keywords.extend(["OFFSET", "FETCH"]),
+        QueryClause::Offset => keywords.push("FETCH"),
+        QueryClause::Fetch => {}
+        QueryClause::SetOperation => keywords.extend(["SELECT", "FROM", "VALUES"]),
+        QueryClause::Values => keywords.extend(["ORDER BY", "LIMIT", "OFFSET", "FETCH"]),
+    }
+    push_sql_words(prefix, replacement, &keywords, false, output);
+    push_sql_words(prefix, replacement, &operators, true, output);
+}
+
+fn wildcard_modifier_position(tokens: &[SqlToken<'_>], cursor: usize, prefix: &str) -> bool {
+    tokens
         .iter()
         .enumerate()
-        .filter(|(_, token)| token.span.range.end <= cursor && token.is_word("as"))
+        .filter(|(_, token)| token.span.range.end <= cursor)
         .map(|(index, _)| index)
         .next_back()
-    else {
-        return;
-    };
-    let depth = tokens[as_index].depth;
-    let start = tokens[..as_index]
-        .iter()
-        .rposition(|token| token.depth == depth && token.is_comma())
-        .map_or(0, |index| index + 1);
-    let mut words = tokens[start..as_index]
-        .iter()
-        .filter(|token| token.depth >= depth)
-        .filter_map(SqlToken::word)
-        .filter(|word| {
-            !matches!(
-                word.to_ascii_lowercase().as_str(),
-                "cast" | "try_cast" | "as" | "distinct" | "filter" | "over"
-            )
+        .and_then(|index| {
+            (!prefix.is_empty()
+                && tokens[index].span.range.end == cursor
+                && tokens[index].span.range.start < cursor)
+                .then(|| index.checked_sub(1))
+                .flatten()
+                .or(Some(index))
         })
-        .map(to_alias_fragment)
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>();
-    words.dedup();
-    let suggestion = words
-        .into_iter()
-        .rev()
-        .take(2)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("_");
-    if suggestion.is_empty() || !candidate_matches(&suggestion, prefix) {
-        return;
-    }
-    output.push(candidate(
-        &suggestion,
-        &suggestion,
-        replacement,
-        CompletionKind::Field,
-        Some("projection output alias".to_owned()),
-        CompletionOrigin::Syntax,
-        "00",
-    ));
+        .is_some_and(|index| tokens[index].raw == "*")
 }
 
-fn to_alias_fragment(value: &str) -> String {
-    let mut output = String::new();
-    let mut prior_separator = false;
-    for character in value.chars() {
-        if character == '_' || character.is_alphanumeric() {
-            output.extend(character.to_lowercase());
-            prior_separator = false;
-        } else if !prior_separator && !output.is_empty() {
-            output.push('_');
-            prior_separator = true;
-        }
-    }
-    output.trim_matches('_').to_owned()
-}
-
-fn complete_keywords(
+fn push_sql_words(
     prefix: &str,
     replacement: SourceSpan,
-    roles: &BTreeSet<SqlExpectedRole>,
+    words: &[&str],
+    operators: bool,
     output: &mut Vec<CompletionItem>,
 ) {
-    let keywords: &[&str] = if roles.contains(&SqlExpectedRole::Relation) {
-        &["SELECT", "LATERAL"]
-    } else if roles.contains(&SqlExpectedRole::Type) {
-        &["AS"]
-    } else {
-        &[
-            "SELECT",
-            "FROM",
-            "WHERE",
-            "GROUP BY",
-            "ORDER BY",
-            "HAVING",
-            "LIMIT",
-            "JOIN",
-            "LEFT JOIN",
-            "RIGHT JOIN",
-            "FULL JOIN",
-            "ON",
-            "UNION ALL",
-            "AS",
-            "CASE",
-            "WHEN",
-            "THEN",
-            "ELSE",
-            "END",
-            "OVER",
-            "PARTITION BY",
-        ]
-    };
-    for keyword in keywords {
-        if candidate_matches(keyword, prefix) {
-            output.push(candidate(
-                keyword,
-                keyword,
-                replacement,
-                CompletionKind::Keyword,
-                Some("SQL keyword".to_owned()),
-                CompletionOrigin::Syntax,
-                "30",
-            ));
+    for word in words {
+        if !candidate_matches(word, prefix) {
+            continue;
         }
+        let mut item = candidate(
+            word,
+            word,
+            replacement,
+            CompletionKind::Keyword,
+            Some(if operators {
+                "SQL operator".to_owned()
+            } else {
+                "SQL keyword".to_owned()
+            }),
+            CompletionOrigin::Syntax,
+            "30",
+        );
+        if operators {
+            item.semantic_kind = CompletionSemanticKind::SqlOperator;
+            item.semantic_identity = format!("SqlOperator:{word}");
+        }
+        output.push(item);
+    }
+}
+
+impl QuerySkeleton {
+    fn active_clause(&self, tokens: &[SqlToken<'_>], cursor: usize) -> QueryClause {
+        let block = &self.blocks[self.active_block];
+        query_clause_and_index_in_block(tokens, cursor, block.depth, block.span).0
+    }
+}
+
+fn build_query_skeleton(
+    text: &str,
+    island: SourceSpan,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    root: SqlIslandRoot,
+) -> QuerySkeleton {
+    let mut blocks = vec![SqlQueryBlockDebug {
+        index: 0,
+        parent: None,
+        depth: 0,
+        span: island,
+        active: false,
+        items: Vec::new(),
+    }];
+
+    for (open, token) in tokens.iter().enumerate() {
+        if !matches!(token.token, Some(Token::LParen)) {
+            continue;
+        }
+        let depth = token.depth + 1;
+        let Some(first) = tokens[open + 1..]
+            .iter()
+            .find(|candidate| candidate.depth == depth)
+        else {
+            continue;
+        };
+        if !["select", "from", "with", "values"]
+            .iter()
+            .any(|word| first.is_word(word))
+        {
+            continue;
+        }
+        let end = matching_close(tokens, open)
+            .and_then(|close| tokens.get(close))
+            .map_or(island.range.end, |close| close.span.range.end);
+        let span = SourceSpan {
+            source: island.source,
+            range: ByteSpan {
+                start: token.span.range.start,
+                end,
+            },
+        };
+        let parent = blocks
+            .iter()
+            .filter(|block| {
+                block.span.range.start <= span.range.start
+                    && span.range.end <= block.span.range.end
+                    && block.depth < depth
+            })
+            .max_by_key(|block| block.depth)
+            .map(|block| block.index)
+            .or(Some(0));
+        let index = blocks.len();
+        blocks.push(SqlQueryBlockDebug {
+            index,
+            parent,
+            depth,
+            span,
+            active: false,
+            items: Vec::new(),
+        });
+    }
+
+    let active_block = blocks
+        .iter()
+        .filter(|block| block.span.range.start <= cursor && cursor <= block.span.range.end)
+        .max_by_key(|block| (block.depth, std::cmp::Reverse(block.span.range.len())))
+        .map_or(0, |block| block.index);
+    blocks[active_block].active = true;
+
+    for block in &mut blocks {
+        block.items = if block.index == 0 && root != SqlIslandRoot::Query {
+            root_sql_items(text, island, cursor, root)
+        } else {
+            query_block_items(text, tokens, cursor, block.depth, block.span)
+        };
+    }
+
+    QuerySkeleton {
+        blocks,
+        active_block,
+    }
+}
+
+fn root_sql_items(
+    text: &str,
+    island: SourceSpan,
+    cursor: usize,
+    root: SqlIslandRoot,
+) -> Vec<SqlClauseItemDebug> {
+    let clause = match root {
+        SqlIslandRoot::Projection => "projection",
+        SqlIslandRoot::Expression => "expression",
+        SqlIslandRoot::Query => "query",
+    };
+    let mut ranges = Vec::new();
+    let mut start = island.range.start;
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut offset = island.range.start;
+    while offset < island.range.end.min(text.len()) {
+        let character = text[offset..].chars().next().unwrap();
+        if let Some(active) = quote {
+            if character == active {
+                let next = offset + character.len_utf8();
+                if text[next..].starts_with(character) {
+                    offset = next + character.len_utf8();
+                    continue;
+                }
+                quote = None;
+            }
+        } else {
+            match character {
+                '\'' | '"' => quote = Some(character),
+                '(' | '[' => depth += 1,
+                ')' | ']' => depth = depth.saturating_sub(1),
+                ',' if root == SqlIslandRoot::Projection && depth == 0 => {
+                    ranges.push(start..offset);
+                    start = offset + 1;
+                }
+                _ => {}
+            }
+        }
+        offset += character.len_utf8();
+    }
+    ranges.push(start..island.range.end);
+    ranges
+        .into_iter()
+        .enumerate()
+        .map(|(index, range)| {
+            let trimmed = trim_source_range(text, range);
+            SqlClauseItemDebug {
+                clause: clause.to_owned(),
+                index,
+                span: SourceSpan {
+                    source: island.source,
+                    range: ByteSpan {
+                        start: trimmed.start,
+                        end: trimmed.end,
+                    },
+                },
+                status: item_parse_status(text, trimmed, cursor, root, None),
+            }
+        })
+        .collect()
+}
+
+fn query_block_items(
+    text: &str,
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    depth: usize,
+    block: SourceSpan,
+) -> Vec<SqlClauseItemDebug> {
+    let clauses = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| {
+            token.depth == depth
+                && block.range.start <= token.span.range.start
+                && token.span.range.end <= block.range.end
+        })
+        .filter_map(|(index, _)| {
+            clause_start_at(tokens, index, depth).map(|clause| (index, clause))
+        })
+        .collect::<Vec<_>>();
+    let mut output = Vec::new();
+    for (ordinal, (clause_index, clause)) in clauses.iter().copied().enumerate() {
+        if clause == QueryClause::SetOperation {
+            continue;
+        }
+        let mut payload = clause_index + 1;
+        if matches!(clause, QueryClause::GroupBy | QueryClause::OrderBy)
+            && tokens
+                .get(payload)
+                .is_some_and(|token| token.depth == depth && token.is_word("by"))
+        {
+            payload += 1;
+        }
+        let end_index = clauses
+            .get(ordinal + 1)
+            .map_or(tokens.len(), |(index, _)| *index);
+        let payload_tokens = tokens[payload.min(tokens.len())..end_index.min(tokens.len())]
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| {
+                block.range.start <= token.span.range.start
+                    && token.span.range.end <= block.range.end
+            })
+            .collect::<Vec<_>>();
+        let mut item_start = 0usize;
+        let mut item_index = 0usize;
+        for split in 0..=payload_tokens.len() {
+            let is_end = split == payload_tokens.len();
+            let is_separator = !is_end
+                && payload_tokens[split].1.depth == depth
+                && payload_tokens[split].1.is_comma();
+            if !is_end && !is_separator {
+                continue;
+            }
+            let segment = &payload_tokens[item_start..split];
+            let fallback = if item_start == 0 {
+                tokens
+                    .get(payload.saturating_sub(1))
+                    .map_or(block.range.start, |token| token.span.range.end)
+            } else {
+                payload_tokens[item_start.saturating_sub(1)]
+                    .1
+                    .span
+                    .range
+                    .end
+            };
+            let raw_range = segment
+                .first()
+                .zip(segment.last())
+                .map_or(fallback..fallback, |(first, last)| {
+                    first.1.span.range.start..last.1.span.range.end
+                });
+            let range = trim_source_range(text, raw_range);
+            let span = SourceSpan {
+                source: block.source,
+                range: ByteSpan {
+                    start: range.start,
+                    end: range.end,
+                },
+            };
+            output.push(SqlClauseItemDebug {
+                clause: clause.name().to_owned(),
+                index: item_index,
+                span,
+                status: item_parse_status(text, range, cursor, SqlIslandRoot::Query, Some(clause)),
+            });
+            item_index += 1;
+            item_start = split + 1;
+        }
+    }
+    output
+}
+
+fn trim_source_range(text: &str, mut range: Range<usize>) -> Range<usize> {
+    range.start = range.start.min(text.len());
+    range.end = range.end.min(text.len()).max(range.start);
+    while range.start < range.end {
+        let character = text[range.start..range.end].chars().next().unwrap();
+        if !character.is_whitespace() {
+            break;
+        }
+        range.start += character.len_utf8();
+    }
+    while range.end > range.start {
+        let character = text[range.start..range.end].chars().next_back().unwrap();
+        if !character.is_whitespace() {
+            break;
+        }
+        range.end -= character.len_utf8();
+    }
+    range
+}
+
+fn item_parse_status(
+    text: &str,
+    range: Range<usize>,
+    cursor: usize,
+    root: SqlIslandRoot,
+    clause: Option<QueryClause>,
+) -> SqlItemParseStatus {
+    if range.start <= cursor && cursor <= range.end {
+        return SqlItemParseStatus::Cursor;
+    }
+    if range.is_empty() {
+        return SqlItemParseStatus::Empty;
+    }
+    let authored = text[range].trim();
+    let parsed = match root {
+        SqlIslandRoot::Expression => SqlExpression::parse(authored).is_ok(),
+        SqlIslandRoot::Projection => SqlProjection::parse(authored).is_ok(),
+        SqlIslandRoot::Query => match clause.unwrap_or(QueryClause::Start) {
+            QueryClause::Select => SqlProjection::parse(authored).is_ok(),
+            QueryClause::From | QueryClause::Join => {
+                SqlQuery::parse(&format!("SELECT * FROM {authored}")).is_ok()
+            }
+            QueryClause::Values => SqlQuery::parse(&format!("VALUES {authored}")).is_ok(),
+            QueryClause::With => SqlQuery::parse(&format!("WITH {authored} SELECT 1")).is_ok(),
+            QueryClause::Window => SqlQuery::parse(&format!("SELECT 1 WINDOW {authored}")).is_ok(),
+            QueryClause::OrderBy => {
+                SqlQuery::parse(&format!("SELECT 1 ORDER BY {authored}")).is_ok()
+            }
+            QueryClause::GroupBy => {
+                SqlQuery::parse(&format!("SELECT 1 GROUP BY {authored}")).is_ok()
+            }
+            QueryClause::Limit | QueryClause::Offset | QueryClause::Fetch => {
+                SqlExpression::parse(authored).is_ok()
+            }
+            QueryClause::Start | QueryClause::SetOperation => false,
+            QueryClause::On
+            | QueryClause::Using
+            | QueryClause::Where
+            | QueryClause::Having
+            | QueryClause::Qualify => SqlExpression::parse(authored).is_ok(),
+        },
+    };
+    if parsed {
+        SqlItemParseStatus::Parsed
+    } else {
+        SqlItemParseStatus::Unparsed
+    }
+}
+
+fn clause_start_at(tokens: &[SqlToken<'_>], index: usize, depth: usize) -> Option<QueryClause> {
+    let token = tokens.get(index)?;
+    if token.depth != depth {
+        return None;
+    }
+    let next_is_by = tokens
+        .get(index + 1)
+        .is_some_and(|next| next.depth == depth && next.is_word("by"));
+    if token.is_word("with") {
+        Some(QueryClause::With)
+    } else if token.is_word("select") {
+        Some(QueryClause::Select)
+    } else if token.is_word("from") {
+        Some(QueryClause::From)
+    } else if token.is_word("join") {
+        Some(QueryClause::Join)
+    } else if token.is_word("on") {
+        Some(QueryClause::On)
+    } else if token.is_word("using") {
+        Some(QueryClause::Using)
+    } else if token.is_word("where") {
+        Some(QueryClause::Where)
+    } else if token.is_word("group") && next_is_by {
+        Some(QueryClause::GroupBy)
+    } else if token.is_word("having") {
+        Some(QueryClause::Having)
+    } else if token.is_word("window") {
+        Some(QueryClause::Window)
+    } else if token.is_word("qualify") {
+        Some(QueryClause::Qualify)
+    } else if token.is_word("order") && next_is_by {
+        Some(QueryClause::OrderBy)
+    } else if token.is_word("limit") {
+        Some(QueryClause::Limit)
+    } else if token.is_word("offset") {
+        Some(QueryClause::Offset)
+    } else if token.is_word("fetch") {
+        Some(QueryClause::Fetch)
+    } else if token.is_word("values") {
+        Some(QueryClause::Values)
+    } else if token.is_word("union") || token.is_word("except") || token.is_word("intersect") {
+        Some(QueryClause::SetOperation)
+    } else {
+        None
+    }
+}
+
+fn query_clause_at(tokens: &[SqlToken<'_>], cursor: usize) -> QueryClause {
+    query_clause_and_index(tokens, cursor).0
+}
+
+fn cte_header_state(
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    prefix: &str,
+) -> Option<CteHeaderState> {
+    let (clause, with_index) = query_clause_and_index(tokens, cursor);
+    if clause != QueryClause::With {
+        return None;
+    }
+    let with_index = with_index?;
+    let depth = tokens[with_index].depth;
+    let mut indices = tokens
+        .iter()
+        .enumerate()
+        .skip(with_index + 1)
+        .filter(|(_, token)| token.depth == depth && token.span.range.start < cursor)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if indices
+        .first()
+        .is_some_and(|index| tokens[*index].is_word("recursive"))
+    {
+        indices.remove(0);
+    } else if let Some(index) = indices.first().copied()
+        && let Some(word) = tokens[index].word()
+        && !prefix.is_empty()
+        && tokens[index].span.range.end == cursor
+        && "recursive".starts_with(&word.to_ascii_lowercase())
+    {
+        return Some(CteHeaderState::RecursiveKeyword);
+    }
+
+    if let Some(comma) = indices.iter().rposition(|index| tokens[*index].is_comma()) {
+        indices.drain(..=comma);
+    }
+    let Some(name_index) = indices.first().copied() else {
+        return Some(CteHeaderState::Name);
+    };
+    let name = &tokens[name_index];
+    if name.word().is_none() {
+        return Some(CteHeaderState::Name);
+    }
+    let Some(as_index) = indices
+        .iter()
+        .copied()
+        .find(|index| tokens[*index].is_word("as"))
+    else {
+        return Some(if name.span.range.end < cursor {
+            CteHeaderState::AfterName
+        } else {
+            CteHeaderState::Name
+        });
+    };
+    if tokens[as_index].span.range.end == cursor && prefix.eq_ignore_ascii_case("as") {
+        return Some(CteHeaderState::AfterName);
+    }
+    let Some(open_index) = indices
+        .iter()
+        .copied()
+        .find(|index| *index > as_index && matches!(tokens[*index].token, Some(Token::LParen)))
+    else {
+        return Some(CteHeaderState::AfterAs);
+    };
+    matching_close(tokens, open_index)
+        .filter(|close| tokens[*close].span.range.end <= cursor)
+        .map(|_| CteHeaderState::BodyComplete)
+}
+
+fn sql_cursor_path_debug(
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    qualifier: Option<String>,
+    replacement: SourceSpan,
+    skeleton: &QuerySkeleton,
+) -> SqlCursorPathDebug {
+    let block = &skeleton.blocks[skeleton.active_block];
+    let depth = block.depth;
+    let (clause, clause_index) = query_clause_and_index_in_block(tokens, cursor, depth, block.span);
+    let item_index = clause_index.map_or(0, |start| {
+        tokens[start + 1..]
+            .iter()
+            .take_while(|token| token.span.range.start < cursor)
+            .filter(|token| token.depth == depth && token.is_comma())
+            .count()
+    });
+    SqlCursorPathDebug {
+        clause: clause.name().to_owned(),
+        nesting_depth: depth,
+        item_index,
+        qualifier,
+        replacement,
+        ast_path: vec![
+            format!("query_block[{}]", block.index),
+            clause.name().to_owned(),
+            format!("item[{item_index}]"),
+        ],
+    }
+}
+
+fn query_clause_and_index(tokens: &[SqlToken<'_>], cursor: usize) -> (QueryClause, Option<usize>) {
+    let depth = cursor_depth(tokens, cursor);
+    for candidate_depth in (0..=depth).rev() {
+        if candidate_depth < depth && paren_introduces_query(tokens, cursor, depth) {
+            break;
+        }
+        let mut clause = QueryClause::Start;
+        let mut clause_index = None;
+        for (index, token) in tokens.iter().enumerate() {
+            if token.span.range.end > cursor || token.depth != candidate_depth {
+                continue;
+            }
+            let candidate = clause_start_at(tokens, index, candidate_depth);
+            if let Some(candidate) = candidate {
+                clause = candidate;
+                clause_index = Some(index);
+            }
+        }
+        if clause_index.is_some() {
+            return (clause, clause_index);
+        }
+    }
+    (QueryClause::Start, None)
+}
+
+fn query_clause_and_index_in_block(
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+    depth: usize,
+    block: SourceSpan,
+) -> (QueryClause, Option<usize>) {
+    let mut clause = QueryClause::Start;
+    let mut clause_index = None;
+    for (index, token) in tokens.iter().enumerate() {
+        if token.span.range.end > cursor
+            || token.depth != depth
+            || token.span.range.start < block.range.start
+            || block.range.end < token.span.range.end
+        {
+            continue;
+        }
+        if let Some(candidate) = clause_start_at(tokens, index, depth) {
+            clause = candidate;
+            clause_index = Some(index);
+        }
+    }
+    (clause, clause_index)
+}
+
+fn active_open_paren(tokens: &[SqlToken<'_>], cursor: usize, depth: usize) -> Option<usize> {
+    if depth == 0 {
+        return None;
+    }
+    tokens
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(index, token)| {
+            token.span.range.start < cursor
+                && token.depth + 1 == depth
+                && matches!(token.token, Some(Token::LParen))
+                && matching_close(tokens, *index)
+                    .is_none_or(|close| tokens[close].span.range.end >= cursor)
+        })
+        .map(|(index, _)| index)
+}
+
+fn paren_introduces_query(tokens: &[SqlToken<'_>], cursor: usize, depth: usize) -> bool {
+    let Some(open) = active_open_paren(tokens, cursor, depth) else {
+        return false;
+    };
+    if tokens[open + 1..].iter().any(|token| {
+        token.span.range.end <= cursor
+            && token.depth == depth
+            && (token.is_word("select")
+                || token.is_word("from")
+                || token.is_word("with")
+                || token.is_word("values"))
+    }) {
+        return true;
+    }
+    tokens[..open]
+        .iter()
+        .rev()
+        .find_map(SqlToken::word)
+        .is_some_and(|word| {
+            ["exists", "in", "from", "join"]
+                .iter()
+                .any(|candidate| word.eq_ignore_ascii_case(candidate))
+        })
+}
+
+fn inside_window_specification(tokens: &[SqlToken<'_>], cursor: usize) -> bool {
+    let depth = cursor_depth(tokens, cursor);
+    let Some(open) = active_open_paren(tokens, cursor, depth) else {
+        return false;
+    };
+    let words = tokens[..open]
+        .iter()
+        .rev()
+        .filter_map(SqlToken::word)
+        .take(3)
+        .collect::<Vec<_>>();
+    words
+        .first()
+        .is_some_and(|word| word.eq_ignore_ascii_case("over"))
+        || (words
+            .first()
+            .is_some_and(|word| word.eq_ignore_ascii_case("as"))
+            && words
+                .get(2)
+                .is_some_and(|word| word.eq_ignore_ascii_case("window")))
+}
+
+fn case_transition_keywords(
+    tokens: &[SqlToken<'_>],
+    cursor: usize,
+) -> Option<&'static [&'static str]> {
+    let depth = cursor_depth(tokens, cursor);
+    let mut stack = Vec::<CaseStage>::new();
+    for token in tokens
+        .iter()
+        .filter(|token| token.span.range.start < cursor && token.depth == depth)
+    {
+        if token.is_word("case") {
+            stack.push(CaseStage::Case);
+        } else if token.is_word("when") {
+            if let Some(stage) = stack.last_mut() {
+                *stage = CaseStage::When;
+            }
+        } else if token.is_word("then") {
+            if let Some(stage) = stack.last_mut() {
+                *stage = CaseStage::Then;
+            }
+        } else if token.is_word("else") {
+            if let Some(stage) = stack.last_mut() {
+                *stage = CaseStage::Else;
+            }
+        } else if token.is_word("end") {
+            stack.pop();
+        }
+    }
+    match stack.last()? {
+        CaseStage::Case => Some(&["WHEN"]),
+        CaseStage::When => Some(&["THEN"]),
+        CaseStage::Then => Some(&["WHEN", "ELSE", "END"]),
+        CaseStage::Else => Some(&["END"]),
     }
 }
 
@@ -3874,7 +7129,13 @@ fn validate_expression(
     repair: SqlRepairStrategy,
     cursor: usize,
 ) -> bool {
-    let repaired = build_repaired_sql(authored, cursor, repair);
+    let repaired = build_repaired_sql(
+        authored,
+        cursor..cursor,
+        repair,
+        sentinel_for_repair(repair),
+        0,
+    );
     let Ok(schema) = DFSchema::try_from(dataset.schema.as_ref().clone()) else {
         return false;
     };
@@ -3895,7 +7156,13 @@ fn validate_projection(
     repair: SqlRepairStrategy,
     cursor: usize,
 ) -> bool {
-    let repaired = build_repaired_sql(authored, cursor, repair);
+    let repaired = build_repaired_sql(
+        authored,
+        cursor..cursor,
+        repair,
+        sentinel_for_repair(repair),
+        0,
+    );
     let Ok(projection) = SqlProjection::parse(&repaired.text) else {
         return false;
     };
@@ -3929,16 +7196,20 @@ fn validate_projection(
 }
 
 fn deduplicate_relations(relations: &mut Vec<RelationMetadata>) {
-    relations.sort_by(|left, right| {
-        left.scope_depth
-            .cmp(&right.scope_depth)
-            .then_with(|| left.visible_name().cmp(right.visible_name()))
-            .then_with(|| left.path.cmp(&right.path))
-    });
-    relations.dedup_by(|left, right| {
-        left.visible_name()
-            .eq_ignore_ascii_case(right.visible_name())
-            && eq_path(&left.path, &right.path)
+    // Stable depth ordering keeps the active block's source order (needed by
+    // JOIN/USING/LATERAL) while still putting a nearer shadowing alias before
+    // the same alias in a correlated parent.
+    relations.sort_by_key(|relation| std::cmp::Reverse(relation.scope_depth));
+    let mut seen = BTreeSet::new();
+    relations.retain(|relation| {
+        seen.insert((
+            relation.visible_name().to_ascii_lowercase(),
+            relation
+                .path
+                .iter()
+                .map(|part| part.to_ascii_lowercase())
+                .collect::<Vec<_>>(),
+        ))
     });
 }
 
@@ -3984,11 +7255,6 @@ fn is_clause_word(word: &str) -> bool {
     .any(|candidate| word.eq_ignore_ascii_case(candidate))
 }
 
-fn candidate_matches(candidate: &str, typed: &str) -> bool {
-    let typed = typed.trim_start_matches('$').to_ascii_lowercase();
-    candidate.to_ascii_lowercase().contains(&typed)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn candidate(
     label: &str,
@@ -3999,12 +7265,25 @@ fn candidate(
     origin: CompletionOrigin,
     bucket: &str,
 ) -> CompletionItem {
+    let semantic_kind = sql_semantic_kind(kind, origin, detail.as_deref());
     CompletionItem {
         label: label.to_owned(),
+        match_text: label.to_owned(),
         replacement,
         insert_text: insert.to_owned(),
         insert_text_format: CompletionTextFormat::PlainText,
         kind,
+        semantic_kind,
+        semantic_identity: format!("{semantic_kind:?}:{origin:?}:{label}:{insert}"),
+        qualification: CompletionQualification::Unqualified,
+        data_type: None,
+        nullable: None,
+        source_stage: None,
+        expected_type_compatible: None,
+        confidence: 100,
+        semantic_proximity: 50,
+        usage_prevalence: 0,
+        validity: CompletionValidity::Strict,
         detail,
         documentation: None,
         filter_text: Some(label.to_owned()),
@@ -4014,33 +7293,147 @@ fn candidate(
     }
 }
 
-fn rank_and_deduplicate(items: &mut Vec<CompletionItem>, prefix: &str) {
-    let typed = prefix.trim_start_matches('$').to_ascii_lowercase();
-    for item in items.iter_mut() {
-        let label = item.label.trim_start_matches('$').to_ascii_lowercase();
-        let prefix_rank = if label == typed {
-            "0"
-        } else if label.starts_with(&typed) {
-            "1"
-        } else {
-            "2"
-        };
-        item.sort_key = format!("{prefix_rank}:{}", item.sort_key);
+fn sql_semantic_kind(
+    kind: CompletionKind,
+    origin: CompletionOrigin,
+    detail: Option<&str>,
+) -> CompletionSemanticKind {
+    match kind {
+        CompletionKind::Keyword => CompletionSemanticKind::SqlKeyword,
+        CompletionKind::Declaration | CompletionKind::Snippet => {
+            CompletionSemanticKind::Declaration
+        }
+        CompletionKind::Property => CompletionSemanticKind::Property,
+        CompletionKind::EnumValue => CompletionSemanticKind::EnumValue,
+        CompletionKind::Variable => CompletionSemanticKind::ScalarParam,
+        CompletionKind::Field => {
+            if origin == CompletionOrigin::DatasetSchema {
+                CompletionSemanticKind::DataColumn
+            } else {
+                CompletionSemanticKind::StructField
+            }
+        }
+        CompletionKind::Function => {
+            let detail = detail.unwrap_or_default();
+            if detail.contains("aggregate") {
+                CompletionSemanticKind::AggregateFunction
+            } else if detail.contains("window") {
+                CompletionSemanticKind::WindowFunction
+            } else if detail.contains("table") {
+                CompletionSemanticKind::TableFunction
+            } else {
+                CompletionSemanticKind::ScalarFunction
+            }
+        }
+        CompletionKind::Type => CompletionSemanticKind::SqlType,
+        CompletionKind::Module => CompletionSemanticKind::Relation,
+        CompletionKind::Catalog => CompletionSemanticKind::Catalog,
+        CompletionKind::Schema => CompletionSemanticKind::Schema,
+        CompletionKind::Table => {
+            if origin == CompletionOrigin::LexicalScope {
+                CompletionSemanticKind::StoreParam
+            } else {
+                CompletionSemanticKind::Relation
+            }
+        }
     }
-    items.sort_by(|left, right| {
-        left.sort_key
-            .cmp(&right.sort_key)
-            .then_with(|| left.label.cmp(&right.label))
+}
+
+fn retain_candidates_for_lexical_mode(items: &mut Vec<CompletionItem>, mode: SqlLexicalMode) {
+    items.retain(|item| match mode {
+        SqlLexicalMode::DoubleQuotedIdentifier => matches!(
+            item.semantic_kind,
+            CompletionSemanticKind::DataColumn
+                | CompletionSemanticKind::Relation
+                | CompletionSemanticKind::Catalog
+                | CompletionSemanticKind::Schema
+        ),
+        SqlLexicalMode::Binding | SqlLexicalMode::TemporalQualifier => matches!(
+            item.semantic_kind,
+            CompletionSemanticKind::ScalarParam
+                | CompletionSemanticKind::StoreParam
+                | CompletionSemanticKind::StructField
+        ),
+        SqlLexicalMode::Code => !matches!(
+            item.semantic_kind,
+            CompletionSemanticKind::DataColumn
+                | CompletionSemanticKind::ScalarParam
+                | CompletionSemanticKind::StoreParam
+        ),
+        SqlLexicalMode::SingleQuotedString
+        | SqlLexicalMode::DollarQuotedString
+        | SqlLexicalMode::LineComment
+        | SqlLexicalMode::BlockComment => false,
     });
+}
+
+fn completion_invariants_hold(items: &[CompletionItem], mode: SqlLexicalMode) -> bool {
+    items.iter().all(|item| match item.semantic_kind {
+        CompletionSemanticKind::DataColumn => mode == SqlLexicalMode::DoubleQuotedIdentifier,
+        CompletionSemanticKind::ScalarParam | CompletionSemanticKind::StoreParam => matches!(
+            mode,
+            SqlLexicalMode::Binding | SqlLexicalMode::TemporalQualifier
+        ),
+        _ if mode == SqlLexicalMode::DoubleQuotedIdentifier => matches!(
+            item.semantic_kind,
+            CompletionSemanticKind::Relation
+                | CompletionSemanticKind::Catalog
+                | CompletionSemanticKind::Schema
+        ),
+        _ => true,
+    })
+}
+
+fn completion_invariant_violations(items: &[CompletionItem], mode: SqlLexicalMode) -> usize {
     items
-        .dedup_by(|left, right| left.label == right.label && left.insert_text == right.insert_text);
+        .iter()
+        .filter(|item| !completion_invariants_hold(std::slice::from_ref(*item), mode))
+        .count()
+}
+
+fn annotate_usage_prevalence(
+    items: &mut [CompletionItem],
+    tokens: &[SqlToken<'_>],
+    index: &WorkspaceSemanticIndex,
+) {
+    for item in items {
+        let name = item.label.trim_start_matches('$');
+        let local = tokens
+            .iter()
+            .filter_map(SqlToken::word)
+            .filter(|word| word.eq_ignore_ascii_case(name))
+            .count();
+        let project = index
+            .documents
+            .values()
+            .map(|document| {
+                document
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.name.eq_ignore_ascii_case(name))
+                    .count()
+                    + document
+                        .references
+                        .iter()
+                        .filter(|reference| reference.name.eq_ignore_ascii_case(name))
+                        .count()
+            })
+            .sum::<usize>();
+        item.usage_prevalence = u32::try_from(local.saturating_add(project)).unwrap_or(u32::MAX);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use avenger_lang_compiler::{Compiler, ModuleFingerprint};
     use avenger_lang_core::{SourceFile, SourceId};
+    use sqlparser::{
+        ast::Spanned,
+        parser::Parser,
+        tokenizer::{Token, Tokenizer},
+    };
 
     use super::*;
     use crate::{DocumentSnapshot, SourceRevision, analyze_syntax};
@@ -4059,21 +7452,28 @@ mod tests {
     fn whole_island_keeps_tokens_after_cursor_and_classifies_member() {
         let text = "avenger 1; chart cartesian as chart { table sql as t { sql: SELECT m. FROM vega.movies AS m; } }";
         let cursor = text.find("m.").unwrap() + 2;
-        let (_, syntax) = syntax(text);
-        let node = syntax
+        let (_, syntax_analysis) = syntax(text);
+        let node = syntax_analysis
             .parsed
             .nodes
             .iter()
             .find(|node| matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. }))
             .unwrap();
-        let tokens = island_tokens(&syntax, node.span);
+        let tokens = island_tokens(&syntax_analysis, node.span);
         assert!(tokens.iter().any(|token| token.is_word("vega")));
-        let replacement = sql_replacement_span(&syntax, node.span, cursor);
-        let roles = expected_roles(&tokens, cursor, SqlIslandContext::QueryProperty, "");
+        let replacement = sql_cursor_context(text, node.span, cursor).replacement;
+        let skeleton = build_query_skeleton(text, node.span, &tokens, cursor, SqlIslandRoot::Query);
+        let intents = expected_intents(
+            &tokens,
+            cursor,
+            SqlIslandContext::QueryProperty,
+            "",
+            &skeleton,
+        );
         assert_eq!(replacement.range, ByteSpan::empty(cursor));
-        assert!(roles.contains(&SqlExpectedRole::QualifierMember));
+        assert!(intents.contains(&SqlIntent::QualifiedMember));
         assert_eq!(
-            select_repair(&tokens, cursor, &roles).0,
+            select_repair(&tokens, cursor, &intents).0,
             SqlRepairStrategy::QualifierMember
         );
         let authored = &text[node.span.range.as_range()];
@@ -4083,7 +7483,8 @@ mod tests {
             SqlIslandRoot::Query,
             &tokens,
             cursor,
-            &roles,
+            &intents,
+            cursor - node.span.range.start..cursor - node.span.range.start,
         );
         assert_eq!(recovery.strategy, SqlRepairStrategy::QualifierMember);
         assert!(recovery.parsed);
@@ -4093,6 +7494,37 @@ mod tests {
             recovery.repaired.authored_offset(generated.end),
             Some(cursor - node.span.range.start)
         );
+    }
+
+    #[test]
+    fn recovery_uses_intent_specific_sentinels_and_minimum_closers() {
+        assert_eq!(minimum_sql_closers("CASE WHEN (true"), ") END");
+        assert_eq!(minimum_sql_closers("array[1, (2"), ")]");
+        assert_eq!(minimum_sql_closers("'CASE ('"), "");
+
+        let query_intents = BTreeSet::from([SqlIntent::QueryStart]);
+        let query = recover_sql("", 0, SqlIslandRoot::Query, &[], 0, &query_intents, 0..0);
+        assert_eq!(query.sentinel, Some(SqlCursorSentinelKind::QueryStart));
+        assert_eq!(query.strategy, SqlRepairStrategy::QueryStart);
+        assert!(query.parsed);
+        assert!(query.attempts <= MAX_REPAIR_ATTEMPTS);
+
+        let type_intents = BTreeSet::from([SqlIntent::TypeName]);
+        let authored = "CAST(1 AS ";
+        let typed = recover_sql(
+            authored,
+            authored.len(),
+            SqlIslandRoot::Expression,
+            &[],
+            authored.len(),
+            &type_intents,
+            authored.len()..authored.len(),
+        );
+        assert_eq!(typed.sentinel, Some(SqlCursorSentinelKind::Type));
+        assert!(typed.parsed);
+        assert!(typed.attempts <= MAX_REPAIR_ATTEMPTS);
+        assert!(typed.repaired.text.contains("BIGINT"));
+        assert!(typed.repaired.text.ends_with(')'));
     }
 
     #[test]
@@ -4115,7 +7547,7 @@ mod tests {
             .unwrap();
         let tokens = island_tokens(&syntax, node.span);
         let cursor = source.text().find("m.").unwrap() + 2;
-        let scope = build_query_scope(&tokens, cursor, 0, &[], None, None);
+        let scope = build_query_scope(&tokens, cursor, 0, SqlIslandRoot::Query, &[], None, None);
         assert!(
             scope
                 .relations
@@ -4125,10 +7557,141 @@ mod tests {
     }
 
     #[test]
+    fn scope_recovers_derived_outputs_and_store_relations() {
+        fn relation(path: &str, columns: &[&str]) -> RelationMetadata {
+            RelationMetadata {
+                path: vec![path.to_owned()],
+                alias: None,
+                columns: columns
+                    .iter()
+                    .map(|name| ColumnMetadata {
+                        name: (*name).to_owned(),
+                        qualifier: Some(path.to_owned()),
+                        data_type: DataType::Utf8,
+                        nullable: false,
+                        stage: "test".to_owned(),
+                        lineage: None,
+                        detail: None,
+                    })
+                    .collect(),
+                detail: "test relation".to_owned(),
+                scope_depth: 0,
+            }
+        }
+
+        let text = "avenger 1; chart cartesian as chart { table sql as t { sql: SELECT s.\"\" FROM (SELECT \"title\" AS movie_title FROM movies) AS s; } }";
+        let cursor = text.find("s.\"\"").unwrap() + 3;
+        let (_, syntax_analysis) = syntax(text);
+        let node = syntax_analysis
+            .parsed
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. }))
+            .unwrap();
+        let tokens = island_tokens(&syntax_analysis, node.span);
+        let scope = build_query_scope(
+            &tokens,
+            cursor,
+            cursor_depth(&tokens, cursor),
+            SqlIslandRoot::Query,
+            &[relation("movies", &["title"])],
+            None,
+            None,
+        );
+        let derived = scope
+            .relations
+            .iter()
+            .find(|relation| relation.visible_name() == "s")
+            .unwrap_or_else(|| panic!("derived relation\ntokens: {tokens:#?}\nscope: {scope:#?}"));
+        assert_eq!(
+            derived
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["movie_title"]
+        );
+
+        let text = "avenger 1; chart cartesian as chart { table sql as t { sql: SELECT s.\"\" FROM $selected AS s; } }";
+        let cursor = text.find("s.\"\"").unwrap() + 3;
+        let (_, syntax) = syntax(text);
+        let node = syntax
+            .parsed
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. }))
+            .unwrap();
+        let tokens = island_tokens(&syntax, node.span);
+        let scope = build_query_scope(
+            &tokens,
+            cursor,
+            cursor_depth(&tokens, cursor),
+            SqlIslandRoot::Query,
+            &[relation("$selected", &["id", "label"])],
+            None,
+            None,
+        );
+        let store = scope
+            .relations
+            .iter()
+            .find(|relation| relation.visible_name() == "s")
+            .unwrap_or_else(|| panic!("store relation\ntokens: {tokens:#?}\nscope: {scope:#?}"));
+        assert_eq!(store.columns.len(), 2);
+    }
+
+    #[test]
+    fn datafusion_reconciliation_preserves_projection_alias_types() {
+        let relation = RelationMetadata {
+            path: vec!["vega".to_owned(), "movies".to_owned()],
+            alias: None,
+            columns: vec![ColumnMetadata {
+                name: "rating".to_owned(),
+                qualifier: Some("movies".to_owned()),
+                data_type: DataType::Decimal128(2, 1),
+                nullable: false,
+                stage: "test".to_owned(),
+                lineage: None,
+                detail: None,
+            }],
+            detail: "test relation".to_owned(),
+            scope_depth: 0,
+        };
+        let mut scope = QueryScope {
+            relations: vec![relation.clone()],
+            projection_aliases: vec![ColumnMetadata {
+                name: "score".to_owned(),
+                qualifier: None,
+                data_type: DataType::Null,
+                nullable: true,
+                stage: "projection".to_owned(),
+                lineage: Some("rating".to_owned()),
+                detail: None,
+            }],
+            ..QueryScope::default()
+        };
+        reconcile_query_output_with_datafusion(
+            "SELECT \"rating\" AS score FROM vega.movies ORDER BY \"score\"",
+            &[relation],
+            &mut scope,
+            &[],
+            0,
+            0,
+        );
+        assert_eq!(scope.projection_aliases[0].name, "score");
+        assert_eq!(
+            scope.projection_aliases[0].data_type,
+            DataType::Decimal128(2, 1)
+        );
+    }
+
+    #[test]
     fn completion_metrics_never_claim_execution() {
         let before = SqlCompletionMetrics::snapshot();
         assert_eq!(before.physical_plans, 0);
+        assert_eq!(before.scans, 0);
+        assert_eq!(before.collects, 0);
         assert_eq!(before.executions, 0);
+        assert_eq!(before.invalid_candidates, 0);
     }
 
     #[test]
@@ -4163,16 +7726,957 @@ mod tests {
                 })
                 .min_by_key(|node| node.span.range.len())
                 .unwrap_or_else(|| panic!("missing SQL island for {}", case["name"]));
-            let TolerantSyntaxNodeKind::SqlIsland { context } = node.kind else {
+            let TolerantSyntaxNodeKind::SqlIsland { site, .. } = &node.kind else {
                 unreachable!()
             };
+            let context = site.context();
             let tokens = island_tokens(&syntax, node.span);
-            let replacement = sql_replacement_span(&syntax, node.span, absolute);
-            let prefix = &text[replacement.range.start..absolute];
-            let roles = expected_roles(&tokens, absolute, context, prefix);
-            let (_, attempts) = select_repair(&tokens, absolute, &roles);
-            assert!(!roles.is_empty(), "{}", case["name"]);
+            let cursor_context = sql_cursor_context(&text, node.span, absolute);
+            let prefix = cursor_context.decoded_prefix.as_str();
+            let skeleton =
+                build_query_skeleton(&text, node.span, &tokens, absolute, context.root());
+            let intents = expected_intents(&tokens, absolute, context, prefix, &skeleton);
+            let (_, attempts) = select_repair(&tokens, absolute, &intents);
+            assert!(!intents.is_empty(), "{}", case["name"]);
             assert!(attempts <= MAX_REPAIR_ATTEMPTS, "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn frozen_sql_corpus_completion_sweep_is_bounded_and_span_safe() {
+        let corpus: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/sql-completion-corpus.json"))
+                .unwrap();
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = SqlCompletionCache::default();
+        for case in corpus["cases"].as_array().unwrap() {
+            let marked = case["sql"].as_str().unwrap();
+            let sql = marked.replacen("⟦cursor⟧", "", 1);
+            let text = if case["root"] == "query" {
+                format!(
+                    "avenger 1; chart cartesian as chart {{ table sql as t {{ sql: {sql}; }} }}"
+                )
+            } else {
+                format!(
+                    "avenger 1; chart cartesian as chart {{ mark symbol {{ x: encoded {sql}; }} }}"
+                )
+            };
+            let base = text.find(&sql).unwrap();
+            let (origin, syntax) = syntax(&text);
+            let semantic_index = WorkspaceSemanticIndex::build(
+                &BTreeMap::from([(origin.clone(), syntax.clone())]),
+                &BTreeMap::new(),
+            );
+            for relative in sql
+                .char_indices()
+                .map(|(offset, _)| offset)
+                .chain(std::iter::once(sql.len()))
+            {
+                let request = PositionRequest {
+                    source: origin.clone(),
+                    byte_offset: base + relative,
+                    source_revision: syntax.revision.clone(),
+                };
+                let output = complete_sql(
+                    &request,
+                    &syntax,
+                    compiler.language_host().authoring_schema(),
+                    &semantic_index,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &CompletionInvocation::Invoked,
+                    true,
+                    &cache,
+                    &AnalysisCancellation::default(),
+                )
+                .unwrap_or_else(|| {
+                    panic!(
+                        "completion routing failed for {} at {relative}: {sql}",
+                        case["name"]
+                    )
+                });
+                assert!(
+                    output.debug.repair_attempts <= MAX_REPAIR_ATTEMPTS,
+                    "{} at {relative}",
+                    case["name"]
+                );
+                assert!(output.items.iter().all(|item| {
+                    item.replacement.range.start <= item.replacement.range.end
+                        && item.replacement.range.end <= text.len()
+                        && text.is_char_boundary(item.replacement.range.start)
+                        && text.is_char_boundary(item.replacement.range.end)
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn sql_clause_item_and_delimiter_mutations_remain_bounded_and_span_safe() {
+        let cases = [
+            (
+                "avenger 1; chart cartesian { table sql as result { sql: ",
+                "WITH c AS (SELECT \"id\" FROM vega.movies) SELECT c.\"id\" FROM c JOIN vega.ratings AS r ON c.\"id\" = r.\"id\" WHERE c.\"id\" BETWEEN 1 AND 3 ORDER BY c.\"id\"",
+                "; } }",
+            ),
+            (
+                "avenger 1; chart cartesian { transform calculate { expressions: ",
+                "\"id\" AS id, CASE WHEN \"rating\" > 0 THEN round(\"rating\") ELSE 0 END AS score",
+                "; } }",
+            ),
+            (
+                "avenger 1; chart cartesian { param 1 as minimum; mark symbol { x: encoded ",
+                "CASE WHEN \"id\" BETWEEN 1 AND 3 THEN ($minimum + 1) ELSE 0 END",
+                "; } }",
+            ),
+        ];
+        let mutation_targets = [
+            "(", ")", ",", "\"", ".", "SELECT", "FROM", "JOIN", "ON", "WHERE", "ORDER BY", "CASE",
+            "END",
+        ];
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = SqlCompletionCache::default();
+
+        for (prefix, authored, suffix) in cases {
+            for target in mutation_targets {
+                for target_start in authored.match_indices(target).map(|(start, _)| start) {
+                    for duplicate in [false, true] {
+                        let mut mutated = authored.to_owned();
+                        let cursor = if duplicate {
+                            mutated.insert_str(target_start, target);
+                            target_start + target.len()
+                        } else {
+                            mutated.replace_range(target_start..target_start + target.len(), "");
+                            target_start
+                                + mutated[target_start..]
+                                    .char_indices()
+                                    .find(|(_, character)| !character.is_whitespace())
+                                    .map_or(0, |(offset, _)| offset)
+                        };
+                        let text = format!("{prefix}{mutated}{suffix}");
+                        let absolute = prefix.len() + cursor;
+                        let (origin, syntax) = syntax(&text);
+                        let semantic_index = WorkspaceSemanticIndex::build(
+                            &BTreeMap::from([(origin.clone(), syntax.clone())]),
+                            &BTreeMap::new(),
+                        );
+                        let output = complete_sql(
+                            &PositionRequest {
+                                source: origin,
+                                byte_offset: absolute,
+                                source_revision: syntax.revision.clone(),
+                            },
+                            &syntax,
+                            compiler.language_host().authoring_schema(),
+                            &semantic_index,
+                            &BTreeMap::new(),
+                            &BTreeMap::new(),
+                            &CompletionInvocation::Invoked,
+                            true,
+                            &cache,
+                            &AnalysisCancellation::default(),
+                        )
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "completion routing failed after {} {target:?} in {authored:?}",
+                                if duplicate { "duplicating" } else { "deleting" }
+                            )
+                        });
+                        assert!(
+                            output.debug.repair_attempts <= MAX_REPAIR_ATTEMPTS,
+                            "{target:?}: {mutated:?}"
+                        );
+                        assert!(
+                            completion_invariants_hold(&output.items, output.debug.lexical_mode),
+                            "{target:?}: {mutated:?}: {:#?}",
+                            output.items
+                        );
+                        assert!(output.items.iter().all(|item| {
+                            item.replacement.range.start <= item.replacement.range.end
+                                && item.replacement.range.end <= text.len()
+                                && text.is_char_boundary(item.replacement.range.start)
+                                && text.is_char_boundary(item.replacement.range.end)
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn exact_sql_intents_distinguish_query_cursor_states() {
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = SqlCompletionCache::default();
+        let complete = |marked: &str| {
+            let cursor = marked.find('|').expect("cursor marker");
+            let sql = marked.replacen('|', "", 1);
+            let prefix = "avenger 1; chart cartesian { table sql as result { sql: ";
+            let text = format!("{prefix}{sql}; }} }}");
+            let absolute = prefix.len() + cursor;
+            let (origin, syntax) = syntax(&text);
+            let semantic_index = WorkspaceSemanticIndex::build(
+                &BTreeMap::from([(origin.clone(), syntax.clone())]),
+                &BTreeMap::new(),
+            );
+            complete_sql(
+                &PositionRequest {
+                    source: origin,
+                    byte_offset: absolute,
+                    source_revision: syntax.revision.clone(),
+                },
+                &syntax,
+                compiler.language_host().authoring_schema(),
+                &semantic_index,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &CompletionInvocation::Invoked,
+                true,
+                &cache,
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+            .debug
+            .intents
+        };
+
+        assert_eq!(complete("|"), BTreeSet::from([SqlIntent::QueryStart]));
+        assert_eq!(
+            complete("SELECT |"),
+            BTreeSet::from([
+                SqlIntent::ClauseTransition,
+                SqlIntent::ExpressionOperand,
+                SqlIntent::FunctionName,
+            ])
+        );
+        assert_eq!(
+            complete("SELECT 1 |"),
+            BTreeSet::from([SqlIntent::ClauseTransition, SqlIntent::ExpressionOperator,])
+        );
+        assert_eq!(
+            complete("SELECT * FROM |"),
+            BTreeSet::from([SqlIntent::RelationPath])
+        );
+        assert_eq!(complete("WITH |"), BTreeSet::from([SqlIntent::CteName]));
+        assert_eq!(
+            complete("WITH current AS |"),
+            BTreeSet::from([SqlIntent::CteBodyStart])
+        );
+        assert_eq!(
+            complete("SELECT * FROM movies AS |"),
+            BTreeSet::from([SqlIntent::NameBinder])
+        );
+        assert_eq!(
+            complete("SELECT CAST(1 AS |)"),
+            BTreeSet::from([SqlIntent::TypeName])
+        );
+        assert_eq!(
+            complete("SELECT m.\"| FROM movies AS m"),
+            BTreeSet::from([SqlIntent::QuotedColumn, SqlIntent::QualifiedMember])
+        );
+        assert_eq!(
+            complete("SELECT * EX| FROM movies"),
+            BTreeSet::from([SqlIntent::WildcardModifier])
+        );
+        assert_eq!(
+            complete("SELECT sum(1) OVER | FROM movies WINDOW recent AS (ORDER BY \"id\")"),
+            BTreeSet::from([SqlIntent::WindowName])
+        );
+    }
+
+    #[test]
+    fn all_nine_sql_sites_match_a_270_case_exact_cursor_matrix() {
+        use avenger_lang_core::syntax::SqlIslandSite;
+
+        fn wrap(site: SqlIslandSite, marked: &str) -> (String, usize) {
+            let relative = marked.find('|').expect("cursor marker");
+            let fragment = marked.replacen('|', "", 1);
+            let (prefix, suffix) = match site {
+                SqlIslandSite::QueryProperty => {
+                    ("avenger 1; chart cartesian { table sql { sql: ", "; } }")
+                }
+                SqlIslandSite::ProjectionProperty => (
+                    "avenger 1; chart cartesian { transform calculate { expressions: ",
+                    "; } }",
+                ),
+                SqlIslandSite::ChannelModePayload => (
+                    "avenger 1; chart cartesian { mark symbol { x: encoded ",
+                    "; } }",
+                ),
+                SqlIslandSite::PropertyValue => (
+                    "avenger 1; chart cartesian { transform filter { predicate: ",
+                    "; } }",
+                ),
+                SqlIslandSite::CursorActionRhs => (
+                    "avenger 1; chart cartesian { on click { set cursor = ",
+                    "; } }",
+                ),
+                SqlIslandSite::StateActionRhs => (
+                    "avenger 1; chart cartesian { param 1 as width; on click { set width = ",
+                    "; } }",
+                ),
+                SqlIslandSite::ArrayElement => (
+                    "avenger 1; chart cartesian { table inline { values: [",
+                    "]; } }",
+                ),
+                SqlIslandSite::ParamInitializer => (
+                    "avenger 1; chart cartesian { param ",
+                    if fragment.is_empty() {
+                        "as width; }"
+                    } else {
+                        " as width; }"
+                    },
+                ),
+                SqlIslandSite::OutputSource => (
+                    "avenger 1; define transform sample { output ",
+                    if fragment.is_empty() {
+                        "as result; }"
+                    } else {
+                        " as result; }"
+                    },
+                ),
+            };
+            (
+                format!("{prefix}{fragment}{suffix}"),
+                prefix.len() + relative,
+            )
+        }
+
+        let query_cases = [
+            "|",
+            "S|",
+            "SELECT |",
+            "SELECT 1|",
+            "SELECT 1 |",
+            "SELECT \"|",
+            "SELECT m.\"| FROM movies AS m",
+            "SELECT * FROM |",
+            "SELECT * FROM veg|",
+            "SELECT * FROM vega.|",
+            "FROM movies AS m SELECT m.\"|",
+            "WITH |",
+            "WITH c |",
+            "WITH c AS |",
+            "WITH c AS (SELECT 1) SELECT |",
+            "SELECT * FROM movies JOIN |",
+            "SELECT * FROM movies JOIN ratings ON |",
+            "SELECT * FROM movies JOIN ratings USING (\"|)",
+            "SELECT * FROM movies WHERE |",
+            "SELECT * FROM movies GROUP BY |",
+            "SELECT * FROM movies HAVING |",
+            "SELECT row_number() OVER () FROM movies QUALIFY |",
+            "SELECT * FROM movies ORDER BY |",
+            "SELECT * FROM movies LIMIT |",
+            "SELECT * FROM movies OFFSET |",
+            "SELECT * FROM movies FETCH |",
+            "SELECT * EX| FROM movies",
+            "SELECT sum(1) OVER | FROM movies WINDOW w AS (ORDER BY \"id\")",
+            "VALUES (|)",
+            "SELECT 1 UNION ALL |",
+        ];
+        let projection_cases = [
+            "|",
+            "C|",
+            "CAST(|",
+            "CAST(1 AS |)",
+            "\"|",
+            "\"va|",
+            "$|",
+            "$wid|",
+            "1|",
+            "1 |",
+            "1 + |",
+            "CASE |",
+            "CASE WHEN |",
+            "CASE WHEN true THEN |",
+            "CASE WHEN true THEN 1 ELSE | END",
+            "round(|)",
+            "coalesce(1, |)",
+            "1 AS |",
+            "1 AS output, |",
+            "*|",
+            "*, |",
+            "\"a\", \"|",
+            "(|)",
+            "((1 + |))",
+            "NULL|",
+            "TRUE|",
+            "NOT |",
+            "-|",
+            "1::|",
+            "/* note|",
+        ];
+        let expression_cases = [
+            "|",
+            "C|",
+            "CA|",
+            "CAST(|",
+            "CAST(1 AS |)",
+            "\"|",
+            "\"va|",
+            "$|",
+            "$wid|",
+            "1|",
+            "1 |",
+            "1 + |",
+            "CASE |",
+            "CASE WHEN |",
+            "CASE WHEN true THEN |",
+            "CASE WHEN true THEN 1 ELSE | END",
+            "round(|)",
+            "coalesce(1, |)",
+            "(|)",
+            "((1 + |))",
+            "NULL|",
+            "TRUE|",
+            "NOT |",
+            "-|",
+            "1::|",
+            "'text|",
+            "$$raw|",
+            "/* note|",
+            "1 -- note|\n",
+            "event.|",
+        ];
+
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = SqlCompletionCache::default();
+        let mut executed = 0usize;
+        let mut exact_digests = BTreeMap::<SqlIslandSite, Sha256>::new();
+        for site in SqlIslandSite::ALL {
+            let cases: &[&str] = match site {
+                SqlIslandSite::QueryProperty => &query_cases,
+                SqlIslandSite::ProjectionProperty => &projection_cases,
+                _ => &expression_cases,
+            };
+            assert_eq!(cases.len(), 30);
+            for marked in cases {
+                let (text, cursor) = wrap(site, marked);
+                let (origin, syntax) = syntax(&text);
+                let semantic_index = WorkspaceSemanticIndex::build(
+                    &BTreeMap::from([(origin.clone(), syntax.clone())]),
+                    &BTreeMap::new(),
+                );
+                let output = complete_sql(
+                    &PositionRequest {
+                        source: origin,
+                        byte_offset: cursor,
+                        source_revision: syntax.revision.clone(),
+                    },
+                    &syntax,
+                    compiler.language_host().authoring_schema(),
+                    &semantic_index,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &CompletionInvocation::Invoked,
+                    true,
+                    &cache,
+                    &AnalysisCancellation::default(),
+                )
+                .unwrap_or_else(|| panic!("site {site:?} did not route `{marked}` in `{text}`"));
+                assert_eq!(output.debug.site, site, "{marked}");
+                assert!(
+                    output.debug.repair_attempts <= MAX_REPAIR_ATTEMPTS,
+                    "{site:?}: {marked}"
+                );
+                assert!(
+                    completion_invariants_hold(&output.items, output.debug.lexical_mode),
+                    "{site:?}: {marked}: {:#?}",
+                    output.items
+                );
+                assert!(output.items.iter().all(|item| {
+                    item.replacement.range.start <= item.replacement.range.end
+                        && item.replacement.range.end <= text.len()
+                        && text.is_char_boundary(item.replacement.range.start)
+                        && text.is_char_boundary(item.replacement.range.end)
+                }));
+                let mut identities = output
+                    .items
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{}:{:?}:{}:{:?}",
+                            item.semantic_identity,
+                            item.replacement,
+                            item.insert_text,
+                            item.insert_text_format
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                identities.sort();
+                identities.dedup();
+                assert_eq!(identities.len(), output.items.len(), "{site:?}: {marked}");
+                let digest = exact_digests.entry(site).or_default();
+                digest.update(marked.as_bytes());
+                digest.update(b"\0");
+                digest.update(format!("{:#?}", output.debug).as_bytes());
+                digest.update(b"\0");
+                digest.update(format!("{:#?}", output.items).as_bytes());
+                digest.update(b"\0");
+                executed += 1;
+            }
+        }
+        assert_eq!(executed, 270);
+        let actual = SqlIslandSite::ALL
+            .into_iter()
+            .map(|site| {
+                let digest = exact_digests.remove(&site).unwrap().finalize();
+                (site, format!("{digest:x}"))
+            })
+            .collect::<Vec<_>>();
+        let expected = [
+            (
+                SqlIslandSite::QueryProperty,
+                "c1e469f5861ae789a777938c3bd13d6fc11f5330b98bb98d8002c83d71446842",
+            ),
+            (
+                SqlIslandSite::ProjectionProperty,
+                "95e8728ddef1a5f099c82dbcfeb35f0d49491cedb43f5145a779d1cb60d4c18c",
+            ),
+            (
+                SqlIslandSite::ChannelModePayload,
+                "9de1408435ee69d589dc1b9a6ab48c7a4745a875f526c30f37eb455d8aedc6f0",
+            ),
+            (
+                SqlIslandSite::PropertyValue,
+                "79da320f1bfdbd3dcfc1db870a0bf1d90f5a533ef78523214906765e7b601fe1",
+            ),
+            (
+                SqlIslandSite::ArrayElement,
+                "9e0329ccd92796ec26e04633820afdc3ef4a2076764421b3b46c0efba5d68c51",
+            ),
+            (
+                SqlIslandSite::ParamInitializer,
+                "b3ab22f82fab79c55697ffe41a6abde392094f5968b0d339c01dc7173a433a74",
+            ),
+            (
+                SqlIslandSite::OutputSource,
+                "cd908a13dceb5a4ee6cec46f85a99187d84c4ecacdb8c50b791b55e1c36ee3f0",
+            ),
+            (
+                SqlIslandSite::CursorActionRhs,
+                "2fc70d5f5793cd97be498823c83f466ba52dac8b382043ccdc91c4e83f7d4e6b",
+            ),
+            (
+                SqlIslandSite::StateActionRhs,
+                "bba30421ce2575a9fa42b21cb19e572a74c3262768625acf2ff6a307bbd5b974",
+            ),
+        ]
+        .map(|(site, digest)| (site, digest.to_owned()))
+        .to_vec();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn lexical_cursor_modes_and_replacement_ranges_are_quote_aware() {
+        fn context(marked: &str) -> (String, usize, SqlCursorContext) {
+            let cursor = marked.find('|').expect("cursor marker");
+            let expression = marked.replacen('|', "", 1);
+            let text = format!(
+                "avenger 1; chart cartesian as chart {{ mark symbol {{ x: encoded {expression}\n; }} }}"
+            );
+            let absolute = text.find(&expression).unwrap() + cursor;
+            let (_, syntax) = syntax(&text);
+            let node = syntax
+                .parsed
+                .nodes
+                .iter()
+                .filter(|node| {
+                    matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. })
+                        && node.span.range.start <= absolute
+                        && absolute <= node.span.range.end
+                })
+                .min_by_key(|node| node.span.range.len())
+                .unwrap_or_else(|| panic!("missing SQL island for `{marked}` in `{text}`"));
+            let context = sql_cursor_context(&text, node.span, absolute);
+            (text, absolute, context)
+        }
+
+        for (marked, mode) in [
+            ("round(|)", SqlLexicalMode::Code),
+            ("'text|", SqlLexicalMode::SingleQuotedString),
+            ("1 -- note|", SqlLexicalMode::LineComment),
+            ("1 /* note|", SqlLexicalMode::BlockComment),
+            ("$$raw|", SqlLexicalMode::DollarQuotedString),
+            ("$tag$raw|", SqlLexicalMode::DollarQuotedString),
+            ("$a$b|", SqlLexicalMode::DollarQuotedString),
+            ("$$param|", SqlLexicalMode::DollarQuotedString),
+            ("$point|", SqlLexicalMode::Binding),
+            ("$point@sta|", SqlLexicalMode::TemporalQualifier),
+        ] {
+            let (_, _, context) = context(marked);
+            assert_eq!(context.mode, mode, "{marked}");
+        }
+
+        assert_eq!(context("'text|").2.synthetic_closer.as_deref(), Some("'"));
+        assert_eq!(context("$$raw|").2.synthetic_closer.as_deref(), Some("$$"));
+        assert_eq!(
+            context("$tag$raw|").2.synthetic_closer.as_deref(),
+            Some("$tag$")
+        );
+        assert_eq!(
+            context("1 /* note|").2.synthetic_closer.as_deref(),
+            Some("*/")
+        );
+        assert_eq!(context("m.\"ra|").2.synthetic_closer.as_deref(), Some("\""));
+
+        let (text, cursor, quoted) = context("m.\"ra|ting\"");
+        assert_eq!(quoted.mode, SqlLexicalMode::DoubleQuotedIdentifier);
+        assert_eq!(quoted.decoded_prefix, "ra");
+        assert_eq!(&text[quoted.replacement.range.as_range()], "\"rating\"");
+        assert!(quoted.replacement.range.start < cursor);
+        assert!(cursor < quoted.replacement.range.end);
+        assert_eq!(quoted.synthetic_closer, None);
+
+        let (text, _, escaped) = context("\"a\"\"b|\"");
+        assert_eq!(escaped.decoded_prefix, "a\"b");
+        assert_eq!(&text[escaped.replacement.range.as_range()], "\"a\"\"b\"");
+
+        let (text, cursor, before_clause) =
+            context("d.\"| FROM (SELECT * EXCLUDE (\"id\") FROM movies) AS d");
+        assert_eq!(before_clause.mode, SqlLexicalMode::DoubleQuotedIdentifier);
+        assert_eq!(&text[before_clause.replacement.range.as_range()], "\"");
+        assert_eq!(before_clause.replacement.range.end, cursor);
+        assert_eq!(before_clause.synthetic_closer.as_deref(), Some("\""));
+
+        let (_, cursor, member) = context("event.coord.|");
+        assert_eq!(member.mode, SqlLexicalMode::Code);
+        assert_eq!(member.replacement.range, ByteSpan::empty(cursor));
+        assert_eq!(member.decoded_prefix, "");
+
+        let text = "\"address\".city.";
+        let island = SourceSpan {
+            source: SourceId::new(0),
+            range: ByteSpan {
+                start: 0,
+                end: text.len(),
+            },
+        };
+        assert_eq!(
+            qualifier_before(text, island, text.len()).as_deref(),
+            Some("address.city")
+        );
+        let escaped = "\"a\"\"b\".";
+        let island = SourceSpan {
+            source: SourceId::new(0),
+            range: ByteSpan {
+                start: 0,
+                end: escaped.len(),
+            },
+        };
+        assert_eq!(
+            qualifier_before(escaped, island, escaped.len()).as_deref(),
+            Some("a\"b")
+        );
+    }
+
+    #[test]
+    fn workspace_sql_cache_is_lru_and_bounded_by_entries_and_bytes() {
+        fn analysis() -> Arc<CachedSqlAnalysis> {
+            Arc::new(CachedSqlAnalysis {
+                intents: BTreeSet::from([SqlIntent::ExpressionOperand]),
+                repair: SqlRepairStrategy::None,
+                sentinel: None,
+                repair_attempts: 1,
+                token_count: 1,
+                catalog: Vec::new(),
+                scope: QueryScope::default(),
+                expression_planned: false,
+                repaired_parse: false,
+                synthetic_ranges: Vec::new(),
+            })
+        }
+
+        let cache = SqlCompletionCache::default();
+        for index in 0..SQL_CACHE_MAX_ENTRIES {
+            cache.insert(format!("key-{index:04}"), analysis());
+        }
+        assert!(cache.get("key-0000").is_some());
+        cache.insert("newest".to_owned(), analysis());
+        assert!(cache.get("key-0000").is_some(), "recent entry was evicted");
+        assert!(cache.get("key-0001").is_none(), "oldest entry survived");
+        let (entries, bytes) = cache.len_and_bytes();
+        assert!(entries <= SQL_CACHE_MAX_ENTRIES);
+        assert!(bytes <= SQL_CACHE_MAX_BYTES);
+    }
+
+    #[test]
+    fn sql_cache_identity_tracks_authored_and_semantic_generations() {
+        let source = SourceOrigin::Memory("cache.avenger".to_owned());
+        let island = SourceSpan {
+            source: SourceId::new(0),
+            range: ByteSpan { start: 10, end: 20 },
+        };
+        let request = PositionRequest {
+            source: source.clone(),
+            byte_offset: 15,
+            source_revision: SourceRevision::new("revision-a"),
+        };
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let mut project = compiler.analyze_phase0_empty();
+        project.module_fingerprint = ModuleFingerprint::new("generation-a");
+        let original = sql_cache_key(&request, island, Some(&project), None);
+
+        let mut revised = request.clone();
+        revised.source_revision = SourceRevision::new("revision-b");
+        assert_ne!(
+            original,
+            sql_cache_key(&revised, island, Some(&project), None)
+        );
+
+        let mut moved = request.clone();
+        moved.byte_offset += 1;
+        assert_ne!(
+            original,
+            sql_cache_key(&moved, island, Some(&project), None)
+        );
+
+        project.module_fingerprint = ModuleFingerprint::new("generation-b");
+        assert_ne!(
+            original,
+            sql_cache_key(&request, island, Some(&project), None)
+        );
+    }
+
+    #[test]
+    fn workspace_sql_cache_is_safe_under_concurrent_requests() {
+        fn analysis(index: usize) -> Arc<CachedSqlAnalysis> {
+            Arc::new(CachedSqlAnalysis {
+                intents: BTreeSet::from([SqlIntent::ExpressionOperand]),
+                repair: SqlRepairStrategy::None,
+                sentinel: None,
+                repair_attempts: 1,
+                token_count: index % 7,
+                catalog: Vec::new(),
+                scope: QueryScope::default(),
+                expression_planned: false,
+                repaired_parse: false,
+                synthetic_ranges: Vec::new(),
+            })
+        }
+
+        let cache = Arc::new(SqlCompletionCache::default());
+        std::thread::scope(|scope| {
+            for worker in 0..8 {
+                let cache = Arc::clone(&cache);
+                scope.spawn(move || {
+                    for index in 0..512 {
+                        // Keep the shared working set below the cache's entry
+                        // bound. Eviction itself is covered separately; this
+                        // test isolates lock safety and concurrent visibility.
+                        let key = format!("worker-{worker}-{}", index % 16);
+                        cache.insert(key.clone(), analysis(index));
+                        assert!(cache.get(&key).is_some());
+                    }
+                });
+            }
+        });
+        for worker in 0..8 {
+            for index in 0..16 {
+                assert!(cache.get(&format!("worker-{worker}-{index}")).is_some());
+            }
+        }
+        let (entries, bytes) = cache.len_and_bytes();
+        assert!(entries <= SQL_CACHE_MAX_ENTRIES);
+        assert!(bytes <= SQL_CACHE_MAX_BYTES);
+    }
+
+    #[test]
+    fn cancelled_completion_does_not_publish_or_populate_cache() {
+        let text = "avenger 1; chart cartesian { table sql { sql: SELECT 1; } }";
+        let cursor = text.find("SELECT 1").unwrap() + "SELECT ".len();
+        let (origin, syntax) = syntax(text);
+        let semantic_index = WorkspaceSemanticIndex::build(
+            &BTreeMap::from([(origin.clone(), syntax.clone())]),
+            &BTreeMap::new(),
+        );
+        let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let cache = SqlCompletionCache::default();
+        let cancellation = AnalysisCancellation::default();
+        cancellation.cancel();
+        assert!(
+            complete_sql(
+                &PositionRequest {
+                    source: origin,
+                    byte_offset: cursor,
+                    source_revision: syntax.revision.clone(),
+                },
+                &syntax,
+                compiler.language_host().authoring_schema(),
+                &semantic_index,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &CompletionInvocation::Invoked,
+                true,
+                &cache,
+                &cancellation,
+            )
+            .is_none()
+        );
+        assert_eq!(cache.len_and_bytes(), (0, 0));
+    }
+
+    #[test]
+    fn sqlparser_token_slices_preserve_original_locations() {
+        let dialect = avenger_lang_core::sql::AvengerSqlDialect;
+        let sql = "SELECT\n  m.\"rating\" + 1\nFROM vega.movies AS m";
+        let tokens = Tokenizer::new(&dialect, sql)
+            .tokenize_with_location()
+            .unwrap();
+        let select = tokens
+            .iter()
+            .position(|token| matches!(&token.token, Token::Word(word) if word.value.eq_ignore_ascii_case("select")))
+            .unwrap();
+        let from = tokens
+            .iter()
+            .position(|token| matches!(&token.token, Token::Word(word) if word.value.eq_ignore_ascii_case("from")))
+            .unwrap();
+        let expression = Parser::new(&dialect)
+            .with_tokens_with_locations(tokens[select + 1..from].to_vec())
+            .parse_expr()
+            .unwrap();
+        let span = expression.span();
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 3);
+        assert_eq!(span.end.line, 2);
+        assert!(span.end.column > span.start.column);
+
+        let select_item_sql = "\n\nm.\"rating\" AS score";
+        let select_item_tokens = Tokenizer::new(&dialect, select_item_sql)
+            .tokenize_with_location()
+            .unwrap();
+        let select_item = Parser::new(&dialect)
+            .with_tokens_with_locations(select_item_tokens)
+            .parse_select_item()
+            .unwrap();
+        assert_eq!(select_item.span().start.line, 3);
+
+        let relation_sql = "\nvega.movies AS m JOIN vega.ratings AS r ON m.\"id\" = r.\"id\"";
+        let relation_tokens = Tokenizer::new(&dialect, relation_sql)
+            .tokenize_with_location()
+            .unwrap();
+        let relation = Parser::new(&dialect)
+            .with_tokens_with_locations(relation_tokens)
+            .parse_table_and_joins()
+            .unwrap();
+        assert_eq!(relation.span().start.line, 2);
+
+        let query_tokens = Tokenizer::new(&dialect, sql)
+            .tokenize_with_location()
+            .unwrap();
+        let query = Parser::new(&dialect)
+            .with_tokens_with_locations(query_tokens.clone())
+            .parse_query()
+            .unwrap();
+        assert_eq!(query.span().start.line, 1);
+        assert!(query.span().end.line >= 3);
+
+        let locationless = Parser::new(&dialect)
+            .with_tokens(query_tokens.into_iter().map(|token| token.token).collect())
+            .parse_query()
+            .unwrap();
+        assert_eq!(locationless.span(), sqlparser::tokenizer::Span::empty());
+    }
+
+    #[test]
+    fn quoted_column_insertions_round_trip_every_supported_identifier_shape() {
+        let dialect = avenger_lang_core::sql::AvengerSqlDialect;
+        for name in [
+            "id",
+            "SELECT",
+            "two words",
+            "a.b",
+            "naïve",
+            "東京",
+            "a\"b",
+            "$value",
+            "@start",
+        ] {
+            let quoted = quote_identifier(name);
+            let tokens = Tokenizer::new(&dialect, &quoted)
+                .tokenize_with_location()
+                .unwrap_or_else(|error| panic!("failed to tokenize {quoted:?}: {error}"));
+            let word = tokens
+                .iter()
+                .find_map(|token| match &token.token {
+                    Token::Word(word) => Some(word),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing quoted identifier token for {quoted:?}"));
+            assert_eq!(word.quote_style, Some('"'), "{quoted:?}");
+            assert_eq!(word.value, name, "{quoted:?}");
+
+            Parser::new(&dialect)
+                .try_with_sql(&format!("SELECT {quoted}"))
+                .unwrap()
+                .parse_query()
+                .unwrap_or_else(|error| panic!("failed to parse {quoted:?}: {error}"));
+        }
+    }
+
+    #[test]
+    fn completion_owned_closers_make_unterminated_tokens_lexable_without_authored_edits() {
+        let dialect = avenger_lang_core::sql::AvengerSqlDialect;
+        for (authored, closer) in [
+            ("m.\"rating", "\""),
+            ("'multiline\ntext", "'"),
+            ("/* nested /* note */", "*/"),
+            ("$tag$multiline\ntext", "$tag$"),
+        ] {
+            assert!(
+                Tokenizer::new(&dialect, authored)
+                    .tokenize_with_location()
+                    .is_err(),
+                "fixture unexpectedly lexed without a closer: {authored:?}"
+            );
+            let patched = format!("{authored}{closer}");
+            let tokens = Tokenizer::new(&dialect, &patched)
+                .tokenize_with_location()
+                .unwrap_or_else(|error| panic!("patched {authored:?}: {error}"));
+            assert!(!tokens.is_empty());
+            assert_eq!(patched.len() - closer.len(), authored.len());
+        }
+    }
+
+    #[test]
+    fn query_skeleton_retains_nested_blocks_and_independent_item_status() {
+        let text = r#"avenger 1; chart cartesian as chart {
+  table sql as t {
+    sql: WITH c AS (SELECT "id" FROM vega.movies)
+         SELECT "id", +, "title"
+         FROM c
+         WHERE EXISTS (SELECT 1 FROM vega.ratings AS r WHERE r."movie_id" = "id");
+  }
+}"#;
+        let cursor = text.find("r.\"movie_id\"").unwrap() + "r.\"mo".len();
+        let (_, syntax) = syntax(text);
+        let node = syntax
+            .parsed
+            .nodes
+            .iter()
+            .filter(|node| {
+                matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. })
+                    && node.span.range.start <= cursor
+                    && cursor <= node.span.range.end
+            })
+            .min_by_key(|node| node.span.range.len())
+            .unwrap();
+        let tokens = island_tokens(&syntax, node.span);
+        let skeleton = build_query_skeleton(text, node.span, &tokens, cursor, SqlIslandRoot::Query);
+        assert_eq!(skeleton.blocks.len(), 3, "{:#?}", skeleton.blocks);
+        let active = &skeleton.blocks[skeleton.active_block];
+        assert!(active.active);
+        assert_eq!(active.parent, Some(0));
+        assert_eq!(active.depth, 1);
+        assert_eq!(skeleton.active_clause(&tokens, cursor), QueryClause::Where);
+
+        let root = &skeleton.blocks[0];
+        let select = root
+            .items
+            .iter()
+            .filter(|item| item.clause == "select")
+            .collect::<Vec<_>>();
+        assert_eq!(select.len(), 3, "{select:#?}");
+        assert_eq!(select[0].status, SqlItemParseStatus::Parsed);
+        assert_eq!(select[1].status, SqlItemParseStatus::Unparsed);
+        assert_eq!(select[2].status, SqlItemParseStatus::Parsed);
     }
 }

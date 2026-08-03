@@ -25,7 +25,7 @@ chart cartesian as chart {
       group_by: ["category"];
     }
     transform sql as doubled {
-      query: SELECT category, total * 2.0 AS doubled FROM input ORDER BY category;
+      query: SELECT "category", "total" * 2.0 AS doubled FROM input ORDER BY "category";
     }
     mark symbol as points {
       fill: encoded "category" {

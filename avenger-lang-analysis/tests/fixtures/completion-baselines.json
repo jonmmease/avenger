@@ -3,15 +3,173 @@
   "cases": [
     {
       "fixture": "expression.cursor.avenger",
-      "ordered_top": ["$point_size"],
-      "must_include": ["$canvas_width", "$canvas_height"],
-      "must_exclude": ["$not_in_scope"]
+      "expected": ["$point_size", "$canvas_width", "$canvas_height"]
     },
     {
       "fixture": "sql_from_first.cursor.avenger",
-      "ordered_top": ["Horsepower"],
-      "must_include": ["Miles_per_Gallon"],
-      "must_exclude": ["unknown_column"]
+      "expected_without_semantics": []
+    }
+  ],
+  "structural_cases": [
+    {
+      "id": "empty",
+      "source": "|",
+      "expected": ["avenger 1;"]
+    },
+    {
+      "id": "version",
+      "source": "avenger |",
+      "expected": ["1"]
+    },
+    {
+      "id": "version_terminator",
+      "source": "avenger 1|",
+      "expected": [";"]
+    },
+    {
+      "id": "module",
+      "source": "avenger 1; |",
+      "expected": ["catalog", "chart", "define", "export", "import", "schema", "table"]
+    },
+    {
+      "id": "module_after_item",
+      "source": "avenger 1; chart cartesian {} |",
+      "expected": ["chart", "catalog", "define", "export", "schema", "table"]
+    },
+    {
+      "id": "export",
+      "source": "avenger 1; export |",
+      "expected": ["catalog", "chart", "define", "schema", "table"]
+    },
+    {
+      "id": "export_chart_kind",
+      "source": "avenger 1; export chart |",
+      "expected": ["cartesian", "facet", "facet_column", "facet_wrap", "geo", "grid_concat", "hconcat", "parallel", "polar", "repeat_columns", "repeat_grid", "repeat_rows", "repeat_wrap", "treemap", "vconcat", "wrap_concat", "zerod"]
+    },
+    {
+      "id": "import",
+      "source": "avenger 1; import |",
+      "expected": ["named import", "namespace import"]
+    },
+    {
+      "id": "import_star",
+      "source": "avenger 1; import * |",
+      "expected": ["as"]
+    },
+    {
+      "id": "import_namespace_binder",
+      "source": "avenger 1; import * as |",
+      "expected": []
+    },
+    {
+      "id": "import_namespace_from",
+      "source": "avenger 1; import * as acme |",
+      "expected": ["from"]
+    },
+    {
+      "id": "import_named_from",
+      "source": "avenger 1; import { foo } |",
+      "expected": ["from"]
+    },
+    {
+      "id": "import_source",
+      "source": "avenger 1; import { foo } from |",
+      "expected": ["'<module>'", "std:datasets", "std:marks", "std:tools", "std:transforms"]
+    },
+    {
+      "id": "import_tail",
+      "source": "avenger 1; import { foo } from './foo.avenger' |",
+      "expected": [";", "sha256"]
+    },
+    {
+      "id": "import_hash",
+      "source": "avenger 1; import { foo } from './foo.avenger' sha256 |",
+      "expected": ["'<sha256>'"]
+    },
+    {
+      "id": "import_hash_end",
+      "source": "avenger 1; import { foo } from './foo.avenger' sha256 'abc' |",
+      "expected": [";"]
+    },
+    {
+      "id": "chart_kind",
+      "source": "avenger 1; chart |",
+      "expected": ["cartesian", "facet", "facet_column", "facet_wrap", "geo", "grid_concat", "hconcat", "parallel", "polar", "repeat_columns", "repeat_grid", "repeat_rows", "repeat_wrap", "treemap", "vconcat", "wrap_concat", "zerod"]
+    },
+    {
+      "id": "chart_tail",
+      "source": "avenger 1; chart cartesian |",
+      "expected": ["as", "body"]
+    },
+    {
+      "id": "chart_name_binder",
+      "source": "avenger 1; chart cartesian as | {}",
+      "expected": []
+    },
+    {
+      "id": "chart_body",
+      "source": "avenger 1; chart cartesian { | }",
+      "expected": ["mark group", "theme", "adjust", "cell", "data", "derive", "export", "format", "guide", "layer", "layout", "level", "mark", "match", "on", "param", "param selection", "param store", "part", "plot", "resource", "scale_edit", "scale_hint", "set", "subtitle", "theme", "time", "title", "tool", "transform", "unit_aspect", "variable", "when", "widget"]
+    },
+    {
+      "id": "mark_kind",
+      "source": "avenger 1; chart cartesian { mark | }",
+      "expected": ["group", "area", "box_plot", "geo_shape", "image", "line", "parallel_line", "parallel_symbol", "path", "rect", "rule", "subplot", "symbol", "text", "trail", "tree_header", "tree_label", "tree_rect", "uniform_raster_2d", "violin"]
+    },
+    {
+      "id": "mark_body",
+      "source": "avenger 1; chart cartesian { mark symbol { | } }",
+      "expected": ["data", "adjust", "angle", "derive", "details", "facet_data_scope", "fill", "fill_pattern", "geometry_space", "match", "opacity", "part", "plot", "shape", "size", "stroke", "stroke_width", "view", "visible", "x", "y", "zindex"]
+    },
+    {
+      "id": "channel_mode",
+      "source": "avenger 1; chart cartesian { mark symbol { x: | } }",
+      "expected": ["direct", "encoded", "none"]
+    },
+    {
+      "id": "boolean_value",
+      "source": "avenger 1; chart cartesian { mark symbol { visible: |; } }",
+      "expected": ["CASE", "CAST", "FALSE", "NULL", "TRUE"]
+    },
+    {
+      "id": "param_header",
+      "source": "avenger 1; chart cartesian { param | }",
+      "expected": ["CAST", "false", "NULL", "selection", "store", "true"]
+    },
+    {
+      "id": "store_body",
+      "source": "avenger 1; chart cartesian { param store as rows { | } }",
+      "expected": ["primary_key", "sharing", "field", "row"]
+    },
+    {
+      "id": "field_type",
+      "source": "avenger 1; chart cartesian { param store as rows { field | } }",
+      "expected": ["binary", "boolean", "date32", "date64", "decimal128", "decimal256", "duration", "fixed_size_binary", "fixed_size_list", "float16", "float32", "float64", "int16", "int32", "int64", "int8", "interval", "large_binary", "large_list", "large_utf8", "list", "map", "struct", "time32", "time64", "timestamp", "uint16", "uint32", "uint64", "uint8", "utf8"]
+    },
+    {
+      "id": "field_nullable",
+      "source": "avenger 1; chart cartesian { param store as rows { field int64 name | } }",
+      "expected": ["nullable"]
+    },
+    {
+      "id": "set_target",
+      "source": "avenger 1; chart cartesian { param 1 as width; on click { set | } }",
+      "expected": ["width", "cursor"]
+    },
+    {
+      "id": "set_scalar_tail",
+      "source": "avenger 1; chart cartesian { param 1 as width; on click { set width | } }",
+      "expected": ["at", "replacing"]
+    },
+    {
+      "id": "comment",
+      "source": "avenger 1; chart cartesian { -- |\n }",
+      "expected": []
+    },
+    {
+      "id": "unknown_statement",
+      "source": "avenger 1; chart cartesian { nonsense extra | }",
+      "expected": []
     }
   ]
 }

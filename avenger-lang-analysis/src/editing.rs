@@ -14,10 +14,11 @@ use sqlparser::tokenizer::Token;
 
 use crate::{
     AnalysisCancellation, AnalysisQueryError, CodeAction, CodeActionKind, CodeActionRequest,
-    CompletionOptions, DocumentRequest, FormattingResult, IndexedReference, IndexedSymbol,
-    IndexedValueKind, LineEnding, PinImportTarget, PositionRequest, PrepareRenameResult,
-    SemanticToken, SemanticTokenKind, SemanticTokenModifiers, SemanticTokensResult, SourceTextEdit,
-    VersionedSourceEdits, WorkspaceAnalysis, WorkspaceEdit,
+    CompletionOptions, DocumentRequest, DocumentSnapshot, FormattingResult, IndexedReference,
+    IndexedSymbol, IndexedValueKind, LineEnding, PinImportTarget, PositionRequest,
+    PrepareRenameResult, SemanticToken, SemanticTokenKind, SemanticTokenModifiers,
+    SemanticTokensResult, SourceRevision, SourceTextEdit, VersionedSourceEdits, WorkspaceAnalysis,
+    WorkspaceEdit, analyze_syntax,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -884,10 +885,14 @@ fn contextual_reference_actions(
         matches!(
             node.kind,
             avenger_lang_core::syntax::TolerantSyntaxNodeKind::SqlIsland {
-                context: avenger_lang_core::syntax::SqlIslandContext::PropertyExpression
-                    | avenger_lang_core::syntax::SqlIslandContext::TerminatedExpression
-                    | avenger_lang_core::syntax::SqlIslandContext::ArrayExpression
-                    | avenger_lang_core::syntax::SqlIslandContext::AliasedExpression
+                site: avenger_lang_core::syntax::SqlIslandSite::ChannelModePayload
+                    | avenger_lang_core::syntax::SqlIslandSite::PropertyValue
+                    | avenger_lang_core::syntax::SqlIslandSite::CursorActionRhs
+                    | avenger_lang_core::syntax::SqlIslandSite::StateActionRhs
+                    | avenger_lang_core::syntax::SqlIslandSite::ArrayElement
+                    | avenger_lang_core::syntax::SqlIslandSite::ParamInitializer
+                    | avenger_lang_core::syntax::SqlIslandSite::OutputSource,
+                ..
             }
         ) && spans_overlap(node.span, request.range)
     }) {
@@ -1719,11 +1724,28 @@ fn ambiguous_qualification_actions(
     if authored.is_empty() || authored.contains('.') {
         return;
     }
-    let completion = analysis.complete(
+    // Column completion is intentionally quote-gated. Ask completion about a
+    // transient quoted view of the invalid bare reference so this quick fix
+    // reuses the same scoped ambiguity analysis without weakening that gate.
+    let mut quoted_text = text.to_owned();
+    quoted_text.insert(request.range.range.end, '"');
+    quoted_text.insert(request.range.range.start, '"');
+    let quoted_revision = SourceRevision::from_text(&quoted_text);
+    let mut syntax = analysis.syntax.clone();
+    syntax.insert(
+        request.source.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            request.source.clone(),
+            quoted_revision.clone(),
+            quoted_text,
+        )),
+    );
+    let quoted_analysis = analysis.with_syntax(analysis.generation, syntax);
+    let completion = quoted_analysis.complete(
         &PositionRequest {
             source: request.source.clone(),
-            byte_offset: request.range.range.end,
-            source_revision: request.source_revision.clone(),
+            byte_offset: request.range.range.end + 1,
+            source_revision: quoted_revision,
         },
         CompletionOptions::default(),
         cancellation,

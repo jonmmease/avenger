@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    ParseError, ParsedFile, SqlIslandContext, SyntaxLimits, parse_file, parse_file_with_limits,
+    ParseError, ParsedFile, SqlIslandSite, SyntaxLimits, parse_file, parse_file_with_limits,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,7 +68,8 @@ pub enum TolerantSyntaxNodeKind {
         configuration_span: Option<SourceSpan>,
     },
     SqlIsland {
-        context: SqlIslandContext,
+        site: SqlIslandSite,
+        fingerprint: String,
     },
     Token,
     MissingToken {
@@ -786,6 +787,15 @@ fn syntax_fingerprint(source: &str) -> String {
     format!("{:x}", hash.finalize())
 }
 
+fn sql_island_fingerprint(site: SqlIslandSite, source: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"avenger-tolerant-sql-island-v1");
+    hash.update(site.manifest_name().as_bytes());
+    hash.update((source.len() as u64).to_le_bytes());
+    hash.update(source.as_bytes());
+    format!("{:x}", hash.finalize())
+}
+
 #[derive(Clone, Copy)]
 struct OpenDelimiter {
     delimiter: char,
@@ -1007,31 +1017,26 @@ impl<'a> TolerantTreeBuilder<'a> {
                         && let Some((start, end)) =
                             self.output_island_bounds(declaration_position, end_position)
                     {
-                        self.push_node(
-                            Some(id),
-                            SourceSpan {
-                                source: self.source.id,
-                                range: ByteSpan { start, end },
-                            },
-                            TolerantSyntaxNodeKind::SqlIsland {
-                                context: SqlIslandContext::AliasedExpression,
-                            },
-                        );
+                        let site = if keyword == "param" {
+                            SqlIslandSite::ParamInitializer
+                        } else {
+                            SqlIslandSite::OutputSource
+                        };
+                        self.push_sql_island(Some(id), site, start, end);
                     }
                     if keyword == "set"
                         && let Some((start, end)) =
                             self.action_island_bounds(declaration_position, end_position)
                     {
-                        self.push_node(
-                            Some(id),
-                            SourceSpan {
-                                source: self.source.id,
-                                range: ByteSpan { start, end },
-                            },
-                            TolerantSyntaxNodeKind::SqlIsland {
-                                context: SqlIslandContext::TerminatedExpression,
-                            },
-                        );
+                        let site = if self
+                            .word_at(declaration_position + 1)
+                            .is_some_and(|target| target.eq_ignore_ascii_case("cursor"))
+                        {
+                            SqlIslandSite::CursorActionRhs
+                        } else {
+                            SqlIslandSite::StateActionRhs
+                        };
+                        self.push_sql_island(Some(id), site, start, end);
                     }
                 }
             }
@@ -1058,6 +1063,12 @@ impl<'a> TolerantTreeBuilder<'a> {
                     },
                     TolerantSyntaxNodeKind::Property { name: name.clone() },
                 );
+                let is_structural_array = self
+                    .token_at_significant_opt(value_start)
+                    .is_some_and(|token| matches!(token.token(), Some(Token::LBracket)));
+                if is_structural_array {
+                    self.push_array_element_islands(Some(property), value_start, value_end);
+                }
                 if matches!(name.as_str(), "encoded" | "direct")
                     && let Some(role) = self.channel_branch_role(parent)
                 {
@@ -1098,6 +1109,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                             )
                         })
                 });
+                let has_channel_mode = channel_mode.is_some();
                 if let Some((span, mode)) = channel_mode {
                     let expression_start = value_start + 1;
                     let expression_end = body_position.unwrap_or(value_end);
@@ -1147,7 +1159,8 @@ impl<'a> TolerantTreeBuilder<'a> {
                 } else {
                     value_start
                 };
-                if island_start <= value_end
+                if !is_structural_array
+                    && island_start <= value_end
                     && let (Some(first), Some(last)) = (
                         self.token_at_significant_opt(island_start),
                         self.token_at_significant_opt(value_end),
@@ -1161,26 +1174,24 @@ impl<'a> TolerantTreeBuilder<'a> {
                         last.span().range.end
                     };
                     if first.span().range.start <= island_end {
-                        self.push_node(
+                        let site = if name.eq_ignore_ascii_case("sql")
+                            || name.eq_ignore_ascii_case("query")
+                        {
+                            SqlIslandSite::QueryProperty
+                        } else if name.eq_ignore_ascii_case("expressions")
+                            || self.tokens_form_projection(island_start, value_end)
+                        {
+                            SqlIslandSite::ProjectionProperty
+                        } else if has_channel_mode {
+                            SqlIslandSite::ChannelModePayload
+                        } else {
+                            SqlIslandSite::PropertyValue
+                        };
+                        self.push_sql_island(
                             Some(property),
-                            SourceSpan {
-                                source: self.source.id,
-                                range: ByteSpan {
-                                    start: first.span().range.start,
-                                    end: island_end,
-                                },
-                            },
-                            TolerantSyntaxNodeKind::SqlIsland {
-                                context: if name.eq_ignore_ascii_case("sql") {
-                                    SqlIslandContext::QueryProperty
-                                } else if name.eq_ignore_ascii_case("expressions")
-                                    || self.tokens_form_projection(island_start, value_end)
-                                {
-                                    SqlIslandContext::ProjectionProperty
-                                } else {
-                                    SqlIslandContext::PropertyExpression
-                                },
-                            },
+                            site,
+                            first.span().range.start,
+                            island_end,
                         );
                     }
                 }
@@ -1328,6 +1339,28 @@ impl<'a> TolerantTreeBuilder<'a> {
         id
     }
 
+    fn push_sql_island(
+        &mut self,
+        parent: Option<TolerantSyntaxNodeId>,
+        site: SqlIslandSite,
+        start: usize,
+        end: usize,
+    ) -> TolerantSyntaxNodeId {
+        let span = SourceSpan {
+            source: self.source.id,
+            range: ByteSpan { start, end },
+        };
+        let text = self.source.text().get(start..end).unwrap_or_default();
+        self.push_node(
+            parent,
+            span,
+            TolerantSyntaxNodeKind::SqlIsland {
+                site,
+                fingerprint: sql_island_fingerprint(site, text),
+            },
+        )
+    }
+
     fn missing(&mut self, expected: char, offset: usize, parent: Option<TolerantSyntaxNodeId>) {
         self.push_node(
             parent,
@@ -1467,7 +1500,18 @@ impl<'a> TolerantTreeBuilder<'a> {
     fn output_island_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
         let first = self.token_at_significant_opt(start + 1)?;
         let mut nesting = 0usize;
-        let mut island_end = self.token_at_significant_opt(end)?.span().range.start;
+        let last = self.token_at_significant_opt(end)?;
+        let mut island_end = if matches!(last.token(), Some(Token::SemiColon))
+            || matches!(last.token(), Some(Token::Word(word)) if word.value.eq_ignore_ascii_case("as"))
+        {
+            last.span().range.start
+        } else {
+            // Tolerant lexing can collapse an unterminated string through the
+            // rest of an aliased declaration into one error token. In that
+            // case the token itself is the editable SQL island; there is no
+            // independently tokenized outer `as` to exclude.
+            last.span().range.end
+        };
         for position in start + 1..end {
             let token = self.token_at_significant(position);
             match token.token() {
@@ -1484,7 +1528,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                 _ => {}
             }
         }
-        (first.span().range.start < island_end).then_some((first.span().range.start, island_end))
+        (first.span().range.start <= island_end).then_some((first.span().range.start, island_end))
     }
 
     fn action_island_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
@@ -1503,13 +1547,125 @@ impl<'a> TolerantTreeBuilder<'a> {
         {
             return None;
         }
-        let last = self.token_at_significant_opt(end)?;
-        let island_end = if matches!(last.token(), Some(Token::SemiColon)) {
-            last.span().range.start
-        } else {
-            last.span().range.end
-        };
-        (first.span().range.start < island_end).then_some((first.span().range.start, island_end))
+        // `;` is owned by the action grammar even when the expression has an
+        // unmatched inner delimiter. It cannot be a legal token inside an
+        // Avenger scalar expression, so lexical recovery must not let the SQL
+        // island consume the rest of the event block.
+        let island_end = (value_start..=end)
+            .find_map(|position| {
+                let token = self.token_at_significant_opt(position)?;
+                matches!(token.token(), Some(Token::SemiColon)).then_some(token.span().range.start)
+            })
+            .unwrap_or_else(|| self.token_at_significant(end).span().range.end);
+        (first.span().range.start <= island_end).then_some((first.span().range.start, island_end))
+    }
+
+    fn push_array_element_islands(
+        &mut self,
+        parent: Option<TolerantSyntaxNodeId>,
+        array_start: usize,
+        property_end: usize,
+    ) {
+        let mut depth = 0usize;
+        let mut element_start = array_start + 1;
+        let mut closed_array = false;
+        let mut last_close_candidate = None;
+        let scan_end = property_end.min(self.significant.len().saturating_sub(1));
+        for position in array_start + 1..=scan_end {
+            let (boundary, closes_array, boundary_start) = {
+                let token = self.token_at_significant(position);
+                if matches!(token.token(), Some(Token::RBracket)) {
+                    last_close_candidate = Some(position);
+                }
+                let boundary = match token.token() {
+                    Some(Token::LParen | Token::LBracket | Token::LBrace) => {
+                        depth += 1;
+                        false
+                    }
+                    Some(Token::RParen | Token::RBrace) if depth > 0 => {
+                        depth -= 1;
+                        false
+                    }
+                    Some(Token::RBracket) if depth > 0 => {
+                        depth -= 1;
+                        false
+                    }
+                    Some(Token::Comma) if depth == 0 => true,
+                    Some(Token::RBracket) if depth == 0 => true,
+                    _ => false,
+                };
+                (
+                    boundary,
+                    matches!(token.token(), Some(Token::RBracket)) && depth == 0,
+                    token.span().range.start,
+                )
+            };
+            if !boundary {
+                continue;
+            }
+
+            if element_start == position {
+                self.push_sql_island(
+                    parent,
+                    SqlIslandSite::ArrayElement,
+                    boundary_start,
+                    boundary_start,
+                );
+            } else if element_start < position && !self.array_element_is_structural(element_start) {
+                let start = self.token_at_significant(element_start).span().range.start;
+                let end = boundary_start;
+                if start < end {
+                    self.push_sql_island(parent, SqlIslandSite::ArrayElement, start, end);
+                }
+            }
+            element_start = position + 1;
+            if closes_array {
+                closed_array = true;
+                break;
+            }
+        }
+        if !closed_array
+            && let Some(close) = last_close_candidate
+            && element_start < close
+            && !self.array_element_is_structural(element_start)
+        {
+            let start = self.token_at_significant(element_start).span().range.start;
+            let end = self.token_at_significant(close).span().range.start;
+            if start < end {
+                self.push_sql_island(parent, SqlIslandSite::ArrayElement, start, end);
+            }
+        } else if !closed_array
+            && last_close_candidate.is_none()
+            && element_start <= scan_end
+            && !self.array_element_is_structural(element_start)
+        {
+            // An unterminated lexical form (notably a dollar-quoted string)
+            // can make sqlparser's tokenizer retain the remainder of the file
+            // as one error token. Preserve that residual range as the active
+            // array-element island so completion remains available at the
+            // cursor even though the outer `]` is no longer tokenized.
+            let start = self.token_at_significant(element_start).span().range.start;
+            let end = self.token_at_significant(scan_end).span().range.end;
+            if start < end {
+                self.push_sql_island(parent, SqlIslandSite::ArrayElement, start, end);
+            }
+        }
+    }
+
+    fn array_element_is_structural(&self, start: usize) -> bool {
+        matches!(
+            self.token_at_significant_opt(start)
+                .and_then(|token| token.token()),
+            Some(Token::LBrace)
+        ) || self
+            .word_at(start)
+            .is_some_and(|word| word.eq_ignore_ascii_case("none"))
+            || (self
+                .word_at(start)
+                .is_some_and(|word| word.eq_ignore_ascii_case("pattern"))
+                && self
+                    .token_at_significant_opt(start + 1)
+                    .is_some_and(|token| matches!(token.token(), Some(Token::LBrace))))
     }
 
     fn find_property_end(&self, start: usize) -> usize {
@@ -1657,6 +1813,8 @@ fn end_span_token(token: &crate::sql::LosslessToken) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use crate::{SourceFile, SourceId, SourceOrigin};
 
     use super::{
@@ -1784,7 +1942,8 @@ mod tests {
             matches!(
                 node.kind,
                 TolerantSyntaxNodeKind::SqlIsland {
-                    context: super::SqlIslandContext::AliasedExpression
+                    site: super::SqlIslandSite::OutputSource,
+                    ..
                 }
             )
         }));
@@ -1801,9 +1960,10 @@ mod tests {
         let islands = parsed
             .nodes
             .iter()
-            .filter_map(|node| match node.kind {
+            .filter_map(|node| match &node.kind {
                 TolerantSyntaxNodeKind::SqlIsland {
-                    context: super::SqlIslandContext::TerminatedExpression,
+                    site: super::SqlIslandSite::StateActionRhs,
+                    ..
                 } => Some(&source.text()[node.span.range.as_range()]),
                 _ => None,
             })
@@ -1826,7 +1986,8 @@ mod tests {
                 matches!(
                     node.kind,
                     TolerantSyntaxNodeKind::SqlIsland {
-                        context: super::SqlIslandContext::PropertyExpression
+                        site: super::SqlIslandSite::ChannelModePayload,
+                        ..
                     }
                 )
             })
@@ -1835,6 +1996,148 @@ mod tests {
             &source.text()[island.span.range.as_range()],
             "\"amount\" + 1"
         );
+    }
+
+    #[test]
+    fn sql_islands_retain_exact_sites_and_array_element_spans() {
+        let source = SourceFile::new(
+            SourceId::new(7),
+            SourceOrigin::Memory("sql-sites.avenger".into()),
+            r#"avenger 1;
+define transform sample {
+  param 1 + 2 as offset;
+  output $offset + 1 as adjusted;
+  expressions: "value" AS copied;
+}
+chart cartesian {
+  sql: SELECT 1;
+  values: [1 + 2, none, { enabled: true; }];
+  mark symbol {
+    x: encoded "value";
+    opacity: $offset;
+  }
+  on click {
+    set cursor = 'crosshair';
+    set offset = $offset + 1;
+  }
+}"#,
+        );
+        let parsed = parse_file_tolerant(&source);
+        let islands = parsed
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                TolerantSyntaxNodeKind::SqlIsland { site, fingerprint } => Some((
+                    *site,
+                    fingerprint,
+                    &source.text()[node.span.range.as_range()],
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let sites = islands
+            .iter()
+            .map(|(site, _, _)| *site)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(sites, super::SqlIslandSite::ALL.into_iter().collect());
+        assert!(
+            islands
+                .iter()
+                .all(|(_, fingerprint, _)| fingerprint.len() == 64)
+        );
+        assert!(islands.iter().any(|(site, _, text)| {
+            *site == super::SqlIslandSite::ArrayElement && *text == "1 + 2"
+        }));
+        assert!(!islands.iter().any(|(_, _, text)| text.contains("none")));
+    }
+
+    #[test]
+    fn empty_editing_positions_retain_every_exact_sql_site() {
+        let source = SourceFile::new(
+            SourceId::new(8),
+            SourceOrigin::Memory("empty-sql-sites.avenger".into()),
+            r#"avenger 1;
+define transform sample {
+  param  as offset;
+  output  as adjusted;
+  expressions: ;
+}
+chart cartesian {
+  sql: ;
+  values: [,];
+  mark symbol {
+    x: encoded ;
+    opacity: ;
+  }
+  on click {
+    set cursor = ;
+    set offset = ;
+  }
+}"#,
+        );
+        let parsed = parse_file_tolerant(&source);
+        let mut sites = BTreeSet::new();
+        for node in &parsed.nodes {
+            let TolerantSyntaxNodeKind::SqlIsland { site, fingerprint } = &node.kind else {
+                continue;
+            };
+            sites.insert(*site);
+            assert!(node.span.range.is_empty(), "{site:?}: {:?}", node.span);
+            assert_eq!(fingerprint.len(), 64);
+        }
+        assert_eq!(sites, super::SqlIslandSite::ALL.into_iter().collect());
+    }
+
+    #[test]
+    fn malformed_lexical_and_delimiter_states_retain_the_editable_sql_range() {
+        for (site, text, cursor_needle, expected_start) in [
+            (
+                super::SqlIslandSite::ParamInitializer,
+                "avenger 1; chart cartesian { param $$raw as width; }",
+                "$$raw",
+                "$$raw",
+            ),
+            (
+                super::SqlIslandSite::ArrayElement,
+                "avenger 1; chart cartesian { table inline { values: [$$raw]; } }",
+                "$$raw",
+                "$$raw",
+            ),
+            (
+                super::SqlIslandSite::StateActionRhs,
+                "avenger 1; chart cartesian { on click { set width = coalesce(1,; } }",
+                "coalesce(1,",
+                "coalesce(1,",
+            ),
+        ] {
+            let source = SourceFile::new(
+                SourceId::new(9),
+                SourceOrigin::Memory(format!("malformed-{site:?}.avenger")),
+                text,
+            );
+            let cursor = text.find(cursor_needle).unwrap() + cursor_needle.len();
+            let parsed = parse_file_tolerant(&source);
+            let island = parsed
+                .nodes
+                .iter()
+                .find(|node| {
+                    matches!(
+                        node.kind,
+                        TolerantSyntaxNodeKind::SqlIsland { site: actual, .. }
+                            if actual == site
+                    ) && node.span.range.start <= cursor
+                        && cursor <= node.span.range.end
+                })
+                .unwrap_or_else(|| panic!("missing {site:?} island at {cursor}: {parsed:#?}"));
+            assert!(
+                source.text()[island.span.range.as_range()].starts_with(expected_start),
+                "{site:?}: {:?}",
+                &source.text()[island.span.range.as_range()]
+            );
+            if site == super::SqlIslandSite::StateActionRhs {
+                assert_eq!(&source.text()[island.span.range.as_range()], "coalesce(1,");
+            }
+        }
     }
 
     #[test]

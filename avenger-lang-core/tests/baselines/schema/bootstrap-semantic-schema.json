@@ -269649,6 +269649,7 @@
             "required": false,
             "shape": {
               "detail": {
+                "expression_mode": "aggregate",
                 "policy": "named"
               },
               "shape": "sql_projection"
@@ -269842,6 +269843,7 @@
             "required": true,
             "shape": {
               "detail": {
+                "expression_mode": "scalar",
                 "policy": "named"
               },
               "shape": "sql_projection"
@@ -270105,6 +270107,7 @@
             "required": true,
             "shape": {
               "detail": {
+                "expression_mode": "aggregate",
                 "policy": "named"
               },
               "shape": "sql_projection"
@@ -270704,6 +270707,7 @@
             "required": true,
             "shape": {
               "detail": {
+                "expression_mode": "aggregate",
                 "policy": "named"
               },
               "shape": "sql_projection"
@@ -270749,6 +270753,7 @@
             "required": true,
             "shape": {
               "detail": {
+                "expression_mode": "scalar",
                 "policy": "select"
               },
               "shape": "sql_projection"
@@ -271488,6 +271493,7 @@
             "required": true,
             "shape": {
               "detail": {
+                "expression_mode": "window",
                 "policy": "named"
               },
               "shape": "sql_projection"

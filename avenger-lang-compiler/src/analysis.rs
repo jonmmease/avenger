@@ -210,9 +210,28 @@ pub struct ModuleAnalysis {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FunctionInventory {
-    pub scalar: Vec<String>,
-    pub aggregate: Vec<String>,
-    pub window: Vec<String>,
+    pub functions: Vec<FunctionMetadata>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FunctionCategory {
+    Scalar,
+    Aggregate,
+    Window,
+    Table,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionMetadata {
+    pub name: String,
+    pub category: FunctionCategory,
+    pub signature: Option<String>,
+    pub parameter_names: Vec<String>,
+    pub return_type: Option<String>,
+    pub volatility: Option<String>,
+    pub description: Option<String>,
+    pub syntax_example: Option<String>,
+    pub arguments: Vec<(String, String)>,
 }
 
 /// Immutable exact Arrow type analysis for scalar parameters.

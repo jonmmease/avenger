@@ -32,7 +32,17 @@ ordinary non-monorepo worktree with `avenger` on `PATH`.
   offers predicate-member fields, and filters `set` operations by the resolved
   scalar/store/selection target.
 - [ ] SQL completion covers SELECT-first and FROM-first queries, qualified
-  columns, CTEs/subqueries, joins, and transform-stage schemas.
+  columns, CTEs/subqueries, joins, and transform-stage schemas. Confirm that
+  columns appear only in `"...` / `alias."...`, use canonical quote escaping,
+  and never appear after a bare prefix or `alias.`. Confirm `$` is required for
+  scalar params and table-valued stores.
+- [ ] Automatic completion is empty in SQL strings/comments, declaration and
+  SQL alias binders, unknown structural statements, and unsupported bare
+  column positions. Explicit invocation may add conservative fuzzy matches but
+  never a syntactically illegal candidate family.
+- [ ] Completion details identify Arrow type, nullability, source stage, and
+  function signature where known. Quoted-column and `$binding` items remain
+  visible while typing because their `filterText` includes the authored prefix.
 - [ ] Hover, definition, references, and highlights stay on authored source
   across local imports and unsaved changes.
 - [ ] Format Document changes only strict-valid source and preserves comments
@@ -51,7 +61,7 @@ ordinary non-monorepo worktree with `avenger` on `PATH`.
   until selected, inserts the verified SHA-256, and rejects a stale document.
 - [ ] Rapid typing/save storms, atomic replacement, multiple charts, and
   repeated **Restart Language Server** do not publish stale diagnostics or
-  leave duplicate server processes/watchers.
+  completion results, or leave duplicate server processes/watchers.
 - [ ] Closing the worktree and quitting Zed releases the server, filesystem
   watchers, file handles, and child process cleanly.
 - [ ] Startup/configuration errors appear once and are actionable; protocol

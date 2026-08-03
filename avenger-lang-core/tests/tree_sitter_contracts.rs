@@ -7,7 +7,10 @@ use std::{
 use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
     sql::{parse_sql_expression, parse_sql_projection, parse_sql_query, tokenize},
-    syntax::{SqlIslandContext, SqlIslandRoot, SqlIslandSite, parse_file},
+    syntax::{
+        SqlIslandContext, SqlIslandRoot, SqlIslandSite, TolerantSyntaxNodeKind, parse_file,
+        parse_file_tolerant,
+    },
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -16,6 +19,7 @@ use sha2::{Digest, Sha256};
 struct BoundaryManifest {
     schema_version: u32,
     contexts: Vec<BoundaryContext>,
+    sites: Vec<BoundarySite>,
     boundary_cases: Vec<BoundaryCase>,
     structural_cases: Vec<StructuralCase>,
 }
@@ -24,18 +28,30 @@ struct BoundaryManifest {
 struct BoundaryContext {
     name: String,
     root: String,
-    outer_delimiters: Vec<String>,
     sites: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BoundarySite {
+    name: String,
+    context: String,
+    outer_delimiters: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct BoundaryCase {
     id: String,
-    context: String,
+    site: String,
     source: String,
     island: String,
     outer: String,
+    #[serde(default = "default_true")]
+    tolerant_sql_island: bool,
     accepted: bool,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,7 +132,7 @@ fn collect_avenger_sources(
 #[test]
 fn sql_island_manifest_covers_every_context_and_call_site() {
     let manifest = boundary_manifest();
-    assert_eq!(manifest.schema_version, 1);
+    assert_eq!(manifest.schema_version, 2);
 
     let contexts: BTreeMap<_, _> = manifest
         .contexts
@@ -134,11 +150,6 @@ fn sql_island_manifest_covers_every_context_and_call_site() {
             SqlIslandRoot::Expression => "expression",
         };
         assert_eq!(entry.root, expected_root, "root for {context:?}");
-        assert_eq!(
-            entry.outer_delimiters,
-            context.outer_delimiters(),
-            "outer delimiters for {context:?}"
-        );
     }
 
     let manifest_sites: BTreeSet<_> = manifest
@@ -158,15 +169,36 @@ fn sql_island_manifest_covers_every_context_and_call_site() {
             "missing or misclassified SQL-island call site {site:?}"
         );
     }
+
+    let sites: BTreeMap<_, _> = manifest
+        .sites
+        .iter()
+        .map(|site| (site.name.as_str(), site))
+        .collect();
+    assert_eq!(sites.len(), SqlIslandSite::ALL.len());
+    for site in SqlIslandSite::ALL {
+        let entry = sites
+            .get(site.manifest_name())
+            .unwrap_or_else(|| panic!("missing SQL-island site {site:?}"));
+        assert_eq!(entry.context, site.context().manifest_name());
+        assert_eq!(entry.outer_delimiters, site.outer_delimiters());
+    }
 }
 
 #[test]
 fn sql_island_boundaries_leave_outer_tokens_unconsumed() {
     let manifest = boundary_manifest();
-    let contexts: BTreeMap<_, _> = SqlIslandContext::ALL
+    let sites: BTreeMap<_, _> = SqlIslandSite::ALL
         .into_iter()
-        .map(|context| (context.manifest_name(), context))
+        .map(|site| (site.manifest_name(), site))
         .collect();
+
+    let covered_sites = manifest
+        .boundary_cases
+        .iter()
+        .map(|case| case.site.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(covered_sites.len(), SqlIslandSite::ALL.len());
 
     for case in manifest.boundary_cases {
         assert!(
@@ -174,12 +206,12 @@ fn sql_island_boundaries_leave_outer_tokens_unconsumed() {
             "island must be a source prefix for {}",
             case.id
         );
-        let context = contexts
-            .get(case.context.as_str())
+        let site = sites
+            .get(case.site.as_str())
             .copied()
-            .unwrap_or_else(|| panic!("unknown context for {}", case.id));
+            .unwrap_or_else(|| panic!("unknown site for {}", case.id));
         assert!(
-            context.outer_delimiters().contains(&case.outer.as_str()),
+            site.outer_delimiters().contains(&case.outer.as_str()),
             "outer token is not legal for {}",
             case.id
         );
@@ -188,7 +220,7 @@ fn sql_island_boundaries_leave_outer_tokens_unconsumed() {
             panic!("boundary case {} failed tokenization: {error}", case.id)
         });
 
-        let parsed = match context.root() {
+        let parsed = match site.context().root() {
             SqlIslandRoot::Query => {
                 parse_sql_query(&stream, 0).map(|parsed| (parsed.span, parsed.next_token))
             }
@@ -218,6 +250,78 @@ fn sql_island_boundaries_leave_outer_tokens_unconsumed() {
                 .unwrap_or_else(|| panic!("missing outer token for {}", case.id));
             assert_eq!(stream.raw(outer), case.outer, "outer token for {}", case.id);
         }
+    }
+}
+
+#[test]
+fn tolerant_and_strict_frontends_agree_on_authored_island_spans() {
+    let sites: BTreeMap<_, _> = SqlIslandSite::ALL
+        .into_iter()
+        .map(|site| (site.manifest_name(), site))
+        .collect();
+
+    for case in boundary_manifest().boundary_cases {
+        let site = sites[case.site.as_str()];
+        let (prefix, suffix) = match site {
+            SqlIslandSite::QueryProperty => ("avenger 1; chart cartesian { sql: ", " }"),
+            SqlIslandSite::ProjectionProperty => (
+                "avenger 1; chart cartesian { transform calculate { expressions: ",
+                " } }",
+            ),
+            SqlIslandSite::ChannelModePayload => (
+                "avenger 1; chart cartesian { mark symbol { x: encoded ",
+                " } }",
+            ),
+            SqlIslandSite::PropertyValue => (
+                "avenger 1; chart cartesian { transform filter { predicate: ",
+                " } }",
+            ),
+            SqlIslandSite::ArrayElement => (
+                "avenger 1; chart cartesian { table inline { values: [",
+                "]; } }",
+            ),
+            SqlIslandSite::ParamInitializer => ("avenger 1; chart cartesian { param ", "; }"),
+            SqlIslandSite::OutputSource => ("avenger 1; define transform sample { output ", "; }"),
+            SqlIslandSite::CursorActionRhs => (
+                "avenger 1; chart cartesian { on click { set cursor = ",
+                " } }",
+            ),
+            SqlIslandSite::StateActionRhs => (
+                "avenger 1; chart cartesian { param 1 as width; on click { set width = ",
+                " } }",
+            ),
+        };
+        let text = format!("{prefix}{}{suffix}", case.source);
+        let source = memory_source(&format!("tolerant-{}", case.id), &text);
+        let parsed = parse_file_tolerant(&source);
+        let expected = prefix.len()..prefix.len() + case.island.len();
+        let matches = parsed
+            .nodes
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.kind,
+                    TolerantSyntaxNodeKind::SqlIsland { site: actual, .. } if actual == site
+                ) && node.span.range.as_range() == expected
+            })
+            .count();
+        assert_eq!(
+            matches,
+            usize::from(case.tolerant_sql_island),
+            "tolerant/strict island span agreement for {}: expected {:?}; found {:?}",
+            case.id,
+            expected,
+            parsed
+                .nodes
+                .iter()
+                .filter_map(|node| match node.kind {
+                    TolerantSyntaxNodeKind::SqlIsland { site: actual, .. } if actual == site => {
+                        Some(node.span.range)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        );
     }
 }
 

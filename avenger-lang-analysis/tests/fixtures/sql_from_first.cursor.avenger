@@ -2,6 +2,6 @@ avenger 1;
 
 chart cartesian as chart {
     table sql as movies {
-        sql: FROM vega.movies AS m SELECT m.⟦cursor⟧;
+        sql: FROM vega.movies AS m SELECT m."⟦cursor⟧;
     }
 }

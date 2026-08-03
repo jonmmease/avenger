@@ -293,9 +293,10 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
     assert!(
         analysis
             .functions
-            .scalar
-            .binary_search(&"abs".to_owned())
-            .is_ok()
+            .functions
+            .iter()
+            .any(|function| function.name == "abs"
+                && function.category == avenger_lang_compiler::FunctionCategory::Scalar)
     );
     assert!(
         analysis
