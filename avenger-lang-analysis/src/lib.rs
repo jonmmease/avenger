@@ -79,6 +79,11 @@ pub struct WorkspaceAnalysis {
     pub known_sources: Vec<SourceOrigin>,
     pub syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
     pub semantic_roots: BTreeMap<String, RootAnalysis>,
+    /// Successful semantic roots used by editor intelligence. This normally
+    /// mirrors `semantic_roots`, but retains the preceding successful project
+    /// while the current root is malformed. Current failures remain in
+    /// `semantic_roots` so diagnostics still describe the authored snapshot.
+    query_semantic_roots: BTreeMap<String, RootAnalysis>,
     pub dataset_contexts: BTreeMap<SourceOrigin, Vec<DatasetContext>>,
     pub registry: avenger_chart_schema::NativeSchemaSnapshot,
     pub semantic_index: WorkspaceSemanticIndex,
@@ -121,6 +126,7 @@ impl WorkspaceAnalysis {
             known_sources,
             syntax,
             semantic_roots,
+            query_semantic_roots: BTreeMap::new(),
             dataset_contexts: BTreeMap::new(),
             registry,
             semantic_index,
@@ -136,13 +142,14 @@ impl WorkspaceAnalysis {
         generation: AnalysisGeneration,
         syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
     ) -> Self {
-        let semantic_index = WorkspaceSemanticIndex::build(&syntax, &self.semantic_roots);
+        let semantic_index = WorkspaceSemanticIndex::build(&syntax, &self.query_semantic_roots);
         Self {
             generation,
             project_root: self.project_root.clone(),
             known_sources: self.known_sources.clone(),
             syntax,
             semantic_roots: self.semantic_roots.clone(),
+            query_semantic_roots: self.query_semantic_roots.clone(),
             dataset_contexts: self.dataset_contexts.clone(),
             registry: self.registry.clone(),
             semantic_index,
@@ -154,18 +161,38 @@ impl WorkspaceAnalysis {
     /// roots that are currently malformed, while keeping the current failures
     /// available for diagnostics.
     pub fn with_last_good_semantics(&self, previous: &Self) -> Self {
-        let mut index_roots = self.semantic_roots.clone();
-        for (root, prior) in &previous.semantic_roots {
-            let current_failed = index_roots
+        let mut query_semantic_roots = self.semantic_roots.clone();
+        let mut dataset_contexts = self.dataset_contexts.clone();
+        for (root, prior) in &previous.query_semantic_roots {
+            let current_failed = query_semantic_roots
                 .get(root)
                 .is_some_and(|current| current.result.is_err());
             if current_failed && prior.result.is_ok() {
-                index_roots.insert(root.clone(), prior.clone());
+                query_semantic_roots.insert(root.clone(), prior.clone());
+                for (origin, prior_contexts) in &previous.dataset_contexts {
+                    let contexts = dataset_contexts.entry(origin.clone()).or_default();
+                    contexts.retain(|context| context.root_uri != *root);
+                    contexts.extend(
+                        prior_contexts
+                            .iter()
+                            .filter(|context| context.root_uri == *root)
+                            .cloned(),
+                    );
+                    contexts.sort_by_key(|context| {
+                        (
+                            context.span.range.len(),
+                            context.span.range.start,
+                            context.stage.clone(),
+                        )
+                    });
+                }
             }
         }
-        let semantic_index = WorkspaceSemanticIndex::build(&self.syntax, &index_roots);
+        let semantic_index = WorkspaceSemanticIndex::build(&self.syntax, &query_semantic_roots);
         let mut output = self.clone();
         output.semantic_index = semantic_index;
+        output.query_semantic_roots = query_semantic_roots;
+        output.dataset_contexts = dataset_contexts;
         output
     }
 
@@ -192,7 +219,7 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
-            &self.semantic_roots,
+            &self.query_semantic_roots,
             &self.dataset_contexts,
             &self.completion_cache,
         )
@@ -223,7 +250,7 @@ impl WorkspaceAnalysis {
             syntax,
             &self.registry,
             &self.semantic_index,
-            &self.semantic_roots,
+            &self.query_semantic_roots,
             &self.dataset_contexts,
             &options.invocation,
             options.snippets,
@@ -295,7 +322,7 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
-            &self.semantic_roots,
+            &self.query_semantic_roots,
             &self.dataset_contexts,
             &self.completion_cache,
         )
@@ -314,7 +341,7 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
-            &self.semantic_roots,
+            &self.query_semantic_roots,
             &self.dataset_contexts,
             &self.completion_cache,
         )
@@ -334,7 +361,7 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
-            &self.semantic_roots,
+            &self.query_semantic_roots,
             &self.dataset_contexts,
             &self.completion_cache,
         )
@@ -591,6 +618,7 @@ impl AnalysisService {
             project_root: snapshot.project_root,
             known_sources: snapshot.known_disk_sources,
             syntax,
+            query_semantic_roots: semantic_roots.clone(),
             semantic_roots,
             dataset_contexts,
             registry,

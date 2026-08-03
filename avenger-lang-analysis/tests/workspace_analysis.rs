@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use avenger_lang_analysis::{
-    AnalysisCancellation, AnalysisGeneration, AnalysisService, DocumentSnapshot, SourceRevision,
-    WorkspaceSnapshot,
+    AnalysisCancellation, AnalysisGeneration, AnalysisService, CompletionOptions, DocumentSnapshot,
+    PositionRequest, SourceRevision, WorkspaceSnapshot,
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
@@ -219,6 +219,101 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
         .unwrap();
     assert!(hover.markdown.contains("param: Float64"));
     assert!(hover.markdown.contains("Canvas width."));
+}
+
+#[tokio::test]
+async fn malformed_edit_keeps_last_good_dataset_stages_for_sql_completion() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let valid_text = r#"avenger 1;
+schema tables as local {
+  table inline as points {
+    values: [{ x: 1.0; y: 2.0; }];
+  }
+}
+chart cartesian as chart {
+  data: { table: 'local.points'; }
+  mark symbol as points {
+    x: encoded "x";
+    y: encoded "y";
+  }
+}
+"#;
+    let invalid_text = valid_text.replace("x: encoded \"x\"", "x: encoded \"\"");
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(
+            InMemorySourceLoader::default().with_source(loaded(&chart, valid_text, "disk")),
+        ))
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let snapshot = |generation, text: &str| WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(generation),
+        project_root: project_root.clone(),
+        roots: vec![ModuleRoot::requested(chart.clone())],
+        open_documents: BTreeMap::from([(
+            chart.clone(),
+            DocumentSnapshot::new(
+                chart.clone(),
+                SourceRevision::from_text(text),
+                text.to_owned(),
+            ),
+        )]),
+        known_disk_sources: vec![chart.clone()],
+        native_registry_profile: profile.clone(),
+    };
+    let service = AnalysisService::new(compiler);
+    let valid = service
+        .analyze_workspace(snapshot(1, valid_text), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(valid.semantic_roots[&chart.canonical_uri()].result.is_ok());
+    let invalid = service
+        .analyze_workspace(snapshot(2, &invalid_text), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        invalid.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_err()
+    );
+
+    let merged = invalid.with_last_good_semantics(&valid);
+    let cursor = invalid_text.find("x: encoded \"\"").unwrap() + "x: encoded \"".len();
+    let completion = merged
+        .complete(
+            &PositionRequest {
+                source: chart,
+                byte_offset: cursor,
+                source_revision: SourceRevision::from_text(&invalid_text),
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let labels = completion
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        labels.contains(&"x"),
+        "completion items: {:#?}",
+        completion.items
+    );
+    assert!(
+        labels.contains(&"y"),
+        "completion items: {:#?}",
+        completion.items
+    );
+    assert!(!completion.is_incomplete);
 }
 
 #[derive(Debug)]
