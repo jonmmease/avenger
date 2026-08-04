@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use avenger_chart_schema::{
-    KindSchema, NativeKindKey, NativeSchemaSnapshot, PropertySchema, SchemaVersion, ValueShape,
+    KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, PropertySchema,
+    SchemaVersion, ValueShape,
 };
 use avenger_lang_analysis::{
     AnalysisCancellation, AnalysisGeneration, AnalysisService, CodeActionKind, CodeActionRequest,
@@ -40,8 +41,8 @@ fn workspace_analysis(text: &str) -> (WorkspaceAnalysis, SourceOrigin, SourceRev
 }
 
 fn test_registry() -> NativeSchemaSnapshot {
-    let key = NativeKindKey::mark("cartesian", "symbol");
-    let mut symbol = KindSchema::new(key.clone(), "symbol");
+    let symbol_key = NativeKindKey::mark("cartesian", "symbol");
+    let mut symbol = KindSchema::new(symbol_key.clone(), "symbol");
     symbol.properties.insert(
         "size".to_owned(),
         PropertySchema::optional(ValueShape::Number, "symbol size"),
@@ -50,10 +51,29 @@ fn test_registry() -> NativeSchemaSnapshot {
         "color".to_owned(),
         PropertySchema::optional(ValueShape::String, "symbol color"),
     );
+    let stack_key = NativeKindKey::new(NativeKindNamespace::Transform, "stack");
+    let stack = KindSchema::new(stack_key.clone(), "stack").property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "stack field"),
+    );
+    let slider_key = NativeKindKey::new(NativeKindNamespace::Widget, "slider");
+    let slider = KindSchema::new(slider_key.clone(), "slider")
+        .property(
+            "min",
+            PropertySchema::required(ValueShape::Number, "minimum"),
+        )
+        .property(
+            "max",
+            PropertySchema::required(ValueShape::Number, "maximum"),
+        );
     NativeSchemaSnapshot {
         version: SchemaVersion::V1,
         profile_label: "editing-test".to_owned(),
-        entries: BTreeMap::from([(key, symbol)]),
+        entries: BTreeMap::from([
+            (symbol_key, symbol),
+            (stack_key, stack),
+            (slider_key, slider),
+        ]),
         modules: BTreeMap::new(),
     }
 }
@@ -715,6 +735,127 @@ chart cartesian as chart {
         actions
             .iter()
             .any(|action| action.title == "Add missing `as` binder")
+    );
+}
+
+#[test]
+fn missing_required_member_fixes_are_schema_driven_and_parseable() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  transform stack as stacked {}
+  widget slider as control {
+  }
+}
+"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let actions_at = |needle: &str, diagnostic_codes: Vec<String>| {
+        let start = source.find(needle).unwrap();
+        analysis
+            .code_actions(
+                &CodeActionRequest {
+                    source: origin.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&origin].parsed.tokens.source(),
+                        range: ByteSpan {
+                            start,
+                            end: start + needle.len(),
+                        },
+                    },
+                    source_revision: revision.clone(),
+                    diagnostic_codes,
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+    };
+
+    assert!(
+        actions_at("transform stack", Vec::new())
+            .iter()
+            .all(|action| !action.title.contains("required")),
+        "the schema fix must be tied to the missing-required diagnostic"
+    );
+    let stack = actions_at("transform stack", vec!["AVENGER-RESOLVE-022".to_owned()]);
+    let stack = stack
+        .iter()
+        .find(|action| action.title == "Add required `field:` property")
+        .expect("stack field action");
+    assert!(stack.preferred);
+    assert_eq!(stack.diagnostic_codes, ["AVENGER-RESOLVE-022"]);
+    assert_eq!(
+        stack.edit.sources[&origin].edits[0].new_text,
+        "\n    field: NULL;\n  "
+    );
+
+    let slider = actions_at("widget slider", vec!["AVENGER-RESOLVE-022".to_owned()]);
+    let slider = slider
+        .iter()
+        .find(|action| action.title == "Add all missing required properties")
+        .expect("slider properties action");
+    let edit = &slider.edit.sources[&origin].edits[0];
+    assert!(edit.new_text.contains("    max: 0.0;"));
+    assert!(edit.new_text.contains("    min: 0.0;"));
+
+    let fixed = format!(
+        "{}{}{}",
+        &source[..edit.span.range.start],
+        edit.new_text,
+        &source[edit.span.range.end..]
+    );
+    let fixed_revision = SourceRevision::from_text(&fixed);
+    let fixed_syntax = analyze_syntax(&DocumentSnapshot::new(origin, fixed_revision, fixed));
+    assert!(fixed_syntax.parsed.strict.is_some());
+}
+
+#[tokio::test]
+async fn native_missing_required_diagnostic_offers_the_schema_fix() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  transform stack as stacked {
+  }
+  mark symbol as points {
+    x: encoded "x";
+    y: encoded "y";
+  }
+}
+"#;
+    let (analysis, origin, revision) = resolved_workspace_analysis(source).await;
+    let failure = analysis.semantic_roots[&origin.canonical_uri()]
+        .result
+        .as_ref()
+        .expect_err("missing stack field should fail resolution");
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-022")
+    );
+    let start = source.find("  }\n  mark symbol").unwrap() + 2;
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: origin.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&origin].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + 1,
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: vec!["AVENGER-RESOLVE-022".to_owned()],
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Add required `field:` property")
+        .expect("native stack quick fix");
+    assert_eq!(
+        action.edit.sources[&origin].edits[0].new_text,
+        "\n    field: NULL;\n  "
     );
 }
 

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use avenger_chart_schema::ValueShape;
+use avenger_chart_schema::{NativeKindNamespace, ProjectionPolicy, PropertySchema, ValueShape};
 use avenger_lang_core::{
     ByteSpan, SourceFile, SourceId, SourceOrigin, SourceSpan,
     ast::{ImportClause, Name},
@@ -595,6 +595,7 @@ pub(crate) fn code_actions(
     let mut actions = Vec::new();
     close_property_action(analysis, request, &mut actions);
     missing_as_action(analysis, request, &mut actions);
+    missing_required_properties_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
     channel_mode_actions(analysis, request, &mut actions);
@@ -609,6 +610,290 @@ pub(crate) fn code_actions(
     });
     actions.dedup_by(|left, right| left.title == right.title && left.edit == right.edit);
     Ok(actions)
+}
+
+fn missing_required_properties_action(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    const DIAGNOSTIC: &str = "AVENGER-RESOLVE-022";
+    if !request
+        .diagnostic_codes
+        .iter()
+        .any(|code| code == DIAGNOSTIC)
+    {
+        return;
+    }
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let Some(document) = analysis.semantic_index.documents.get(&request.source) else {
+        return;
+    };
+    let Some(symbol) = document
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.native_kind.is_some() && spans_overlap(symbol.declaration_span, request.range)
+        })
+        .min_by_key(|symbol| symbol.declaration_span.range.len())
+    else {
+        return;
+    };
+    let Some(schema) = crate::intelligence::schema_for_symbol(
+        &analysis.registry,
+        symbol,
+        &analysis.semantic_index,
+    ) else {
+        return;
+    };
+    let Some(declaration) = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { .. }
+            ) && node.span.range.start <= symbol.selection_span.range.start
+                && symbol.selection_span.range.end <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())
+    else {
+        return;
+    };
+    let authored = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.kind {
+            avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name }
+                if node.parent == Some(declaration.id) =>
+            {
+                Some(name.as_str())
+            }
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut missing = schema
+        .properties
+        .iter()
+        .filter(|(name, property)| property.required && !authored.contains(name.as_str()))
+        .map(|(name, property)| (name.as_str(), &property.shape, false))
+        .chain(
+            schema
+                .channels
+                .iter()
+                .filter(|(name, channel)| channel.required && !authored.contains(name.as_str()))
+                .map(|(name, channel)| (name.as_str(), &channel.shape, true)),
+        )
+        .collect::<Vec<_>>();
+    missing.sort_by_key(|(name, _, _)| *name);
+    if missing.is_empty() {
+        return;
+    }
+
+    let tokens = syntax.parsed.tokens.tokens();
+    let Some(open) = tokens
+        .iter()
+        .find(|token| {
+            symbol.declaration_span.range.start <= token.span().range.start
+                && token.span().range.end <= symbol.declaration_span.range.end
+                && matches!(token.token(), Some(Token::LBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    let Some(close) = tokens
+        .iter()
+        .rev()
+        .find(|token| {
+            symbol.declaration_span.range.start <= token.span().range.start
+                && token.span().range.end <= symbol.declaration_span.range.end
+                && matches!(token.token(), Some(Token::RBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    if open.range.end > close.range.start {
+        return;
+    }
+
+    let text = syntax.parsed.tokens.text();
+    let line_start = text[..symbol.declaration_span.range.start]
+        .rfind(['\n', '\r'])
+        .map_or(0, |position| position + 1);
+    let parent_indent = text[line_start..symbol.declaration_span.range.start]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect::<String>();
+    let indent = format!("{parent_indent}  ");
+    let newline = if text.contains("\r\n") {
+        "\r\n"
+    } else if text.contains('\r') {
+        "\r"
+    } else {
+        "\n"
+    };
+    let members = missing
+        .iter()
+        .map(|(name, shape, channel)| {
+            let value = required_value_placeholder(shape);
+            let value = if *channel && required_channel_needs_mode(shape) {
+                format!("encoded {value}")
+            } else {
+                value
+            };
+            format!("{indent}{name}: {value};")
+        })
+        .collect::<Vec<_>>()
+        .join(newline);
+    let body_span = SourceSpan {
+        source: open.source,
+        range: ByteSpan {
+            start: open.range.end,
+            end: close.range.start,
+        },
+    };
+    let body = &text[body_span.range.as_range()];
+    let (edit_span, new_text) = if body.trim().is_empty() {
+        (
+            body_span,
+            format!("{newline}{members}{newline}{parent_indent}"),
+        )
+    } else {
+        let leading_len = body.len() - body.trim_start_matches(char::is_whitespace).len();
+        let leading = &body[..leading_len];
+        if leading.contains(['\n', '\r']) {
+            (
+                SourceSpan::empty(open.source, open.range.end),
+                format!("{newline}{members}"),
+            )
+        } else {
+            (
+                SourceSpan {
+                    source: open.source,
+                    range: ByteSpan {
+                        start: open.range.end,
+                        end: open.range.end + leading_len,
+                    },
+                },
+                format!("{newline}{members}{newline}{indent}"),
+            )
+        }
+    };
+    let title = if missing.len() == 1 {
+        let (name, _, channel) = missing[0];
+        format!(
+            "Add required `{name}:` {}",
+            if channel { "channel" } else { "property" }
+        )
+    } else {
+        "Add all missing required properties".to_owned()
+    };
+    let mut action = quick_fix(title, request, edit_span, new_text, true);
+    action.diagnostic_codes = vec![DIAGNOSTIC.to_owned()];
+    output.push(action);
+}
+
+fn required_channel_needs_mode(shape: &ValueShape) -> bool {
+    !matches!(
+        shape,
+        ValueShape::ChannelConfig | ValueShape::RasterDimensionChannel | ValueShape::PatternChannel
+    )
+}
+
+fn required_value_placeholder(shape: &ValueShape) -> String {
+    match shape {
+        ValueShape::Boolean => "true".to_owned(),
+        ValueShape::Integer => "0".to_owned(),
+        ValueShape::Number => "0.0".to_owned(),
+        ValueShape::String => "''".to_owned(),
+        ValueShape::Identifier => "name".to_owned(),
+        ValueShape::Atom { values } => values
+            .first()
+            .map_or_else(|| "value".to_owned(), |value| value.value.clone()),
+        ValueShape::SqlExpression => "NULL".to_owned(),
+        ValueShape::SqlProjection { policy, .. } => match policy {
+            ProjectionPolicy::Named | ProjectionPolicy::Select => "NULL AS value".to_owned(),
+        },
+        ValueShape::SqlQuery => "SELECT NULL AS value".to_owned(),
+        ValueShape::ChannelConfig => "{ }".to_owned(),
+        ValueShape::ConfiguredExpression(properties) => {
+            format!("NULL {}", required_object_placeholder(properties))
+        }
+        ValueShape::ConfiguredReference {
+            namespaces,
+            properties,
+        } => format!(
+            "{} {}",
+            typed_reference_placeholder(namespaces.iter().next().copied()),
+            required_object_placeholder(properties)
+        ),
+        ValueShape::PatternChannel => "pattern { }".to_owned(),
+        ValueShape::CoordinationScope => "shared".to_owned(),
+        ValueShape::FacetDataScope => "filtered".to_owned(),
+        ValueShape::RasterDimension | ValueShape::RasterDimensionChannel => "dim value".to_owned(),
+        ValueShape::ScalarBinding => "$value".to_owned(),
+        ValueShape::TableBinding => "$table".to_owned(),
+        ValueShape::SelectionBinding => "$selection".to_owned(),
+        ValueShape::WidgetData => "{ values: []; }".to_owned(),
+        ValueShape::ParamChangeAction => "{ }".to_owned(),
+        ValueShape::MarkBlock => "{ mark group { } }".to_owned(),
+        ValueShape::TypedReference { namespaces } => {
+            typed_reference_placeholder(namespaces.iter().next().copied())
+        }
+        ValueShape::Union(shapes) => shapes
+            .first()
+            .map_or_else(|| "NULL".to_owned(), required_value_placeholder),
+        ValueShape::OneOrMany(shape) => required_value_placeholder(shape),
+        ValueShape::Array(shape) => format!("[{}]", required_value_placeholder(shape)),
+        ValueShape::Map(shape) => {
+            format!("{{ value: {}; }}", required_value_placeholder(shape))
+        }
+        ValueShape::ChannelMap => "{ value: encoded NULL; }".to_owned(),
+        ValueShape::Object(properties) => required_object_placeholder(properties),
+        ValueShape::Any => "NULL".to_owned(),
+    }
+}
+
+fn required_object_placeholder(properties: &BTreeMap<String, PropertySchema>) -> String {
+    let members = properties
+        .iter()
+        .filter(|(_, property)| property.required)
+        .map(|(name, property)| format!("{name}: {};", required_value_placeholder(&property.shape)))
+        .collect::<Vec<_>>();
+    if members.is_empty() {
+        "{ }".to_owned()
+    } else {
+        format!("{{ {} }}", members.join(" "))
+    }
+}
+
+fn typed_reference_placeholder(namespace: Option<NativeKindNamespace>) -> String {
+    let keyword = match namespace {
+        Some(NativeKindNamespace::Coordinate) => "chart",
+        Some(NativeKindNamespace::Adjust) => "adjust",
+        Some(NativeKindNamespace::Mark) => "mark",
+        Some(NativeKindNamespace::Transform) => "transform",
+        Some(NativeKindNamespace::Tool) => "tool",
+        Some(NativeKindNamespace::Widget) => "widget",
+        Some(NativeKindNamespace::Scale) => "scale",
+        Some(NativeKindNamespace::Axis) => "axis",
+        Some(NativeKindNamespace::Legend) => "legend",
+        Some(NativeKindNamespace::Layout) => "layout",
+        Some(NativeKindNamespace::View) => "view",
+        Some(NativeKindNamespace::Resource) => "resource",
+        None => "value",
+    };
+    if namespace.is_some() {
+        format!("{keyword} name")
+    } else {
+        keyword.to_owned()
+    }
 }
 
 fn channel_mode_actions(
