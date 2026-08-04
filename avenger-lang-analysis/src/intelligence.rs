@@ -3719,6 +3719,23 @@ impl<'a> QueryContext<'a> {
                 source_revision: request.source_revision.clone(),
             }));
         }
+        if let Some((span, markdown)) = crate::sql_intelligence::column_hover(
+            request,
+            syntax,
+            self.registry,
+            self.index,
+            self.semantic_roots,
+            self.dataset_contexts,
+            self.completion_cache,
+            cancellation,
+        ) {
+            return Ok(Some(HoverResult {
+                span,
+                markdown,
+                generation: self.generation,
+                source_revision: request.source_revision.clone(),
+            }));
+        }
         if let Some((span, markdown)) = crate::sql_intelligence::typed_boundary_hover(
             request,
             syntax,

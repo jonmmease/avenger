@@ -453,6 +453,38 @@ fn complete_marked_with_options(
         .unwrap()
 }
 
+fn hover_marked(
+    fixture: &Fixture,
+    origin: &SourceOrigin,
+    marked: String,
+) -> Option<avenger_lang_analysis::HoverResult> {
+    assert_eq!(marked.matches(CURSOR).count(), 1);
+    let cursor = marked.find(CURSOR).unwrap();
+    let text = marked.replacen(CURSOR, "", 1);
+    let revision = SourceRevision::from_text(&text);
+    let mut syntax = fixture.analysis.syntax.clone();
+    syntax.insert(
+        origin.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            origin.clone(),
+            revision.clone(),
+            text,
+        )),
+    );
+    fixture
+        .analysis
+        .with_syntax(AnalysisGeneration::new(2), syntax)
+        .hover(
+            &PositionRequest {
+                source: origin.clone(),
+                byte_offset: cursor,
+                source_revision: revision,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+}
+
 fn debug_marked(
     fixture: &Fixture,
     origin: &SourceOrigin,
@@ -1825,6 +1857,86 @@ async fn event_datum_hover_tokens_and_migration_actions_are_contextual() {
             "datum text inside a SQL string received a migration action: {actions:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn quoted_column_hover_uses_effective_sql_scope_and_arrow_schema() {
+    let fixture = fixture().await;
+
+    let expression = hover_marked(
+        &fixture,
+        &fixture.chart,
+        chart_source(r#""ra⟦cursor⟧ting""#),
+    )
+    .expect("expression column hover");
+    assert_eq!(expression.markdown.lines().next(), Some("```sql"));
+    assert!(
+        expression
+            .markdown
+            .contains("Arrow type: `Decimal128(2, 1)`"),
+        "{}",
+        expression.markdown
+    );
+    assert!(expression.markdown.contains("Nullable: `true`"));
+
+    let qualified = hover_marked(
+        &fixture,
+        &fixture.data,
+        data_source(r#"SELECT m."ra⟦cursor⟧ting" FROM vega.movies AS m"#),
+    )
+    .expect("qualified query column hover");
+    assert!(
+        qualified
+            .markdown
+            .contains("Arrow type: `Decimal128(2, 1)`"),
+        "{}",
+        qualified.markdown
+    );
+
+    let ambiguous = hover_marked(
+        &fixture,
+        &fixture.data,
+        data_source(r#"SELECT "i⟦cursor⟧d" FROM vega.movies AS m JOIN vega.ratings AS r ON true"#),
+    )
+    .expect("ambiguous query column hover");
+    assert!(ambiguous.markdown.contains("Ambiguous SQL column"));
+    assert!(ambiguous.markdown.contains("m.\"id\""));
+    assert!(ambiguous.markdown.contains("r.\"id\""));
+
+    assert!(
+        hover_marked(
+            &fixture,
+            &fixture.data,
+            data_source(r#"SELECT "rating" AS "sc⟦cursor⟧ore" FROM vega.movies"#),
+        )
+        .is_none(),
+        "a quoted output alias is a binder, not a column reference"
+    );
+    assert!(
+        hover_marked(
+            &fixture,
+            &fixture.data,
+            data_source(r#"SELECT * FROM vega."mov⟦cursor⟧ies""#),
+        )
+        .is_none(),
+        "a quoted relation path is not a column reference"
+    );
+}
+
+#[tokio::test]
+async fn quoted_column_hover_works_in_projection_lists() {
+    let (fixture, source) = transform_pipeline_fixture().await;
+    let marked = source.replacen(
+        r#"expressions: sum("amount") AS total"#,
+        r#"expressions: sum("am⟦cursor⟧ount") AS total"#,
+        1,
+    );
+    let hover = hover_marked(&fixture, &fixture.chart, marked).expect("projection column hover");
+    assert!(
+        hover.markdown.contains("Arrow type: `Float64`"),
+        "{}",
+        hover.markdown
+    );
 }
 
 #[tokio::test]

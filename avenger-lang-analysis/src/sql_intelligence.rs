@@ -1421,6 +1421,105 @@ pub(crate) fn contextual_hover(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn column_hover(
+    request: &PositionRequest,
+    syntax: &SyntaxAnalysis,
+    registry: &NativeSchemaSnapshot,
+    semantic_index: &WorkspaceSemanticIndex,
+    semantic_roots: &BTreeMap<String, RootAnalysis>,
+    dataset_contexts: &BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+    cache: &SqlCompletionCache,
+    cancellation: &AnalysisCancellation,
+) -> Option<(SourceSpan, String)> {
+    let node = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(node.kind, TolerantSyntaxNodeKind::SqlIsland { .. })
+                && node.span.range.start <= request.byte_offset
+                && request.byte_offset < node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())?;
+    let token = island_tokens(syntax, node.span)
+        .into_iter()
+        .filter(|token| {
+            matches!(
+                token.token,
+                Some(Token::Word(word)) if word.quote_style == Some('"')
+            ) && token.span.range.start <= request.byte_offset
+                && request.byte_offset < token.span.range.end
+        })
+        .min_by_key(|token| token.span.range.len())?;
+    let Some(Token::Word(word)) = token.token else {
+        return None;
+    };
+
+    // Ask the ordinary SQL completion pipeline about the complete identifier,
+    // even when the pointer is over its opening quote or an early character.
+    // This keeps hover aligned with the exact query scope and effective Arrow
+    // schemas used for completion across every SQL-island shape.
+    let mut completion_request = request.clone();
+    completion_request.byte_offset = token.span.range.end.saturating_sub(1);
+    let completion = complete_sql(
+        &completion_request,
+        syntax,
+        registry,
+        semantic_index,
+        semantic_roots,
+        dataset_contexts,
+        &CompletionInvocation::Invoked,
+        false,
+        cache,
+        cancellation,
+    )?;
+    let mut columns = completion
+        .items
+        .into_iter()
+        .filter(|item| {
+            item.semantic_kind == CompletionSemanticKind::DataColumn && item.label == word.value
+        })
+        .collect::<Vec<_>>();
+    columns.dedup_by(|left, right| {
+        left.insert_text == right.insert_text
+            && left.data_type == right.data_type
+            && left.nullable == right.nullable
+            && left.source_stage == right.source_stage
+    });
+    if columns.is_empty() {
+        return None;
+    }
+
+    let text = syntax.parsed.tokens.text();
+    let spelling = &text[token.span.range.as_range()];
+    let markdown = if columns.len() == 1 {
+        let column = &columns[0];
+        let mut markdown = format!(
+            "```sql\n{spelling}\n```\n\nSQL column\n\n- Arrow type: `{}`\n- Nullable: `{}`",
+            column.data_type.as_deref().unwrap_or("unknown"),
+            column.nullable.unwrap_or(true),
+        );
+        if let Some(stage) = &column.source_stage {
+            markdown.push_str(&format!("\n- Source stage: `{stage}`"));
+        }
+        markdown
+    } else {
+        let mut markdown =
+            format!("```sql\n{spelling}\n```\n\nAmbiguous SQL column. Possible sources:");
+        for column in columns {
+            markdown.push_str(&format!(
+                "\n\n- `{}` — `{}`, {}",
+                column.insert_text,
+                column.data_type.as_deref().unwrap_or("unknown"),
+                nullability(column.nullable.unwrap_or(true)),
+            ));
+        }
+        markdown
+    };
+    Some((token.span, markdown))
+}
+
 pub(crate) fn typed_boundary_hover(
     request: &PositionRequest,
     syntax: &SyntaxAnalysis,
