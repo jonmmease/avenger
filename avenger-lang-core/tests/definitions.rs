@@ -82,6 +82,57 @@ export define mark summary {
 }
 
 #[tokio::test]
+async fn expansion_source_map_keeps_non_chart_declarations_in_alignment() {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"avenger 1;
+import { pass } from 'pass.avenger';
+schema tables as local {
+  table inline as points { values: [{ x: 1; }]; }
+}
+chart cartesian {
+  data: { table: 'local.points'; }
+  transform sql { query: SELECT * FROM input WHERE "value" > 10; }
+  transform pass {}
+  mark symbol { x: encoded "x"; }
+}
+"#,
+        ),
+        (
+            "pass.avenger",
+            "avenger 1; export define transform pass { transform filter { predicate: true; } }",
+        ),
+    ])
+    .await;
+    let resolved = resolve_module_graph(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_module_graph(&project, &resolved).unwrap();
+    let resolved = resolve_module_graph(&expanded.module_graph, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = resolved
+        .source_modules
+        .values()
+        .flat_map(|module| &module.roots)
+        .find(|declaration| declaration.keyword == "chart")
+        .unwrap();
+    let sql = chart
+        .children
+        .iter()
+        .find(|declaration| declaration.kind.as_deref() == Some("sql"))
+        .unwrap();
+    let authored = expanded.source_map.authored_span(sql.span);
+    let source = resolved.sources.get(authored.source).unwrap();
+    assert!(
+        source.text()[authored.range.as_range()].starts_with("transform sql"),
+        "SQL stage mapped to {:?}",
+        &source.text()[authored.range.as_range()]
+    );
+}
+
+#[tokio::test]
 async fn definition_parts_replace_complete_configured_channel_values() {
     let project = project(&[
         (

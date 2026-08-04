@@ -2382,6 +2382,10 @@ fn make_diagnostic(
     related: Vec<DiagnosticRelatedInformation>,
 ) -> Diagnostic {
     let mut message = diagnostic.message.clone();
+    if !diagnostic.primary.message.is_empty() && diagnostic.primary.message != diagnostic.message {
+        message.push_str("\n\n");
+        message.push_str(&diagnostic.primary.message);
+    }
     for note in &diagnostic.notes {
         message.push_str("\n\nNote: ");
         message.push_str(note);
@@ -4860,6 +4864,96 @@ chart cartesian as chart {
         };
         assert_eq!(transform_locations.len(), 1);
         assert_eq!(transform_locations[0].uri, transform_definition_uri);
+    }
+
+    #[tokio::test]
+    async fn imported_transform_sql_errors_stay_on_the_failing_stage() {
+        let project = tempdir().unwrap();
+        let transforms = project.path().join("transforms.avenger");
+        let chart = project.path().join("chart.avenger");
+        fs::write(
+            &transforms,
+            "avenger 1; export define transform pass { transform filter { predicate: true; } }",
+        )
+        .unwrap();
+        let valid = r#"avenger 1;
+import { pass } from 'transforms.avenger';
+schema tables as local {
+  table inline as points { values: [{ x: 1; }]; }
+}
+chart cartesian as chart {
+  data: { table: 'local.points'; }
+  transform pass {}
+  mark symbol { x: encoded "x"; }
+}
+"#;
+        let invalid = valid.replace(
+            "  transform pass {}",
+            "  transform sql as filtered {\n    query: SELECT * FROM input WHERE \"value\" > 10;\n  }\n  transform pass {}",
+        );
+        fs::write(&chart, valid).unwrap();
+
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": { "general": { "positionEncodings": ["utf-8"] } },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "diagnostics" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": valid
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        call(
+            &mut service,
+            Request::build("textDocument/didChange")
+                .params(json!({
+                    "textDocument": { "uri": chart_uri, "version": 2 },
+                    "contentChanges": [{ "text": invalid }]
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let semantic = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let semantic: PublishDiagnosticsParams =
+            serde_json::from_value(semantic.params().cloned().unwrap()).unwrap();
+        let diagnostic = semantic
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("No field named value"))
+            .expect("missing DataFusion field diagnostic");
+        let sql_offset = invalid.find("transform sql").unwrap();
+        let expected_line = invalid[..sql_offset]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count() as u32;
+        assert_eq!(diagnostic.range.start.line, expected_line);
     }
 
     async fn call(

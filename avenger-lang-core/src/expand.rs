@@ -287,6 +287,7 @@ impl Expander<'_> {
                             },
                         )
                     } else {
+                        self.retain_declaration_origins(module_id, module, item_index);
                         item.declaration.clone()
                     },
                 })
@@ -434,7 +435,8 @@ impl Expander<'_> {
                     .then_some(span)
                 })
                 .collect::<Vec<_>>();
-            expanded_spans.sort_by_key(|span| span.range.start);
+            expanded_spans
+                .sort_by_key(|span| (span.range.start, std::cmp::Reverse(span.range.end)));
             for (expanded, origin) in expanded_spans.into_iter().zip(pending) {
                 source_map.mappings.push(ExpansionMapping {
                     expanded,
@@ -460,6 +462,44 @@ impl Expander<'_> {
             texts,
             source_map,
         })
+    }
+
+    /// Record identity mappings for declarations copied unchanged into a
+    /// canonicalized module. The expanded source map is assembled by pairing
+    /// printed declarations with this ordered origin ledger, so omitting
+    /// non-chart items would shift every subsequent chart mapping.
+    fn retain_declaration_origins(
+        &mut self,
+        module_id: &SourceModuleId,
+        module: &ParsedModule,
+        item_index: usize,
+    ) {
+        let Some(item_span) = declaration_span(module, &[item_index]) else {
+            return;
+        };
+        let mut spans = module
+            .parsed
+            .source_map
+            .iter()
+            .filter_map(|(id, span)| {
+                (matches!(
+                    module.parsed.source_map.role(id),
+                    Some(AstNodeRole::Declaration(_))
+                ) && span.source == item_span.source
+                    && item_span.range.start <= span.range.start
+                    && span.range.end <= item_span.range.end)
+                    .then_some(span)
+            })
+            .collect::<Vec<_>>();
+        spans.sort_by_key(|span| (span.range.start, std::cmp::Reverse(span.range.end)));
+        self.pending_origins
+            .entry(module_id.clone())
+            .or_default()
+            .extend(spans.into_iter().map(|authored| PendingOrigin {
+                authored,
+                definition: None,
+                instantiation: None,
+            }));
     }
 
     fn expanded_imports(
