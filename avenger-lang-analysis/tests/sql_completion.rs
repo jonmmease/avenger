@@ -1363,6 +1363,43 @@ async fn encoded_and_direct_channel_expressions_share_sql_completion() {
 }
 
 #[tokio::test]
+async fn expanded_definitions_reconnect_dataset_stages_to_authored_islands() {
+    let (transform_fixture, transform_source) =
+        disk_module_fixture("08_multi_chart_project", "cartesian.avenger").await;
+    let transformed = complete_marked(
+        &transform_fixture,
+        &transform_fixture.chart,
+        transform_source.replace("x: encoded \"x\"", "x: encoded \"⟦cursor⟧\""),
+    );
+    for expected in ["radius", "theta", "x", "y"] {
+        assert!(
+            labels(&transformed).contains(&expected),
+            "missing {expected} after an expanded transform: {:#?}",
+            transformed.items
+        );
+    }
+
+    let (mark_fixture, mark_source) =
+        disk_module_fixture("04_custom_error_bar", "chart.avenger").await;
+    let supplied_block = complete_marked(
+        &mark_fixture,
+        &mark_fixture.chart,
+        mark_source.replacen(
+            "text: encoded \"category\"",
+            "text: encoded \"⟦cursor⟧\"",
+            1,
+        ),
+    );
+    for expected in ["category", "center", "high", "low"] {
+        assert!(
+            labels(&supplied_block).contains(&expected),
+            "missing {expected} inside a supplied defined-mark block: {:#?}",
+            supplied_block.items
+        );
+    }
+}
+
+#[tokio::test]
 async fn array_elements_and_definition_outputs_use_their_exact_semantic_environment() {
     let aggregate = r#"avenger 1;
 

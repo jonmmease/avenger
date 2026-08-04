@@ -577,8 +577,16 @@ impl AnalysisService {
             let root_uri = root.origin.canonical_uri();
             if let Ok(project) = &result {
                 for (stage, dataset) in project.datasets.iter() {
-                    if let Some(source) = project.sources.get(dataset.provenance.stage_span.source)
-                    {
+                    let stage_span = project
+                        .resolved_module_graph
+                        .as_deref()
+                        .map(|resolved| {
+                            resolved
+                                .expansion_source_map
+                                .authored_span(dataset.provenance.stage_span)
+                        })
+                        .unwrap_or(dataset.provenance.stage_span);
+                    if let Some(source) = project.sources.get(stage_span.source) {
                         dataset_contexts
                             .entry(source.origin.clone())
                             .or_default()
@@ -586,7 +594,7 @@ impl AnalysisService {
                                 root_uri: root_uri.clone(),
                                 stage: stage.clone(),
                                 stage_kind: dataset.provenance.stage_kind.clone(),
-                                span: dataset.provenance.stage_span,
+                                span: stage_span,
                                 owner_path: Vec::new(),
                             });
                     }
