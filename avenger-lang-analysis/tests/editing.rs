@@ -114,6 +114,53 @@ async fn resolved_workspace_analysis(
     (analysis, origin, revision)
 }
 
+async fn resolved_workspace_analysis_with_last_good(
+    valid_text: &str,
+    current_text: &str,
+) -> (WorkspaceAnalysis, SourceOrigin, SourceRevision) {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let origin = SourceOrigin::File(project_root.join("chart.avenger"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let snapshot = |generation, text: &str| WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(generation),
+        project_root: project_root.clone(),
+        roots: vec![ModuleRoot::requested(origin.clone())],
+        open_documents: BTreeMap::from([(
+            origin.clone(),
+            DocumentSnapshot::new(origin.clone(), SourceRevision::from_text(text), text),
+        )]),
+        known_disk_sources: vec![origin.clone()],
+        native_registry_profile: profile.clone(),
+    };
+    let service = AnalysisService::new(compiler);
+    let valid = service
+        .analyze_workspace(snapshot(1, valid_text), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(valid.semantic_roots[&origin.canonical_uri()].result.is_ok());
+    let current = service
+        .analyze_workspace(snapshot(2, current_text), &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        current.semantic_roots[&origin.canonical_uri()]
+            .result
+            .is_err()
+    );
+    let revision = SourceRevision::from_text(current_text);
+    (current.with_last_good_semantics(&valid), origin, revision)
+}
+
 #[tokio::test]
 async fn typed_boundary_hover_reports_sql_source_and_arrow_destination() {
     let source = r#"avenger 1;
@@ -856,6 +903,70 @@ chart cartesian as chart {
     assert_eq!(
         action.edit.sources[&origin].edits[0].new_text,
         "\n    field: NULL;\n  "
+    );
+}
+
+#[tokio::test]
+async fn missing_required_fix_uses_the_current_kind_over_last_good_semantics() {
+    let valid = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  transform sql as changed {
+    query: SELECT * FROM input;
+  }
+  mark symbol as points {
+    x: encoded "x";
+    y: encoded "y";
+  }
+}
+"#;
+    let current = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  transform stack as changed {
+  }
+  mark symbol as points {
+    x: encoded "x";
+    y: encoded "y";
+  }
+}
+"#;
+    let (analysis, origin, revision) =
+        resolved_workspace_analysis_with_last_good(valid, current).await;
+    let stack = analysis.semantic_index.documents[&origin]
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "changed")
+        .expect("changed transform symbol");
+    assert_eq!(stack.native_kind.as_deref(), Some("stack"));
+
+    let start = current.find("  }\n  mark symbol").unwrap() + 2;
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: origin,
+                range: SourceSpan {
+                    source: stack.declaration_span.source,
+                    range: ByteSpan {
+                        start,
+                        end: start + 1,
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: vec!["AVENGER-RESOLVE-022".to_owned()],
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert!(
+        actions
+            .iter()
+            .any(|action| action.title == "Add required `field:` property")
+    );
+    assert!(
+        actions
+            .iter()
+            .all(|action| action.title != "Add required `query:` property")
     );
 }
 

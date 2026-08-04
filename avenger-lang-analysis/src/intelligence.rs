@@ -308,7 +308,13 @@ impl WorkspaceSemanticIndex {
             if let Some(symbol) = candidate {
                 symbol.identity = declaration.id.to_string();
                 symbol.visibility = declaration.visibility;
-                symbol.native_kind.clone_from(&declaration.kind);
+                // The tolerant syntax describes the document currently open in the
+                // editor, while `project` may be the last successfully resolved
+                // snapshot. Preserve a current authored kind when one was recovered,
+                // and use the semantic kind only to fill an incomplete header.
+                if symbol.native_kind.is_none() {
+                    symbol.native_kind.clone_from(&declaration.kind);
+                }
                 if let Some(public_path) = &declaration.public_path {
                     symbol.detail = Some(format!(
                         "{} `{public_path}`{}",
