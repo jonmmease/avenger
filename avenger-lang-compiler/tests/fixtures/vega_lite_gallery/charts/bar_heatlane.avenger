@@ -1,0 +1,95 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Heat Lane Chart (`bar_heatlane`).
+chart cartesian as bar_heatlane {
+  title: 'Heat Lane of Horsepower';
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 300.0;
+      width: 720.0;
+    }
+    plot: {
+      height: 150.0;
+      width: 400.0;
+    }
+  }
+  transform sql as binned_horsepower {
+    query:
+      WITH horsepower_bins AS (
+        SELECT
+          CAST(FLOOR((CAST("Horsepower" AS DOUBLE) - 40.0) / 20.0) * 20.0 + 40.0 AS DOUBLE) AS "bin_start",
+          COUNT(*) AS "count"
+        FROM input
+        WHERE "Horsepower" IS NOT NULL
+        GROUP BY FLOOR((CAST("Horsepower" AS DOUBLE) - 40.0) / 20.0)
+      ), count_bins AS (
+        SELECT
+          "bin_start",
+          "bin_start" + 20.0 AS "bin_end",
+          CAST(CEIL(CAST("count" AS DOUBLE) / 20.0) * 20.0 AS DOUBLE) AS "count_end"
+        FROM horsepower_bins
+      )
+      SELECT
+        "bin_start" + 1.0 AS "x0",
+        "bin_end" - 1.0 AS "x1",
+        "count_end",
+        MAX("count_end") OVER () AS "max_count_end",
+        -"count_end" / 2.0 AS "y0",
+        "count_end" / 2.0 AS "y1",
+        -"count_end" / 2.0 + 2.4 AS "inner_y0",
+        "count_end" / 2.0 - 2.4 AS "inner_y1"
+      FROM count_bins
+      ORDER BY "bin_start";
+  }
+  mark group as lane {
+    mark rect as backdrop {
+      corner_radius: direct 3.0;
+      fill: direct '#0b4f8a';
+      stroke_width: direct 0.0;
+      x: encoded "x0" {
+        axis: {
+          grid: false;
+          title: 'Horsepower';
+        }
+        scale: linear {
+          domain: [0.0, 240.0];
+          nice: false;
+          zero: true;
+        }
+      }
+      x2: encoded "x1";
+      y: encoded "y1" {
+        axis: {
+          visible: false;
+        }
+        scale: linear {
+          domain: [-60.0, 60.0];
+          nice: false;
+          zero: true;
+        }
+      }
+      y2: encoded "y0";
+    }
+    mark rect as counts {
+      corner_radius: direct 3.0;
+      fill: encoded "count_end" {
+        legend: {
+          title: 'count';
+        }
+        scale: ordinal {
+          domain: [20.0, 40.0, 60.0, 80.0, 100.0, 120.0];
+          range: ['#a7d5d1', '#79c0ca', '#4ba8c3', '#2b8cba', '#176da5', '#0b4f8a'];
+        }
+      }
+      stroke_width: direct 0.0;
+      x: encoded "x0";
+      x2: encoded "x1";
+      y: encoded "inner_y1";
+      y2: encoded "inner_y0";
+    }
+  }
+}
