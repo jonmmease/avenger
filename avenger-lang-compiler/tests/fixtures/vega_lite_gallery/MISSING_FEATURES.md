@@ -49,7 +49,7 @@ capability was added.
 ### AV-GALLERY-MARK-002 — Line and area interpolation modes
 
 - Status: confirmed
-- Affects: `line_step`, `line_monotone`, `area_horizon`
+- Affects: `line_step`, `line_monotone`, `area_horizon`, `layer_dual_axis`
 - Evidence: the line mark's default-value table still mentions an internal
   `interpolate` value, but `interpolate` is absent from the mark's public
   channel schema, compiled state, scene mark, and renderer. Area marks likewise

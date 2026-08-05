@@ -5566,8 +5566,13 @@
         "mark:line",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-002",
+          "feature": "mark:line-interpolation"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
