@@ -1,0 +1,46 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Multi-Series Line Chart (`line_color`).
+chart cartesian as line_color {
+  data: {
+    table: 'vega.stocks';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 420.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as plot {
+    mark line as prices {
+      order: direct "date";
+      stroke: encoded "symbol" {
+        legend: {
+          title: 'symbol';
+        }
+        scale: ordinal;
+      }
+      stroke_width: direct 2.0;
+      x: encoded "date" {
+        axis: {
+          title: 'date';
+        }
+        scale: time;
+      }
+      y: encoded "price" {
+        axis: {
+          title: 'price';
+        }
+        scale: linear {
+          nice: false;
+          zero: true;
+        }
+      }
+    }
+  }
+}

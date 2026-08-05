@@ -1,0 +1,50 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Connected Scatterplot (`connected_scatterplot`).
+chart cartesian as connected_scatterplot {
+  data: {
+    table: 'vega.driving';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as plot {
+    mark line as route {
+      order: direct "year";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "miles" {
+        axis: {
+          tick_count: 7;
+          title: 'miles';
+        }
+        scale: linear {
+          zero: false;
+        }
+      }
+      y: encoded "gas" {
+        axis: {
+          title: 'gas';
+        }
+        scale: linear {
+          zero: false;
+        }
+      }
+    }
+    mark symbol as observations {
+      fill: direct '#4c78a8';
+      size: direct 20.0;
+      stroke_width: direct 0.0;
+      x: encoded "miles";
+      y: encoded "gas";
+    }
+  }
+}
