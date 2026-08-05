@@ -1,0 +1,55 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Simple Bar Chart (`bar`).
+chart cartesian as bar {
+  data: {
+    values: [
+      { a: 'A'; b: 28.0; },
+      { a: 'B'; b: 55.0; },
+      { a: 'C'; b: 43.0; },
+      { a: 'D'; b: 91.0; },
+      { a: 'E'; b: 81.0; },
+      { a: 'F'; b: 53.0; },
+      { a: 'G'; b: 19.0; },
+      { a: 'H'; b: 87.0; },
+      { a: 'I'; b: 52.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 240.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 180.0;
+    }
+  }
+  mark rect as bars {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "a" {
+      axis: {
+        label_angle: 0.0;
+        title: 'a';
+      }
+      band: 0.0;
+      scale: band {
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded "b" {
+      axis: {
+        title: 'b';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}

@@ -115,6 +115,19 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-LANG-002 — Position-channel `band:` was not lowered
+
+- Status: resolved
+- Discovered by: `bar`
+- Symptom: the active DSL contract and resolver accepted `band:`, and the Rust
+  channel API supported row-wise band boundaries, but compiler channel
+  configuration lowering rejected the property.
+- Resolution: configured channel lowering now maps `band: <expr>` through the
+  ordinary SQL-expression path to `ChannelValue::band`.
+- Regression evidence:
+  `configured_channel_band_reaches_the_compiled_position_boundary` plus the
+  reviewed `bar` gallery rendering with paired `x`/`x2` boundaries.
+
 ### AV-GALLERY-TRANSFORM-005 — SQL transform dropped expression planners
 
 - Status: resolved
