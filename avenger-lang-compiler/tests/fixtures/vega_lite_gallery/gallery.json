@@ -6165,10 +6165,12 @@
         "composition:vconcat",
         "mark:bar"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "Avenger renders the two section headings as standard grid-cell captions, whose theme typography is larger than Vega-Lite's nested-concat titles."
+      ]
     },
     {
       "name": "concat_population_pyramid",
