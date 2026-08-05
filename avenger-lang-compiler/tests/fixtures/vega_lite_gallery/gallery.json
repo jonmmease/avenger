@@ -1969,7 +1969,7 @@
           "feature": "channel:nested-band-levels"
         }
       ],
-      "review": "reviewed",
+      "review": "unreviewed",
       "accepted_differences": []
     },
     {
@@ -4728,7 +4728,7 @@
       ],
       "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
