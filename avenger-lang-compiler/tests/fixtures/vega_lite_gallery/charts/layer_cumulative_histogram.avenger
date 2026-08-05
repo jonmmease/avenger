@@ -1,0 +1,60 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Layered Histogram and Cumulative Histogram (`layer_cumulative_histogram`).
+chart cartesian as layer_cumulative_histogram {
+  data: { table: 'vega.movies'; }
+  layout: {
+    canvas: { height: 347.0; width: 362.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  transform sql as cumulative_bins {
+    query:
+      WITH bins AS (
+        SELECT
+          FLOOR("IMDB Rating") AS "bin_start",
+          FLOOR("IMDB Rating") + 1.0 AS "bin_end",
+          CAST(COUNT(*) AS DOUBLE) AS "count"
+        FROM input
+        WHERE "IMDB Rating" IS NOT NULL
+        GROUP BY FLOOR("IMDB Rating")
+      )
+      SELECT
+        "bin_start",
+        "bin_end",
+        "count",
+        SUM("count") OVER (
+          ORDER BY "bin_start"
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS "cumulative_count"
+      FROM bins
+      ORDER BY "bin_start";
+  }
+  mark group as layers {
+    mark rect as cumulative {
+      fill: direct '#4c78a8';
+      stroke: direct 'white';
+      stroke_width: direct 1.0;
+      x: encoded "bin_start" {
+        axis: { title: 'IMDB Rating'; }
+        scale: linear { domain: [1.0, 10.0]; nice: false; zero: false; }
+      }
+      x2: encoded "bin_end";
+      y: encoded 0.0 {
+        axis: { format: ',.0f'; title: 'Cumulative Count'; }
+        scale: linear { nice: true; zero: true; }
+      }
+      y2: encoded "cumulative_count";
+    }
+    mark rect as counts {
+      fill: direct 'yellow';
+      opacity: direct 0.5;
+      stroke: direct 'white';
+      stroke_width: direct 1.0;
+      x: encoded "bin_start";
+      x2: encoded "bin_end";
+      y: encoded 0.0;
+      y2: encoded "count";
+    }
+  }
+}
