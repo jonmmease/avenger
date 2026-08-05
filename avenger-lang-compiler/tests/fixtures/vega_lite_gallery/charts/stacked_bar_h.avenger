@@ -1,0 +1,110 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Horizontal Stacked Bar Chart (`stacked_bar_h`).
+chart cartesian as stacked_bar_h {
+  data: {
+    table: 'vega.barley';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 600.0;
+    }
+    plot: {
+      height: 260.0;
+      width: 300.0;
+    }
+  }
+  transform sql as stacked_yield {
+    query:
+      WITH totals AS (
+        SELECT
+          "variety",
+          "site",
+          SUM("yield") AS "site_yield",
+          CASE "site"
+            WHEN 'Crookston' THEN 0
+            WHEN 'Duluth' THEN 1
+            WHEN 'Grand Rapids' THEN 2
+            WHEN 'Morris' THEN 3
+            WHEN 'University Farm' THEN 4
+            ELSE 5
+          END AS "stack_order"
+        FROM input
+        GROUP BY "variety", "site"
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("site_yield") OVER (
+            PARTITION BY "variety"
+            ORDER BY "stack_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "x1"
+        FROM totals
+      )
+      SELECT
+        "variety",
+        "site",
+        "stack_order",
+        "x1" - "site_yield" AS "x0",
+        "x1"
+      FROM stacked
+      ORDER BY "variety", "stack_order";
+  }
+  mark rect as yields {
+    fill: encoded "site" {
+      legend: {
+        title: 'site';
+      }
+      scale: ordinal {
+        domain: [
+          'Crookston',
+          'Duluth',
+          'Grand Rapids',
+          'Morris',
+          'University Farm',
+          'Waseca'
+        ];
+        range: ['#4c78a8', '#f58518', '#e45756', '#72b7b2', '#54a24b', '#eeca3b'];
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "x1" {
+      axis: {
+        title: 'Sum of yield';
+      }
+      scale: linear {
+        domain: [0.0, 500.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded "x0";
+    y: encoded "variety" {
+      axis: {
+        title: 'variety';
+      }
+      band: 0.0;
+      scale: band {
+        domain: [
+          'Wisconsin No. 38',
+          'Velvet',
+          'Trebi',
+          'Svansota',
+          'Peatland',
+          'No. 475',
+          'No. 462',
+          'No. 457',
+          'Manchuria',
+          'Glabron'
+        ];
+        padding_inner: 0.08;
+        padding_outer: 0.04;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}
