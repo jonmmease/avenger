@@ -12,6 +12,23 @@ capability was added.
 
 ## Confirmed
 
+### AV-GALLERY-LANG-004 — Nested categorical position authoring is not lowered
+
+- Status: confirmed
+- Affects: `bar_grouped` and other examples represented by nested categorical
+  position levels or Vega-Lite offset channels
+- Evidence: the canonical DSL specifies `nested([...])` with ordered `level`
+  declarations, and the Rust chart API implements `NestedBandSpec`, per-level
+  padding/axes/domain coordination, and level boundaries. The language resolver
+  currently rejects every channel child other than `when`, normalization has no
+  semantic field for level declarations, and the compiler has no structural
+  lowering for `nested(...)` or its level configuration.
+- Required capability: retain validated ordered `level <index>` declarations
+  in `ResolvedChannelValue`; lower `nested([...])` through the core nested-band
+  constructor; lower level padding, axes, ordering, domain/nest scopes, labels,
+  and boundaries; then cover exact-column case, formatting, analysis, LSP, and
+  direct/serialized runtime evaluation.
+
 ### AV-GALLERY-MARK-002 — Line interpolation modes
 
 - Status: confirmed

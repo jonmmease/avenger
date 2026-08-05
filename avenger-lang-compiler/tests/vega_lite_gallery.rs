@@ -88,6 +88,7 @@ enum GalleryImplementation {
     BlockedTransform,
     BlockedLayout,
     BlockedInteraction,
+    BlockedLanguage,
     BlockedRuntime,
 }
 
