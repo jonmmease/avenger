@@ -1,0 +1,74 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Bar Chart Highlighting Values beyond a Threshold (`layer_bar_annotations`).
+chart cartesian as layer_bar_annotations {
+  data: {
+    values: [
+      { day: 1; value: 54.8; },
+      { day: 2; value: 112.1; },
+      { day: 3; value: 63.6; },
+      { day: 4; value: 37.6; },
+      { day: 5; value: 79.7; },
+      { day: 6; value: 137.9; },
+      { day: 7; value: 120.1; },
+      { day: 8; value: 103.3; },
+      { day: 9; value: 394.8; },
+      { day: 10; value: 199.5; },
+      { day: 11; value: 72.3; },
+      { day: 12; value: 51.1; },
+      { day: 13; value: 112.0; },
+      { day: 14; value: 174.5; },
+      { day: 15; value: 130.5; }
+    ];
+  }
+  layout: {
+    canvas: { height: 347.0; width: 353.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  mark group as layers {
+    mark rect as observations {
+      fill: direct '#4c78a8';
+      stroke_width: direct 0.0;
+      x: encoded "day" {
+        axis: { label_angle: 0.0; title: 'Day'; }
+        band: 0.0;
+        scale: band { padding_inner: 0.1; padding_outer: 0.05; }
+      }
+      x2: encoded channel.x { band: 1.0; }
+      y: encoded "value" {
+        axis: { title: 'PM2.5 Value'; }
+        scale: linear { domain: [0.0, 400.0]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+    mark group as hazardous_values {
+      transform filter { predicate: "value" >= 300.0; }
+      mark rect as excess {
+        fill: direct '#e45755';
+        stroke_width: direct 0.0;
+        x: encoded "day" { band: 0.0; }
+        x2: encoded channel.x { band: 1.0; }
+        y: encoded "value";
+        y2: encoded 300.0;
+      }
+    }
+    mark rule as threshold {
+      stroke: direct '#000000';
+      stroke_width: direct 1.0;
+      x: direct 0.0;
+      x2: direct 300.0;
+      y: encoded 300.0;
+      y2: encoded 300.0;
+    }
+    mark text as threshold_label {
+      align: direct 'right';
+      baseline: direct 'bottom';
+      color: direct '#000000';
+      leader_offset_x: direct -2.0;
+      leader_offset_y: direct -2.0;
+      text: direct 'hazardous';
+      x: direct 300.0;
+      y: encoded 300.0;
+    }
+  }
+}
