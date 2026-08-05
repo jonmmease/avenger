@@ -1,0 +1,62 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Simple Bar Chart with Labels and Emojis (`layer_bar_fruit`).
+chart cartesian as layer_bar_fruit {
+  data: {
+    values: [
+      { name: '🍊'; count: 21.0; rank: 1.0; },
+      { name: '🍇'; count: 13.0; rank: 2.0; },
+      { name: '🍏'; count: 8.0; rank: 3.0; },
+      { name: '🍌'; count: 5.0; rank: 4.0; },
+      { name: '🍐'; count: 3.0; rank: 5.0; },
+      { name: '🍋'; count: 2.0; rank: 6.0; },
+      { name: '🍎'; count: 1.0; rank: 7.0; },
+      { name: '🍉'; count: 1.0; rank: 8.0; }
+    ];
+  }
+  layout: {
+    canvas: { height: 187.0; width: 545.0; }
+    plot: { height: 120.0; width: 400.0; }
+  }
+  transform sql as labels {
+    query:
+      SELECT
+        *,
+        CAST(CAST("count" AS BIGINT) AS VARCHAR) AS "count_label",
+        CASE WHEN "count" > 10.0 THEN '#ffffff' ELSE '#000000' END AS "label_color"
+      FROM input;
+  }
+  mark group as layers {
+    mark rect as fruit_counts {
+      fill: encoded "count" {
+        legend: { title: 'Number of fruit'; }
+        scale: linear { range: ['#deebf7', '#08519c']; }
+      }
+      stroke_width: direct 0.0;
+      x: encoded 0.0 {
+        axis: { show_title: false; }
+        scale: linear { zero: true; }
+      }
+      x2: encoded "count";
+      y: encoded "name" {
+        axis: { show_title: false; }
+        band: 0.0;
+        scale: band {
+          order_by: max(-"rank");
+          padding_inner: 0.1;
+          padding_outer: 0.05;
+        }
+      }
+      y2: encoded channel.y { band: 1.0; }
+    }
+    mark text as labels {
+      align: direct 'right';
+      baseline: direct 'middle';
+      color: direct "label_color";
+      leader_offset_x: direct -4.0;
+      text: direct "count_label";
+      x: encoded "count";
+      y: encoded "name" { band: 0.5; }
+    }
+  }
+}
