@@ -1,0 +1,62 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Ranged Dot Plot (`layer_ranged_dot`).
+chart cartesian as layer_ranged_dot {
+  data: { table: 'vega.countries'; }
+  layout: {
+    canvas: { height: 142.0; width: 460.0; }
+    plot: { height: 100.0; width: 300.0; }
+  }
+  transform sql as selected_years {
+    query:
+      SELECT "country", "year", "life_expect"
+      FROM input
+      WHERE "country" IN ('China', 'India', 'United States', 'Indonesia', 'Brazil')
+        AND "year" IN (1955, 2000);
+  }
+  mark group as layers {
+    mark group as ranges {
+      transform sql as country_ranges {
+        query:
+          SELECT
+            "country",
+            MIN("life_expect") AS "start",
+            MAX("life_expect") AS "end"
+          FROM input
+          GROUP BY "country";
+      }
+      mark rule as change {
+        stroke: direct '#db646f';
+        stroke_width: direct 2.0;
+        x: encoded "start" {
+          axis: { title: 'Life Expectancy (years)'; }
+          scale: linear { zero: true; }
+        }
+        x2: encoded "end";
+        y: encoded "country" {
+          axis: { title: 'Country'; }
+          scale: band {
+            domain: ['United States', 'Indonesia', 'India', 'China', 'Brazil'];
+            padding_inner: 0.2;
+            padding_outer: 0.1;
+          }
+        }
+        y2: encoded "country";
+      }
+    }
+    mark symbol as endpoints {
+      fill: encoded "year" {
+        legend: { title: 'Year'; }
+        scale: ordinal {
+          domain: [1955, 2000];
+          range: ['#e6959c', '#911a24'];
+        }
+      }
+      size: direct 100.0;
+      stroke_width: direct 0.0;
+      x: encoded "life_expect";
+      y: encoded "country";
+    }
+  }
+}
