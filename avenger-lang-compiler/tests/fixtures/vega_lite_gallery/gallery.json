@@ -2478,8 +2478,13 @@
       "features": [
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-003",
+          "feature": "Per-corner rectangle radii"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
