@@ -1,0 +1,59 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Scatterplot with Mean and Standard Deviation Overlay (`layer_scatter_errorband_1D_stdev_global_mean`).
+chart cartesian as layer_scatter_errorband_1D_stdev_global_mean {
+  data: { table: 'vega.cars'; }
+  layout: {
+    canvas: { height: 347.0; width: 347.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  mark group as layers {
+    mark group as summary {
+      transform sql as global_statistics {
+        query:
+          SELECT
+            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) AS "mean_mpg",
+            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) - STDDEV(CAST("Miles_per_Gallon" AS DOUBLE)) AS "lower_mpg",
+            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) + STDDEV(CAST("Miles_per_Gallon" AS DOUBLE)) AS "upper_mpg"
+          FROM input
+          WHERE "Miles_per_Gallon" IS NOT NULL;
+      }
+      mark rect as standard_deviation_band {
+        fill: direct '#4c78a8';
+        opacity: direct 0.2;
+        x: direct 0.0;
+        x2: direct 300.0;
+        y: encoded "lower_mpg" {
+          axis: { title: 'Miles per Gallon'; }
+          scale: linear { domain: [0.0, 50.0]; nice: false; zero: true; }
+        }
+        y2: encoded "upper_mpg";
+      }
+      mark rule as mean {
+        stroke: direct '#4c4c4c';
+        stroke_width: direct 1.0;
+        x: direct 0.0;
+        x2: direct 300.0;
+        y: encoded "mean_mpg";
+        y2: encoded "mean_mpg";
+      }
+    }
+    mark group as valid_cars {
+      transform filter {
+        predicate: "Horsepower" IS NOT NULL AND "Miles_per_Gallon" IS NOT NULL;
+      }
+      mark symbol as cars {
+        fill: direct 'white';
+        size: direct 30.0;
+        stroke: direct '#4c78a8';
+        stroke_width: direct 1.5;
+        x: encoded "Horsepower" {
+          axis: { title: 'Horsepower'; }
+          scale: linear { domain: [0.0, 240.0]; nice: false; zero: true; }
+        }
+        y: encoded "Miles_per_Gallon";
+      }
+    }
+  }
+}

@@ -5087,8 +5087,13 @@
         "mark:errorbar",
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-TRANSFORM-006",
+          "summary": "Bootstrap confidence intervals"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -5118,9 +5123,9 @@
         "mark:errorbar",
         "mark:point"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -5149,8 +5154,13 @@
         "mark:errorband",
         "mark:line"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-TRANSFORM-006",
+          "summary": "Bootstrap confidence intervals"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -5181,9 +5191,9 @@
         "mark:point",
         "mark:rule"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {

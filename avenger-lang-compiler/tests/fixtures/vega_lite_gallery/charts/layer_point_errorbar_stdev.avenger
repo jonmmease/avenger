@@ -1,0 +1,64 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Error Bars Showing Standard Deviation (`layer_point_errorbar_stdev`).
+schema tables as local {
+  table sql as barley_summary {
+    sql:
+      SELECT
+        "variety",
+        AVG(CAST("yield" AS DOUBLE)) AS "mean_yield",
+        AVG(CAST("yield" AS DOUBLE)) - STDDEV(CAST("yield" AS DOUBLE)) AS "lower_yield",
+        AVG(CAST("yield" AS DOUBLE)) + STDDEV(CAST("yield" AS DOUBLE)) AS "upper_yield"
+      FROM vega.barley
+      WHERE "yield" IS NOT NULL
+      GROUP BY "variety";
+  }
+}
+
+chart cartesian as layer_point_errorbar_stdev {
+  data: { table: 'local.barley_summary'; }
+  layout: {
+    canvas: { height: 250.0; width: 432.0; }
+    plot: { height: 200.0; width: 300.0; }
+  }
+  mark group as layers {
+    mark rule as standard_deviation {
+      stroke: direct '#666666';
+      stroke_width: direct 1.0;
+      x: encoded "lower_yield" {
+        axis: { title: 'Barley Yield'; }
+        scale: linear { domain: [20.0, 55.0]; nice: false; zero: false; }
+      }
+      x2: encoded "upper_yield";
+      y: encoded "variety" {
+        band: 0.5;
+        axis: { title: 'variety'; }
+        scale: band {
+          domain: [
+            'Wisconsin No. 38',
+            'Velvet',
+            'Trebi',
+            'Svansota',
+            'Peatland',
+            'No. 475',
+            'No. 462',
+            'No. 457',
+            'Manchuria',
+            'Glabron'
+          ];
+          padding_inner: 0.1;
+          padding_outer: 0.05;
+        }
+      }
+      y2: encoded channel.y { band: 0.5; }
+    }
+    mark symbol as means {
+      fill: direct 'black';
+      size: direct 25.0;
+      stroke: direct 'black';
+      x: encoded "mean_yield";
+      y: encoded "variety" { band: 0.5; }
+    }
+  }
+}

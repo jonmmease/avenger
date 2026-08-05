@@ -152,6 +152,22 @@ capability was added.
 - Required capability: define and test an array/list unnest contract, then use
   either SQL or a native transform.
 
+### AV-GALLERY-TRANSFORM-006 — Bootstrap confidence intervals
+
+- Status: confirmed
+- Affects: `layer_point_errorbar_ci` and `layer_line_errorband_ci`
+- Evidence: Vega's `ci0` and `ci1` aggregate outputs are bootstrap confidence
+  intervals for the mean: the aggregate repeatedly resamples each group,
+  sorts the sampled means, and selects the requested tail quantiles. Avenger's
+  transform registry and its documented SQL surface expose ordinary aggregate
+  statistics but no equivalent seeded bootstrap aggregate or row-resampling
+  table function. Substituting `mean +/- 1.96 * standard_error` would change
+  both the contract and the pinned example output.
+- Required capability: a deterministic bootstrap-confidence-interval
+  aggregate or transform with explicit confidence level, sample count, random
+  seed, grouping, null, physical-type, cache, and hot-reload semantics, exposed
+  consistently through Rust, the DSL, analysis, and the LSP.
+
 ### AV-GALLERY-DATAFLOW-001 — Sequence row generator
 
 - Status: confirmed
