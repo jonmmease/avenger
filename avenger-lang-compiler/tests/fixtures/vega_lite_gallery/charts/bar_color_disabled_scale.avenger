@@ -1,0 +1,50 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Bar Chart with Direct Colors (`bar_color_disabled_scale`).
+chart cartesian as bar_color_disabled_scale {
+  data: {
+    values: [
+      { color: 'red'; b: 28.0; },
+      { color: 'green'; b: 55.0; },
+      { color: 'blue'; b: 43.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 120.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 60.0;
+    }
+  }
+  mark rect as bars {
+    fill: direct "color";
+    stroke_width: direct 0.0;
+    x: encoded "color" {
+      axis: {
+        label_angle: -90.0;
+        title: 'color';
+      }
+      band: 0.0;
+      scale: band {
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded "b" {
+      axis: {
+        title: 'b';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}

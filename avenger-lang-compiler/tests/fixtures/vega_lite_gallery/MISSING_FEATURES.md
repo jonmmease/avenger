@@ -115,6 +115,20 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-GUIDE-003 — Standard axes ignored `label_angle`
+
+- Status: resolved
+- Discovered by: `bar_color_disabled_scale`
+- Symptom: the DSL resolver and native axis lowerer retained `label_angle`, but
+  standard band, point, numeric, and temporal axis renderers always emitted
+  tick-label scene marks with angle zero. Only nested-band axes used the
+  configured value.
+- Resolution: the shared band and numeric tick-label renderers now propagate
+  the configured angle. Point axes delegate to the band renderer, and temporal
+  axes use the numeric renderer.
+- Regression evidence: focused band and numeric axis tests plus the reviewed
+  vertically labeled `bar_color_disabled_scale` gallery rendering.
+
 ### AV-GALLERY-SCALE-001 — Mixed Arrow temporal types collapsed mark positions
 
 - Status: resolved

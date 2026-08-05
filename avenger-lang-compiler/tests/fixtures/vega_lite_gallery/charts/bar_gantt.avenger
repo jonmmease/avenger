@@ -1,0 +1,50 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Gantt Chart (`bar_gantt`).
+chart cartesian as bar_gantt {
+  data: {
+    values: [
+      { task: 'C'; start: 8.0; end: 10.0; },
+      { task: 'B'; start: 3.0; end: 8.0; },
+      { task: 'A'; start: 1.0; end: 3.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 160.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 100.0;
+      width: 300.0;
+    }
+  }
+  mark rect as tasks {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "start" {
+      axis: {
+        title: 'start, end';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded "end";
+    y: encoded "task" {
+      axis: {
+        title: 'task';
+      }
+      band: 0.0;
+      scale: band {
+        order_by: max(-"start");
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}

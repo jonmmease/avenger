@@ -1,0 +1,51 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Histogram from Binned Data (`bar_binned_data`).
+chart cartesian as bar_binned_data {
+  data: {
+    values: [
+      { bin_start: 8.0; bin_end: 10.0; count: 7.0; },
+      { bin_start: 10.0; bin_end: 12.0; count: 29.0; },
+      { bin_start: 12.0; bin_end: 14.0; count: 71.0; },
+      { bin_start: 14.0; bin_end: 16.0; count: 127.0; },
+      { bin_start: 16.0; bin_end: 18.0; count: 94.0; },
+      { bin_start: 18.0; bin_end: 20.0; count: 54.0; },
+      { bin_start: 20.0; bin_end: 22.0; count: 17.0; },
+      { bin_start: 22.0; bin_end: 24.0; count: 5.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark rect as bins {
+    fill: direct '#4c78a8';
+    stroke: direct '#ffffff';
+    stroke_width: direct 1.0;
+    x: encoded "bin_start" {
+      axis: {
+        title: 'bin_start, bin_end';
+      }
+      scale: linear {
+        nice: false;
+        zero: false;
+      }
+    }
+    x2: encoded "bin_end";
+    y: encoded "count" {
+      axis: {
+        title: 'count';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}
