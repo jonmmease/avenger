@@ -1,0 +1,49 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Area Chart (`area`).
+chart cartesian as area {
+  data: {
+    table: 'vega.unemployment_across_industries';
+  }
+  layout: {
+    canvas: {
+      height: 280.0;
+      width: 380.0;
+    }
+    plot: {
+      height: 200.0;
+      width: 300.0;
+    }
+  }
+  transform sql as monthly_total {
+    query:
+      SELECT
+        DATE_TRUNC('month', "date") AS "month",
+        SUM("count") AS "count"
+      FROM input
+      GROUP BY DATE_TRUNC('month', "date")
+      ORDER BY "month";
+  }
+  mark area as unemployment {
+    fill: direct '#4c78a8';
+    order: direct "month";
+    stroke_width: direct 0.0;
+    x: encoded "month" {
+      axis: {
+        title: 'date';
+      }
+      scale: time;
+    }
+    y: encoded "count" {
+      axis: {
+        title: 'count';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}
