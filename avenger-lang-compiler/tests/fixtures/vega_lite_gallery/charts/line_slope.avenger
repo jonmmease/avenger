@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Slope Graph (`line_slope`).
+chart cartesian as line_slope {
+  data: {
+    table: 'vega.barley';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 260.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 100.0;
+    }
+  }
+  transform sql as site_year_medians {
+    query:
+      SELECT
+        "site",
+        "year",
+        MEDIAN("yield") AS "median_yield"
+      FROM input
+      GROUP BY "site", "year";
+  }
+  mark line as yields {
+    order: direct "year";
+    stroke: encoded "site" {
+      legend: {
+        title: 'site';
+      }
+      scale: ordinal;
+    }
+    stroke_width: direct 2.0;
+    x: encoded "year" {
+      axis: {
+        label_angle: 0.0;
+        title: 'year';
+      }
+      scale: point;
+    }
+    y: encoded "median_yield" {
+      axis: {
+        title: 'Median of yield';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+  }
+}
