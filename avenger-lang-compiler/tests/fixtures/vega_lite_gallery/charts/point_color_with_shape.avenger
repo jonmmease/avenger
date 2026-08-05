@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Scatterplot with Color and Shape (`point_color_with_shape`).
+chart cartesian as point_color_with_shape {
+  data: {
+    table: 'vega.penguins';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  transform filter {
+    predicate:
+      "Flipper Length (mm)" IS NOT NULL
+      AND "Body Mass (g)" IS NOT NULL;
+  }
+  mark symbol as penguins {
+    fill: direct '#ffffff';
+    shape: encoded "Species" {
+      scale: ordinal;
+    }
+    size: direct 36.0;
+    stroke: encoded "Species" {
+      legend: {
+        title: 'Species';
+      }
+      scale: ordinal;
+    }
+    stroke_width: direct 1.5;
+    x: encoded "Flipper Length (mm)" {
+      axis: {
+        title: 'Flipper Length (mm)';
+      }
+      scale: linear {
+        zero: false;
+      }
+    }
+    y: encoded "Body Mass (g)" {
+      axis: {
+        title: 'Body Mass (g)';
+      }
+      scale: linear {
+        zero: false;
+      }
+    }
+  }
+}

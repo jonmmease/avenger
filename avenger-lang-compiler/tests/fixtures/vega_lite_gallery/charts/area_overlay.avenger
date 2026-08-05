@@ -1,0 +1,60 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Area Chart with Line and Point Overlays (`area_overlay`).
+chart cartesian as area_overlay {
+  data: {
+    table: 'vega.stocks';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as goog {
+    transform filter {
+      predicate: "symbol" = 'GOOG';
+    }
+    mark area as prices {
+      fill: direct '#4c78a8';
+      opacity: direct 0.65;
+      order: direct "date";
+      stroke_width: direct 0.0;
+      x: encoded "date" {
+        axis: {
+          title: 'date';
+        }
+        scale: time;
+      }
+      y: encoded "price" {
+        axis: {
+          title: 'price';
+        }
+        scale: linear {
+          nice: false;
+          zero: true;
+        }
+      }
+      y2: encoded 0.0;
+    }
+    mark line as outline {
+      order: direct "date";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "date";
+      y: encoded "price";
+    }
+    mark symbol as points {
+      fill: direct '#4c78a8';
+      size: direct 20.0;
+      stroke_width: direct 0.0;
+      x: encoded "date";
+      y: encoded "price";
+    }
+  }
+}
