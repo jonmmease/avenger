@@ -4,6 +4,7 @@ use avenger_chart::prelude::{
     Cartesian, CompiledWidget, FacetColumn, FacetColumnSubplotChannels, IntoPlotMark, Subplot,
 };
 use avenger_chart_app::{ChartAppOptions, chart_avenger_app};
+use avenger_chart_core::PositionBoundary;
 use avenger_chart_external_test::{
     external_compound_mark::ExternalMeanPoint,
     external_coord_system::{Cube, Isometric},
@@ -93,6 +94,33 @@ async fn double_quoted_channel_columns_preserve_arrow_field_case() {
         mark.data_context().encoding("y").as_deref(),
         Some("Miles_per_Gallon")
     );
+}
+
+#[tokio::test]
+async fn configured_channel_band_reaches_the_compiled_position_boundary() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [ { category: 'A'; value: 2.0; } ];
+          }
+          mark rect as bars {
+            x: encoded "category";
+            x2: encoded channel.x { band: 1.0; }
+            y: encoded "value";
+            y2: encoded 0.0;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let mark = &artifact.compiled_plot().marks()[0];
+    assert!(matches!(
+        mark.data_context()
+            .channel("x2")
+            .and_then(|channel| channel.get_position_boundary()),
+        Some(PositionBoundary::BandExpr { .. })
+    ));
 }
 
 #[tokio::test]

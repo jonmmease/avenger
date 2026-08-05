@@ -4309,6 +4309,7 @@ impl<'a> ModuleLowerer<'a> {
                 "scale" => self.apply_scale(channel, config, data, declaration)?,
                 "axis" => self.apply_axis(channel, config, data, declaration)?,
                 "legend" => self.apply_legend(channel, config, data, declaration)?,
+                "band" => channel.band(self.expression_value(config, data, declaration)?),
                 "domain_contribution" => {
                     let inference = match resolved_atom(config) {
                         Some("infer") => ScaleDomainInference::Infer,
