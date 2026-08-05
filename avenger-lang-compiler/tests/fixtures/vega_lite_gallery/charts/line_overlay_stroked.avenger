@@ -1,0 +1,64 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Line Chart with Stroked Point Markers (`line_overlay_stroked`).
+chart cartesian as line_overlay_stroked {
+  data: {
+    table: 'vega.stocks';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  transform sql as yearly_prices {
+    query:
+      SELECT
+        "symbol",
+        DATE_TRUNC('year', "date") AS "year",
+        AVG("price") AS "mean_price"
+      FROM input
+      GROUP BY "symbol", DATE_TRUNC('year', "date")
+      ORDER BY "symbol", "year";
+  }
+  mark group as plot {
+    mark line as prices {
+      order: direct "year";
+      stroke: encoded "symbol" {
+        legend: {
+          title: 'symbol';
+        }
+        scale: ordinal;
+      }
+      stroke_width: direct 2.0;
+      x: encoded "year" {
+        axis: {
+          title: 'year(date)';
+        }
+        scale: time;
+      }
+      y: encoded "mean_price" {
+        axis: {
+          title: 'Mean of price';
+        }
+        scale: linear {
+          nice: false;
+          zero: true;
+        }
+      }
+    }
+    mark symbol as points {
+      fill: direct 'white';
+      size: direct 24.0;
+      stroke: encoded "symbol";
+      stroke_width: direct 1.5;
+      x: encoded "year";
+      y: encoded "mean_price";
+    }
+  }
+}
