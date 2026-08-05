@@ -1,0 +1,179 @@
+avenger 1;
+export schema tables as vega {
+  table parquet as airports {
+    path: 'data/airports.parquet';
+  }
+
+  table parquet as anscombe {
+    path: 'data/anscombe.parquet';
+  }
+
+  table parquet as barley {
+    path: 'data/barley.parquet';
+  }
+
+  table parquet as cars {
+    path: 'data/cars.parquet';
+  }
+
+  table parquet as co2_concentration {
+    path: 'data/co2_concentration.parquet';
+  }
+
+  table parquet as countries {
+    path: 'data/countries.parquet';
+  }
+
+  table parquet as disasters {
+    path: 'data/disasters.parquet';
+  }
+
+  table parquet as driving {
+    path: 'data/driving.parquet';
+  }
+
+  table parquet as earthquake_features {
+    path: 'data/earthquake_features.parquet';
+  }
+
+  table parquet as flights_2k {
+    path: 'data/flights_2k.parquet';
+  }
+
+  table parquet as flights_5k {
+    path: 'data/flights_5k.parquet';
+  }
+
+  table parquet as flights_airport {
+    path: 'data/flights_airport.parquet';
+  }
+
+  table parquet as gapminder {
+    path: 'data/gapminder.parquet';
+  }
+
+  table parquet as gapminder_health_income {
+    path: 'data/gapminder_health_income.parquet';
+  }
+
+  table parquet as github {
+    path: 'data/github.parquet';
+  }
+
+  table parquet as income {
+    path: 'data/income.parquet';
+  }
+
+  table parquet as london_boroughs {
+    path: 'data/london_boroughs.parquet';
+  }
+
+  table parquet as london_tube_lines {
+    path: 'data/london_tube_lines.parquet';
+  }
+
+  table parquet as londoncentroids {
+    path: 'data/londoncentroids.parquet';
+  }
+
+  table parquet as lookup_groups {
+    path: 'data/lookup_groups.parquet';
+  }
+
+  table parquet as lookup_people {
+    path: 'data/lookup_people.parquet';
+  }
+
+  table parquet as monarchs {
+    path: 'data/monarchs.parquet';
+  }
+
+  table parquet as movies {
+    path: 'data/movies.parquet';
+  }
+
+  table parquet as normal_2d {
+    path: 'data/normal_2d.parquet';
+  }
+
+  table parquet as ohlc {
+    path: 'data/ohlc.parquet';
+  }
+
+  table parquet as penguins {
+    path: 'data/penguins.parquet';
+  }
+
+  table parquet as population {
+    path: 'data/population.parquet';
+  }
+
+  table parquet as population_engineers_hurricanes {
+    path: 'data/population_engineers_hurricanes.parquet';
+  }
+
+  table parquet as seattle_weather {
+    path: 'data/seattle_weather.parquet';
+  }
+
+  table parquet as seattle_weather_hourly_normals {
+    path: 'data/seattle_weather_hourly_normals.parquet';
+  }
+
+  table parquet as sp500 {
+    path: 'data/sp500.parquet';
+  }
+
+  table parquet as species {
+    path: 'data/species.parquet';
+  }
+
+  table parquet as stocks {
+    path: 'data/stocks.parquet';
+  }
+
+  table parquet as unemployment {
+    path: 'data/unemployment.parquet';
+  }
+
+  table parquet as unemployment_across_industries {
+    path: 'data/unemployment_across_industries.parquet';
+  }
+
+  table parquet as us_counties {
+    path: 'data/us_counties.parquet';
+  }
+
+  table parquet as us_state_capitals {
+    path: 'data/us_state_capitals.parquet';
+  }
+
+  table parquet as us_states {
+    path: 'data/us_states.parquet';
+  }
+
+  table parquet as weather {
+    path: 'data/weather.parquet';
+  }
+
+  table parquet as weekly_weather {
+    path: 'data/weekly_weather.parquet';
+  }
+
+  table parquet as wheat {
+    path: 'data/wheat.parquet';
+  }
+
+  table parquet as windvectors {
+    path: 'data/windvectors.parquet';
+  }
+
+  table parquet as world_countries {
+    path: 'data/world_countries.parquet';
+  }
+
+  table parquet as zipcodes {
+    path: 'data/zipcodes.parquet';
+  }
+
+}

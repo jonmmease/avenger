@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "vega_lite": {
+    "version": "6.4.3",
+    "revision": "c4ae590b77bac6e44c20aa432e39cd53a6710287",
+    "repository": "https://github.com/vega/vega-lite",
+    "placements": 203,
+    "examples": 189
+  },
+  "vega_datasets": {
+    "version": "3.2.1",
+    "revision": "dedfc126e87dfde2df0332744689844314911d5d",
+    "repository": "https://github.com/vega/vega-datasets",
+    "gallery_source_paths": 43
+  }
+}

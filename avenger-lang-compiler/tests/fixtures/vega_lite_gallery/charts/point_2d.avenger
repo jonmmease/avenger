@@ -1,0 +1,43 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Scatterplot (`point_2d`).
+chart cartesian as point_2d {
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as plot {
+    mark symbol as points {
+      fill: direct '#ffffff';
+      size: direct 36.0;
+      stroke: direct '#4c78a8';
+      stroke_width: direct 1.5;
+      x: encoded "Horsepower" {
+        axis: {
+          title: 'Horsepower';
+        }
+        scale: linear {
+          zero: true;
+        }
+      }
+      y: encoded "Miles_per_Gallon" {
+        axis: {
+          title: 'Miles_per_Gallon';
+        }
+        scale: linear {
+          zero: true;
+        }
+      }
+    }
+  }
+}

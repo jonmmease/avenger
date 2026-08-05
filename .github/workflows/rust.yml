@@ -20,6 +20,8 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
+        with:
+          lfs: true
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "check-linux"
@@ -49,6 +51,8 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
+        with:
+          lfs: true
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "check-cli-windows"
