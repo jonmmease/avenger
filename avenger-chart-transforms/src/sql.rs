@@ -9,7 +9,7 @@ use datafusion::{
     execution::session_state::SessionState,
     logical_expr::{
         AggregateUDF, Expr, HigherOrderUDF, LogicalPlan, ScalarUDF, SubqueryAlias, TableSource,
-        WindowUDF, builder::LogicalTableSource,
+        WindowUDF, builder::LogicalTableSource, planner::ExprPlanner,
     },
     sql::{
         parser::{DFParser, DFParserBuilder, Statement as DFStatement},
@@ -175,6 +175,10 @@ struct SqlStageContextProvider<'a> {
 }
 
 impl ContextProvider for SqlStageContextProvider<'_> {
+    fn get_expr_planners(&self) -> &[Arc<dyn ExprPlanner>] {
+        self.state.expr_planners()
+    }
+
     fn get_table_source(
         &self,
         name: TableReference,
@@ -423,7 +427,7 @@ mod tests {
     };
     use datafusion::{
         arrow::{
-            array::{Float64Array, Int64Array, StringArray},
+            array::{Float64Array, Int64Array, StringArray, StringViewArray},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
@@ -540,6 +544,17 @@ mod tests {
         assert_eq!(
             batches[0].column(1).as_ref(),
             &Int64Array::from(vec![11, 22, 33, 44])
+        );
+    }
+
+    #[tokio::test]
+    async fn projection_uses_session_expression_planners() {
+        let batches = collect_sql("SELECT substr(category, 1, 1) AS initial FROM input ORDER BY a")
+            .await
+            .unwrap();
+        assert_eq!(
+            batches[0].column(0).as_ref(),
+            &StringViewArray::from(vec!["A", "A", "B", "B"])
         );
     }
 
