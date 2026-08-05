@@ -1,0 +1,61 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Relative Bar Chart (`bar_percent_of_total`).
+chart cartesian as bar_percent_of_total {
+  data: {
+    values: [
+      { Activity: 'Sleeping'; Time: 8.0; },
+      { Activity: 'Eating'; Time: 2.0; },
+      { Activity: 'TV'; Time: 4.0; },
+      { Activity: 'Work'; Time: 8.0; },
+      { Activity: 'Exercise'; Time: 2.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 170.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 100.0;
+      width: 300.0;
+    }
+  }
+  transform sql as percentages {
+    query:
+      SELECT
+        "Activity",
+        CAST("Time" AS DOUBLE) / SUM(CAST("Time" AS DOUBLE)) OVER () * 100.0
+          AS "percent"
+      FROM input
+      ORDER BY "Activity";
+  }
+  mark rect as activities {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded 0.0 {
+      axis: {
+        title: '% of total Time';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded "percent";
+    y: encoded "Activity" {
+      axis: {
+        title: 'Activity';
+      }
+      band: 0.0;
+      scale: band {
+        domain: ['Work', 'TV', 'Sleeping', 'Exercise', 'Eating'];
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}
