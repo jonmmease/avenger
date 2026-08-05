@@ -262,6 +262,7 @@ fn make_tick_labels(
     config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerScaleError> {
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
+    let label_angle = config.label_angle.unwrap_or(0.0);
 
     // Adjust y position slightly for font metrics
     // Text appears too low with Middle baseline, shift up by ~10% of font size
@@ -278,28 +279,28 @@ fn make_tick_labels(
             ScalarOrArray::new_array(adjusted_values_left_right.clone()),
             TextAlign::Right,
             TextBaseline::Middle,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Right => (
             ScalarOrArray::new_scalar(config.dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Top => (
             scaled_values,
             ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Bottom,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
             ScalarOrArray::new_scalar(config.dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
-            0.0,
+            label_angle,
         ),
     };
 
@@ -322,6 +323,35 @@ fn make_tick_labels(
             .into(),
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow::array::{ArrayRef, StringArray};
+    use avenger_scales::scales::band::BandScale;
+
+    use super::*;
+
+    #[test]
+    fn band_axis_tick_labels_honor_configured_angle() {
+        let domain = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
+        let scale = BandScale::configured(domain, (0.0, 100.0));
+        let labels = make_tick_labels(
+            &scale,
+            &AxisConfig {
+                label_angle: Some(-90.0),
+                ..Default::default()
+            },
+        )
+        .expect("tick labels");
+
+        assert_eq!(
+            labels.angle.as_vec(labels.len as usize, None),
+            vec![-90.0, -90.0]
+        );
+    }
 }
 
 fn make_title(

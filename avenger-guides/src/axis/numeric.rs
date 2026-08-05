@@ -341,6 +341,26 @@ mod tests {
     }
 
     #[test]
+    fn numeric_axis_tick_labels_honor_configured_angle() {
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
+        let labels = make_tick_labels(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                label_angle: Some(-45.0),
+                ..Default::default()
+            },
+        )
+        .expect("tick labels");
+
+        assert_eq!(
+            labels.angle.as_vec(labels.len as usize, None),
+            vec![-45.0, -45.0, -45.0]
+        );
+    }
+
+    #[test]
     fn numeric_axis_title_forwards_text_params() {
         let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
         let mut title_text_params = avenger_text::LabelParams::default();
@@ -1061,6 +1081,7 @@ fn make_tick_labels(
     // Adjust y position slightly for font metrics
     // Numbers don't use full descent, so shift up by ~10% of font size for better visual centering
     let tick_font_size = config.label_font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
+    let label_angle = config.label_angle.unwrap_or(0.0);
     let font_adjustment = tick_font_size * 0.10;
     let adjusted_values_left_right = scaled_values
         .as_vec(ticks.len(), None)
@@ -1074,28 +1095,28 @@ fn make_tick_labels(
             ScalarOrArray::new_array(adjusted_values_left_right.clone()),
             TextAlign::Right,
             TextBaseline::Middle,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Right => (
             ScalarOrArray::new_scalar(config.dimensions[0] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Top => (
             scaled_values,
             ScalarOrArray::new_scalar(-DEFAULT_TICK_LENGTH),
             TextAlign::Center,
             TextBaseline::Bottom,
-            0.0,
+            label_angle,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
             ScalarOrArray::new_scalar(config.dimensions[1] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
-            0.0,
+            label_angle,
         ),
     };
 
