@@ -1,0 +1,46 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Trellis Histograms (`trellis_bar_histogram`).
+schema tables as local {
+  table sql as horsepower_histogram {
+    sql:
+      SELECT
+        "Origin" AS "origin",
+        CASE "Origin" WHEN 'Europe' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
+        FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0) * 20.0 AS "bin_start",
+        FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0) * 20.0 + 20.0 AS "bin_end",
+        CAST(COUNT(*) AS DOUBLE) AS "count"
+      FROM vega.cars
+      WHERE "Horsepower" IS NOT NULL AND "Origin" IS NOT NULL
+      GROUP BY "Origin", FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0);
+  }
+}
+
+chart facet as trellis_bar_histogram {
+  data: { table: 'local.horsepower_histogram'; }
+  layout: { plot: { height: 300.0; width: 300.0; } }
+  row: "origin" {
+    order_by: min("origin_order");
+    position: left;
+    slots: shared;
+    title: 'Origin';
+  }
+  cell cartesian {
+    mark rect as bins {
+      fill: direct '#4c78a8';
+      stroke: direct '#ffffff';
+      stroke_width: direct 1.0;
+      x: encoded "bin_start" {
+        axis: { format: '.0f'; title: 'Horsepower (binned)'; }
+        scale: linear { domain: [40.0, 260.0]; nice: false; zero: false; }
+      }
+      x2: encoded "bin_end";
+      y: encoded "count" {
+        axis: { format: '.0f'; title: 'Count of Records'; }
+        scale: linear { domain: [0.0, 80.0]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+  }
+}
