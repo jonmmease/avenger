@@ -1,0 +1,51 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Trellis Bar Chart (`trellis_bar`).
+schema tables as local {
+  table sql as population_2000 {
+    sql:
+      SELECT
+        CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
+        CASE WHEN "sex" = 2 THEN 0 ELSE 1 END AS "gender_order",
+        "age",
+        CAST(SUM("people") AS DOUBLE) AS "population"
+      FROM vega.population
+      WHERE "year" = 2000
+      GROUP BY "sex", "age";
+  }
+}
+
+chart facet as trellis_bar {
+  data: { table: 'local.population_2000'; }
+  layout: { plot: { height: 300.0; width: 323.0; } }
+  row: "gender" {
+    order_by: min("gender_order");
+    position: left;
+    slots: shared;
+    title: 'gender';
+  }
+  cell cartesian {
+    mark rect as population {
+      fill: encoded "gender" {
+        legend: { title: 'gender'; }
+        scale: ordinal {
+          domain: ['Female', 'Male'];
+          range: ['#675193', '#ca8861'];
+        }
+      }
+      stroke_width: direct 0.0;
+      x: encoded "age" {
+        axis: { label_angle: -90.0; title: 'age'; }
+        band: 0.0;
+        scale: band { padding_inner: 0.1; padding_outer: 0.05; }
+      }
+      x2: encoded channel.x { band: 1.0; }
+      y: encoded "population" {
+        axis: { format: ',.0f'; title: 'population'; }
+        scale: linear { domain: [0.0, 12000000.0]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+  }
+}
