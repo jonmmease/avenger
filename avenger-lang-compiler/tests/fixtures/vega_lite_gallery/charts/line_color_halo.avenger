@@ -1,0 +1,71 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Multi Series Line Chart with Halo Stroke (`line_color_halo`).
+chart cartesian as line_color_halo {
+  data: {
+    table: 'vega.stocks';
+  }
+  layout: {
+    canvas: {
+      height: 440.0;
+      width: 500.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 340.0;
+    }
+  }
+  transform sql as ordered_prices {
+    query:
+      SELECT "symbol", "date", "price"
+      FROM input
+      ORDER BY "symbol", "date";
+  }
+  mark group as stocks {
+    mark line as halo {
+      order: direct "date";
+      stroke: encoded "symbol" {
+        legend: {
+          visible: false;
+        }
+        scale: ordinal {
+          domain: ['AAPL', 'AMZN', 'GOOG', 'IBM', 'MSFT'];
+          range: ['#ffffff', '#fffffe', '#fffefe', '#fefeff', '#feffff'];
+        }
+      }
+      stroke_width: direct 4.0;
+      x: encoded "date" {
+        axis: {
+          title: 'date';
+        }
+        scale: time;
+      }
+      y: encoded "price" {
+        axis: {
+          title: 'price';
+        }
+        scale: linear {
+          domain: [0.0, 800.0];
+          nice: false;
+          zero: true;
+        }
+      }
+    }
+    mark line as prices {
+      order: direct "date";
+      stroke: encoded "symbol" {
+        legend: {
+          title: '';
+        }
+        scale: ordinal {
+          domain: ['AAPL', 'AMZN', 'GOOG', 'IBM', 'MSFT'];
+          range: ['#4c78a8', '#f58518', '#e45756', '#72b7b2', '#54a24b'];
+        }
+      }
+      stroke_width: direct 2.0;
+      x: encoded "date";
+      y: encoded "price";
+    }
+  }
+}
