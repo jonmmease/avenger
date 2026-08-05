@@ -1,0 +1,70 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Bar Chart with bars center-aligned with time unit ticks (`bar_month_temporal_band_center`).
+chart cartesian as bar_month_temporal_band_center {
+  data: {
+    table: 'vega.seattle_weather';
+  }
+  layout: {
+    canvas: {
+      height: 420.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 340.0;
+    }
+  }
+  transform sql as monthly_precipitation {
+    query:
+      SELECT
+        CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
+        CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
+          WHEN 1 THEN 'Jan'
+          WHEN 2 THEN 'Feb'
+          WHEN 3 THEN 'Mar'
+          WHEN 4 THEN 'Apr'
+          WHEN 5 THEN 'May'
+          WHEN 6 THEN 'Jun'
+          WHEN 7 THEN 'Jul'
+          WHEN 8 THEN 'Aug'
+          WHEN 9 THEN 'Sep'
+          WHEN 10 THEN 'Oct'
+          WHEN 11 THEN 'Nov'
+          ELSE 'Dec'
+        END AS "month",
+        AVG("precipitation") AS "mean_precipitation"
+      FROM input
+      GROUP BY EXTRACT(MONTH FROM "date")
+      ORDER BY "month_number";
+  }
+  mark rect as monthly_bars {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "month" {
+      axis: {
+        label_angle: 0.0;
+        title: 'date (month)';
+      }
+      band: 0.0;
+      scale: band {
+        domain: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        padding_inner: 0.02;
+        padding_outer: 0.01;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded "mean_precipitation" {
+      axis: {
+        title: 'Mean of precipitation';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}
