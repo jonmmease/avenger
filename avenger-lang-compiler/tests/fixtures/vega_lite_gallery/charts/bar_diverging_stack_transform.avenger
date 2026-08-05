@@ -1,0 +1,153 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Diverging Stacked Bar Chart (`bar_diverging_stack_transform`).
+chart cartesian as bar_diverging_stack_transform {
+  data: {
+    values: [
+      { question: 'Question 1'; question_order: 1; response: 'Strongly disagree'; percentage: 0.7; },
+      { question: 'Question 1'; question_order: 1; response: 'Disagree'; percentage: 9.1; },
+      { question: 'Question 1'; question_order: 1; response: 'Neither agree nor disagree'; percentage: 18.5; },
+      { question: 'Question 1'; question_order: 1; response: 'Agree'; percentage: 59.9; },
+      { question: 'Question 1'; question_order: 1; response: 'Strongly agree'; percentage: 11.7; },
+      { question: 'Question 2'; question_order: 2; response: 'Strongly disagree'; percentage: 18.2; },
+      { question: 'Question 2'; question_order: 2; response: 'Disagree'; percentage: 18.2; },
+      { question: 'Question 2'; question_order: 2; response: 'Neither agree nor disagree'; percentage: 0.0; },
+      { question: 'Question 2'; question_order: 2; response: 'Agree'; percentage: 63.6; },
+      { question: 'Question 2'; question_order: 2; response: 'Strongly agree'; percentage: 0.0; },
+      { question: 'Question 3'; question_order: 3; response: 'Strongly disagree'; percentage: 20.0; },
+      { question: 'Question 3'; question_order: 3; response: 'Disagree'; percentage: 0.0; },
+      { question: 'Question 3'; question_order: 3; response: 'Neither agree nor disagree'; percentage: 20.0; },
+      { question: 'Question 3'; question_order: 3; response: 'Agree'; percentage: 40.0; },
+      { question: 'Question 3'; question_order: 3; response: 'Strongly agree'; percentage: 20.0; },
+      { question: 'Question 4'; question_order: 4; response: 'Strongly disagree'; percentage: 0.0; },
+      { question: 'Question 4'; question_order: 4; response: 'Disagree'; percentage: 12.5; },
+      { question: 'Question 4'; question_order: 4; response: 'Neither agree nor disagree'; percentage: 6.3; },
+      { question: 'Question 4'; question_order: 4; response: 'Agree'; percentage: 43.8; },
+      { question: 'Question 4'; question_order: 4; response: 'Strongly agree'; percentage: 37.5; },
+      { question: 'Question 5'; question_order: 5; response: 'Strongly disagree'; percentage: 0.0; },
+      { question: 'Question 5'; question_order: 5; response: 'Disagree'; percentage: 4.2; },
+      { question: 'Question 5'; question_order: 5; response: 'Neither agree nor disagree'; percentage: 12.5; },
+      { question: 'Question 5'; question_order: 5; response: 'Agree'; percentage: 66.7; },
+      { question: 'Question 5'; question_order: 5; response: 'Strongly agree'; percentage: 16.7; },
+      { question: 'Question 6'; question_order: 6; response: 'Strongly disagree'; percentage: 6.3; },
+      { question: 'Question 6'; question_order: 6; response: 'Disagree'; percentage: 6.3; },
+      { question: 'Question 6'; question_order: 6; response: 'Neither agree nor disagree'; percentage: 12.5; },
+      { question: 'Question 6'; question_order: 6; response: 'Agree'; percentage: 56.3; },
+      { question: 'Question 6'; question_order: 6; response: 'Strongly agree'; percentage: 18.8; },
+      { question: 'Question 7'; question_order: 7; response: 'Strongly disagree'; percentage: 0.0; },
+      { question: 'Question 7'; question_order: 7; response: 'Disagree'; percentage: 0.0; },
+      { question: 'Question 7'; question_order: 7; response: 'Neither agree nor disagree'; percentage: 20.0; },
+      { question: 'Question 7'; question_order: 7; response: 'Agree'; percentage: 80.0; },
+      { question: 'Question 7'; question_order: 7; response: 'Strongly agree'; percentage: 0.0; },
+      { question: 'Question 8'; question_order: 8; response: 'Strongly disagree'; percentage: 0.0; },
+      { question: 'Question 8'; question_order: 8; response: 'Disagree'; percentage: 0.0; },
+      { question: 'Question 8'; question_order: 8; response: 'Neither agree nor disagree'; percentage: 0.0; },
+      { question: 'Question 8'; question_order: 8; response: 'Agree'; percentage: 0.0; },
+      { question: 'Question 8'; question_order: 8; response: 'Strongly agree'; percentage: 100.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 320.0;
+      width: 640.0;
+    }
+    plot: {
+      height: 200.0;
+      width: 300.0;
+    }
+  }
+  transform sql as centered_responses {
+    query:
+      WITH ordered AS (
+        SELECT
+          *,
+          CASE "response"
+            WHEN 'Strongly disagree' THEN 0
+            WHEN 'Disagree' THEN 1
+            WHEN 'Neither agree nor disagree' THEN 2
+            WHEN 'Agree' THEN 3
+            ELSE 4
+          END AS "response_order",
+          CASE
+            WHEN "response" IN ('Strongly disagree', 'Disagree')
+              THEN CAST("percentage" AS DOUBLE)
+            WHEN "response" = 'Neither agree nor disagree'
+              THEN CAST("percentage" AS DOUBLE) / 2.0
+            ELSE 0.0
+          END AS "offset_part",
+          CAST("percentage" AS DOUBLE) AS "pct"
+        FROM input
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("pct") OVER (
+            PARTITION BY "question"
+            ORDER BY "response_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "cumulative",
+          SUM("offset_part") OVER (PARTITION BY "question") AS "offset"
+        FROM ordered
+      )
+      SELECT
+        "question",
+        "question_order",
+        "response",
+        "response_order",
+        "cumulative" - "pct" - "offset" AS "x0",
+        "cumulative" - "offset" AS "x1"
+      FROM stacked
+      ORDER BY "question_order", "response_order";
+  }
+  mark rect as responses {
+    fill: encoded "response" {
+      legend: {
+        title: 'Response';
+      }
+      scale: ordinal {
+        domain: [
+          'Strongly disagree',
+          'Disagree',
+          'Neither agree nor disagree',
+          'Agree',
+          'Strongly agree'
+        ];
+        range: ['#c30d24', '#f3a583', '#cccccc', '#94c6da', '#1770ab'];
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "x0" {
+      axis: {
+        title: 'Percentage';
+      }
+      scale: linear {
+        domain: [-40.0, 100.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded "x1";
+    y: encoded "question" {
+      axis: {
+        title: 'Question';
+      }
+      band: 0.0;
+      scale: band {
+        domain: [
+          'Question 8',
+          'Question 7',
+          'Question 6',
+          'Question 5',
+          'Question 4',
+          'Question 3',
+          'Question 2',
+          'Question 1'
+        ];
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}
