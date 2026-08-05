@@ -1,0 +1,29 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Trellis Scatter Plot Showing Anscombe's Quartet (`trellis_anscombe`).
+chart facet_column as trellis_anscombe {
+  data: { table: 'vega.anscombe'; }
+  layout: { plot: { height: 300.0; width: 300.0; } }
+  column: "Series" {
+    position: top;
+    slots: shared;
+    title: 'Series';
+  }
+  cell cartesian {
+    mark symbol as observations {
+      fill: direct '#4c78a8';
+      opacity: direct 1.0;
+      size: direct 60.0;
+      stroke_width: direct 0.0;
+      x: encoded "X" {
+        axis: { title: 'X'; }
+        scale: linear { zero: false; }
+      }
+      y: encoded "Y" {
+        axis: { title: 'Y'; }
+        scale: linear { zero: false; }
+      }
+    }
+  }
+}
