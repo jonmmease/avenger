@@ -1,0 +1,50 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Trellis Scatter Plot (wrapped) (`trellis_scatter`).
+schema tables as local {
+  table sql as valid_movies {
+    sql:
+      SELECT
+        COALESCE("MPAA Rating", 'null') AS "rating",
+        CASE COALESCE("MPAA Rating", 'null')
+          WHEN 'null' THEN 0
+          WHEN 'G' THEN 1
+          WHEN 'Not Rated' THEN 2
+          WHEN 'PG' THEN 3
+          WHEN 'PG-13' THEN 4
+          ELSE 5
+        END AS "rating_order",
+        CAST("Worldwide Gross" AS DOUBLE) AS "gross",
+        CAST("US DVD Sales" AS DOUBLE) AS "dvd_sales"
+      FROM vega.movies
+      WHERE "Worldwide Gross" IS NOT NULL AND "US DVD Sales" IS NOT NULL;
+  }
+}
+
+chart facet_wrap as trellis_scatter {
+  data: { table: 'local.valid_movies'; }
+  layout: { plot: { height: 300.0; width: 300.0; } }
+  facet: "rating" {
+    columns: 2;
+    order_by: min("rating_order");
+    slots: shared;
+    title: 'MPAA Rating';
+  }
+  cell cartesian {
+    mark symbol as movies {
+      fill: direct '#ffffff';
+      size: direct 30.0;
+      stroke: direct '#4c78a8';
+      stroke_width: direct 1.5;
+      x: encoded "gross" {
+        axis: { format: ',.0f'; tick_count: 6; title: 'Worldwide Gross'; }
+        scale: linear { domain: [0.0, 2800000000.0]; nice: false; zero: true; }
+      }
+      y: encoded "dvd_sales" {
+        axis: { format: ',.0f'; tick_count: 5; title: 'US DVD Sales'; }
+        scale: linear { domain: [0.0, 400000000.0]; nice: false; zero: true; }
+      }
+    }
+  }
+}
