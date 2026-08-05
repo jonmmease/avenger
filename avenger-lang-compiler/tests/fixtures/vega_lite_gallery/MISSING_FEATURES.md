@@ -29,6 +29,23 @@ capability was added.
   and boundaries; then cover exact-column case, formatting, analysis, LSP, and
   direct/serialized runtime evaluation.
 
+### AV-GALLERY-LANG-005 — Channel domain coordination is not lowered
+
+- Status: confirmed
+- Affects: `facet_bullet` and faceted or repeated charts that require a scale
+  domain per leaf plot
+- Evidence: the canonical DSL defines `domain_scope: free | level(n) | shared`
+  and `domain_group:` on configured channels, and resolved channel values retain
+  a domain-coordination field. The compiler's `apply_channel_configs` accepts
+  `scale`, `axis`, `legend`, `band`, and `domain_contribution`, but rejects
+  `domain_scope` and `domain_group` as unsupported channel configuration. An
+  executable `facet_bullet` attempt therefore fails with `AVENGER-LOWER-002`
+  before its five independently scaled bullet rows can render.
+- Required capability: lower both properties into the existing
+  `ChannelValue` domain-coordination metadata, validate scope/group agreement,
+  and cover per-cell, level, and shared domains through compilation,
+  serialization, facet evaluation, analysis, and LSP support.
+
 ### AV-GALLERY-MARK-002 — Line and area interpolation modes
 
 - Status: confirmed

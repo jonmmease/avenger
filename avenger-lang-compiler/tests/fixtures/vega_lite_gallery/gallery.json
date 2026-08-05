@@ -5529,8 +5529,13 @@
         "mark:bar",
         "mark:tick"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-005",
+          "feature": "channel:domain-coordination"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
