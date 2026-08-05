@@ -1,0 +1,57 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Line chart with a dashed part (`line_dashed_part`).
+chart cartesian as line_dashed_part {
+  data: {
+    values: [
+      { a: 'A'; b: 28; predicted: 'false'; order_key: 0; },
+      { a: 'B'; b: 55; predicted: 'false'; order_key: 1; },
+      { a: 'D'; b: 91; predicted: 'false'; order_key: 2; },
+      { a: 'E'; b: 81; predicted: 'false'; order_key: 3; },
+      { a: 'E'; b: 81; predicted: 'true'; order_key: 3; },
+      { a: 'G'; b: 19; predicted: 'true'; order_key: 4; },
+      { a: 'H'; b: 87; predicted: 'true'; order_key: 5; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 260.0;
+      width: 300.0;
+    }
+  }
+  mark line as values {
+    order: direct "order_key";
+    stroke: direct '#4c78a8';
+    stroke_dash: encoded "predicted" {
+      legend: {
+        title: 'predicted';
+      }
+      scale: ordinal {
+        domain: ['false', 'true'];
+        range: ['solid', 'dashed'];
+      }
+    }
+    stroke_width: direct 2.0;
+    x: encoded "a" {
+      axis: {
+        label_angle: 0.0;
+        title: 'a';
+      }
+      scale: point {
+        domain: ['A', 'B', 'D', 'E', 'G', 'H'];
+      }
+    }
+    y: encoded "b" {
+      axis: {
+        title: 'b';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+  }
+}
