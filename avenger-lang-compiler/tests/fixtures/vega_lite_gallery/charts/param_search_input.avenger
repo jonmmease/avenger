@@ -1,0 +1,43 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: search-bound car scatterplot (`param_search_input`).
+chart cartesian as param_search_input {
+  data: { table: 'vega.cars'; }
+  layout: {
+    canvas: { height: 390.0; width: 350.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  param '' as search_input;
+  widget text_input as search {
+    default: '';
+    placeholder: 'Car model';
+    position: top;
+    value_param: $search_input;
+  }
+  transform sql as valid_measurements {
+    query:
+      SELECT *
+      FROM input
+      WHERE "Horsepower" IS NOT NULL
+        AND "Miles_per_Gallon" IS NOT NULL;
+  }
+  mark symbol as cars {
+    fill: direct 'transparent';
+    opacity: direct CASE
+      WHEN regexp_like("Name", $search_input, 'i') THEN 0.8
+      ELSE 0.1
+    END;
+    size: direct 36.0;
+    stroke: direct '#4c78a8';
+    stroke_width: direct 2.0;
+    x: encoded "Horsepower" {
+      axis: { title: 'Horsepower'; }
+      scale: linear { nice: true; zero: true; }
+    }
+    y: encoded "Miles_per_Gallon" {
+      axis: { title: 'Miles_per_Gallon'; }
+      scale: linear { nice: true; zero: true; }
+    }
+  }
+}

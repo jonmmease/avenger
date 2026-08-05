@@ -7642,10 +7642,13 @@
         "interaction:param",
         "mark:point"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The native Avenger text input is rendered above the plot; Vega-Lite's reference PNG excludes its external HTML binding control.",
+        "AV-GALLERY-INTERACTION-002: car-name tooltips are omitted because Avenger has no tooltip contract yet."
+      ]
     },
     {
       "name": "selection_type_point_zorder",
