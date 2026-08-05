@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Stacked Density Estimates (`area_density_stacked`).
+chart cartesian as area_density_stacked {
+  title: 'Distribution of Body Mass of Penguins';
+  data: { table: 'vega.penguins'; }
+  layout: {
+    canvas: { height: 288.0; width: 1088.0; }
+    plot: { height: 160.0; width: 800.0; }
+  }
+  transform sql as normalized_columns {
+    query:
+      SELECT
+        CAST("Body Mass (g)" AS DOUBLE) AS "mass_input",
+        "Species" AS "species"
+      FROM input
+      WHERE "Body Mass (g)" IS NOT NULL AND "Species" IS NOT NULL;
+  }
+  transform kde as mass_density {
+    field: "mass_input";
+    group_by: "species";
+    extent: [2500.0, 6500.0];
+    resolve: shared;
+    as_fields: ['mass', 'density'];
+  }
+  transform stack as stacked_density {
+    field: "density";
+    group_by: "mass";
+    sort_by: "species";
+    offset: zero;
+    name: 'density_stack';
+  }
+  mark area as species_density {
+    fill: encoded "species" {
+      legend: { title: 'Species'; }
+      scale: ordinal {
+        domain: ['Adelie', 'Chinstrap', 'Gentoo'];
+        range: ['#4c78a8', '#f58518', '#e45756'];
+      }
+    }
+    order: direct "mass";
+    stroke_width: direct 0.0;
+    x: encoded "mass" {
+      axis: { format: ',.0f'; title: 'Body Mass (g)'; }
+      scale: linear { domain: [2500.0, 6500.0]; nice: false; zero: false; }
+    }
+    y: encoded stacked_density.end {
+      axis: { format: '.3f'; title: 'density'; }
+      scale: linear { zero: true; }
+    }
+    y2: encoded stacked_density.start;
+  }
+}
