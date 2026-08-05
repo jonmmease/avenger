@@ -5412,8 +5412,13 @@
         "mark:tick",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:quantitative-size-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
