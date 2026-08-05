@@ -1,0 +1,50 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Faceted Density Plot (`area_density_facet`).
+schema tables as local {
+  table sql as penguins {
+    sql:
+      SELECT
+        CAST("Body Mass (g)" AS DOUBLE) AS "mass_input",
+        "Species" AS "species"
+      FROM vega.penguins
+      WHERE "Body Mass (g)" IS NOT NULL AND "Species" IS NOT NULL;
+  }
+}
+
+chart facet as area_density_facet {
+  title: 'Distribution of Body Mass of Penguins';
+  data: { table: 'local.penguins'; }
+  layout: {
+    plot: { height: 80.0; width: 400.0; }
+  }
+  row: "species" {
+    position: left;
+    title: 'Species';
+    slots: shared;
+  }
+  cell cartesian {
+    mark group as density_pipeline {
+      transform kde as mass_density {
+        field: "mass_input";
+        extent: [2500.0, 6500.0];
+        as_fields: ['mass', 'density'];
+      }
+      mark area as species_density {
+        fill: direct '#4c78a8';
+        order: direct "mass";
+        stroke_width: direct 0.0;
+        x: encoded "mass" {
+          axis: { format: ',.0f'; title: 'Body Mass (g)'; }
+          scale: linear { domain: [2500.0, 6500.0]; nice: false; zero: false; }
+        }
+        y: encoded "density" {
+          axis: { format: '.4f'; title: 'density'; }
+          scale: linear { zero: true; }
+        }
+        y2: encoded 0.0;
+      }
+    }
+  }
+}
