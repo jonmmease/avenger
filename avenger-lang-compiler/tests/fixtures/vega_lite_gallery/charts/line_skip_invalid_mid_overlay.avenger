@@ -1,0 +1,62 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Line Chart with Markers and Invalid Values (`line_skip_invalid_mid_overlay`).
+chart cartesian as line_skip_invalid_mid_overlay {
+  data: {
+    values: [
+      { x: 1; y: 10; },
+      { x: 2; y: 30; },
+      { x: 3; y: null; },
+      { x: 4; y: 15; },
+      { x: 5; y: null; },
+      { x: 6; y: 40; },
+      { x: 7; y: 20; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 440.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 340.0;
+    }
+  }
+  mark group as observations {
+    mark line as segments {
+      defined: direct "y" IS NOT NULL;
+      order: direct "x";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "x" {
+        axis: {
+          title: 'x';
+        }
+        scale: linear {
+          domain: [1.0, 7.0];
+          nice: false;
+          zero: false;
+        }
+      }
+      y: encoded "y" {
+        axis: {
+          title: 'y';
+        }
+        scale: linear {
+          domain: [0.0, 40.0];
+          nice: false;
+          zero: true;
+        }
+      }
+    }
+    mark symbol as points {
+      fill: direct '#4c78a8';
+      opacity: direct CASE WHEN "y" IS NULL THEN 0.0 ELSE 1.0 END;
+      size: direct 24.0;
+      stroke_width: direct 0.0;
+      x: encoded "x";
+      y: encoded "y";
+    }
+  }
+}
