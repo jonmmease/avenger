@@ -1,0 +1,153 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Mosaic Chart with Labels (`rect_mosaic_labelled_with_offset`).
+schema tables as local {
+  table sql as mosaic {
+    sql:
+      WITH counts AS (
+        SELECT
+          "Origin" AS "origin",
+          CAST("Cylinders" AS BIGINT) AS "cylinders",
+          CAST(COUNT(*) AS DOUBLE) AS "count"
+        FROM vega.cars
+        WHERE "Origin" IS NOT NULL AND "Cylinders" IS NOT NULL
+        GROUP BY "Origin", "Cylinders"
+      ), origin_totals AS (
+        SELECT "origin", SUM("count") AS "origin_total"
+        FROM counts
+        GROUP BY "origin"
+      ), origin_bounds AS (
+        SELECT
+          "origin",
+          "origin_total",
+          DENSE_RANK() OVER (ORDER BY "origin") AS "rank_origin",
+          SUM("origin_total") OVER () AS "grand_total",
+          SUM("origin_total") OVER (
+            ORDER BY "origin"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) - "origin_total" AS "origin_start",
+          SUM("origin_total") OVER (
+            ORDER BY "origin"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "origin_end"
+        FROM origin_totals
+      ), cylinder_bounds AS (
+        SELECT
+          c.*,
+          o."origin_total",
+          o."grand_total",
+          o."origin_start",
+          o."origin_end",
+          o."rank_origin",
+          DENSE_RANK() OVER (
+            PARTITION BY c."origin"
+            ORDER BY c."cylinders"
+          ) AS "rank_cylinders",
+          COUNT(*) OVER (PARTITION BY c."origin") AS "distinct_cylinders",
+          SUM(c."count") OVER (
+            PARTITION BY c."origin"
+            ORDER BY c."cylinders"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "cylinder_end"
+        FROM counts c
+        JOIN origin_bounds o ON c."origin" = o."origin"
+      )
+      SELECT
+        *,
+        "origin_start" / "grand_total" + ("rank_origin" - 1) * 0.01 AS "nx",
+        "origin_end" / "grand_total" + ("rank_origin" - 1) * 0.01 AS "nx2",
+        ("cylinder_end" - "count") / "origin_total"
+          + ("rank_cylinders" - 1) * "distinct_cylinders" * 0.01 / 3.0 AS "ny",
+        "cylinder_end" / "origin_total"
+          + ("rank_cylinders" - 1) * "distinct_cylinders" * 0.01 / 3.0 AS "ny2"
+      FROM cylinder_bounds
+      ORDER BY "origin", "cylinders";
+  }
+}
+
+chart cartesian as rect_mosaic_labelled_with_offset {
+  data: { table: 'local.mosaic'; }
+  layout: {
+    canvas: { height: 361.0; width: 316.0; }
+    plot: { height: 335.0; width: 280.0; }
+  }
+  mark group as layers {
+    mark rect as cells {
+      fill: encoded "origin" {
+        legend: { visible: false; }
+        scale: ordinal {
+          domain: ['Europe', 'Japan', 'USA'];
+          range: ['#4c78a8', '#f58518', '#e45756'];
+        }
+      }
+      opacity: encoded CAST("cylinders" AS DOUBLE) {
+        legend: { visible: false; }
+        scale: linear {
+          domain: [3.0, 8.0];
+          nice: false;
+          range: [0.3, 1.0];
+          zero: false;
+        }
+      }
+      stroke: direct 'white';
+      stroke_width: direct 1.0;
+      x: encoded "nx" {
+        axis: { visible: false; }
+        scale: linear { domain: [0.0, 1.02]; nice: false; zero: true; }
+      }
+      x2: encoded "nx2";
+      y: encoded "ny" {
+        axis: { grid: false; tick_label: ''; title: 'Cylinders'; }
+        scale: linear { domain: [0.0, 1.2]; nice: false; zero: true; }
+      }
+      y2: encoded "ny2";
+    }
+    mark text as cylinder_labels {
+      align: direct 'center';
+      baseline: direct 'middle';
+      color: direct 'black';
+      text: direct CAST("cylinders" AS VARCHAR);
+      x: encoded ("nx" + "nx2") / 2.0;
+      y: encoded ("ny" + "ny2") / 2.0;
+    }
+    mark group as origin_headers {
+      transform sql as one_per_origin {
+        query:
+          SELECT
+            "origin",
+            (MIN("nx") + MAX("nx2")) / 2.0 AS "xc"
+          FROM input
+          GROUP BY "origin";
+      }
+      mark text as labels {
+        align: direct 'center';
+        baseline: direct 'middle';
+        color: encoded "origin" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['Europe', 'Japan', 'USA'];
+            range: ['#4c78a8', '#f58518', '#e45756'];
+          }
+        }
+        font_size: direct 10.0;
+        text: direct "origin";
+        x: encoded "xc";
+        y: encoded 1.105;
+      }
+    }
+    mark group as heading {
+      transform sql as one_row { query: SELECT 1 AS "one" FROM input LIMIT 1; }
+      mark text as origin_title {
+        align: direct 'center';
+        baseline: direct 'middle';
+        color: direct 'black';
+        font_size: direct 12.0;
+        font_weight: direct 'bold';
+        text: direct 'Origin';
+        x: encoded 0.51;
+        y: encoded 1.17;
+      }
+    }
+  }
+}

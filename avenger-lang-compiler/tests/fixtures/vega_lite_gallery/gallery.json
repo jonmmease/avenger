@@ -4329,10 +4329,12 @@
         "transform:stack",
         "transform:window"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "Avenger hides the numeric tick labels with `tick_label: ''` but retains unlabeled tick marks and the axis domain because Cartesian axes do not expose independent component-visibility controls."
+      ]
     },
     {
       "name": "point_angle_windvector",
