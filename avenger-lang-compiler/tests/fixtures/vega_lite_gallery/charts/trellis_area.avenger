@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Trellis Area (`trellis_area`).
+schema tables as local {
+  table sql as selected_stocks {
+    sql:
+      SELECT
+        "symbol",
+        "date",
+        CAST("price" AS DOUBLE) AS "price",
+        CASE "symbol"
+          WHEN 'AAPL' THEN 0
+          WHEN 'AMZN' THEN 1
+          WHEN 'IBM' THEN 2
+          ELSE 3
+        END AS "symbol_order"
+      FROM vega.stocks
+      WHERE "symbol" <> 'GOOG';
+  }
+}
+
+chart facet as trellis_area {
+  data: { table: 'local.selected_stocks'; }
+  layout: { plot: { height: 40.0; width: 300.0; } }
+  row: "symbol" {
+    order_by: min("symbol_order");
+    position: left;
+    slots: shared;
+    title: 'Symbol';
+  }
+  cell cartesian {
+    mark area as prices {
+      fill: encoded "symbol" {
+        legend: { visible: false; }
+        scale: ordinal {
+          domain: ['AAPL', 'AMZN', 'IBM', 'MSFT'];
+          range: ['#4c78a8', '#f58518', '#e45756', '#72b7b2'];
+        }
+      }
+      order: direct "date";
+      stroke_width: direct 0.0;
+      x: encoded "date" {
+        axis: { datetime_format: 'yyyy'; grid: false; title: 'Time'; }
+        scale: time;
+      }
+      y: encoded "price" {
+        axis: { format: ',.0f'; grid: false; title: 'Price'; }
+        scale: linear { domain: [0.0, 220.0]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+  }
+}
