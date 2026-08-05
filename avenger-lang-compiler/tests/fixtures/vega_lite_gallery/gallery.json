@@ -3973,8 +3973,13 @@
         "mark:area",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-004",
+          "feature": "Authored gradient mark fills"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

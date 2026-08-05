@@ -54,6 +54,23 @@ capability was added.
   end-corner policy aware of orientation), preserved through the mark schema,
   compiled state, scene graph, GPU/vector renderers, bounds, and hit testing.
 
+### AV-GALLERY-MARK-004 — Authored gradient mark fills
+
+- Status: confirmed
+- Affects: `area_gradient` and marks whose interior is filled by an authored
+  linear or radial gradient
+- Evidence: area marks expose scalar `fill` and pattern-fill channels, but the
+  active language schema has no gradient definition/value. Compiled Cartesian
+  areas always emit an empty scene-gradient collection; a fill can reference a
+  gradient index only after some lower layer has already constructed that
+  collection. Consequently the authored white-to-dark-green plot-relative
+  linear gradient cannot reach the scene graph.
+- Required capability: a serializable gradient value with ordered color stops,
+  coordinate space, endpoints (and radial geometry where applicable), usable
+  by mark fill/stroke channels and preserved through language lowering,
+  grouping, scene generation, GPU/SVG rendering, legends, and hit-test/bounds
+  behavior.
+
 ### AV-GALLERY-GUIDE-004 — Per-tick conditional axis styling
 
 - Status: confirmed
