@@ -5944,8 +5944,17 @@
       "features": [
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-005",
+          "feature": "guide:symbol-item-flow"
+        },
+        {
+          "id": "AV-GALLERY-GUIDE-007",
+          "feature": "guide:facet-label-presentation"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

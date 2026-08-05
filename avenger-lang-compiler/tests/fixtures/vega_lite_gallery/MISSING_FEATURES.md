@@ -224,8 +224,8 @@ capability was added.
 ### AV-GALLERY-GUIDE-005 — Symbol-legend item-flow orientation
 
 - Status: confirmed
-- Affects: `bar_diverging_stack_population_pyramid` and other compact top or
-  bottom symbol legends
+- Affects: `bar_diverging_stack_population_pyramid`, `facet_grid_bar`, and
+  other compact top or bottom symbol legends
 - Evidence: the standard legend schema and Rust builder retain an
   `orientation` expression, but symbol, line, and rectangle legend renderers do
   not read it. `orientation: 'horizontal'` therefore still produces a vertical
@@ -257,8 +257,8 @@ capability was added.
 ### AV-GALLERY-GUIDE-007 — Facet-guide label presentation
 
 - Status: confirmed
-- Affects: `trellis_area_seattle`, `facet_bullet`, and row facets whose compact
-  labels must remain horizontal
+- Affects: `trellis_area_seattle`, `facet_bullet`, `facet_grid_bar`, and row
+  facets whose compact labels must remain horizontal
 - Evidence: an executable `trellis_area_seattle` attempt can precompute its
   human-readable hour labels with SQL and renders all 24 area plots, but the
   row guide rotates every value label vertically. The facet authoring schemas
