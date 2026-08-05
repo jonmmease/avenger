@@ -366,6 +366,13 @@ async fn evaluate_and_render(
         NativeWidgetPlotId::chart_root(),
     ));
     let evaluated = evaluate_ready_scene(&mut session).await?;
+    if std::env::var_os("AVENGER_VL_GALLERY_DEBUG").is_some() {
+        eprintln!(
+            "{}",
+            serde_json::to_string_pretty(&evaluated.scene_graph)
+                .map_err(|error| format!("scene graph debug serialization failed: {error}"))?
+        );
+    }
     let dimensions = CanvasDimensions {
         size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
         scale: 2.0,

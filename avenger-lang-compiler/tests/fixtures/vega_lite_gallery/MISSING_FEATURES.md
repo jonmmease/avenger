@@ -115,6 +115,22 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-SCALE-001 — Mixed Arrow temporal types collapsed mark positions
+
+- Status: resolved
+- Discovered by: `line`
+- Symptom: time-scale domain inference normalized `Date32` extents to `Date64`
+  epoch milliseconds, but scale application decoded the original `Date32` mark
+  values with the domain's `Date64` handler. All dates consequently landed at
+  the same off-canvas coordinate even though the inferred axes were correct.
+- Resolution: time scales now decode configured domains and runtime values with
+  independent temporal handlers. Temporal domain inference also normalizes
+  timestamps in seconds, milliseconds, microseconds, and nanoseconds to epoch
+  milliseconds before constructing a shared domain.
+- Regression evidence: mixed `Date64`-domain/`Date32`-value and
+  `Date64`-domain/`TimestampSecond` scale tests, temporal extent unit tests, and
+  the reviewed `line` gallery rendering.
+
 ### AV-GALLERY-LANG-002 — Position-channel `band:` was not lowered
 
 - Status: resolved

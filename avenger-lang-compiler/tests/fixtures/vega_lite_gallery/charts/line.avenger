@@ -1,0 +1,43 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Line Chart (`line`).
+chart cartesian as line {
+  data: {
+    table: 'vega.stocks';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as goog {
+    transform filter {
+      predicate: "symbol" = 'GOOG';
+    }
+    mark line as prices {
+      order: direct "date";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "date" {
+        axis: {
+          title: 'date';
+        }
+        scale: time;
+      }
+      y: encoded "price" {
+        axis: {
+          title: 'price';
+        }
+        scale: linear {
+          zero: true;
+        }
+      }
+    }
+  }
+}
