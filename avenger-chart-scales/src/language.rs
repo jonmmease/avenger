@@ -9,6 +9,7 @@ use avenger_chart_schema::{
     EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
 use datafusion::common::ScalarValue;
+use palette::Srgba;
 
 use crate::{
     Band, Linear, Log, NestedBand, Ordinal, Point, Pow, Quantile, Quantize, Sqrt, Symlog,
@@ -328,13 +329,19 @@ fn lower_scale(
         };
     }
     if let Some(ResolvedValue::Array(range)) = declaration.properties.get("range") {
-        scale = scale.range_discrete(
-            range
-                .iter()
-                .enumerate()
-                .map(|(index, value)| scalar(value, &format!("range[{index}]")))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
+        if matches!(domain_form, DomainForm::Interval)
+            && let Some(colors) = literal_color_range(range)
+        {
+            scale = scale.range_colors(colors);
+        } else {
+            scale = scale.range_discrete(
+                range
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| scalar(value, &format!("range[{index}]")))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
     }
     for (name, value) in &declaration.properties {
         match name.as_str() {
@@ -350,6 +357,22 @@ fn lower_scale(
         }
     }
     Ok(scale)
+}
+
+fn literal_color_range(range: &[ResolvedValue]) -> Option<Vec<Srgba>> {
+    if range.is_empty() {
+        return None;
+    }
+    range
+        .iter()
+        .map(|value| {
+            let ResolvedValue::String(value) = value else {
+                return None;
+            };
+            avenger_color::parse_color_string(value)
+                .map(|[red, green, blue, alpha]| Srgba::new(red, green, blue, alpha))
+        })
+        .collect()
 }
 
 fn expression(
@@ -375,5 +398,37 @@ fn invalid(property: &str, expected: &str) -> NativeLoweringError {
     NativeLoweringError::InvalidPropertyType {
         property: property.to_string(),
         expected: expected.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_chart_core::ScaleRange;
+
+    use super::*;
+
+    #[test]
+    fn continuous_literal_css_color_range_lowers_as_colors() {
+        let declaration = ResolvedDeclaration::new("linear").property(
+            "range",
+            ResolvedValue::Array(vec![
+                ResolvedValue::String("#b35806".to_string()),
+                ResolvedValue::String("white".to_string()),
+                ResolvedValue::String("#4393c3".to_string()),
+            ]),
+        );
+
+        let scale = lower_scale(
+            Scale::<Linear>::new().into_type::<Auto>(),
+            &declaration,
+            DomainForm::Interval,
+        )
+        .unwrap();
+
+        let Some(ScaleRange::Color(colors)) = scale.get_range() else {
+            panic!("expected a color range");
+        };
+        assert_eq!(colors.len(), 3);
+        assert_eq!(colors[1], [1.0, 1.0, 1.0, 1.0]);
     }
 }

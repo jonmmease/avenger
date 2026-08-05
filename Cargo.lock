@@ -982,6 +982,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-lang-types",
  "avenger-chart-schema",
+ "avenger-color",
  "avenger-common",
  "avenger-format-number",
  "avenger-scales",
