@@ -163,6 +163,23 @@ capability was added.
   renderers and use it, together with `columns`, when measuring, placing, and
   navigating legend entries at every legend position.
 
+### AV-GALLERY-GUIDE-006 — Contextual axis-label expressions
+
+- Status: confirmed
+- Affects: `bar_month_temporal_initial` and examples that derive tick labels
+  from the tick value or its default formatted label
+- Evidence: Cartesian axes expose static number/date-time format patterns and
+  a scalar label angle, but no per-tick label expression or custom label-value
+  mapping. Precomputing the displayed label in chart data is not equivalent:
+  January, June, and July all become `J` and collapse into one categorical
+  scale value instead of remaining three distinct temporal ticks. The axis API
+  also has no authored label-alignment property for reproducing this example's
+  left-aligned labels.
+- Required capability: evaluate an axis-label expression against a contextual
+  tick relation containing at least the raw tick value and default formatted
+  label, and carry label alignment through measurement and rendering. The DSL
+  should provide typed completion and validation for the contextual fields.
+
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed
