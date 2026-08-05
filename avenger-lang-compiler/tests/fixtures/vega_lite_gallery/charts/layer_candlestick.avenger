@@ -1,0 +1,39 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Candlestick Chart (`layer_candlestick`).
+chart cartesian as layer_candlestick {
+  data: { table: 'vega.ohlc'; }
+  layout: {
+    canvas: { height: 365.0; width: 445.0; }
+    plot: { height: 300.0; width: 400.0; }
+  }
+  mark group as layers {
+    mark rule as ranges {
+      stroke: direct CASE WHEN "open" < "close" THEN '#06982d' ELSE '#ae1325' END;
+      stroke_width: direct 1.0;
+      x: encoded "date" {
+        axis: {
+          datetime_format: 'MM/dd';
+          label_angle: -45.0;
+          title: 'Date in 2009';
+        }
+        scale: time;
+      }
+      x2: encoded "date";
+      y: encoded "low" {
+        axis: { title: 'Price'; }
+        scale: linear { zero: false; }
+      }
+      y2: encoded "high";
+    }
+    mark rule as bodies {
+      stroke: direct CASE WHEN "open" < "close" THEN '#06982d' ELSE '#ae1325' END;
+      stroke_width: direct 8.0;
+      x: encoded "date";
+      x2: encoded "date";
+      y: encoded "open";
+      y2: encoded "close";
+    }
+  }
+}
