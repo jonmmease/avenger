@@ -1,48 +1,9 @@
 avenger 1;
+import { isotype } from './isotype_data.avenger';
 
 -- | Vega-Lite gallery: Pictorial Bar Chart (`isotype_bar_chart`).
 chart facet as isotype_bar_chart {
-  data: {
-    values: [
-      { country: 'Great Britain'; animal: 'cattle'; col: 3; },
-      { country: 'Great Britain'; animal: 'cattle'; col: 2; },
-      { country: 'Great Britain'; animal: 'cattle'; col: 1; },
-      { country: 'Great Britain'; animal: 'pigs'; col: 2; },
-      { country: 'Great Britain'; animal: 'pigs'; col: 1; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 10; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 9; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 8; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 7; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 6; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 5; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 4; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 3; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 2; },
-      { country: 'Great Britain'; animal: 'sheep'; col: 1; },
-      { country: 'United States'; animal: 'cattle'; col: 9; },
-      { country: 'United States'; animal: 'cattle'; col: 8; },
-      { country: 'United States'; animal: 'cattle'; col: 7; },
-      { country: 'United States'; animal: 'cattle'; col: 6; },
-      { country: 'United States'; animal: 'cattle'; col: 5; },
-      { country: 'United States'; animal: 'cattle'; col: 4; },
-      { country: 'United States'; animal: 'cattle'; col: 3; },
-      { country: 'United States'; animal: 'cattle'; col: 2; },
-      { country: 'United States'; animal: 'cattle'; col: 1; },
-      { country: 'United States'; animal: 'pigs'; col: 6; },
-      { country: 'United States'; animal: 'pigs'; col: 5; },
-      { country: 'United States'; animal: 'pigs'; col: 4; },
-      { country: 'United States'; animal: 'pigs'; col: 3; },
-      { country: 'United States'; animal: 'pigs'; col: 2; },
-      { country: 'United States'; animal: 'pigs'; col: 1; },
-      { country: 'United States'; animal: 'sheep'; col: 7; },
-      { country: 'United States'; animal: 'sheep'; col: 6; },
-      { country: 'United States'; animal: 'sheep'; col: 5; },
-      { country: 'United States'; animal: 'sheep'; col: 4; },
-      { country: 'United States'; animal: 'sheep'; col: 3; },
-      { country: 'United States'; animal: 'sheep'; col: 2; },
-      { country: 'United States'; animal: 'sheep'; col: 1; }
-    ];
-  }
+  data: { table: 'isotype.animals'; }
   layout: { plot: { height: 200.0; width: 800.0; } }
   row: "country" {
     position: left;

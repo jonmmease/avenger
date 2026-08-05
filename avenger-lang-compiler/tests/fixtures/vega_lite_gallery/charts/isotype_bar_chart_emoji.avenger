@@ -1,0 +1,44 @@
+avenger 1;
+import { isotype } from './isotype_data.avenger';
+
+-- | Vega-Lite gallery: Pictorial Bar Chart with Emoji (`isotype_bar_chart_emoji`).
+chart facet as isotype_bar_chart_emoji {
+  data: { table: 'isotype.animals'; }
+  layout: { plot: { height: 200.0; width: 800.0; } }
+  row: "country" {
+    position: left;
+    title: '';
+    slots: shared;
+  }
+  cell cartesian {
+    mark text as animals {
+      align: direct 'center';
+      baseline: direct 'middle';
+      color: direct 'black';
+      font_size: direct 65.0;
+      text: direct CASE "animal"
+        WHEN 'cattle' THEN '🐄'
+        WHEN 'pigs' THEN '🐖'
+        ELSE '🐏'
+      END;
+      x: encoded "col" {
+        axis: { visible: false; }
+        band: 0.5;
+        scale: band {
+          domain: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+          padding_inner: 0.0;
+          padding_outer: 0.0;
+        }
+      }
+      y: encoded "animal" {
+        axis: { visible: false; }
+        band: 0.5;
+        scale: band {
+          domain: ['sheep', 'cattle', 'pigs'];
+          padding_inner: 0.0;
+          padding_outer: 0.0;
+        }
+      }
+    }
+  }
+}

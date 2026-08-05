@@ -2893,10 +2893,12 @@
         "transform:calculate",
         "transform:window"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The native macOS renderer uses Apple Color Emoji glyphs, while the pinned upstream reference was rendered with monochrome emoji outlines."
+      ]
     },
     {
       "name": "bar_percent_of_total",

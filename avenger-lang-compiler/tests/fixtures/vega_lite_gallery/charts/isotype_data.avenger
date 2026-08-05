@@ -1,0 +1,46 @@
+avenger 1;
+
+-- | Shared pictorial-bar input used by the path and emoji gallery variants.
+export schema tables as isotype {
+  table inline as animals {
+    values: [
+      { country: 'Great Britain'; animal: 'cattle'; col: 3; },
+      { country: 'Great Britain'; animal: 'cattle'; col: 2; },
+      { country: 'Great Britain'; animal: 'cattle'; col: 1; },
+      { country: 'Great Britain'; animal: 'pigs'; col: 2; },
+      { country: 'Great Britain'; animal: 'pigs'; col: 1; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 10; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 9; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 8; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 7; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 6; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 5; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 4; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 3; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 2; },
+      { country: 'Great Britain'; animal: 'sheep'; col: 1; },
+      { country: 'United States'; animal: 'cattle'; col: 9; },
+      { country: 'United States'; animal: 'cattle'; col: 8; },
+      { country: 'United States'; animal: 'cattle'; col: 7; },
+      { country: 'United States'; animal: 'cattle'; col: 6; },
+      { country: 'United States'; animal: 'cattle'; col: 5; },
+      { country: 'United States'; animal: 'cattle'; col: 4; },
+      { country: 'United States'; animal: 'cattle'; col: 3; },
+      { country: 'United States'; animal: 'cattle'; col: 2; },
+      { country: 'United States'; animal: 'cattle'; col: 1; },
+      { country: 'United States'; animal: 'pigs'; col: 6; },
+      { country: 'United States'; animal: 'pigs'; col: 5; },
+      { country: 'United States'; animal: 'pigs'; col: 4; },
+      { country: 'United States'; animal: 'pigs'; col: 3; },
+      { country: 'United States'; animal: 'pigs'; col: 2; },
+      { country: 'United States'; animal: 'pigs'; col: 1; },
+      { country: 'United States'; animal: 'sheep'; col: 7; },
+      { country: 'United States'; animal: 'sheep'; col: 6; },
+      { country: 'United States'; animal: 'sheep'; col: 5; },
+      { country: 'United States'; animal: 'sheep'; col: 4; },
+      { country: 'United States'; animal: 'sheep'; col: 3; },
+      { country: 'United States'; animal: 'sheep'; col: 2; },
+      { country: 'United States'; animal: 'sheep'; col: 1; }
+    ];
+  }
+}
