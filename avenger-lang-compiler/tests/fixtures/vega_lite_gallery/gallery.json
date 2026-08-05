@@ -3282,8 +3282,13 @@
       "features": [
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-006",
+          "feature": "Contextual axis-label expressions"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

@@ -184,11 +184,14 @@ capability was added.
 ### AV-GALLERY-GUIDE-006 — Contextual axis-label expressions
 
 - Status: confirmed
-- Affects: `bar_month_temporal_initial` and examples that derive tick labels
-  from the tick value or its default formatted label
+- Affects: `bar_month_temporal_initial`, `circle_custom_tick_labels`, and
+  examples that derive tick labels from the tick value or its default
+  formatted label
 - Evidence: Cartesian axes expose static number/date-time format patterns and
-  a scalar label angle, but no per-tick label expression or custom label-value
-  mapping. Precomputing the displayed label in chart data is not equivalent:
+  a scalar label angle. The `tick_label` expression is evaluated once to one
+  string for the whole axis, not against each generated tick, so there is no
+  per-tick label expression or custom label-value mapping. Precomputing the
+  displayed label in chart data is not equivalent:
   January, June, and July all become `J` and collapse into one categorical
   scale value instead of remaining three distinct temporal ticks. The axis API
   also has no authored label-alignment property for reproducing this example's
