@@ -1,0 +1,67 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Bump Chart (`line_bump`).
+chart cartesian as line_bump {
+  data: {
+    values: [
+      { build: 1; result: 'PASSED'; },
+      { build: 2; result: 'PASSED'; },
+      { build: 3; result: 'FAILED'; },
+      { build: 4; result: 'FAILED'; },
+      { build: 5; result: 'SKIPPED'; },
+      { build: 6; result: 'PASSED'; },
+      { build: 7; result: 'PASSED'; },
+      { build: 8; result: 'FAILED'; },
+      { build: 9; result: 'PASSED'; },
+      { build: 10; result: 'PASSED'; },
+      { build: 11; result: 'SKIPPED'; },
+      { build: 12; result: 'PASSED'; },
+      { build: 13; result: 'PASSED'; },
+      { build: 14; result: 'FAILED'; },
+      { build: 15; result: 'PASSED'; },
+      { build: 16; result: 'SKIPPED'; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 220.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 120.0;
+      width: 340.0;
+    }
+  }
+  mark group as builds {
+    mark line as results {
+      order: direct "build";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "build" {
+        axis: {
+          title: 'build';
+        }
+        scale: linear {
+          domain: [0.0, 16.0];
+          nice: false;
+          zero: true;
+        }
+      }
+      y: encoded "result" {
+        axis: {
+          title: 'result';
+        }
+        scale: point {
+          domain: ['SKIPPED', 'PASSED', 'FAILED'];
+        }
+      }
+    }
+    mark symbol as points {
+      fill: direct '#4c78a8';
+      size: direct 24.0;
+      stroke_width: direct 0.0;
+      x: encoded "build";
+      y: encoded "result";
+    }
+  }
+}
