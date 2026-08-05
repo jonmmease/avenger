@@ -125,6 +125,24 @@ capability was added.
   `generate_series` SQL table, an inline generator table kind, or a native
   transform, including exact endpoint and step semantics.
 
+### AV-GALLERY-ASSET-001 — Project-local image assets
+
+- Status: confirmed
+- Affects: `scatter_image` and charts whose image channel references a file in
+  the Avenger project
+- Evidence: image coercion accepts inline PNG/SVG data URIs and HTTP(S) URLs,
+  but `RgbaImage::from_str` rejects other strings as unsupported image URLs.
+  The language compiler and CLI do not resolve a project-relative path into an
+  image resource or bundle its bytes into the compiled chart. The pinned
+  `assets/ffox.png`, `assets/gimp.png`, and `assets/7zip.png` files therefore
+  cannot be referenced from the authored chart without manually embedding
+  generated base64 data, which would bypass the project-asset contract under
+  test.
+- Required capability: define project-relative asset references with canonical
+  path and module-resolution rules; load and fingerprint them through the
+  compiler/watch dependency graph; and either preserve a host-resolved resource
+  request or embed portable image bytes in compiled/serialized charts.
+
 ### AV-GALLERY-GUIDE-001 — Quantitative symbol-legend sample values
 
 - Status: confirmed

@@ -3248,8 +3248,13 @@
       "features": [
         "mark:image"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-ASSET-001",
+          "feature": "Project-local image assets"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
