@@ -1,0 +1,216 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Repeated Histogram (`repeat_histogram`).
+chart grid_concat as repeat_histogram {
+  data: { table: 'vega.cars'; }
+  layout: {
+    canvas: { height: 708.0; width: 760.0; }
+    plot: { height: 615.0; width: 615.0; }
+  }
+  rows: 2;
+  columns: 2;
+  spacing: 15;
+  column_widths: [px(300), px(300)];
+  row_heights: [px(300), px(300)];
+
+  cell cartesian as horsepower at { row: 0; column: 0; } {
+    mark group as histogram {
+      transform sql as bins {
+        query:
+          WITH counts AS (
+            SELECT
+              20.0 * FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0) AS "bin_start",
+              "Origin" AS "origin",
+              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
+              CAST(COUNT(*) AS DOUBLE) AS "count"
+            FROM input
+            WHERE "Horsepower" IS NOT NULL AND "Origin" IS NOT NULL
+            GROUP BY FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0), "Origin"
+          ), stacked AS (
+            SELECT
+              *,
+              SUM("count") OVER (
+                PARTITION BY "bin_start"
+                ORDER BY "origin_order"
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              ) AS "y1"
+            FROM counts
+          )
+          SELECT *, "y1" - "count" AS "y0", "bin_start" + 20.0 AS "bin_end"
+          FROM stacked;
+      }
+      mark rect as counts {
+        fill: encoded "origin" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['Europe', 'Japan', 'USA'];
+            range: ['#4c78a8', '#f58518', '#e45756'];
+          }
+        }
+        stroke: direct 'white';
+        stroke_width: direct 1.0;
+        x: encoded "bin_start" {
+          axis: { format: '.0f'; title: 'Horsepower (binned)'; }
+          scale: linear { domain: [40.0, 240.0]; nice: false; zero: false; }
+        }
+        x2: encoded "bin_end";
+        y: encoded "y0" {
+          axis: { format: '.0f'; title: 'Count of Records'; }
+          scale: linear { domain: [0.0, 120.0]; nice: false; zero: true; }
+        }
+        y2: encoded "y1";
+      }
+    }
+  }
+
+  cell cartesian as miles_per_gallon at { row: 0; column: 1; } {
+    mark group as histogram {
+      transform sql as bins {
+        query:
+          WITH counts AS (
+            SELECT
+              5.0 * FLOOR(CAST("Miles_per_Gallon" AS DOUBLE) / 5.0) AS "bin_start",
+              "Origin" AS "origin",
+              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
+              CAST(COUNT(*) AS DOUBLE) AS "count"
+            FROM input
+            WHERE "Miles_per_Gallon" IS NOT NULL AND "Origin" IS NOT NULL
+            GROUP BY FLOOR(CAST("Miles_per_Gallon" AS DOUBLE) / 5.0), "Origin"
+          ), stacked AS (
+            SELECT
+              *,
+              SUM("count") OVER (
+                PARTITION BY "bin_start"
+                ORDER BY "origin_order"
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              ) AS "y1"
+            FROM counts
+          )
+          SELECT *, "y1" - "count" AS "y0", "bin_start" + 5.0 AS "bin_end"
+          FROM stacked;
+      }
+      mark rect as counts {
+        fill: encoded "origin" {
+          legend: { title: 'Origin'; }
+          scale: ordinal {
+            domain: ['Europe', 'Japan', 'USA'];
+            range: ['#4c78a8', '#f58518', '#e45756'];
+          }
+        }
+        stroke: direct 'white';
+        stroke_width: direct 1.0;
+        x: encoded "bin_start" {
+          axis: { format: '.0f'; title: 'Miles_per_Gallon (binned)'; }
+          scale: linear { domain: [5.0, 50.0]; nice: false; zero: false; }
+        }
+        x2: encoded "bin_end";
+        y: encoded "y0" {
+          axis: { format: '.0f'; title: 'Count of Records'; }
+          scale: linear { domain: [0.0, 100.0]; nice: false; zero: true; }
+        }
+        y2: encoded "y1";
+      }
+    }
+  }
+
+  cell cartesian as acceleration at { row: 1; column: 0; } {
+    mark group as histogram {
+      transform sql as bins {
+        query:
+          WITH counts AS (
+            SELECT
+              2.0 * FLOOR(CAST("Acceleration" AS DOUBLE) / 2.0) AS "bin_start",
+              "Origin" AS "origin",
+              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
+              CAST(COUNT(*) AS DOUBLE) AS "count"
+            FROM input
+            WHERE "Acceleration" IS NOT NULL AND "Origin" IS NOT NULL
+            GROUP BY FLOOR(CAST("Acceleration" AS DOUBLE) / 2.0), "Origin"
+          ), stacked AS (
+            SELECT
+              *,
+              SUM("count") OVER (
+                PARTITION BY "bin_start"
+                ORDER BY "origin_order"
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              ) AS "y1"
+            FROM counts
+          )
+          SELECT *, "y1" - "count" AS "y0", "bin_start" + 2.0 AS "bin_end"
+          FROM stacked;
+      }
+      mark rect as counts {
+        fill: encoded "origin" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['Europe', 'Japan', 'USA'];
+            range: ['#4c78a8', '#f58518', '#e45756'];
+          }
+        }
+        stroke: direct 'white';
+        stroke_width: direct 1.0;
+        x: encoded "bin_start" {
+          axis: { format: '.1f'; title: 'Acceleration (binned)'; }
+          scale: linear { domain: [8.0, 26.0]; nice: false; zero: false; }
+        }
+        x2: encoded "bin_end";
+        y: encoded "y0" {
+          axis: { format: '.0f'; title: 'Count of Records'; }
+          scale: linear { domain: [0.0, 130.0]; nice: false; zero: true; }
+        }
+        y2: encoded "y1";
+      }
+    }
+  }
+
+  cell cartesian as displacement at { row: 1; column: 1; } {
+    mark group as histogram {
+      transform sql as bins {
+        query:
+          WITH counts AS (
+            SELECT
+              50.0 * FLOOR(CAST("Displacement" AS DOUBLE) / 50.0) AS "bin_start",
+              "Origin" AS "origin",
+              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
+              CAST(COUNT(*) AS DOUBLE) AS "count"
+            FROM input
+            WHERE "Displacement" IS NOT NULL AND "Origin" IS NOT NULL
+            GROUP BY FLOOR(CAST("Displacement" AS DOUBLE) / 50.0), "Origin"
+          ), stacked AS (
+            SELECT
+              *,
+              SUM("count") OVER (
+                PARTITION BY "bin_start"
+                ORDER BY "origin_order"
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              ) AS "y1"
+            FROM counts
+          )
+          SELECT *, "y1" - "count" AS "y0", "bin_start" + 50.0 AS "bin_end"
+          FROM stacked;
+      }
+      mark rect as counts {
+        fill: encoded "origin" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['Europe', 'Japan', 'USA'];
+            range: ['#4c78a8', '#f58518', '#e45756'];
+          }
+        }
+        stroke: direct 'white';
+        stroke_width: direct 1.0;
+        x: encoded "bin_start" {
+          axis: { format: '.0f'; title: 'Displacement (binned)'; }
+          scale: linear { domain: [50.0, 500.0]; nice: false; zero: false; }
+        }
+        x2: encoded "bin_end";
+        y: encoded "y0" {
+          axis: { format: '.0f'; title: 'Count of Records'; }
+          scale: linear { domain: [0.0, 110.0]; nice: false; zero: true; }
+        }
+        y2: encoded "y1";
+      }
+    }
+  }
+}

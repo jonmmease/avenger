@@ -373,6 +373,21 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-RUNTIME-003 — Full-row collection normalized exact Arrow names
+
+- Status: resolved
+- Discovered by: `repeat_histogram`
+- Symptom: a concat subplot needs the complete inherited source row so it can
+  evaluate each child plot. The full-row collection path rebuilt every schema
+  field with DataFusion's SQL-style `col()` helper, changing the exact Parquet
+  field `"Name"` to `name` before the child transform ran.
+- Resolution: expressions rebuilt from an already-decoded Arrow schema now use
+  exact unqualified `Column` nodes. This applies to full-row collection,
+  aggregate output rewrites, and event-datum projection without changing how
+  authored SQL identifiers are normalized.
+- Regression evidence: the mixed-case full-data selection unit test and direct
+  plus serialized evaluation of the repeated Cars histogram.
+
 ### AV-GALLERY-LANG-006 — Compound statistical marks lost planned column identity
 
 - Status: resolved

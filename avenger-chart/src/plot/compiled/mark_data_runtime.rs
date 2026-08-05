@@ -17,7 +17,7 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    common::{DFSchema, ScalarValue},
+    common::{Column, DFSchema, ScalarValue},
     dataframe::DataFrame,
     logical_expr::{EmptyRelation, Expr, LogicalPlan, Operator, cast, col, lit, when},
     prelude::SessionContext,
@@ -69,6 +69,13 @@ pub(crate) struct PreparedLogicalMarkData {
     pub(crate) domain_dataframe: Option<DataFrame>,
     pub(crate) domain_channels: IndexMap<String, ChannelValue>,
     pub(crate) derived_scalars: DerivedScalarMap,
+}
+
+fn exact_schema_col(name: impl Into<String>) -> Expr {
+    // Arrow schemas are case-sensitive. DataFusion's SQL-oriented `col()`
+    // helper normalizes unquoted identifiers, so it is not safe when rebuilding
+    // an expression from an already-decoded schema field name.
+    Expr::Column(Column::new_unqualified(name.into()))
 }
 
 /// Data prepared by a compiled `MarkGroup` before child mark-local transforms
@@ -1990,14 +1997,12 @@ async fn finalize_logical_mark_data(
                     let agg_index = unique_agg_exprs.get(&expr).unwrap();
                     let field_index = group_by_exprs.len() + agg_index;
                     let field_name = schema.field(field_index).name().clone();
-                    let new_expr =
-                        LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+                    let new_expr = LogicalExprNode::from_expr(exact_schema_col(field_name))?;
                     updated_channels.insert(name, value.with_expr(new_expr));
                 } else {
                     let group_index = unique_group_exprs.get(&expr).unwrap();
                     let field_name = schema.field(*group_index).name().clone();
-                    let new_expr =
-                        LogicalExprNode::from_expr(datafusion::prelude::col(&field_name))?;
+                    let new_expr = LogicalExprNode::from_expr(exact_schema_col(field_name))?;
                     updated_channels.insert(name, value.with_expr(new_expr));
                 }
             }
@@ -2836,7 +2841,7 @@ pub(crate) async fn prepare_mark_data(
                 df.schema()
                     .fields()
                     .iter()
-                    .map(|field| col(field.name().clone()))
+                    .map(|field| exact_schema_col(field.name().clone()))
                     .collect::<Vec<_>>()
             } else {
                 full_data_select_exprs(df.as_ref(), &array_channels)?
@@ -2856,7 +2861,7 @@ pub(crate) async fn prepare_mark_data(
         data_select_exprs.extend(
             event_datum_columns
                 .iter()
-                .map(|(field, alias)| col(field).alias(alias)),
+                .map(|(field, alias)| exact_schema_col(field).alias(alias)),
         );
         let selected = (*df).clone().select(data_select_exprs)?;
         let selected_schema = Arc::new(selected.schema().as_arrow().clone());
@@ -3006,7 +3011,7 @@ fn full_data_select_exprs(
         .iter()
         .filter_map(|field| {
             let name = field.name();
-            (!array_channel_names.contains(name.as_str())).then(|| col(name.clone()))
+            (!array_channel_names.contains(name.as_str())).then(|| exact_schema_col(name.clone()))
         })
         .collect::<Vec<_>>();
     select_exprs.extend(
@@ -3613,12 +3618,14 @@ mod tests {
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![
                 Field::new("path", DataType::Utf8, false),
+                Field::new("MixedCase", DataType::Utf8, false),
                 Field::new("fill", DataType::Utf8, false),
                 Field::new("category", DataType::Utf8, false),
                 Field::new("value", DataType::Float64, false),
             ])),
             vec![
                 Arc::new(StringArray::from(vec!["root/A", "root/B"])),
+                Arc::new(StringArray::from(vec!["exact-A", "exact-B"])),
                 Arc::new(StringArray::from(vec!["raw-red", "raw-blue"])),
                 Arc::new(StringArray::from(vec!["prepared-red", "prepared-blue"])),
                 Arc::new(Float64Array::from(vec![1.0, 2.0])),
@@ -3639,7 +3646,10 @@ mod tests {
             .iter()
             .map(|field| field.name().as_str())
             .collect::<Vec<_>>();
-        assert_eq!(field_names, vec!["path", "category", "value", "fill"]);
+        assert_eq!(
+            field_names,
+            vec!["path", "MixedCase", "category", "value", "fill"]
+        );
         assert_eq!(
             values_as_string(&selected[0], "fill"),
             vec!["prepared-red", "prepared-blue"]
@@ -3647,6 +3657,10 @@ mod tests {
         assert_eq!(
             values_as_string(&selected[0], "path"),
             vec!["root/A", "root/B"]
+        );
+        assert_eq!(
+            values_as_string(&selected[0], "MixedCase"),
+            vec!["exact-A", "exact-B"]
         );
         Ok(())
     }
