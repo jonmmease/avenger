@@ -3864,7 +3864,7 @@
         "transform:calculate",
         "transform:fold"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_runtime",
       "blockers": [
         {
           "id": "AV-GALLERY-DATAFLOW-001",
@@ -4375,7 +4375,7 @@
       "features": [
         "mark:arc"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4400,7 +4400,7 @@
       "features": [
         "mark:arc"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4425,7 +4425,7 @@
       "features": [
         "mark:arc"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4452,7 +4452,7 @@
         "mark:arc",
         "mark:text"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4479,7 +4479,7 @@
         "mark:arc",
         "mark:text"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4504,7 +4504,7 @@
       "features": [
         "mark:arc"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_mark",
       "blockers": [
         {
           "id": "AV-GALLERY-MARK-001",
@@ -4912,7 +4912,7 @@
         "transform:calculate",
         "transform:quantile"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_runtime",
       "blockers": [
         {
           "id": "AV-GALLERY-TRANSFORM-003",
@@ -4951,7 +4951,7 @@
         "transform:calculate",
         "transform:regression"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_runtime",
       "blockers": [
         {
           "id": "AV-GALLERY-TRANSFORM-001",
@@ -4988,7 +4988,7 @@
         "mark:point",
         "transform:loess"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_runtime",
       "blockers": [
         {
           "id": "AV-GALLERY-TRANSFORM-002",
@@ -5249,7 +5249,7 @@
         "mark:tick",
         "transform:flatten"
       ],
-      "implementation": "unported",
+      "implementation": "blocked_runtime",
       "blockers": [
         {
           "id": "AV-GALLERY-TRANSFORM-004",
