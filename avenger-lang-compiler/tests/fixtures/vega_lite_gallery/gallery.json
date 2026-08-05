@@ -2400,8 +2400,13 @@
       "features": [
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-004",
+          "feature": "axis:conditional-grid-style"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -3504,8 +3509,13 @@
         "mark:line",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-002",
+          "feature": "line:step-after"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -3534,8 +3544,13 @@
         "mark:line",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-002",
+          "feature": "line:monotone"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

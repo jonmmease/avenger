@@ -12,6 +12,30 @@ capability was added.
 
 ## Confirmed
 
+### AV-GALLERY-MARK-002 — Line interpolation modes
+
+- Status: confirmed
+- Affects: `line_step`, `line_monotone`
+- Evidence: the line mark's default-value table still mentions an internal
+  `interpolate` value, but `interpolate` is absent from the mark's public
+  channel schema, compiled state, scene mark, and renderer. Lines therefore
+  always connect authored vertices linearly.
+- Required capability: a reviewed interpolation enum carried through the Rust
+  mark, language schema, compiled mark, scene graph, hit testing, and renderer,
+  initially covering linear, step-before/after, and monotone curves.
+
+### AV-GALLERY-GUIDE-004 — Per-tick conditional axis styling
+
+- Status: confirmed
+- Affects: `bar_negative` and other examples with conditional axis properties
+- Evidence: Cartesian axis authoring exposes one `grid` expression, while
+  grid color and width come from a single theme value. Standard guide
+  generation emits all grid ticks in one rule mark with scalar stroke and
+  stroke-width channels, so a zero tick cannot be styled independently.
+- Required capability: channel-valued axis tick/grid presentation evaluated in
+  a contextual tick relation, including at least tick value and formatted
+  label, with corresponding DSL condition support.
+
 ### AV-GALLERY-MARK-001 — Filled arc/sector mark
 
 - Status: confirmed
