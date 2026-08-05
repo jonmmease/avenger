@@ -3818,10 +3818,12 @@
         "mark:text",
         "transform:calculate"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "Final decade labels are right-aligned inside the plot because authored text cannot currently opt out of the Cartesian plot clip."
+      ]
     },
     {
       "name": "window_rank",

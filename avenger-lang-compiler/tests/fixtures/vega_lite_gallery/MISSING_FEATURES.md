@@ -162,6 +162,21 @@ capability was added.
   compiler/watch dependency graph; and either preserve a host-resolved resource
   request or embed portable image bytes in compiled/serialized charts.
 
+### AV-GALLERY-LAYOUT-001 — Authored annotation overflow beyond the plot area
+
+- Status: confirmed
+- Affects: `layer_line_co2_concentration` and charts that place labels just
+  outside a scale endpoint
+- Evidence: Cartesian plot content is wrapped in the clip returned by
+  `CompiledPlot::get_clip_region`, which defaults to the plot-area rectangle.
+  Text marks expose no authored clip/overflow policy, so a left-aligned label at
+  the maximum x-domain value is clipped even when the canvas reserves room to
+  its right. The gallery fixture must right-align its final labels inside the
+  plot instead of reproducing Vega-Lite's outward annotation placement.
+- Required capability: expose a reviewed chart/group overflow policy and make
+  layout measurement reserve the resulting annotation extents when requested,
+  while retaining plot clipping as the safe default for data marks.
+
 ### AV-GALLERY-GUIDE-001 — Quantitative size-legend sample values
 
 - Status: confirmed

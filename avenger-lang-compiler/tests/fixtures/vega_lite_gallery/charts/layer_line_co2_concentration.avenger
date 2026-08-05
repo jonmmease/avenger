@@ -1,0 +1,97 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Carbon Dioxide in the Atmosphere (`layer_line_co2_concentration`).
+chart cartesian as layer_line_co2_concentration {
+  data: { table: 'vega.co2_concentration'; }
+  layout: {
+    canvas: { height: 547.0; width: 877.0; }
+    plot: { height: 500.0; width: 800.0; }
+  }
+  transform sql as decade_curves {
+    query:
+      WITH dated AS (
+        SELECT
+          CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) AS "year",
+          CAST(FLOOR(EXTRACT(YEAR FROM "Date") / 10) AS BIGINT) AS "decade",
+          CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) % 10
+            + (CAST(EXTRACT(MONTH FROM "Date") AS DOUBLE) - 1.0) / 12.0
+            AS "scaled_date",
+          "CO2"
+        FROM input
+        WHERE "Date" IS NOT NULL AND "CO2" IS NOT NULL
+      )
+      SELECT
+        *,
+        ROW_NUMBER() OVER (
+          PARTITION BY "decade" ORDER BY "scaled_date"
+        ) AS "first_rank",
+        ROW_NUMBER() OVER (
+          PARTITION BY "decade" ORDER BY "scaled_date" DESC
+        ) AS "last_rank"
+      FROM dated
+      ORDER BY "decade", "scaled_date";
+  }
+  mark group as layers {
+    mark line as decades {
+      order: direct "scaled_date";
+      stroke: encoded "decade" {
+        legend: { visible: false; }
+        scale: ordinal {
+          domain: [195, 196, 197, 198, 199, 200, 201, 202];
+          range: [
+            '#000004', '#221150', '#5f187f', '#982d80',
+            '#d3436e', '#f8765c', '#febb81', '#fcfdbf'
+          ];
+        }
+      }
+      stroke_width: direct 2.0;
+      x: encoded "scaled_date" {
+        axis: { tick_count: 11; title: 'Year into Decade'; }
+        scale: linear { domain: [0.0, 10.0]; nice: false; zero: true; }
+      }
+      y: encoded "CO2" {
+        axis: { title: 'CO2 concentration in ppm'; }
+        scale: linear { domain: [310.0, 420.0]; nice: false; zero: false; }
+      }
+    }
+    mark text as first_years {
+      align: direct 'left';
+      baseline: direct 'top';
+      color: encoded "decade" {
+        scale: ordinal {
+          domain: [195, 196, 197, 198, 199, 200, 201, 202];
+          range: [
+            '#000004', '#221150', '#5f187f', '#982d80',
+            '#d3436e', '#f8765c', '#febb81', '#fcfdbf'
+          ];
+        }
+      }
+      leader_offset_x: direct 3.0;
+      leader_offset_y: direct 1.0;
+      opacity: direct CASE WHEN "first_rank" = 1 THEN 1.0 ELSE 0.0 END;
+      text: direct CAST("year" AS VARCHAR);
+      x: encoded "scaled_date";
+      y: encoded "CO2";
+    }
+    mark text as last_years {
+      align: direct 'right';
+      baseline: direct 'middle';
+      color: encoded "decade" {
+        scale: ordinal {
+          domain: [195, 196, 197, 198, 199, 200, 201, 202];
+          range: [
+            '#000004', '#221150', '#5f187f', '#982d80',
+            '#d3436e', '#f8765c', '#febb81', '#fcfdbf'
+          ];
+        }
+      }
+      leader_offset_x: direct -3.0;
+      leader_offset_y: direct 1.0;
+      opacity: direct CASE WHEN "last_rank" = 1 THEN 1.0 ELSE 0.0 END;
+      text: direct CAST("year" AS VARCHAR);
+      x: encoded "scaled_date";
+      y: encoded "CO2";
+    }
+  }
+}
