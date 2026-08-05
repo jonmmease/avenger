@@ -36,6 +36,10 @@ export schema tables as vega {
     path: 'data/earthquake_features.parquet';
   }
 
+  table parquet as falcon {
+    path: 'data/falcon.parquet';
+  }
+
   table parquet as flights_2k {
     path: 'data/flights_2k.parquet';
   }
@@ -84,6 +88,10 @@ export schema tables as vega {
     path: 'data/lookup_people.parquet';
   }
 
+  table parquet as medians {
+    path: 'data/medians.parquet';
+  }
+
   table parquet as monarchs {
     path: 'data/monarchs.parquet';
   }
@@ -128,6 +136,10 @@ export schema tables as vega {
     path: 'data/species.parquet';
   }
 
+  table parquet as square {
+    path: 'data/square.parquet';
+  }
+
   table parquet as stocks {
     path: 'data/stocks.parquet';
   }
@@ -150,6 +162,10 @@ export schema tables as vega {
 
   table parquet as us_states {
     path: 'data/us_states.parquet';
+  }
+
+  table parquet as values {
+    path: 'data/values.parquet';
   }
 
   table parquet as weather {

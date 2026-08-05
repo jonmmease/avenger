@@ -49,6 +49,7 @@ VEGA_DATASETS_REVISION = "dedfc126e87dfde2df0332744689844314911d5d"
 EXPECTED_PLACEMENTS = 203
 EXPECTED_EXAMPLES = 189
 EXPECTED_DATA_PATHS = 43
+EXPECTED_INLINE_DATASETS = 4
 
 TOPOLOGY_RELATIONS = {
     ("us-10m.json", "states"): "us_states",
@@ -296,7 +297,7 @@ def build_gallery_manifest(
     vega_lite_root: Path,
     placements: list[dict[str, Any]],
     existing: dict[str, Any] | None,
-) -> tuple[dict[str, Any], set[str], set[str]]:
+) -> tuple[dict[str, Any], set[str], set[str], dict[str, dict[str, Any]]]:
     specs_root = vega_lite_root / "examples/specs"
     references_root = vega_lite_root / "examples/compiled"
     metadata: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -318,6 +319,7 @@ def build_gallery_manifest(
     }
     source_paths: set[str] = set()
     asset_paths: set[str] = set()
+    inline_datasets: dict[str, dict[str, Any]] = {}
     examples = []
     for name, descriptive in metadata.items():
         spec_path = specs_root / f"{name}.vl.json"
@@ -327,6 +329,24 @@ def build_gallery_manifest(
         spec = read_json(spec_path)
         references = data_references(spec)
         assets = inline_assets(spec)
+        named_datasets = spec.get("datasets") or {}
+        if not isinstance(named_datasets, dict):
+            raise RuntimeError(f"{name} has a non-object datasets declaration")
+        for dataset_name, values in named_datasets.items():
+            if dataset_name in inline_datasets:
+                previous = inline_datasets[dataset_name]["example"]
+                raise RuntimeError(
+                    f"inline dataset {dataset_name!r} is declared by both "
+                    f"{previous} and {name}"
+                )
+            if not isinstance(values, list) or not values:
+                raise RuntimeError(
+                    f"{name} inline dataset {dataset_name!r} must be a non-empty array"
+                )
+            inline_datasets[dataset_name] = {
+                "example": name,
+                "values": values,
+            }
         source_paths.update(reference["source_path"] for reference in references)
         asset_paths.update(assets)
         features = feature_inventory(spec)
@@ -352,7 +372,12 @@ def build_gallery_manifest(
                 "upstream_reference_sha256": sha256_file(reference_path),
                 "chart": f"charts/{name}.avenger",
                 "data": references,
-                "datasets": sorted({reference["relation"] for reference in references}),
+                "datasets": sorted(
+                    {
+                        *(reference["relation"] for reference in references),
+                        *named_datasets,
+                    }
+                ),
                 "assets": assets,
                 "features": features,
                 "implementation": old.get("implementation", "unported"),
@@ -377,6 +402,7 @@ def build_gallery_manifest(
         },
         source_paths,
         asset_paths,
+        inline_datasets,
     )
 
 
@@ -660,6 +686,7 @@ def build_relations(
     dataset_root: Path,
     resources: dict[str, dict[str, Any]],
     examples: list[dict[str, Any]],
+    inline_datasets: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     declarations: OrderedDict[str, tuple[str, dict[str, Any] | None]] = OrderedDict()
     for example in examples:
@@ -695,6 +722,36 @@ def build_relations(
         relations[relation] = {
             "source_path": source_path,
             "format": data_format or None,
+            "rows": table.num_rows,
+            "schema": [
+                {
+                    "name": field.name,
+                    "type": str(field.type),
+                    "nullable": field.nullable,
+                }
+                for field in table.schema
+            ],
+            "table": table,
+        }
+    for relation, declaration in sorted(inline_datasets.items()):
+        if relation in relations:
+            raise RuntimeError(
+                f"inline dataset {relation!r} conflicts with a Vega dataset relation"
+            )
+        values = declaration["values"]
+        if all(isinstance(value, dict) for value in values):
+            rows = values
+        elif all(not isinstance(value, dict) for value in values):
+            rows = [{"data": value} for value in values]
+        else:
+            raise RuntimeError(
+                f"inline dataset {relation!r} mixes object and primitive rows"
+            )
+        table = table_from_rows(rows, {})
+        example = declaration["example"]
+        relations[relation] = {
+            "source_path": f"examples/specs/{example}.vl.json#datasets.{relation}",
+            "format": {"type": "inline_named_dataset"},
             "rows": table.num_rows,
             "schema": [
                 {
@@ -793,12 +850,17 @@ def main() -> None:
     placements = list(iter_placements(gallery_source))
     existing_path = output_root / "gallery.json"
     existing = read_json(existing_path) if existing_path.exists() else None
-    gallery, source_paths, asset_paths = build_gallery_manifest(
+    gallery, source_paths, asset_paths, inline_datasets = build_gallery_manifest(
         vega_lite_root, placements, existing
     )
     if len(source_paths) != EXPECTED_DATA_PATHS:
         raise RuntimeError(
             f"gallery data closure changed: got {len(source_paths)}, expected {EXPECTED_DATA_PATHS}"
+        )
+    if len(inline_datasets) != EXPECTED_INLINE_DATASETS:
+        raise RuntimeError(
+            "gallery inline dataset closure changed: "
+            f"got {len(inline_datasets)}, expected {EXPECTED_INLINE_DATASETS}"
         )
 
     data_package_path = dataset_root / "datapackage.json"
@@ -813,7 +875,9 @@ def main() -> None:
             resources[source_path].get("hash"),
         )
 
-    relations = build_relations(dataset_root, resources, gallery["examples"])
+    relations = build_relations(
+        dataset_root, resources, gallery["examples"], inline_datasets
+    )
 
     for path in (
         output_root / "data",
@@ -901,7 +965,8 @@ def main() -> None:
     write_catalog(output_root, relations)
     print(
         f"wrote {len(gallery['examples'])} examples, {len(source_paths)} data sources, "
-        f"{len(relations)} relations, and {len(asset_paths)} assets to {output_root}"
+        f"{len(relations)} relations ({len(inline_datasets)} inline), and "
+        f"{len(asset_paths)} assets to {output_root}"
     )
 
 

@@ -216,7 +216,7 @@ fn gallery_catalog_is_complete_and_locked() {
     .expect("Vega gallery source manifest");
     assert_eq!(source_manifest.schema_version, 1);
     assert_eq!(source_manifest.sources.len(), 46);
-    assert_eq!(source_manifest.relations.len(), 44);
+    assert_eq!(source_manifest.relations.len(), 48);
     assert!(
         source_manifest
             .sources
@@ -232,7 +232,7 @@ fn gallery_catalog_is_complete_and_locked() {
         catalog_source.clone(),
     ))
     .expect("generated Vega catalog must parse");
-    assert_eq!(catalog_source.matches("table parquet as ").count(), 44);
+    assert_eq!(catalog_source.matches("table parquet as ").count(), 48);
 
     let declared = source_manifest
         .relations

@@ -1811,6 +1811,23 @@
       "sha256": "7decae88055fcebb67370799927b9c06e413814e89c02b54128eb44f35513f6e"
     },
     {
+      "name": "falcon",
+      "source_path": "examples/specs/layer_line_window.vl.json#datasets.falcon",
+      "format": {
+        "type": "inline_named_dataset"
+      },
+      "rows": 210,
+      "schema": [
+        {
+          "name": "data",
+          "type": "double",
+          "nullable": true
+        }
+      ],
+      "path": "data/falcon.parquet",
+      "sha256": "15d166f500df00fa5c72ec7f2f89799ef8d3feb63b2b871f348380097ab33b18"
+    },
+    {
       "name": "flights_2k",
       "source_path": "flights-2k.json",
       "format": {
@@ -2205,6 +2222,38 @@
       ],
       "path": "data/lookup_people.parquet",
       "sha256": "ef8582f334f534494b7aeb6e49d891966af8f64e5fb54a3be087645dd9332160"
+    },
+    {
+      "name": "medians",
+      "source_path": "examples/specs/layer_likert.vl.json#datasets.medians",
+      "format": {
+        "type": "inline_named_dataset"
+      },
+      "rows": 7,
+      "schema": [
+        {
+          "name": "hi",
+          "type": "string",
+          "nullable": true
+        },
+        {
+          "name": "lo",
+          "type": "string",
+          "nullable": true
+        },
+        {
+          "name": "median",
+          "type": "double",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "nullable": true
+        }
+      ],
+      "path": "data/medians.parquet",
+      "sha256": "a1397840fdfbb4a09dd017f73aa10908bac021158d9b332b547f8399c8c7e086"
     },
     {
       "name": "monarchs",
@@ -2641,6 +2690,23 @@
       "sha256": "a957bf231f27538c30500ffa9d2c4bee000b1d121527cc8848758a91fd50d5f8"
     },
     {
+      "name": "square",
+      "source_path": "examples/specs/layer_line_window.vl.json#datasets.square",
+      "format": {
+        "type": "inline_named_dataset"
+      },
+      "rows": 210,
+      "schema": [
+        {
+          "name": "data",
+          "type": "double",
+          "nullable": true
+        }
+      ],
+      "path": "data/square.parquet",
+      "sha256": "9c1d41a485312f1540699ddc5aaa3ff94708d645779c5f06bb7f171408dbb771"
+    },
+    {
       "name": "stocks",
       "source_path": "stocks.csv",
       "format": null,
@@ -2840,6 +2906,33 @@
       ],
       "path": "data/us_states.parquet",
       "sha256": "99f68558089237552e5bb4346e552cbbba6d92ee4df29ee63fa9b30041b8454c"
+    },
+    {
+      "name": "values",
+      "source_path": "examples/specs/layer_likert.vl.json#datasets.values",
+      "format": {
+        "type": "inline_named_dataset"
+      },
+      "rows": 170,
+      "schema": [
+        {
+          "name": "id",
+          "type": "string",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "nullable": true
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "nullable": true
+        }
+      ],
+      "path": "data/values.parquet",
+      "sha256": "7f1036ec06e6c759f89d6ddad34b84e15eb5a80ec2235e1660d7cad2d544e75e"
     },
     {
       "name": "weather",

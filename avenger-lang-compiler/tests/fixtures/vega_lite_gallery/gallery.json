@@ -4889,7 +4889,10 @@
       "upstream_reference_sha256": "cff331b24c7b013f60835c687868548cf636c646141622e894ff7b5a7bf7408d",
       "chart": "charts/layer_line_window.avenger",
       "data": [],
-      "datasets": [],
+      "datasets": [
+        "falcon",
+        "square"
+      ],
       "assets": [],
       "features": [
         "composition:layer",
@@ -5432,7 +5435,10 @@
       "upstream_reference_sha256": "4b6b0e6d367ecbdeecfcc95b9c56ec5ba0b5fa4c81667a00dc6058a2d6578355",
       "chart": "charts/layer_likert.avenger",
       "data": [],
-      "datasets": [],
+      "datasets": [
+        "medians",
+        "values"
+      ],
       "assets": [],
       "features": [
         "composition:layer",

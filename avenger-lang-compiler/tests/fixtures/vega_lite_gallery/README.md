@@ -6,9 +6,10 @@ gallery placements and is the executable progress ledger.
 
 The charts use a checked-in, offline `vega` schema from `catalog.avenger`.
 Its Parquet files are normalized from the exact Vega datasets 3.2.1 revision
-recorded in `upstream.lock.json`; the original source hashes, schemas, sources,
-and per-resource licenses are retained under `provenance/`. Parquet files are
-stored with Git LFS by the repository's existing `.gitattributes` rule.
+recorded in `upstream.lock.json` and from named datasets embedded in the pinned
+Vega-Lite specifications. The original source hashes, schemas, sources, and
+per-resource licenses are retained under `provenance/`. Parquet files are stored
+with Git LFS by the repository's existing `.gitattributes` rule.
 
 ## Regenerating upstream-derived artifacts
 
