@@ -1964,7 +1964,10 @@
       ],
       "implementation": "blocked_language",
       "blockers": [
-        "AV-GALLERY-LANG-004"
+        {
+          "id": "AV-GALLERY-LANG-004",
+          "feature": "channel:nested-band-levels"
+        }
       ],
       "review": "unreviewed",
       "accepted_differences": []
@@ -2055,7 +2058,10 @@
       ],
       "implementation": "blocked_mark",
       "blockers": [
-        "AV-GALLERY-MARK-003"
+        {
+          "id": "AV-GALLERY-MARK-003",
+          "feature": "rect:per-corner-radius"
+        }
       ],
       "review": "unreviewed",
       "accepted_differences": []
@@ -2431,8 +2437,13 @@
         "mark:bar",
         "mark:text"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-004",
+          "feature": "axis:conditional-grid-style"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -3583,8 +3594,13 @@
         "mark:line",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-004",
+          "feature": "axis:conditional-tick-style"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

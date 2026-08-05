@@ -57,7 +57,8 @@ capability was added.
 ### AV-GALLERY-GUIDE-004 — Per-tick conditional axis styling
 
 - Status: confirmed
-- Affects: `bar_negative` and other examples with conditional axis properties
+- Affects: `bar_negative`, `bar_negative_horizontal_label`,
+  `line_conditional_axis`, and other examples with conditional axis properties
 - Evidence: Cartesian axis authoring exposes one `grid` expression, while
   grid color and width come from a single theme value. Standard guide
   generation emits all grid ticks in one rule mark with scalar stroke and
