@@ -1,0 +1,49 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Becker's Barley Trellis Plot (`trellis_barley`).
+chart facet_wrap as trellis_barley {
+  data: { table: 'vega.barley'; }
+  layout: { plot: { height: 120.0; width: 300.0; } }
+  facet: "site" {
+    columns: 2;
+    order_by: median("yield");
+    slots: shared;
+    title: 'site';
+  }
+  cell cartesian {
+    mark symbol as yields {
+      fill: direct '#ffffff';
+      size: direct 36.0;
+      stroke: encoded "year" {
+        legend: { title: 'year'; }
+        scale: ordinal {
+          domain: [1931, 1932];
+          range: ['#4c78a8', '#f58518'];
+        }
+      }
+      stroke_width: direct 1.5;
+      x: encoded "yield" {
+        axis: { title: 'Median of yield'; }
+        scale: linear { zero: false; }
+      }
+      y: encoded "variety" {
+        axis: { title: 'variety'; }
+        scale: point {
+          domain: [
+            'Svansota',
+            'No. 462',
+            'Manchuria',
+            'No. 475',
+            'Velvet',
+            'Peatland',
+            'Glabron',
+            'No. 457',
+            'Wisconsin No. 38',
+            'Trebi'
+          ];
+        }
+      }
+    }
+  }
+}
