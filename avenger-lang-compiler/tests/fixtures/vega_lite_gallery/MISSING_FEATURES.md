@@ -357,6 +357,25 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-LANG-006 — Compound statistical marks lost planned column identity
+
+- Status: resolved
+- Discovered by: `boxplot_2D_vertical`
+- Symptom: the language lowerer supplied relation-qualified, exact-case column
+  expressions to the native `box_plot`. Its multi-stage aggregate branches
+  rebuilt the grouping key with DataFusion's SQL-style `col()` helper, changing
+  `"Species"` to `species`; after the first internal transform removed relation
+  qualifiers, the still-qualified `"Body Mass (g)"` value expression also no
+  longer matched the branch schema.
+- Resolution: compound grouping reconstructs decoded source names with exact
+  unqualified `Column` nodes. Statistical-mark language lowering removes
+  planner relation qualifiers from position and style expressions while
+  retaining exact Arrow field names, because native compound branches own and
+  repeatedly reshape a single input relation.
+- Regression evidence: exact-case `CompoundGrouping` and qualified statistical
+  expression normalization unit tests, plus direct and serialized evaluation
+  of the reviewed native `boxplot_2D_vertical` gallery case.
+
 ### AV-GALLERY-LANG-003 — Continuous CSS-color ranges had the wrong UDF type
 
 - Status: resolved

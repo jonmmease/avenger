@@ -5210,9 +5210,9 @@
       "features": [
         "mark:boxplot"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -5239,10 +5239,12 @@
       "features": [
         "mark:boxplot"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The native `box_plot` uses Avenger's built-in compound-part styling, including blue outlines and filled orange outliers, rather than Vega-Lite's gray outlines and hollow outliers."
+      ]
     },
     {
       "name": "boxplot_preaggregated",

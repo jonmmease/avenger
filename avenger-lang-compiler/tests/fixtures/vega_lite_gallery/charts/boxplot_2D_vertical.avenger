@@ -1,0 +1,33 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Tukey Box Plot (1.5 IQR) (`boxplot_2D_vertical`).
+chart cartesian as boxplot_2D_vertical {
+  data: { table: 'vega.penguins'; }
+  layout: {
+    canvas: { height: 386.0; width: 121.0; }
+    plot: { height: 300.0; width: 60.0; }
+  }
+  mark box_plot as body_mass {
+    fill: encoded "Species" {
+      legend: { visible: false; }
+      scale: ordinal {
+        domain: ['Adelie', 'Chinstrap', 'Gentoo'];
+        range: ['#4c78a8', '#f58518', '#e45756'];
+      }
+    }
+    orientation: vertical;
+    x: encoded "Species" {
+      axis: { label_angle: -90.0; title: 'Species'; }
+      scale: band {
+        domain: ['Adelie', 'Chinstrap', 'Gentoo'];
+        padding_inner: 0.15;
+        padding_outer: 0.05;
+      }
+    }
+    y: encoded CAST("Body Mass (g)" AS DOUBLE) {
+      axis: { format: ',.0f'; title: 'Body Mass (g)'; }
+      scale: linear { domain: [2500.0, 6500.0]; nice: false; zero: false; }
+    }
+  }
+}

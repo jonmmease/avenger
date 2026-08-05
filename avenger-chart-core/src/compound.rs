@@ -1,4 +1,7 @@
-use datafusion::prelude::{Expr, SessionContext, col};
+use datafusion::{
+    common::Column,
+    prelude::{Expr, SessionContext},
+};
 
 use crate::{AvengerChartError, ChannelValue, ScaleInferenceHint, ScaleTypePreference};
 
@@ -25,7 +28,10 @@ impl CompoundGrouping {
         if let Some(nested) = value.get_nested_band_config() {
             let key_names = nested.source_columns.clone();
             return Ok(Self {
-                key_exprs: key_names.iter().map(|name| col(name.clone())).collect(),
+                key_exprs: key_names
+                    .iter()
+                    .map(|name| exact_unqualified_column(name))
+                    .collect(),
                 key_names,
                 is_nested: true,
             });
@@ -37,7 +43,7 @@ impl CompoundGrouping {
             )));
         };
         Ok(Self {
-            key_exprs: vec![col(name.clone())],
+            key_exprs: vec![exact_unqualified_column(&name)],
             key_names: vec![name],
             is_nested: false,
         })
@@ -118,6 +124,13 @@ fn simple_column_name(expr: &Expr) -> Option<String> {
     }
 }
 
+fn exact_unqualified_column(name: &str) -> Expr {
+    // These names were decoded from already-planned column expressions or
+    // validated nested source metadata. DataFusion's SQL-style `col` helper
+    // would normalize mixed-case Arrow field names while rebuilding them.
+    Expr::Column(Column::new_unqualified(name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +145,16 @@ mod tests {
         assert_eq!(grouping.key_exprs, vec![col("group")]);
         assert_eq!(grouping.key_names, vec!["group".to_string()]);
         assert!(!grouping.is_nested);
+    }
+
+    #[test]
+    fn grouping_preserves_exact_arrow_field_case() {
+        let expr = Expr::Column(Column::new_unqualified("Species"));
+        let value = ChannelValue::from(expr.clone());
+        let grouping =
+            CompoundGrouping::from_position("test grouping", &expr, &value).expect("grouping");
+        assert_eq!(grouping.key_exprs, vec![expr]);
+        assert_eq!(grouping.key_names, vec!["Species".to_string()]);
     }
 
     #[test]

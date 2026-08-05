@@ -2,7 +2,8 @@
 
 use avenger_chart_cartesian::Cartesian;
 use avenger_chart_core::{
-    ChannelExpr, ChannelValue, CoordinationScope, FacetDataScope, IntoPlotMark, PlotMark,
+    ChannelExpr, ChannelValue, CoordinationScope, DefaultLogicalExprNodeExt, FacetDataScope,
+    IntoPlotMark, PlotMark,
 };
 use avenger_chart_lang_types::{
     MarkLanguageDefinition, MarkLanguageLowerer, NativeLoweringError, NativeOutputValue,
@@ -13,6 +14,16 @@ use avenger_chart_schema::{
     ValueShape,
 };
 use avenger_chart_transforms::KdeResolve;
+use datafusion::{
+    common::{
+        Column,
+        tree_node::{Transformed, TreeNode},
+    },
+    error::DataFusionError,
+    logical_expr::Expr,
+    prelude::SessionContext,
+};
+use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization};
 
@@ -307,30 +318,56 @@ fn lower_violin(
 }
 
 fn channel_expr(property: &str, value: &ResolvedValue) -> Result<ChannelExpr, NativeLoweringError> {
-    match value {
-        ResolvedValue::Channel(value) => Ok(value.as_ref().clone()),
-        ResolvedValue::Expr(expr) => Ok(ChannelExpr::scaled(expr.clone())),
-        ResolvedValue::Output(NativeOutputValue::Expr(expr)) => {
-            Ok(ChannelExpr::scaled(expr.clone()))
-        }
-        ResolvedValue::Output(NativeOutputValue::Channel(value)) => Ok(value.clone()),
-        _ => Err(invalid(property, "resolved channel expression")),
-    }
+    let value = match value {
+        ResolvedValue::Channel(value) => value.as_ref().clone(),
+        ResolvedValue::Expr(expr) => ChannelExpr::scaled(expr.clone()),
+        ResolvedValue::Output(NativeOutputValue::Expr(expr)) => ChannelExpr::scaled(expr.clone()),
+        ResolvedValue::Output(NativeOutputValue::Channel(value)) => value.clone(),
+        _ => return Err(invalid(property, "resolved channel expression")),
+    };
+    let expr = unqualify_compound_expr(property, value.data_expr().clone())?;
+    let channel_value = normalize_compound_channel_value(property, value.into_channel_value())?;
+    Ok(ChannelExpr::new(expr, channel_value))
 }
 
 fn channel_value(
     property: &str,
     value: &ResolvedValue,
 ) -> Result<ChannelValue, NativeLoweringError> {
-    match value {
-        ResolvedValue::Expr(expr) => Ok(expr.clone().into()),
-        ResolvedValue::Channel(value) => Ok(value.channel_value().clone()),
-        ResolvedValue::Output(NativeOutputValue::Expr(expr)) => Ok(expr.clone().into()),
-        ResolvedValue::Output(NativeOutputValue::Channel(value)) => {
-            Ok(value.channel_value().clone())
-        }
-        _ => Err(invalid(property, "resolved channel value")),
-    }
+    let value = match value {
+        ResolvedValue::Expr(expr) => expr.clone().into(),
+        ResolvedValue::Channel(value) => value.channel_value().clone(),
+        ResolvedValue::Output(NativeOutputValue::Expr(expr)) => expr.clone().into(),
+        ResolvedValue::Output(NativeOutputValue::Channel(value)) => value.channel_value().clone(),
+        _ => return Err(invalid(property, "resolved channel value")),
+    };
+    normalize_compound_channel_value(property, value)
+}
+
+fn normalize_compound_channel_value(
+    property: &str,
+    value: ChannelValue,
+) -> Result<ChannelValue, NativeLoweringError> {
+    let Some(expr) = value.expr(&SessionContext::new()) else {
+        return Ok(value);
+    };
+    let expr = unqualify_compound_expr(property, expr)?;
+    let expr = LogicalExprNode::from_expr(expr)
+        .map_err(|_| invalid(property, "serializable resolved channel value"))?;
+    Ok(value.with_expr(expr))
+}
+
+fn unqualify_compound_expr(property: &str, expr: Expr) -> Result<Expr, NativeLoweringError> {
+    expr.transform_up(|candidate| {
+        let Expr::Column(column) = candidate else {
+            return Ok(Transformed::no(candidate));
+        };
+        Ok(Transformed::yes(Expr::Column(Column::new_unqualified(
+            column.name,
+        ))))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(|_: DataFusionError| invalid(property, "resolved channel expression"))
 }
 
 fn expression(
@@ -391,5 +428,18 @@ fn invalid(property: &str, expected: &str) -> NativeLoweringError {
     NativeLoweringError::InvalidPropertyType {
         property: property.to_string(),
         expected: expected.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compound_expression_normalization_preserves_exact_name_without_relation() {
+        let qualified = Expr::Column(Column::new(Some("input"), "Species"));
+        let normalized =
+            unqualify_compound_expr("x", qualified).expect("normalize compound expression");
+        assert_eq!(normalized, Expr::Column(Column::new_unqualified("Species")));
     }
 }
