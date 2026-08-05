@@ -1,0 +1,140 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Marginal Histograms (`concat_marginal_histograms`).
+schema tables as local {
+  table sql as ratings {
+    sql:
+      SELECT
+        CAST("IMDB Rating" AS DOUBLE) AS "imdb",
+        CAST("Rotten Tomatoes Rating" AS DOUBLE) AS "rotten"
+      FROM vega.movies;
+  }
+}
+
+chart grid_concat as concat_marginal_histograms {
+  data: { table: 'local.ratings'; }
+  layout: {
+    canvas: { height: 424.0; width: 553.0; }
+    plot: { height: 375.0; width: 375.0; }
+  }
+  rows: 2;
+  columns: 2;
+  spacing: 15;
+  column_widths: [px(300), px(60)];
+  row_heights: [px(60), px(300)];
+
+  cell cartesian as imdb_histogram at { row: 0; column: 0; } {
+    mark group as bins {
+      transform sql as aggregate_bins {
+        query:
+          SELECT
+            FLOOR("imdb") AS "bin_start",
+            FLOOR("imdb") + 1.0 AS "bin_end",
+            COUNT(*) AS "count"
+          FROM input
+          WHERE "imdb" IS NOT NULL
+          GROUP BY FLOOR("imdb");
+      }
+      mark rect as counts {
+        fill: direct '#4c78a8';
+        stroke_width: direct 0.0;
+        x: encoded "bin_start" {
+          axis: { visible: false; }
+          scale: linear { domain: [1.0, 10.0]; nice: false; zero: false; }
+        }
+        x2: encoded "bin_end";
+        y: encoded "count" {
+          axis: { show_title: false; tick_count: 3; }
+          scale: linear { domain: [0.0, 1000.0]; nice: false; zero: true; }
+        }
+        y2: encoded 0.0;
+      }
+    }
+  }
+
+  cell cartesian as ratings_heatmap at { row: 1; column: 0; } {
+    mark group as bins {
+      transform sql as aggregate_bins {
+        query:
+          SELECT
+            FLOOR("imdb") AS "imdb_start",
+            FLOOR("imdb") + 1.0 AS "imdb_end",
+            10.0 * FLOOR("rotten" / 10.0) AS "rotten_start",
+            10.0 * FLOOR("rotten" / 10.0) + 10.0 AS "rotten_end",
+            COUNT(*) AS "count"
+          FROM input
+          WHERE "imdb" IS NOT NULL AND "rotten" IS NOT NULL
+          GROUP BY FLOOR("imdb"), FLOOR("rotten" / 10.0);
+      }
+      mark rect as counts {
+        fill: encoded CAST("count" AS DOUBLE) {
+          legend: { visible: false; }
+          scale: linear {
+            domain: [0.0, 170.0];
+            nice: false;
+            range: ['#eff8c9', '#31a7c2', '#243f8d'];
+            zero: true;
+          }
+        }
+        stroke_width: direct 0.0;
+        x: encoded "imdb_start" {
+          axis: { format: '.1f'; title: 'IMDB Rating (binned)'; }
+          scale: linear { domain: [1.0, 10.0]; nice: false; zero: false; }
+        }
+        x2: encoded "imdb_end";
+        y: encoded "rotten_start" {
+          axis: { title: 'Rotten Tomatoes Rating (binned)'; }
+          scale: linear { domain: [0.0, 100.0]; nice: false; zero: true; }
+        }
+        y2: encoded "rotten_end";
+      }
+    }
+  }
+
+  cell cartesian as rotten_histogram at { row: 1; column: 1; } {
+    mark group as bins {
+      transform sql as aggregate_bins {
+        query:
+          SELECT
+            10.0 * FLOOR("rotten" / 10.0) AS "bin_start",
+            10.0 * FLOOR("rotten" / 10.0) + 10.0 AS "bin_end",
+            COUNT(*) AS "count"
+          FROM input
+          WHERE "rotten" IS NOT NULL
+          GROUP BY FLOOR("rotten" / 10.0);
+      }
+      mark rect as counts {
+        fill: direct '#4c78a8';
+        stroke_width: direct 0.0;
+        x: encoded "count" {
+          axis: { show_title: false; tick_count: 2; }
+          scale: linear { domain: [0.0, 1000.0]; nice: false; zero: true; }
+        }
+        x2: encoded 0.0;
+        y: encoded "bin_start" {
+          axis: { visible: false; }
+          scale: linear { domain: [0.0, 100.0]; nice: false; zero: true; }
+        }
+        y2: encoded "bin_end";
+      }
+      -- The guide belongs to the trailing cell so its right-side chrome follows
+      -- the marginal histogram, matching the composed gallery layout.
+      mark symbol as count_legend_carrier {
+        fill: encoded CAST("count" AS DOUBLE) {
+          legend: { title: 'Count of Records'; }
+          scale: linear {
+            domain: [0.0, 170.0];
+            nice: false;
+            range: ['#eff8c9', '#31a7c2', '#243f8d'];
+            zero: true;
+          }
+        }
+        opacity: direct 0.0;
+        size: direct 0.0;
+        x: direct 0.0;
+        y: direct 0.0;
+      }
+    }
+  }
+}

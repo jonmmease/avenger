@@ -6099,10 +6099,12 @@
         "mark:bar",
         "mark:rect"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The native right-side colorbar places its title vertically beside the gradient and uses its standard interior tick set rather than Vega-Lite's horizontal title and three labels."
+      ]
     },
     {
       "name": "concat_bar_scales_discretize",
