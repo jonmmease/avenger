@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Bar Chart Showing Argmax Value (`bar_argmax`).
+chart cartesian as bar_argmax {
+  data: { table: 'vega.movies'; }
+  layout: {
+    canvas: { height: 302.0; width: 439.0; }
+    plot: { height: 200.0; width: 300.0; }
+  }
+  transform sql as highest_grossing_by_genre {
+    query:
+      WITH ranked AS (
+        SELECT
+          COALESCE("Major Genre", 'null') AS "genre",
+          "Production Budget" AS "budget",
+          ROW_NUMBER() OVER (
+            PARTITION BY "Major Genre"
+            ORDER BY "US Gross" DESC NULLS LAST
+          ) AS "rank"
+        FROM input
+      )
+      SELECT "genre", "budget"
+      FROM ranked
+      WHERE "rank" = 1 AND "budget" IS NOT NULL;
+  }
+  mark rect as genres {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "budget" {
+      axis: {
+        format: ',.0f';
+        tick_count: 4;
+        title: 'Production Budget for max US Gross';
+      }
+      scale: linear { domain: [0.0, 240000000.0]; nice: false; zero: true; }
+    }
+    x2: encoded 0.0;
+    y: encoded "genre" {
+      axis: { title: 'Major Genre'; }
+      band: 0.0;
+      scale: band {
+        domain: [
+          'Western', 'Thriller/Suspense', 'Romantic Comedy', 'Musical',
+          'Horror', 'Drama', 'Documentary', 'Concert/Performance',
+          'Comedy', 'Black Comedy', 'Adventure', 'Action', 'null'
+        ];
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y { band: 1.0; }
+  }
+}
