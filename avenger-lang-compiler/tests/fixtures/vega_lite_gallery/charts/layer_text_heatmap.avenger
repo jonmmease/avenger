@@ -1,0 +1,80 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Heatmap with Labels (`layer_text_heatmap`).
+chart cartesian as layer_text_heatmap {
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 220.0;
+      width: 400.0;
+    }
+    plot: {
+      height: 120.0;
+      width: 240.0;
+    }
+  }
+  transform sql as car_counts {
+    query:
+      SELECT "Origin", "Cylinders", COUNT(*) AS "num_cars"
+      FROM input
+      GROUP BY "Origin", "Cylinders"
+      ORDER BY "Cylinders", "Origin";
+  }
+  mark group as heatmap {
+    mark rect as cells {
+      fill: encoded "num_cars" {
+        legend: {
+          title: 'Count of Records';
+        }
+        scale: linear;
+      }
+      stroke_width: direct 0.0;
+      x: encoded "Cylinders" {
+        axis: {
+          title: 'Cylinders';
+        }
+        band: 0.0;
+        scale: band {
+          domain: [3, 4, 5, 6, 8];
+          padding_inner: 0.0;
+          padding_outer: 0.0;
+        }
+      }
+      x2: encoded channel.x {
+        band: 1.0;
+      }
+      y: encoded "Origin" {
+        axis: {
+          title: 'Origin';
+        }
+        band: 0.0;
+        scale: band {
+          domain: ['USA', 'Japan', 'Europe'];
+          padding_inner: 0.0;
+          padding_outer: 0.0;
+        }
+      }
+      y2: encoded channel.y {
+        band: 1.0;
+      }
+    }
+    mark text as labels {
+      align: direct 'center';
+      baseline: direct 'middle';
+      color: direct CASE
+        WHEN "num_cars" < 40 THEN 'black'
+        ELSE 'white'
+      END;
+      text: direct CAST("num_cars" AS VARCHAR);
+      x: encoded "Cylinders" {
+        band: 0.5;
+      }
+      y: encoded "Origin" {
+        band: 0.5;
+      }
+    }
+  }
+}
