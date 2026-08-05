@@ -150,6 +150,19 @@ capability was added.
   color scales and the colorbar renderer for continuous text color scales,
   with a representative text or symbol glyph policy.
 
+### AV-GALLERY-GUIDE-005 — Symbol-legend item-flow orientation
+
+- Status: confirmed
+- Affects: `bar_diverging_stack_population_pyramid` and other compact top or
+  bottom symbol legends
+- Evidence: the standard legend schema and Rust builder retain an
+  `orientation` expression, but symbol, line, and rectangle legend renderers do
+  not read it. `orientation: 'horizontal'` therefore still produces a vertical
+  item stack; only colorbar orientation is currently consumed by a renderer.
+- Required capability: evaluate item-flow orientation in discrete legend
+  renderers and use it, together with `columns`, when measuring, placing, and
+  navigating legend entries at every legend position.
+
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed

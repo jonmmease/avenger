@@ -1,0 +1,74 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Population Pyramid (`bar_diverging_stack_population_pyramid`).
+chart cartesian as bar_diverging_stack_population_pyramid {
+  data: {
+    table: 'vega.population';
+  }
+  layout: {
+    canvas: {
+      height: 320.0;
+      width: 380.0;
+    }
+    plot: {
+      height: 200.0;
+      width: 300.0;
+    }
+  }
+  transform sql as population_pyramid {
+    query:
+      SELECT
+        "age",
+        CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
+        CASE
+          WHEN "sex" = 2 THEN -CAST(SUM("people") AS DOUBLE)
+          ELSE CAST(SUM("people") AS DOUBLE)
+        END AS "signed_people"
+      FROM input
+      WHERE "year" = 2000
+      GROUP BY "age", "sex"
+      ORDER BY "age", "sex";
+  }
+  mark rect as population {
+    fill: encoded "gender" {
+      legend: {
+        columns: 2;
+        orientation: 'horizontal';
+        position: top;
+        title: '';
+      }
+      scale: ordinal {
+        domain: ['Female', 'Male'];
+        range: ['#675193', '#ca8861'];
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "signed_people" {
+      axis: {
+        format: '~s';
+        title: 'population';
+      }
+      scale: linear {
+        domain: [-12000000.0, 12000000.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded 0.0;
+    y: encoded "age" {
+      axis: {
+        visible: false;
+      }
+      band: 0.0;
+      scale: band {
+        domain: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
+        padding_inner: 0.05;
+        padding_outer: 0.025;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}

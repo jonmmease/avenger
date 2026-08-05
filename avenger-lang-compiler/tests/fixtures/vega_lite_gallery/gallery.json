@@ -2256,10 +2256,12 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The top symbol legend stacks its entries vertically because symbol-legend rendering does not yet apply the authored orientation."
+      ]
     },
     {
       "name": "bar_diverging_stack_transform",
