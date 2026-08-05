@@ -1,0 +1,55 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Non-linear Histogram (`histogram_nonlinear`).
+chart cartesian as histogram_nonlinear {
+  title: 'Distribution of Frame Render Time (fps)';
+  data: {
+    values: [
+      { start: '∞'; end: '120'; residency: 0.0; },
+      { start: '120'; end: '80'; residency: 0.0; },
+      { start: '80'; end: '60'; residency: 0.3117; },
+      { start: '60'; end: '30'; residency: 0.3896; },
+      { start: '30'; end: '20'; residency: 0.0649; },
+      { start: '20'; end: '15'; residency: 0.029; },
+      { start: '15'; end: '12'; residency: 0.026; },
+      { start: '12'; end: '0'; residency: 0.1688; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 220.0;
+      width: 420.0;
+    }
+    plot: {
+      height: 100.0;
+      width: 320.0;
+    }
+  }
+  mark rect as residency {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "start" {
+      axis: {
+        label_angle: 0.0;
+        title: '';
+      }
+      scale: point {
+        domain: ['∞', '120', '80', '60', '30', '20', '15', '12', '0'];
+        padding: 0.0;
+      }
+    }
+    x2: encoded "end";
+    y: encoded "residency" {
+      axis: {
+        format: '.0%';
+        title: '';
+      }
+      scale: linear {
+        domain: [0.0, 1.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}
