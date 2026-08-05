@@ -3751,8 +3751,17 @@
         "transform:fold",
         "transform:pivot"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "Quantitative size-legend sample values"
+        },
+        {
+          "id": "AV-GALLERY-SCALE-003",
+          "feature": "Continuous diverging-scale midpoint"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

@@ -147,7 +147,7 @@ capability was added.
 
 - Status: confirmed
 - Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`,
-  `trail_color`
+  `trail_color`, `trail_comet`
 - Evidence: size legends derive entries directly from the continuous scale's
   domain values, whether the renderer uses symbols or varying-width line
   samples. The legend schema exposes presentation properties but no explicit
@@ -206,8 +206,9 @@ capability was added.
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed
-- Affects: `joinaggregate_residual_graph` and other quantitative diverging-color
-  examples whose meaningful neutral value is not the extent midpoint
+- Affects: `joinaggregate_residual_graph`, `trail_comet`, and other quantitative
+  diverging-color examples whose meaningful neutral value is not the extent
+  midpoint
 - Evidence: continuous linear scales expose a two-value interval domain and a
   color range, but no semantic domain midpoint or piecewise numeric domain.
   An explicit symmetric interval can center zero only by extending one side of
