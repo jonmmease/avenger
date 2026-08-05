@@ -15,8 +15,9 @@ capability was added.
 ### AV-GALLERY-LANG-004 — Nested categorical position authoring is not lowered
 
 - Status: confirmed
-- Affects: `bar_grouped`, `point_offset_random`, and other examples represented
-  by nested categorical position levels or Vega-Lite offset channels
+- Affects: `bar_grouped`, `bar_grouped_repeated`, `point_offset_random`, and
+  other examples represented by nested categorical position levels or
+  Vega-Lite offset channels
 - Evidence: the canonical DSL specifies `nested([...])` with ordered `level`
   declarations, and the Rust chart API implements `NestedBandSpec`, per-level
   padding/axes/domain coordination, and level boundaries. The language resolver
@@ -161,6 +162,19 @@ capability was added.
   `generate_series` SQL table, an inline generator table kind, or a native
   transform, including exact endpoint and step semantics.
 
+### AV-GALLERY-INTERACTION-001 — Host-mediated link activation
+
+- Status: confirmed
+- Affects: `point_href`
+- Evidence: chart event actions can update params, stores, selections, scales,
+  and cursor state, but neither the runtime action vocabulary nor the language
+  schema can request that a host open an authored URL. Mark schemas likewise
+  have no `href` channel. Rendering the scatterplot alone would omit the
+  example's defining click behavior.
+- Required capability: add an explicitly host-mediated link/open action with a
+  row expression for the URL, a safe host policy and acknowledgement path, and
+  language, compiler, native-window, web-host, analysis, and LSP coverage.
+
 ### AV-GALLERY-ASSET-001 — Project-local image assets
 
 - Status: confirmed
@@ -178,6 +192,40 @@ capability was added.
   path and module-resolution rules; load and fingerprint them through the
   compiler/watch dependency graph; and either preserve a host-resolved resource
   request or embed portable image bytes in compiled/serialized charts.
+
+### AV-GALLERY-GEO-001 — Composite Albers USA projection
+
+- Status: confirmed
+- Affects: `geo_choropleth`, `geo_circle`, `geo_layer`, `geo_rule`,
+  `geo_repeat`, `geo_text`, `geo_line`, `geo_trellis`, and
+  `airport_connections`
+- Evidence: every affected pinned Vega-Lite specification requests
+  `albersUsa`, whose projection combines the continental United States with
+  repositioned Alaska and Hawaii insets. Avenger's `albers` language atom
+  lowers specifically to `Geo::albers_usa_conus()`, a single conic equal-area
+  projection with the CONUS aspect. The projection model has no composite
+  projection or inset routing, so using the current atom omits or misplaces
+  Alaska and Hawaii and cannot reproduce the pinned references faithfully.
+- Required capability: add a composite Albers USA projection that routes
+  geometries and longitude/latitude points through CONUS, Alaska, and Hawaii
+  components; preserves clipping and inverse-coordinate behavior; and works
+  consistently for shapes, symbols, lines, tools, hit testing, serialization,
+  language authoring, analysis, and LSP support. Keep the existing CONUS-only
+  projection available under an unambiguous name.
+
+### AV-GALLERY-GEO-002 — Geographic text mark
+
+- Status: confirmed
+- Affects: `geo_text` and `geo_layer_line_london`
+- Evidence: the geographic coordinate registry exposes `line`, `rect`,
+  `symbol`, `geo_shape`, and `uniform_raster_2d`, but not `text`. The Cartesian
+  text mark cannot be placed from longitude/latitude channels inside a geo
+  chart, so state-capital and borough labels cannot share the map projection
+  used by their surrounding layers.
+- Required capability: register and lower a geo text mark with longitude,
+  latitude, projected x/y fallback, text, alignment, leader-offset, angle,
+  color, size, opacity, and interaction channels, reusing the ordinary text
+  renderer after geographic position projection.
 
 ### AV-GALLERY-LAYOUT-001 — Authored annotation overflow beyond the plot area
 
@@ -198,8 +246,10 @@ capability was added.
 
 - Status: confirmed
 - Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`,
-  `trail_color`, `trail_comet`, `circle_github_punchcard`, `layer_likert`,
-  `vconcat_weather`
+  `circle_bubble_health_income`, `trail_color`, `trail_comet`,
+  `circle_github_punchcard`, `point_angle_windvector`,
+  `selection_translate_scatterplot_drag`, `dynamic_color_legend`,
+  `interactive_seattle_weather`, `layer_likert`, `vconcat_weather`
 - Evidence: size legends derive entries directly from the continuous scale's
   domain values, whether the renderer uses symbols or varying-width line
   samples. The legend schema exposes presentation properties but no explicit

@@ -1,0 +1,128 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Parallel Coordinate Plot (`parallel_coordinate`).
+schema tables as local {
+  table sql as parallel_values {
+    sql:
+      WITH penguins AS (
+        SELECT ROW_NUMBER() OVER () AS "index", *
+        FROM vega.penguins
+        WHERE "Beak Length (mm)" IS NOT NULL
+      ), folded AS (
+        SELECT "index", "Species", 0 AS "axis_order", 'Beak Depth (mm)' AS "key", "Beak Depth (mm)" AS "value" FROM penguins
+        UNION ALL
+        SELECT "index", "Species", 1 AS "axis_order", 'Beak Length (mm)' AS "key", "Beak Length (mm)" AS "value" FROM penguins
+        UNION ALL
+        SELECT "index", "Species", 2 AS "axis_order", 'Body Mass (g)' AS "key", CAST("Body Mass (g)" AS DOUBLE) AS "value" FROM penguins
+        UNION ALL
+        SELECT "index", "Species", 3 AS "axis_order", 'Flipper Length (mm)' AS "key", CAST("Flipper Length (mm)" AS DOUBLE) AS "value" FROM penguins
+      ), bounds AS (
+        SELECT
+          *,
+          MIN("value") OVER (PARTITION BY "key") AS "min_value",
+          MAX("value") OVER (PARTITION BY "key") AS "max_value"
+        FROM folded
+      )
+      SELECT
+        *,
+        ("value" - "min_value") / ("max_value" - "min_value") AS "norm_value"
+      FROM bounds;
+  }
+}
+
+chart cartesian as parallel_coordinate {
+  data: { table: 'local.parallel_values'; }
+  layout: {
+    canvas: { height: 333.0; width: 693.0; }
+    plot: { height: 300.0; width: 600.0; }
+  }
+  mark group as layers {
+    mark group as axes {
+      transform sql as axis_values {
+        query:
+          SELECT
+            "key",
+            MIN("axis_order") AS "axis_order",
+            CASE "key"
+              WHEN 'Beak Depth (mm)' THEN '13.1'
+              WHEN 'Beak Length (mm)' THEN '32.1'
+              WHEN 'Body Mass (g)' THEN '2700'
+              ELSE '172'
+            END AS "min_label",
+            CASE "key"
+              WHEN 'Beak Depth (mm)' THEN '17.3'
+              WHEN 'Beak Length (mm)' THEN '45.85'
+              WHEN 'Body Mass (g)' THEN '4500'
+              ELSE '201.5'
+            END AS "mid_label",
+            CASE "key"
+              WHEN 'Beak Depth (mm)' THEN '21.5'
+              WHEN 'Beak Length (mm)' THEN '59.6'
+              WHEN 'Body Mass (g)' THEN '6300'
+              ELSE '231'
+            END AS "max_label"
+          FROM input
+          GROUP BY "key";
+      }
+      mark rule as dimension_axes {
+        stroke: direct '#cccccc';
+        stroke_width: direct 1.0;
+        x: encoded "key";
+        x2: encoded "key";
+        y: encoded 0.0;
+        y2: encoded 1.0;
+      }
+      mark text as minimum_labels {
+        align: direct 'right';
+        baseline: direct 'middle';
+        color: direct '#404040';
+        leader_offset_x: direct -5.0;
+        text: direct "min_label";
+        x: encoded "key";
+        y: encoded 0.02;
+      }
+      mark text as middle_labels {
+        align: direct 'right';
+        baseline: direct 'middle';
+        color: direct '#404040';
+        leader_offset_x: direct -5.0;
+        text: direct "mid_label";
+        x: encoded "key";
+        y: encoded 0.5;
+      }
+      mark text as maximum_labels {
+        align: direct 'right';
+        baseline: direct 'middle';
+        color: direct '#404040';
+        leader_offset_x: direct -5.0;
+        text: direct "max_label";
+        x: encoded "key";
+        y: encoded 0.98;
+      }
+    }
+    mark line as penguins {
+      details: index;
+      opacity: direct 0.3;
+      order: direct "axis_order";
+      stroke: encoded "Species" {
+        legend: { title: 'Species'; }
+        scale: ordinal {
+          domain: ['Adelie', 'Chinstrap', 'Gentoo'];
+          range: ['#4c78a8', '#f58518', '#e45756'];
+        }
+      }
+      stroke_width: direct 1.0;
+      x: encoded "key" {
+        axis: { label_angle: 0.0; show_title: false; }
+        scale: point {
+          domain: ['Beak Depth (mm)', 'Beak Length (mm)', 'Body Mass (g)', 'Flipper Length (mm)'];
+        }
+      }
+      y: encoded "norm_value" {
+        axis: { visible: false; }
+        scale: linear { domain: [0.0, 1.0]; nice: false; zero: true; }
+      }
+    }
+  }
+}

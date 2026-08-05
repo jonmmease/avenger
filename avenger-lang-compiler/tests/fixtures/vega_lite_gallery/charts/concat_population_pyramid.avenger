@@ -1,0 +1,113 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Population Pyramid (`concat_population_pyramid`).
+schema tables as local {
+  table sql as population_2000 {
+    sql:
+      SELECT
+        "age",
+        CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
+        CAST(SUM("people") AS DOUBLE) AS "population"
+      FROM vega.population
+      WHERE "year" = 2000
+      GROUP BY "age", "sex";
+  }
+}
+
+chart hconcat as concat_population_pyramid {
+  data: { table: 'local.population_2000'; }
+  layout: {
+    canvas: { height: 439.0; width: 634.0; }
+    plot: { height: 380.0; width: 580.0; }
+  }
+  spacing: 0;
+  widths: [px(280), px(20), px(280)];
+  cell cartesian as female {
+    label: 'Female';
+    mark group as female_population {
+      transform sql as totals {
+        query:
+          SELECT "age", SUM("population") AS "population"
+          FROM input
+          WHERE "gender" = 'Female'
+          GROUP BY "age";
+      }
+      mark rect as bars {
+        fill: direct '#675193';
+        stroke_width: direct 0.0;
+        x: encoded 0.0 {
+          axis: { format: '.0s'; tick_count: 7; title: 'population'; }
+          scale: linear { domain: [12000000.0, 0.0]; nice: false; zero: true; }
+        }
+        x2: encoded "population";
+        y: encoded "age" {
+          axis: { visible: false; }
+          band: 0.0;
+          scale: band {
+            order_by: max(CAST("age" AS DOUBLE));
+            padding_inner: 0.1;
+            padding_outer: 0.05;
+          }
+        }
+        y2: encoded channel.y { band: 1.0; }
+      }
+    }
+  }
+  cell cartesian as ages {
+    mark group as labels {
+      transform sql as age_rows {
+        query:
+          SELECT DISTINCT "age"
+          FROM input;
+      }
+      mark text as age_labels {
+        align: direct 'center';
+        baseline: direct 'middle';
+        color: direct '#000000';
+        text: direct CAST("age" AS VARCHAR);
+        x: direct 10.0;
+        y: encoded "age" {
+          axis: { visible: false; }
+          band: 0.5;
+          scale: band {
+            order_by: max(CAST("age" AS DOUBLE));
+            padding_inner: 0.1;
+            padding_outer: 0.05;
+          }
+        }
+      }
+    }
+  }
+  cell cartesian as male {
+    label: 'Male';
+    mark group as male_population {
+      transform sql as totals {
+        query:
+          SELECT "age", SUM("population") AS "population"
+          FROM input
+          WHERE "gender" = 'Male'
+          GROUP BY "age";
+      }
+      mark rect as bars {
+        fill: direct '#ca8861';
+        stroke_width: direct 0.0;
+        x: encoded 0.0 {
+          axis: { format: '.0s'; tick_count: 7; title: 'population'; }
+          scale: linear { domain: [0.0, 12000000.0]; nice: false; zero: true; }
+        }
+        x2: encoded "population";
+        y: encoded "age" {
+          axis: { visible: false; }
+          band: 0.0;
+          scale: band {
+            order_by: max(CAST("age" AS DOUBLE));
+            padding_inner: 0.1;
+            padding_outer: 0.05;
+          }
+        }
+        y2: encoded channel.y { band: 1.0; }
+      }
+    }
+  }
+}

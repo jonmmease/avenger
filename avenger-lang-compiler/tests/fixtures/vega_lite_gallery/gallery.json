@@ -1998,8 +1998,13 @@
         "composition:repeat",
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-004",
+          "feature": "channel:nested-band-levels"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -3156,8 +3161,13 @@
         "interaction:selection",
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:size-legend-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -4355,8 +4365,13 @@
         "coordinate:geo",
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:size-legend-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -4764,9 +4779,9 @@
         "transform:joinaggregate",
         "transform:window"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -6169,9 +6184,9 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -6210,8 +6225,13 @@
         "mark:geoshape",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6241,8 +6261,13 @@
         "mark:circle",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6283,8 +6308,13 @@
         "mark:circle",
         "mark:geoshape"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6335,8 +6365,13 @@
         "transform:filter",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6377,8 +6412,13 @@
         "mark:geoshape",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6420,8 +6460,17 @@
         "mark:geoshape",
         "mark:text"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        },
+        {
+          "id": "AV-GALLERY-GEO-002",
+          "feature": "mark:geo-text"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6464,8 +6513,13 @@
         "mark:line",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6505,8 +6559,13 @@
         "mark:geoshape",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6559,8 +6618,13 @@
         "mark:text",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-002",
+          "feature": "mark:geo-text"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6802,8 +6866,13 @@
         "mark:point",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_interaction",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-INTERACTION-001",
+          "feature": "interaction:open-url"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6928,8 +6997,13 @@
         "interaction:selection",
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:size-legend-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7395,8 +7469,13 @@
         "mark:point",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:size-legend-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7636,8 +7715,13 @@
         "mark:point",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "guide:size-legend-samples"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7691,8 +7775,13 @@
         "transform:filter",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "geo:composite-albers-usa"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
