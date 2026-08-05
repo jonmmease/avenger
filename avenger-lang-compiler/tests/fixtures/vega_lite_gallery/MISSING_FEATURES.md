@@ -15,8 +15,8 @@ capability was added.
 ### AV-GALLERY-LANG-004 — Nested categorical position authoring is not lowered
 
 - Status: confirmed
-- Affects: `bar_grouped` and other examples represented by nested categorical
-  position levels or Vega-Lite offset channels
+- Affects: `bar_grouped`, `point_offset_random`, and other examples represented
+  by nested categorical position levels or Vega-Lite offset channels
 - Evidence: the canonical DSL specifies `nested([...])` with ordered `level`
   declarations, and the Rust chart API implements `NestedBandSpec`, per-level
   padding/axes/domain coordination, and level boundaries. The language resolver
