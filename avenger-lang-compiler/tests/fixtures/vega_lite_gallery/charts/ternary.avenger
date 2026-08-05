@@ -1,0 +1,196 @@
+avenger 1;
+
+-- | Vega-Lite gallery: ternary socioeconomic distribution (`ternary`).
+chart cartesian as ternary {
+  title: 'Population Distribution by Socioeconomic Level in Fictional Cities';
+  layout: {
+    canvas: { height: 716.0; width: 743.0; }
+    plot: { height: 541.25; width: 625.0; }
+  }
+  mark group as regions {
+    data: {
+      values: [
+        { baseline: 0.433; color: '#c8edf1a2'; region: 'center'; x: 0.25; y: 0.433; },
+        { baseline: 0.433; color: '#c8edf1a2'; region: 'center'; x: 0.5; y: 0.0; },
+        { baseline: 0.433; color: '#c8edf1a2'; region: 'center'; x: 0.75; y: 0.433; },
+        { baseline: 0.0; color: '#f7b7b7'; region: 'high'; x: 0.0; y: 0.0; },
+        { baseline: 0.0; color: '#f7b7b7'; region: 'high'; x: 0.25; y: 0.433; },
+        { baseline: 0.0; color: '#f7b7b7'; region: 'high'; x: 0.5; y: 0.0; },
+        { baseline: 0.0; color: '#ff7a7a'; region: 'high_extreme'; x: 0.0; y: 0.0; },
+        { baseline: 0.0; color: '#ff7a7a'; region: 'high_extreme'; x: 0.1; y: 0.1732; },
+        { baseline: 0.0; color: '#ff7a7a'; region: 'high_extreme'; x: 0.2; y: 0.0; },
+        { baseline: 0.0; color: '#d1ffdb'; region: 'low'; x: 0.5; y: 0.0; },
+        { baseline: 0.0; color: '#d1ffdb'; region: 'low'; x: 0.75; y: 0.433; },
+        { baseline: 0.0; color: '#d1ffdb'; region: 'low'; x: 1.0; y: 0.0; },
+        { baseline: 0.0; color: '#7cff98'; region: 'low_extreme'; x: 0.8; y: 0.0; },
+        { baseline: 0.0; color: '#7cff98'; region: 'low_extreme'; x: 0.9; y: 0.1732; },
+        { baseline: 0.0; color: '#7cff98'; region: 'low_extreme'; x: 1.0; y: 0.0; },
+        { baseline: 0.433; color: '#ffd26f'; region: 'medium'; x: 0.25; y: 0.433; },
+        { baseline: 0.433; color: '#ffd26f'; region: 'medium'; x: 0.5; y: 0.866; },
+        { baseline: 0.433; color: '#ffd26f'; region: 'medium'; x: 0.75; y: 0.433; },
+        { baseline: 0.6928; color: '#fff0cf'; region: 'medium_extreme'; x: 0.4; y: 0.6928; },
+        { baseline: 0.6928; color: '#fff0cf'; region: 'medium_extreme'; x: 0.5; y: 0.866; },
+        { baseline: 0.6928; color: '#fff0cf'; region: 'medium_extreme'; x: 0.6; y: 0.6928; }
+      ];
+    }
+    mark area as zones {
+      fill: direct "color";
+      order: direct "x";
+      stroke: direct "color";
+      stroke_width: direct 0.2;
+      x: encoded "x" {
+        axis: { visible: false; }
+        scale: linear { domain: [-0.05, 1.05]; nice: false; zero: false; }
+      }
+      y: encoded "y" {
+        axis: { visible: false; }
+        scale: linear { domain: [-0.05, 0.888]; nice: false; zero: false; }
+      }
+      y2: encoded "baseline";
+    }
+  }
+  mark group as corner_labels {
+    data: {
+      values: [
+        { label: 'High 100%'; x: 0.1; y: -0.035; },
+        { label: 'Low 100%'; x: 0.9; y: -0.035; },
+        { label: 'Medium 100%'; x: 0.5; y: 0.855; }
+      ];
+    }
+    mark text as labels {
+      color: direct 'black';
+      font_size: direct 13.0;
+      text: direct "label";
+      x: encoded "x";
+      y: encoded "y";
+      adjust nudge as above {
+        apply: { x: above.x; y: above.y; }
+        dx: 0.0;
+        dy: -10.0;
+      }
+    }
+  }
+  mark group as grid {
+    data: {
+      values: [
+        { n: 1.0; }, { n: 2.0; }, { n: 3.0; },
+        { n: 4.0; }, { n: 5.0; }, { n: 6.0; },
+        { n: 7.0; }, { n: 8.0; }, { n: 9.0; }
+      ];
+    }
+    transform sql as grid_segments {
+      query:
+        SELECT 0.1 * "n" AS "x", 0.0 AS "y",
+          0.05 * "n" AS "x2", 0.0866 * "n" AS "y2"
+        FROM input
+        UNION ALL
+        SELECT 1.0 - 0.1 * "n" AS "x", 0.0 AS "y",
+          1.0 - 0.05 * "n" AS "x2", 0.0866 * "n" AS "y2"
+        FROM input
+        UNION ALL
+        SELECT 0.05 * "n" AS "x", 0.0866 * "n" AS "y",
+          1.0 - 0.05 * "n" AS "x2", 0.0866 * "n" AS "y2"
+        FROM input;
+    }
+    mark rule as guides {
+      stroke: direct '#696969';
+      stroke_dash: direct 'dotted';
+      x: encoded "x";
+      x2: encoded "x2";
+      y: encoded "y";
+      y2: encoded "y2";
+    }
+  }
+  mark group as cities {
+    data: {
+      values: [
+        { City: 'Luminar'; High: 5.0; Medium: 50.0; Low: 30.0; },
+        { City: 'Crystalport'; High: 35.0; Medium: 60.0; Low: 20.0; },
+        { City: 'Stellaheim'; High: 115.0; Medium: 40.0; Low: 70.0; },
+        { City: 'Mistral Heights'; High: 30.0; Medium: 45.0; Low: 252.0; },
+        { City: 'Verdancia'; High: 120.0; Medium: 35.0; Low: 2.0; },
+        { City: 'Aurelian City'; High: 28.0; Medium: 48.0; Low: 32.0; },
+        { City: 'Solaris Bay'; High: 32.0; Medium: 458.0; Low: 55.0; },
+        { City: 'Sandspire'; High: 12.0; Medium: 30.0; Low: 55.0; },
+        { City: 'Azureon'; High: 40.0; Medium: 50.0; Low: 15.0; },
+        { City: 'Goldcrest'; High: 18.0; Medium: 28.0; Low: 35.0; }
+      ];
+    }
+    transform sql as positions {
+      query:
+        WITH totals AS (
+          SELECT *, "High" + "Medium" + "Low" AS "TotalLevel"
+          FROM input
+        ), shares AS (
+          SELECT *,
+            "High" / "TotalLevel" AS "high_percent",
+            "Medium" / "TotalLevel" AS "medium_percent",
+            "Low" / "TotalLevel" AS "low_percent"
+          FROM totals
+        )
+        SELECT *,
+          0.5 * (2.0 * "low_percent" + "medium_percent") AS "x",
+          0.866 * "medium_percent" AS "y",
+          CASE
+            WHEN "high_percent" > 0.8 THEN '#FF0F0F'
+            WHEN "medium_percent" > 0.8 THEN '#FFC333'
+            WHEN "low_percent" > 0.8 THEN '#32F95D'
+            WHEN "high_percent" > 0.5 AND "medium_percent" > "low_percent" THEN '#ff3c18'
+            WHEN "high_percent" > 0.5 THEN '#cb4922'
+            WHEN "medium_percent" > 0.5 AND "high_percent" > "low_percent" THEN '#ff962a'
+            WHEN "medium_percent" > 0.5 THEN '#cbd03d'
+            WHEN "low_percent" > 0.5 AND "medium_percent" < "high_percent" THEN '#65be49'
+            WHEN "low_percent" > 0.5 THEN '#65eb52'
+            ELSE '#43c1ce'
+          END AS "color",
+          CASE WHEN "medium_percent" > 0.9 THEN 15.0 ELSE -15.0 END AS "dy_val"
+        FROM shares;
+    }
+    mark symbol as points {
+      fill: direct "color";
+      opacity: direct 1.0;
+      size: encoded "TotalLevel" {
+        legend: { visible: false; }
+        scale: linear { range: [50.0, 500.0]; zero: true; }
+      }
+      stroke: direct 'black';
+      stroke_width: direct 1.5;
+      x: encoded "x";
+      y: encoded "y";
+    }
+    mark group as labels_above {
+      transform sql as selected {
+        query: SELECT * FROM input WHERE "dy_val" < 0.0;
+      }
+      mark text as names {
+        color: direct 'black';
+        font_size: direct 13.0;
+        text: direct "City";
+        x: encoded "x";
+        y: encoded "y";
+        adjust nudge as above {
+          apply: { x: above.x; y: above.y; }
+          dx: 0.0;
+          dy: -15.0;
+        }
+      }
+    }
+    mark group as labels_below {
+      transform sql as selected {
+        query: SELECT * FROM input WHERE "dy_val" > 0.0;
+      }
+      mark text as names {
+        color: direct 'black';
+        font_size: direct 13.0;
+        text: direct "City";
+        x: encoded "x";
+        y: encoded "y";
+        adjust nudge as below {
+          apply: { x: below.x; y: below.y; }
+          dx: 0.0;
+          dy: 15.0;
+        }
+      }
+    }
+  }
+}

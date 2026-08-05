@@ -5063,10 +5063,13 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "AV-GALLERY-LAYOUT-001: the three corner annotations are moved inside the fixed plot clip so all remain visible.",
+        "AV-GALLERY-INTERACTION-002: the rendered point layer omits the authored hover tooltip because Avenger has no tooltip contract yet."
+      ]
     },
     {
       "name": "layer_point_errorbar_ci",

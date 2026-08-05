@@ -191,6 +191,24 @@ capability was added.
   row expression for the URL, a safe host policy and acknowledgement path, and
   language, compiler, native-window, web-host, analysis, and LSP coverage.
 
+### AV-GALLERY-INTERACTION-002 — Authored mark tooltips
+
+- Status: confirmed
+- Affects: `arc_pie_normalize_tooltip`, `histogram_rel_freq`,
+  `interactive_geo_earthquakes`, `interactive_geo_facet_species`,
+  `interactive_histogram_full_height_hover`, `interactive_line_point_hover`,
+  `interactive_multi_line_pivot_tooltip`, `interactive_multi_line_tooltip`,
+  `parallel_coordinate`, `param_search_input`, `point_href`,
+  `rect_mosaic_labelled_with_offset`, `ternary`, `trail_comet`
+- Evidence: mark schemas expose neither a tooltip channel nor a tooltip
+  configuration, and the runtime/eventstream has no tooltip host action or
+  surface. The rendered marks and hit data can exist, but the authored field
+  list, labels, formatting, and hover presentation are discarded.
+- Required capability: define a typed tooltip content model over the hit row,
+  a mark channel or event action that requests it, formatting and null rules,
+  a host-owned presentation lifecycle, and equivalent native/web/inspector,
+  language, compiler, analysis, and LSP support.
+
 ### AV-GALLERY-ASSET-001 — Project-local image assets
 
 - Status: confirmed
