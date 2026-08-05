@@ -1,0 +1,66 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Cumulative Frequency Distribution (`area_cumulative_freq`).
+chart cartesian as area_cumulative_freq {
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 440.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 340.0;
+    }
+  }
+  transform sql as cumulative_ratings {
+    query:
+      WITH rating_counts AS (
+        SELECT
+          "IMDB Rating" AS "rating",
+          COUNT(*) AS "count"
+        FROM input
+        GROUP BY "IMDB Rating"
+      ), cumulative AS (
+        SELECT
+          "rating",
+          SUM("count") OVER (
+            ORDER BY "rating" NULLS FIRST
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "cumulative_count"
+        FROM rating_counts
+      )
+      SELECT
+        "rating",
+        "cumulative_count"
+      FROM cumulative
+      WHERE "rating" IS NOT NULL
+      ORDER BY "rating";
+  }
+  mark area as distribution {
+    fill: direct '#4c78a8';
+    order: direct "rating";
+    stroke_width: direct 0.0;
+    x: encoded "rating" {
+      axis: {
+        title: 'IMDB Rating';
+      }
+      scale: linear {
+        zero: false;
+      }
+    }
+    y: encoded "cumulative_count" {
+      axis: {
+        format: ',.0f';
+        title: 'Cumulative Count';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    y2: encoded 0.0;
+  }
+}
