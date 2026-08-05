@@ -2053,8 +2053,10 @@
       "features": [
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        "AV-GALLERY-MARK-003"
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

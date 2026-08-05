@@ -41,6 +41,19 @@ capability was added.
   mark, language schema, compiled mark, scene graph, hit testing, and renderer,
   initially covering linear, step-before/after, and monotone curves.
 
+### AV-GALLERY-MARK-003 — Per-corner rectangle radii
+
+- Status: confirmed
+- Affects: `stacked_bar_count_corner_radius_mark` and other bars that round
+  only their exposed end corners
+- Evidence: rectangle marks expose one `corner_radius` channel, and the scene
+  graph applies it uniformly to all four corners. A stacked top segment cannot
+  round only its two outer corners; uniform rounding also rounds the shared
+  boundary and creates visible notches against the neighboring segment.
+- Required capability: per-corner rectangle radius channels (or an equivalent
+  end-corner policy aware of orientation), preserved through the mark schema,
+  compiled state, scene graph, GPU/vector renderers, bounds, and hit testing.
+
 ### AV-GALLERY-GUIDE-004 — Per-tick conditional axis styling
 
 - Status: confirmed
