@@ -5602,8 +5602,13 @@
         "mark:bar",
         "mark:text"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LAYOUT-001",
+          "feature": "layout:annotation-overflow"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

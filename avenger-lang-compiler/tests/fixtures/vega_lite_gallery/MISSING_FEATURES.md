@@ -182,8 +182,8 @@ capability was added.
 ### AV-GALLERY-LAYOUT-001 — Authored annotation overflow beyond the plot area
 
 - Status: confirmed
-- Affects: `layer_line_co2_concentration` and charts that place labels just
-  outside a scale endpoint
+- Affects: `layer_line_co2_concentration`, `bar_layered_weather`, and charts
+  that place labels just outside a scale or plot boundary
 - Evidence: Cartesian plot content is wrapped in the clip returned by
   `CompiledPlot::get_clip_region`, which defaults to the plot-area rectangle.
   Text marks expose no authored clip/overflow policy, so a left-aligned label at
