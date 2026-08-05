@@ -1997,7 +1997,7 @@ impl<'a> ModuleLowerer<'a> {
                 data.schema()
                     .field_with_unqualified_name(name)
                     .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                Ok(col(name))
+                Ok(unqualified_column(name))
             }
             ResolvedValue::Expression(expression) => {
                 self.planned_event_expression(expression, data, declaration)
@@ -2824,9 +2824,10 @@ impl<'a> ModuleLowerer<'a> {
         // `x_domain: "x"` means the data column, not a scalar string literal.
         for property in ["x_domain", "y_domain"] {
             if let Some(ResolvedValue::String(field)) = declaration.properties.get(property) {
-                native
-                    .properties
-                    .insert(property.to_string(), NativeValue::Expr(col(field)));
+                native.properties.insert(
+                    property.to_string(),
+                    NativeValue::Expr(unqualified_column(field)),
+                );
             }
         }
         let key = NativeKindKey::new(NativeKindNamespace::View, native.kind.clone());
@@ -3123,7 +3124,10 @@ impl<'a> ModuleLowerer<'a> {
                             format!("`apply.{channel}` must reference a bound adjustment output"),
                         )
                     })?;
-                    routed.insert(channel.clone(), NativeValue::Expr(col(output)));
+                    routed.insert(
+                        channel.clone(),
+                        NativeValue::Expr(unqualified_column(output)),
+                    );
                 }
                 native
                     .properties
@@ -4662,7 +4666,7 @@ impl<'a> ModuleLowerer<'a> {
                 data.schema()
                     .field_with_unqualified_name(name)
                     .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-                Ok(col(name))
+                Ok(unqualified_column(name))
             }
             ResolvedValue::Expression(expression) => {
                 self.planned_expression(expression, data, declaration)
@@ -5184,7 +5188,8 @@ impl<'a> ModuleLowerer<'a> {
                     lowerer_error(declaration, "resolved selection is unavailable")
                 })?;
                 (
-                    selection.contains_equality_value(col(field), event::datum(field)),
+                    selection
+                        .contains_equality_value(unqualified_column(field), event::datum(field)),
                     boolean(),
                 )
             }
@@ -6479,6 +6484,14 @@ fn rewrite_source_fragment(source: &str, replacements: &[(String, String)]) -> S
 
 fn datum_field_spelling(field: &str) -> String {
     format!("datum.\"{}\"", field.replace('"', "\"\""))
+}
+
+fn unqualified_column(name: impl Into<String>) -> Expr {
+    // DataFusion's `col(&str)` helper parses a SQL-style qualified name and
+    // normalizes unquoted identifier case. The DSL has already established
+    // that this is a decoded double-quoted column identifier, so construct the
+    // column directly to preserve its exact Arrow field spelling.
+    Expr::Column(Column::new_unqualified(name))
 }
 
 fn rewrite_store_subquery_targets(

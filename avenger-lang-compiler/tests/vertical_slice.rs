@@ -67,6 +67,35 @@ fn source_compiler(source: &str, registry: Option<Arc<NativeRegistry>>) -> Compi
 }
 
 #[tokio::test]
+async fn double_quoted_channel_columns_preserve_arrow_field_case() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [ { Horsepower: 130; Miles_per_Gallon: 18.0; } ];
+          }
+          mark group as plot {
+            mark symbol as points {
+              x: encoded "Horsepower";
+              y: encoded "Miles_per_Gallon";
+            }
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let mark = &artifact.compiled_plot().marks()[0];
+    assert_eq!(
+        mark.data_context().encoding("x").as_deref(),
+        Some("Horsepower")
+    );
+    assert_eq!(
+        mark.data_context().encoding("y").as_deref(),
+        Some("Miles_per_Gallon")
+    );
+}
+
+#[tokio::test]
 async fn scalar_params_use_datafusion_planned_arrow_types() {
     let source = r#"avenger 1;
         chart zerod as chart {
