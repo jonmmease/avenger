@@ -119,6 +119,19 @@ capability was added.
   color scales and the colorbar renderer for continuous text color scales,
   with a representative text or symbol glyph policy.
 
+### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
+
+- Status: confirmed
+- Affects: `joinaggregate_residual_graph` and other quantitative diverging-color
+  examples whose meaningful neutral value is not the extent midpoint
+- Evidence: continuous linear scales expose a two-value interval domain and a
+  color range, but no semantic domain midpoint or piecewise numeric domain.
+  An explicit symmetric interval can center zero only by extending one side of
+  the observed extent, which changes color sensitivity and legend endpoints.
+- Required capability: add an optional continuous-scale midpoint that maps to
+  the center of a diverging range while preserving independently inferred or
+  configured lower and upper domain bounds.
+
 ## Investigation queue
 
 These families need executable conformance attempts before they can be called
@@ -138,6 +151,21 @@ express the required behavior faithfully.
 - image marks whose URLs are project-local assets.
 
 ## Resolved while porting
+
+### AV-GALLERY-LANG-003 — Continuous CSS-color ranges had the wrong UDF type
+
+- Status: resolved
+- Discovered by: `joinaggregate_residual_graph`
+- Symptom: a literal CSS-color `range:` on a continuous scale was lowered as a
+  discrete UTF-8 range. The runtime color interpolator correctly produced RGBA
+  list values, but the DataFusion scale UDF still declared a UTF-8 return type
+  and rejected the resulting array.
+- Resolution: continuous scale lowering recognizes nonempty literal CSS-color
+  arrays and stores them as native color ranges. Numeric ranges and categorical
+  string ranges retain their existing representations.
+- Regression evidence:
+  `continuous_literal_css_color_range_lowers_as_colors` plus direct and
+  serialized evaluation of the reviewed `joinaggregate_residual_graph` case.
 
 ### AV-GALLERY-SCALE-002 — Scale ordering lost exact Arrow field case
 

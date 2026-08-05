@@ -4516,10 +4516,12 @@
         "transform:filter",
         "transform:joinaggregate"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The diverging fill uses an explicit symmetric interval domain because Avenger does not yet expose a continuous-scale domain midpoint."
+      ]
     },
     {
       "name": "waterfall_chart",
