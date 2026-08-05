@@ -1,0 +1,112 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Waterfall Chart of Monthly Profit and Loss (`waterfall_chart`).
+chart cartesian as waterfall_chart {
+  data: {
+    values: [
+      { idx: 0; label: 'Begin'; amount: 4000; },
+      { idx: 1; label: 'Jan'; amount: 1707; },
+      { idx: 2; label: 'Feb'; amount: -1425; },
+      { idx: 3; label: 'Mar'; amount: -1030; },
+      { idx: 4; label: 'Apr'; amount: 1812; },
+      { idx: 5; label: 'May'; amount: -1067; },
+      { idx: 6; label: 'Jun'; amount: -1481; },
+      { idx: 7; label: 'Jul'; amount: 1228; },
+      { idx: 8; label: 'Aug'; amount: 1176; },
+      { idx: 9; label: 'Sep'; amount: 1146; },
+      { idx: 10; label: 'Oct'; amount: 1205; },
+      { idx: 11; label: 'Nov'; amount: -1388; },
+      { idx: 12; label: 'Dec'; amount: 1492; },
+      { idx: 13; label: 'End'; amount: 0; }
+    ];
+  }
+  layout: {
+    canvas: { height: 497.0; width: 861.0; }
+    plot: { height: 450.0; width: 800.0; }
+  }
+  transform sql as waterfall_values {
+    query:
+      WITH cumulative AS (
+        SELECT
+          *,
+          SUM("amount") OVER (
+            ORDER BY "idx"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "sum",
+          COALESCE(LEAD("label") OVER (ORDER BY "idx"), "label") AS "lead"
+        FROM input
+      ), calculated AS (
+        SELECT
+          *,
+          CASE WHEN "label" = 'End' THEN 0 ELSE "sum" - "amount" END AS "previous_sum",
+          CASE WHEN "label" = 'End' THEN "sum" ELSE "amount" END AS "display_amount"
+        FROM cumulative
+      )
+      SELECT
+        *,
+        ("sum" + "previous_sum") / 2.0 AS "center",
+        CONCAT(
+          CASE
+            WHEN "label" NOT IN ('Begin', 'End') AND "display_amount" > 0 THEN '+'
+            ELSE ''
+          END,
+          CAST("display_amount" AS VARCHAR)
+        ) AS "text_amount"
+      FROM calculated;
+  }
+  mark group as layers {
+    mark rect as changes {
+      fill: direct CASE
+        WHEN "label" IN ('Begin', 'End') THEN '#f7e0b6'
+        WHEN "sum" < "previous_sum" THEN '#f78a64'
+        ELSE '#93c4aa'
+      END;
+      stroke_width: direct 0.0;
+      x: encoded "label" {
+        axis: { label_angle: 0.0; title: 'Months'; }
+        band: 0.1;
+        scale: band {
+          domain: [
+            'Begin', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'End'
+          ];
+          padding_inner: 0.0;
+          padding_outer: 0.0;
+        }
+      }
+      x2: encoded channel.x { band: 0.9; }
+      y: encoded "previous_sum" {
+        axis: { format: '.0f'; tick_count: 17; title: 'Amount'; }
+        scale: linear { domain: [0.0, 8000.0]; nice: false; zero: true; }
+      }
+      y2: encoded "sum";
+    }
+    mark rule as connectors {
+      stroke: direct '#404040';
+      stroke_width: direct 2.0;
+      x: encoded "label" { band: 0.9; }
+      x2: encoded "lead" { band: 0.1; }
+      y: encoded "sum";
+      y2: encoded "sum";
+    }
+    mark text as totals {
+      align: direct 'center';
+      baseline: direct CASE WHEN "display_amount" >= 0 THEN 'bottom' ELSE 'top' END;
+      color: direct '#404040';
+      font_weight: direct 'bold';
+      leader_offset_y: direct CASE WHEN "display_amount" >= 0 THEN -4.0 ELSE 4.0 END;
+      text: direct CAST("sum" AS VARCHAR);
+      x: encoded "label" { band: 0.5; }
+      y: encoded "sum";
+    }
+    mark text as amounts {
+      align: direct 'center';
+      baseline: direct 'middle';
+      color: direct CASE WHEN "label" IN ('Begin', 'End') THEN '#725a30' ELSE '#ffffff' END;
+      font_weight: direct 'bold';
+      text: direct "text_amount";
+      x: encoded "label" { band: 0.5; }
+      y: encoded "center";
+    }
+  }
+}
