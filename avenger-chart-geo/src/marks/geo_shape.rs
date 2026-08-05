@@ -30,7 +30,7 @@ use avenger_geo::sinks::LyonPathSink;
 use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark};
 use datafusion::{
     arrow::{
-        array::{Array, BinaryArray, LargeBinaryArray, RecordBatch},
+        array::{Array, BinaryArray, BinaryViewArray, LargeBinaryArray, RecordBatch},
         datatypes::DataType as ArrowDataType,
     },
     common::ScalarValue,
@@ -388,10 +388,24 @@ fn binary_value(array: &dyn Array, row: usize) -> Result<Option<&[u8]>, AvengerC
         Ok(Some(binary.value(row)))
     } else if let Some(binary) = array.as_any().downcast_ref::<LargeBinaryArray>() {
         Ok(Some(binary.value(row)))
+    } else if let Some(binary) = array.as_any().downcast_ref::<BinaryViewArray>() {
+        Ok(Some(binary.value(row)))
     } else {
         Err(AvengerChartError::InvalidArgument(format!(
             "GeoShape geometry column must be Binary, got {:?}",
             array.data_type()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_value_accepts_binary_view_arrays() {
+        let array = BinaryViewArray::from(vec![Some(b"wkb".as_ref()), None]);
+        assert_eq!(binary_value(&array, 0).unwrap(), Some(b"wkb".as_ref()));
+        assert_eq!(binary_value(&array, 1).unwrap(), None);
     }
 }

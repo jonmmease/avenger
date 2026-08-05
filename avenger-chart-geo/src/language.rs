@@ -102,7 +102,7 @@ pub fn definition() -> CoordinateLanguageDefinition<Geo> {
             lower_rect::<Geo>,
         )
         .mark_with_coordinate("symbol", symbol_schema(), lower_geo_symbol)
-        .mark(
+        .mark_with_coordinate(
             "geo_shape",
             primitive_schema(
                 "geo",
@@ -648,6 +648,7 @@ fn lower_geo_symbol(
 }
 
 fn lower_geo_shape(
+    geo: &Geo,
     declaration: &ResolvedDeclaration,
 ) -> Result<Vec<avenger_chart_core::PlotMark<Geo>>, NativeLoweringError> {
     let mut mark = GeoShape::<Geo>::new();
@@ -655,7 +656,9 @@ fn lower_geo_shape(
         mark = mark.id(id.clone());
     }
     for (name, value) in &declaration.properties {
-        if !is_common_mark_property(name) {
+        if name == "geometry" {
+            mark = mark.geometry(geo, ordinary_expr(name, value)?);
+        } else if !is_common_mark_property(name) {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
