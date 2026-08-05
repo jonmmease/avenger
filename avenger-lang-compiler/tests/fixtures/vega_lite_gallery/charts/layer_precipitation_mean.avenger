@@ -1,0 +1,64 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Monthly Precipitation with Global Mean (`layer_precipitation_mean`).
+chart cartesian as layer_precipitation_mean {
+  data: { table: 'vega.seattle_weather'; }
+  layout: {
+    canvas: { height: 347.0; width: 291.0; }
+    plot: { height: 300.0; width: 240.0; }
+  }
+  transform sql as precipitation_summary {
+    query:
+      WITH raw AS (
+        SELECT
+          CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
+          "precipitation",
+          AVG("precipitation") OVER () AS "global_mean"
+        FROM input
+        WHERE "date" IS NOT NULL AND "precipitation" IS NOT NULL
+      )
+      SELECT
+        "month_number",
+        CASE "month_number"
+          WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
+          WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
+          WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
+          WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
+        END AS "month",
+        AVG("precipitation") AS "monthly_mean",
+        MIN("global_mean") AS "global_mean"
+      FROM raw
+      GROUP BY "month_number"
+      ORDER BY "month_number";
+  }
+  mark group as layers {
+    mark rect as months {
+      fill: direct '#4c78a8';
+      stroke_width: direct 0.0;
+      x: encoded "month" {
+        axis: { label_angle: 0.0; title: 'date (month)'; }
+        band: 0.0;
+        scale: band {
+          domain: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          padding_inner: 0.1;
+          padding_outer: 0.05;
+        }
+      }
+      x2: encoded channel.x { band: 1.0; }
+      y: encoded "monthly_mean" {
+        axis: { title: 'Mean of precipitation'; }
+        scale: linear { domain: [0.0, 5.5]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+    mark rule as global_mean {
+      stroke: direct 'red';
+      stroke_width: direct 3.0;
+      x: direct 0.0;
+      x2: direct 240.0;
+      y: encoded "global_mean";
+      y2: encoded "global_mean";
+    }
+  }
+}
