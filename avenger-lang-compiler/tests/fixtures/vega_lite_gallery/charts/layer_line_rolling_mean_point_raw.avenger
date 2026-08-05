@@ -1,0 +1,53 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: 30-Day Rolling Mean with Raw Values (`layer_line_rolling_mean_point_raw`).
+chart cartesian as layer_line_rolling_mean_point_raw {
+  data: { table: 'vega.seattle_weather'; }
+  layout: {
+    canvas: { height: 347.0; width: 452.0; }
+    plot: { height: 300.0; width: 400.0; }
+  }
+  transform sql as rolling_temperature {
+    query:
+      WITH ordered AS (
+        SELECT
+          "date",
+          "temp_max",
+          ROW_NUMBER() OVER (ORDER BY "date") AS "row_id"
+        FROM input
+        WHERE "date" IS NOT NULL AND "temp_max" IS NOT NULL
+      )
+      SELECT
+        center."date",
+        center."temp_max",
+        AVG(neighbor."temp_max") AS "rolling_mean"
+      FROM ordered AS center
+      JOIN ordered AS neighbor
+        ON neighbor."row_id" BETWEEN center."row_id" - 15 AND center."row_id" + 15
+      GROUP BY center."row_id", center."date", center."temp_max"
+      ORDER BY center."date";
+  }
+  mark group as layers {
+    mark symbol as observations {
+      fill: direct '#4c78a8';
+      opacity: direct 0.3;
+      size: direct 12.0;
+      x: encoded "date" {
+        axis: { title: 'Date'; }
+        scale: time;
+      }
+      y: encoded "temp_max" {
+        axis: { title: 'Max Temperature and Rolling Mean'; }
+        scale: linear { zero: false; }
+      }
+    }
+    mark line as rolling_mean {
+      order: direct "date";
+      stroke: direct 'red';
+      stroke_width: direct 3.0;
+      x: encoded "date";
+      y: encoded "rolling_mean";
+    }
+  }
+}
