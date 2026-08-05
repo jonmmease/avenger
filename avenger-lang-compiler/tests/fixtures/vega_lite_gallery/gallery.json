@@ -4117,8 +4117,13 @@
         "mark:area",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_mark",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-MARK-002",
+          "feature": "Line and area interpolation modes"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

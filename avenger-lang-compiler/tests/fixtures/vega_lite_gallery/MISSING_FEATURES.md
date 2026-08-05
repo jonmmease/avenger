@@ -29,17 +29,19 @@ capability was added.
   and boundaries; then cover exact-column case, formatting, analysis, LSP, and
   direct/serialized runtime evaluation.
 
-### AV-GALLERY-MARK-002 — Line interpolation modes
+### AV-GALLERY-MARK-002 — Line and area interpolation modes
 
 - Status: confirmed
-- Affects: `line_step`, `line_monotone`
+- Affects: `line_step`, `line_monotone`, `area_horizon`
 - Evidence: the line mark's default-value table still mentions an internal
   `interpolate` value, but `interpolate` is absent from the mark's public
-  channel schema, compiled state, scene mark, and renderer. Lines therefore
-  always connect authored vertices linearly.
-- Required capability: a reviewed interpolation enum carried through the Rust
-  mark, language schema, compiled mark, scene graph, hit testing, and renderer,
-  initially covering linear, step-before/after, and monotone curves.
+  channel schema, compiled state, scene mark, and renderer. Area marks likewise
+  have no authored interpolation path, so both families always connect authored
+  vertices linearly.
+- Required capability: a reviewed interpolation enum carried through line and
+  area Rust marks, language schemas, compiled marks, scene graph, hit testing,
+  and renderers, initially covering linear, step-before/after, and monotone
+  curves.
 
 ### AV-GALLERY-MARK-003 — Per-corner rectangle radii
 
