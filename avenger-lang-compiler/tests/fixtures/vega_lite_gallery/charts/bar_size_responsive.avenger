@@ -1,0 +1,52 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Responsive Bar Chart (`bar_size_responsive`).
+chart cartesian as bar_size_responsive {
+  data: {
+    table: 'vega.cars';
+  }
+  param 300.0 as canvas_width;
+  layout: {
+    canvas: {
+      height: 310.0;
+      width: $canvas_width;
+    }
+  }
+  transform sql as origin_counts {
+    query:
+      SELECT "Origin", COUNT(*) AS "count"
+      FROM input
+      GROUP BY "Origin"
+      ORDER BY "Origin";
+  }
+  mark rect as bars {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "Origin" {
+      axis: {
+        label_angle: -90.0;
+        title: 'Origin';
+      }
+      band: 0.0;
+      scale: band {
+        domain: ['Europe', 'Japan', 'USA'];
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded 0.0 {
+      axis: {
+        title: 'Number of Cars';
+      }
+      scale: linear {
+        nice: true;
+        zero: true;
+      }
+    }
+    y2: encoded "count";
+  }
+}
