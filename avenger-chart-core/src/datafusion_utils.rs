@@ -327,6 +327,16 @@ impl ScalarValueHelpers for ScalarValue {
             ScalarValue::UInt16(Some(e)) => *e as f64,
             ScalarValue::UInt32(Some(e)) => *e as f64,
             ScalarValue::UInt64(Some(e)) => *e as f64,
+            ScalarValue::Decimal128(Some(value), _, scale) => {
+                (*value as f64) * 10_f64.powi(-i32::from(*scale))
+            }
+            ScalarValue::Decimal256(Some(value), _, scale) => {
+                value.to_string().parse::<f64>().map_err(|error| {
+                    DataFusionError::Internal(format!(
+                        "Cannot convert Decimal256 coefficient {value} to f64: {error}"
+                    ))
+                })? * 10_f64.powi(-i32::from(*scale))
+            }
             ScalarValue::Date32(Some(e)) => *e as f64,
             ScalarValue::Date64(Some(e)) => *e as f64,
             ScalarValue::TimestampSecond(Some(e), _) => *e as f64,
@@ -545,12 +555,12 @@ pub fn partition_expressions(exprs: Vec<Expr>) -> (Vec<Expr>, Vec<Expr>) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{str::FromStr, sync::Arc};
 
     use datafusion::{
         arrow::{
             array::{Float32Array, StringArray},
-            datatypes::{DataType, Field, Schema},
+            datatypes::{DataType, Field, Schema, i256},
             record_batch::RecordBatch,
         },
         prelude::SessionContext,
@@ -631,6 +641,24 @@ mod tests {
             .as_scale_scalar()
             .unwrap();
         assert_eq!(scalar.as_string().unwrap(), "America/New_York");
+    }
+
+    #[test]
+    fn scalar_numeric_conversion_accepts_decimal128_values() {
+        assert_eq!(
+            ScalarValue::Decimal128(Some(4000), 4, 1).as_f64().unwrap(),
+            400.0
+        );
+        assert_eq!(
+            ScalarValue::Decimal128(Some(42), 4, -2).as_f64().unwrap(),
+            4200.0
+        );
+        assert_eq!(
+            ScalarValue::Decimal256(Some(i256::from_str("12345").unwrap()), 8, 2)
+                .as_f64()
+                .unwrap(),
+            123.45
+        );
     }
 
     #[tokio::test]
