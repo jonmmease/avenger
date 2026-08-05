@@ -1,0 +1,62 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Bar Chart with Labels (`layer_bar_labels`).
+chart cartesian as layer_bar_labels {
+  data: {
+    values: [
+      { a: 'A'; b: 28.0; rank: 1.0; },
+      { a: 'B'; b: 55.0; rank: 2.0; },
+      { a: 'C'; b: 43.0; rank: 3.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 160.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 100.0;
+      width: 300.0;
+    }
+  }
+  mark group as plot {
+    mark rect as bars {
+      fill: direct '#4c78a8';
+      stroke_width: direct 0.0;
+      x: encoded 0.0;
+      x2: encoded "b" {
+        axis: {
+          title: 'b';
+        }
+        scale: linear {
+          domain: [0.0, 60.0];
+        }
+      }
+      y: encoded "a" {
+        axis: {
+          title: 'a';
+        }
+        band: 0.0;
+        scale: band {
+          order_by: max(-"rank");
+          padding_inner: 0.1;
+          padding_outer: 0.05;
+        }
+      }
+      y2: encoded channel.y {
+        band: 1.0;
+      }
+    }
+    mark text as labels {
+      align: direct 'left';
+      baseline: direct 'middle';
+      color: direct '#000000';
+      leader_offset_x: direct 3.0;
+      text: direct CAST(CAST("b" AS BIGINT) AS VARCHAR);
+      x: encoded "b";
+      y: encoded "a" {
+        band: 0.5;
+      }
+    }
+  }
+}

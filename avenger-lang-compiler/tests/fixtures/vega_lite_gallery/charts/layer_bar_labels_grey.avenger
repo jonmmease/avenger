@@ -1,0 +1,75 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Bar Chart with Label Overlays (`layer_bar_labels_grey`).
+chart cartesian as layer_bar_labels_grey {
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 252.0;
+      width: 260.0;
+    }
+    plot: {
+      height: 192.0;
+      width: 200.0;
+    }
+  }
+  mark group as plot {
+    transform sql as genre_means {
+      query:
+        SELECT
+          "genre",
+          "rating",
+          CASE
+            WHEN "genre" = 'null' THEN 1
+            ELSE -CAST(ROW_NUMBER() OVER (ORDER BY "genre") AS BIGINT)
+          END AS "sort_key"
+        FROM (
+          SELECT
+            COALESCE("Major Genre", 'null') AS "genre",
+            AVG("IMDB Rating") AS "rating"
+          FROM input
+          GROUP BY COALESCE("Major Genre", 'null')
+        );
+    }
+    mark rect as ratings {
+      fill: direct '#dddddd';
+      stroke_width: direct 0.0;
+      x: encoded 0.0 {
+        axis: {
+          title: 'Mean IMDB Ratings';
+        }
+        scale: linear {
+          domain: [0.0, 10.0];
+        }
+      }
+      x2: encoded "rating";
+      y: encoded "genre" {
+        axis: {
+          visible: false;
+        }
+        band: 0.0;
+        scale: band {
+          order_by: max(0 + "sort_key");
+          padding_inner: 0.1;
+          padding_outer: 0.05;
+        }
+      }
+      y2: encoded channel.y {
+        band: 1.0;
+      }
+    }
+    mark text as labels {
+      align: direct 'left';
+      baseline: direct 'middle';
+      color: direct '#000000';
+      text: direct "genre";
+      x: direct 5.0;
+      y: encoded "genre" {
+        band: 0.5;
+      }
+    }
+  }
+}
