@@ -1,0 +1,68 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: 2D Histogram Heatmap (`rect_binned_heatmap`).
+chart cartesian as rect_binned_heatmap {
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 500.0;
+    }
+    plot: {
+      height: 240.0;
+      width: 360.0;
+    }
+  }
+  transform sql as rating_bins {
+    query:
+      SELECT
+        FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.2) * 0.2 AS "imdb_start",
+        FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.2) * 0.2 + 0.2 AS "imdb_end",
+        FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 2.5) * 2.5 AS "rotten_start",
+        FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 2.5) * 2.5 + 2.5 AS "rotten_end",
+        CAST(COUNT(*) AS DOUBLE) AS "count"
+      FROM input
+      WHERE "IMDB Rating" IS NOT NULL
+        AND "Rotten Tomatoes Rating" IS NOT NULL
+      GROUP BY
+        FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.2),
+        FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 2.5)
+      ORDER BY "imdb_start", "rotten_start";
+  }
+  mark rect as bins {
+    fill: encoded "count" {
+      legend: {
+        title: 'Count of Records';
+      }
+      scale: linear {
+        range: ['#f7fcb9', '#addd8e', '#41b6c4', '#225ea8', '#081d58'];
+        zero: false;
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "imdb_start" {
+      axis: {
+        title: 'IMDB Rating (binned)';
+      }
+      scale: linear {
+        nice: false;
+        zero: false;
+      }
+    }
+    x2: encoded "imdb_end";
+    y: encoded "rotten_end" {
+      axis: {
+        title: 'Rotten Tomatoes Rating (binned)';
+      }
+      scale: linear {
+        domain: [0.0, 100.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded "rotten_start";
+  }
+}
