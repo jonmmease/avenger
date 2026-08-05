@@ -80,22 +80,31 @@ fn make_numeric_axis_marks_with_text_engine(
         ..Default::default()
     };
 
-    let ticks = if let Some(tick_spacing) = config.tick_start_step {
+    let (ticks, label_ticks) = if let Some(tick_spacing) = config.tick_start_step {
         match tick_spacing {
-            AxisTickSpacing::Numeric { start, step } => start_step_ticks(&scale, start, step)?,
+            AxisTickSpacing::Numeric { start, step } => {
+                let ticks = start_step_ticks(&scale, start, step)?;
+                (ticks.clone(), ticks)
+            }
             AxisTickSpacing::Temporal {
                 start_millis,
                 months,
                 days,
                 nanos,
-            } => scale.temporal_start_step_ticks(start_millis, months, days, nanos)?,
+            } => {
+                let ticks = scale.temporal_start_step_ticks(start_millis, months, days, nanos)?;
+                (ticks.clone(), ticks)
+            }
         }
     } else {
         // Compute tick count: use explicit value, or adapt to available pixel space.
         let tick_count = config
             .tick_count
             .or_else(|| adaptive_tick_count(config, text_engine));
-        scale.ticks(tick_count)?
+        let ticks = scale.ticks(tick_count)?;
+        let label_ticks =
+            log_label_ticks(&ticks, &scale, tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT));
+        (ticks, label_ticks)
     };
 
     // Get range bounds considering orientation
@@ -170,7 +179,7 @@ fn make_numeric_axis_marks_with_text_engine(
     if config.labels_visible.unwrap_or(true) {
         axis_elements_group
             .marks
-            .push(make_tick_labels(&ticks, &scale, config)?.into());
+            .push(make_tick_labels(&label_ticks, &scale, config)?.into());
     }
 
     // Add title if visible and non-empty
@@ -200,6 +209,32 @@ fn make_numeric_axis_marks_with_text_engine(
     main_group.origin = origin;
 
     Ok(main_group)
+}
+
+/// Log scales generate minor ticks for visual context. Label only the subset
+/// that fits the requested density, following the D3 log tick-format policy.
+fn log_label_ticks(ticks: &ArrayRef, scale: &ConfiguredScale, count: f32) -> ArrayRef {
+    if scale.scale_impl.scale_type() != "log" {
+        return ticks.clone();
+    }
+    let Some(values) = ticks.as_any().downcast_ref::<Float32Array>() else {
+        return ticks.clone();
+    };
+    let base = scale.option_f32("base", 10.0);
+    if !base.is_finite() || base <= 0.0 || base == 1.0 || values.is_empty() {
+        return ticks.clone();
+    }
+    let threshold = (base * count / values.len() as f32).max(1.0);
+    Arc::new(Float32Array::from_iter_values(
+        values.values().iter().copied().filter(|value| {
+            let power = base.powf(value.log(base).round());
+            let mut coefficient = value / power;
+            if coefficient * base < base - 0.5 {
+                coefficient *= base;
+            }
+            coefficient <= threshold
+        }),
+    ))
 }
 
 fn start_step_ticks(
@@ -308,6 +343,7 @@ mod tests {
     use arrow::array::Float64Array;
     use avenger_format_number::{LocaleId, NumberLocaleSpec};
     use avenger_scales::scales::linear::LinearScale;
+    use avenger_scales::scales::log::LogScale;
     use avenger_scales::scales::time::TimeScale;
 
     fn values(array: &ArrayRef) -> Vec<f32> {
@@ -338,6 +374,18 @@ mod tests {
         let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
         let err = start_step_ticks(&scale, 0.0, 0.0).expect_err("invalid step");
         assert!(matches!(err, AvengerGuidesError::InvalidAxisTicks(_)));
+    }
+
+    #[test]
+    fn log_tick_labels_suppress_dense_minor_values() {
+        let scale = LogScale::configured((0.1, 100.0), (0.0, 100.0)).with_option("base", 10.0);
+        let ticks = scale.ticks(Some(10.0)).expect("ticks");
+        let labels = log_label_ticks(&ticks, &scale, 10.0);
+
+        assert_eq!(
+            values(&labels),
+            vec![0.1, 0.2, 0.3, 1.0, 2.0, 3.0, 10.0, 20.0, 30.0, 100.0]
+        );
     }
 
     #[test]
