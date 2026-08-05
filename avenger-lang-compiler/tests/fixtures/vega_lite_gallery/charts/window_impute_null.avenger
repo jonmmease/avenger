@@ -1,0 +1,60 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Imputing Missing Values with a Window (`window_impute_null`).
+chart cartesian as window_impute_null {
+  data: {
+    values: [
+      { a: '2000-01-01'; b: 28.0; },
+      { a: '2000-01-02'; b: 55.0; },
+      { a: '2000-01-03'; b: null; },
+      { a: '2000-01-04'; b: 65.0; },
+      { a: '2000-01-05'; b: 43.0; },
+      { a: '2000-01-06'; b: null; },
+      { a: '2000-01-07'; b: 55.0; },
+      { a: '2000-01-08'; b: 43.0; }
+    ];
+  }
+  layout: {
+    canvas: { height: 345.0; width: 348.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  transform sql as imputed_values {
+    query:
+      WITH neighbors AS (
+        SELECT
+          CAST("a" AS DATE) AS "date",
+          "b",
+          LAG("b") OVER (ORDER BY "a") AS "previous",
+          LEAD("b") OVER (ORDER BY "a") AS "next"
+        FROM input
+      )
+      SELECT
+        "date",
+        COALESCE("b", ("previous" + "next") / 2.0) AS "value"
+      FROM neighbors
+      ORDER BY "date";
+  }
+  mark group as line_with_points {
+    mark line as values {
+      order: direct "date";
+      stroke: direct '#4c78a8';
+      stroke_width: direct 2.0;
+      x: encoded "date" {
+        axis: { datetime_format: 'dd MMM'; title: 'a (year-month-date)'; }
+        scale: time;
+      }
+      y: encoded "value" {
+        axis: { title: 'b'; }
+        scale: linear { domain: [0.0, 70.0]; nice: false; zero: true; }
+      }
+    }
+    mark symbol as points {
+      fill: direct '#4c78a8';
+      size: direct 16.0;
+      stroke: direct '#4c78a8';
+      stroke_width: direct 0.0;
+      x: encoded "date";
+      y: encoded "value";
+    }
+  }
+}
