@@ -1,0 +1,114 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Stacked Area Chart (`stacked_area`).
+chart cartesian as stacked_area {
+  data: {
+    table: 'vega.unemployment_across_industries';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 620.0;
+    }
+    plot: {
+      height: 240.0;
+      width: 360.0;
+    }
+  }
+  transform sql as stacked_monthly_counts {
+    query:
+      WITH monthly AS (
+        SELECT
+          DATE_TRUNC('month', "date") AS "month",
+          "series",
+          CAST(SUM("count") AS DOUBLE) AS "count",
+          CASE "series"
+            WHEN 'Wholesale and Retail Trade' THEN 0
+            WHEN 'Transportation and Utilities' THEN 1
+            WHEN 'Self-employed' THEN 2
+            WHEN 'Other' THEN 3
+            WHEN 'Mining and Extraction' THEN 4
+            WHEN 'Manufacturing' THEN 5
+            WHEN 'Leisure and hospitality' THEN 6
+            WHEN 'Information' THEN 7
+            WHEN 'Government' THEN 8
+            WHEN 'Finance' THEN 9
+            WHEN 'Education and Health' THEN 10
+            WHEN 'Construction' THEN 11
+            WHEN 'Business services' THEN 12
+            ELSE 13
+          END AS "stack_order"
+        FROM input
+        GROUP BY DATE_TRUNC('month', "date"), "series"
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("count") OVER (
+            PARTITION BY "month"
+            ORDER BY "stack_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "y1"
+        FROM monthly
+      )
+      SELECT
+        "month",
+        "series",
+        "stack_order",
+        "y1" - "count" AS "y0",
+        "y1"
+      FROM stacked
+      ORDER BY "series", "month";
+  }
+  mark area as industries {
+    fill: encoded "series" {
+      legend: {
+        title: 'series';
+      }
+      scale: ordinal {
+        domain: [
+          'Agriculture',
+          'Business services',
+          'Construction',
+          'Education and Health',
+          'Finance',
+          'Government',
+          'Information',
+          'Leisure and hospitality',
+          'Manufacturing',
+          'Mining and Extraction',
+          'Other',
+          'Self-employed',
+          'Transportation and Utilities',
+          'Wholesale and Retail Trade'
+        ];
+        range: [
+          '#393b79', '#5254a3', '#6b6ecf', '#9c9ede',
+          '#637939', '#8ca252', '#b5cf6b', '#cedb9c',
+          '#8c6d31', '#bd9e39', '#e7ba52', '#e7cb94',
+          '#843c39', '#ad494a'
+        ];
+      }
+    }
+    order: direct "month";
+    stroke_width: direct 0.0;
+    x: encoded "month" {
+      axis: {
+        datetime_format: 'yyyy';
+        tick_count: 6;
+        title: 'date (year-month)';
+      }
+      scale: time;
+    }
+    y: encoded "y1" {
+      axis: {
+        format: ',.0f';
+        title: 'Sum of count';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    y2: encoded "y0";
+  }
+}
