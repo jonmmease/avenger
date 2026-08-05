@@ -1,0 +1,71 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Filtering Top-K Items (`window_top_k`).
+chart cartesian as window_top_k {
+  data: {
+    values: [
+      { student: 'A'; score: 100; }, { student: 'B'; score: 56; },
+      { student: 'C'; score: 88; }, { student: 'D'; score: 65; },
+      { student: 'E'; score: 45; }, { student: 'F'; score: 23; },
+      { student: 'G'; score: 66; }, { student: 'H'; score: 67; },
+      { student: 'I'; score: 13; }, { student: 'J'; score: 12; },
+      { student: 'K'; score: 50; }, { student: 'L'; score: 78; },
+      { student: 'M'; score: 66; }, { student: 'N'; score: 30; },
+      { student: 'O'; score: 97; }, { student: 'P'; score: 75; },
+      { student: 'Q'; score: 24; }, { student: 'R'; score: 42; },
+      { student: 'S'; score: 76; }, { student: 'T'; score: 78; },
+      { student: 'U'; score: 21; }, { student: 'V'; score: 46; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 300.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 220.0;
+      width: 280.0;
+    }
+  }
+  transform sql as top_five {
+    query:
+      WITH ranked AS (
+        SELECT
+          "student",
+          "score",
+          RANK() OVER (ORDER BY "score" DESC) AS "rank"
+        FROM input
+      )
+      SELECT *
+      FROM ranked
+      WHERE "rank" <= 5
+      ORDER BY "score" DESC, "student";
+  }
+  mark rect as scores {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded 0.0 {
+      axis: {
+        title: 'score';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    x2: encoded "score";
+    y: encoded "student" {
+      axis: {
+        title: 'student';
+      }
+      band: 0.0;
+      scale: band {
+        domain: ['T', 'L', 'C', 'O', 'A'];
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}
