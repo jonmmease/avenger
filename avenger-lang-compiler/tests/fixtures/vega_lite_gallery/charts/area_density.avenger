@@ -1,0 +1,30 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Density Plot (`area_density`).
+chart cartesian as area_density {
+  data: { table: 'vega.movies'; }
+  layout: {
+    canvas: { height: 284.0; width: 898.0; }
+    plot: { height: 200.0; width: 800.0; }
+  }
+  transform kde as ratings_density {
+    field: "IMDB Rating";
+    bandwidth: 0.3;
+    as_fields: ['rating', 'density'];
+  }
+  mark area as ratings {
+    fill: direct '#4c78a8';
+    order: direct "rating";
+    stroke_width: direct 0.0;
+    x: encoded "rating" {
+      axis: { title: 'IMDB Rating'; }
+      scale: linear { zero: false; }
+    }
+    y: encoded "density" {
+      axis: { title: 'density'; }
+      scale: linear { zero: true; }
+    }
+    y2: encoded 0.0;
+  }
+}
