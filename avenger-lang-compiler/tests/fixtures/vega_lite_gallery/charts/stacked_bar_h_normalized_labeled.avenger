@@ -1,0 +1,106 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Normalized Stacked Bar Chart With Labels (`stacked_bar_h_normalized_labeled`).
+chart cartesian as stacked_bar_h_normalized_labeled {
+  data: {
+    table: 'vega.population';
+  }
+  layout: {
+    canvas: {
+      height: 440.0;
+      width: 500.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 300.0;
+    }
+  }
+  transform sql as normalized_population {
+    query:
+      WITH totals AS (
+        SELECT
+          "age",
+          CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
+          CASE WHEN "sex" = 2 THEN 0 ELSE 1 END AS "stack_order",
+          CAST(SUM("people") AS DOUBLE) AS "people"
+        FROM input
+        WHERE "year" = 2000
+        GROUP BY "age", "sex"
+      ), normalized AS (
+        SELECT
+          *,
+          "people" / SUM("people") OVER (PARTITION BY "age") AS "share"
+        FROM totals
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("share") OVER (
+            PARTITION BY "age"
+            ORDER BY "stack_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "x1"
+        FROM normalized
+      )
+      SELECT
+        "age",
+        "gender",
+        "people",
+        "stack_order",
+        "x1" - "share" AS "x0",
+        "x1",
+        "x1" - "share" / 2.0 AS "x_mid"
+      FROM stacked
+      ORDER BY "age", "stack_order";
+  }
+  mark group as population {
+    mark rect as bars {
+      fill: encoded "gender" {
+        legend: {
+          title: 'gender';
+        }
+        scale: ordinal {
+          domain: ['Female', 'Male'];
+          range: ['#675193', '#ca8861'];
+        }
+      }
+      stroke_width: direct 0.0;
+      x: encoded "x0" {
+        axis: {
+          format: '.0%';
+          title: 'population';
+        }
+        scale: linear {
+          domain: [0.0, 1.0];
+          nice: false;
+          zero: true;
+        }
+      }
+      x2: encoded "x1";
+      y: encoded "age" {
+        axis: {
+          title: 'age';
+        }
+        band: 0.0;
+        scale: band {
+          domain: [90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0];
+          padding_inner: 0.05;
+          padding_outer: 0.025;
+        }
+      }
+      y2: encoded channel.y {
+        band: 1.0;
+      }
+    }
+    mark text as labels {
+      align: direct 'center';
+      baseline: direct 'middle';
+      color: direct '#ffffff';
+      text: direct CAST(CAST("people" AS BIGINT) AS VARCHAR);
+      x: encoded "x_mid";
+      y: encoded "age" {
+        band: 0.5;
+      }
+    }
+  }
+}
