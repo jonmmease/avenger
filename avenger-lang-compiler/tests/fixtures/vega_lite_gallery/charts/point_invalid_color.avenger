@@ -1,0 +1,58 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Scatterplot with Null Values in Grey (`point_invalid_color`).
+chart cartesian as point_invalid_color {
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 440.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 340.0;
+      width: 340.0;
+    }
+  }
+  transform sql as positioned_ratings {
+    query:
+      SELECT
+        COALESCE(CAST("IMDB Rating" AS DOUBLE), 0.0) AS "imdb",
+        COALESCE(CAST("Rotten Tomatoes Rating" AS DOUBLE), 0.0) AS "rotten",
+        "IMDB Rating" IS NULL OR "Rotten Tomatoes Rating" IS NULL AS "invalid"
+      FROM input;
+  }
+  mark symbol as movies {
+    fill: direct '#ffffff';
+    size: direct 28.0;
+    stroke: direct '#4c78a8' {
+      when {
+        predicate: "invalid";
+        direct: '#aaaaaa';
+      }
+    }
+    stroke_width: direct 1.5;
+    x: encoded "imdb" {
+      axis: {
+        title: 'IMDB Rating';
+      }
+      scale: linear {
+        domain: [0.0, 10.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    y: encoded "rotten" {
+      axis: {
+        title: 'Rotten Tomatoes Rating';
+      }
+      scale: linear {
+        domain: [0.0, 100.0];
+        nice: false;
+        zero: true;
+      }
+    }
+  }
+}
