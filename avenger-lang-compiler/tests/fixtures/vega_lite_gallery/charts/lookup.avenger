@@ -1,0 +1,42 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Using the lookup transform to combine data (`lookup`).
+schema tables as local {
+  table sql as group_ages {
+    sql:
+      SELECT
+        groups."group",
+        CAST(AVG(people."age") AS DOUBLE) AS "mean_age"
+      FROM vega.lookup_groups AS groups
+      JOIN vega.lookup_people AS people
+        ON groups."person" = people."name"
+      GROUP BY groups."group";
+  }
+}
+
+chart cartesian as lookup {
+  data: { table: 'local.group_ages'; }
+  layout: {
+    canvas: { height: 344.0; width: 105.0; }
+    plot: { height: 300.0; width: 60.0; }
+  }
+  mark rect as mean_ages {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded "group" {
+      axis: { title: 'group'; }
+      band: 0.0;
+      scale: band {
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    x2: encoded channel.x { band: 1.0; }
+    y: encoded "mean_age" {
+      axis: { title: 'Mean of age'; }
+      scale: linear { domain: [0.0, 60.0]; nice: false; zero: true; }
+    }
+    y2: encoded 0.0;
+  }
+}
