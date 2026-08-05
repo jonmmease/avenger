@@ -1,0 +1,75 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Top-K Plot with "Others" (`window_top_k_others`).
+chart cartesian as window_top_k_others {
+  title: 'Top Directors by Average Worldwide Gross';
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 420.0;
+      width: 720.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 480.0;
+    }
+  }
+  transform sql as ranked_directors {
+    query:
+      WITH director_means AS (
+        SELECT
+          "Director",
+          AVG("Worldwide Gross") AS "aggregate_gross"
+        FROM input
+        GROUP BY "Director"
+      ), ranked AS (
+        SELECT
+          *,
+          ROW_NUMBER() OVER (ORDER BY "aggregate_gross" DESC) AS "rank"
+        FROM director_means
+      ), labeled AS (
+        SELECT
+          CASE WHEN "rank" < 10 THEN "Director" ELSE 'All Others' END AS "ranked_director",
+          "aggregate_gross"
+        FROM ranked
+      )
+      SELECT
+        "ranked_director",
+        AVG("aggregate_gross") AS "gross"
+      FROM labeled
+      GROUP BY "ranked_director"
+      ORDER BY "gross" DESC;
+  }
+  mark rect as directors {
+    fill: direct '#4c78a8';
+    stroke_width: direct 0.0;
+    x: encoded 0.0 {
+      axis: {
+        format: ',.0f';
+        tick_count: 3;
+        title: '';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    x2: encoded "gross";
+    y: encoded "ranked_director" {
+      axis: {
+        title: '';
+      }
+      band: 0.0;
+      scale: band {
+        order_by: (max("gross"));
+        padding_inner: 0.1;
+        padding_outer: 0.05;
+      }
+    }
+    y2: encoded channel.y {
+      band: 1.0;
+    }
+  }
+}
