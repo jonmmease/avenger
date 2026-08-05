@@ -555,13 +555,16 @@ impl ScaleImpl for TimeScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Get temporal handler based on domain type
+        // The configured domain and runtime values can use different Arrow
+        // temporal types. Domain inference normalizes shared temporal domains
+        // to Date64 milliseconds, while mark expressions retain their source
+        // type (for example Date32). Decode each side with its own handler.
         let domain_type = config.domain.data_type();
-        let handler = TemporalHandler::from_data_type(domain_type)?;
+        let domain_handler = TemporalHandler::from_data_type(domain_type)?;
 
         // Get domain bounds
-        let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
-        let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+        let domain_start = get_temporal_value(&config.domain, 0, &domain_handler)?;
+        let domain_end = get_temporal_value(&config.domain, 1, &domain_handler)?;
 
         // Get range bounds
         let (range_start, range_end) = config.numeric_interval_range()?;
@@ -578,13 +581,14 @@ impl ScaleImpl for TimeScale {
         let result = match values.data_type() {
             DataType::Date32 => {
                 let values = values.as_any().downcast_ref::<Date32Array>().unwrap();
+                let value_handler = TemporalHandler::Date32;
                 let mut output = Vec::with_capacity(values.len());
 
                 for i in 0..values.len() {
                     if values.is_null(i) {
                         output.push(None);
                     } else {
-                        let value = handler.to_timestamp_millis(values.value(i) as i64);
+                        let value = value_handler.to_timestamp_millis(values.value(i) as i64);
                         let normalized = if use_actual_duration {
                             // Use actual duration for DST-aware scaling
                             let value_duration =
@@ -602,13 +606,14 @@ impl ScaleImpl for TimeScale {
             }
             DataType::Date64 => {
                 let values = values.as_any().downcast_ref::<Date64Array>().unwrap();
+                let value_handler = TemporalHandler::Date64;
                 let mut output = Vec::with_capacity(values.len());
 
                 for i in 0..values.len() {
                     if values.is_null(i) {
                         output.push(None);
                     } else {
-                        let value = handler.to_timestamp_millis(values.value(i));
+                        let value = value_handler.to_timestamp_millis(values.value(i));
                         let normalized = if use_actual_duration {
                             // Use actual duration for DST-aware scaling
                             let value_duration =
@@ -627,7 +632,7 @@ impl ScaleImpl for TimeScale {
             DataType::Timestamp(unit, _) => scale_timestamp_values(
                 values,
                 unit,
-                &handler,
+                &TemporalHandler::Timestamp(*unit),
                 domain_start,
                 domain_end,
                 range_start,
@@ -1867,6 +1872,55 @@ mod tests {
 
         // Should be approximately 50.0 (middle of the range)
         assert!((result_array.value(0) - 50.0).abs() < 1.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_time_scale_date64_domain_with_date32_values() -> Result<(), AvengerScaleError> {
+        let day_millis = 86_400_000_i64;
+        let start_date = 19_723;
+        let mid_date = 19_905;
+        let end_date = 20_088;
+
+        let domain_start =
+            Arc::new(Date64Array::from(vec![start_date as i64 * day_millis])) as ArrayRef;
+        let domain_end =
+            Arc::new(Date64Array::from(vec![end_date as i64 * day_millis])) as ArrayRef;
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+
+        let values = Arc::new(Date32Array::from(vec![start_date, mid_date, end_date])) as ArrayRef;
+        let result = scale.scale(&values)?;
+        let result = result.as_any().downcast_ref::<Float32Array>().unwrap();
+
+        assert_eq!(result.value(0), 0.0);
+        assert!((result.value(1) - 50.0).abs() < 1.0);
+        assert_eq!(result.value(2), 100.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_time_scale_date64_domain_with_timestamp_second_values() -> Result<(), AvengerScaleError>
+    {
+        let start_seconds = 1_704_067_200_i64;
+        let end_seconds = 1_704_153_600_i64;
+
+        let domain_start = Arc::new(Date64Array::from(vec![start_seconds * 1_000])) as ArrayRef;
+        let domain_end = Arc::new(Date64Array::from(vec![end_seconds * 1_000])) as ArrayRef;
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+
+        let values = Arc::new(TimestampSecondArray::from(vec![
+            start_seconds,
+            start_seconds + 43_200,
+            end_seconds,
+        ])) as ArrayRef;
+        let result = scale.scale(&values)?;
+        let result = result.as_any().downcast_ref::<Float32Array>().unwrap();
+
+        assert_eq!(result.value(0), 0.0);
+        assert!((result.value(1) - 50.0).abs() < 0.1);
+        assert_eq!(result.value(2), 100.0);
 
         Ok(())
     }

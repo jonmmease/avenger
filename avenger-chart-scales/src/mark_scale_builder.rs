@@ -3391,24 +3391,11 @@ async fn cache_temporal_data(
                 let min_scalar = ScalarValue::try_from_array(batch.column(0), row)?;
                 let max_scalar = ScalarValue::try_from_array(batch.column(1), row)?;
 
-                let min_ts = match min_scalar {
-                    ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampSecond(Some(ts), _) => ts,
-                    ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
-                    ScalarValue::Date64(Some(ms)) => ms,
-                    _ => continue,
+                let Some(min_ts) = temporal_scalar_to_millis(&min_scalar) else {
+                    continue;
                 };
-
-                let max_ts = match max_scalar {
-                    ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
-                    ScalarValue::TimestampSecond(Some(ts), _) => ts,
-                    ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
-                    ScalarValue::Date64(Some(ms)) => ms,
-                    _ => continue,
+                let Some(max_ts) = temporal_scalar_to_millis(&max_scalar) else {
+                    continue;
                 };
 
                 global_min_ts = Some(global_min_ts.map_or(min_ts, |current| current.min(min_ts)));
@@ -3430,6 +3417,18 @@ async fn cache_temporal_data(
     }
 
     Ok(())
+}
+
+fn temporal_scalar_to_millis(value: &ScalarValue) -> Option<i64> {
+    match value {
+        ScalarValue::TimestampNanosecond(Some(ts), _) => Some(ts / 1_000_000),
+        ScalarValue::TimestampMicrosecond(Some(ts), _) => Some(ts / 1_000),
+        ScalarValue::TimestampMillisecond(Some(ts), _) => Some(*ts),
+        ScalarValue::TimestampSecond(Some(ts), _) => ts.checked_mul(1_000),
+        ScalarValue::Date32(Some(days)) => i64::from(*days).checked_mul(86_400_000),
+        ScalarValue::Date64(Some(ms)) => Some(*ms),
+        _ => None,
+    }
 }
 
 fn update_numeric_extent_from_array(
@@ -3589,6 +3588,36 @@ mod tests {
     use indexmap::IndexMap;
 
     use super::*;
+
+    #[test]
+    fn temporal_extents_are_normalized_to_milliseconds() {
+        assert_eq!(
+            temporal_scalar_to_millis(&ScalarValue::TimestampSecond(Some(1_234), None)),
+            Some(1_234_000)
+        );
+        assert_eq!(
+            temporal_scalar_to_millis(&ScalarValue::TimestampMillisecond(Some(1_234), None)),
+            Some(1_234)
+        );
+        assert_eq!(
+            temporal_scalar_to_millis(&ScalarValue::TimestampMicrosecond(Some(1_234_000), None)),
+            Some(1_234)
+        );
+        assert_eq!(
+            temporal_scalar_to_millis(
+                &ScalarValue::TimestampNanosecond(Some(1_234_000_000), None,)
+            ),
+            Some(1_234)
+        );
+        assert_eq!(
+            temporal_scalar_to_millis(&ScalarValue::Date32(Some(2))),
+            Some(172_800_000)
+        );
+        assert_eq!(
+            temporal_scalar_to_millis(&ScalarValue::Date64(Some(1_234))),
+            Some(1_234)
+        );
+    }
     use crate::{Band, Linear, NestedBand, Point};
     use avenger_chart_core::{
         ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
