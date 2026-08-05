@@ -1,0 +1,49 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Wilkinson Dot Plot (`circle_wilkinson_dotplot`).
+chart cartesian as circle_wilkinson_dotplot {
+  data: {
+    values: [
+      { data: 1; }, { data: 1; }, { data: 1; }, { data: 1; }, { data: 1; },
+      { data: 1; }, { data: 1; }, { data: 1; }, { data: 1; }, { data: 1; },
+      { data: 2; }, { data: 2; }, { data: 2; },
+      { data: 3; }, { data: 3; },
+      { data: 4; }, { data: 4; }, { data: 4; }, { data: 4; }, { data: 4; },
+      { data: 4; }
+    ];
+  }
+  layout: {
+    canvas: { height: 139.0; width: 90.0; }
+    plot: { height: 100.0; width: 60.0; }
+  }
+  transform sql as ranked_dots {
+    query:
+      SELECT
+        "data",
+        ROW_NUMBER() OVER (PARTITION BY "data") AS "id"
+      FROM input;
+  }
+  mark symbol as dots {
+    fill: direct '#4c78a8';
+    opacity: direct 1.0;
+    size: direct 30.0;
+    x: encoded "data" {
+      axis: { title: 'data'; }
+      band: 0.5;
+      scale: band {
+        domain: [1, 2, 3, 4];
+        padding_inner: 0.0;
+        padding_outer: 0.0;
+      }
+    }
+    y: encoded "id" {
+      axis: { visible: false; }
+      band: 0.5;
+      scale: band {
+        domain: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        padding_inner: 0.0;
+        padding_outer: 0.0;
+      }
+    }
+  }
+}
