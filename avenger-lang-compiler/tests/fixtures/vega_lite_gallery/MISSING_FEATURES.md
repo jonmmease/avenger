@@ -47,6 +47,36 @@ capability was added.
   and cover per-cell, level, and shared domains through compilation,
   serialization, facet evaluation, analysis, and LSP support.
 
+### AV-GALLERY-LANG-007 — Selection predicates in row expressions
+
+- Status: confirmed
+- Affects: `interactive_splom`, `interactive_bar_select_highlight`,
+  `interactive_histogram_full_height_hover`, `interactive_legend`,
+  `interactive_brush`, `interactive_area_brush`, `interactive_paintbrush`,
+  `interactive_query_widgets`, `selection_layer_bar_month`,
+  `interactive_line_hover`, `interactive_line_point_hover`,
+  `interactive_multi_line_label`, `interactive_multi_line_pivot_tooltip`,
+  `interactive_multi_line_tooltip`, `isotype_grid`, `brush_table`,
+  `selection_heatmap`, `bar_count_minimap`, `interactive_index_chart`,
+  `interactive_bin_extent`, `selection_type_point_zorder`,
+  `interactive_overview_detail`, `interactive_crossfilter`,
+  `interactive_layered_crossfilter`, `interactive_concat_layer`,
+  `interactive_global_development`
+- Evidence: channel `when.predicate` and transform row expressions use the
+  ordinary SQL-expression resolver. It rejects `$selection` with
+  `AVENGER-RESOLVE-063`, while `selection_contains(...)` and contextual
+  `datum."field"` are restricted to event expressions by
+  `AVENGER-RESOLVE-110`. The Rust API already exposes `Selection::predicate()`
+  and the mark-data runtime expands its typed placeholders in channels and
+  filters, so this is a missing language/compiler bridge rather than a missing
+  selection engine.
+- Required capability: define a canonical typed selection-predicate form for
+  the current data row, resolve it only where a row schema exists, lower it to
+  the existing selection placeholder, and support it in conditional channels,
+  filters, SQL-derived branches, legends, defined marks, analysis, and the LSP.
+  Keep event-only equality membership distinct from whole-row selection
+  predicates and preserve each selection's empty/combine policy.
+
 ### AV-GALLERY-MARK-002 — Line and area interpolation modes
 
 - Status: confirmed

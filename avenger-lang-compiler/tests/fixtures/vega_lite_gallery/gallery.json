@@ -6096,8 +6096,13 @@
         "interaction:selection",
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6811,8 +6816,13 @@
         "interaction:selection",
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6843,8 +6853,13 @@
         "interaction:selection",
         "mark:bar"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6874,8 +6889,13 @@
         "interaction:selection",
         "mark:area"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6940,8 +6960,13 @@
         "interaction:selection",
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6973,8 +6998,13 @@
         "mark:area",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7004,8 +7034,13 @@
         "interaction:selection",
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7074,8 +7109,13 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7108,8 +7148,13 @@
         "mark:rule",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7143,8 +7188,13 @@
         "mark:text",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7176,8 +7226,13 @@
         "mark:circle",
         "mark:line"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7212,8 +7267,13 @@
         "mark:text",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7248,8 +7308,13 @@
         "transform:filter",
         "transform:pivot"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7281,8 +7346,13 @@
         "mark:line",
         "mark:rule"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7304,8 +7374,13 @@
         "mark:point",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7339,8 +7414,13 @@
         "transform:filter",
         "transform:window"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7361,8 +7441,13 @@
         "interaction:selection",
         "mark:rect"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7394,8 +7479,13 @@
         "mark:bar",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7436,8 +7526,13 @@
         "transform:filter",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7473,8 +7568,13 @@
         "mark:bar",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7573,8 +7673,13 @@
         "interaction:selection",
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7605,8 +7710,13 @@
         "interaction:selection",
         "mark:area"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7644,8 +7754,13 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7683,8 +7798,13 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7719,8 +7839,13 @@
         "mark:rect",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -7854,8 +7979,13 @@
         "transform:filter",
         "transform:lookup"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_language",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-LANG-007",
+          "feature": "language:selection-row-predicate"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     }
