@@ -1912,9 +1912,9 @@
         "mark:bar",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -1942,9 +1942,9 @@
         "mark:bar",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
