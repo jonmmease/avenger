@@ -6151,8 +6151,13 @@
         "composition:hconcat",
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-009",
+          "feature": "guide:discretizing-scale-merged-entries"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

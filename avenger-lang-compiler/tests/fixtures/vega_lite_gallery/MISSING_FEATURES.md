@@ -369,6 +369,22 @@ capability was added.
   horizontal and vertical anchors, padding, collision/clip behavior, and
   deterministic composition semantics; do not overload external edge layout.
 
+### AV-GALLERY-GUIDE-009 — Coordinated entries for discretizing-scale legends
+
+- Status: confirmed
+- Affects: `concat_bar_scales_discretize`
+- Evidence: each panel maps one quantitative field through matching color and
+  size quantize, quantile, or threshold scales. Its defining output is one
+  legend whose interval entries apply both output channels to every sample.
+  Avenger derives symbol items from raw `domain_values`; those values do not
+  represent the generated interval entries, and the merge key rejects interval
+  domains entirely. As a result, quantize channels cannot merge and the number
+  of labels, colors, and sizes can disagree for all three scale families.
+- Required capability: let discrete-output scales publish typed legend entries
+  containing the interval boundary, representative input, output value, and
+  label; merge channels by identical entry partitions and source expression;
+  then apply every merged channel output to each symbol deterministically.
+
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed
