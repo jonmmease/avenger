@@ -1,0 +1,106 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Stacked Bar Chart (`stacked_bar_weather`).
+chart cartesian as stacked_bar_weather {
+  data: {
+    table: 'vega.seattle_weather';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 380.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 240.0;
+    }
+  }
+  transform sql as monthly_weather {
+    query:
+      WITH counts AS (
+        SELECT
+          CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
+          "weather",
+          CAST(COUNT(*) AS DOUBLE) AS "count",
+          CASE "weather"
+            WHEN 'snow' THEN 0
+            WHEN 'rain' THEN 1
+            WHEN 'drizzle' THEN 2
+            WHEN 'fog' THEN 3
+            ELSE 4
+          END AS "stack_order"
+        FROM input
+        GROUP BY EXTRACT(MONTH FROM "date"), "weather"
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("count") OVER (
+            PARTITION BY "month_number"
+            ORDER BY "stack_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "y1"
+        FROM counts
+      )
+      SELECT
+        CASE "month_number"
+          WHEN 1 THEN 'Jan'
+          WHEN 2 THEN 'Feb'
+          WHEN 3 THEN 'Mar'
+          WHEN 4 THEN 'Apr'
+          WHEN 5 THEN 'May'
+          WHEN 6 THEN 'Jun'
+          WHEN 7 THEN 'Jul'
+          WHEN 8 THEN 'Aug'
+          WHEN 9 THEN 'Sep'
+          WHEN 10 THEN 'Oct'
+          WHEN 11 THEN 'Nov'
+          ELSE 'Dec'
+        END AS "month",
+        "month_number",
+        "weather",
+        "stack_order",
+        "y1" - "count" AS "y0",
+        "y1"
+      FROM stacked
+      ORDER BY "month_number", "stack_order";
+  }
+  mark rect as weather_counts {
+    fill: encoded "weather" {
+      legend: {
+        title: 'Weather type';
+      }
+      scale: ordinal {
+        domain: ['sun', 'fog', 'drizzle', 'rain', 'snow'];
+        range: ['#e7ba52', '#c7c7c7', '#aec7e8', '#1f77b4', '#9467bd'];
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "month" {
+      axis: {
+        label_angle: 0.0;
+        title: 'Month of the year';
+      }
+      band: 0.0;
+      scale: band {
+        order_by: (min("month_number"));
+        padding_inner: 0.05;
+        padding_outer: 0.025;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded "y1" {
+      axis: {
+        title: 'Count of Records';
+      }
+      scale: linear {
+        domain: [0.0, 130.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded "y0";
+  }
+}
