@@ -70,6 +70,31 @@ capability was added.
   `generate_series` SQL table, an inline generator table kind, or a native
   transform, including exact endpoint and step semantics.
 
+### AV-GALLERY-GUIDE-001 — Quantitative symbol-legend sample values
+
+- Status: confirmed
+- Affects: `point_bubble`
+- Evidence: size legends derive entries directly from the continuous scale's
+  domain values. The legend schema exposes presentation properties but no
+  explicit sample values or tick-generation configuration, so the current
+  chart shows only the observed endpoints (`8` and `24.8`) instead of the
+  Vega-Lite reference's rounded sequence (`0`, `5`, `10`, `15`, `20`).
+- Required capability: let continuous symbol legends generate configurable
+  rounded samples independently of the scale domain, with an explicit-values
+  override and stable label formatting.
+
+### AV-GALLERY-GUIDE-002 — Legends for text-mark color channels
+
+- Status: confirmed
+- Affects: `text_scatterplot_colored`
+- Evidence: the text mark accepts scaled `color` channels and the compiler
+  retains the authored legend configuration, but `CompiledText` always returns
+  no preferred legend renderer. The legend therefore has no contributing mark
+  and is not rendered.
+- Required capability: select the symbol legend renderer for discrete text
+  color scales and the colorbar renderer for continuous text color scales,
+  with a representative text or symbol glyph policy.
+
 ## Investigation queue
 
 These families need executable conformance attempts before they can be called
@@ -89,6 +114,18 @@ express the required behavior faithfully.
 - image marks whose URLs are project-local assets.
 
 ## Resolved while porting
+
+### AV-GALLERY-TRANSFORM-005 — SQL transform dropped expression planners
+
+- Status: resolved
+- Discovered by: `text_scatterplot_colored`
+- Symptom: DataFusion rejected `substr("Origin", 1, 1)` even though the
+  workspace enables `unicode_expressions`.
+- Resolution: the SQL transform's custom `ContextProvider` now forwards the
+  active `SessionState` expression planners, matching DataFusion's own context
+  adapter.
+- Regression evidence: `projection_uses_session_expression_planners` executes
+  the substring projection and asserts its `Utf8View` output.
 
 ### AV-GALLERY-LANG-001 — Double-quoted column case was lost during lowering
 

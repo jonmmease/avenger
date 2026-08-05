@@ -1,0 +1,41 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Scatterplot with Filled Circles (`circle`).
+chart cartesian as circle {
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  mark group as plot {
+    mark symbol as points {
+      fill: direct '#4c78a8';
+      size: direct 30.0;
+      x: encoded "Horsepower" {
+        axis: {
+          title: 'Horsepower';
+        }
+        scale: linear {
+          zero: true;
+        }
+      }
+      y: encoded "Miles_per_Gallon" {
+        axis: {
+          title: 'Miles_per_Gallon';
+        }
+        scale: linear {
+          zero: true;
+        }
+      }
+    }
+  }
+}

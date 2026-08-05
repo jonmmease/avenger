@@ -3023,8 +3023,13 @@
       "features": [
         "mark:point"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "legend:quantitative-symbol-values"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -3081,9 +3086,9 @@
       "features": [
         "mark:circle"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
+      "review": "reviewed",
       "accepted_differences": []
     },
     {
@@ -3172,8 +3177,13 @@
         "mark:text",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-002",
+          "feature": "legend:text-color"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
