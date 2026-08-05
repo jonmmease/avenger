@@ -1,0 +1,81 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Log-scaled Histogram (`histogram_log`).
+chart cartesian as histogram_log {
+  data: {
+    values: [
+      { x: 0.01; },
+      { x: 0.1; },
+      { x: 1.0; },
+      { x: 1.0; },
+      { x: 1.0; },
+      { x: 1.0; },
+      { x: 10.0; },
+      { x: 10.0; },
+      { x: 100.0; },
+      { x: 500.0; },
+      { x: 800.0; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 380.0;
+      width: 420.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  transform sql as log_bins {
+    query:
+      WITH logs AS (
+        SELECT
+          FLOOR(
+            (LN(CAST("x" AS DOUBLE)) / LN(CAST(10.0 AS DOUBLE)))
+            * CAST(2.0 AS DOUBLE)
+          ) / CAST(2.0 AS DOUBLE) AS "exponent"
+        FROM input
+      )
+      SELECT
+        POWER(CAST(10.0 AS DOUBLE), "exponent") AS "bin_start",
+        POWER(CAST(10.0 AS DOUBLE), "exponent" + CAST(0.5 AS DOUBLE)) AS "bin_end",
+        COUNT(*) AS "count"
+      FROM logs
+      GROUP BY "exponent"
+      ORDER BY "exponent";
+  }
+  mark rect as bins {
+    fill: direct '#4c78a8';
+    stroke: direct 'white';
+    stroke_width: direct 1.0;
+    x: encoded "bin_start" {
+      axis: {
+        tick_count: 5;
+        title: 'x1, x2';
+      }
+      scale: log {
+        base: 10.0;
+        domain: [0.01, 1000.0];
+        nice: false;
+      }
+    }
+    x2: encoded "bin_end" {
+      scale: log {
+        base: 10.0;
+        domain: [0.01, 1000.0];
+        nice: false;
+      }
+    }
+    y: encoded 0.0 {
+      axis: {
+        title: 'Count of Records';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded "count";
+  }
+}
