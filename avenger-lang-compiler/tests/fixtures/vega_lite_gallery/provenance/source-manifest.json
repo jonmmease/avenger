@@ -1693,7 +1693,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -1808,7 +1808,7 @@
         }
       ],
       "path": "data/earthquake_features.parquet",
-      "sha256": "7decae88055fcebb67370799927b9c06e413814e89c02b54128eb44f35513f6e"
+      "sha256": "307ae894d5c11596f9c8ffe9ac03b4be618de6f222ac5216ce6155c6ef3205d2"
     },
     {
       "name": "falcon",
@@ -2096,7 +2096,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -2106,7 +2106,7 @@
         }
       ],
       "path": "data/london_boroughs.parquet",
-      "sha256": "1efdd6de772115aacb672153253801dbc3de4904cdfc8aa88fb89e8ad87838fd"
+      "sha256": "0d35d807465bffc4fef05ef12d101a019c8a6c2da3bf8ce38d9b95e3c991a036"
     },
     {
       "name": "london_tube_lines",
@@ -2139,7 +2139,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -2149,7 +2149,7 @@
         }
       ],
       "path": "data/london_tube_lines.parquet",
-      "sha256": "2c7690d2fa3f27d3092e280214b27573b148c283079909abdc87677338202d3d"
+      "sha256": "68c6f8e0f91ea5531cc2d1ccf15100cc9718c2416dce22d12f605e78b0d0b30c"
     },
     {
       "name": "londoncentroids",
@@ -2822,7 +2822,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -2832,7 +2832,7 @@
         }
       ],
       "path": "data/us_counties.parquet",
-      "sha256": "9cb6eea02bf73a0a7b1fdc8a81252c4be55712908b4258c12fb54e35c738056e"
+      "sha256": "ee3efdc086cd1899fce332f0d4adbfcf9d0d2cbabccb2e67abd0189f084f31a8"
     },
     {
       "name": "us_state_capitals",
@@ -2895,7 +2895,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -2905,7 +2905,7 @@
         }
       ],
       "path": "data/us_states.parquet",
-      "sha256": "99f68558089237552e5bb4346e552cbbba6d92ee4df29ee63fa9b30041b8454c"
+      "sha256": "c6934f513e37a8a8ab0a9e05ae9a380625e4f903f3f59225d1fa027df5432c0a"
     },
     {
       "name": "values",
@@ -3116,7 +3116,7 @@
         },
         {
           "name": "geometry",
-          "type": "string",
+          "type": "binary",
           "nullable": true
         },
         {
@@ -3126,7 +3126,7 @@
         }
       ],
       "path": "data/world_countries.parquet",
-      "sha256": "36e8cd7c9e110faacf060351291ea585c4b2a975f341740e6dabbb6ff7722018"
+      "sha256": "7ffc585fca5c4520b803c5bd1189f99ade62679f469e55223c7528a2b083e34e"
     },
     {
       "name": "zipcodes",

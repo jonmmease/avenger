@@ -618,6 +618,12 @@ def coerce_value(value: Any, field_type: str) -> Any:
         if normalized in ("false", "0"):
             return False
         raise ValueError(f"invalid boolean {value!r}")
+    if field_type == "binary":
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, bytearray):
+            return bytes(value)
+        raise ValueError(f"invalid binary value {value!r}")
     if isinstance(value, (dict, list)):
         return json.dumps(value, sort_keys=True, separators=(",", ":"))
     return str(value)
@@ -630,6 +636,7 @@ def arrow_type(field_type: str) -> pa.DataType:
         "date": pa.date32(),
         "datetime": pa.timestamp("ms", tz="UTC"),
         "boolean": pa.bool_(),
+        "binary": pa.binary(),
         "string": pa.string(),
     }[field_type]
 
@@ -647,6 +654,8 @@ def infer_field_type(values: list[Any]) -> str:
         for value in present
     ):
         return "number"
+    if all(isinstance(value, (bytes, bytearray)) for value in present):
+        return "binary"
     return "string"
 
 
