@@ -1,0 +1,143 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Wheat and Wages (`wheat_wages`).
+chart cartesian as wheat_wages {
+  data: { table: 'vega.wheat'; }
+  layout: {
+    canvas: { height: 432.0; width: 937.0; }
+    plot: { height: 400.0; width: 850.0; }
+  }
+  transform sql as ordered_wheat {
+    query:
+      SELECT
+        CAST("year" AS DOUBLE) AS "year",
+        CAST("year" AS DOUBLE) + 5.0 AS "year_end",
+        CAST("wheat" AS DOUBLE) AS "wheat",
+        CAST("wages" AS DOUBLE) AS "wages"
+      FROM input
+      ORDER BY CAST("year" AS DOUBLE);
+  }
+  mark group as layers {
+    mark rect as wheat_prices {
+      fill: direct '#aaaaaa';
+      stroke: direct '#999999';
+      stroke_width: direct 1.0;
+      x: encoded "year" {
+        axis: { format: '.0f'; tick_count: 5; title: ''; }
+        scale: linear { domain: [1560.0, 1825.0]; nice: false; zero: false; }
+      }
+      x2: encoded "year_end";
+      y: encoded "wheat" {
+        axis: { grid: false; show_title: false; }
+        scale: linear { domain: [0.0, 100.0]; nice: false; zero: true; }
+      }
+      y2: encoded 0.0;
+    }
+    mark group as half_centuries {
+      data: {
+        values: [
+          { year: 1600.0; },
+          { year: 1650.0; },
+          { year: 1700.0; },
+          { year: 1750.0; },
+          { year: 1800.0; }
+        ];
+      }
+      mark rule as guides {
+        opacity: direct 0.5;
+        stroke: direct 'black';
+        stroke_width: direct 0.6;
+        x: encoded "year";
+        x2: encoded "year";
+        y: encoded 0.0;
+        y2: encoded 100.0;
+      }
+    }
+    mark area as wages_area {
+      fill: direct '#a4cedb';
+      opacity: direct 0.7;
+      order: direct "year";
+      stroke_width: direct 0.0;
+      x: encoded "year";
+      y: encoded "wages";
+      y2: encoded 0.0;
+    }
+    mark line as wages_outline {
+      order: direct "year";
+      opacity: direct 0.7;
+      stroke: direct 'black';
+      stroke_width: direct 2.0;
+      x: encoded "year";
+      y: encoded "wages";
+    }
+    mark line as wages_highlight {
+      order: direct "year";
+      stroke: direct '#ee8182';
+      stroke_width: direct 2.0;
+      x: encoded "year";
+      y: encoded "wages";
+      adjust nudge as shifted {
+        apply: { x: shifted.x; y: shifted.y; }
+        dx: 0.0;
+        dy: -2.0;
+      }
+    }
+    mark group as reigns {
+      data: { table: 'vega.monarchs'; }
+      transform sql as geometry {
+        query:
+          SELECT
+            "name",
+            CAST("start" AS DOUBLE) AS "start",
+            CAST("end" AS DOUBLE) AS "end",
+            CAST("start" AS DOUBLE)
+              + (CAST("end" AS DOUBLE) - CAST("start" AS DOUBLE)) / 2.0 AS "midpoint",
+            CASE
+              WHEN COALESCE("commonwealth", false) THEN 'commonwealth'
+              ELSE 'monarchy'
+            END AS "reign_type",
+            CASE
+              WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 93.0
+              ELSE 97.0
+            END AS "offset",
+            CASE
+              WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 94.0
+              ELSE 96.0
+            END AS "label_y"
+          FROM input
+          ORDER BY "index";
+      }
+      mark rect as reign_bands {
+        fill: encoded "reign_type" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['monarchy', 'commonwealth'];
+            range: ['black', 'white'];
+          }
+        }
+        stroke: direct 'black';
+        stroke_width: direct 1.0;
+        x: encoded "start";
+        x2: encoded "end";
+        y: encoded 95.0;
+        y2: encoded "offset";
+      }
+      mark text as monarch_names {
+        align: direct 'center';
+        baseline: direct 'bottom';
+        color: direct 'black';
+        font_size: direct 9.0;
+        font_style: direct 'italic';
+        text: direct "name";
+        x: encoded "midpoint";
+        y: encoded "label_y";
+        adjust nudge as below_band {
+          apply: { x: below_band.x; y: below_band.y; }
+          dx: 0.0;
+          dy: 16.0;
+        }
+      }
+    }
+  }
+}

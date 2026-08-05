@@ -5681,10 +5681,12 @@
         "mark:text",
         "transform:calculate"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The Avenger theme uses slightly different axis padding, stroke antialiasing, and label placement while preserving the chart's authored layers and data geometry."
+      ]
     },
     {
       "name": "trellis_bar",
