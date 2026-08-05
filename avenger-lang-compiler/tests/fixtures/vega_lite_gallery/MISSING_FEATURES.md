@@ -198,7 +198,8 @@ capability was added.
 
 - Status: confirmed
 - Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`,
-  `trail_color`, `trail_comet`, `circle_github_punchcard`, `layer_likert`
+  `trail_color`, `trail_comet`, `circle_github_punchcard`, `layer_likert`,
+  `vconcat_weather`
 - Evidence: size legends derive entries directly from the continuous scale's
   domain values, whether the renderer uses symbols or varying-width line
   samples. The legend schema exposes presentation properties but no explicit
