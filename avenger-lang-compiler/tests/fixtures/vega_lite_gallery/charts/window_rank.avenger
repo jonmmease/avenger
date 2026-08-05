@@ -1,0 +1,74 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Line Charts Showing Ranks Over Time (`window_rank`).
+chart cartesian as window_rank {
+  title: 'World Cup 2018: Group F Rankings';
+  data: {
+    values: [
+      { team: 'Germany'; matchday: 1; point: 0; diff: -1; },
+      { team: 'Mexico'; matchday: 1; point: 3; diff: 1; },
+      { team: 'South Korea'; matchday: 1; point: 0; diff: -1; },
+      { team: 'Sweden'; matchday: 1; point: 3; diff: 1; },
+      { team: 'Germany'; matchday: 2; point: 3; diff: 0; },
+      { team: 'Mexico'; matchday: 2; point: 6; diff: 2; },
+      { team: 'South Korea'; matchday: 2; point: 0; diff: -2; },
+      { team: 'Sweden'; matchday: 2; point: 3; diff: 0; },
+      { team: 'Germany'; matchday: 3; point: 3; diff: -2; },
+      { team: 'Mexico'; matchday: 3; point: 6; diff: -1; },
+      { team: 'South Korea'; matchday: 3; point: 3; diff: 0; },
+      { team: 'Sweden'; matchday: 3; point: 6; diff: 3; }
+    ];
+  }
+  layout: {
+    canvas: {
+      height: 360.0;
+      width: 440.0;
+    }
+    plot: {
+      height: 240.0;
+      width: 240.0;
+    }
+  }
+  transform sql as ranked {
+    query:
+      SELECT
+        "team",
+        "matchday",
+        RANK() OVER (
+          PARTITION BY "matchday"
+          ORDER BY "point" DESC, "diff" DESC
+        ) AS "rank"
+      FROM input
+      ORDER BY "team", "matchday";
+  }
+  mark line as rankings {
+    order: direct "matchday";
+    stroke: encoded "team" {
+      legend: {
+        title: 'team';
+      }
+      scale: ordinal {
+        domain: ['Germany', 'Mexico', 'South Korea', 'Sweden'];
+        range: ['black', '#127153', '#C91A3C', '#0C71AB'];
+      }
+    }
+    stroke_width: direct 2.0;
+    x: encoded "matchday" {
+      axis: {
+        label_angle: 0.0;
+        title: 'matchday';
+      }
+      scale: point {
+        domain: [1, 2, 3];
+      }
+    }
+    y: encoded "rank" {
+      axis: {
+        title: 'rank';
+      }
+      scale: point {
+        domain: [4, 3, 2, 1];
+      }
+    }
+  }
+}
