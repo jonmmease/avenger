@@ -1,0 +1,123 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Voyager Results (`concat_layer_voyager_result`).
+chart grid_concat as concat_layer_voyager_result {
+  title: 'Mean of Subject Ratings (95% CIs)';
+  layout: {
+    canvas: { height: 159.0; width: 432.0; }
+    plot: { height: 100.0; width: 300.0; }
+  }
+  rows: 2;
+  columns: 1;
+  spacing: 10;
+  column_widths: [px(300)];
+  row_heights: [px(50), px(40)];
+
+  cell cartesian as estimates at { row: 0; column: 0; } {
+    data: {
+      values: [
+        { measure: 'Open Exploration'; mean: 1.813; lo: 1.255; hi: 2.37; study: 'PoleStar vs Voyager'; },
+        { measure: 'Focused Question Answering'; mean: -1.688; lo: -2.325; hi: -1.05; study: 'PoleStar vs Voyager'; },
+        { measure: 'Open Exploration'; mean: 2.1875; lo: 1.665; hi: 2.71; study: 'PoleStar vs Voyager 2'; },
+        { measure: 'Focused Question Answering'; mean: -0.0625; lo: -0.474; hi: 0.349; study: 'PoleStar vs Voyager 2'; }
+      ];
+    }
+    mark group as layers {
+      mark rule as zero {
+        stroke: direct '#666666';
+        stroke_dash: direct 'dashed';
+        stroke_width: direct 1.0;
+        x: encoded 0.0 {
+          axis: { title: ''; }
+          scale: linear { domain: [-3.0, 3.0]; nice: false; zero: true; }
+        }
+        x2: encoded 0.0;
+        y: direct 0.0;
+        y2: direct 50.0;
+      }
+      mark rule as intervals {
+        stroke: direct '#666666';
+        stroke_width: direct 1.0;
+        x: encoded "lo";
+        x2: encoded "hi";
+        y: encoded "study" {
+          band: 0.5;
+          axis: { show_title: false; }
+          scale: band {
+            domain: ['PoleStar vs Voyager 2', 'PoleStar vs Voyager'];
+            padding_inner: 0.2;
+            padding_outer: 0.1;
+          }
+        }
+        y2: encoded channel.y { band: 0.5; }
+      }
+      mark symbol as means {
+        fill: encoded "measure" {
+          legend: { visible: false; }
+          scale: ordinal {
+            domain: ['Open Exploration', 'Focused Question Answering'];
+            range: ['white', 'black'];
+          }
+        }
+        shape: direct 'circle';
+        size: direct 45.0;
+        stroke: direct 'black';
+        stroke_width: direct 1.0;
+        x: encoded "mean";
+        y: encoded "study" { band: 0.5; }
+      }
+    }
+  }
+
+  cell cartesian as direction at { row: 1; column: 0; } {
+    data: {
+      values: [
+        { from: -0.25; to: -2.9; label: 'PoleStar'; },
+        { from: 0.25; to: 2.9; label: 'Voyager / Voyager 2'; }
+      ];
+    }
+    mark group as arrows {
+      mark rule as stems {
+        stroke: direct '#444444';
+        stroke_width: direct 1.0;
+        x: encoded "from" {
+          axis: { visible: false; }
+          scale: linear { domain: [-3.0, 3.0]; nice: false; zero: false; }
+        }
+        x2: encoded "to";
+        y: direct 8.0;
+        y2: direct 8.0;
+      }
+      mark symbol as arrowheads {
+        fill: direct '#444444';
+        shape: direct CASE WHEN "to" > 0.0 THEN 'triangle-right' ELSE 'triangle-left' END;
+        size: direct 55.0;
+        stroke_width: direct 0.0;
+        x: encoded "to";
+        y: direct 8.0;
+      }
+      mark group as left_label {
+        transform filter { predicate: "label" = 'PoleStar'; }
+        mark text as product {
+          align: direct 'right'; baseline: direct 'top'; color: direct '#444444';
+          font_size: direct 9.5; text: direct 'PoleStar'; x: encoded "from"; y: direct 15.0;
+        }
+        mark text as outcome {
+          align: direct 'right'; baseline: direct 'top'; color: direct '#444444';
+          font_size: direct 9.5; text: direct 'More Valuable'; x: encoded "from"; y: direct 25.0;
+        }
+      }
+      mark group as right_label {
+        transform filter { predicate: "label" = 'Voyager / Voyager 2'; }
+        mark text as product {
+          align: direct 'left'; baseline: direct 'top'; color: direct '#444444';
+          font_size: direct 9.5; text: direct 'Voyager / Voyager 2'; x: encoded "from"; y: direct 15.0;
+        }
+        mark text as outcome {
+          align: direct 'left'; baseline: direct 'top'; color: direct '#444444';
+          font_size: direct 9.5; text: direct 'More Valuable'; x: encoded "from"; y: direct 25.0;
+        }
+      }
+    }
+  }
+}

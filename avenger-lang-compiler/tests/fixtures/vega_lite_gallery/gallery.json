@@ -5470,10 +5470,12 @@
         "mark:text",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "Avenger uses its standard chart-title typography and default grid styling; the zero reference is authored separately as a darker dashed rule."
+      ]
     },
     {
       "name": "layer_candlestick",
