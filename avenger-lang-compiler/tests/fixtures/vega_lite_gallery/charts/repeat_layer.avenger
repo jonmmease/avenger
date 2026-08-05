@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Layered Plot with Repeat (`repeat_layer`).
+schema tables as local {
+  table sql as gross_by_rating {
+    sql:
+      WITH ratings AS (
+        SELECT FLOOR("IMDB Rating") AS "rating_bin", *
+        FROM vega.movies
+        WHERE "IMDB Rating" IS NOT NULL
+      )
+      SELECT
+        "rating_bin" + 0.5 AS "rating",
+        'US Gross' AS "measure",
+        CAST(AVG("US Gross") AS DOUBLE) AS "mean_gross"
+      FROM ratings
+      GROUP BY "rating_bin"
+      UNION ALL
+      SELECT
+        "rating_bin" + 0.5 AS "rating",
+        'Worldwide Gross' AS "measure",
+        CAST(AVG("Worldwide Gross") AS DOUBLE) AS "mean_gross"
+      FROM ratings
+      GROUP BY "rating_bin";
+  }
+}
+
+chart cartesian as repeat_layer {
+  data: { table: 'local.gross_by_rating'; }
+  layout: {
+    canvas: { height: 342.0; width: 514.0; }
+    plot: { height: 300.0; width: 300.0; }
+  }
+  mark line as gross {
+    order: direct "rating";
+    stroke: encoded "measure" {
+      legend: { title: ''; }
+      scale: ordinal {
+        domain: ['US Gross', 'Worldwide Gross'];
+        range: ['#4c78a8', '#f58518'];
+      }
+    }
+    stroke_width: direct 2.0;
+    x: encoded "rating" {
+      axis: { tick_count: 10; title: 'IMDB Rating (binned)'; }
+      scale: linear { domain: [1.0, 10.0]; nice: false; zero: false; }
+    }
+    y: encoded "mean_gross" {
+      axis: { format: ',.0f'; tick_count: 6; title: 'Mean of US and Worldwide Gross'; }
+      scale: linear { domain: [0.0, 280000000.0]; nice: false; zero: true; }
+    }
+  }
+}
