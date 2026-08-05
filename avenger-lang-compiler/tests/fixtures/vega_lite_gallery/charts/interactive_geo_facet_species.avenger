@@ -1,0 +1,52 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Faceted County-Level Species Habitat Maps
+-- | (`interactive_geo_facet_species`).
+schema tables as local {
+  table sql as habitat_counties {
+    sql:
+      SELECT
+        species."common_name",
+        species."county_id",
+        species."habitat_yearround_pct",
+        counties."geometry",
+        counties."bbox_xmin",
+        counties."bbox_ymin",
+        counties."bbox_xmax",
+        counties."bbox_ymax"
+      FROM vega.species AS species
+      INNER JOIN vega.us_counties AS counties
+        ON species."county_id" = counties."id"
+      WHERE species."habitat_yearround_pct" IS NOT NULL;
+  }
+}
+
+chart facet_wrap as interactive_geo_facet_species {
+  data: { table: 'local.habitat_counties'; }
+  layout: {
+    canvas: { height: 478.0; width: 750.0; }
+  }
+  facet: "common_name" {
+    columns: 2;
+    slots: shared;
+    title: '';
+  }
+  cell geo {
+    projection: albers;
+    mark geo_shape as counties {
+      geometry: direct "geometry";
+      fill: encoded "habitat_yearround_pct" {
+        legend: { format_number: '.0%'; title: 'Suitable Habitat / % of County'; }
+        scale: linear {
+          domain: [0.0, 1.0];
+          nice: false;
+          range: ['#440154', '#414487', '#2a788e', '#22a884', '#7ad151', '#fde725'];
+          zero: true;
+        }
+      }
+      stroke: direct '#ffffff';
+      stroke_width: direct 0.15;
+    }
+  }
+}

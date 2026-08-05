@@ -6700,8 +6700,21 @@
         "interaction:param",
         "mark:geoshape"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-001",
+          "feature": "coordinate:geo-composite-albers-usa"
+        },
+        {
+          "id": "AV-GALLERY-GEO-003",
+          "feature": "coordinate:geo-reactive-projection"
+        },
+        {
+          "id": "AV-GALLERY-GEO-004",
+          "feature": "coordinate:geo-projection-families"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6748,8 +6761,25 @@
         "transform:calculate",
         "transform:filter"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GEO-003",
+          "feature": "coordinate:geo-reactive-projection"
+        },
+        {
+          "id": "AV-GALLERY-GEO-004",
+          "feature": "coordinate:geo-projection-families"
+        },
+        {
+          "id": "AV-GALLERY-GEO-005",
+          "feature": "coordinate:geo-sphere-style"
+        },
+        {
+          "id": "AV-GALLERY-INTERACTION-002",
+          "feature": "interaction:tooltip"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
@@ -6794,10 +6824,13 @@
         "mark:geoshape",
         "transform:lookup"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "AV-GALLERY-INTERACTION-002: county tooltips are omitted because Avenger has no tooltip contract yet.",
+        "The native continuous colorbar places its title vertically beside the gradient and uses a denser standard tick set than Vega-Lite."
+      ]
     },
     {
       "name": "interactive_bar_select_highlight",

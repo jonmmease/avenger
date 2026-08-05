@@ -291,6 +291,55 @@ capability was added.
   color, size, opacity, and interaction channels, reusing the ordinary text
   renderer after geographic position projection.
 
+### AV-GALLERY-GEO-003 — Runtime-reactive projection configuration
+
+- Status: confirmed
+- Affects: `geo_params_projections` and `interactive_geo_earthquakes`
+- Evidence: the geo language schema accepts `projection` only as a static atom
+  or object and `rotate` only as an array of constant numbers. Lowering stores
+  both values directly in the authored `Geo`; projection-specific DataFusion
+  expressions and UDF names are derived from that immutable configuration.
+  Consequently a parameter cannot select a projection kind or rotate the globe
+  while a chart session is running.
+- Required capability: define typed expression-valued projection kind and
+  rotation properties, evaluate them at the coordinate boundary, and rebuild
+  projection-dependent mark expressions, UDFs, guide geometry, view fitting,
+  hit testing, and render caches when their parameters change. Preserve the
+  current viewport and unrelated chart state across that rebuild, and add
+  compiler, serialization, watch, analysis, completion, and widget coverage.
+
+### AV-GALLERY-GEO-004 — Additional geographic projection families
+
+- Status: confirmed
+- Affects: `geo_params_projections` and `interactive_geo_earthquakes`
+- Evidence: Avenger's projection engine implements equirectangular, Mercator,
+  Equal Earth, Natural Earth I, Winkel Tripel, conic equal-area, conic
+  conformal, and planar identity projections. The pinned examples additionally
+  require azimuthal equal-area, azimuthal equidistant, conic equidistant,
+  gnomonic, orthographic, stereographic, and transverse Mercator projections;
+  the explorer also includes composite `albersUsa`, tracked separately by
+  `AV-GALLERY-GEO-001`.
+- Required capability: implement the missing raw forward/inverse projection
+  families with clipping, resampling, fitting, adaptive-view, serialization,
+  language-schema, analysis, and LSP parity. Define canonical simple atoms and
+  structured defaults for conic projection forms so every supported choice has
+  an unambiguous authored representation.
+
+### AV-GALLERY-GEO-005 — Authored sphere background and outline
+
+- Status: confirmed
+- Affects: `interactive_geo_earthquakes`
+- Evidence: Rust `Geo` can draw a projection sphere with an authored
+  `SphereStyle`, but the geo language schema exposes no sphere property and the
+  DSL data model has no `{ sphere: true }` relation. The example's blue globe
+  disk therefore cannot be authored even after orthographic projection support
+  is added.
+- Required capability: expose the coordinate-owned sphere surface through the
+  geo language with fill, stroke, stroke width, visibility, and deterministic
+  z-order semantics. Reuse the existing Rust sphere guide rather than
+  introducing a synthetic row dataset, and cover projection cuts, serialization,
+  analysis, completion, and visual baselines.
+
 ### AV-GALLERY-LAYOUT-001 — Authored annotation overflow beyond the plot area
 
 - Status: confirmed
