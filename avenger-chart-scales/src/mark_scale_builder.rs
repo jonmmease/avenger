@@ -20,7 +20,7 @@ use datafusion::{
         datatypes::{DataType as ArrowDataType, Field, Float64Type},
     },
     common::{
-        DFSchema, ScalarValue,
+        Column, DFSchema, ScalarValue,
         tree_node::{Transformed, TreeNodeRecursion},
     },
     dataframe::DataFrame,
@@ -2180,7 +2180,7 @@ async fn ordered_categorical_values(
             let alias = order_column_aliases
                 .get(name)
                 .expect("order column alias missing");
-            select_exprs.push(col(name.clone()).alias(alias));
+            select_exprs.push(exact_unqualified_column(name).alias(alias));
         }
         let projected = df.as_ref().clone().select(select_exprs).map_err(|err| {
             AvengerChartError::InvalidArgument(format!(
@@ -2301,6 +2301,13 @@ fn order_expr_column_names(expr: &Expr) -> Vec<String> {
         Ok(TreeNodeRecursion::Continue)
     });
     names
+}
+
+fn exact_unqualified_column(name: &str) -> Expr {
+    // These names came from already-planned Expr::Column nodes. Reconstructing
+    // them with DataFusion's SQL-style `col` helper would normalize exact
+    // mixed-case Arrow field names.
+    Expr::Column(Column::new_unqualified(name))
 }
 
 fn rewrite_order_expr_columns(
@@ -2790,7 +2797,7 @@ async fn ordered_nested_level_components(
             let alias = order_column_aliases
                 .get(name)
                 .expect("order column alias missing");
-            select_exprs.push(col(name.clone()).alias(alias));
+            select_exprs.push(exact_unqualified_column(name).alias(alias));
         }
 
         let projected = df.as_ref().clone().select(select_exprs).map_err(|err| {
@@ -4505,6 +4512,37 @@ mod tests {
 
         assert!(ordered);
         assert_eq!(values, vec![s("B"), s("C"), s("A")]);
+    }
+
+    #[tokio::test]
+    async fn categorical_order_by_preserves_exact_arrow_field_case() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("Category", DataType::Utf8, false),
+            Field::new("OrderValue", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["A", "B"])),
+                Arc::new(Float64Array::from(vec![2.0, 9.0])),
+            ],
+        )
+        .unwrap();
+        let data = ctx.read_batch(batch).unwrap();
+
+        let (values, ordered) = ordered_categorical_values(
+            &[(Arc::new(data), exact_unqualified_column("Category"))],
+            &max(exact_unqualified_column("OrderValue")),
+            true,
+            &eval_ctx(&ctx),
+            &IndexMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(values, vec![s("B"), s("A")]);
     }
 
     #[tokio::test]
