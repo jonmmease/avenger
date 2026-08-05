@@ -2730,8 +2730,13 @@
       "features": [
         "mark:circle"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-001",
+          "feature": "Quantitative symbol-legend sample values"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },
