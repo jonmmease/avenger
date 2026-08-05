@@ -1,0 +1,56 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Histogram (`histogram`).
+chart cartesian as histogram {
+  data: {
+    table: 'vega.movies';
+  }
+  layout: {
+    canvas: {
+      height: 380.0;
+      width: 420.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  transform sql as rating_bins {
+    query:
+      SELECT
+        FLOOR("IMDB Rating") AS "bin_start",
+        FLOOR("IMDB Rating") + 1.0 AS "bin_end",
+        COUNT(*) AS "count"
+      FROM input
+      WHERE "IMDB Rating" IS NOT NULL
+      GROUP BY FLOOR("IMDB Rating")
+      ORDER BY "bin_start";
+  }
+  mark rect as bins {
+    fill: direct '#4c78a8';
+    stroke: direct 'white';
+    stroke_width: direct 1.0;
+    x: encoded "bin_start" {
+      axis: {
+        title: 'IMDB Rating (binned)';
+      }
+      scale: linear {
+        domain: [1.0, 10.0];
+        nice: false;
+        zero: false;
+      }
+    }
+    x2: encoded "bin_end";
+    y: encoded 0.0 {
+      axis: {
+        title: 'Count of Records';
+      }
+      scale: linear {
+        nice: true;
+        zero: true;
+      }
+    }
+    y2: encoded "count";
+  }
+}
