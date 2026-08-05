@@ -336,11 +336,13 @@ async fn run_example(compiler: &Compiler, example: &GalleryExample) -> Result<()
     let direct = evaluate_and_render(
         &generation.artifact,
         generation.environment.fork().session_context(),
+        &format!("{}.direct", example.name),
     )
     .await?;
     let serialized = evaluate_and_render(
         &round_tripped,
         generation.environment.fork().session_context(),
+        &format!("{}.serialized", example.name),
     )
     .await?;
     compare_round_trip(example, &direct, &serialized)?;
@@ -350,6 +352,7 @@ async fn run_example(compiler: &Compiler, example: &GalleryExample) -> Result<()
 async fn evaluate_and_render(
     artifact: &CompiledChartArtifact,
     context: &datafusion::prelude::SessionContext,
+    debug_label: &str,
 ) -> Result<RgbaImage, String> {
     let mut registry = NativeWidgetRegistry::new();
     register_native_widgets(&mut registry)
@@ -367,11 +370,18 @@ async fn evaluate_and_render(
     ));
     let evaluated = evaluate_ready_scene(&mut session).await?;
     if std::env::var_os("AVENGER_VL_GALLERY_DEBUG").is_some() {
-        eprintln!(
-            "{}",
-            serde_json::to_string_pretty(&evaluated.scene_graph)
-                .map_err(|error| format!("scene graph debug serialization failed: {error}"))?
-        );
+        let debug_path = failure_dir().join(format!("{debug_label}.scene.json"));
+        if let Some(parent) = debug_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+        }
+        fs::write(
+            &debug_path,
+            serde_json::to_vec_pretty(&evaluated.scene_graph)
+                .map_err(|error| format!("scene graph debug serialization failed: {error}"))?,
+        )
+        .map_err(|error| format!("failed to write {}: {error}", debug_path.display()))?;
+        eprintln!("scene graph debug: {}", debug_path.display());
     }
     let dimensions = CanvasDimensions {
         size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
