@@ -1,0 +1,92 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Normalized Stacked Bar Chart (`stacked_bar_normalize`).
+chart cartesian as stacked_bar_normalize {
+  data: {
+    table: 'vega.population';
+  }
+  layout: {
+    canvas: {
+      height: 380.0;
+      width: 460.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 320.0;
+    }
+  }
+  transform sql as normalized_population {
+    query:
+      WITH totals AS (
+        SELECT
+          "age",
+          CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
+          CASE WHEN "sex" = 2 THEN 1 ELSE 0 END AS "stack_order",
+          CAST(SUM("people") AS DOUBLE) AS "people"
+        FROM input
+        WHERE "year" = 2000
+        GROUP BY "age", "sex"
+      ), normalized AS (
+        SELECT
+          *,
+          "people" / SUM("people") OVER (PARTITION BY "age") AS "share"
+        FROM totals
+      ), stacked AS (
+        SELECT
+          *,
+          SUM("share") OVER (
+            PARTITION BY "age"
+            ORDER BY "stack_order"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "y1"
+        FROM normalized
+      )
+      SELECT
+        "age",
+        "gender",
+        "stack_order",
+        "y1" - "share" AS "y0",
+        "y1"
+      FROM stacked
+      ORDER BY "age", "stack_order";
+  }
+  mark rect as population {
+    fill: encoded "gender" {
+      legend: {
+        title: 'gender';
+      }
+      scale: ordinal {
+        domain: ['Female', 'Male'];
+        range: ['#675193', '#ca8861'];
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "age" {
+      axis: {
+        title: 'age';
+      }
+      band: 0.0;
+      scale: band {
+        domain: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
+        padding_inner: 0.05;
+        padding_outer: 0.025;
+      }
+    }
+    x2: encoded channel.x {
+      band: 1.0;
+    }
+    y: encoded "y1" {
+      axis: {
+        format: '.0%';
+        title: 'population';
+      }
+      scale: linear {
+        domain: [0.0, 1.0];
+        nice: false;
+        zero: true;
+      }
+    }
+    y2: encoded "y0";
+  }
+}
