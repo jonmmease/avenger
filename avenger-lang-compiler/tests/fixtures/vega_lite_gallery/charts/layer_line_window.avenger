@@ -1,0 +1,60 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: benchmark line chart (`layer_line_window`).
+chart cartesian as layer_line_window {
+  data: { table: 'vega.falcon'; }
+  layout: {
+    canvas: { height: 300.0; width: 453.0; }
+    plot: { height: 200.0; width: 400.0; }
+  }
+  transform sql as benchmark_rows {
+    query:
+      WITH measurements AS (
+        SELECT
+          ROW_NUMBER() OVER () AS "row",
+          1000.0 / "data" AS "fps",
+          'Falcon' AS "system"
+        FROM input
+        UNION ALL
+        SELECT
+          ROW_NUMBER() OVER () AS "row",
+          1000.0 / "data" AS "fps",
+          'Square Crossfilter (3M)' AS "system"
+        FROM vega.square
+      )
+      SELECT "row", "fps", "system"
+      FROM measurements
+      ORDER BY "system", "row";
+  }
+  mark line as benchmarks {
+    order: direct "row";
+    stroke: encoded "system" {
+      legend: {
+        position: bottom;
+        title: 'System';
+      }
+      scale: ordinal {
+        domain: ['Falcon', 'Square Crossfilter (3M)'];
+        range: ['#4c78a8', '#f58518'];
+      }
+    }
+    stroke_width: direct 1.0;
+    x: encoded "row" {
+      axis: { grid: false; title: 'Trial'; }
+      scale: linear { nice: false; zero: false; }
+    }
+    y: encoded "fps" {
+      axis: {
+        grid: false;
+        tick_count: 10;
+        title: 'Frames Per Second (fps)';
+      }
+      scale: log {
+        base: 10.0;
+        domain: [0.1, 100.0];
+        nice: false;
+      }
+    }
+  }
+}

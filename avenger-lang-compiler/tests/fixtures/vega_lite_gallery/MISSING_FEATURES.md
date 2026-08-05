@@ -339,6 +339,18 @@ capability was added.
   measurement, overflow, serialization, rendering, DSL schemas, analysis, and
   LSP support.
 
+### AV-GALLERY-GUIDE-008 — In-plot legend positioning
+
+- Status: confirmed
+- Affects: `layer_line_window`, `geo_layer_line_london`
+- Evidence: Vega-Lite's `bottom-right` orientation places a legend inside the
+  plot bounds. Avenger's `LegendPosition` and standard legend schema expose
+  only the four external layout edges, so the benchmark legend must occupy a
+  separate bottom slab instead of the reference chart's unused in-plot area.
+- Required capability: add an explicit in-plot legend placement model with
+  horizontal and vertical anchors, padding, collision/clip behavior, and
+  deterministic composition semantics; do not overload external edge layout.
+
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed

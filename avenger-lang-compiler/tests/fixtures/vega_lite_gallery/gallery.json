@@ -4900,10 +4900,12 @@
         "transform:calculate",
         "transform:window"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "AV-GALLERY-GUIDE-008: Avenger places the System legend in an external bottom slab because in-plot bottom-right legend positioning is not supported."
+      ]
     },
     {
       "name": "point_quantile_quantile",
