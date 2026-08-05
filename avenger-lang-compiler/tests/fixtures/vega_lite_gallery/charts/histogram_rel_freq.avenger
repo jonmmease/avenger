@@ -1,0 +1,66 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Relative Frequency Histogram (`histogram_rel_freq`).
+chart cartesian as histogram_rel_freq {
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 380.0;
+      width: 420.0;
+    }
+    plot: {
+      height: 300.0;
+      width: 300.0;
+    }
+  }
+  transform sql as relative_frequency {
+    query:
+      WITH binned AS (
+        SELECT
+          FLOOR("Horsepower" / 20.0) * 20.0 AS "bin_start",
+          FLOOR("Horsepower" / 20.0) * 20.0 + 20.0 AS "bin_end"
+        FROM input
+        WHERE "Horsepower" IS NOT NULL
+      ), counts AS (
+        SELECT "bin_start", "bin_end", COUNT(*) AS "count"
+        FROM binned
+        GROUP BY "bin_start", "bin_end"
+      )
+      SELECT
+        "bin_start",
+        "bin_end",
+        CAST("count" AS DOUBLE) / SUM("count") OVER () AS "relative_frequency"
+      FROM counts
+      ORDER BY "bin_start";
+  }
+  mark rect as bins {
+    fill: direct '#4c78a8';
+    stroke: direct 'white';
+    stroke_width: direct 1.0;
+    x: encoded "bin_start" {
+      axis: {
+        title: 'Horsepower';
+      }
+      scale: linear {
+        domain: [40.0, 240.0];
+        nice: false;
+        zero: false;
+      }
+    }
+    x2: encoded "bin_end";
+    y: encoded 0.0 {
+      axis: {
+        format: '.0%';
+        title: 'Relative Frequency';
+      }
+      scale: linear {
+        nice: true;
+        zero: true;
+      }
+    }
+    y2: encoded "relative_frequency";
+  }
+}
