@@ -128,7 +128,7 @@ capability was added.
 ### AV-GALLERY-GUIDE-001 — Quantitative symbol-legend sample values
 
 - Status: confirmed
-- Affects: `point_bubble`, `circle_binned`
+- Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`
 - Evidence: size legends derive entries directly from the continuous scale's
   domain values. The legend schema exposes presentation properties but no
   explicit sample values or tick-generation configuration, so the current
