@@ -143,18 +143,20 @@ capability was added.
   compiler/watch dependency graph; and either preserve a host-resolved resource
   request or embed portable image bytes in compiled/serialized charts.
 
-### AV-GALLERY-GUIDE-001 — Quantitative symbol-legend sample values
+### AV-GALLERY-GUIDE-001 — Quantitative size-legend sample values
 
 - Status: confirmed
-- Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`
+- Affects: `point_bubble`, `circle_binned`, `circle_natural_disasters`,
+  `trail_color`
 - Evidence: size legends derive entries directly from the continuous scale's
-  domain values. The legend schema exposes presentation properties but no
-  explicit sample values or tick-generation configuration, so the current
-  chart shows only the observed endpoints (`8` and `24.8`) instead of the
-  Vega-Lite reference's rounded sequence (`0`, `5`, `10`, `15`, `20`).
-- Required capability: let continuous symbol legends generate configurable
+  domain values, whether the renderer uses symbols or varying-width line
+  samples. The legend schema exposes presentation properties but no explicit
+  sample values or tick-generation configuration, so `point_bubble` shows only
+  observed endpoints (`8` and `24.8`) instead of (`0`, `5`, `10`, `15`, `20`),
+  and `trail_color` cannot produce (`0`, `100`, ..., `700`).
+- Required capability: let continuous size legends generate configurable
   rounded samples independently of the scale domain, with an explicit-values
-  override and stable label formatting.
+  override, stable label formatting, and renderer-appropriate sample glyphs.
 
 ### AV-GALLERY-GUIDE-002 — Legends for text-mark color channels
 
