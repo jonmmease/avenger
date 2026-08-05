@@ -1,0 +1,54 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Lasagna Plot (`rect_lasagna`).
+chart cartesian as rect_lasagna {
+  data: { table: 'vega.stocks'; }
+  layout: {
+    canvas: { height: 280.0; width: 560.0; }
+    plot: { height: 120.0; width: 360.0; }
+  }
+  transform sql as monthly_prices {
+    query:
+      SELECT
+        "symbol",
+        "date" AS "month_start",
+        "date" + INTERVAL '1 month' AS "month_end",
+        SUM("price") AS "price"
+      FROM input
+      WHERE "symbol" <> 'GOOG'
+      GROUP BY "symbol", "date"
+      ORDER BY "symbol", "date";
+  }
+  mark rect as prices {
+    fill: encoded "price" {
+      legend: { title: 'Price'; }
+      scale: linear {
+        domain: [6.0, 223.0];
+        range: ['#edf8b1', '#7fcdbb', '#2c7fb8', '#253494'];
+        zero: false;
+      }
+    }
+    stroke_width: direct 0.0;
+    x: encoded "month_start" {
+      axis: {
+        datetime_format: 'yyyy';
+        label_angle: 0.0;
+        tick_count: 11;
+        title: 'Time';
+      }
+      scale: time;
+    }
+    x2: encoded "month_end";
+    y: encoded "symbol" {
+      axis: { title: ''; }
+      band: 0.0;
+      scale: band {
+        domain: ['MSFT', 'IBM', 'AMZN', 'AAPL'];
+        padding_inner: 0.0;
+        padding_outer: 0.0;
+      }
+    }
+    y2: encoded channel.y { band: 1.0; }
+  }
+}

@@ -4276,10 +4276,12 @@
         "mark:rect",
         "transform:filter"
       ],
-      "implementation": "unported",
+      "implementation": "implemented",
       "blockers": [],
-      "review": "unreviewed",
-      "accepted_differences": []
+      "review": "reviewed",
+      "accepted_differences": [
+        "The native continuous colorbar uses rounded interior tick labels rather than labeling only the observed 6 and 223 endpoints."
+      ]
     },
     {
       "name": "rect_mosaic_labelled_with_offset",
