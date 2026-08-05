@@ -1,0 +1,44 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: Two-Dimensional Strip Plot (`tick_strip`).
+chart cartesian as tick_strip {
+  data: {
+    table: 'vega.cars';
+  }
+  layout: {
+    canvas: {
+      height: 160.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 100.0;
+      width: 300.0;
+    }
+  }
+  mark rule as observations {
+    stroke: direct '#4c78a8';
+    stroke_width: direct 1.0;
+    x: encoded "Horsepower" {
+      axis: {
+        title: 'Horsepower';
+      }
+      scale: linear {
+        zero: true;
+      }
+    }
+    x2: encoded "Horsepower";
+    y: encoded "Cylinders" {
+      axis: {
+        title: 'Cylinders';
+      }
+      band: 0.25;
+      scale: band {
+        order_by: max(-CAST("Cylinders" AS DOUBLE));
+      }
+    }
+    y2: encoded channel.y {
+      band: 0.75;
+    }
+  }
+}

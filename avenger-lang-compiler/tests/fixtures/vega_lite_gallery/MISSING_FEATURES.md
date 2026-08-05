@@ -115,6 +115,20 @@ express the required behavior faithfully.
 
 ## Resolved while porting
 
+### AV-GALLERY-SCALE-002 — Scale ordering lost exact Arrow field case
+
+- Status: resolved
+- Discovered by: `tick_strip`
+- Symptom: a categorical scale retained its planned mixed-case `order_by`
+  expression, but the runtime projection rebuilt referenced fields with
+  DataFusion's SQL-style `col()` helper. A quoted field such as `"Cylinders"`
+  consequently became the nonexistent lowercase field `cylinders`.
+- Resolution: ordinary and nested-band ordering projections now reconstruct
+  already-decoded column nodes directly, preserving exact Arrow field names.
+- Regression evidence:
+  `categorical_order_by_preserves_exact_arrow_field_case` plus the reviewed
+  `tick_strip` gallery rendering.
+
 ### AV-GALLERY-GUIDE-003 — Standard axes ignored `label_angle`
 
 - Status: resolved

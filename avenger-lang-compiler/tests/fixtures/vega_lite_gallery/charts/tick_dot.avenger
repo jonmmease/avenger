@@ -1,0 +1,35 @@
+avenger 1;
+import { vega } from '../catalog.avenger';
+
+-- | Vega-Lite gallery: One-Dimensional Strip Plot (`tick_dot`).
+chart cartesian as tick_dot {
+  data: {
+    table: 'vega.seattle_weather';
+  }
+  layout: {
+    canvas: {
+      height: 80.0;
+      width: 360.0;
+    }
+    plot: {
+      height: 20.0;
+      width: 300.0;
+    }
+  }
+  mark rule as observations {
+    stroke: direct '#4c78a8';
+    stroke_width: direct 1.0;
+    x: encoded "precipitation" {
+      axis: {
+        title: 'precipitation';
+      }
+      scale: linear {
+        nice: false;
+        zero: true;
+      }
+    }
+    x2: encoded "precipitation";
+    y: direct 0.0;
+    y2: direct 20.0;
+  }
+}
