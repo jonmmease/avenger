@@ -5889,8 +5889,13 @@
         "mark:area",
         "transform:calculate"
       ],
-      "implementation": "unported",
-      "blockers": [],
+      "implementation": "blocked_runtime",
+      "blockers": [
+        {
+          "id": "AV-GALLERY-GUIDE-007",
+          "feature": "guide:facet-label-presentation"
+        }
+      ],
       "review": "unreviewed",
       "accepted_differences": []
     },

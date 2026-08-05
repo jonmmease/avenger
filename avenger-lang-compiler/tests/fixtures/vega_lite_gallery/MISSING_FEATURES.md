@@ -254,6 +254,24 @@ capability was added.
   label, and carry label alignment through measurement and rendering. The DSL
   should provide typed completion and validation for the contextual fields.
 
+### AV-GALLERY-GUIDE-007 — Facet-guide label presentation
+
+- Status: confirmed
+- Affects: `trellis_area_seattle`, `facet_bullet`, and row facets whose compact
+  labels must remain horizontal
+- Evidence: an executable `trellis_area_seattle` attempt can precompute its
+  human-readable hour labels with SQL and renders all 24 area plots, but the
+  row guide rotates every value label vertically. The facet authoring schemas
+  and Rust `FacetRowGuideConfig` expose only title, position, visibility, and
+  slot sharing; they provide no label angle, alignment, padding, font, or
+  formatting controls. The result is overlapping unreadable labels rather
+  than the gallery's compact horizontal hour labels.
+- Required capability: add shared facet-guide value-label presentation to the
+  row, column, and wrap guide contracts, including angle, alignment, padding,
+  font properties, and a contextual formatting expression; carry it through
+  measurement, overflow, serialization, rendering, DSL schemas, analysis, and
+  LSP support.
+
 ### AV-GALLERY-SCALE-003 — Continuous diverging-scale midpoint
 
 - Status: confirmed
