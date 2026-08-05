@@ -1,0 +1,97 @@
+avenger 1;
+
+-- | Vega-Lite gallery: Line Chart with Highlighted Rectangles (`layer_falkensee`).
+chart cartesian as layer_falkensee {
+  data: {
+    values: [
+      { year: 1875; population: 1309.0; },
+      { year: 1890; population: 1558.0; },
+      { year: 1910; population: 4512.0; },
+      { year: 1925; population: 8180.0; },
+      { year: 1933; population: 15915.0; },
+      { year: 1939; population: 24824.0; },
+      { year: 1946; population: 28275.0; },
+      { year: 1950; population: 29189.0; },
+      { year: 1964; population: 29881.0; },
+      { year: 1971; population: 26007.0; },
+      { year: 1981; population: 24029.0; },
+      { year: 1985; population: 23340.0; },
+      { year: 1989; population: 22307.0; },
+      { year: 1990; population: 22087.0; },
+      { year: 1991; population: 22139.0; },
+      { year: 1992; population: 22105.0; },
+      { year: 1993; population: 22242.0; },
+      { year: 1994; population: 22801.0; },
+      { year: 1995; population: 24273.0; },
+      { year: 1996; population: 25640.0; },
+      { year: 1997; population: 27393.0; },
+      { year: 1998; population: 29505.0; },
+      { year: 1999; population: 32124.0; },
+      { year: 2000; population: 33791.0; },
+      { year: 2001; population: 35297.0; },
+      { year: 2002; population: 36179.0; },
+      { year: 2003; population: 36829.0; },
+      { year: 2004; population: 37493.0; },
+      { year: 2005; population: 38376.0; },
+      { year: 2006; population: 39008.0; },
+      { year: 2007; population: 39366.0; },
+      { year: 2008; population: 39821.0; },
+      { year: 2009; population: 40179.0; },
+      { year: 2010; population: 40511.0; },
+      { year: 2011; population: 40465.0; },
+      { year: 2012; population: 40905.0; },
+      { year: 2013; population: 41258.0; },
+      { year: 2014; population: 41777.0; }
+    ];
+  }
+  layout: {
+    canvas: { height: 347.0; width: 706.0; }
+    plot: { height: 300.0; width: 500.0; }
+  }
+  mark group as layers {
+    mark group as historical_periods {
+      data: {
+        values: [
+          { start: 1933; end: 1945; event: 'Nazi Rule'; },
+          { start: 1948; end: 1989; event: 'GDR (East Germany)'; }
+        ];
+      }
+      mark rect as periods {
+        fill: encoded "event" {
+          legend: { title: 'event'; }
+          scale: ordinal {
+            domain: ['GDR (East Germany)', 'Nazi Rule'];
+            range: ['#4c78a8', '#f58518'];
+          }
+        }
+        opacity: direct 1.0;
+        stroke_width: direct 0.0;
+        x: encoded "start" {
+          axis: { format: '.0f'; title: 'year (year)'; }
+          scale: linear { domain: [1875.0, 2014.0]; nice: false; zero: false; }
+        }
+        x2: encoded "end";
+        y: direct 0.0;
+        y2: direct 300.0;
+      }
+    }
+    mark line as population {
+      order: direct "year";
+      stroke: direct '#333333';
+      stroke_width: direct 2.0;
+      x: encoded "year";
+      y: encoded "population" {
+        axis: { format: ',.0f'; title: 'population'; }
+        scale: linear { zero: true; }
+      }
+    }
+    mark symbol as observations {
+      fill: direct '#ffffff';
+      size: direct 30.0;
+      stroke: direct '#333333';
+      stroke_width: direct 1.5;
+      x: encoded "year";
+      y: encoded "population";
+    }
+  }
+}
