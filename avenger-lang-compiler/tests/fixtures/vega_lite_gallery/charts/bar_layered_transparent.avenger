@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Layered Bar Chart (`bar_layered_transparent`).
 chart cartesian as bar_layered_transparent {
   data: {
-    table: 'vega.population';
+    table: vega.population;
   }
   layout: {
     canvas: {

@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Histogram (`histogram`).
 chart cartesian as histogram {
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

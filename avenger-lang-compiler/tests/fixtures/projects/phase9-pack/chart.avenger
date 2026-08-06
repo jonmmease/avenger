@@ -3,7 +3,7 @@ import { vega as samples } from 'data.avenger';
 
 chart cartesian as chart {
   data: {
-    table: 'samples.popular';
+    table: samples.popular;
   }
   mark symbol {
     x: encoded "title";

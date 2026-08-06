@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Heatmap with Labels (`layer_text_heatmap`).
 chart cartesian as layer_text_heatmap {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

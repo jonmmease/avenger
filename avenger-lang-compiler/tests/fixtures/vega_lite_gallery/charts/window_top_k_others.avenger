@@ -5,7 +5,7 @@ import { vega } from '../catalog.avenger';
 chart cartesian as window_top_k_others {
   title: 'Top Directors by Average Worldwide Gross';
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

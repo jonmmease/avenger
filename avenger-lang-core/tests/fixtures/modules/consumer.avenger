@@ -3,7 +3,7 @@ import { example_rows as rows, library_point as point } from './library.avenger'
 
 chart cartesian {
   data: {
-    table: 'rows';
+    table: rows;
   }
   mark point as points {
   }

@@ -612,6 +612,7 @@ fn value_shape(value: &Value) -> String {
         Value::Expr(_) => "SQL expression",
         Value::Projection(_) => "SQL projection list",
         Value::Query(_) => "SQL query",
+        Value::Relation(_) => "relation path",
         Value::Binding { .. } => "binding",
         Value::Ref { .. } => "reference",
         Value::Channel { mode, .. } => match mode {

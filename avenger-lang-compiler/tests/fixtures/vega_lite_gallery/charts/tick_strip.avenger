@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Two-Dimensional Strip Plot (`tick_strip`).
 chart cartesian as tick_strip {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

@@ -684,6 +684,21 @@ impl Parser {
     }
 
     fn property_value(&mut self, property: &str) -> Result<Value, ParseError> {
+        if property == "table" {
+            self.trivia();
+            if matches!(
+                self.stream.token(self.index).map(|token| token.token()),
+                Some(Token::SingleQuotedString(_))
+            ) {
+                return Err(self.error(
+                    "AVENGER-PARSE-047",
+                    "table relations are paths, not strings; remove the quotes",
+                ));
+            }
+            let path = self.qual()?;
+            self.expect(Token::SemiColon, "`;` after table relation")?;
+            return Ok(Value::Relation(path));
+        }
         if property == "target" && self.word_is("marks") {
             self.expect_word("marks")?;
             let paths = self.qual_list()?;
@@ -2269,7 +2284,7 @@ fn concrete_nodes(stream: &TokenStream, source_map: &AstSourceMap) -> Vec<Concre
 mod tests {
     use crate::{
         SourceFile, SourceId, SourceOrigin,
-        ast::{ImportClause, ModuleItem},
+        ast::{ImportClause, ModuleItem, Value},
     };
 
     use super::parse_file;
@@ -2320,6 +2335,30 @@ chart cartesian as example {
                     && specifiers[0].local.as_str() == "data"
         ));
         assert!(!parsed.source_map.is_empty());
+    }
+
+    #[test]
+    fn table_source_is_a_relation_path_and_rejects_strings() {
+        let parsed = parse("avenger 1; chart cartesian { data: { table: samples.movies; } }");
+        let Some(Value::Block { body, .. }) = only_item(&parsed).declaration.props.get("data")
+        else {
+            panic!("expected a data source block")
+        };
+        assert!(matches!(
+            body.props.get("table"),
+            Some(Value::Relation(path))
+                if path.iter().map(|part| part.as_str()).collect::<Vec<_>>()
+                    == ["samples", "movies"]
+        ));
+
+        let source = SourceFile::new(
+            SourceId::new(2),
+            SourceOrigin::Memory("quoted-table.avenger".into()),
+            "avenger 1; chart cartesian { data: { table: 'samples.movies'; } }",
+        );
+        let error = parse_file(&source).unwrap_err();
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-047");
+        assert!(error.diagnostic().message.contains("remove the quotes"));
     }
 
     #[test]

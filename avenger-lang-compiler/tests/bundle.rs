@@ -169,7 +169,7 @@ export table inline as observations {
 }
 
 export chart cartesian as summary {
-  data: { table: 'observations'; }
+  data: { table: observations; }
   mark badge as points {}
 }
 "#,

@@ -17,7 +17,7 @@ schema tables as local {
 }
 
 chart cartesian as layer_point_errorbar_stdev {
-  data: { table: 'local.barley_summary'; }
+  data: { table: local.barley_summary; }
   layout: {
     canvas: { height: 250.0; width: 432.0; }
     plot: { height: 200.0; width: 300.0; }

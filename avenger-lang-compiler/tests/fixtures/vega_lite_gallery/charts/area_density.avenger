@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Density Plot (`area_density`).
 chart cartesian as area_density {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   layout: {
     canvas: { height: 142.0; width: 449.0; }
     plot: { height: 100.0; width: 400.0; }

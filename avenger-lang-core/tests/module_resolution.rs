@@ -376,7 +376,7 @@ async fn relation_references_resolve_through_namespaces_and_drive_chart_closures
                 "avenger 1;\
                  import * as data from './library.avenger';\
                  table sql as derived { sql: SELECT * FROM data.movies; }\
-                 chart cartesian { data: { table: 'derived'; } }",
+                 chart cartesian { data: { table: derived; } }",
             ),
             (
                 "library.avenger",
@@ -458,7 +458,7 @@ async fn transform_definitions_may_join_input_but_mark_definitions_cannot_captur
             "root.avenger",
             "avenger 1;\
              table memory as rows {}\
-             define mark captured { mark symbol { data: { table: 'rows'; } } }",
+             define mark captured { mark symbol { data: { table: rows; } } }",
         )],
         "root.avenger",
         BTreeMap::new(),

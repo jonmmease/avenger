@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Carbon Dioxide in the Atmosphere (`layer_line_co2_concentration`).
 chart cartesian as layer_line_co2_concentration {
-  data: { table: 'vega.co2_concentration'; }
+  data: { table: vega.co2_concentration; }
   layout: {
     canvas: { height: 547.0; width: 877.0; }
     plot: { height: 500.0; width: 800.0; }

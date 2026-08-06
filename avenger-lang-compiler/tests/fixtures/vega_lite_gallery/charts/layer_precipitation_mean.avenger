@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Monthly Precipitation with Global Mean (`layer_precipitation_mean`).
 chart cartesian as layer_precipitation_mean {
-  data: { table: 'vega.seattle_weather'; }
+  data: { table: vega.seattle_weather; }
   layout: {
     canvas: { height: 347.0; width: 291.0; }
     plot: { height: 300.0; width: 240.0; }

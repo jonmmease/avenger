@@ -19,7 +19,7 @@ schema tables as local {
 }
 
 chart cartesian as boxplot_minmax_2D_vertical {
-  data: { table: 'local.body_mass_summary'; }
+  data: { table: local.body_mass_summary; }
   layout: {
     canvas: { height: 386.0; width: 121.0; }
     plot: { height: 300.0; width: 60.0; }

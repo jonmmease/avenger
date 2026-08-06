@@ -585,7 +585,7 @@ table sql as selected {
 }
 
 chart cartesian as chart {
-  data: { table: 'selected'; }
+  data: { table: selected; }
 }
 "#,
     )
@@ -678,7 +678,7 @@ table sql as paired {
 }
 
 chart cartesian {
-  data: { table: 'paired'; }
+  data: { table: paired; }
 }
 "#,
     )
@@ -729,7 +729,7 @@ async fn catalog_session_materialization_is_schema_only_during_analysis() {
             SourceOrigin::File("/project/chart.avenger".into()),
             "avenger 1;\
              import { test as live } from './data.avenger';\
-             chart cartesian as chart { data: { table: 'live.rows'; } }",
+             chart cartesian as chart { data: { table: live.rows; } }",
             ContentVersion::new("chart-v1"),
         ))
         .with_source(LoadedSource::new(
@@ -768,7 +768,7 @@ async fn selected_chart_initializes_only_reachable_table_providers() {
              import { used } from './used.avenger';\
              import { unused } from './unused.avenger';\
              chart cartesian as chart {\
-               data: { table: 'used'; }\
+               data: { table: used; }\
                mark symbol { x: encoded 'x'; y: encoded 'y'; }\
              }",
             ContentVersion::new("chart-v1"),

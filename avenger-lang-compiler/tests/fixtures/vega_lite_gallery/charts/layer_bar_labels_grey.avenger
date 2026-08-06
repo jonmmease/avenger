@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Bar Chart with Label Overlays (`layer_bar_labels_grey`).
 chart cartesian as layer_bar_labels_grey {
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

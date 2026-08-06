@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Lasagna Plot (`rect_lasagna`).
 chart cartesian as rect_lasagna {
-  data: { table: 'vega.stocks'; }
+  data: { table: vega.stocks; }
   layout: {
     canvas: { height: 280.0; width: 560.0; }
     plot: { height: 120.0; width: 360.0; }

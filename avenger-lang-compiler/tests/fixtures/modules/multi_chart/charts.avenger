@@ -4,7 +4,7 @@ import { shared } from './data.avenger';
 
 chart cartesian as cartesian {
   data: {
-    table: 'shared.points';
+    table: shared.points;
   }
   param CAST(64.0 AS DOUBLE) as point_size;
   transform pass {
@@ -29,7 +29,7 @@ chart geo as geo {
 
 chart polar as polar {
   data: {
-    table: 'shared.points';
+    table: shared.points;
   }
   param CAST(72.0 AS DOUBLE) as point_size;
   transform pass {

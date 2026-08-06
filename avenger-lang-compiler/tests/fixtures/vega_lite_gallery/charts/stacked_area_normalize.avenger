@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Normalized Stacked Area Chart (`stacked_area_normalize`).
 chart cartesian as stacked_area_normalize {
   data: {
-    table: 'vega.unemployment_across_industries';
+    table: vega.unemployment_across_industries;
   }
   layout: {
     canvas: { height: 360.0; width: 620.0; }

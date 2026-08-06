@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Layered Histogram and Cumulative Histogram (`layer_cumulative_histogram`).
 chart cartesian as layer_cumulative_histogram {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   layout: {
     canvas: { height: 347.0; width: 362.0; }
     plot: { height: 300.0; width: 300.0; }

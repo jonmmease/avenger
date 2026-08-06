@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Streamgraph (`stacked_area_stream`).
 chart cartesian as stacked_area_stream {
-  data: { table: 'vega.unemployment_across_industries'; }
+  data: { table: vega.unemployment_across_industries; }
   layout: {
     canvas: { height: 360.0; width: 620.0; }
     plot: { height: 240.0; width: 360.0; }

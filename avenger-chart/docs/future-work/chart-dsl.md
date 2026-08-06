@@ -133,7 +133,7 @@ categories (892 deduped scenarios) has a syntax home in this document.
 Adopted 2026-07-09: **`data:` is a property, not a declaration.** The
 earlier `data as <name>` chart declaration is retired; a chart, group, or
 mark sets its data context with an anonymous source block —
-`data: { table: 'sales'; }`, `data: { sql: ...; }` — or reads a table-valued
+`data: { table: sales; }`, `data: { sql: ...; }` — or reads a table-valued
 store binding with `data: $brush;`. Named/file/SQL sources always use the block
 form (no bare-string shorthand), with the same reserved source
 properties as before (`table`, `sql`, `url`, `values`, plus table-param
@@ -297,13 +297,13 @@ export define mark interval {
 }
 
 chart cartesian as summary {
-  data: { table: 'observations'; }
+  data: { table: observations; }
   transform prepare {}
   mark interval {}
 }
 
 chart acme.isometric as density {
-  data: { table: 'observations'; }
+  data: { table: observations; }
   mark acme.hexbin {}
 }
 ```
@@ -1008,7 +1008,7 @@ chart cartesian as example {
   title: 'Sales';
 
   data: {
-    table: 'sales';
+    table: sales;
   }
 
   mark group as layers {
@@ -1530,7 +1530,7 @@ graduation path when an inline block outgrows its chart.
 
 ```avenger
 chart cartesian as sales_by_region {
-  data: { table: 'sales'; }            -- reference a catalog table
+  data: { table: sales; }            -- reference a catalog table
 
   mark rect { x: encoded "region"; y: encoded "amount"; }
 }
@@ -1540,7 +1540,7 @@ For named, file, and SQL data, reserved properties select the source — always
 the block form, never a bare value:
 
 ```avenger
-data: { table: 'sales'; }              -- catalog table (never a bare string)
+data: { table: sales; }              -- statically resolved catalog relation path
 
 data: {                                -- one-off derivation; `sales` is the
   sql:                                 -- ambient catalog name
@@ -1650,9 +1650,17 @@ cannot collide with that internal representation. If ownership or revision
 ever becomes useful authoring data, it must gain an explicit language helper
 rather than exposing physical columns.
 
-Named tables (`table: 'sales'`, and qualified names inside `sql:`
+Named tables (`table: sales`, and qualified names inside `sql:`
 statements) resolve from the project's data catalog or the host's
 registrations — see [Data Catalogs](#data-catalogs).
+
+The `table:` property accepts one unquoted relation path, not a string or SQL
+expression. Each path segment is a DSL/SQL identifier and resolution consumes
+module aliases and imported schema/catalog bindings before provider planning.
+For example, `import { vega as samples } from './catalog.avenger';` makes
+`table: samples.movies;` refer to the imported `movies` table. Quoted
+`table: 'samples.movies';` is invalid: relation identity participates directly
+in completion, navigation, dependency analysis, and rename.
 
 The `sql` property is a special full-query SQL slot. Its value is parsed as one
 query statement, and the SQL semicolon terminates the property. The
@@ -1985,7 +1993,7 @@ block, bindings are ordinary properties:
 
 ```avenger
 data: {
-  table: 'borough_trips';
+  table: borough_trips;
   borough: $selected_borough;
   min_fare: 10;
 }
@@ -2090,7 +2098,7 @@ import { vega } from 'https://cdn.example.com/vega-datasets.avenger'
   sha256 '4c1e...';
 
 chart cartesian as cars_scatter {
-  data: { table: 'vega.cars'; }
+  data: { table: vega.cars; }
 
   mark symbol {
     x: encoded "Horsepower";
@@ -3709,7 +3717,7 @@ avenger 1;
 
 chart cartesian {
   data: {
-    table: 'observations';
+    table: observations;
   }
 
   mark group as manual_box_plot {
@@ -4140,7 +4148,7 @@ The built-in statistical marks are therefore available without imports:
 avenger 1;
 
 chart cartesian as mpg_by_origin {
-  data: { table: 'cars'; }
+  data: { table: cars; }
 
   mark box_plot as mpg_box {
     category: "origin";
@@ -4937,7 +4945,7 @@ avenger 1;
 import { error_bar } from './lib/statistics.avenger';
 
 chart cartesian as sales_errors {
-  data: { table: 'sales'; }
+  data: { table: sales; }
 
   mark error_bar as errs {
     category: "region";
@@ -5171,7 +5179,7 @@ avenger 1;
 import { hover_highlight, wheel_zoom } from './lib/tools.avenger';
 
 chart cartesian as explorer {
-  data: { table: 'cars'; }
+  data: { table: cars; }
 
   tool wheel_zoom as zoom;
   tool hover_highlight as hover { target: points; }
@@ -5362,7 +5370,7 @@ avenger 1;
 import { share_within } from './lib/transforms.avenger';
 
 chart cartesian as region_shares {
-  data: { table: 'sales'; }
+  data: { table: sales; }
 
   mark group as shares {
     transform share_within as s {

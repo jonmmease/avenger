@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Population Pyramid (`bar_diverging_stack_population_pyramid`).
 chart cartesian as bar_diverging_stack_population_pyramid {
   data: {
-    table: 'vega.population';
+    table: vega.population;
   }
   layout: {
     canvas: {

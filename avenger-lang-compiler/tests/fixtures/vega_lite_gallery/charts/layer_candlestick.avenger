@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Candlestick Chart (`layer_candlestick`).
 chart cartesian as layer_candlestick {
-  data: { table: 'vega.ohlc'; }
+  data: { table: vega.ohlc; }
   layout: {
     canvas: { height: 365.0; width: 445.0; }
     plot: { height: 300.0; width: 400.0; }

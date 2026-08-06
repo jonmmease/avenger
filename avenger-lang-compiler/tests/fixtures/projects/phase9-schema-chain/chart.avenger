@@ -3,7 +3,7 @@ import { analytics } from 'data.avenger';
 
 chart cartesian as chart {
   data: {
-    table: 'analytics.final';
+    table: analytics.final;
   }
   mark symbol {
     x: encoded "category";

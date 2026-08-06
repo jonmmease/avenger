@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: benchmark line chart (`layer_line_window`).
 chart cartesian as layer_line_window {
-  data: { table: 'vega.falcon'; }
+  data: { table: vega.falcon; }
   layout: {
     canvas: { height: 300.0; width: 453.0; }
     plot: { height: 200.0; width: 400.0; }

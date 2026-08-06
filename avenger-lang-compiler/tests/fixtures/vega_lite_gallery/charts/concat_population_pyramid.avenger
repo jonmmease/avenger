@@ -16,7 +16,7 @@ schema tables as local {
 }
 
 chart hconcat as concat_population_pyramid {
-  data: { table: 'local.population_2000'; }
+  data: { table: local.population_2000; }
   layout: {
     canvas: { height: 439.0; width: 634.0; }
     plot: { height: 380.0; width: 580.0; }

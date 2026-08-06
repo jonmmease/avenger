@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Plot Showing Average Data with Raw Values (`layer_line_mean_point_raw`).
 chart cartesian as layer_line_mean_point_raw {
-  data: { table: 'vega.stocks'; }
+  data: { table: vega.stocks; }
   layout: {
     canvas: { height: 347.0; width: 357.0; }
     plot: { height: 300.0; width: 300.0; }

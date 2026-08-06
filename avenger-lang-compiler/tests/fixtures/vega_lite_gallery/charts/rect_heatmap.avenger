@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Table Heatmap (`rect_heatmap`).
 chart cartesian as rect_heatmap {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

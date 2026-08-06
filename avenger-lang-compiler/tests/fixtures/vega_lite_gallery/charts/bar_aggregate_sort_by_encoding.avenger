@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Sorted Aggregate Bar Chart (`bar_aggregate_sort_by_encoding`).
 chart cartesian as bar_aggregate_sort_by_encoding {
   data: {
-    table: 'vega.population';
+    table: vega.population;
   }
   layout: {
     canvas: {

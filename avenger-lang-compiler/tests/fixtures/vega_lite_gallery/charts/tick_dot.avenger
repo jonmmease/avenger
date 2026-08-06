@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: One-Dimensional Strip Plot (`tick_dot`).
 chart cartesian as tick_dot {
   data: {
-    table: 'vega.seattle_weather';
+    table: vega.seattle_weather;
   }
   layout: {
     canvas: {

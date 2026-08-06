@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: search-bound car scatterplot (`param_search_input`).
 chart cartesian as param_search_input {
-  data: { table: 'vega.cars'; }
+  data: { table: vega.cars; }
   layout: {
     canvas: { height: 390.0; width: 350.0; }
     plot: { height: 300.0; width: 300.0; }

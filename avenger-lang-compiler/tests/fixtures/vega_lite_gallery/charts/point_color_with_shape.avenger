@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Scatterplot with Color and Shape (`point_color_with_shape`).
 chart cartesian as point_color_with_shape {
   data: {
-    table: 'vega.penguins';
+    table: vega.penguins;
   }
   layout: {
     canvas: {

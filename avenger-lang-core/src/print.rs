@@ -538,6 +538,10 @@ impl Printer {
                 self.text(&query.canonical_sql());
                 self.line(";");
             }
+            Value::Relation(path) => {
+                self.path(path);
+                self.line(";");
+            }
             Value::Projection(projection) => {
                 let items = projection.canonical_items();
                 let current_width = self
@@ -606,6 +610,7 @@ impl Printer {
             Value::Expr(value) => self.text(&value.canonical_sql()),
             Value::Projection(value) => self.text(&value.canonical_sql()),
             Value::Query(value) => self.text(&value.canonical_sql()),
+            Value::Relation(path) => self.path(path),
             Value::Binding { path, time, .. } => {
                 self.text("$");
                 self.path(path);

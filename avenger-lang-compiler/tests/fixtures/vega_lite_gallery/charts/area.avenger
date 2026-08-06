@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Area Chart (`area`).
 chart cartesian as area {
   data: {
-    table: 'vega.unemployment_across_industries';
+    table: vega.unemployment_across_industries;
   }
   layout: {
     canvas: {

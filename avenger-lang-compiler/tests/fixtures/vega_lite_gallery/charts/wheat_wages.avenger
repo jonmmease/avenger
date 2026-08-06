@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Wheat and Wages (`wheat_wages`).
 chart cartesian as wheat_wages {
-  data: { table: 'vega.wheat'; }
+  data: { table: vega.wheat; }
   layout: {
     canvas: { height: 432.0; width: 937.0; }
     plot: { height: 400.0; width: 850.0; }
@@ -84,7 +84,7 @@ chart cartesian as wheat_wages {
       }
     }
     mark group as reigns {
-      data: { table: 'vega.monarchs'; }
+      data: { table: vega.monarchs; }
       transform select as geometry {
         expressions:
           "name",

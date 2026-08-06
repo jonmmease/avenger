@@ -3,7 +3,7 @@ import { files } from './data.avenger';
 
 chart cartesian as chart {
   data: {
-    table: 'files.rows';
+    table: files.rows;
   }
   mark symbol {
     x: encoded "name";

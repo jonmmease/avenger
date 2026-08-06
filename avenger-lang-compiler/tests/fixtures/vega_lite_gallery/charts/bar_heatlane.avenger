@@ -5,7 +5,7 @@ import { vega } from '../catalog.avenger';
 chart cartesian as bar_heatlane {
   title: 'Heat Lane of Horsepower';
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

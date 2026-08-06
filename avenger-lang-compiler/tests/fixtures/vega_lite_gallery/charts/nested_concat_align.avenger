@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Nested Concatenation with Aligned Axes (`nested_concat_align`).
 chart grid_concat as nested_concat_align {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   layout: {
     canvas: { height: 216.0; width: 454.0; }
     plot: { height: 130.0; width: 370.0; }

@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Becker's Barley Trellis Plot (`trellis_barley`).
 chart facet_wrap as trellis_barley {
-  data: { table: 'vega.barley'; }
+  data: { table: vega.barley; }
   layout: { plot: { height: 120.0; width: 300.0; } }
   facet: "site" {
     columns: 2;

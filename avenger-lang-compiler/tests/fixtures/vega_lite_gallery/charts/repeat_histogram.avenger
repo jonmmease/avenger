@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Repeated Histogram (`repeat_histogram`).
 chart grid_concat as repeat_histogram {
-  data: { table: 'vega.cars'; }
+  data: { table: vega.cars; }
   layout: {
     canvas: { height: 708.0; width: 760.0; }
     plot: { height: 615.0; width: 615.0; }

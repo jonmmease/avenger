@@ -254,6 +254,7 @@ impl Serialize for Value {
             Self::Expr(value) => tagged(serializer, "expr", &value.canonical_sql()),
             Self::Projection(value) => tagged(serializer, "projection", &value.canonical_sql()),
             Self::Query(value) => tagged(serializer, "query", &value.canonical_sql()),
+            Self::Relation(path) => tagged(serializer, "relation", &dotted_path(path)),
             Self::Binding { kind, path, time } => tagged(
                 serializer,
                 "binding",
@@ -381,6 +382,10 @@ impl<'de> Deserialize<'de> for Value {
                     "query" => Value::Query(Box::new(
                         SqlQuery::parse(&map.next_value::<String>()?).map_err(de::Error::custom)?,
                     )),
+                    "relation" => Value::Relation(
+                        parse_dotted_path(&map.next_value::<String>()?)
+                            .map_err(de::Error::custom)?,
+                    ),
                     "encoded" => Value::Channel {
                         mode: crate::ast::ChannelMode::Encoded,
                         expression: Box::new(map.next_value()?),
@@ -464,6 +469,7 @@ const VALUE_TAGS: &[&str] = &[
     "expr",
     "projection",
     "query",
+    "relation",
     "encoded",
     "direct",
     "dim",
@@ -638,13 +644,23 @@ fn dotted_path(path: &[Name]) -> String {
 }
 
 fn parse_dotted_dim(value: &str) -> Result<Vec<Name>, AstError> {
+    let path = parse_dotted_path(value)?;
+    if path.len() != 2 {
+        return Err(AstError::InvalidInterchange(
+            "dimension path must contain exactly two names".into(),
+        ));
+    }
+    Ok(path)
+}
+
+fn parse_dotted_path(value: &str) -> Result<Vec<Name>, AstError> {
     let path = value
         .split('.')
         .map(Name::new)
         .collect::<Result<Vec<_>, _>>()?;
-    if path.len() != 2 {
+    if path.is_empty() {
         return Err(AstError::InvalidInterchange(
-            "dimension path must contain exactly two names".into(),
+            "relation path must contain at least one name".into(),
         ));
     }
     Ok(path)
@@ -742,6 +758,17 @@ mod tests {
     }
 
     #[test]
+    fn ast_interchange_relation_paths_round_trip_canonically() {
+        let value = Value::Relation(vec![
+            Name::new("samples").unwrap(),
+            Name::new("movies").unwrap(),
+        ]);
+        let encoded = serde_json::to_value(&value).unwrap();
+        assert_eq!(encoded, json!({ "relation": "samples.movies" }));
+        assert_eq!(serde_json::from_value::<Value>(encoded).unwrap(), value);
+    }
+
+    #[test]
     fn ast_interchange_rejects_duplicate_properties_and_tags() {
         assert!(serde_json::from_str::<Value>(r#"{"num":"1","atom":"x"}"#).is_err());
         assert!(
@@ -758,7 +785,7 @@ mod tests {
                 .as_object()
                 .unwrap()
                 .len(),
-            16
+            17
         );
     }
 

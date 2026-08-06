@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: 30-Day Rolling Mean with Raw Values (`layer_line_rolling_mean_point_raw`).
 chart cartesian as layer_line_rolling_mean_point_raw {
-  data: { table: 'vega.seattle_weather'; }
+  data: { table: vega.seattle_weather; }
   layout: {
     canvas: { height: 347.0; width: 452.0; }
     plot: { height: 300.0; width: 400.0; }

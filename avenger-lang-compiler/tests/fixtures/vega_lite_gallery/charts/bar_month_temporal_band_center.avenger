@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Bar Chart with bars center-aligned with time unit ticks (`bar_month_temporal_band_center`).
 chart cartesian as bar_month_temporal_band_center {
   data: {
-    table: 'vega.seattle_weather';
+    table: vega.seattle_weather;
   }
   layout: {
     canvas: {

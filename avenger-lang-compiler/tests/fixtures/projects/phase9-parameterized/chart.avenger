@@ -5,7 +5,7 @@ chart cartesian as chart {
   data: {
     borough: concat($selected, '');
     min_fare: 2 + 3.5;
-    table: 'local.borough_trips';
+    table: local.borough_trips;
   }
   param 'Manhattan' as selected;
   mark symbol {

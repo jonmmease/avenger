@@ -21,7 +21,7 @@ schema tables as local {
 }
 
 chart facet as trellis_area {
-  data: { table: 'local.selected_stocks'; }
+  data: { table: local.selected_stocks; }
   layout: { plot: { height: 40.0; width: 300.0; } }
   row: "symbol" {
     order_by: min("symbol_order");

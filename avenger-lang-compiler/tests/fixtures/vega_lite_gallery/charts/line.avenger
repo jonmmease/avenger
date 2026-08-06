@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Line Chart (`line`).
 chart cartesian as line {
   data: {
-    table: 'vega.stocks';
+    table: vega.stocks;
   }
   layout: {
     canvas: {

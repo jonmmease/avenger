@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Bar Chart Showing Argmax Value (`bar_argmax`).
 chart cartesian as bar_argmax {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   layout: {
     canvas: { height: 302.0; width: 439.0; }
     plot: { height: 200.0; width: 300.0; }

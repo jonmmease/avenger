@@ -17,7 +17,7 @@ schema tables as local {
 }
 
 chart facet as trellis_bar {
-  data: { table: 'local.population_2000'; }
+  data: { table: local.population_2000; }
   layout: { plot: { height: 300.0; width: 323.0; } }
   row: "gender" {
     order_by: min("gender_order");

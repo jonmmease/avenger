@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Responsive Bar Chart (`bar_size_responsive`).
 chart cartesian as bar_size_responsive {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   param 300.0 as canvas_width;
   layout: {

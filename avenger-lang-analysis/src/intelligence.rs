@@ -8,9 +8,9 @@ use avenger_chart_schema::{
     ValueShape,
 };
 use avenger_lang_core::{
-    ByteSpan, ResolvedDeclaration, ResolvedModuleGraph, ResolvedOutputHandle, ResolvedTarget,
-    ResolvedValue, SourceFile, SourceId, SourceOrigin, SourceSpan, StateSharing,
-    allowed_child_declarations,
+    BindingCategory, ByteSpan, ModuleId, ResolvedDeclaration, ResolvedModuleGraph,
+    ResolvedOutputHandle, ResolvedTarget, ResolvedValue, SourceFile, SourceId, SourceOrigin,
+    SourceSpan, StateSharing, allowed_child_declarations,
     ast::{BindingTime, Visibility},
     sql::{LosslessTokenKind, TokenClass},
     syntax::{SqlIslandSite, TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
@@ -465,6 +465,72 @@ impl WorkspaceSemanticIndex {
                         target,
                     });
             }
+
+            let mut relations = BTreeMap::<String, &avenger_lang_core::ResolvedCatalogTable>::new();
+            for table in project
+                .catalog_tables
+                .values()
+                .filter(|table| table.file == file.id)
+            {
+                relations.insert(table.path.join("."), table);
+            }
+            for ((category, local), export) in &file.local_bindings.local {
+                if *category != BindingCategory::Data {
+                    continue;
+                }
+                let ModuleId::Source(module) = &export.module else {
+                    continue;
+                };
+                for table in project.catalog_tables.values().filter(|table| {
+                    table.relation.defining_item.module == *module
+                        && table.path.first() == Some(&export.name)
+                }) {
+                    let path = std::iter::once(local.clone())
+                        .chain(table.path.iter().skip(1).cloned())
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    relations.insert(path, table);
+                }
+            }
+            for (namespace, module) in &file.local_bindings.namespaces {
+                let ModuleId::Source(module) = module else {
+                    continue;
+                };
+                let Some(exports) = project
+                    .source_modules
+                    .get(module)
+                    .map(|module| &module.exports)
+                else {
+                    continue;
+                };
+                for table in project.catalog_tables.values().filter(|table| {
+                    table.relation.defining_item.module == *module
+                        && table.path.first().is_some_and(|root| {
+                            exports
+                                .exports
+                                .get(root)
+                                .is_some_and(|export| export.category == BindingCategory::Data)
+                        })
+                }) {
+                    let path = std::iter::once(namespace.clone())
+                        .chain(table.path.iter().cloned())
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    relations.insert(path, table);
+                }
+            }
+            for (path, table) in relations {
+                let target = self.navigation_for_identity(table.id.as_str());
+                self.public_references.insert(
+                    (importer.clone(), path.clone()),
+                    IndexedBinding {
+                        path,
+                        value_kind: IndexedValueKind::Table,
+                        detail: format!("{} table relation", table.kind),
+                        target,
+                    },
+                );
+            }
         }
         self.install_output_references(project, syntax);
     }
@@ -776,6 +842,7 @@ fn resolved_value_summary(value: &ResolvedValue) -> String {
         ResolvedValue::Null => "NULL".to_owned(),
         ResolvedValue::Column(value) => format!("\"{}\"", value.replace('\"', "\"\"")),
         ResolvedValue::Expression(value) => value.sql.clone(),
+        ResolvedValue::Relation(reference) => reference.authored_path.join("."),
         ResolvedValue::Binding(binding) => {
             let mut value = format!("${}", binding.authored_path.join("."));
             match binding.time {
@@ -1558,6 +1625,7 @@ fn collect_output_references<'a>(
                 }
             }
             ResolvedValue::String(_)
+            | ResolvedValue::Relation(_)
             | ResolvedValue::Number(_)
             | ResolvedValue::Boolean(_)
             | ResolvedValue::Null
@@ -1869,6 +1937,42 @@ fn scan_references(
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
+        if token.word() == Some("table")
+            && tokens
+                .get(index + 1)
+                .is_some_and(|token| matches!(token.token, Some(Token::Colon)))
+        {
+            let mut next = index + 2;
+            let Some(first) = tokens.get(next).and_then(SigToken::word) else {
+                index += 1;
+                continue;
+            };
+            let mut path = first.to_owned();
+            let start = tokens[next].span.range.start;
+            let mut end = tokens[next].span.range.end;
+            next += 1;
+            while next + 1 < tokens.len()
+                && matches!(tokens[next].token, Some(Token::Period))
+                && tokens[next + 1].word().is_some()
+            {
+                path.push('.');
+                path.push_str(tokens[next + 1].word().unwrap());
+                end = tokens[next + 1].span.range.end;
+                next += 2;
+            }
+            output.push(IndexedReference {
+                name: path,
+                origin: origin.clone(),
+                span: SourceSpan {
+                    source: token.span.source,
+                    range: ByteSpan { start, end },
+                },
+                target_identity: None,
+                value_kind: IndexedValueKind::Table,
+            });
+            index = next;
+            continue;
+        }
         if token.word() == Some("set") {
             let mut next = index + 1;
             let Some(first) = tokens.get(next).and_then(SigToken::word) else {
@@ -3040,6 +3144,15 @@ impl<'a> QueryContext<'a> {
         snippets: bool,
         output: &mut Vec<CompletionItem>,
     ) {
+        if property_name == "table" {
+            let typed = self
+                .syntax
+                .get(origin)
+                .map(|syntax| relation_path_prefix(syntax, cursor))
+                .unwrap_or_default();
+            self.complete_relation_paths(&typed, replacement, origin, output);
+            return;
+        }
         let owner = owner_symbol(self.index, origin, cursor);
         if property_name == "default"
             && let Some(owner) = owner
@@ -3143,6 +3256,34 @@ impl<'a> QueryContext<'a> {
                     _ => Vec::new(),
                 });
             self.complete_bindings(prefix, replacement, origin, cursor, &allowed, output);
+        }
+    }
+
+    fn complete_relation_paths(
+        &self,
+        typed: &str,
+        replacement: SourceSpan,
+        origin: &SourceOrigin,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        for ((reference_origin, _), relation) in &self.index.public_references {
+            if reference_origin != origin || relation.value_kind != IndexedValueKind::Table {
+                continue;
+            }
+            if !candidate_matches(&relation.path, typed) {
+                continue;
+            }
+            output.push(item(
+                relation.path.clone(),
+                replacement,
+                relation.path.clone(),
+                CompletionKind::Table,
+                Some(relation.detail.clone()),
+                None,
+                CompletionOrigin::LexicalScope,
+                false,
+                "00",
+            ));
         }
     }
 
@@ -4910,6 +5051,20 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
         })
         .min_by_key(|(length, _)| *length)
         .map(|(_, name)| name)
+}
+
+fn relation_path_prefix(syntax: &SyntaxAnalysis, cursor: usize) -> String {
+    let text = syntax.parsed.tokens.text();
+    let before = &text[..cursor.min(text.len())];
+    let start = before
+        .char_indices()
+        .rev()
+        .find_map(|(index, character)| {
+            (!(character == '.' || character == '_' || character.is_alphanumeric()))
+                .then_some(index + character.len_utf8())
+        })
+        .unwrap_or(0);
+    before[start..].to_owned()
 }
 
 fn incomplete_property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {

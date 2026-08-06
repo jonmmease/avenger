@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Scatterplot with Filled Circles (`circle`).
 chart cartesian as circle {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

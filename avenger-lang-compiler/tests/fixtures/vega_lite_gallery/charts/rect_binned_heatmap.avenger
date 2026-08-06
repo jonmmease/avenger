@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: 2D Histogram Heatmap (`rect_binned_heatmap`).
 chart cartesian as rect_binned_heatmap {
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

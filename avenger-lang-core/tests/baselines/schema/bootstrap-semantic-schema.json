@@ -260664,6 +260664,10 @@
         },
         "ref": {
           "$ref": "#/$defs/ref"
+        },
+        "relation": {
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*(?:\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*)*$",
+          "type": "string"
         }
       },
       "type": "object"

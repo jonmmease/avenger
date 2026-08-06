@@ -3,7 +3,7 @@ import { isotype } from './isotype_data.avenger';
 
 -- | Vega-Lite gallery: Pictorial Bar Chart (`isotype_bar_chart`).
 chart facet as isotype_bar_chart {
-  data: { table: 'isotype.animals'; }
+  data: { table: isotype.animals; }
   layout: { plot: { height: 200.0; width: 800.0; } }
   row: "country" {
     position: left;

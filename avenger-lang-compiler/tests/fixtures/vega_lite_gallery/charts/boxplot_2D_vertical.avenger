@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Tukey Box Plot (1.5 IQR) (`boxplot_2D_vertical`).
 chart cartesian as boxplot_2D_vertical {
-  data: { table: 'vega.penguins'; }
+  data: { table: vega.penguins; }
   layout: {
     canvas: { height: 386.0; width: 121.0; }
     plot: { height: 300.0; width: 60.0; }

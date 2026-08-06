@@ -92,7 +92,7 @@ schema tables as local {
   table inline as points { values: [{ x: 1; }]; }
 }
 chart cartesian {
-  data: { table: 'local.points'; }
+  data: { table: local.points; }
   transform sql { query: SELECT * FROM input WHERE "value" > 10; }
   transform pass {}
   mark symbol { x: encoded "x"; }

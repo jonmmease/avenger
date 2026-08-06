@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Slope Graph (`line_slope`).
 chart cartesian as line_slope {
   data: {
-    table: 'vega.barley';
+    table: vega.barley;
   }
   layout: {
     canvas: {

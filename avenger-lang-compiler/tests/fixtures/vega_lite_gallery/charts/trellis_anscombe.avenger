@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Trellis Scatter Plot Showing Anscombe's Quartet (`trellis_anscombe`).
 chart facet_column as trellis_anscombe {
-  data: { table: 'vega.anscombe'; }
+  data: { table: vega.anscombe; }
   layout: { plot: { height: 300.0; width: 300.0; } }
   column: "Series" {
     position: top;

@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Calculate Residuals (`joinaggregate_residual_graph`).
 chart cartesian as joinaggregate_residual_graph {
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Calculate Difference from Average (`joinaggregate_mean_difference`).
 chart cartesian as joinaggregate_mean_difference {
   data: {
-    table: 'vega.movies';
+    table: vega.movies;
   }
   layout: {
     canvas: {

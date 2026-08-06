@@ -3,7 +3,7 @@ import { vega } from 'data.avenger';
 
 chart cartesian as movies {
   data: {
-    table: 'vega.popular';
+    table: vega.popular;
   }
   mark symbol {
     x: encoded "year";

@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Relative Frequency Histogram (`histogram_rel_freq`).
 chart cartesian as histogram_rel_freq {
   data: {
-    table: 'vega.cars';
+    table: vega.cars;
   }
   layout: {
     canvas: {

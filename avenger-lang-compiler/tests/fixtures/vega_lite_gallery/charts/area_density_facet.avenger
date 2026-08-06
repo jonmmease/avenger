@@ -15,7 +15,7 @@ schema tables as local {
 
 chart facet as area_density_facet {
   title: 'Distribution of Body Mass of Penguins';
-  data: { table: 'local.penguins'; }
+  data: { table: local.penguins; }
   layout: {
     plot: { height: 80.0; width: 400.0; }
   }

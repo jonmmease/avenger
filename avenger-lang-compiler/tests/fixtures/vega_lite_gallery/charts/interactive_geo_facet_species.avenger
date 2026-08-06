@@ -23,7 +23,7 @@ schema tables as local {
 }
 
 chart facet_wrap as interactive_geo_facet_species {
-  data: { table: 'local.habitat_counties'; }
+  data: { table: local.habitat_counties; }
   layout: {
     canvas: { height: 478.0; width: 750.0; }
   }

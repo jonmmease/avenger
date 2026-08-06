@@ -377,8 +377,8 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
     fs::write(
         module_path(&invalid.0),
         "avenger 1;\
-         chart cartesian as a { data: { table: 'missing_a'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }\
-         chart cartesian as b { data: { table: 'missing_b'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
+         chart cartesian as a { data: { table: missing_a; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }\
+         chart cartesian as b { data: { table: missing_b; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
     )
     .unwrap();
     let invalid_root = invalid.0.clone();
@@ -447,7 +447,7 @@ table sql as {private_table} {{
 }}
 
 chart cartesian as chart {{
-  data: {{ table: '{private_table}'; }}
+  data: {{ table: {private_table}; }}
   param 64.0 as point_size;
   mark {private_mark} as points {{}}
   mark symbol as state_probe {{
@@ -597,7 +597,7 @@ async fn project_compile_cancellation_publishes_no_partial_analysis_or_artifacts
         module_path(&project.0),
         "avenger 1;\
          import { rows } from './data.avenger';\
-         chart cartesian as chart { data: { table: 'rows'; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
+         chart cartesian as chart { data: { table: rows; } mark symbol { x: encoded 'x'; y: encoded 'y'; } }",
     )
     .unwrap();
     let entered = Arc::new(Notify::new());

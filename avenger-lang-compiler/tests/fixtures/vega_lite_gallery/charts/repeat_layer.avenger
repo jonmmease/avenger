@@ -27,7 +27,7 @@ schema tables as local {
 }
 
 chart cartesian as repeat_layer {
-  data: { table: 'local.gross_by_rating'; }
+  data: { table: local.gross_by_rating; }
   layout: {
     canvas: { height: 342.0; width: 514.0; }
     plot: { height: 300.0; width: 300.0; }

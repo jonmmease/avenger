@@ -3,7 +3,7 @@ import { pass, shared } from 'shared.avenger';
 
 chart polar as polar {
   data: {
-    table: 'shared.points';
+    table: shared.points;
   }
   param 72.0 as point_size;
   transform pass {

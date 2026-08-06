@@ -3991,6 +3991,7 @@ impl<'a> ModuleLowerer<'a> {
                 )?)
             }
             ResolvedValue::Reference(_)
+            | ResolvedValue::Relation(_)
             | ResolvedValue::Pattern(_)
             | ResolvedValue::Environment(_)
             | ResolvedValue::None
@@ -5588,25 +5589,14 @@ impl<'a> ModuleLowerer<'a> {
                 match sources[0] {
                     "values" => self.inline_values(&properties["values"], declaration).await,
                     "table" => {
-                        let ResolvedValue::String(table) = &properties["table"] else {
+                        let ResolvedValue::Relation(relation) = &properties["table"] else {
                             return Err(lowerer_error(
                                 declaration,
-                                "data table name must be a string",
+                                "data table must be a relation path",
                             ));
                         };
-                        let authored_path = table.split('.').map(str::to_owned).collect::<Vec<_>>();
-                        let relation = declaration
-                            .relation_references
-                            .iter()
-                            .find(|reference| reference.authored_path == authored_path)
-                            .ok_or_else(|| {
-                                lowerer_error(
-                                    declaration,
-                                    format!(
-                                        "data table `{table}` has no resolved relation identity"
-                                    ),
-                                )
-                            })?;
+                        let authored_path = relation.authored_path.clone();
+                        let table = authored_path.join(".");
                         let ResolvedRelationTarget::Relation(relation_id) = &relation.target else {
                             return Err(lowerer_error(
                                 declaration,

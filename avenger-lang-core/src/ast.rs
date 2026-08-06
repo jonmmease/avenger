@@ -330,6 +330,8 @@ pub enum Value {
     Expr(Box<SqlExpression>),
     Projection(Box<SqlProjection>),
     Query(Box<SqlQuery>),
+    /// A statically resolved catalog relation path, authored without quotes.
+    Relation(Vec<Name>),
     Binding {
         kind: BindingKind,
         path: Vec<Name>,

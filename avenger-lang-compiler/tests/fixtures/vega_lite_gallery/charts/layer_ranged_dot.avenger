@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Ranged Dot Plot (`layer_ranged_dot`).
 chart cartesian as layer_ranged_dot {
-  data: { table: 'vega.countries'; }
+  data: { table: vega.countries; }
   layout: {
     canvas: { height: 142.0; width: 460.0; }
     plot: { height: 100.0; width: 300.0; }

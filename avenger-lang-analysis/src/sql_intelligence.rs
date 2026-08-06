@@ -1260,6 +1260,7 @@ fn property_value_accepts_sql(
     if matches!(
         first.as_str(),
         "data"
+            | "table"
             | "target"
             | "scope"
             | "surface"

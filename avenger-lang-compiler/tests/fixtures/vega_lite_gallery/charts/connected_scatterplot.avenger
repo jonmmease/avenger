@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Connected Scatterplot (`connected_scatterplot`).
 chart cartesian as connected_scatterplot {
   data: {
-    table: 'vega.driving';
+    table: vega.driving;
   }
   layout: {
     canvas: {

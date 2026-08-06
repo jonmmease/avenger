@@ -484,11 +484,25 @@ fn rewrite_value(
         (Value::Query(query), Some(ResolvedValue::Query(semantic_query))) => {
             **query = rewrite_query(query, &semantic_query.relations, names)?;
         }
-        (Value::Str(value), _) => {
-            if let Some(replacement) =
-                relation_string_replacement(value, declaration_relations, names)
-            {
-                *value = replacement;
+        (Value::Relation(path), Some(ResolvedValue::Relation(reference))) => {
+            if let Some(replacement) = relation_target_path(&reference.target, names) {
+                *path = replacement
+                    .into_iter()
+                    .map(|part| Name::new(part).expect("resolved relation names are valid"))
+                    .collect();
+            }
+        }
+        (Value::Relation(path), _) => {
+            let authored_path = path.iter().map(Name::as_str).collect::<Vec<_>>().join(".");
+            if let Some(replacement) = declaration_relations.iter().find_map(|reference| {
+                (reference.authored_path.join(".") == authored_path)
+                    .then(|| relation_target_path(&reference.target, names))
+                    .flatten()
+            }) {
+                *path = replacement
+                    .into_iter()
+                    .map(|part| Name::new(part).expect("resolved relation names are valid"))
+                    .collect();
             }
         }
         (Value::Array(values), Some(ResolvedValue::Array(semantic_values))) => {
@@ -723,19 +737,6 @@ fn rewrite_channel_branch_value(
         );
     }
     Ok(authored)
-}
-
-fn relation_string_replacement(
-    value: &str,
-    relations: &[ResolvedRelationReference],
-    names: &BTreeMap<ModuleItemId, Name>,
-) -> Option<String> {
-    relations.iter().find_map(|reference| {
-        (reference.authored_path.join(".") == value)
-            .then(|| relation_target_path(&reference.target, names))
-            .flatten()
-            .map(|path| path.join("."))
-    })
 }
 
 fn relation_target_path(

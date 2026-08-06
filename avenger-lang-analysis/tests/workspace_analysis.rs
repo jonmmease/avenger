@@ -233,7 +233,7 @@ schema tables as local {
   }
 }
 chart cartesian as chart {
-  data: { table: 'local.points'; }
+  data: { table: local.points; }
   mark symbol as points {
     x: encoded "x";
     y: encoded "y";

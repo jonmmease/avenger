@@ -2292,8 +2292,13 @@ fn collect_chart_catalog_dependencies(
         names: &mut BTreeSet<String>,
     ) {
         match value {
-            ResolvedValue::String(name) if property == Some("table") => {
-                names.insert(name.clone());
+            ResolvedValue::Relation(reference) => {
+                names.insert(reference.authored_path.join("."));
+                if let ResolvedRelationTarget::Relation(relation) = &reference.target
+                    && let Some(table) = project.catalog_tables.get(relation)
+                {
+                    tables.insert(table.id.clone());
+                }
             }
             ResolvedValue::Binding(binding) => visit_target(&binding.target, tables),
             ResolvedValue::Reference(reference) => visit_target(&reference.target, tables),

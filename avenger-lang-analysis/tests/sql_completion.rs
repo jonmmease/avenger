@@ -10,9 +10,9 @@ use std::{
 
 use avenger_lang_analysis::{
     AnalysisCancellation, AnalysisGeneration, AnalysisService, CodeActionRequest,
-    CompletionInvocation, CompletionOptions, CompletionSemanticKind, CompletionTextFormat,
-    DocumentRequest, DocumentSnapshot, PositionRequest, SemanticTokenKind, SourceRevision,
-    WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
+    CompletionInvocation, CompletionKind, CompletionOptions, CompletionSemanticKind,
+    CompletionTextFormat, DocumentRequest, DocumentSnapshot, IndexedValueKind, PositionRequest,
+    SemanticTokenKind, SourceRevision, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
@@ -114,7 +114,7 @@ fn chart_source(expression: &str) -> String {
 import {{ vega }} from 'data.avenger';
 
 chart cartesian as chart {{
-  data: {{ table: 'vega.movies'; }}
+  data: {{ table: vega.movies; }}
   param 5.0 as minimum;
   param named_struct('label', 'base', 'weight', 2) as config;
   param store as selected {{
@@ -1384,6 +1384,46 @@ async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
 }
 
 #[tokio::test]
+async fn table_source_completes_first_class_relation_paths() {
+    let fixture = fixture().await;
+    let source = chart_source("\"rating\"");
+    let relation_offset = source.find("table: vega.movies").unwrap() + "table: vega.".len();
+    let reference = fixture
+        .analysis
+        .semantic_index
+        .reference_at(&fixture.chart, relation_offset)
+        .expect("table relation reference");
+    assert_eq!(reference.name, "vega.movies");
+    assert_eq!(reference.value_kind, IndexedValueKind::Table);
+    assert!(reference.target_identity.is_some());
+
+    let member = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace("table: vega.movies;", "table: vega.mo⟦cursor⟧;"),
+    );
+    let movies = member
+        .items
+        .iter()
+        .find(|item| item.label == "vega.movies")
+        .unwrap_or_else(|| panic!("missing relation completion: {:#?}", member.items));
+    assert_eq!(movies.insert_text, "vega.movies");
+    assert_eq!(movies.kind, CompletionKind::Table);
+
+    let root = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_source("\"rating\"").replace("table: vega.movies;", "table: ve⟦cursor⟧;"),
+    );
+    let movies = root
+        .items
+        .iter()
+        .find(|item| item.label == "vega.movies")
+        .unwrap_or_else(|| panic!("missing root relation completion: {:#?}", root.items));
+    assert_eq!(movies.insert_text, "vega.movies");
+}
+
+#[tokio::test]
 async fn encoded_and_direct_channel_expressions_share_sql_completion() {
     let fixture = fixture().await;
     let encoded_source = chart_source("\"rat⟦cursor⟧");
@@ -1445,7 +1485,7 @@ schema tables as vega {
 }
 
 chart cartesian as chart {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   transform aggregate {
     group_by: ["category"];
     expressions: count(*) AS count;

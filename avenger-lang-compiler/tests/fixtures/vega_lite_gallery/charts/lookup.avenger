@@ -16,7 +16,7 @@ schema tables as local {
 }
 
 chart cartesian as lookup {
-  data: { table: 'local.group_ages'; }
+  data: { table: local.group_ages; }
   layout: {
     canvas: { height: 344.0; width: 105.0; }
     plot: { height: 300.0; width: 60.0; }

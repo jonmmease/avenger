@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Area Chart with Line and Point Overlays (`area_overlay`).
 chart cartesian as area_overlay {
   data: {
-    table: 'vega.stocks';
+    table: vega.stocks;
   }
   layout: {
     canvas: {

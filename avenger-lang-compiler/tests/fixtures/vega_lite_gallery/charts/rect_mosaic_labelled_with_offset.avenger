@@ -67,7 +67,7 @@ schema tables as local {
 }
 
 chart cartesian as rect_mosaic_labelled_with_offset {
-  data: { table: 'local.mosaic'; }
+  data: { table: local.mosaic; }
   layout: {
     canvas: { height: 361.0; width: 316.0; }
     plot: { height: 335.0; width: 280.0; }

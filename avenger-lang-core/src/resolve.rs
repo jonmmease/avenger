@@ -615,6 +615,7 @@ pub enum ResolvedValue {
     Expression(ResolvedExpression),
     Projection(ResolvedProjection),
     Query(ResolvedQuery),
+    Relation(ResolvedRelationReference),
     Binding(ResolvedBinding),
     Reference(ResolvedReference),
     Channel {
@@ -4631,8 +4632,7 @@ impl<'a> Resolver<'a> {
         } else {
             (None, None)
         };
-        let relation_references =
-            self.declaration_relation_references(&file.id, &properties, info.span);
+        let relation_references = Self::declaration_relation_references(&properties);
         ResolvedDeclaration {
             id: info.id.clone(),
             source: file.source,
@@ -4670,20 +4670,11 @@ impl<'a> Resolver<'a> {
     }
 
     fn declaration_relation_references(
-        &mut self,
-        module: &SourceModuleId,
         properties: &BTreeMap<String, ResolvedValue>,
-        span: SourceSpan,
     ) -> Vec<ResolvedRelationReference> {
         let mut references = Vec::new();
-        for (name, value) in properties {
-            self.collect_property_relation_references(
-                module,
-                Some(name),
-                value,
-                span,
-                &mut references,
-            );
+        for value in properties.values() {
+            Self::collect_property_relation_references(value, &mut references);
         }
         references.sort_by(|left, right| {
             left.authored_path
@@ -4695,23 +4686,11 @@ impl<'a> Resolver<'a> {
     }
 
     fn collect_property_relation_references(
-        &mut self,
-        module: &SourceModuleId,
-        property: Option<&str>,
         value: &ResolvedValue,
-        span: SourceSpan,
         output: &mut Vec<ResolvedRelationReference>,
     ) {
-        if property == Some("table")
-            && let ResolvedValue::String(path) = value
-        {
-            let authored_path = path.split('.').map(str::to_owned).collect::<Vec<_>>();
-            if let Some(target) = self.resolve_relation_path(module, &authored_path, false, span) {
-                output.push(ResolvedRelationReference {
-                    authored_path,
-                    target,
-                });
-            }
+        if let ResolvedValue::Relation(reference) = value {
+            output.push(reference.clone());
             return;
         }
         match value {
@@ -4720,50 +4699,27 @@ impl<'a> Resolver<'a> {
                 expression: value, ..
             }
             | ResolvedValue::Pattern(value) => {
-                self.collect_property_relation_references(module, property, value, span, output)
+                Self::collect_property_relation_references(value, output)
             }
             ResolvedValue::ChannelValue(channel) => {
-                self.collect_property_relation_references(
-                    module,
-                    property,
-                    &channel.head.expression,
-                    span,
-                    output,
-                );
+                Self::collect_property_relation_references(&channel.head.expression, output);
                 if let Some(otherwise) = &channel.otherwise {
-                    self.collect_property_relation_references(
-                        module,
-                        property,
-                        &otherwise.expression,
-                        span,
-                        output,
-                    );
+                    Self::collect_property_relation_references(&otherwise.expression, output);
                 }
                 for condition in &channel.conditions {
-                    self.collect_property_relation_references(
-                        module,
-                        property,
-                        &condition.predicate,
-                        condition.span,
-                        output,
-                    );
-                    self.collect_property_relation_references(
-                        module,
-                        property,
+                    Self::collect_property_relation_references(&condition.predicate, output);
+                    Self::collect_property_relation_references(
                         &condition.branch.expression,
-                        condition.span,
                         output,
                     );
                 }
                 for value in channel.configuration.values() {
-                    self.collect_property_relation_references(
-                        module, property, value, span, output,
-                    );
+                    Self::collect_property_relation_references(value, output);
                 }
             }
             ResolvedValue::Array(values) => {
                 for value in values {
-                    self.collect_property_relation_references(module, None, value, span, output);
+                    Self::collect_property_relation_references(value, output);
                 }
             }
             ResolvedValue::Object {
@@ -4773,16 +4729,10 @@ impl<'a> Resolver<'a> {
                 ..
             } => {
                 if let Some(head) = head {
-                    self.collect_property_relation_references(module, None, head, span, output);
+                    Self::collect_property_relation_references(head, output);
                 }
-                for (name, value) in properties {
-                    self.collect_property_relation_references(
-                        module,
-                        Some(name),
-                        value,
-                        span,
-                        output,
-                    );
+                for value in properties.values() {
+                    Self::collect_property_relation_references(value, output);
                 }
                 for child in children {
                     output.extend(child.relation_references.iter().cloned());
@@ -4790,7 +4740,7 @@ impl<'a> Resolver<'a> {
             }
             ResolvedValue::Call { args, .. } => {
                 for value in args {
-                    self.collect_property_relation_references(module, None, value, span, output);
+                    Self::collect_property_relation_references(value, output);
                 }
             }
             _ => {}
@@ -6711,6 +6661,20 @@ impl<'a> Resolver<'a> {
                     references,
                     relations,
                 })
+            }
+            Value::Relation(path) => {
+                let authored_path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
+                let Some(module) = self.scopes[scope.0].module.clone() else {
+                    return ResolvedValue::Invalid;
+                };
+                self.resolve_relation_path(&module, &authored_path, false, span)
+                    .map(|target| {
+                        ResolvedValue::Relation(ResolvedRelationReference {
+                            authored_path,
+                            target,
+                        })
+                    })
+                    .unwrap_or(ResolvedValue::Invalid)
             }
             Value::Binding { kind, path, time } => self
                 .resolve_sql_binding(scope, *kind, path, *time, span, in_event, owner)
@@ -10573,6 +10537,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
 fn is_self_contained_row_free(value: &ResolvedValue) -> bool {
     match value {
         ResolvedValue::String(_)
+        | ResolvedValue::Relation(_)
         | ResolvedValue::Number(_)
         | ResolvedValue::Boolean(_)
         | ResolvedValue::Null => true,
@@ -10892,6 +10857,7 @@ fn collect_value_targets(value: &ResolvedValue, targets: &mut BTreeSet<ResolvedT
             targets.insert(target.clone());
         }
         ResolvedValue::String(_)
+        | ResolvedValue::Relation(_)
         | ResolvedValue::Number(_)
         | ResolvedValue::Boolean(_)
         | ResolvedValue::Null
@@ -10958,6 +10924,7 @@ fn resolved_shape(value: &ResolvedValue) -> &'static str {
         ResolvedValue::Expression(_) => "SQL expression",
         ResolvedValue::Projection(_) => "SQL projection list",
         ResolvedValue::Query(_) => "SQL query",
+        ResolvedValue::Relation(_) => "relation path",
         ResolvedValue::Binding(_) => "binding",
         ResolvedValue::Reference(_) => "reference",
         ResolvedValue::Channel { mode, .. } => match mode {
@@ -11473,6 +11440,10 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             helpers: helpers_in_sql(&value.canonical_sql()),
             references: Vec::new(),
             relations: Vec::new(),
+        }),
+        Value::Relation(path) => ResolvedValue::Relation(ResolvedRelationReference {
+            authored_path: path.iter().map(ToString::to_string).collect(),
+            target: ResolvedRelationTarget::Input,
         }),
         Value::Binding { kind, path, time } => ResolvedValue::Binding(ResolvedBinding {
             target: ResolvedTarget::Declaration(DeclarationId("unresolved".to_owned())),

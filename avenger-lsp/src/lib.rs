@@ -4405,7 +4405,7 @@ export schema tables as vega {
 "#;
         let chart_text = r#"avenger 1;
 chart cartesian as chart {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   mark symbol { x: encoded "title"; y: encoded "rating"; }
 }
 "#;
@@ -4692,7 +4692,7 @@ import { vega } from 'data.avenger';
 import { dot } from 'dot.avenger';
 import { pass } from 'transforms.avenger';
 chart cartesian as chart {
-  data: { table: 'vega.movies'; }
+  data: { table: vega.movies; }
   transform pass {}
   transform sql as rows {
     query:
@@ -4882,7 +4882,7 @@ schema tables as local {
   table inline as points { values: [{ x: 1; }]; }
 }
 chart cartesian as chart {
-  data: { table: 'local.points'; }
+  data: { table: local.points; }
   transform pass {}
   mark symbol { x: encoded "x"; }
 }

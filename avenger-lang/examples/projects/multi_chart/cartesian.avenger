@@ -3,7 +3,7 @@ import { pass, shared } from 'shared.avenger';
 
 chart cartesian as cartesian {
   data: {
-    table: 'shared.points';
+    table: shared.points;
   }
   param 64.0 as point_size;
   transform pass {

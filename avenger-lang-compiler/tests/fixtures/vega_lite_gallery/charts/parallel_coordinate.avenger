@@ -32,7 +32,7 @@ schema tables as local {
 }
 
 chart cartesian as parallel_coordinate {
-  data: { table: 'local.parallel_values'; }
+  data: { table: local.parallel_values; }
   layout: {
     canvas: { height: 333.0; width: 693.0; }
     plot: { height: 300.0; width: 600.0; }

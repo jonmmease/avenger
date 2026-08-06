@@ -3,7 +3,7 @@ import { vega } from '../catalog.avenger';
 
 -- | Vega-Lite gallery: Scatterplot with Mean and Standard Deviation Overlay (`layer_scatter_errorband_1D_stdev_global_mean`).
 chart cartesian as layer_scatter_errorband_1D_stdev_global_mean {
-  data: { table: 'vega.cars'; }
+  data: { table: vega.cars; }
   layout: {
     canvas: { height: 347.0; width: 347.0; }
     plot: { height: 300.0; width: 300.0; }

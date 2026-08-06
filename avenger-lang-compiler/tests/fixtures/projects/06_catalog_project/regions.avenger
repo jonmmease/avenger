@@ -3,7 +3,7 @@ import { regions } from 'data.avenger';
 
 chart cartesian as regions {
   data: {
-    table: 'regions';
+    table: regions;
   }
   mark symbol {
     x: encoded "region";

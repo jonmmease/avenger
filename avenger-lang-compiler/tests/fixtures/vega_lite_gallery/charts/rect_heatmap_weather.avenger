@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Annual Weather Heatmap (`rect_heatmap_weather`).
 chart cartesian as rect_heatmap_weather {
   title: 'Daily Max Temperatures (C) in Seattle, WA';
-  data: { table: 'vega.seattle_weather'; }
+  data: { table: vega.seattle_weather; }
   layout: {
     canvas: { height: 300.0; width: 620.0; }
     plot: { height: 156.0; width: 403.0; }

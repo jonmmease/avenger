@@ -15,7 +15,7 @@ table inline as observations {
 
 chart cartesian as scatter {
   data: {
-    table: 'observations';
+    table: observations;
   }
   mark symbol as points {
     x: encoded "x";
@@ -25,7 +25,7 @@ chart cartesian as scatter {
 
 chart cartesian as bars {
   data: {
-    table: 'observations';
+    table: observations;
   }
   mark rect as bars {
     x: encoded "category";

@@ -4,7 +4,7 @@ import { vega } from '../catalog.avenger';
 -- | Vega-Lite gallery: Line Chart with Point Markers (`line_overlay`).
 chart cartesian as line_overlay {
   data: {
-    table: 'vega.stocks';
+    table: vega.stocks;
   }
   layout: {
     canvas: {
