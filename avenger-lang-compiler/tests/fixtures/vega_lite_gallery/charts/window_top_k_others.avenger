@@ -17,31 +17,22 @@ chart cartesian as window_top_k_others {
       width: 480.0;
     }
   }
-  transform sql as ranked_directors {
-    query:
-      WITH director_means AS (
-        SELECT
-          "Director",
-          AVG("Worldwide Gross") AS "aggregate_gross"
-        FROM input
-        GROUP BY "Director"
-      ), ranked AS (
-        SELECT
-          *,
-          ROW_NUMBER() OVER (ORDER BY "aggregate_gross" DESC) AS "rank"
-        FROM director_means
-      ), labeled AS (
-        SELECT
-          CASE WHEN "rank" < 10 THEN "Director" ELSE 'All Others' END AS "ranked_director",
-          "aggregate_gross"
-        FROM ranked
-      )
-      SELECT
-        "ranked_director",
-        AVG("aggregate_gross") AS "gross"
-      FROM labeled
-      GROUP BY "ranked_director"
-      ORDER BY "gross" DESC;
+  transform aggregate as director_means {
+    group_by: "Director";
+    expressions: avg("Worldwide Gross") AS aggregate_gross;
+  }
+  transform window as ranked {
+    expressions: row_number() OVER (ORDER BY "aggregate_gross" DESC) AS rank;
+  }
+  transform calculate as labels {
+    expressions: CASE WHEN "rank" < 10 THEN "Director" ELSE 'All Others' END AS ranked_director;
+  }
+  transform aggregate as ranked_directors {
+    group_by: "ranked_director";
+    expressions: avg("aggregate_gross") AS gross;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "gross" DESC;
   }
   mark rect as directors {
     fill: direct '#4c78a8';

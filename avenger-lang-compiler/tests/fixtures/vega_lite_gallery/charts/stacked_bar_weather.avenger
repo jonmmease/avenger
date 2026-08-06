@@ -16,54 +16,36 @@ chart cartesian as stacked_bar_weather {
       width: 240.0;
     }
   }
-  transform sql as monthly_weather {
-    query:
-      WITH counts AS (
-        SELECT
-          CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
-          "weather",
-          CAST(COUNT(*) AS DOUBLE) AS "count",
-          CASE "weather"
-            WHEN 'snow' THEN 0
-            WHEN 'rain' THEN 1
-            WHEN 'drizzle' THEN 2
-            WHEN 'fog' THEN 3
-            ELSE 4
-          END AS "stack_order"
-        FROM input
-        GROUP BY EXTRACT(MONTH FROM "date"), "weather"
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("count") OVER (
-            PARTITION BY "month_number"
-            ORDER BY "stack_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "y1"
-        FROM counts
-      )
-      SELECT
-        CASE "month_number"
-          WHEN 1 THEN 'Jan'
-          WHEN 2 THEN 'Feb'
-          WHEN 3 THEN 'Mar'
-          WHEN 4 THEN 'Apr'
-          WHEN 5 THEN 'May'
-          WHEN 6 THEN 'Jun'
-          WHEN 7 THEN 'Jul'
-          WHEN 8 THEN 'Aug'
-          WHEN 9 THEN 'Sep'
-          WHEN 10 THEN 'Oct'
-          WHEN 11 THEN 'Nov'
-          ELSE 'Dec'
-        END AS "month",
-        "month_number",
-        "weather",
-        "stack_order",
-        "y1" - "count" AS "y0",
-        "y1"
-      FROM stacked
-      ORDER BY "month_number", "stack_order";
+  transform calculate as weather_fields {
+    expressions:
+      CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS month_number,
+      CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
+        WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
+        WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
+        WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
+        WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
+      END AS month,
+      CASE "weather"
+        WHEN 'snow' THEN 0
+        WHEN 'rain' THEN 1
+        WHEN 'drizzle' THEN 2
+        WHEN 'fog' THEN 3
+        ELSE 4
+      END AS stack_order;
+  }
+  transform aggregate as monthly_counts {
+    group_by: ["month", "month_number", "weather", "stack_order"];
+    expressions: count(*) AS record_count;
+  }
+  transform stack as monthly_weather {
+    field: "record_count";
+    group_by: "month_number";
+    sort_by: -"stack_order";
+    offset: zero;
+    name: 'weather_stack';
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "month_number", "stack_order";
   }
   mark rect as weather_counts {
     fill: encoded "weather" {
@@ -91,7 +73,7 @@ chart cartesian as stacked_bar_weather {
     x2: encoded channel.x {
       band: 1.0;
     }
-    y: encoded "y1" {
+    y: encoded monthly_weather.end {
       axis: {
         title: 'Count of Records';
       }
@@ -101,6 +83,6 @@ chart cartesian as stacked_bar_weather {
         zero: true;
       }
     }
-    y2: encoded "y0";
+    y2: encoded monthly_weather.start;
   }
 }

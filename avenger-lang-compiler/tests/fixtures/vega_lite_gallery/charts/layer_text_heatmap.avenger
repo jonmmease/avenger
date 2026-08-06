@@ -16,12 +16,9 @@ chart cartesian as layer_text_heatmap {
       width: 240.0;
     }
   }
-  transform sql as car_counts {
-    query:
-      SELECT "Origin", "Cylinders", COUNT(*) AS "num_cars"
-      FROM input
-      GROUP BY "Origin", "Cylinders"
-      ORDER BY "Cylinders", "Origin";
+  transform aggregate as car_counts {
+    group_by: ["Origin", "Cylinders"];
+    expressions: count(*) AS num_cars;
   }
   mark group as heatmap {
     mark rect as cells {

@@ -16,15 +16,9 @@ chart cartesian as rect_heatmap {
       width: 240.0;
     }
   }
-  transform sql as mean_horsepower {
-    query:
-      SELECT
-        "Origin",
-        "Cylinders",
-        AVG("Horsepower") AS "mean_horsepower"
-      FROM input
-      GROUP BY "Origin", "Cylinders"
-      ORDER BY "Cylinders", "Origin";
+  transform aggregate as mean_horsepower {
+    group_by: ["Origin", "Cylinders"];
+    expressions: avg("Horsepower") AS mean_horsepower;
   }
   mark rect as cells {
     fill: encoded "mean_horsepower" {

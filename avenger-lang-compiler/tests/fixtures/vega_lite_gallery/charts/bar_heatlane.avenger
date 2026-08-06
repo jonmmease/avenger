@@ -17,33 +17,46 @@ chart cartesian as bar_heatlane {
       width: 400.0;
     }
   }
-  transform sql as binned_horsepower {
-    query:
-      WITH horsepower_bins AS (
-        SELECT
-          CAST(FLOOR((CAST("Horsepower" AS DOUBLE) - 40.0) / 20.0) * 20.0 + 40.0 AS DOUBLE) AS "bin_start",
-          COUNT(*) AS "count"
-        FROM input
-        WHERE "Horsepower" IS NOT NULL
-        GROUP BY FLOOR((CAST("Horsepower" AS DOUBLE) - 40.0) / 20.0)
-      ), count_bins AS (
-        SELECT
-          "bin_start",
-          "bin_start" + 20.0 AS "bin_end",
-          CAST(CEIL(CAST("count" AS DOUBLE) / 20.0) * 20.0 AS DOUBLE) AS "count_end"
-        FROM horsepower_bins
-      )
-      SELECT
-        "bin_start" + 1.0 AS "x0",
-        "bin_end" - 1.0 AS "x1",
-        "count_end",
-        MAX("count_end") OVER () AS "max_count_end",
-        -"count_end" / 2.0 AS "y0",
-        "count_end" / 2.0 AS "y1",
-        -"count_end" / 2.0 + 2.4 AS "inner_y0",
-        "count_end" / 2.0 - 2.4 AS "inner_y1"
-      FROM count_bins
-      ORDER BY "bin_start";
+  transform select as horsepower_values {
+    expressions: CAST("Horsepower" AS DOUBLE) AS horsepower;
+  }
+  transform filter {
+    predicate: "horsepower" IS NOT NULL;
+  }
+  transform bin as horsepower_bins {
+    field: "horsepower";
+    step: 20.0;
+    nice: false;
+    extent: [40.0, 240.0];
+    anchor: 40.0;
+    name: 'horsepower_bin';
+  }
+  transform aggregate as horsepower_counts {
+    group_by: ["horsepower_bin_start", "horsepower_bin_end"];
+    expressions: count(*) AS count;
+  }
+  transform bin as count_bins {
+    field: "count";
+    step: 20.0;
+    nice: false;
+    extent: [0.0, 120.0];
+    anchor: 0.0;
+    name: 'count_bin';
+  }
+  transform join_aggregate as count_extent {
+    expressions: max("count_bin_end") AS max_count_end;
+  }
+  transform calculate as binned_horsepower {
+    expressions:
+      "horsepower_bin_start" + 1.0 AS x0,
+      "horsepower_bin_end" - 1.0 AS x1,
+      -"count_bin_end" / 2.0 AS y0,
+      "count_bin_end" / 2.0 AS y1,
+      -"count_bin_end" / 2.0 + 2.4 AS inner_y0,
+      "count_bin_end" / 2.0 - 2.4 AS inner_y1;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "horsepower_bin_start";
   }
   mark group as lane {
     mark rect as backdrop {
@@ -76,7 +89,7 @@ chart cartesian as bar_heatlane {
     }
     mark rect as counts {
       corner_radius: direct 3.0;
-      fill: encoded "count_end" {
+      fill: encoded "count_bin_end" {
         legend: {
           title: 'count';
         }

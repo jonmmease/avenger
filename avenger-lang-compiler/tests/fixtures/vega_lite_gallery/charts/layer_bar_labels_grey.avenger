@@ -17,22 +17,21 @@ chart cartesian as layer_bar_labels_grey {
     }
   }
   mark group as plot {
-    transform sql as genre_means {
-      query:
-        SELECT
-          "genre",
-          "rating",
-          CASE
-            WHEN "genre" = 'null' THEN 1
-            ELSE -CAST(ROW_NUMBER() OVER (ORDER BY "genre") AS BIGINT)
-          END AS "sort_key"
-        FROM (
-          SELECT
-            COALESCE("Major Genre", 'null') AS "genre",
-            AVG("IMDB Rating") AS "rating"
-          FROM input
-          GROUP BY COALESCE("Major Genre", 'null')
-        );
+    transform calculate as genre_field {
+      expressions: COALESCE("Major Genre", 'null') AS genre;
+    }
+    transform aggregate as genre_means {
+      group_by: "genre";
+      expressions: avg("IMDB Rating") AS rating;
+    }
+    transform window as genre_order {
+      expressions: row_number() OVER (ORDER BY "genre") AS row_number;
+    }
+    transform calculate as sort_field {
+      expressions: CASE
+        WHEN "genre" = 'null' THEN 1
+        ELSE -CAST("row_number" AS BIGINT)
+      END AS sort_key;
     }
     mark rect as ratings {
       fill: direct '#dddddd';

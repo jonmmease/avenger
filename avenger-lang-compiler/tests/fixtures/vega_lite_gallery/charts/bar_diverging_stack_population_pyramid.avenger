@@ -16,19 +16,21 @@ chart cartesian as bar_diverging_stack_population_pyramid {
       width: 300.0;
     }
   }
-  transform sql as population_pyramid {
-    query:
-      SELECT
-        "age",
-        CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
-        CASE
-          WHEN "sex" = 2 THEN -CAST(SUM("people") AS DOUBLE)
-          ELSE CAST(SUM("people") AS DOUBLE)
-        END AS "signed_people"
-      FROM input
-      WHERE "year" = 2000
-      GROUP BY "age", "sex"
-      ORDER BY "age", "sex";
+  transform filter {
+    predicate: "year" = 2000;
+  }
+  transform calculate as population_fields {
+    expressions:
+      CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS gender,
+      CASE WHEN "sex" = 2 THEN -CAST("people" AS DOUBLE)
+        ELSE CAST("people" AS DOUBLE) END AS signed_value;
+  }
+  transform aggregate as population_pyramid {
+    group_by: ["age", "sex", "gender"];
+    expressions: sum("signed_value") AS signed_people;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "age", "sex";
   }
   mark rect as population {
     fill: encoded "gender" {

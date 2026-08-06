@@ -16,12 +16,12 @@ chart cartesian as bar_aggregate {
       width: 300.0;
     }
   }
-  transform sql as age_population {
-    query:
-      SELECT "age", SUM("people") AS "population"
-      FROM input
-      WHERE "year" = 2000
-      GROUP BY "age";
+  transform filter {
+    predicate: "year" = 2000;
+  }
+  transform aggregate as age_population {
+    group_by: "age";
+    expressions: sum("people") AS population;
   }
   mark rect as bars {
     fill: direct '#4c78a8';

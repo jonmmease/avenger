@@ -16,42 +16,27 @@ chart cartesian as stacked_bar_h_normalized_labeled {
       width: 300.0;
     }
   }
-  transform sql as normalized_population {
-    query:
-      WITH totals AS (
-        SELECT
-          "age",
-          CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
-          CASE WHEN "sex" = 2 THEN 0 ELSE 1 END AS "stack_order",
-          CAST(SUM("people") AS DOUBLE) AS "people"
-        FROM input
-        WHERE "year" = 2000
-        GROUP BY "age", "sex"
-      ), normalized AS (
-        SELECT
-          *,
-          "people" / SUM("people") OVER (PARTITION BY "age") AS "share"
-        FROM totals
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("share") OVER (
-            PARTITION BY "age"
-            ORDER BY "stack_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "x1"
-        FROM normalized
-      )
-      SELECT
-        "age",
-        "gender",
-        "people",
-        "stack_order",
-        "x1" - "share" AS "x0",
-        "x1",
-        "x1" - "share" / 2.0 AS "x_mid"
-      FROM stacked
-      ORDER BY "age", "stack_order";
+  transform filter {
+    predicate: "year" = 2000;
+  }
+  transform calculate as population_fields {
+    expressions:
+      CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS gender,
+      CASE WHEN "sex" = 2 THEN 0 ELSE 1 END AS stack_order;
+  }
+  transform aggregate as population_totals {
+    group_by: ["age", "gender", "stack_order"];
+    expressions: sum(CAST("people" AS DOUBLE)) AS population;
+  }
+  transform stack as normalized_population {
+    field: "population";
+    group_by: "age";
+    sort_by: -"stack_order";
+    offset: normalize;
+    name: 'population_stack';
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "age", "stack_order";
   }
   mark group as population {
     mark rect as bars {
@@ -65,7 +50,7 @@ chart cartesian as stacked_bar_h_normalized_labeled {
         }
       }
       stroke_width: direct 0.0;
-      x: encoded "x0" {
+      x: encoded normalized_population.start {
         axis: {
           format: '.0%';
           title: 'population';
@@ -76,7 +61,7 @@ chart cartesian as stacked_bar_h_normalized_labeled {
           zero: true;
         }
       }
-      x2: encoded "x1";
+      x2: encoded normalized_population.end;
       y: encoded "age" {
         axis: {
           title: 'age';
@@ -96,8 +81,8 @@ chart cartesian as stacked_bar_h_normalized_labeled {
       align: direct 'center';
       baseline: direct 'middle';
       color: direct '#ffffff';
-      text: direct CAST(CAST("people" AS BIGINT) AS VARCHAR);
-      x: encoded "x_mid";
+      text: direct CAST(CAST("population" AS BIGINT) AS VARCHAR);
+      x: encoded normalized_population.mid;
       y: encoded "age" {
         band: 0.5;
       }

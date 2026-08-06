@@ -8,20 +8,23 @@ chart cartesian as rect_lasagna {
     canvas: { height: 280.0; width: 560.0; }
     plot: { height: 120.0; width: 360.0; }
   }
-  transform sql as monthly_prices {
-    query:
-      SELECT
-        "symbol",
-        "date" AS "month_start",
-        "date" + INTERVAL '1 month' AS "month_end",
-        SUM("price") AS "price"
-      FROM input
-      WHERE "symbol" <> 'GOOG'
-      GROUP BY "symbol", "date"
-      ORDER BY "symbol", "date";
+  transform filter {
+    predicate: "symbol" <> 'GOOG';
+  }
+  transform calculate as temporal_fields {
+    expressions:
+      "date" AS month_start,
+      "date" + INTERVAL '1 month' AS month_end;
+  }
+  transform aggregate as monthly_prices {
+    group_by: ["symbol", "month_start", "month_end"];
+    expressions: sum("price") AS total_price;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "symbol", "month_start";
   }
   mark rect as prices {
-    fill: encoded "price" {
+    fill: encoded monthly_prices.total_price {
       legend: { title: 'Price'; }
       scale: linear {
         domain: [6.0, 223.0];

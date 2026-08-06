@@ -56,47 +56,42 @@ chart cartesian as bar_diverging_stack_transform {
       width: 300.0;
     }
   }
-  transform sql as centered_responses {
-    query:
-      WITH ordered AS (
-        SELECT
-          *,
-          CASE "response"
-            WHEN 'Strongly disagree' THEN 0
-            WHEN 'Disagree' THEN 1
-            WHEN 'Neither agree nor disagree' THEN 2
-            WHEN 'Agree' THEN 3
-            ELSE 4
-          END AS "response_order",
-          CASE
-            WHEN "response" IN ('Strongly disagree', 'Disagree')
-              THEN CAST("percentage" AS DOUBLE)
-            WHEN "response" = 'Neither agree nor disagree'
-              THEN CAST("percentage" AS DOUBLE) / 2.0
-            ELSE 0.0
-          END AS "offset_part",
-          CAST("percentage" AS DOUBLE) AS "pct"
-        FROM input
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("pct") OVER (
-            PARTITION BY "question"
-            ORDER BY "response_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "cumulative",
-          SUM("offset_part") OVER (PARTITION BY "question") AS "offset"
-        FROM ordered
-      )
-      SELECT
-        "question",
-        "question_order",
-        "response",
-        "response_order",
-        "cumulative" - "pct" - "offset" AS "x0",
-        "cumulative" - "offset" AS "x1"
-      FROM stacked
-      ORDER BY "question_order", "response_order";
+  transform calculate as response_fields {
+    expressions:
+      CASE "response"
+        WHEN 'Strongly disagree' THEN 0
+        WHEN 'Disagree' THEN 1
+        WHEN 'Neither agree nor disagree' THEN 2
+        WHEN 'Agree' THEN 3
+        ELSE 4
+      END AS response_order,
+      CASE
+        WHEN "response" IN ('Strongly disagree', 'Disagree')
+          THEN CAST("percentage" AS DOUBLE)
+        WHEN "response" = 'Neither agree nor disagree'
+          THEN CAST("percentage" AS DOUBLE) / 2.0
+        ELSE 0.0
+      END AS offset_part,
+      CAST("percentage" AS DOUBLE) AS pct;
+  }
+  transform stack as response_stack {
+    field: "pct";
+    group_by: "question";
+    sort_by: -"response_order";
+    offset: zero;
+    name: 'response_stack';
+  }
+  transform join_aggregate as response_offsets {
+    group_by: "question";
+    expressions: sum("offset_part") AS response_offset;
+  }
+  transform calculate as centered_responses {
+    expressions:
+      "response_stack_start" - "response_offset" AS x0,
+      "response_stack_end" - "response_offset" AS x1;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "question_order", "response_order";
   }
   mark rect as responses {
     fill: encoded "response" {

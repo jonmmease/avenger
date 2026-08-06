@@ -17,15 +17,21 @@ chart grid_concat as nested_concat_align {
   cell cartesian as rotten_tomatoes at { row: 0; column: 0; } {
     label: 'Ratings';
     mark group as histogram {
-      transform sql as bins {
-        query:
-          SELECT
-            5.0 * FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 5.0) AS "bin_start",
-            5.0 * FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 5.0) + 5.0 AS "bin_end",
-            CAST(COUNT(*) AS DOUBLE) AS "count"
-          FROM input
-          WHERE "Rotten Tomatoes Rating" IS NOT NULL
-          GROUP BY FLOOR(CAST("Rotten Tomatoes Rating" AS DOUBLE) / 5.0);
+      transform select as values {
+        expressions: CAST("Rotten Tomatoes Rating" AS DOUBLE) AS value;
+      }
+      transform filter { predicate: "value" IS NOT NULL; }
+      transform bin as bins {
+        field: "value";
+        step: 5.0;
+        nice: false;
+        extent: [0.0, 100.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as counts_by_bin {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';
@@ -46,15 +52,21 @@ chart grid_concat as nested_concat_align {
 
   cell cartesian as imdb at { row: 0; column: 1; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          SELECT
-            0.5 * FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.5) AS "bin_start",
-            0.5 * FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.5) + 0.5 AS "bin_end",
-            CAST(COUNT(*) AS DOUBLE) AS "count"
-          FROM input
-          WHERE "IMDB Rating" IS NOT NULL
-          GROUP BY FLOOR(CAST("IMDB Rating" AS DOUBLE) / 0.5);
+      transform select as values {
+        expressions: CAST("IMDB Rating" AS DOUBLE) AS value;
+      }
+      transform filter { predicate: "value" IS NOT NULL; }
+      transform bin as bins {
+        field: "value";
+        step: 0.5;
+        nice: false;
+        extent: [1.0, 9.5];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as counts_by_bin {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';
@@ -76,15 +88,21 @@ chart grid_concat as nested_concat_align {
   cell cartesian as us_gross at { row: 1; column: 0; } {
     label: 'Gross';
     mark group as histogram {
-      transform sql as bins {
-        query:
-          SELECT
-            50000000.0 * FLOOR(CAST("US Gross" AS DOUBLE) / 50000000.0) AS "bin_start",
-            50000000.0 * FLOOR(CAST("US Gross" AS DOUBLE) / 50000000.0) + 50000000.0 AS "bin_end",
-            CAST(COUNT(*) AS DOUBLE) AS "count"
-          FROM input
-          WHERE "US Gross" IS NOT NULL
-          GROUP BY FLOOR(CAST("US Gross" AS DOUBLE) / 50000000.0);
+      transform select as values {
+        expressions: CAST("US Gross" AS DOUBLE) AS value;
+      }
+      transform filter { predicate: "value" IS NOT NULL; }
+      transform bin as bins {
+        field: "value";
+        step: 50000000.0;
+        nice: false;
+        extent: [0.0, 800000000.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as counts_by_bin {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';
@@ -105,15 +123,21 @@ chart grid_concat as nested_concat_align {
 
   cell cartesian as worldwide_gross at { row: 1; column: 1; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          SELECT
-            200000000.0 * FLOOR(CAST("Worldwide Gross" AS DOUBLE) / 200000000.0) AS "bin_start",
-            200000000.0 * FLOOR(CAST("Worldwide Gross" AS DOUBLE) / 200000000.0) + 200000000.0 AS "bin_end",
-            CAST(COUNT(*) AS DOUBLE) AS "count"
-          FROM input
-          WHERE "Worldwide Gross" IS NOT NULL
-          GROUP BY FLOOR(CAST("Worldwide Gross" AS DOUBLE) / 200000000.0);
+      transform select as values {
+        expressions: CAST("Worldwide Gross" AS DOUBLE) AS value;
+      }
+      transform filter { predicate: "value" IS NOT NULL; }
+      transform bin as bins {
+        field: "value";
+        step: 200000000.0;
+        nice: false;
+        extent: [0.0, 3000000000.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as counts_by_bin {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';

@@ -8,29 +8,27 @@ chart cartesian as layer_precipitation_mean {
     canvas: { height: 347.0; width: 291.0; }
     plot: { height: 300.0; width: 240.0; }
   }
-  transform sql as precipitation_summary {
-    query:
-      WITH raw AS (
-        SELECT
-          CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
-          "precipitation",
-          AVG("precipitation") OVER () AS "global_mean"
-        FROM input
-        WHERE "date" IS NOT NULL AND "precipitation" IS NOT NULL
-      )
-      SELECT
-        "month_number",
-        CASE "month_number"
-          WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
-          WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
-          WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
-          WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
-        END AS "month",
-        AVG("precipitation") AS "monthly_mean",
-        MIN("global_mean") AS "global_mean"
-      FROM raw
-      GROUP BY "month_number"
-      ORDER BY "month_number";
+  transform filter {
+    predicate: "date" IS NOT NULL AND "precipitation" IS NOT NULL;
+  }
+  transform calculate as calendar_fields {
+    expressions:
+      CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS month_number,
+      CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
+        WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
+        WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
+        WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
+        WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
+      END AS month;
+  }
+  transform join_aggregate as global_statistics {
+    expressions: avg("precipitation") AS global_mean;
+  }
+  transform aggregate as precipitation_summary {
+    group_by: ["month_number", "month"];
+    expressions:
+      avg("precipitation") AS monthly_mean,
+      min("global_mean") AS overall_mean;
   }
   mark group as layers {
     mark rect as months {
@@ -57,8 +55,8 @@ chart cartesian as layer_precipitation_mean {
       stroke_width: direct 3.0;
       x: direct 0.0;
       x2: direct 240.0;
-      y: encoded "global_mean";
-      y2: encoded "global_mean";
+      y: encoded precipitation_summary.overall_mean;
+      y2: encoded precipitation_summary.overall_mean;
     }
   }
 }

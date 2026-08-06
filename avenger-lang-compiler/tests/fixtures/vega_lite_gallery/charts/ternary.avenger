@@ -116,40 +116,37 @@ chart cartesian as ternary {
         { City: 'Goldcrest'; High: 18.0; Medium: 28.0; Low: 35.0; }
       ];
     }
-    transform sql as positions {
-      query:
-        WITH totals AS (
-          SELECT *, "High" + "Medium" + "Low" AS "TotalLevel"
-          FROM input
-        ), shares AS (
-          SELECT *,
-            "High" / "TotalLevel" AS "high_percent",
-            "Medium" / "TotalLevel" AS "medium_percent",
-            "Low" / "TotalLevel" AS "low_percent"
-          FROM totals
-        )
-        SELECT *,
-          0.5 * (2.0 * "low_percent" + "medium_percent") AS "x",
-          0.866 * "medium_percent" AS "y",
-          CASE
-            WHEN "high_percent" > 0.8 THEN '#FF0F0F'
-            WHEN "medium_percent" > 0.8 THEN '#FFC333'
-            WHEN "low_percent" > 0.8 THEN '#32F95D'
-            WHEN "high_percent" > 0.5 AND "medium_percent" > "low_percent" THEN '#ff3c18'
-            WHEN "high_percent" > 0.5 THEN '#cb4922'
-            WHEN "medium_percent" > 0.5 AND "high_percent" > "low_percent" THEN '#ff962a'
-            WHEN "medium_percent" > 0.5 THEN '#cbd03d'
-            WHEN "low_percent" > 0.5 AND "medium_percent" < "high_percent" THEN '#65be49'
-            WHEN "low_percent" > 0.5 THEN '#65eb52'
-            ELSE '#43c1ce'
-          END AS "color",
-          CASE WHEN "medium_percent" > 0.9 THEN 15.0 ELSE -15.0 END AS "dy_val"
-        FROM shares;
+    transform calculate as totals {
+      expressions: "High" + "Medium" + "Low" AS total_level;
+    }
+    transform calculate as shares {
+      expressions:
+        "High" / "total_level" AS high_percent,
+        "Medium" / "total_level" AS medium_percent,
+        "Low" / "total_level" AS low_percent;
+    }
+    transform calculate as positions {
+      expressions:
+        0.5 * (2.0 * "low_percent" + "medium_percent") AS x,
+        0.866 * "medium_percent" AS y,
+        CASE
+          WHEN "high_percent" > 0.8 THEN '#FF0F0F'
+          WHEN "medium_percent" > 0.8 THEN '#FFC333'
+          WHEN "low_percent" > 0.8 THEN '#32F95D'
+          WHEN "high_percent" > 0.5 AND "medium_percent" > "low_percent" THEN '#ff3c18'
+          WHEN "high_percent" > 0.5 THEN '#cb4922'
+          WHEN "medium_percent" > 0.5 AND "high_percent" > "low_percent" THEN '#ff962a'
+          WHEN "medium_percent" > 0.5 THEN '#cbd03d'
+          WHEN "low_percent" > 0.5 AND "medium_percent" < "high_percent" THEN '#65be49'
+          WHEN "low_percent" > 0.5 THEN '#65eb52'
+          ELSE '#43c1ce'
+        END AS color,
+        CASE WHEN "medium_percent" > 0.9 THEN 15.0 ELSE -15.0 END AS dy_val;
     }
     mark symbol as points {
       fill: direct "color";
       opacity: direct 1.0;
-      size: encoded "TotalLevel" {
+      size: encoded "total_level" {
         legend: { visible: false; }
         scale: linear { range: [50.0, 500.0]; zero: true; }
       }
@@ -159,9 +156,7 @@ chart cartesian as ternary {
       y: encoded "y";
     }
     mark group as labels_above {
-      transform sql as selected {
-        query: SELECT * FROM input WHERE "dy_val" < 0.0;
-      }
+      transform filter as selected { predicate: "dy_val" < 0.0; }
       mark text as names {
         color: direct 'black';
         font_size: direct 13.0;
@@ -176,9 +171,7 @@ chart cartesian as ternary {
       }
     }
     mark group as labels_below {
-      transform sql as selected {
-        query: SELECT * FROM input WHERE "dy_val" > 0.0;
-      }
+      transform filter as selected { predicate: "dy_val" > 0.0; }
       mark text as names {
         color: direct 'black';
         font_size: direct 13.0;

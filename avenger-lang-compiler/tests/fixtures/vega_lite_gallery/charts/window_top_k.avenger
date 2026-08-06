@@ -27,19 +27,14 @@ chart cartesian as window_top_k {
       width: 280.0;
     }
   }
-  transform sql as top_five {
-    query:
-      WITH ranked AS (
-        SELECT
-          "student",
-          "score",
-          RANK() OVER (ORDER BY "score" DESC) AS "rank"
-        FROM input
-      )
-      SELECT *
-      FROM ranked
-      WHERE "rank" <= 5
-      ORDER BY "score" DESC, "student";
+  transform window as ranked {
+    expressions: rank() OVER (ORDER BY "score" DESC) AS rank;
+  }
+  transform filter {
+    predicate: "rank" <= 5;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "score" DESC, "student";
   }
   mark rect as scores {
     fill: direct '#4c78a8';

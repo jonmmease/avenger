@@ -9,21 +9,20 @@ chart cartesian as rect_heatmap_weather {
     canvas: { height: 300.0; width: 620.0; }
     plot: { height: 156.0; width: 403.0; }
   }
-  transform sql as daily_monthly_maximum {
-    query:
-      SELECT
-        CAST(EXTRACT(DAY FROM "date") AS BIGINT) AS "day",
-        CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
-        CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
-          WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
-          WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
-          WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
-          WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
-        END AS "month",
-        MAX("temp_max") AS "maximum_temperature"
-      FROM input
-      GROUP BY EXTRACT(DAY FROM "date"), EXTRACT(MONTH FROM "date")
-      ORDER BY "month_number", "day";
+  transform calculate as calendar_fields {
+    expressions:
+      CAST(EXTRACT(DAY FROM "date") AS BIGINT) AS day,
+      CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS month_number,
+      CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
+        WHEN 1 THEN 'Jan' WHEN 2 THEN 'Feb' WHEN 3 THEN 'Mar'
+        WHEN 4 THEN 'Apr' WHEN 5 THEN 'May' WHEN 6 THEN 'Jun'
+        WHEN 7 THEN 'Jul' WHEN 8 THEN 'Aug' WHEN 9 THEN 'Sep'
+        WHEN 10 THEN 'Oct' WHEN 11 THEN 'Nov' ELSE 'Dec'
+      END AS month;
+  }
+  transform aggregate as daily_monthly_maximum {
+    group_by: ["day", "month_number", "month"];
+    expressions: max("temp_max") AS maximum_temperature;
   }
   mark rect as days {
     fill: encoded "maximum_temperature" {

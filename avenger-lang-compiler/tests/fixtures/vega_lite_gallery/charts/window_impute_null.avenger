@@ -18,21 +18,18 @@ chart cartesian as window_impute_null {
     canvas: { height: 345.0; width: 348.0; }
     plot: { height: 300.0; width: 300.0; }
   }
-  transform sql as imputed_values {
-    query:
-      WITH neighbors AS (
-        SELECT
-          CAST("a" AS DATE) AS "date",
-          "b",
-          LAG("b") OVER (ORDER BY "a") AS "previous",
-          LEAD("b") OVER (ORDER BY "a") AS "next"
-        FROM input
-      )
-      SELECT
-        "date",
-        COALESCE("b", ("previous" + "next") / 2.0) AS "value"
-      FROM neighbors
-      ORDER BY "date";
+  transform window as neighbors {
+    expressions:
+      lag("b") OVER (ORDER BY "a") AS previous,
+      lead("b") OVER (ORDER BY "a") AS next;
+  }
+  transform select as imputed_values {
+    expressions:
+      CAST("a" AS DATE) AS date,
+      COALESCE("b", ("previous" + "next") / 2.0) AS value;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "date";
   }
   mark group as line_with_points {
     mark line as values {

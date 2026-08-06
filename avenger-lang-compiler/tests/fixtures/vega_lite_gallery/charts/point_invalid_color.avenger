@@ -16,13 +16,11 @@ chart cartesian as point_invalid_color {
       width: 340.0;
     }
   }
-  transform sql as positioned_ratings {
-    query:
-      SELECT
-        COALESCE(CAST("IMDB Rating" AS DOUBLE), 0.0) AS "imdb",
-        COALESCE(CAST("Rotten Tomatoes Rating" AS DOUBLE), 0.0) AS "rotten",
-        "IMDB Rating" IS NULL OR "Rotten Tomatoes Rating" IS NULL AS "invalid"
-      FROM input;
+  transform select as positioned_ratings {
+    expressions:
+      COALESCE(CAST("IMDB Rating" AS DOUBLE), 0.0) AS imdb,
+      COALESCE(CAST("Rotten Tomatoes Rating" AS DOUBLE), 0.0) AS rotten,
+      "IMDB Rating" IS NULL OR "Rotten Tomatoes Rating" IS NULL AS invalid;
   }
   mark symbol as movies {
     fill: direct '#ffffff';

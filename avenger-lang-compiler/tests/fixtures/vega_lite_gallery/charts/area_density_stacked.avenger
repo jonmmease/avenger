@@ -9,13 +9,13 @@ chart cartesian as area_density_stacked {
     canvas: { height: 144.0; width: 544.0; }
     plot: { height: 80.0; width: 400.0; }
   }
-  transform sql as normalized_columns {
-    query:
-      SELECT
-        CAST("Body Mass (g)" AS DOUBLE) AS "mass_input",
-        "Species" AS "species"
-      FROM input
-      WHERE "Body Mass (g)" IS NOT NULL AND "Species" IS NOT NULL;
+  transform select as normalized_columns {
+    expressions:
+      CAST("Body Mass (g)" AS DOUBLE) AS mass_input,
+      "Species" AS species;
+  }
+  transform filter {
+    predicate: "mass_input" IS NOT NULL AND "species" IS NOT NULL;
   }
   transform kde as mass_density {
     field: "mass_input";

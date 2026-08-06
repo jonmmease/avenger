@@ -26,12 +26,12 @@ chart hconcat as concat_population_pyramid {
   cell cartesian as female {
     label: 'Female';
     mark group as female_population {
-      transform sql as totals {
-        query:
-          SELECT "age", SUM("population") AS "population"
-          FROM input
-          WHERE "gender" = 'Female'
-          GROUP BY "age";
+      transform filter {
+        predicate: "gender" = 'Female';
+      }
+      transform aggregate as totals {
+        group_by: "age";
+        expressions: sum("population") AS total_population;
       }
       mark rect as bars {
         fill: direct '#675193';
@@ -40,7 +40,7 @@ chart hconcat as concat_population_pyramid {
           axis: { format: '.0s'; tick_count: 7; title: 'population'; }
           scale: linear { domain: [12000000.0, 0.0]; nice: false; zero: true; }
         }
-        x2: encoded "population";
+        x2: encoded "total_population";
         y: encoded "age" {
           axis: { visible: false; }
           band: 0.0;
@@ -56,10 +56,8 @@ chart hconcat as concat_population_pyramid {
   }
   cell cartesian as ages {
     mark group as labels {
-      transform sql as age_rows {
-        query:
-          SELECT DISTINCT "age"
-          FROM input;
+      transform aggregate as age_rows {
+        group_by: "age";
       }
       mark text as age_labels {
         align: direct 'center';
@@ -82,12 +80,12 @@ chart hconcat as concat_population_pyramid {
   cell cartesian as male {
     label: 'Male';
     mark group as male_population {
-      transform sql as totals {
-        query:
-          SELECT "age", SUM("population") AS "population"
-          FROM input
-          WHERE "gender" = 'Male'
-          GROUP BY "age";
+      transform filter {
+        predicate: "gender" = 'Male';
+      }
+      transform aggregate as totals {
+        group_by: "age";
+        expressions: sum("population") AS total_population;
       }
       mark rect as bars {
         fill: direct '#ca8861';
@@ -96,7 +94,7 @@ chart hconcat as concat_population_pyramid {
           axis: { format: '.0s'; tick_count: 7; title: 'population'; }
           scale: linear { domain: [0.0, 12000000.0]; nice: false; zero: true; }
         }
-        x2: encoded "population";
+        x2: encoded "total_population";
         y: encoded "age" {
           axis: { visible: false; }
           band: 0.0;

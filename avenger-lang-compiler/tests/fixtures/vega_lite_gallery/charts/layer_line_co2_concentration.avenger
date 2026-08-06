@@ -8,29 +8,28 @@ chart cartesian as layer_line_co2_concentration {
     canvas: { height: 547.0; width: 877.0; }
     plot: { height: 500.0; width: 800.0; }
   }
-  transform sql as decade_curves {
-    query:
-      WITH dated AS (
-        SELECT
-          CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) AS "year",
-          CAST(FLOOR(EXTRACT(YEAR FROM "Date") / 10) AS BIGINT) AS "decade",
-          CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) % 10
-            + (CAST(EXTRACT(MONTH FROM "Date") AS DOUBLE) - 1.0) / 12.0
-            AS "scaled_date",
-          "CO2"
-        FROM input
-        WHERE "Date" IS NOT NULL AND "CO2" IS NOT NULL
-      )
-      SELECT
-        *,
-        ROW_NUMBER() OVER (
-          PARTITION BY "decade" ORDER BY "scaled_date"
-        ) AS "first_rank",
-        ROW_NUMBER() OVER (
-          PARTITION BY "decade" ORDER BY "scaled_date" DESC
-        ) AS "last_rank"
-      FROM dated
-      ORDER BY "decade", "scaled_date";
+  transform filter {
+    predicate: "Date" IS NOT NULL AND "CO2" IS NOT NULL;
+  }
+  transform calculate as dated {
+    expressions:
+      CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) AS year,
+      CAST(FLOOR(EXTRACT(YEAR FROM "Date") / 10) AS BIGINT) AS decade,
+      CAST(EXTRACT(YEAR FROM "Date") AS BIGINT) % 10
+        + (CAST(EXTRACT(MONTH FROM "Date") AS DOUBLE) - 1.0) / 12.0
+        AS scaled_date;
+  }
+  transform window as decade_curves {
+    expressions:
+      ROW_NUMBER() OVER (
+        PARTITION BY "decade" ORDER BY "scaled_date"
+      ) AS first_rank,
+      ROW_NUMBER() OVER (
+        PARTITION BY "decade" ORDER BY "scaled_date" DESC
+      ) AS last_rank;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "decade", "scaled_date";
   }
   mark group as layers {
     mark line as decades {

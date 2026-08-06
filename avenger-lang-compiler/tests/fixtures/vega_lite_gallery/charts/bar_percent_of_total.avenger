@@ -21,14 +21,11 @@ chart cartesian as bar_percent_of_total {
       width: 300.0;
     }
   }
-  transform sql as percentages {
-    query:
-      SELECT
-        "Activity",
-        CAST("Time" AS DOUBLE) / SUM(CAST("Time" AS DOUBLE)) OVER () * 100.0
-          AS "percent"
-      FROM input
-      ORDER BY "Activity";
+  transform join_aggregate as total_time {
+    expressions: sum(CAST("Time" AS DOUBLE)) AS total;
+  }
+  transform calculate as percentages {
+    expressions: CAST("Time" AS DOUBLE) / total_time.total * 100.0 AS percent;
   }
   mark rect as activities {
     fill: direct '#4c78a8';

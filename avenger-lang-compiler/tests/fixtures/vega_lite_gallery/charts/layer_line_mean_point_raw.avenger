@@ -28,21 +28,22 @@ chart cartesian as layer_line_mean_point_raw {
       }
     }
     mark group as yearly_average {
-      transform sql as means {
-        query:
-          SELECT
-            DATE_TRUNC('year', "date") AS "year",
-            AVG("price") AS "mean_price"
-          FROM input
-          GROUP BY DATE_TRUNC('year', "date")
-          ORDER BY "year";
+      transform calculate as temporal_fields {
+        expressions: DATE_TRUNC('year', "date") AS year;
+      }
+      transform aggregate as means {
+        group_by: "year";
+        expressions: avg("price") AS mean_price;
+      }
+      transform sql {
+        query: SELECT * FROM input ORDER BY "year";
       }
       mark line as mean_price {
         order: direct "year";
         stroke: direct '#4c78a8';
         stroke_width: direct 2.0;
         x: encoded "year";
-        y: encoded "mean_price";
+        y: encoded means.mean_price;
       }
     }
   }

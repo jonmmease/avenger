@@ -16,22 +16,32 @@ chart cartesian as histogram {
       width: 300.0;
     }
   }
-  transform sql as rating_bins {
-    query:
-      SELECT
-        FLOOR("IMDB Rating") AS "bin_start",
-        FLOOR("IMDB Rating") + 1.0 AS "bin_end",
-        COUNT(*) AS "count"
-      FROM input
-      WHERE "IMDB Rating" IS NOT NULL
-      GROUP BY FLOOR("IMDB Rating")
-      ORDER BY "bin_start";
+  transform select as ratings {
+    expressions: CAST("IMDB Rating" AS DOUBLE) AS rating;
+  }
+  transform filter {
+    predicate: "rating" IS NOT NULL;
+  }
+  transform bin as rating_bins {
+    field: "rating";
+    step: 1.0;
+    nice: false;
+    extent: [1.0, 10.0];
+    anchor: 0.0;
+    name: 'rating_bin';
+  }
+  transform aggregate as bin_counts {
+    group_by: ["rating_bin_start", "rating_bin_end"];
+    expressions: count(*) AS count;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "rating_bin_start";
   }
   mark rect as bins {
     fill: direct '#4c78a8';
     stroke: direct 'white';
     stroke_width: direct 1.0;
-    x: encoded "bin_start" {
+    x: encoded "rating_bin_start" {
       axis: {
         title: 'IMDB Rating (binned)';
       }
@@ -41,7 +51,7 @@ chart cartesian as histogram {
         zero: false;
       }
     }
-    x2: encoded "bin_end";
+    x2: encoded "rating_bin_end";
     y: encoded 0.0 {
       axis: {
         title: 'Count of Records';

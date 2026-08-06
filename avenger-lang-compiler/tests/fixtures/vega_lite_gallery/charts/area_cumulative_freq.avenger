@@ -16,29 +16,24 @@ chart cartesian as area_cumulative_freq {
       width: 340.0;
     }
   }
-  transform sql as cumulative_ratings {
-    query:
-      WITH rating_counts AS (
-        SELECT
-          "IMDB Rating" AS "rating",
-          COUNT(*) AS "count"
-        FROM input
-        GROUP BY "IMDB Rating"
-      ), cumulative AS (
-        SELECT
-          "rating",
-          SUM("count") OVER (
-            ORDER BY "rating" NULLS FIRST
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "cumulative_count"
-        FROM rating_counts
-      )
-      SELECT
-        "rating",
-        "cumulative_count"
-      FROM cumulative
-      WHERE "rating" IS NOT NULL
-      ORDER BY "rating";
+  transform calculate as rating_field {
+    expressions: "IMDB Rating" AS rating;
+  }
+  transform aggregate as rating_counts {
+    group_by: "rating";
+    expressions: count(*) AS count;
+  }
+  transform window as cumulative_ratings {
+    expressions: sum("count") OVER (
+      ORDER BY "rating" NULLS FIRST
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS cumulative_count;
+  }
+  transform filter {
+    predicate: "rating" IS NOT NULL;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "rating";
   }
   mark area as distribution {
     fill: direct '#4c78a8';

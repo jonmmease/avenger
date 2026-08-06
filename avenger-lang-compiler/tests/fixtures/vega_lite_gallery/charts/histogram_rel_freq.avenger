@@ -16,31 +16,38 @@ chart cartesian as histogram_rel_freq {
       width: 300.0;
     }
   }
-  transform sql as relative_frequency {
-    query:
-      WITH binned AS (
-        SELECT
-          FLOOR("Horsepower" / 20.0) * 20.0 AS "bin_start",
-          FLOOR("Horsepower" / 20.0) * 20.0 + 20.0 AS "bin_end"
-        FROM input
-        WHERE "Horsepower" IS NOT NULL
-      ), counts AS (
-        SELECT "bin_start", "bin_end", COUNT(*) AS "count"
-        FROM binned
-        GROUP BY "bin_start", "bin_end"
-      )
-      SELECT
-        "bin_start",
-        "bin_end",
-        CAST("count" AS DOUBLE) / SUM("count") OVER () AS "relative_frequency"
-      FROM counts
-      ORDER BY "bin_start";
+  transform select as horsepower_values {
+    expressions: CAST("Horsepower" AS DOUBLE) AS horsepower;
+  }
+  transform filter {
+    predicate: "horsepower" IS NOT NULL;
+  }
+  transform bin as horsepower_bins {
+    field: "horsepower";
+    step: 20.0;
+    nice: false;
+    extent: [40.0, 240.0];
+    anchor: 0.0;
+    name: 'horsepower_bin';
+  }
+  transform aggregate as bin_counts {
+    group_by: ["horsepower_bin_start", "horsepower_bin_end"];
+    expressions: count(*) AS count;
+  }
+  transform join_aggregate as total_count {
+    expressions: sum("count") AS total_count;
+  }
+  transform calculate as relative_frequency {
+    expressions: CAST("count" AS DOUBLE) / "total_count" AS relative_frequency;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "horsepower_bin_start";
   }
   mark rect as bins {
     fill: direct '#4c78a8';
     stroke: direct 'white';
     stroke_width: direct 1.0;
-    x: encoded "bin_start" {
+    x: encoded "horsepower_bin_start" {
       axis: {
         title: 'Horsepower';
       }
@@ -50,7 +57,7 @@ chart cartesian as histogram_rel_freq {
         zero: false;
       }
     }
-    x2: encoded "bin_end";
+    x2: encoded "horsepower_bin_end";
     y: encoded 0.0 {
       axis: {
         format: '.0%';

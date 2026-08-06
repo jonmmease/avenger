@@ -16,32 +16,26 @@ chart cartesian as joinaggregate_mean_difference_by_year {
       width: 300.0;
     }
   }
-  transform sql as exceptional_movies {
-    query:
-      WITH dated AS (
-        SELECT
-          "Title",
-          "IMDB Rating" AS "rating",
-          EXTRACT(YEAR FROM "Release Date") AS "year"
-        FROM input
-        WHERE "IMDB Rating" IS NOT NULL
-      ), rated AS (
-        SELECT
-          *,
-          AVG("rating") OVER (PARTITION BY "year") AS "average_year_rating"
-        FROM dated
-      ), exceptional AS (
-        SELECT *
-        FROM rated
-        WHERE "rating" - "average_year_rating" > 2.5
-      )
-      SELECT
-        "Title",
-        "rating",
-        "average_year_rating",
-        ROW_NUMBER() OVER (ORDER BY "Title") AS "rank"
-      FROM exceptional
-      ORDER BY "Title";
+  transform filter {
+    predicate: "IMDB Rating" IS NOT NULL;
+  }
+  transform calculate as dated {
+    expressions:
+      "IMDB Rating" AS rating,
+      EXTRACT(YEAR FROM "Release Date") AS year;
+  }
+  transform join_aggregate as rating_summary {
+    group_by: "year";
+    expressions: avg("rating") AS average_year_rating;
+  }
+  transform filter {
+    predicate: "rating" - "average_year_rating" > 2.5;
+  }
+  transform window as exceptional_movies {
+    expressions: row_number() OVER (ORDER BY "Title") AS rank;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "Title";
   }
   mark group as plot {
     mark rect as ratings {

@@ -8,15 +8,15 @@ chart cartesian as wheat_wages {
     canvas: { height: 432.0; width: 937.0; }
     plot: { height: 400.0; width: 850.0; }
   }
+  transform select as wheat_fields {
+    expressions:
+      CAST("year" AS DOUBLE) AS year,
+      CAST("year" AS DOUBLE) + 5.0 AS year_end,
+      CAST("wheat" AS DOUBLE) AS wheat,
+      CAST("wages" AS DOUBLE) AS wages;
+  }
   transform sql as ordered_wheat {
-    query:
-      SELECT
-        CAST("year" AS DOUBLE) AS "year",
-        CAST("year" AS DOUBLE) + 5.0 AS "year_end",
-        CAST("wheat" AS DOUBLE) AS "wheat",
-        CAST("wages" AS DOUBLE) AS "wages"
-      FROM input
-      ORDER BY CAST("year" AS DOUBLE);
+    query: SELECT * FROM input ORDER BY "year";
   }
   mark group as layers {
     mark rect as wheat_prices {
@@ -85,28 +85,29 @@ chart cartesian as wheat_wages {
     }
     mark group as reigns {
       data: { table: 'vega.monarchs'; }
-      transform sql as geometry {
-        query:
-          SELECT
-            "name",
-            CAST("start" AS DOUBLE) AS "start",
-            CAST("end" AS DOUBLE) AS "end",
-            CAST("start" AS DOUBLE)
-              + (CAST("end" AS DOUBLE) - CAST("start" AS DOUBLE)) / 2.0 AS "midpoint",
-            CASE
-              WHEN COALESCE("commonwealth", false) THEN 'commonwealth'
-              ELSE 'monarchy'
-            END AS "reign_type",
-            CASE
-              WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 93.0
-              ELSE 97.0
-            END AS "offset",
-            CASE
-              WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 94.0
-              ELSE 96.0
-            END AS "label_y"
-          FROM input
-          ORDER BY "index";
+      transform select as geometry {
+        expressions:
+          "name",
+          CAST("start" AS DOUBLE) AS start,
+          CAST("end" AS DOUBLE) AS end,
+          CAST("start" AS DOUBLE)
+            + (CAST("end" AS DOUBLE) - CAST("start" AS DOUBLE)) / 2.0 AS midpoint,
+          CASE
+            WHEN COALESCE("commonwealth", false) THEN 'commonwealth'
+            ELSE 'monarchy'
+          END AS reign_type,
+          CASE
+            WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 93.0
+            ELSE 97.0
+          END AS offset,
+          CASE
+            WHEN NOT COALESCE("commonwealth", false) AND "index" % 2 = 1 THEN 94.0
+            ELSE 96.0
+          END AS label_y,
+          "index";
+      }
+      transform sql {
+        query: SELECT * FROM input ORDER BY "index";
       }
       mark rect as reign_bands {
         fill: encoded "reign_type" {

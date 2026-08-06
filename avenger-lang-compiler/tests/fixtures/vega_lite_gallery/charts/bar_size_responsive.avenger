@@ -13,12 +13,9 @@ chart cartesian as bar_size_responsive {
       width: $canvas_width;
     }
   }
-  transform sql as origin_counts {
-    query:
-      SELECT "Origin", COUNT(*) AS "count"
-      FROM input
-      GROUP BY "Origin"
-      ORDER BY "Origin";
+  transform aggregate as origin_counts {
+    group_by: "Origin";
+    expressions: count(*) AS count;
   }
   mark rect as bars {
     fill: direct '#4c78a8';

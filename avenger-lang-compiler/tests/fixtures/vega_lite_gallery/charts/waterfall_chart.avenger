@@ -24,35 +24,30 @@ chart cartesian as waterfall_chart {
     canvas: { height: 497.0; width: 861.0; }
     plot: { height: 450.0; width: 800.0; }
   }
-  transform sql as waterfall_values {
-    query:
-      WITH cumulative AS (
-        SELECT
-          *,
-          SUM("amount") OVER (
-            ORDER BY "idx"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "sum",
-          COALESCE(LEAD("label") OVER (ORDER BY "idx"), "label") AS "lead"
-        FROM input
-      ), calculated AS (
-        SELECT
-          *,
-          CASE WHEN "label" = 'End' THEN 0 ELSE "sum" - "amount" END AS "previous_sum",
-          CASE WHEN "label" = 'End' THEN "sum" ELSE "amount" END AS "display_amount"
-        FROM cumulative
-      )
-      SELECT
-        *,
-        ("sum" + "previous_sum") / 2.0 AS "center",
-        CONCAT(
-          CASE
-            WHEN "label" NOT IN ('Begin', 'End') AND "display_amount" > 0 THEN '+'
-            ELSE ''
-          END,
-          CAST("display_amount" AS VARCHAR)
-        ) AS "text_amount"
-      FROM calculated;
+  transform window as cumulative {
+    expressions:
+      sum("amount") OVER (
+        ORDER BY "idx"
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS sum,
+      lead("label") OVER (ORDER BY "idx") AS next_label;
+  }
+  transform calculate as calculated {
+    expressions:
+      COALESCE("next_label", "label") AS lead,
+      CASE WHEN "label" = 'End' THEN 0 ELSE "sum" - "amount" END AS previous_sum,
+      CASE WHEN "label" = 'End' THEN "sum" ELSE "amount" END AS display_amount;
+  }
+  transform calculate as waterfall_values {
+    expressions:
+      ("sum" + "previous_sum") / 2.0 AS center,
+      CONCAT(
+        CASE
+          WHEN "label" NOT IN ('Begin', 'End') AND "display_amount" > 0 THEN '+'
+          ELSE ''
+        END,
+        CAST("display_amount" AS VARCHAR)
+      ) AS text_amount;
   }
   mark group as layers {
     mark rect as changes {

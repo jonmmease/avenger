@@ -16,12 +16,10 @@ chart cartesian as circle_wilkinson_dotplot {
     canvas: { height: 139.0; width: 90.0; }
     plot: { height: 100.0; width: 60.0; }
   }
-  transform sql as ranked_dots {
-    query:
-      SELECT
-        "data",
-        ROW_NUMBER() OVER (PARTITION BY "data") AS "id"
-      FROM input;
+  transform window as ranked_dots {
+    partition_by: "data";
+    order_by: "data";
+    expressions: row_number() OVER () AS id;
   }
   mark symbol as dots {
     fill: direct '#4c78a8';

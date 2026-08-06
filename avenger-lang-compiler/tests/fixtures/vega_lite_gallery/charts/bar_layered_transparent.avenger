@@ -16,17 +16,20 @@ chart cartesian as bar_layered_transparent {
       width: 320.0;
     }
   }
-  transform sql as population_by_gender {
-    query:
-      SELECT
-        "age",
-        CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
-        CAST(SUM("people") AS DOUBLE) AS "people",
-        CASE WHEN "sex" = 2 THEN 1 ELSE 0 END AS "paint_order"
-      FROM input
-      WHERE "year" = 2000
-      GROUP BY "age", "sex"
-      ORDER BY "age", "paint_order";
+  transform filter {
+    predicate: "year" = 2000;
+  }
+  transform calculate as gender_fields {
+    expressions:
+      CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS gender,
+      CASE WHEN "sex" = 2 THEN 1 ELSE 0 END AS paint_order;
+  }
+  transform aggregate as population_by_gender {
+    group_by: ["age", "gender", "paint_order"];
+    expressions: sum(CAST("people" AS DOUBLE)) AS population;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "age", "paint_order";
   }
   mark rect as population {
     fill: encoded "gender" {
@@ -54,7 +57,7 @@ chart cartesian as bar_layered_transparent {
     x2: encoded channel.x {
       band: 1.0;
     }
-    y: encoded "people" {
+    y: encoded population_by_gender.population {
       axis: {
         format: ',.0f';
         title: 'population';

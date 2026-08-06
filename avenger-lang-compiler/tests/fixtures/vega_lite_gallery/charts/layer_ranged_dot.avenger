@@ -8,23 +8,17 @@ chart cartesian as layer_ranged_dot {
     canvas: { height: 142.0; width: 460.0; }
     plot: { height: 100.0; width: 300.0; }
   }
-  transform sql as selected_years {
-    query:
-      SELECT "country", "year", "life_expect"
-      FROM input
-      WHERE "country" IN ('China', 'India', 'United States', 'Indonesia', 'Brazil')
-        AND "year" IN (1955, 2000);
+  transform filter {
+    predicate: "country" IN ('China', 'India', 'United States', 'Indonesia', 'Brazil')
+      AND "year" IN (1955, 2000);
   }
   mark group as layers {
     mark group as ranges {
-      transform sql as country_ranges {
-        query:
-          SELECT
-            "country",
-            MIN("life_expect") AS "start",
-            MAX("life_expect") AS "end"
-          FROM input
-          GROUP BY "country";
+      transform aggregate as country_ranges {
+        group_by: "country";
+        expressions:
+          min("life_expect") AS start,
+          max("life_expect") AS end;
       }
       mark rule as change {
         stroke: direct '#db646f';

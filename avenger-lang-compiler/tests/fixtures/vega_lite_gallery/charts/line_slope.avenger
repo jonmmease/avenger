@@ -16,14 +16,9 @@ chart cartesian as line_slope {
       width: 100.0;
     }
   }
-  transform sql as site_year_medians {
-    query:
-      SELECT
-        "site",
-        "year",
-        MEDIAN("yield") AS "median_yield"
-      FROM input
-      GROUP BY "site", "year";
+  transform aggregate as site_year_medians {
+    group_by: ["site", "year"];
+    expressions: median("yield") AS median_yield;
   }
   mark line as yields {
     order: direct "year";

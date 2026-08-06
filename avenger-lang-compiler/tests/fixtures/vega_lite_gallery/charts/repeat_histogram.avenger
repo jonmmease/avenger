@@ -16,29 +16,33 @@ chart grid_concat as repeat_histogram {
 
   cell cartesian as horsepower at { row: 0; column: 0; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          WITH counts AS (
-            SELECT
-              20.0 * FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0) AS "bin_start",
-              "Origin" AS "origin",
-              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
-              CAST(COUNT(*) AS DOUBLE) AS "count"
-            FROM input
-            WHERE "Horsepower" IS NOT NULL AND "Origin" IS NOT NULL
-            GROUP BY FLOOR(CAST("Horsepower" AS DOUBLE) / 20.0), "Origin"
-          ), stacked AS (
-            SELECT
-              *,
-              SUM("count") OVER (
-                PARTITION BY "bin_start"
-                ORDER BY "origin_order"
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-              ) AS "y1"
-            FROM counts
-          )
-          SELECT *, "y1" - "count" AS "y0", "bin_start" + 20.0 AS "bin_end"
-          FROM stacked;
+      transform select as values {
+        expressions:
+          CAST("Horsepower" AS DOUBLE) AS value,
+          "Origin" AS origin;
+      }
+      transform filter { predicate: "value" IS NOT NULL AND "origin" IS NOT NULL; }
+      transform calculate as origin_fields {
+        expressions: CASE "origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS origin_order;
+      }
+      transform bin as bins {
+        field: "value";
+        step: 20.0;
+        nice: false;
+        extent: [40.0, 240.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as bin_counts {
+        group_by: ["bin_start", "bin_end", "origin", "origin_order"];
+        expressions: count(*) AS count;
+      }
+      transform stack as stacked_counts {
+        field: "count";
+        group_by: "bin_start";
+        sort_by: -"origin_order";
+        offset: zero;
+        name: 'count_stack';
       }
       mark rect as counts {
         fill: encoded "origin" {
@@ -55,40 +59,44 @@ chart grid_concat as repeat_histogram {
           scale: linear { domain: [40.0, 240.0]; nice: false; zero: false; }
         }
         x2: encoded "bin_end";
-        y: encoded "y0" {
+        y: encoded "count_stack_start" {
           axis: { format: '.0f'; title: 'Count of Records'; }
           scale: linear { domain: [0.0, 120.0]; nice: false; zero: true; }
         }
-        y2: encoded "y1";
+        y2: encoded "count_stack_end";
       }
     }
   }
 
   cell cartesian as miles_per_gallon at { row: 0; column: 1; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          WITH counts AS (
-            SELECT
-              5.0 * FLOOR(CAST("Miles_per_Gallon" AS DOUBLE) / 5.0) AS "bin_start",
-              "Origin" AS "origin",
-              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
-              CAST(COUNT(*) AS DOUBLE) AS "count"
-            FROM input
-            WHERE "Miles_per_Gallon" IS NOT NULL AND "Origin" IS NOT NULL
-            GROUP BY FLOOR(CAST("Miles_per_Gallon" AS DOUBLE) / 5.0), "Origin"
-          ), stacked AS (
-            SELECT
-              *,
-              SUM("count") OVER (
-                PARTITION BY "bin_start"
-                ORDER BY "origin_order"
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-              ) AS "y1"
-            FROM counts
-          )
-          SELECT *, "y1" - "count" AS "y0", "bin_start" + 5.0 AS "bin_end"
-          FROM stacked;
+      transform select as values {
+        expressions:
+          CAST("Miles_per_Gallon" AS DOUBLE) AS value,
+          "Origin" AS origin;
+      }
+      transform filter { predicate: "value" IS NOT NULL AND "origin" IS NOT NULL; }
+      transform calculate as origin_fields {
+        expressions: CASE "origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS origin_order;
+      }
+      transform bin as bins {
+        field: "value";
+        step: 5.0;
+        nice: false;
+        extent: [5.0, 50.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as bin_counts {
+        group_by: ["bin_start", "bin_end", "origin", "origin_order"];
+        expressions: count(*) AS count;
+      }
+      transform stack as stacked_counts {
+        field: "count";
+        group_by: "bin_start";
+        sort_by: -"origin_order";
+        offset: zero;
+        name: 'count_stack';
       }
       mark rect as counts {
         fill: encoded "origin" {
@@ -105,40 +113,44 @@ chart grid_concat as repeat_histogram {
           scale: linear { domain: [5.0, 50.0]; nice: false; zero: false; }
         }
         x2: encoded "bin_end";
-        y: encoded "y0" {
+        y: encoded "count_stack_start" {
           axis: { format: '.0f'; title: 'Count of Records'; }
           scale: linear { domain: [0.0, 100.0]; nice: false; zero: true; }
         }
-        y2: encoded "y1";
+        y2: encoded "count_stack_end";
       }
     }
   }
 
   cell cartesian as acceleration at { row: 1; column: 0; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          WITH counts AS (
-            SELECT
-              2.0 * FLOOR(CAST("Acceleration" AS DOUBLE) / 2.0) AS "bin_start",
-              "Origin" AS "origin",
-              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
-              CAST(COUNT(*) AS DOUBLE) AS "count"
-            FROM input
-            WHERE "Acceleration" IS NOT NULL AND "Origin" IS NOT NULL
-            GROUP BY FLOOR(CAST("Acceleration" AS DOUBLE) / 2.0), "Origin"
-          ), stacked AS (
-            SELECT
-              *,
-              SUM("count") OVER (
-                PARTITION BY "bin_start"
-                ORDER BY "origin_order"
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-              ) AS "y1"
-            FROM counts
-          )
-          SELECT *, "y1" - "count" AS "y0", "bin_start" + 2.0 AS "bin_end"
-          FROM stacked;
+      transform select as values {
+        expressions:
+          CAST("Acceleration" AS DOUBLE) AS value,
+          "Origin" AS origin;
+      }
+      transform filter { predicate: "value" IS NOT NULL AND "origin" IS NOT NULL; }
+      transform calculate as origin_fields {
+        expressions: CASE "origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS origin_order;
+      }
+      transform bin as bins {
+        field: "value";
+        step: 2.0;
+        nice: false;
+        extent: [8.0, 26.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as bin_counts {
+        group_by: ["bin_start", "bin_end", "origin", "origin_order"];
+        expressions: count(*) AS count;
+      }
+      transform stack as stacked_counts {
+        field: "count";
+        group_by: "bin_start";
+        sort_by: -"origin_order";
+        offset: zero;
+        name: 'count_stack';
       }
       mark rect as counts {
         fill: encoded "origin" {
@@ -155,40 +167,44 @@ chart grid_concat as repeat_histogram {
           scale: linear { domain: [8.0, 26.0]; nice: false; zero: false; }
         }
         x2: encoded "bin_end";
-        y: encoded "y0" {
+        y: encoded "count_stack_start" {
           axis: { format: '.0f'; title: 'Count of Records'; }
           scale: linear { domain: [0.0, 130.0]; nice: false; zero: true; }
         }
-        y2: encoded "y1";
+        y2: encoded "count_stack_end";
       }
     }
   }
 
   cell cartesian as displacement at { row: 1; column: 1; } {
     mark group as histogram {
-      transform sql as bins {
-        query:
-          WITH counts AS (
-            SELECT
-              50.0 * FLOOR(CAST("Displacement" AS DOUBLE) / 50.0) AS "bin_start",
-              "Origin" AS "origin",
-              CASE "Origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS "origin_order",
-              CAST(COUNT(*) AS DOUBLE) AS "count"
-            FROM input
-            WHERE "Displacement" IS NOT NULL AND "Origin" IS NOT NULL
-            GROUP BY FLOOR(CAST("Displacement" AS DOUBLE) / 50.0), "Origin"
-          ), stacked AS (
-            SELECT
-              *,
-              SUM("count") OVER (
-                PARTITION BY "bin_start"
-                ORDER BY "origin_order"
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-              ) AS "y1"
-            FROM counts
-          )
-          SELECT *, "y1" - "count" AS "y0", "bin_start" + 50.0 AS "bin_end"
-          FROM stacked;
+      transform select as values {
+        expressions:
+          CAST("Displacement" AS DOUBLE) AS value,
+          "Origin" AS origin;
+      }
+      transform filter { predicate: "value" IS NOT NULL AND "origin" IS NOT NULL; }
+      transform calculate as origin_fields {
+        expressions: CASE "origin" WHEN 'USA' THEN 0 WHEN 'Japan' THEN 1 ELSE 2 END AS origin_order;
+      }
+      transform bin as bins {
+        field: "value";
+        step: 50.0;
+        nice: false;
+        extent: [50.0, 500.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as bin_counts {
+        group_by: ["bin_start", "bin_end", "origin", "origin_order"];
+        expressions: count(*) AS count;
+      }
+      transform stack as stacked_counts {
+        field: "count";
+        group_by: "bin_start";
+        sort_by: -"origin_order";
+        offset: zero;
+        name: 'count_stack';
       }
       mark rect as counts {
         fill: encoded "origin" {
@@ -205,11 +221,11 @@ chart grid_concat as repeat_histogram {
           scale: linear { domain: [50.0, 500.0]; nice: false; zero: false; }
         }
         x2: encoded "bin_end";
-        y: encoded "y0" {
+        y: encoded "count_stack_start" {
           axis: { format: '.0f'; title: 'Count of Records'; }
           scale: linear { domain: [0.0, 110.0]; nice: false; zero: true; }
         }
-        y2: encoded "y1";
+        y2: encoded "count_stack_end";
       }
     }
   }

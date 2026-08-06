@@ -16,40 +16,27 @@ chart cartesian as stacked_bar_normalize {
       width: 320.0;
     }
   }
-  transform sql as normalized_population {
-    query:
-      WITH totals AS (
-        SELECT
-          "age",
-          CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS "gender",
-          CASE WHEN "sex" = 2 THEN 1 ELSE 0 END AS "stack_order",
-          CAST(SUM("people") AS DOUBLE) AS "people"
-        FROM input
-        WHERE "year" = 2000
-        GROUP BY "age", "sex"
-      ), normalized AS (
-        SELECT
-          *,
-          "people" / SUM("people") OVER (PARTITION BY "age") AS "share"
-        FROM totals
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("share") OVER (
-            PARTITION BY "age"
-            ORDER BY "stack_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "y1"
-        FROM normalized
-      )
-      SELECT
-        "age",
-        "gender",
-        "stack_order",
-        "y1" - "share" AS "y0",
-        "y1"
-      FROM stacked
-      ORDER BY "age", "stack_order";
+  transform filter {
+    predicate: "year" = 2000;
+  }
+  transform calculate as population_fields {
+    expressions:
+      CASE WHEN "sex" = 2 THEN 'Female' ELSE 'Male' END AS gender,
+      CASE WHEN "sex" = 2 THEN 1 ELSE 0 END AS stack_order;
+  }
+  transform aggregate as population_totals {
+    group_by: ["age", "gender", "stack_order"];
+    expressions: sum(CAST("people" AS DOUBLE)) AS population;
+  }
+  transform stack as normalized_population {
+    field: "population";
+    group_by: "age";
+    sort_by: -"stack_order";
+    offset: normalize;
+    name: 'population_stack';
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "age", "stack_order";
   }
   mark rect as population {
     fill: encoded "gender" {
@@ -76,7 +63,7 @@ chart cartesian as stacked_bar_normalize {
     x2: encoded channel.x {
       band: 1.0;
     }
-    y: encoded "y1" {
+    y: encoded normalized_population.end {
       axis: {
         format: '.0%';
         title: 'population';
@@ -87,6 +74,6 @@ chart cartesian as stacked_bar_normalize {
         zero: true;
       }
     }
-    y2: encoded "y0";
+    y2: encoded normalized_population.start;
   }
 }

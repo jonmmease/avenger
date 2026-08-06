@@ -16,27 +16,23 @@ chart cartesian as joinaggregate_mean_difference {
       width: 300.0;
     }
   }
-  transform sql as exceptional_movies {
-    query:
-      WITH rated AS (
-        SELECT
-          "Title",
-          "IMDB Rating" AS "rating",
-          AVG("IMDB Rating") OVER () AS "average_rating"
-        FROM input
-        WHERE "IMDB Rating" IS NOT NULL
-      ), exceptional AS (
-        SELECT *
-        FROM rated
-        WHERE "rating" - "average_rating" > 2.5
-      )
-      SELECT
-        "Title",
-        "rating",
-        "average_rating",
-        ROW_NUMBER() OVER (ORDER BY "Title") AS "rank"
-      FROM exceptional
-      ORDER BY "Title";
+  transform filter {
+    predicate: "IMDB Rating" IS NOT NULL;
+  }
+  transform calculate as rating_field {
+    expressions: "IMDB Rating" AS rating;
+  }
+  transform join_aggregate as rating_summary {
+    expressions: avg("rating") AS average_rating;
+  }
+  transform filter {
+    predicate: "rating" - "average_rating" > 2.5;
+  }
+  transform window as exceptional_movies {
+    expressions: row_number() OVER (ORDER BY "Title") AS rank;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "Title";
   }
   mark group as plot {
     mark rect as ratings {

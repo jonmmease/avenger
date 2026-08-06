@@ -26,15 +26,18 @@ chart grid_concat as concat_marginal_histograms {
 
   cell cartesian as imdb_histogram at { row: 0; column: 0; } {
     mark group as bins {
-      transform sql as aggregate_bins {
-        query:
-          SELECT
-            FLOOR("imdb") AS "bin_start",
-            FLOOR("imdb") + 1.0 AS "bin_end",
-            COUNT(*) AS "count"
-          FROM input
-          WHERE "imdb" IS NOT NULL
-          GROUP BY FLOOR("imdb");
+      transform filter { predicate: "imdb" IS NOT NULL; }
+      transform bin as imdb_bins {
+        field: "imdb";
+        step: 1.0;
+        nice: false;
+        extent: [1.0, 10.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as aggregate_bins {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';
@@ -94,15 +97,18 @@ chart grid_concat as concat_marginal_histograms {
 
   cell cartesian as rotten_histogram at { row: 1; column: 1; } {
     mark group as bins {
-      transform sql as aggregate_bins {
-        query:
-          SELECT
-            10.0 * FLOOR("rotten" / 10.0) AS "bin_start",
-            10.0 * FLOOR("rotten" / 10.0) + 10.0 AS "bin_end",
-            COUNT(*) AS "count"
-          FROM input
-          WHERE "rotten" IS NOT NULL
-          GROUP BY FLOOR("rotten" / 10.0);
+      transform filter { predicate: "rotten" IS NOT NULL; }
+      transform bin as rotten_bins {
+        field: "rotten";
+        step: 10.0;
+        nice: false;
+        extent: [0.0, 100.0];
+        anchor: 0.0;
+        name: 'bin';
+      }
+      transform aggregate as aggregate_bins {
+        group_by: ["bin_start", "bin_end"];
+        expressions: count(*) AS count;
       }
       mark rect as counts {
         fill: direct '#4c78a8';

@@ -16,26 +16,26 @@ chart cartesian as area {
       width: 300.0;
     }
   }
-  transform sql as monthly_total {
-    query:
-      SELECT
-        DATE_TRUNC('month', "date") AS "month",
-        SUM("count") AS "count"
-      FROM input
-      GROUP BY DATE_TRUNC('month', "date")
-      ORDER BY "month";
+  transform time_unit as month {
+    field: "date";
+    units: [year, month];
+    name: 'month';
+  }
+  transform aggregate as monthly_total {
+    group_by: "month_start";
+    expressions: sum("count") AS total_count;
   }
   mark area as unemployment {
     fill: direct '#4c78a8';
-    order: direct "month";
+    order: direct month.start;
     stroke_width: direct 0.0;
-    x: encoded "month" {
+    x: encoded month.start {
       axis: {
         title: 'date';
       }
       scale: time;
     }
-    y: encoded "count" {
+    y: encoded monthly_total.total_count {
       axis: {
         title: 'count';
       }

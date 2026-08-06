@@ -27,23 +27,28 @@ chart cartesian as histogram_log {
       width: 300.0;
     }
   }
-  transform sql as log_bins {
-    query:
-      WITH logs AS (
-        SELECT
-          FLOOR(
-            (LN(CAST("x" AS DOUBLE)) / LN(CAST(10.0 AS DOUBLE)))
-            * CAST(2.0 AS DOUBLE)
-          ) / CAST(2.0 AS DOUBLE) AS "exponent"
-        FROM input
-      )
-      SELECT
-        POWER(CAST(10.0 AS DOUBLE), "exponent") AS "bin_start",
-        POWER(CAST(10.0 AS DOUBLE), "exponent" + CAST(0.5 AS DOUBLE)) AS "bin_end",
-        COUNT(*) AS "count"
-      FROM logs
-      GROUP BY "exponent"
-      ORDER BY "exponent";
+  transform calculate as logarithms {
+    expressions: LN(CAST("x" AS DOUBLE)) / LN(CAST(10.0 AS DOUBLE)) AS log_x;
+  }
+  transform bin as log_bins {
+    field: "log_x";
+    step: 0.5;
+    nice: false;
+    extent: [-2.0, 3.0];
+    anchor: 0.0;
+    name: 'log_bin';
+  }
+  transform calculate as bin_bounds {
+    expressions:
+      POWER(CAST(10.0 AS DOUBLE), "log_bin_start") AS bin_start,
+      POWER(CAST(10.0 AS DOUBLE), "log_bin_end") AS bin_end;
+  }
+  transform aggregate as bin_counts {
+    group_by: ["log_bin_start", "bin_start", "bin_end"];
+    expressions: count(*) AS count;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "log_bin_start";
   }
   mark rect as bins {
     fill: direct '#4c78a8';

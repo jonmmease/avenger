@@ -16,15 +16,15 @@ chart cartesian as line_overlay {
       width: 300.0;
     }
   }
-  transform sql as yearly_prices {
-    query:
-      SELECT
-        "symbol",
-        DATE_TRUNC('year', "date") AS "year",
-        AVG("price") AS "mean_price"
-      FROM input
-      GROUP BY "symbol", DATE_TRUNC('year', "date")
-      ORDER BY "symbol", "year";
+  transform calculate as temporal_fields {
+    expressions: DATE_TRUNC('year', "date") AS year;
+  }
+  transform aggregate as yearly_prices {
+    group_by: ["symbol", "year"];
+    expressions: avg("price") AS mean_price;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "symbol", "year";
   }
   mark group as plot {
     mark line as prices {
@@ -42,7 +42,7 @@ chart cartesian as line_overlay {
         }
         scale: time;
       }
-      y: encoded "mean_price" {
+      y: encoded yearly_prices.mean_price {
         axis: {
           title: 'Mean of price';
         }
@@ -62,7 +62,7 @@ chart cartesian as line_overlay {
       size: direct 24.0;
       stroke_width: direct 0.0;
       x: encoded "year";
-      y: encoded "mean_price";
+      y: encoded yearly_prices.mean_price;
     }
   }
 }

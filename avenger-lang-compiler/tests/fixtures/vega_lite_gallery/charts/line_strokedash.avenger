@@ -16,11 +16,11 @@ chart cartesian as line_strokedash {
       width: 340.0;
     }
   }
+  transform select as prices {
+    expressions: "symbol", "date", "price";
+  }
   transform sql as ordered_prices {
-    query:
-      SELECT "symbol", "date", "price"
-      FROM input
-      ORDER BY "symbol", "date";
+    query: SELECT * FROM input ORDER BY "symbol", "date";
   }
   mark line as stocks {
     order: direct "date";

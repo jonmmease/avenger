@@ -15,12 +15,8 @@ chart cartesian as param_search_input {
     position: top;
     value_param: $search_input;
   }
-  transform sql as valid_measurements {
-    query:
-      SELECT *
-      FROM input
-      WHERE "Horsepower" IS NOT NULL
-        AND "Miles_per_Gallon" IS NOT NULL;
+  transform filter {
+    predicate: "Horsepower" IS NOT NULL AND "Miles_per_Gallon" IS NOT NULL;
   }
   mark symbol as cars {
     fill: direct 'transparent';

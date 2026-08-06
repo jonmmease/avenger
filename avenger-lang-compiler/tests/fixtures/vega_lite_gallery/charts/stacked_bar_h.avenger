@@ -16,41 +16,29 @@ chart cartesian as stacked_bar_h {
       width: 300.0;
     }
   }
-  transform sql as stacked_yield {
-    query:
-      WITH totals AS (
-        SELECT
-          "variety",
-          "site",
-          SUM("yield") AS "site_yield",
-          CASE "site"
-            WHEN 'Crookston' THEN 0
-            WHEN 'Duluth' THEN 1
-            WHEN 'Grand Rapids' THEN 2
-            WHEN 'Morris' THEN 3
-            WHEN 'University Farm' THEN 4
-            ELSE 5
-          END AS "stack_order"
-        FROM input
-        GROUP BY "variety", "site"
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("site_yield") OVER (
-            PARTITION BY "variety"
-            ORDER BY "stack_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "x1"
-        FROM totals
-      )
-      SELECT
-        "variety",
-        "site",
-        "stack_order",
-        "x1" - "site_yield" AS "x0",
-        "x1"
-      FROM stacked
-      ORDER BY "variety", "stack_order";
+  transform calculate as site_order {
+    expressions: CASE "site"
+      WHEN 'Crookston' THEN 0
+      WHEN 'Duluth' THEN 1
+      WHEN 'Grand Rapids' THEN 2
+      WHEN 'Morris' THEN 3
+      WHEN 'University Farm' THEN 4
+      ELSE 5
+    END AS stack_order;
+  }
+  transform aggregate as site_totals {
+    group_by: ["variety", "site", "stack_order"];
+    expressions: sum("yield") AS site_yield;
+  }
+  transform stack as stacked_yield {
+    field: "site_yield";
+    group_by: "variety";
+    sort_by: -"stack_order";
+    offset: zero;
+    name: 'yield_stack';
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "variety", "stack_order";
   }
   mark rect as yields {
     fill: encoded "site" {
@@ -70,7 +58,7 @@ chart cartesian as stacked_bar_h {
       }
     }
     stroke_width: direct 0.0;
-    x: encoded "x1" {
+    x: encoded stacked_yield.end {
       axis: {
         title: 'Sum of yield';
       }
@@ -80,7 +68,7 @@ chart cartesian as stacked_bar_h {
         zero: true;
       }
     }
-    x2: encoded "x0";
+    x2: encoded stacked_yield.start;
     y: encoded "variety" {
       axis: {
         title: 'variety';

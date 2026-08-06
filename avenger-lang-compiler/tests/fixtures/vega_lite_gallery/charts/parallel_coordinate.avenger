@@ -39,31 +39,30 @@ chart cartesian as parallel_coordinate {
   }
   mark group as layers {
     mark group as axes {
-      transform sql as axis_values {
-        query:
-          SELECT
-            "key",
-            MIN("axis_order") AS "axis_order",
-            CASE "key"
-              WHEN 'Beak Depth (mm)' THEN '13.1'
-              WHEN 'Beak Length (mm)' THEN '32.1'
-              WHEN 'Body Mass (g)' THEN '2700'
-              ELSE '172'
-            END AS "min_label",
-            CASE "key"
-              WHEN 'Beak Depth (mm)' THEN '17.3'
-              WHEN 'Beak Length (mm)' THEN '45.85'
-              WHEN 'Body Mass (g)' THEN '4500'
-              ELSE '201.5'
-            END AS "mid_label",
-            CASE "key"
-              WHEN 'Beak Depth (mm)' THEN '21.5'
-              WHEN 'Beak Length (mm)' THEN '59.6'
-              WHEN 'Body Mass (g)' THEN '6300'
-              ELSE '231'
-            END AS "max_label"
-          FROM input
-          GROUP BY "key";
+      transform aggregate as axis_keys {
+        group_by: "key";
+        expressions: min("axis_order") AS axis_sort;
+      }
+      transform calculate as axis_values {
+        expressions:
+          CASE "key"
+            WHEN 'Beak Depth (mm)' THEN '13.1'
+            WHEN 'Beak Length (mm)' THEN '32.1'
+            WHEN 'Body Mass (g)' THEN '2700'
+            ELSE '172'
+          END AS min_label,
+          CASE "key"
+            WHEN 'Beak Depth (mm)' THEN '17.3'
+            WHEN 'Beak Length (mm)' THEN '45.85'
+            WHEN 'Body Mass (g)' THEN '4500'
+            ELSE '201.5'
+          END AS mid_label,
+          CASE "key"
+            WHEN 'Beak Depth (mm)' THEN '21.5'
+            WHEN 'Beak Length (mm)' THEN '59.6'
+            WHEN 'Body Mass (g)' THEN '6300'
+            ELSE '231'
+          END AS max_label;
       }
       mark rule as dimension_axes {
         stroke: direct '#cccccc';

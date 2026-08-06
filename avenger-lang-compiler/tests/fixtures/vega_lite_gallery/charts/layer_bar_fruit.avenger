@@ -18,13 +18,10 @@ chart cartesian as layer_bar_fruit {
     canvas: { height: 187.0; width: 545.0; }
     plot: { height: 120.0; width: 400.0; }
   }
-  transform sql as labels {
-    query:
-      SELECT
-        *,
-        CAST(CAST("count" AS BIGINT) AS VARCHAR) AS "count_label",
-        CASE WHEN "count" > 10.0 THEN '#ffffff' ELSE '#000000' END AS "label_color"
-      FROM input;
+  transform calculate as labels {
+    expressions:
+      CAST(CAST("count" AS BIGINT) AS VARCHAR) AS count_label,
+      CASE WHEN "count" > 10.0 THEN '#ffffff' ELSE '#000000' END AS label_color;
   }
   mark group as layers {
     mark rect as fruit_counts {

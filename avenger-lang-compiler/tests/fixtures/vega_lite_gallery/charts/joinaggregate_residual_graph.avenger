@@ -16,22 +16,20 @@ chart cartesian as joinaggregate_residual_graph {
       width: 300.0;
     }
   }
-  transform sql as movie_residuals {
-    query:
-      WITH rated AS (
-        SELECT
-          "Release Date" AS "release_date",
-          "IMDB Rating" AS "rating",
-          AVG("IMDB Rating") OVER () AS "average_rating"
-        FROM input
-        WHERE "IMDB Rating" IS NOT NULL
-          AND EXTRACT(YEAR FROM "Release Date") <= 2019
-      )
-      SELECT
-        "release_date",
-        "rating" - "average_rating" AS "rating_delta"
-      FROM rated
-      ORDER BY "release_date", "rating_delta";
+  transform filter {
+    predicate: "IMDB Rating" IS NOT NULL
+      AND EXTRACT(YEAR FROM "Release Date") <= 2019;
+  }
+  transform join_aggregate as rating_summary {
+    expressions: avg("IMDB Rating") AS average_rating;
+  }
+  transform calculate as movie_residuals {
+    expressions:
+      "Release Date" AS release_date,
+      "IMDB Rating" - rating_summary.average_rating AS rating_delta;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "release_date", "rating_delta";
   }
   mark symbol as movies {
     fill: direct '#ffffff';

@@ -16,49 +16,39 @@ chart cartesian as stacked_area {
       width: 360.0;
     }
   }
-  transform sql as stacked_monthly_counts {
-    query:
-      WITH monthly AS (
-        SELECT
-          DATE_TRUNC('month', "date") AS "month",
-          "series",
-          CAST(SUM("count") AS DOUBLE) AS "count",
-          CASE "series"
-            WHEN 'Wholesale and Retail Trade' THEN 0
-            WHEN 'Transportation and Utilities' THEN 1
-            WHEN 'Self-employed' THEN 2
-            WHEN 'Other' THEN 3
-            WHEN 'Mining and Extraction' THEN 4
-            WHEN 'Manufacturing' THEN 5
-            WHEN 'Leisure and hospitality' THEN 6
-            WHEN 'Information' THEN 7
-            WHEN 'Government' THEN 8
-            WHEN 'Finance' THEN 9
-            WHEN 'Education and Health' THEN 10
-            WHEN 'Construction' THEN 11
-            WHEN 'Business services' THEN 12
-            ELSE 13
-          END AS "stack_order"
-        FROM input
-        GROUP BY DATE_TRUNC('month', "date"), "series"
-      ), stacked AS (
-        SELECT
-          *,
-          SUM("count") OVER (
-            PARTITION BY "month"
-            ORDER BY "stack_order"
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS "y1"
-        FROM monthly
-      )
-      SELECT
-        "month",
-        "series",
-        "stack_order",
-        "y1" - "count" AS "y0",
-        "y1"
-      FROM stacked
-      ORDER BY "series", "month";
+  transform calculate as monthly_fields {
+    expressions:
+      DATE_TRUNC('month', "date") AS month,
+      CASE "series"
+        WHEN 'Wholesale and Retail Trade' THEN 0
+        WHEN 'Transportation and Utilities' THEN 1
+        WHEN 'Self-employed' THEN 2
+        WHEN 'Other' THEN 3
+        WHEN 'Mining and Extraction' THEN 4
+        WHEN 'Manufacturing' THEN 5
+        WHEN 'Leisure and hospitality' THEN 6
+        WHEN 'Information' THEN 7
+        WHEN 'Government' THEN 8
+        WHEN 'Finance' THEN 9
+        WHEN 'Education and Health' THEN 10
+        WHEN 'Construction' THEN 11
+        WHEN 'Business services' THEN 12
+        ELSE 13
+      END AS stack_order;
+  }
+  transform aggregate as monthly_counts {
+    group_by: ["month", "series", "stack_order"];
+    expressions: sum(CAST("count" AS DOUBLE)) AS total_count;
+  }
+  transform stack as stacked_monthly_counts {
+    field: "total_count";
+    group_by: "month";
+    sort_by: -"stack_order";
+    offset: zero;
+    name: 'count_stack';
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "series", "month";
   }
   mark area as industries {
     fill: encoded "series" {
@@ -100,7 +90,7 @@ chart cartesian as stacked_area {
       }
       scale: time;
     }
-    y: encoded "y1" {
+    y: encoded stacked_monthly_counts.end {
       axis: {
         format: ',.0f';
         title: 'Sum of count';
@@ -109,6 +99,6 @@ chart cartesian as stacked_area {
         zero: true;
       }
     }
-    y2: encoded "y0";
+    y2: encoded stacked_monthly_counts.start;
   }
 }

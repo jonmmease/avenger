@@ -29,17 +29,14 @@ chart cartesian as window_rank {
       width: 240.0;
     }
   }
-  transform sql as ranked {
-    query:
-      SELECT
-        "team",
-        "matchday",
-        RANK() OVER (
-          PARTITION BY "matchday"
-          ORDER BY "point" DESC, "diff" DESC
-        ) AS "rank"
-      FROM input
-      ORDER BY "team", "matchday";
+  transform window as ranked {
+    expressions: rank() OVER (
+      PARTITION BY "matchday"
+      ORDER BY "point" DESC, "diff" DESC
+    ) AS rank;
+  }
+  transform sql {
+    query: SELECT * FROM input ORDER BY "team", "matchday";
   }
   mark line as rankings {
     order: direct "matchday";

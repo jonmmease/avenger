@@ -16,28 +16,27 @@ chart cartesian as bar_month_temporal_band_center {
       width: 340.0;
     }
   }
-  transform sql as monthly_precipitation {
-    query:
-      SELECT
-        CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS "month_number",
-        CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
-          WHEN 1 THEN 'Jan'
-          WHEN 2 THEN 'Feb'
-          WHEN 3 THEN 'Mar'
-          WHEN 4 THEN 'Apr'
-          WHEN 5 THEN 'May'
-          WHEN 6 THEN 'Jun'
-          WHEN 7 THEN 'Jul'
-          WHEN 8 THEN 'Aug'
-          WHEN 9 THEN 'Sep'
-          WHEN 10 THEN 'Oct'
-          WHEN 11 THEN 'Nov'
-          ELSE 'Dec'
-        END AS "month",
-        AVG("precipitation") AS "mean_precipitation"
-      FROM input
-      GROUP BY EXTRACT(MONTH FROM "date")
-      ORDER BY "month_number";
+  transform calculate as calendar_fields {
+    expressions:
+      CAST(EXTRACT(MONTH FROM "date") AS BIGINT) AS month_number,
+      CASE CAST(EXTRACT(MONTH FROM "date") AS BIGINT)
+        WHEN 1 THEN 'Jan'
+        WHEN 2 THEN 'Feb'
+        WHEN 3 THEN 'Mar'
+        WHEN 4 THEN 'Apr'
+        WHEN 5 THEN 'May'
+        WHEN 6 THEN 'Jun'
+        WHEN 7 THEN 'Jul'
+        WHEN 8 THEN 'Aug'
+        WHEN 9 THEN 'Sep'
+        WHEN 10 THEN 'Oct'
+        WHEN 11 THEN 'Nov'
+        ELSE 'Dec'
+      END AS month;
+  }
+  transform aggregate as monthly_precipitation {
+    group_by: ["month_number", "month"];
+    expressions: avg("precipitation") AS mean_precipitation;
   }
   mark rect as monthly_bars {
     fill: direct '#4c78a8';

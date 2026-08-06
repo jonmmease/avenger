@@ -8,21 +8,22 @@ chart cartesian as bar_argmax {
     canvas: { height: 302.0; width: 439.0; }
     plot: { height: 200.0; width: 300.0; }
   }
-  transform sql as highest_grossing_by_genre {
-    query:
-      WITH ranked AS (
-        SELECT
-          COALESCE("Major Genre", 'null') AS "genre",
-          "Production Budget" AS "budget",
-          ROW_NUMBER() OVER (
-            PARTITION BY "Major Genre"
-            ORDER BY "US Gross" DESC NULLS LAST
-          ) AS "rank"
-        FROM input
-      )
-      SELECT "genre", "budget"
-      FROM ranked
-      WHERE "rank" = 1 AND "budget" IS NOT NULL;
+  transform calculate as display_fields {
+    expressions:
+      COALESCE("Major Genre", 'null') AS genre,
+      "Production Budget" AS budget;
+  }
+  transform window as ranked {
+    expressions: row_number() OVER (
+      PARTITION BY "Major Genre"
+      ORDER BY "US Gross" DESC NULLS LAST
+    ) AS rank;
+  }
+  transform filter {
+    predicate: "rank" = 1 AND "budget" IS NOT NULL;
+  }
+  transform select as highest_grossing_by_genre {
+    expressions: "genre", "budget";
   }
   mark rect as genres {
     fill: direct '#4c78a8';

@@ -10,14 +10,21 @@ chart cartesian as layer_scatter_errorband_1D_stdev_global_mean {
   }
   mark group as layers {
     mark group as summary {
-      transform sql as global_statistics {
-        query:
-          SELECT
-            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) AS "mean_mpg",
-            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) - STDDEV(CAST("Miles_per_Gallon" AS DOUBLE)) AS "lower_mpg",
-            AVG(CAST("Miles_per_Gallon" AS DOUBLE)) + STDDEV(CAST("Miles_per_Gallon" AS DOUBLE)) AS "upper_mpg"
-          FROM input
-          WHERE "Miles_per_Gallon" IS NOT NULL;
+      transform filter {
+        predicate: "Miles_per_Gallon" IS NOT NULL;
+      }
+      transform window as global_statistics {
+        expressions:
+          AVG(CAST("Miles_per_Gallon" AS DOUBLE)) OVER () AS mean_mpg,
+          STDDEV(CAST("Miles_per_Gallon" AS DOUBLE)) OVER () AS stdev_mpg;
+      }
+      transform calculate as error_band {
+        expressions:
+          "mean_mpg" - "stdev_mpg" AS lower_mpg,
+          "mean_mpg" + "stdev_mpg" AS upper_mpg;
+      }
+      transform aggregate as one_summary_row {
+        group_by: ["mean_mpg", "lower_mpg", "upper_mpg"];
       }
       mark rect as standard_deviation_band {
         fill: direct '#4c78a8';

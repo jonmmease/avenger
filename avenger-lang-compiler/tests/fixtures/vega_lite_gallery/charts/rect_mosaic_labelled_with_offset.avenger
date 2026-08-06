@@ -112,13 +112,14 @@ chart cartesian as rect_mosaic_labelled_with_offset {
       y: encoded ("ny" + "ny2") / 2.0;
     }
     mark group as origin_headers {
-      transform sql as one_per_origin {
-        query:
-          SELECT
-            "origin",
-            (MIN("nx") + MAX("nx2")) / 2.0 AS "xc"
-          FROM input
-          GROUP BY "origin";
+      transform aggregate as origin_bounds {
+        group_by: "origin";
+        expressions:
+          min("nx") AS min_x,
+          max("nx2") AS max_x;
+      }
+      transform calculate as one_per_origin {
+        expressions: ("min_x" + "max_x") / 2.0 AS xc;
       }
       mark text as labels {
         align: direct 'center';
@@ -137,7 +138,7 @@ chart cartesian as rect_mosaic_labelled_with_offset {
       }
     }
     mark group as heading {
-      transform sql as one_row { query: SELECT 1 AS "one" FROM input LIMIT 1; }
+      data: { values: [{ one: 1; }]; }
       mark text as origin_title {
         align: direct 'center';
         baseline: direct 'middle';
