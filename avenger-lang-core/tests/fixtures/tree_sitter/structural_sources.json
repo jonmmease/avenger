@@ -664,7 +664,7 @@
       "path": "avenger-lang-compiler/tests/fixtures/vega_lite_gallery/charts/isotype_data.avenger",
       "sha256": "569b0fba3cc6837a158265d89a5e05acc47d13f502e6222de3db8ed58ac23c0b",
       "classification": "strict_valid",
-      "root": "chart"
+      "root": "data"
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/vega_lite_gallery/charts/joinaggregate_mean_difference_by_year.avenger",

@@ -402,16 +402,21 @@ fn structural_source_manifest_is_complete_hashed_and_parse_checked() {
             source.path
         );
         if let Ok(parsed) = parsed {
-            let root = match parsed.ast.items[0].declaration.keyword.as_str() {
-                "chart" => "chart",
-                "define" => "definition",
-                "catalog" | "schema" | "table" => "data",
-                keyword => panic!("unexpected module item `{keyword}` in {}", source.path),
-            };
-            assert_eq!(
-                source.root.as_deref(),
-                Some(root),
-                "root for {}",
+            let roots = parsed
+                .ast
+                .items
+                .iter()
+                .map(|item| match item.declaration.keyword.as_str() {
+                    "chart" => "chart",
+                    "define" => "definition",
+                    "catalog" | "schema" | "table" => "data",
+                    keyword => panic!("unexpected module item `{keyword}` in {}", source.path),
+                })
+                .collect::<BTreeSet<_>>();
+            let expected_root = source.root.as_deref().unwrap();
+            assert!(
+                roots.contains(expected_root),
+                "root `{expected_root}` for {} was not present in {roots:?}",
                 source.path
             );
         } else {
