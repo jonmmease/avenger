@@ -17,7 +17,7 @@ use avenger_chart_schema::{
     BodyMode, ChannelSchema, KindSchema, NativeKindKey, NativeKindNamespace, NativeModuleId,
     NativeModuleImplementationProfileId, PropertySchema, ValueShape,
 };
-use avenger_common::{cursor::CursorStyle, time::Instant};
+use avenger_common::time::Instant;
 use avenger_eventstream::window::{
     ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
 };
@@ -244,6 +244,32 @@ fn scene_has_group(marks: &[SceneMark], name: &str) -> bool {
     marks.iter().any(|mark| {
         matches!(mark, SceneMark::Group(group) if group.name == name || scene_has_group(&group.marks, name))
     })
+}
+
+fn collect_symbol_positions_and_fills(
+    marks: &[SceneMark],
+    origin: [f32; 2],
+    output: &mut Vec<([f32; 2], [f32; 4])>,
+) {
+    for mark in marks {
+        match mark {
+            SceneMark::Group(group) => collect_symbol_positions_and_fills(
+                &group.marks,
+                [origin[0] + group.origin[0], origin[1] + group.origin[1]],
+                output,
+            ),
+            SceneMark::Symbol(symbol) => output.extend(
+                symbol
+                    .x_iter()
+                    .zip(symbol.y_iter())
+                    .zip(symbol.fill_iter())
+                    .map(|((x, y), fill)| {
+                        ([origin[0] + x, origin[1] + y], fill.color_or_transparent())
+                    }),
+            ),
+            _ => {}
+        }
+    }
 }
 
 fn composed_registry() -> Arc<NativeRegistry> {
@@ -2318,7 +2344,7 @@ async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() 
 }
 
 #[tokio::test]
-async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() {
+async fn native_surface_interactive_brush_fixture_runs_native_box_selection() {
     let root = fixture("03_interactive_brush");
     let artifact = Compiler::builder()
         .project_root(&root)
@@ -2327,6 +2353,18 @@ async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() 
         .compile_chart(root.join("chart.avenger"), None)
         .await
         .unwrap();
+    assert!(
+        artifact
+            .compiled_plot()
+            .store_specs()
+            .contains_key("__tool_brush__store")
+    );
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .contains_key("chart.brush.store")
+    );
     let compiled = match Arc::try_unwrap(artifact.compiled) {
         Ok(compiled) => compiled,
         Err(_) => panic!("fixture owns its compiled plot"),
@@ -2339,9 +2377,20 @@ async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() 
     .await
     .unwrap();
 
+    let mut initial_points = Vec::new();
+    collect_symbol_positions_and_fills(
+        &app.scene_graph().marks,
+        app.scene_graph().origin,
+        &mut initial_points,
+    );
+    assert_eq!(initial_points.len(), 2);
+    let unselected = [203.0 / 255.0, 213.0 / 255.0, 225.0 / 255.0, 1.0];
+    assert!(initial_points.iter().all(|(_, fill)| *fill == unselected));
+    let [point_x, point_y] = initial_points[0].0;
+
     app.update_state(
         &WindowEvent::CursorMoved(WindowCursorMoved {
-            position: [80.0, 80.0],
+            position: [point_x - 10.0, point_y - 10.0],
         }),
         Instant::now(),
     )
@@ -2354,25 +2403,43 @@ async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() 
         Instant::now(),
     )
     .await;
-    let status = app
-        .update_state(
+    let first_status = app
+        .update_with_status(
             &WindowEvent::CursorMoved(WindowCursorMoved {
-                position: [160.0, 80.0],
+                position: [point_x, point_y],
             }),
             Instant::now(),
         )
-        .await;
+        .await
+        .unwrap()
+        .status;
+    let second_status = app
+        .update_with_status(
+            &WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [point_x + 10.0, point_y + 10.0],
+            }),
+            Instant::now(),
+        )
+        .await
+        .unwrap()
+        .status;
 
-    assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
-    let state = app.app_state_mut().clone();
-    assert_ne!(state.param_f64("drag_x"), Some(0.0));
-    assert_eq!(
-        state.params().await.get("hover_count"),
-        Some(&ScalarValue::Int64(Some(1)))
+    assert!(first_status.rerender);
+    assert!(second_status.rerender);
+    let mut selected_points = Vec::new();
+    collect_symbol_positions_and_fills(
+        &app.scene_graph().marks,
+        app.scene_graph().origin,
+        &mut selected_points,
     );
+    let selected = [37.0 / 255.0, 99.0 / 255.0, 235.0 / 255.0, 1.0];
+    assert!(
+        selected_points.iter().any(|(_, fill)| *fill == selected),
+        "the brush selection should drive the conditional fill channel: {selected_points:?}"
+    );
+    let state = app.app_state_mut().clone();
     let metrics = state.event_metrics().await;
-    assert_eq!(metrics.param_patch_events, 1);
-    assert_eq!(metrics.store_patch_events, 1);
+    assert_eq!(metrics.store_patch_events, 2);
     assert_eq!(metrics.evaluation_errors, 0);
 }
 

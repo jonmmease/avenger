@@ -1625,7 +1625,7 @@ mod tests {
             .expect("compile");
 
         assert!(compiled.param_specs().contains_key("__tool_brush__enabled"));
-        assert!(compiled.store_specs().contains_key("__tool_brush__boxes"));
+        assert!(compiled.store_specs().contains_key("__tool_brush__store"));
         assert!(compiled.selection_specs().contains_key("brush"));
         assert_eq!(compiled.event_bindings().len(), 3);
         assert_eq!(compiled.tool_metadata().len(), 1);

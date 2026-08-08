@@ -1018,7 +1018,7 @@ impl BoxSelection {
     }
 
     fn store_name(&self) -> String {
-        generated_tool_name(&self.tool_id, "boxes")
+        generated_tool_name(&self.tool_id, "store")
     }
 
     fn selection(&self) -> Selection {
@@ -2544,7 +2544,7 @@ mod tests {
         assert_eq!(expansion.marks.len(), 1);
         assert_eq!(expansion.metadata.len(), 1);
         assert_eq!(params(&expansion)[0].name, "__tool_brush__enabled");
-        assert_eq!(stores(&expansion)[0].name, "__tool_brush__boxes");
+        assert_eq!(stores(&expansion)[0].name, "__tool_brush__store");
         assert_eq!(stores(&expansion)[0].primary_key, ["id"]);
         assert_eq!(stores(&expansion)[0].sharing, CoordinationScope::Free);
         assert_eq!(selections(&expansion)[0].id, "brush");

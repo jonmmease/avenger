@@ -6485,6 +6485,7 @@ impl<'a> Resolver<'a> {
             Value::Column(value) => ResolvedValue::Column(value.clone()),
             Value::Atom(value) => ResolvedValue::Atom(value.to_string()),
             Value::Expr(expression) => {
+                let allow_selection = !in_event && owner.keyword.as_str() != "param";
                 let bindings = expression
                     .bindings()
                     .iter()
@@ -6496,6 +6497,7 @@ impl<'a> Resolver<'a> {
                             binding.time,
                             span,
                             in_event,
+                            allow_selection,
                             owner,
                         )
                     })
@@ -6526,6 +6528,7 @@ impl<'a> Resolver<'a> {
                 })
             }
             Value::Projection(projection) => {
+                let allow_selection = !in_event && owner.keyword.as_str() != "param";
                 let bindings = projection
                     .bindings()
                     .iter()
@@ -6537,6 +6540,7 @@ impl<'a> Resolver<'a> {
                             binding.time,
                             span,
                             in_event,
+                            allow_selection,
                             owner,
                         )
                     })
@@ -6624,6 +6628,7 @@ impl<'a> Resolver<'a> {
                             binding.time,
                             span,
                             in_event,
+                            false,
                             owner,
                         )
                     })
@@ -6677,7 +6682,16 @@ impl<'a> Resolver<'a> {
                     .unwrap_or(ResolvedValue::Invalid)
             }
             Value::Binding { kind, path, time } => self
-                .resolve_sql_binding(scope, *kind, path, *time, span, in_event, owner)
+                .resolve_sql_binding(
+                    scope,
+                    *kind,
+                    path,
+                    *time,
+                    span,
+                    in_event,
+                    !in_event && owner.keyword.as_str() != "param",
+                    owner,
+                )
                 .map(ResolvedValue::Binding)
                 .unwrap_or(ResolvedValue::Invalid),
             Value::Ref { kind, path } => self
@@ -7370,10 +7384,64 @@ impl<'a> Resolver<'a> {
         time: BindingTime,
         span: SourceSpan,
         in_event: bool,
+        allow_selection: bool,
         _owner: &Decl,
     ) -> Option<ResolvedBinding> {
         let path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
-        let target = self.resolve_binding_path(scope, &path, Some(kind), span, true)?;
+        let target = self.resolve_any_path(scope, &path, span, true)?;
+        let actual_kind = match &target {
+            ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. } => BindingKind::Param,
+            ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. } => BindingKind::Store,
+            ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. } => {
+                BindingKind::Selection
+            }
+            _ => {
+                self.error(
+                    "AVENGER-RESOLVE-063",
+                    "path is not a state value binding",
+                    span,
+                    format!(
+                        "`${}` does not resolve to a param, store, or selection",
+                        path.join(".")
+                    ),
+                );
+                return None;
+            }
+        };
+        let kind_matches = match kind {
+            // `$name` is lexically a scalar binding. Resolution may refine it
+            // to a Boolean current-row selection predicate.
+            BindingKind::Param => {
+                actual_kind == BindingKind::Param
+                    || (allow_selection && actual_kind == BindingKind::Selection)
+            }
+            BindingKind::Store => actual_kind == BindingKind::Store,
+            BindingKind::Selection => allow_selection && actual_kind == BindingKind::Selection,
+        };
+        if !kind_matches {
+            if actual_kind == BindingKind::Selection {
+                self.error(
+                    "AVENGER-RESOLVE-063",
+                    "selection predicate has no current data row",
+                    span,
+                    format!(
+                        "`${}` is a Boolean predicate over the current chart row and is not valid in this SQL context",
+                        path.join(".")
+                    ),
+                );
+            } else {
+                self.error(
+                    "AVENGER-RESOLVE-064",
+                    "value binding has the wrong scalar/table role",
+                    span,
+                    format!(
+                        "`${}` resolves as {actual_kind:?}, not {kind:?}",
+                        path.join(".")
+                    ),
+                );
+            }
+            return None;
+        }
         let (scope_is_event, scope_has_between) = self.scope_event_context(scope);
         let in_event = in_event || scope_is_event;
         if time != BindingTime::Current && !in_event {
@@ -7392,22 +7460,28 @@ impl<'a> Resolver<'a> {
                 "the containing event must declare `between:`",
             );
         }
-        if time != BindingTime::Current
-            && matches!(
-                target,
-                ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }
-            )
-        {
+        if time != BindingTime::Current && actual_kind != BindingKind::Param {
+            let (subject, detail) = if actual_kind == BindingKind::Selection {
+                (
+                    "selection predicates",
+                    "selection predicates are evaluated against the current chart row and have no `@start` or `@previous` scalar snapshot",
+                )
+            } else {
+                (
+                    "stores",
+                    "stores are table bindings and have no `@start` or `@previous` scalar snapshot",
+                )
+            };
             self.error(
                 "AVENGER-RESOLVE-062",
-                "temporal qualifiers apply only to params",
+                "temporal qualifiers apply only to scalar params",
                 span,
-                "stores are table bindings and have no `@start` or `@previous` scalar snapshot",
+                format!("{subject} are not temporal scalar bindings; {detail}"),
             );
         }
         Some(ResolvedBinding {
             target,
-            kind,
+            kind: actual_kind,
             time,
             authored_path: path,
         })

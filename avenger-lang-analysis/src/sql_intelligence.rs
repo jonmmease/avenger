@@ -867,6 +867,14 @@ pub(crate) fn complete_sql(
     let scope = &cached.scope;
 
     let mut items = Vec::new();
+    let allow_selection_bindings = context.root() != SqlIslandRoot::Query
+        && enclosing_event(project, &request.source, request.byte_offset).is_none()
+        && !matches!(
+            site,
+            avenger_lang_core::syntax::SqlIslandSite::ParamInitializer
+                | avenger_lang_core::syntax::SqlIslandSite::CursorActionRhs
+                | avenger_lang_core::syntax::SqlIslandSite::StateActionRhs
+        );
     let mut incomplete = project.is_none();
     let mut resolved_qualified_member = false;
     let qualifier = qualifier_before(text, node.span, replacement.range.start);
@@ -1020,6 +1028,7 @@ pub(crate) fn complete_sql(
             project,
             site,
             node.span,
+            allow_selection_bindings,
             &mut items,
         );
         complete_functions(
@@ -1059,6 +1068,7 @@ pub(crate) fn complete_sql(
                 project,
                 site,
                 node.span,
+                allow_selection_bindings,
                 &mut items,
             );
         }
@@ -5873,6 +5883,7 @@ fn complete_scalar_bindings(
     project: Option<&ModuleAnalysis>,
     site: avenger_lang_core::syntax::SqlIslandSite,
     island: SourceSpan,
+    allow_selections: bool,
     output: &mut Vec<CompletionItem>,
 ) {
     let typed = prefix.trim_start_matches('$');
@@ -5880,8 +5891,12 @@ fn complete_scalar_bindings(
         return;
     };
     for symbol in &document.symbols {
-        if symbol.value_kind != IndexedValueKind::Scalar
-            || !binding_symbol_visible(document, symbol, cursor, site, island)
+        if !(matches!(symbol.value_kind, IndexedValueKind::Scalar)
+            || allow_selections && symbol.value_kind == IndexedValueKind::Selection)
+        {
+            continue;
+        }
+        if !binding_symbol_visible(document, symbol, cursor, site, island)
             || !candidate_matches(&symbol.name, typed)
         {
             continue;
@@ -5897,7 +5912,12 @@ fn complete_scalar_bindings(
             CompletionOrigin::LexicalScope,
             &bucket,
         );
-        if let Some(data_type) = project
+        if symbol.value_kind == IndexedValueKind::Selection {
+            item.semantic_kind = CompletionSemanticKind::SelectionParam;
+            item.detail = Some("Boolean current-row selection predicate".to_owned());
+            item.data_type = Some("Boolean".to_owned());
+            item.nullable = Some(true);
+        } else if let Some(data_type) = project
             .and_then(|project| {
                 project
                     .resolved_module_graph
@@ -7452,6 +7472,7 @@ fn retain_candidates_for_lexical_mode(items: &mut Vec<CompletionItem>, mode: Sql
             item.semantic_kind,
             CompletionSemanticKind::ScalarParam
                 | CompletionSemanticKind::StoreParam
+                | CompletionSemanticKind::SelectionParam
                 | CompletionSemanticKind::StructField
         ),
         SqlLexicalMode::Code => !matches!(
@@ -7459,6 +7480,7 @@ fn retain_candidates_for_lexical_mode(items: &mut Vec<CompletionItem>, mode: Sql
             CompletionSemanticKind::DataColumn
                 | CompletionSemanticKind::ScalarParam
                 | CompletionSemanticKind::StoreParam
+                | CompletionSemanticKind::SelectionParam
         ),
         SqlLexicalMode::SingleQuotedString
         | SqlLexicalMode::DollarQuotedString
@@ -7470,7 +7492,9 @@ fn retain_candidates_for_lexical_mode(items: &mut Vec<CompletionItem>, mode: Sql
 fn completion_invariants_hold(items: &[CompletionItem], mode: SqlLexicalMode) -> bool {
     items.iter().all(|item| match item.semantic_kind {
         CompletionSemanticKind::DataColumn => mode == SqlLexicalMode::DoubleQuotedIdentifier,
-        CompletionSemanticKind::ScalarParam | CompletionSemanticKind::StoreParam => matches!(
+        CompletionSemanticKind::ScalarParam
+        | CompletionSemanticKind::StoreParam
+        | CompletionSemanticKind::SelectionParam => matches!(
             mode,
             SqlLexicalMode::Binding | SqlLexicalMode::TemporalQualifier
         ),

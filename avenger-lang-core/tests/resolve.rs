@@ -358,7 +358,7 @@ async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
 chart cartesian {
   param 1 as state;
   mark group {
-    param selection as state {}
+    param store as state { field int64 id; }
     mark symbol { x: encoded "x"; y: encoded "y"; size: encoded $state; }
   }
 }"#,
@@ -373,7 +373,7 @@ chart cartesian {
         failure
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("selection")),
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-064"),
         "nearest wrong-category state must stop lookup: {:?}",
         failure.diagnostics
     );
@@ -1986,6 +1986,96 @@ chart cartesian as wrong_bindings {
             .count(),
         2
     );
+}
+
+#[tokio::test]
+async fn resolve_selection_binding_as_current_row_boolean_predicate() {
+    let valid = project(
+        &[(
+            "selection_predicate.avenger",
+            r#"
+avenger 1;
+chart cartesian as selection_predicate {
+  data: { values: [{x: 1.0; y: 2.0;}]; }
+  param selection as picked { empty: none; }
+  mark symbol as points {
+    x: encoded "x";
+    y: encoded "y";
+    fill: direct '#cbd5e1' {
+      when { predicate: $picked; direct: '#2563eb'; }
+    }
+  }
+}
+"#,
+        )],
+        "selection_predicate.avenger",
+    )
+    .await;
+    let resolved = resolve_module_graph(&valid, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = &resolved.source_modules.values().next().unwrap().roots[0];
+    let mark = chart
+        .children
+        .iter()
+        .find(|child| child.keyword == "mark")
+        .unwrap();
+    let ResolvedValue::ChannelValue(fill) = &mark.properties["fill"] else {
+        panic!("resolved conditional fill channel")
+    };
+    let predicate = &fill.conditions[0].predicate;
+    let binding = match predicate.as_ref() {
+        ResolvedValue::Binding(binding) => binding,
+        ResolvedValue::Expression(expression) => expression.bindings.first().unwrap(),
+        other => panic!("resolved selection predicate binding, got {other:?}"),
+    };
+    assert_eq!(binding.kind, avenger_lang_core::ast::BindingKind::Selection);
+    assert!(matches!(binding.target, ResolvedTarget::Selection(_)));
+
+    let invalid = project(
+        &[(
+            "selection_query.avenger",
+            r#"
+avenger 1;
+chart cartesian as selection_query {
+  data: { values: [{x: 1.0;}]; }
+  param selection as picked { empty: none; }
+  transform sql { query: SELECT * FROM input WHERE $picked; }
+}
+"#,
+        )],
+        "selection_query.avenger",
+    )
+    .await;
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(failure.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_str() == "AVENGER-RESOLVE-063"
+            && diagnostic.message.contains("current data row")
+    }));
+
+    let invalid = project(
+        &[(
+            "selection_initializer.avenger",
+            r#"
+avenger 1;
+chart cartesian as selection_initializer {
+  param selection as picked { empty: none; }
+  param $picked as impossible;
+}
+"#,
+        )],
+        "selection_initializer.avenger",
+    )
+    .await;
+    let failure = resolve_module_graph(&invalid, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(failure.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_str() == "AVENGER-RESOLVE-063"
+            && diagnostic.message.contains("current data row")
+    }));
 }
 
 #[tokio::test]

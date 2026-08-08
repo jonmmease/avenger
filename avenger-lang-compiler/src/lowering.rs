@@ -276,6 +276,7 @@ struct ModuleLowerer<'a> {
     store_table_names: BTreeMap<StoreId, String>,
     selections: BTreeMap<SelectionId, Selection>,
     widget_owned_params: BTreeSet<ParamId>,
+    native_owned_stores: BTreeSet<StoreId>,
     native_owned_selections: BTreeSet<SelectionId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
@@ -306,6 +307,7 @@ impl<'a> ModuleLowerer<'a> {
             store_table_names: BTreeMap::new(),
             selections: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
+            native_owned_stores: native_owned_stores(project),
             native_owned_selections: native_owned_selections(project),
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
@@ -890,6 +892,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_store(&self, store: &ResolvedStore) -> Result<Store, Diagnostic> {
+        let runtime_name = self.store_runtime_name(store);
         let fields = store
             .fields
             .iter()
@@ -897,7 +900,7 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         let schema = Arc::new(Schema::new(fields.clone()));
         let mut lowered = if store.rows.is_empty() {
-            Store::new(store.source_name.clone(), schema)
+            Store::new(runtime_name.clone(), schema)
         } else {
             let columns = fields
                 .iter()
@@ -939,7 +942,7 @@ impl<'a> ModuleLowerer<'a> {
             let batch = RecordBatch::try_new(schema, columns).map_err(|error| {
                 lowerer_error_at(store.declaration.clone(), self.project, error.to_string())
             })?;
-            Store::from_record_batch(store.source_name.clone(), batch)
+            Store::from_record_batch(runtime_name, batch)
         };
         lowered = lowered
             .primary_key(store.primary_key.clone())
@@ -949,6 +952,21 @@ impl<'a> ModuleLowerer<'a> {
                 lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
         }
         Ok(lowered)
+    }
+
+    fn store_runtime_name(&self, store: &ResolvedStore) -> String {
+        let Some(origin) = &store.generated_by else {
+            return store.source_name.clone();
+        };
+        let Some(declaration) = find_declaration(self.project, &origin.declaration) else {
+            return store.source_name.clone();
+        };
+        if declaration.keyword == "tool"
+            && let Some(id) = declaration.name.as_deref()
+        {
+            return format!("__tool_{id}__{}", origin.export_role);
+        }
+        store.source_name.clone()
     }
 
     fn constant_expression_data(
@@ -1280,6 +1298,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for (id, store) in &self.project.stores {
             if belongs_to_chart(&store.owner_ancestry, &chart.id)
+                && !self.native_owned_stores.contains(id)
                 && !self.owned_by_tool_behavior(&store.owner_ancestry)
             {
                 plot.furnishings.stores.push(self.stores[id].clone());
@@ -5230,16 +5249,26 @@ impl<'a> ModuleLowerer<'a> {
                 "temporal parameter reads are only lowered with event bindings",
             ));
         }
-        let ResolvedTarget::Param(id) = &binding.target else {
-            return Err(lowerer_error(
+        match &binding.target {
+            ResolvedTarget::Param(id) => self
+                .params
+                .get(id)
+                .map(ChartParam::expr)
+                .ok_or_else(|| lowerer_error(declaration, "resolved parameter is unavailable")),
+            ResolvedTarget::Selection(id) => self
+                .selections
+                .get(id)
+                .map(Selection::predicate)
+                .ok_or_else(|| lowerer_error(declaration, "resolved selection is unavailable")),
+            ResolvedTarget::DefinitionSelection { .. } => Err(lowerer_error(
+                declaration,
+                "definition-owned selection predicates require expansion before lowering",
+            )),
+            _ => Err(lowerer_error(
                 declaration,
                 "table bindings are not scalar expressions",
-            ));
-        };
-        self.params
-            .get(id)
-            .map(ChartParam::expr)
-            .ok_or_else(|| lowerer_error(declaration, "resolved parameter is unavailable"))
+            )),
+        }
     }
 
     fn planned_expression(
@@ -5963,6 +5992,25 @@ fn native_owned_selections(project: &ResolvedModuleGraph) -> BTreeSet<SelectionI
         .flat_map(|declaration| declaration.exports.values())
         .filter_map(|target| match target {
             ResolvedTarget::Selection(id) => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn native_owned_stores(project: &ResolvedModuleGraph) -> BTreeSet<StoreId> {
+    project
+        .source_modules
+        .values()
+        .flat_map(|file| &file.roots)
+        .flat_map(declarations_depth_first)
+        .filter(|declaration| {
+            declaration.keyword == "widget"
+                || (declaration.keyword == "tool"
+                    && declaration.kind.as_deref() != Some("behavior"))
+        })
+        .flat_map(|declaration| declaration.exports.values())
+        .filter_map(|target| match target {
+            ResolvedTarget::Store(id) => Some(id.clone()),
             _ => None,
         })
         .collect()

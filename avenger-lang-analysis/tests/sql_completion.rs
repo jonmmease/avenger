@@ -117,6 +117,7 @@ chart cartesian as chart {{
   data: {{ table: vega.movies; }}
   param 5.0 as minimum;
   param named_struct('label', 'base', 'weight', 2) as config;
+  param selection as picked {{ combine: union; empty: none; }}
   param store as selected {{
     field int64 id;
     field utf8 label;
@@ -969,6 +970,43 @@ async fn lexical_namespace_gates_are_hard_in_every_invocation_mode() {
         data_source("SELECT m.⟦cursor⟧ FROM vega.movies AS m"),
     );
     assert_eq!(labels(&bare_member), ["*"]);
+}
+
+#[tokio::test]
+async fn selection_bindings_complete_only_as_current_row_predicates() {
+    let fixture = fixture().await;
+    let row_expression = complete_marked(&fixture, &fixture.chart, chart_source("$pic⟦cursor⟧"));
+    let picked = row_expression
+        .items
+        .iter()
+        .find(|item| item.label == "$picked")
+        .expect("selection predicate completion in a row expression");
+    assert_eq!(picked.semantic_kind, CompletionSemanticKind::SelectionParam);
+    assert_eq!(picked.data_type.as_deref(), Some("Boolean"));
+
+    let query = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_query_source("SELECT * FROM input WHERE $pic⟦cursor⟧"),
+    );
+    assert!(!labels(&query).contains(&"$picked"));
+
+    let event = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("$pic⟦cursor⟧"),
+    );
+    assert!(!labels(&event).contains(&"$picked"));
+
+    let initializer = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_source("\"rating\"").replace(
+            "  param 5.0 as minimum;",
+            "  param $pic⟦cursor⟧ as minimum;",
+        ),
+    );
+    assert!(!labels(&initializer).contains(&"$picked"));
 }
 
 #[tokio::test]

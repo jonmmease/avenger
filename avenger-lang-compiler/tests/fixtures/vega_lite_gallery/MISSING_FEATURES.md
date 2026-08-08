@@ -49,7 +49,8 @@ capability was added.
 
 ### AV-GALLERY-LANG-007 — Selection predicates in row expressions
 
-- Status: confirmed
+- Status: implemented in the core language/compiler; gallery ports remain
+  fixture work
 - Affects: `interactive_splom`, `interactive_bar_select_highlight`,
   `interactive_histogram_full_height_hover`, `interactive_legend`,
   `interactive_brush`, `interactive_area_brush`, `interactive_paintbrush`,
@@ -62,20 +63,17 @@ capability was added.
   `interactive_overview_detail`, `interactive_crossfilter`,
   `interactive_layered_crossfilter`, `interactive_concat_layer`,
   `interactive_global_development`
-- Evidence: channel `when.predicate` and transform row expressions use the
-  ordinary SQL-expression resolver. It rejects `$selection` with
-  `AVENGER-RESOLVE-063`, while `selection_contains(...)` and contextual
-  `datum."field"` are restricted to event expressions by
-  `AVENGER-RESOLVE-110`. The Rust API already exposes `Selection::predicate()`
-  and the mark-data runtime expands its typed placeholders in channels and
-  filters, so this is a missing language/compiler bridge rather than a missing
-  selection engine.
-- Required capability: define a canonical typed selection-predicate form for
-  the current data row, resolve it only where a row schema exists, lower it to
-  the existing selection placeholder, and support it in conditional channels,
-  filters, SQL-derived branches, legends, defined marks, analysis, and the LSP.
-  Keep event-only equality membership distinct from whole-row selection
-  predicates and preserve each selection's empty/combine policy.
+- Evidence: `$selection` in a scalar row expression resolves as a typed Boolean
+  current-row predicate and lowers through `Selection::predicate()`. The
+  mark-data runtime expands the placeholder in conditional channels and other
+  row expressions, preserving the selection's empty/combine policy. The LSP
+  completes visible selections after `$` only in row-expression islands.
+  Full SQL queries and event expressions reject this form because they have no
+  implicit current chart row; event-only equality membership remains the
+  distinct `selection_contains(selection, datum."field")` operation.
+- Remaining fixture work: port the listed examples with `$selection` channel
+  predicates and row expressions, retaining specialized event membership only
+  where an event datum is being tested.
 
 ### AV-GALLERY-MARK-002 — Line and area interpolation modes
 

@@ -381,6 +381,11 @@ impl ChannelMode {
 pub enum BindingKind {
     Param,
     Store,
+    /// A resolved scalar binding whose value is the selection predicate for
+    /// the current data row. The parser initially classifies `$name` as a
+    /// parameter binding; resolution refines it to this kind when `name`
+    /// denotes a selection.
+    Selection,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]

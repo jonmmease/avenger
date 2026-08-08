@@ -13,50 +13,24 @@ chart cartesian as chart {
     }
     ];
   }
-  param CAST(0.0 AS DOUBLE) as drag_x {
-    sharing: free;
-  }
-  param 0 as hover_count;
-  param store as hovered {
-    primary_key: [id];
-    field utf8 id;
-    field float64 x;
-  }
   param selection as picked {
     combine: union;
     empty: none;
   }
+  tool box_selection as brush {
+    selection: picked;
+    channels: [x, y];
+    x_dimension: "x";
+    y_dimension: "y";
+  }
   mark symbol as points {
     x: encoded "x";
     y: encoded "y";
-  }
-  on cursor_moved as drag {
-    between: {
-      end: mouse_up {
-      }
-      start: mouse_down {
+    fill: direct '#cbd5e1' {
+      when {
+        predicate: $picked;
+        direct: '#2563eb';
       }
     }
-    set drag_x at start = event.coord.x;
-    set hovered = insert_rows {
-      row {
-        id: 'drag';
-        x: event.coord.x;
-      }
-    }
-    set hover_count = (SELECT count(*) FROM $hovered);
-    set picked = upsert_clauses {
-      clause {
-        id: 'drag';
-        interval {
-          x {
-            field: "x";
-            from: event.start.coord.x;
-            to: event.coord.x;
-          }
-        }
-      }
-    }
-    set cursor = 'crosshair';
   }
 }

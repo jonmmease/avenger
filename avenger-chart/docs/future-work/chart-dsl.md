@@ -202,6 +202,16 @@ parallel `encoded:` and `direct:` properties. Bare channel expressions, the
 old `value <expression>` qualifier, and the old conditional `scaled:` and
 `value:` properties are not part of language version 1.
 
+Adopted 2026-08-08: **a selection binding is the Boolean predicate for the
+current chart row.** In a scalar row-expression island, `$picked` or a
+qualified `$component.picked` evaluates the referenced selection against the
+current row, using that selection's `empty` and `combine` policy. This form is
+valid in channel predicates and other row expressions with an effective data
+schema. It is not a scalar state snapshot: it is invalid in event expressions,
+param initializers, and full SQL queries, and it cannot take `@start` or
+`@previous`. Event-time equality membership remains the distinct
+`selection_contains(selection, datum."<field>")` operation.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
@@ -1162,12 +1172,14 @@ label: cast($panel.controls.minimum as varchar);
 
 Every segment after `$` is a bare DSL identifier. The first segment resolves
 lexically; crossing a component boundary requires an explicit export, and the
-final target must be a `param` or `store`. `$name` remains the canonical
+final target must be a scalar param, store, or selection. `$name` remains the canonical
 lexical form; `$component.alias` and deeper paths are the canonical public
 forms. Quoted or numeric path segments are invalid, as are paths that resolve
-to selections or other non-value state. A param is valid only in a
-scalar-valued position; a store is valid only in a relation-valued position.
-Those positions read the binding's current value. A schema slot that explicitly
+to other non-value state. A param is valid only in a scalar-valued position; a
+store is valid only in a relation-valued position; a selection is valid only as
+a Boolean current-row predicate in a scalar row-expression island. Param and
+store positions read the binding's current state value, while a selection read
+evaluates membership for the current row. A schema slot that explicitly
 expects a param/store reference (for example `x_domain_param: $x_domain;` or a
 `slot ref` of that kind) retains binding identity instead; it uses the same
 spelling and resolved `Binding` node, with dereference-versus-handle semantics
@@ -1240,6 +1252,7 @@ The contextual-access inventory is normative:
 | Access | Legal scalar-expression context | Arrow result | Nullability and meaning |
 | --- | --- | --- | --- |
 | `channel.<channel>` | a channel expression on the current mark | referenced channel's exact expression type | preserves the referenced expression's nullability; cycle validation still applies |
+| `$<selection-path>` | scalar row expression with an effective data schema | `boolean` | evaluates the selection against the current row; honors the selection's `empty` and `combine` policy |
 | `datum."<field>"` | event expression | effective logical hit-row field type | nullable at the event boundary and when a possible target lacks the field |
 | `event.coord.<channel>` | event expression | `float64` | current event coordinate in the channel's space |
 | `event.start.coord.<channel>` | event expression in a `between` binding | `float64` | nullable until a start coordinate exists |
@@ -2408,7 +2421,7 @@ first match wins — with an optional `otherwise`:
 ```avenger
 fill: encoded "region" {
   when {
-    predicate: selection_contains($picked, datum."id");
+    predicate: $picked;
     direct: '#2563eb';
   }
   otherwise: {
@@ -5189,7 +5202,7 @@ chart cartesian as explorer {
     y: encoded "mpg";
     fill: encoded "origin" {
       when {
-        predicate: selection_contains(hover.hovered, datum."id");
+        predicate: $hover.hovered;
         direct: '#dc2626';
       }
       otherwise: { encoded: "origin"; }
@@ -6544,7 +6557,7 @@ To prove coverage, a DSL fixture suite runs parallel to the visual tests:
    cover qualified typed paths, export-kind mismatches, cross-boundary access
    without an export, lexical `$name`, qualified `$instance.alias`, deeper
    paths, invalid quoted/numeric segments, non-binding path targets, wrong
-   scalar/table use, same-scope param/store collisions, and nearest-binding
+   scalar/table/selection use, same-scope state-name collisions, and nearest-binding
    shadowing without kind-directed fallback. Param-schema fixtures require one
    row-free SQL initializer before `as`, reject the removed typed header and
    body `value:`/`kind:` forms, characterize DataFusion inference, reject bare
@@ -7048,7 +7061,7 @@ struct NumericLiteral {
     canonical_decimal: String,       // exact digits; never converted through f64
 }
 
-enum BindingKind { Param, Store }
+enum BindingKind { Param, Store, Selection }
 enum BindingTime { Current, Start, Previous } // Current is omitted in source/JSON
 enum ChannelMode { Encoded, Direct }
 ```
@@ -7058,6 +7071,11 @@ plus the same normalized bindings and source-independent canonicalization as
 `SqlExpr` and `SqlQuery`. A named item retains its expression and exact DSL
 `Name` separately; lowering never asks DataFusion to infer or normalize that
 alias.
+
+The parser initially classifies a scalar `$path` as `Param`; resolution
+refines the resolved binding to `Selection` when the path names a selection
+and the SQL island has a current row. `Selection` therefore does not introduce
+a distinct lexical spelling.
 
 Every feature in this document is an instance of `Decl` — `table sql` with
 params, `catalog schemas` and `schema tables` containers, `match` arms,
@@ -8420,8 +8438,8 @@ top-level expression fragments. It should highlight:
 
 - SQL keywords, operators, functions, identifiers, strings, numbers, comments.
 - `$binding` as a parameter token, including `@start`/`@previous`; semantic
-  analysis distinguishes params and stores and highlights the temporal suffix
-  as a modifier.
+  analysis distinguishes scalar params, stores, and current-row selection
+  predicates and highlights the temporal suffix as a modifier.
 - Contextual accesses (`channel.x`, `event.coord.x`, `datum."field"`, ...)
   as ordinary qualified identifiers. The context-free grammar does not assign
   them a language-owned meaning; the LSP refines roots, fixed members, and data
@@ -8462,7 +8480,7 @@ namespace      chart/group paths
 type           mark kinds, coordinate kinds, scale kinds
 function       transform kinds and SQL functions
 property       DSL properties and transform output fields
-parameter      $bindings (scalar params and table stores)
+parameter      $bindings (scalar params, table stores, and selection predicates)
 variable       data columns and aliases
 enumMember     channels, event names, enum-like option values
 operator       SQL and DSL operators where supplied semantically
@@ -8475,7 +8493,7 @@ declaration    declarations introduced by `as`
 readonly       generated transform fields
 defaultLibrary built-in mark/transform/property names
 deprecated     deprecated properties or transforms
-modification   param/store updates in event handlers
+modification   param/store/selection updates in event handlers
 ```
 
 The editor stack should therefore be:
@@ -9063,7 +9081,8 @@ Minimum schema contents:
   hoisted public paths, collision domains, and opaque component-kind part
   provenance. Typed state references record their required kind and path;
   `$name` is lexical, while `$component.alias` records a qualified exported
-  value-binding path, its param/store kind, and its resulting scalar or table type.
+  value-binding path, its param/store/selection kind, and its resulting scalar,
+  table, or Boolean current-row-predicate type.
 - CommonMark docs on every node above, enum values included, enforced by a
   completeness lint.
 

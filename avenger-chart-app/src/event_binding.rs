@@ -15366,7 +15366,7 @@ mod tests {
 
     #[tokio::test]
     async fn box_selection_tool_smoke_tests_repeat_inside_facet() {
-        const TOOL_BOX_STORE: &str = "__tool_brush__boxes";
+        const TOOL_BOX_STORE: &str = "__tool_brush__store";
 
         let ctx = SessionContext::new();
         let df = ctx
@@ -15443,7 +15443,7 @@ mod tests {
 
     #[tokio::test]
     async fn box_selection_tool_smoke_tests_repeat_inside_facet_wrap() {
-        const TOOL_BOX_STORE: &str = "__tool_brush__boxes";
+        const TOOL_BOX_STORE: &str = "__tool_brush__store";
 
         let ctx = SessionContext::new();
         let df = ctx

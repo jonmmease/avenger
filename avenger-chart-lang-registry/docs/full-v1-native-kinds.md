@@ -1273,7 +1273,7 @@ Exports:
 
 - `selection` (`selection`): Selection state owned and updated by this tool.
 
-- `store` (`store`): Hidden interval-row backing store.
+- `store` (`store<struct(field(utf8,'id'),field(utf8,'cell_id'),field(utf8,'row_id'),field(utf8,'column_id'),field(float64,'x_min'),field(float64,'x_max'),field(float64,'y_min'),field(float64,'y_max'))>`): Hidden interval-row backing store.
 
 ## `Tool.box_zoom`
 

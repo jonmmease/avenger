@@ -283,7 +283,18 @@ fn box_selection_schema() -> KindSchema {
     .property("unit_aspect_box", optional_unit_aspect())
     .export(param_export(
         "store",
-        "store",
+        concat!(
+            "store<struct(",
+            "field(utf8,'id'),",
+            "field(utf8,'cell_id'),",
+            "field(utf8,'row_id'),",
+            "field(utf8,'column_id'),",
+            "field(float64,'x_min'),",
+            "field(float64,'x_max'),",
+            "field(float64,'y_min'),",
+            "field(float64,'y_max')",
+            ")>"
+        ),
         "Hidden interval-row backing store.",
     ));
     schema = schema.part(selection_part());
