@@ -175,8 +175,8 @@ chart zerod as chart {
     }
   }
   on cursor_moved as update {
-    set narrowed = '9';
-    set cursor = 42;
+    set narrowed to '9';
+    set cursor to 42;
   }
 }
 "#;
@@ -200,6 +200,20 @@ chart zerod as chart {
     assert!(narrowed.markdown.contains("Utf8"));
     assert!(narrowed.markdown.contains("Int32"));
     assert!(narrowed.markdown.contains("strict DataFusion/Arrow `CAST`"));
+
+    let action_target = hover_at("narrowed to");
+    assert!(
+        action_target
+            .markdown
+            .contains("`set` action on a scalar parameter")
+    );
+    assert!(action_target.markdown.contains("physical Arrow boundary"));
+    assert!(action_target.markdown.contains("```avenger\nnarrowed\n```"));
+    assert!(
+        !action_target
+            .markdown
+            .contains("```avenger\n$narrowed\n```")
+    );
 
     let initializer = analysis
         .hover(
@@ -494,11 +508,11 @@ chart cartesian as chart {
 }
 
 #[test]
-fn selection_param_rename_updates_target_resolved_set_references() {
+fn selection_rename_updates_target_resolved_action_references() {
     let source = r#"avenger 1;
 chart cartesian {
   selection as picked {}
-  on click { set picked = clear; }
+  on click { clear picked; }
 }"#;
     let (analysis, origin, revision) = workspace_analysis(source);
     let cursor = source.find("picked").unwrap() + 1;
@@ -520,7 +534,7 @@ chart cartesian {
         text.replace_range(edit.span.range.as_range(), &edit.new_text);
     }
     assert!(text.contains("selection as selected"));
-    assert!(text.contains("set selected = clear"));
+    assert!(text.contains("clear selected"));
 }
 
 #[test]
@@ -843,6 +857,56 @@ chart cartesian as chart {
     assert!(edit.new_text.contains("    max: 0.0;"));
     assert!(edit.new_text.contains("    min: 0.0;"));
 
+    let fixed = format!(
+        "{}{}{}",
+        &source[..edit.span.range.start],
+        edit.new_text,
+        &source[edit.span.range.end..]
+    );
+    let fixed_revision = SourceRevision::from_text(&fixed);
+    let fixed_syntax = analyze_syntax(&DocumentSnapshot::new(origin, fixed_revision, fixed));
+    assert!(fixed_syntax.parsed.strict.is_some());
+}
+
+#[test]
+fn direct_state_action_payload_fixes_are_verb_aware_and_parseable() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  selection as picked { combine: union; empty: none; }
+  on click {
+    replace picked from scene {
+    }
+  }
+}
+"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let start = source.find("replace picked").unwrap();
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: origin.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&origin].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + "replace picked".len(),
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: vec!["AVENGER-RESOLVE-140".to_owned()],
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Add all missing required action members")
+        .expect("scene-query action payload fix");
+    let edit = &action.edit.sources[&origin].edits[0];
+    for member in ["geometry:", "policy:", "marks:", "fields:"] {
+        assert!(edit.new_text.contains(member), "{}", edit.new_text);
+    }
+    assert_eq!(action.diagnostic_codes, ["AVENGER-RESOLVE-140"]);
     let fixed = format!(
         "{}{}{}",
         &source[..edit.span.range.start],

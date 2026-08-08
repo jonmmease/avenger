@@ -2,7 +2,7 @@
 
 use crate::ast::{
     BindingTime, Decl, File, ImportClause, ModuleItem, Name, PropertyMap, QualifiedName, RefKind,
-    Value, Visibility,
+    Value, Visibility, is_state_action_keyword,
 };
 
 pub fn print_file(file: &File) -> String {
@@ -163,7 +163,7 @@ impl Printer {
             "export" => self.export(decl),
             "match" => self.match_block(decl),
             "splice" => self.splice(decl),
-            "set" => self.action(decl),
+            keyword if is_state_action_keyword(keyword) => self.action(decl),
             "theme" => self.theme(decl),
             _ => self.generic_decl(decl),
         }
@@ -368,32 +368,40 @@ impl Printer {
     }
 
     fn action(&mut self, decl: &Decl) {
-        self.text("set ");
-        if decl
-            .kind
-            .as_ref()
-            .is_some_and(|kind| kind.as_str() == "cursor")
-        {
-            self.text("cursor");
-            self.text(" = ");
-        } else {
-            self.path_property(&decl.props, "target");
-            if let Some(Value::Atom(at)) = decl.props.get("at") {
-                self.text(" at ");
-                self.text(at.as_str());
-            }
-            if matches!(decl.props.get("replacing_scopes"), Some(Value::Bool(true))) {
-                self.text(" replacing scopes");
-            }
-            self.text(" = ");
+        self.text(decl.keyword.as_str());
+        self.text(" ");
+        self.path_property(&decl.props, "target");
+        if let Some(Value::Atom(at)) = decl.props.get("at") {
+            self.text(" at ");
+            self.text(at.as_str());
         }
-        if let Some(value) = decl.props.get("value") {
-            self.value(value);
-            if !matches!(value, Value::Block { .. }) {
-                self.line(";");
+        if matches!(decl.props.get("replacing_scopes"), Some(Value::Bool(true))) {
+            self.text(" replacing scopes");
+        }
+        if matches!(decl.props.get("from_scene"), Some(Value::Bool(true))) {
+            self.text(" from scene");
+        }
+        if let Some(within) = decl.props.get("within") {
+            self.text(" within ");
+            self.value(within);
+        }
+
+        if decl.keyword.as_str() == "set" {
+            self.text(" to ");
+            if let Some(value) = decl.props.get("value") {
+                self.value(value);
+            } else {
+                self.text("NULL");
             }
+            self.line(";");
+        } else if decl.keyword.as_str() == "clear" {
+            self.line(";");
         } else {
-            self.line("null;");
+            self.body(
+                &decl.props,
+                &decl.children,
+                &["target", "at", "replacing_scopes", "from_scene", "within"],
+            );
         }
     }
 

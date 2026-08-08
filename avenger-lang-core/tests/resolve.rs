@@ -412,8 +412,8 @@ chart cartesian as namespaces {
   mark symbol as shared { x: encoded "x"; y: encoded "y"; }
   on click as shared {
     target: mark shared;
-    set shared = clear;
-    set shared_value = $shared_value + 1;
+    clear shared;
+    set shared_value to $shared_value + 1;
   }
 }
 "#,
@@ -2231,8 +2231,8 @@ chart cartesian as events {
       start: mouse_down { filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set x at start = $x@start + event.facet[1];
-    set cursor = 'crosshair';
+    set x at start to $x@start + event.facet[1];
+    set cursor to 'crosshair';
   }
 }
 "#,
@@ -2269,7 +2269,7 @@ chart cartesian as bad_events {
       start: mouse_down { filter: $x@previous > 0; }
       end: mouse_up {}
     }
-    set x = 128;
+    set x to 128;
   }
 }
 "#,
@@ -2302,7 +2302,7 @@ chart cartesian as helpers {
   on click {
     target: mark points;
     filter: selection_contains(picked, datum."id") = true;
-    set cursor_x = event.coord.x + 0;
+    set cursor_x to event.coord.x + 0;
   }
 }
 
@@ -2507,15 +2507,15 @@ chart cartesian as events {
       start: mouse_down { target: mark overview.points; filter: $x >= 0; }
       end: mouse_up { filter: $x >= 0; }
     }
-    set x at start replacing scopes = event.coord.x;
-    set rows = insert_rows { row { id: 'cursor'; value: event.coord.x; } }
-    set picked = replace_all_from_scene_query {
+    set x at start replacing scopes to event.coord.x;
+    insert rows { row { id: 'cursor'; value: event.coord.x; } }
+    replace picked from scene {
       geometry: polygon(event.path);
       policy: intersects;
       marks: [overview.points, detail.points];
       fields: [{ id: 'x'; datum: 'x'; field: "x"; }];
     }
-    set cursor = crosshair;
+    set cursor to crosshair;
   }
 }
 "#,
@@ -2554,12 +2554,9 @@ chart cartesian as events {
         event.children[2].state_lvalue.as_ref().unwrap().target,
         ResolvedTarget::Selection(_)
     ));
-    let avenger_lang_core::ResolvedValue::Object { properties, .. } =
-        &event.children[2].properties["value"]
+    let avenger_lang_core::ResolvedValue::Array(scene_targets) =
+        &event.children[2].properties["marks"]
     else {
-        panic!("selection update payload")
-    };
-    let avenger_lang_core::ResolvedValue::Array(scene_targets) = &properties["marks"] else {
         panic!("typed scene-query mark target list")
     };
     assert_eq!(scene_targets.len(), 2);
@@ -2587,7 +2584,7 @@ chart cartesian as bad_scene_targets {
     position: top;
   }
   on cursor_moved {
-    set picked = replace_all_from_scene_query {
+    replace picked from scene {
       geometry: polygon(event.path);
       policy: intersects;
       marks: [panel.points, panel.points, choice.container, 1 + 2];

@@ -25,6 +25,7 @@ const VALID_FIXTURES: &[&str] = &[
     "dedicated-shapes.avenger",
     "query-entry.avenger",
     "selection-payloads.avenger",
+    "state-actions.avenger",
     "headed-blocks.avenger",
 ];
 

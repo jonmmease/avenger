@@ -326,6 +326,13 @@
                         "decl": {
                           "enum": [
                             "set",
+                            "clear",
+                            "insert",
+                            "replace",
+                            "upsert",
+                            "patch",
+                            "delete",
+                            "toggle",
                             "on"
                           ]
                         }
@@ -259192,7 +259199,7 @@
                       "block"
                     ],
                     "type": "object",
-                    "x-avenger-value-shape": "param_change_action"
+                    "x-avenger-value-shape": "state_action_block"
                   },
                   "activation_param": {
                     "additionalProperties": false,
@@ -272387,7 +272394,7 @@
             "docs": "Ordered shared-state mutations run atomically after each activation.",
             "required": false,
             "shape": {
-              "shape": "param_change_action"
+              "shape": "state_action_block"
             }
           },
           "activation_param": {

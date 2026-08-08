@@ -109,7 +109,17 @@
     {
       "id": "chart_body",
       "source": "avenger 1; chart cartesian { | }",
-      "expected": ["mark group", "theme", "adjust", "cell", "data", "derive", "export", "format", "guide", "layer", "layout", "level", "mark", "match", "on", "param", "part", "plot", "resource", "scale_edit", "scale_hint", "selection", "set", "store", "subtitle", "theme", "time", "title", "tool", "transform", "unit_aspect", "variable", "when", "widget"]
+      "expected": ["mark group", "theme", "adjust", "cell", "data", "derive", "export", "format", "guide", "layer", "layout", "level", "mark", "match", "on", "param", "part", "plot", "resource", "scale_edit", "scale_hint", "selection", "store", "subtitle", "theme", "time", "title", "tool", "transform", "unit_aspect", "variable", "when", "widget"]
+    },
+    {
+      "id": "event_action_head",
+      "source": "avenger 1; chart cartesian { selection as picked {} on click { clear picked; | } }",
+      "expected": ["clear", "delete", "insert", "patch", "replace", "set", "toggle", "upsert"]
+    },
+    {
+      "id": "widget_action_head",
+      "source": "avenger 1; chart zerod { widget button as button { label: 'Run'; action: { | } } }",
+      "expected": ["clear", "delete", "insert", "patch", "replace", "set", "toggle", "upsert"]
     },
     {
       "id": "mark_kind",
@@ -159,7 +169,7 @@
     {
       "id": "set_scalar_tail",
       "source": "avenger 1; chart cartesian { param 1 as width; on click { set width | } }",
-      "expected": ["at", "replacing"]
+      "expected": ["at", "replacing", "to"]
     },
     {
       "id": "comment",

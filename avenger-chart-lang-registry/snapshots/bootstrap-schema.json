@@ -11628,7 +11628,7 @@
       "properties": {
         "action": {
           "shape": {
-            "shape": "param_change_action"
+            "shape": "state_action_block"
           },
           "required": false,
           "docs": "Ordered shared-state mutations run atomically after each activation."

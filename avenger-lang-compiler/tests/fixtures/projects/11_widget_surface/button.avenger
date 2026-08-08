@@ -11,13 +11,13 @@ chart zerod as button {
   }
   widget button as clear {
     action: {
-      set query = '';
-      set history = insert_rows {
+      set query to '';
+      insert history {
         row {
           id: 'clear';
         }
       }
-      set picked = clear;
+      clear picked;
     }
     label: 'Clear';
     position: right;

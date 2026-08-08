@@ -2764,8 +2764,8 @@ mod tests {
 
     #[test]
     fn successive_dsl_generations_migrate_compatible_state() {
-        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush");
+        let project_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/interactive_state");
         let chart = project_root.join("chart.avenger");
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -2790,13 +2790,13 @@ mod tests {
         let first_state = first_bundle.app.app_state_mut().clone();
         first_state
             .set_param(
-                "hover_count",
-                datafusion::scalar::ScalarValue::Int64(Some(9)),
+                "selected_size",
+                datafusion::scalar::ScalarValue::Float64(Some(320.0)),
             )
             .expect("set first-generation state");
         assert_eq!(
-            runtime.block_on(first_state.params())["hover_count"],
-            datafusion::scalar::ScalarValue::Int64(Some(9))
+            runtime.block_on(first_state.params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(320.0))
         );
         let snapshot = runtime.block_on(first_state.snapshot_state());
 
@@ -2815,13 +2815,13 @@ mod tests {
             )
             .expect("prepare migrated generation");
         let second_state = second_bundle.app.app_state_mut().clone();
-        assert_eq!(report.params_migrated, 2);
+        assert_eq!(report.params_migrated, 3);
         assert_eq!(report.stores_migrated, 1);
         assert_eq!(report.selections_migrated, 1);
         assert_eq!(report.reset(), 0);
         assert_eq!(
-            runtime.block_on(second_state.params())["hover_count"],
-            datafusion::scalar::ScalarValue::Int64(Some(9))
+            runtime.block_on(second_state.params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(320.0))
         );
     }
 

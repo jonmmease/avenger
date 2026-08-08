@@ -306,7 +306,7 @@ chart cartesian {
 avenger 1;
 export define tool picker {
   slot ref target { kind: mark; }
-  on click { target: mark target; set cursor = pointer; }
+  on click { target: mark target; set cursor to pointer; }
 }
 "#,
         ),
@@ -397,7 +397,7 @@ chart cartesian as chart {
   transform output_transform { }
   on click {
     target: mark component.hidden;
-    set cursor = pointer;
+    set cursor to pointer;
   }
 }
 "#,
@@ -530,7 +530,7 @@ chart cartesian as chart {
     annotations: {
       on click {
         target: mark point;
-        set cursor = crosshair;
+        set cursor to crosshair;
       }
       mark text as label {
         band_axis: encoded "category";
@@ -1237,7 +1237,7 @@ export define tool hover {
   selection as hovered { empty: none; }
   on mark_mouse_enter {
     target: mark target;
-    set hovered = clear;
+    clear hovered;
   }
 }
 "#,
@@ -1255,7 +1255,7 @@ export define tool hover {
     assert!(text.contains("component_kind: hover;"), "{text}");
     assert!(text.contains(" as hovered;"), "{text}");
     assert!(text.contains("private selection as __av_"), "{text}");
-    assert!(text.contains("set __av_"), "{text}");
+    assert!(text.contains("clear __av_"), "{text}");
     assert!(text.contains("target: mark points;"), "{text}");
 
     resolve_module_graph(&expanded.module_graph, &bootstrap_schema())

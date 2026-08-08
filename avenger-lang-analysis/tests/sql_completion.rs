@@ -264,6 +264,106 @@ async fn chart_only_fixture(text: &str) -> Fixture {
     }
 }
 
+#[tokio::test]
+async fn state_action_payload_completion_is_target_and_type_aware() {
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  param 1 as count;
+  param 'label' as title;
+  store as rows {
+    primary_key: [id];
+    field int64 id;
+    field utf8 label;
+  }
+  selection as picked {}
+  on click {
+    set count to $count;
+    insert rows { row { id: 1; label: 'insert'; } }
+    patch rows { key { id: 1; } fields { label: 'patched'; } }
+    replace picked {
+      clause {
+        id: 'picked';
+        equality { id { field: "id"; value: 1; } }
+      }
+    }
+    }
+}
+"#;
+    let fixture = chart_only_fixture(source).await;
+
+    for (fragment, keyword, expected, rejected) in [
+        (
+            "row { id: 1; label: 'insert'; }",
+            "row",
+            &["id", "label"][..],
+            &[][..],
+        ),
+        ("key { id: 1; }", "key", &["id"][..], &["label"][..]),
+        (
+            "fields { label: 'patched'; }",
+            "fields",
+            &["label"][..],
+            &["id"][..],
+        ),
+    ] {
+        let head = format!("{keyword} {{ ");
+        let padding = " ".repeat(fragment.len() - head.len() - 2);
+        let marked = source.replacen(fragment, &format!("{head}{CURSOR}{padding} }}"), 1);
+        let completion = complete_marked(&fixture, &fixture.chart, marked);
+        let labels = completion
+            .items
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>();
+        for name in expected {
+            assert!(labels.contains(name), "{keyword}: {labels:?}");
+            let item = completion
+                .items
+                .iter()
+                .find(|item| item.label == *name)
+                .unwrap();
+            assert!(
+                item.detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("store field")),
+                "{keyword}: {:?}",
+                item.detail
+            );
+        }
+        for name in rejected {
+            assert!(!labels.contains(name), "{keyword}: {labels:?}");
+        }
+    }
+
+    let fragment = "clause {\n        id: 'picked';\n        equality { id { field: \"id\"; value: 1; } }\n      }";
+    let head = "clause { ";
+    let padding = " ".repeat(fragment.len() - head.len() - 2);
+    let marked = source.replacen(fragment, &format!("{head}{CURSOR}{padding} }}"), 1);
+    let labels = complete_marked(&fixture, &fixture.chart, marked)
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>();
+    for member in ["id", "equality", "interval"] {
+        assert!(labels.contains(&member.to_owned()), "{labels:?}");
+    }
+
+    let marked = source.replacen("to $count", &format!("to ${CURSOR}count"), 1);
+    let completion = complete_marked(&fixture, &fixture.chart, marked);
+    let count = completion
+        .items
+        .iter()
+        .find(|item| item.label == "$count")
+        .unwrap();
+    let title = completion
+        .items
+        .iter()
+        .find(|item| item.label == "$title")
+        .unwrap();
+    assert_eq!(count.expected_type_compatible, Some(true));
+    assert_eq!(title.expected_type_compatible, Some(false));
+}
+
 async fn transform_pipeline_fixture() -> (Fixture, String) {
     let project_root = std::fs::canonicalize(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

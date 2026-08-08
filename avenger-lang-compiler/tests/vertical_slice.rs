@@ -1666,11 +1666,11 @@ async fn native_surface_button_actions_preserve_order_and_shared_state_targets()
             position: right;
             label: 'Clear';
             action: {
-              set query = '';
-              set history = insert_rows {
+              set query to '';
+              insert history {
                 row { id: 'clear'; }
               }
-              set picked = clear;
+              clear picked;
             }
           }
         }"#;
@@ -2041,13 +2041,13 @@ async fn event_domain_facet_and_legend_property_accesses_lower() {
           }
           on cursor_moved as inspect_plot {
             target: mark points;
-            set domain_start = event.domain.x.start;
-            set domain_end = event.domain.x.end;
-            set facet_value = event.facet[1];
+            set domain_start to event.domain.x.start;
+            set domain_end to event.domain.x.end;
+            set facet_value to event.facet[1];
           }
           on cursor_moved as inspect_legend {
             surface: legend fill;
-            set legend_hit = event.legend.value;
+            set legend_hit to event.legend.value;
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -2083,11 +2083,11 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               start: mouse_down { filter: $enabled; }
               end: mouse_up { filter: $enabled; }
             }
-            set drag_x at start = event.coord.x;
-            set hovered = insert_rows {
+            set drag_x at start to event.coord.x;
+            insert hovered {
               row { id: 'point'; x: event.coord.x; }
             }
-            set picked = toggle_clauses {
+            toggle picked {
               clause {
                 id: 'point';
                 equality {
@@ -2095,7 +2095,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
                 }
               }
             }
-            set picked = upsert_clauses {
+            upsert picked {
               clause {
                 id: 'range';
                 interval {
@@ -2107,7 +2107,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
                 }
               }
             }
-            set picked = replace_all_from_scene_query {
+            replace picked from scene {
               geometry: polygon(event.path);
               policy: intersects;
               marks: [points];
@@ -2115,9 +2115,9 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               unique_by: ['x'];
               sharing: free;
             }
-            set picked = delete_clauses { ids: ['point']; }
-            set drag_domain = span_ordered(event.coord.x, event.start.coord.x);
-            set cursor = 'crosshair';
+            delete picked { ids: ['point']; }
+            set drag_domain to span_ordered(event.coord.x, event.start.coord.x);
+            set cursor to 'crosshair';
           }
         }"#;
     let artifact = source_compiler(source, None)
@@ -2187,6 +2187,157 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
         &steps[7],
         avenger_chart_core::ChartActionStep::SetCursor(_)
     ));
+}
+
+#[tokio::test]
+async fn every_state_action_verb_lowers_to_the_existing_runtime_update_algebra() {
+    let clause = |id: &str| {
+        format!(
+            r#"clause {{
+                id: '{id}';
+                equality {{ id {{ field: "id"; value: '{id}'; }} }}
+              }}"#
+        )
+    };
+    let source = format!(
+        r#"avenger 1;
+        chart cartesian as chart {{
+          data: {{ values: [{{ id: 'a'; value: 1.0; }}]; }}
+          store as rows {{
+            primary_key: [id];
+            field utf8 id;
+            field float64 value;
+          }}
+          selection as picked {{ empty: none; combine: union; }}
+          mark symbol as points {{ x: encoded "value"; y: encoded "value"; }}
+          on click {{
+            clear rows;
+            insert rows {{ row {{ id: 'insert'; value: 1.0; }} }}
+            replace rows {{ row {{ id: 'replace'; value: 2.0; }} }}
+            upsert rows {{ row {{ id: 'upsert'; value: 3.0; }} }}
+            patch rows {{ key {{ id: 'upsert'; }} fields {{ value: 4.0; }} }}
+            delete rows {{ key {{ id: 'replace'; }} }}
+            toggle rows {{ row {{ id: 'toggle'; value: 5.0; }} }}
+
+            clear picked;
+            clear picked within free;
+            replace picked {{ {} }}
+            replace picked within free {{ {} }}
+            upsert picked {{ {} }}
+            toggle picked {{ {} }}
+            delete picked {{ ids: ['replace']; }}
+            delete picked within free {{ ids: ['scoped']; }}
+
+            replace picked from scene {{
+              geometry: rect(0.0, 0.0, 1.0, 1.0);
+              policy: intersects;
+              marks: [points];
+              fields: [{{ id: 'id'; datum: 'id'; field: "id"; }}];
+            }}
+            replace picked from scene within free {{
+              geometry: rect(0.0, 0.0, 1.0, 1.0);
+              policy: intersects;
+              marks: [points];
+              fields: [{{ id: 'id'; datum: 'id'; field: "id"; }}];
+            }}
+            upsert picked from scene {{
+              geometry: rect(0.0, 0.0, 1.0, 1.0);
+              policy: intersects;
+              marks: [points];
+              fields: [{{ id: 'id'; datum: 'id'; field: "id"; }}];
+            }}
+            toggle picked from scene {{
+              geometry: rect(0.0, 0.0, 1.0, 1.0);
+              policy: intersects;
+              marks: [points];
+              fields: [{{ id: 'id'; datum: 'id'; field: "id"; }}];
+            }}
+          }}
+        }}"#,
+        clause("replace"),
+        clause("scoped"),
+        clause("upsert"),
+        clause("toggle"),
+    );
+    let artifact = source_compiler(&source, None)
+        .compile_chart("chart.avenger", None)
+        .await
+        .unwrap();
+    let steps = artifact.compiled_plot().event_bindings()[0]
+        .action
+        .ordered_steps();
+    let variants = steps
+        .iter()
+        .map(|step| match step {
+            avenger_chart_core::ChartActionStep::SetStore(action) => match &action.update {
+                avenger_chart_core::StoreUpdate::Clear => "store.clear",
+                avenger_chart_core::StoreUpdate::InsertRows { .. } => "store.insert",
+                avenger_chart_core::StoreUpdate::ReplaceRows { .. } => "store.replace",
+                avenger_chart_core::StoreUpdate::UpsertRows { .. } => "store.upsert",
+                avenger_chart_core::StoreUpdate::UpdateByKey { .. } => "store.patch",
+                avenger_chart_core::StoreUpdate::DeleteByKey { .. } => "store.delete",
+                avenger_chart_core::StoreUpdate::ToggleRows { .. } => "store.toggle",
+            },
+            avenger_chart_core::ChartActionStep::SetSelection(action) => match &action.update {
+                avenger_chart_core::SelectionUpdate::Clear => "selection.clear",
+                avenger_chart_core::SelectionUpdate::ClearInScope { .. } => {
+                    "selection.clear_scoped"
+                }
+                avenger_chart_core::SelectionUpdate::ReplaceAllClauses { .. } => {
+                    "selection.replace"
+                }
+                avenger_chart_core::SelectionUpdate::ReplaceClausesInScope { .. } => {
+                    "selection.replace_scoped"
+                }
+                avenger_chart_core::SelectionUpdate::UpsertClauses { .. } => "selection.upsert",
+                avenger_chart_core::SelectionUpdate::ToggleClauses { .. } => "selection.toggle",
+                avenger_chart_core::SelectionUpdate::DeleteClauses { .. } => "selection.delete",
+                avenger_chart_core::SelectionUpdate::DeleteClausesInScope { .. } => {
+                    "selection.delete_scoped"
+                }
+                avenger_chart_core::SelectionUpdate::ReplaceAllFromSceneQuery { .. } => {
+                    "selection.replace_scene"
+                }
+                avenger_chart_core::SelectionUpdate::ReplaceFromSceneQueryInScope { .. } => {
+                    "selection.replace_scene_scoped"
+                }
+                avenger_chart_core::SelectionUpdate::UpsertFromSceneQuery { .. } => {
+                    "selection.upsert_scene"
+                }
+                avenger_chart_core::SelectionUpdate::ToggleFromSceneQuery { .. } => {
+                    "selection.toggle_scene"
+                }
+                avenger_chart_core::SelectionUpdate::ToggleEqualityValue { .. } => {
+                    panic!("the DSL does not expose ToggleEqualityValue")
+                }
+            },
+            _ => panic!("this fixture contains only store and selection actions"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        variants,
+        [
+            "store.clear",
+            "store.insert",
+            "store.replace",
+            "store.upsert",
+            "store.patch",
+            "store.delete",
+            "store.toggle",
+            "selection.clear",
+            "selection.clear_scoped",
+            "selection.replace",
+            "selection.replace_scoped",
+            "selection.upsert",
+            "selection.toggle",
+            "selection.delete",
+            "selection.delete_scoped",
+            "selection.replace_scene",
+            "selection.replace_scene_scoped",
+            "selection.upsert_scene",
+            "selection.toggle_scene",
+        ]
+    );
 }
 
 #[tokio::test]
@@ -2817,8 +2968,8 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
-    let set_param = expanded.text.find("_enabled =").unwrap();
-    let set_selection = expanded.text.find("_hovered =").unwrap();
+    let set_param = expanded.text.find("_enabled to").unwrap();
+    let set_selection = expanded.text.find("clear __av_").unwrap();
     assert!(set_param < set_selection, "{}", expanded.text);
 
     let artifact = compiler

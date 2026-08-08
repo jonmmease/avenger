@@ -348,7 +348,7 @@ pub enum ValueShape {
     /// This is intentionally a semantic shape rather than an arbitrary
     /// object: the compiler preserves authored `set` order and lowers the
     /// block to one atomic `ChartAction` owned by the native declaration.
-    ParamChangeAction,
+    StateActionBlock,
     /// A headless, propertyless block containing one or more mark
     /// declarations. Its declarations use the ordinary mark pipeline but
     /// remain local to the owning property.

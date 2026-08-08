@@ -158,7 +158,7 @@ fn button_schema() -> KindSchema {
     .property(
         "action",
         PropertySchema::optional(
-            ValueShape::ParamChangeAction,
+            ValueShape::StateActionBlock,
             "Ordered shared-state mutations run atomically after each activation.",
         ),
     )
@@ -417,7 +417,7 @@ fn lower_button(
     if let Some(ResolvedValue::Param(param)) = declaration.properties.get("activation_param") {
         widget = widget.with_activation_param(param.clone());
     }
-    if let Some(action) = &declaration.param_change_action {
+    if let Some(action) = &declaration.state_action {
         widget = widget.action(action.clone());
     }
     Ok(WidgetAttachment::composed(

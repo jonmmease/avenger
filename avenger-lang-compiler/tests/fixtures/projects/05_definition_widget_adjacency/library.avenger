@@ -5,7 +5,7 @@ export define tool cursor_tool {
   }
   on mark_mouse_enter {
     target: mark target;
-    set cursor = pointer;
+    set cursor to pointer;
   }
 }
 

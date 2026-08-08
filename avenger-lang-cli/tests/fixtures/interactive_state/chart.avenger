@@ -85,7 +85,7 @@ chart cartesian as chart {
   }
   on click as toggle_point {
     target: mark points;
-    set picked = toggle_clauses {
+    toggle picked {
       clause {
         id: 'clicked';
         equality {
@@ -96,7 +96,7 @@ chart cartesian as chart {
         }
       }
     }
-    set selected_size = CASE WHEN selection_contains(picked, datum."id") THEN 520.0 ELSE 80.0 END;
+    set selected_size to CASE WHEN selection_contains(picked, datum."id") THEN 520.0 ELSE 80.0 END;
   }
   on cursor_moved as drag {
     between: {
@@ -106,13 +106,13 @@ chart cartesian as chart {
       }
     }
     filter: datum."id" IS NULL;
-    set dragged = upsert_rows {
+    upsert dragged {
       row {
         id: 'drag';
         x: event.coord.x;
         y: event.coord.y;
       }
     }
-    set cursor = 'crosshair';
+    set cursor to 'crosshair';
   }
 }

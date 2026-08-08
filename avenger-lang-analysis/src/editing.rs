@@ -596,6 +596,7 @@ pub(crate) fn code_actions(
     close_property_action(analysis, request, &mut actions);
     missing_as_action(analysis, request, &mut actions);
     missing_required_properties_action(analysis, request, &mut actions);
+    missing_state_action_members_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
     channel_mode_actions(analysis, request, &mut actions);
@@ -799,6 +800,201 @@ fn missing_required_properties_action(
     output.push(action);
 }
 
+fn missing_state_action_members_action(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let supported_codes = [
+        "AVENGER-RESOLVE-115",
+        "AVENGER-RESOLVE-122",
+        "AVENGER-RESOLVE-123",
+        "AVENGER-RESOLVE-137",
+        "AVENGER-RESOLVE-140",
+        "AVENGER-RESOLVE-159",
+    ];
+    let diagnostic_codes = request
+        .diagnostic_codes
+        .iter()
+        .filter(|code| supported_codes.contains(&code.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if diagnostic_codes.is_empty() {
+        return;
+    }
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let Some(declaration) = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                &node.kind,
+                avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                    if avenger_lang_core::ast::is_state_action_keyword(keyword)
+            ) && spans_overlap(node.span, request.range)
+        })
+        .min_by_key(|node| node.span.range.len())
+    else {
+        return;
+    };
+    let avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { keyword, .. } =
+        &declaration.kind
+    else {
+        return;
+    };
+    let text = syntax.parsed.tokens.text();
+    let header_end = text[declaration.span.range.as_range()]
+        .find('{')
+        .map_or(declaration.span.range.end, |offset| {
+            declaration.span.range.start + offset
+        });
+    let header = &text[declaration.span.range.start..header_end];
+    let from_scene = header
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|words| words == ["from", "scene"]);
+
+    let authored = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            if node.parent != Some(declaration.id) {
+                return None;
+            }
+            match &node.kind {
+                avenger_lang_core::syntax::TolerantSyntaxNodeKind::Property { name }
+                | avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration {
+                    keyword: name,
+                    ..
+                } => Some(name.as_str()),
+                _ => None,
+            }
+        })
+        .collect::<BTreeSet<_>>();
+
+    let has_code = |code: &str| diagnostic_codes.iter().any(|value| value == code);
+    let mut required = BTreeMap::<&str, &str>::new();
+    if has_code("AVENGER-RESOLVE-115")
+        && matches!(keyword.as_str(), "insert" | "replace" | "upsert" | "toggle")
+        && !from_scene
+    {
+        required.insert("row", "row { }");
+    }
+    if has_code("AVENGER-RESOLVE-122") && keyword == "patch" {
+        required.insert("key", "key { }");
+        required.insert("fields", "fields { }");
+    }
+    if has_code("AVENGER-RESOLVE-123") && keyword == "delete" {
+        required.insert("key", "key { }");
+    }
+    if has_code("AVENGER-RESOLVE-137")
+        && matches!(keyword.as_str(), "replace" | "upsert" | "toggle")
+        && !from_scene
+    {
+        required.insert("clause", "clause { }");
+    }
+    if has_code("AVENGER-RESOLVE-159") && keyword == "delete" {
+        required.insert("ids", "ids: ['id'];");
+    }
+    if has_code("AVENGER-RESOLVE-140") && from_scene {
+        required.insert("geometry", "geometry: rect(0.0, 0.0, 0.0, 0.0);");
+        required.insert("policy", "policy: intersects;");
+        required.insert("marks", "marks: [mark_name];");
+        required.insert(
+            "fields",
+            "fields: [{ id: 'field'; datum: 'field'; field: \"field\"; }];",
+        );
+    }
+    required.retain(|name, _| !authored.contains(name));
+    if required.is_empty() {
+        return;
+    }
+
+    let tokens = syntax.parsed.tokens.tokens();
+    let Some(open) = tokens
+        .iter()
+        .find(|token| {
+            declaration.span.range.start <= token.span().range.start
+                && token.span().range.end <= declaration.span.range.end
+                && matches!(token.token(), Some(Token::LBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    let Some(close) = tokens
+        .iter()
+        .rev()
+        .find(|token| {
+            declaration.span.range.start <= token.span().range.start
+                && token.span().range.end <= declaration.span.range.end
+                && matches!(token.token(), Some(Token::RBrace))
+        })
+        .map(|token| token.span())
+    else {
+        return;
+    };
+    if open.range.end > close.range.start {
+        return;
+    }
+
+    let line_start = text[..declaration.span.range.start]
+        .rfind(['\n', '\r'])
+        .map_or(0, |position| position + 1);
+    let parent_indent = text[line_start..declaration.span.range.start]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect::<String>();
+    let indent = format!("{parent_indent}  ");
+    let newline = if text.contains("\r\n") {
+        "\r\n"
+    } else if text.contains('\r') {
+        "\r"
+    } else {
+        "\n"
+    };
+    let members = required
+        .values()
+        .map(|member| format!("{indent}{member}"))
+        .collect::<Vec<_>>()
+        .join(newline);
+    let body_span = SourceSpan {
+        source: open.source,
+        range: ByteSpan {
+            start: open.range.end,
+            end: close.range.start,
+        },
+    };
+    let body = &text[body_span.range.as_range()];
+    let (edit_span, new_text) = if body.trim().is_empty() {
+        (
+            body_span,
+            format!("{newline}{members}{newline}{parent_indent}"),
+        )
+    } else {
+        (
+            SourceSpan::empty(open.source, open.range.end),
+            format!("{newline}{members}"),
+        )
+    };
+    let title = if required.len() == 1 {
+        format!(
+            "Add required `{}` action member",
+            required.keys().next().unwrap()
+        )
+    } else {
+        "Add all missing required action members".to_owned()
+    };
+    let mut action = quick_fix(title, request, edit_span, new_text, true);
+    action.diagnostic_codes = diagnostic_codes;
+    output.push(action);
+}
+
 fn required_channel_needs_mode(shape: &ValueShape) -> bool {
     !matches!(
         shape,
@@ -841,7 +1037,7 @@ fn required_value_placeholder(shape: &ValueShape) -> String {
         ValueShape::TableBinding => "$table".to_owned(),
         ValueShape::SelectionBinding => "$selection".to_owned(),
         ValueShape::WidgetData => "{ values: []; }".to_owned(),
-        ValueShape::ParamChangeAction => "{ }".to_owned(),
+        ValueShape::StateActionBlock => "{ }".to_owned(),
         ValueShape::MarkBlock => "{ mark group { } }".to_owned(),
         ValueShape::TypedReference { namespaces } => {
             typed_reference_placeholder(namespaces.iter().next().copied())

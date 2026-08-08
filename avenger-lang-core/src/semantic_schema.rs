@@ -7,7 +7,7 @@ use avenger_chart_schema::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::{LANGUAGE_MAJOR, interchange::CORE_SCHEMA_V1};
+use crate::{LANGUAGE_MAJOR, ast::StateActionVerb, interchange::CORE_SCHEMA_V1};
 
 /// Generate a deterministic Draft 2020-12 schema from the active native
 /// authoring registry plus the language's fixed core declarations.
@@ -246,6 +246,11 @@ fn selection_body_schema() -> Value {
 }
 
 fn event_body_schema() -> Value {
+    let mut child_keywords = StateActionVerb::ALL
+        .into_iter()
+        .map(StateActionVerb::as_str)
+        .collect::<Vec<_>>();
+    child_keywords.push("on");
     json!({
         "properties": {
             "kind": { "enum": [
@@ -270,7 +275,7 @@ fn event_body_schema() -> Value {
                 Vec::new(),
                 true,
             ),
-            "children": declaration_children_schema(&["set", "on"])
+            "children": declaration_children_schema(&child_keywords)
         }
     })
 }
@@ -602,11 +607,11 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         }),
         ValueShape::Object(fields) => object_value_schema(fields),
         ValueShape::Any => value_ref(),
-        ValueShape::ParamChangeAction => {
+        ValueShape::StateActionBlock => {
             let mut schema = tagged_schema("block");
             schema["description"] =
                 json!("An ordered block of shared-state mutation declarations.");
-            schema["x-avenger-value-shape"] = json!("param_change_action");
+            schema["x-avenger-value-shape"] = json!("state_action_block");
             schema
         }
     }

@@ -1527,21 +1527,12 @@ impl<'a> TolerantTreeBuilder<'a> {
     }
 
     fn action_island_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let equals = (start + 1..=end).find(|position| {
-            matches!(
-                self.token_at_significant_opt(*position)
-                    .and_then(|token| token.token()),
-                Some(Token::Eq)
-            )
+        let delimiter = (start + 1..=end).find(|position| {
+            self.word_at(*position)
+                .is_some_and(|word| word.eq_ignore_ascii_case("to"))
         })?;
-        let value_start = equals + 1;
+        let value_start = delimiter + 1;
         let first = self.token_at_significant_opt(value_start)?;
-        if self
-            .token_at_significant_opt(value_start + 1)
-            .is_some_and(|next| matches!(next.token(), Some(Token::LBrace)))
-        {
-            return None;
-        }
         // `;` is owned by the action grammar even when the expression has an
         // unmatched inner delimiter. It cannot be a legal token inside an
         // Avenger scalar expression, so lexical recovery must not let the SQL
@@ -1728,13 +1719,17 @@ const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "catalog",
     "cell",
     "chart",
+    "clause",
+    "clear",
     "define",
+    "delete",
     "derive",
     "equality",
     "export",
     "field",
     "fields",
     "frame",
+    "insert",
     "key",
     "layer",
     "layout",
@@ -1747,7 +1742,9 @@ const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "output",
     "param",
     "part",
+    "patch",
     "plot",
+    "replace",
     "resource",
     "row",
     "scale_edit",
@@ -1762,6 +1759,8 @@ const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "theme",
     "tool",
     "transform",
+    "toggle",
+    "upsert",
     "variable",
     "view",
     "when",
@@ -1951,7 +1950,7 @@ mod tests {
         let source = SourceFile::new(
             SourceId::new(2),
             SourceOrigin::Memory("actions".into()),
-            "avenger 1; chart cartesian { on click { set width = $width + 1; set rows = insert_rows { row { id: 1; } } } }",
+            "avenger 1; chart cartesian { on click { set width to $width + 1; insert rows { row { id: 1; } } } }",
         );
         let parsed = parse_file_tolerant(&source);
         let islands = parsed
@@ -2014,8 +2013,8 @@ chart cartesian {
     opacity: $offset;
   }
   on click {
-    set cursor = 'crosshair';
-    set offset = $offset + 1;
+    set cursor to 'crosshair';
+    set offset to $offset + 1;
   }
 }"#,
         );
@@ -2067,8 +2066,8 @@ chart cartesian {
     opacity: ;
   }
   on click {
-    set cursor = ;
-    set offset = ;
+    set cursor to ;
+    set offset to ;
   }
 }"#,
         );
@@ -2102,7 +2101,7 @@ chart cartesian {
             ),
             (
                 super::SqlIslandSite::StateActionRhs,
-                "avenger 1; chart cartesian { on click { set width = coalesce(1,; } }",
+                "avenger 1; chart cartesian { on click { set width to coalesce(1,; } }",
                 "coalesce(1,",
                 "coalesce(1,",
             ),

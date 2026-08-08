@@ -1197,6 +1197,7 @@ pub(crate) fn complete_sql(
     if let Some(expected) = expected_completion_type(
         semantic_index,
         registry,
+        project,
         &request.source,
         request.byte_offset,
         node.span,
@@ -1666,9 +1667,18 @@ fn declaration_contains_node(
     request: &PositionRequest,
     node_span: SourceSpan,
 ) -> bool {
+    declaration_contains_origin_span(project, declaration, &request.source, node_span)
+}
+
+fn declaration_contains_origin_span(
+    project: &avenger_lang_core::ResolvedModuleGraph,
+    declaration: &ResolvedDeclaration,
+    origin: &SourceOrigin,
+    node_span: SourceSpan,
+) -> bool {
     let authored = project.expansion_source_map.authored_span(declaration.span);
     project.sources.get(authored.source).is_some_and(|source| {
-        same_origin(&source.origin, &request.source)
+        same_origin(&source.origin, origin)
             && authored.range.start <= node_span.range.start
             && node_span.range.end <= authored.range.end
     })
@@ -2267,6 +2277,7 @@ impl ExpectedCompletionType {
 fn expected_completion_type(
     index: &WorkspaceSemanticIndex,
     registry: &NativeSchemaSnapshot,
+    analysis: Option<&ModuleAnalysis>,
     origin: &SourceOrigin,
     cursor: usize,
     island: SourceSpan,
@@ -2276,6 +2287,9 @@ fn expected_completion_type(
         .sql_islands
         .iter()
         .find(|descriptor| descriptor.span == island)?;
+    if let Some(expected) = state_action_expected_type(analysis, origin, island, descriptor) {
+        return Some(expected);
+    }
     let first = descriptor.property_path.first()?;
     let owner = crate::intelligence::owner_symbol(index, origin, cursor)?;
     let schema = crate::intelligence::schema_for_symbol(registry, owner, index)?;
@@ -2313,6 +2327,49 @@ fn expected_completion_type(
         ValueShape::String | ValueShape::Identifier => Some(ExpectedCompletionType::String),
         _ => None,
     }
+}
+
+fn state_action_expected_type(
+    analysis: Option<&ModuleAnalysis>,
+    origin: &SourceOrigin,
+    island: SourceSpan,
+    descriptor: &crate::SqlIslandDescriptor,
+) -> Option<ExpectedCompletionType> {
+    if descriptor.site == avenger_lang_core::syntax::SqlIslandSite::CursorActionRhs {
+        return Some(ExpectedCompletionType::String);
+    }
+    let analysis = analysis?;
+    let project = analysis.resolved_module_graph.as_deref()?;
+    resolved_declarations(project)
+        .filter(|declaration| {
+            declaration.state_lvalue.is_some()
+                && declaration_contains_origin_span(project, declaration, origin, island)
+        })
+        .filter_map(|declaration| {
+            let lvalue = declaration.state_lvalue.as_ref()?;
+            let expected = match &lvalue.target {
+                ResolvedTarget::Param(id) => {
+                    ExpectedCompletionType::Arrow(analysis.param_types.get(id)?.to_string())
+                }
+                ResolvedTarget::Store(id) => {
+                    let store = project.stores.get(id)?;
+                    let field_name = descriptor.property_path.first()?;
+                    let field = store
+                        .fields
+                        .iter()
+                        .find(|field| &field.name == field_name)?;
+                    let destination = physical_type_to_arrow(typed_member_destination(
+                        &field.data_type,
+                        &descriptor.property_path[1..],
+                    )?);
+                    ExpectedCompletionType::Arrow(destination.to_string())
+                }
+                _ => return None,
+            };
+            Some((declaration.span.range.len(), expected))
+        })
+        .min_by_key(|(span_len, _)| *span_len)
+        .map(|(_, expected)| expected)
 }
 
 fn same_origin(left: &SourceOrigin, right: &SourceOrigin) -> bool {
@@ -8130,11 +8187,11 @@ mod tests {
                     "; } }",
                 ),
                 SqlIslandSite::CursorActionRhs => (
-                    "avenger 1; chart cartesian { on click { set cursor = ",
+                    "avenger 1; chart cartesian { on click { set cursor to ",
                     "; } }",
                 ),
                 SqlIslandSite::StateActionRhs => (
-                    "avenger 1; chart cartesian { param 1 as width; on click { set width = ",
+                    "avenger 1; chart cartesian { param 1 as width; on click { set width to ",
                     "; } }",
                 ),
                 SqlIslandSite::ArrayElement => (
@@ -8377,11 +8434,11 @@ mod tests {
             ),
             (
                 SqlIslandSite::CursorActionRhs,
-                "2fc70d5f5793cd97be498823c83f466ba52dac8b382043ccdc91c4e83f7d4e6b",
+                "a08463c88d513b387214f8e54c036c8cfebb2234ac71fec3a5fcc466d51d938e",
             ),
             (
                 SqlIslandSite::StateActionRhs,
-                "bba30421ce2575a9fa42b21cb19e572a74c3262768625acf2ff6a307bbd5b974",
+                "b8cb535a5c77ffb6a1ada88dfac7507f1cac46e5bc70e3f8a3d2995f64723923",
             ),
         ]
         .map(|(site, digest)| (site, digest.to_owned()))

@@ -153,7 +153,7 @@ pointer:
 ```rust
 let dx = ev::event_at_start_coord("x") - ev::start_coord("x");
 
-set x_domain = interval(
+set x_domain to interval(
     interval_start(start_domain("x")) - dx,
     interval_end(start_domain("x")) - dx,
 )
@@ -164,7 +164,7 @@ The generated wheel binding zooms around the current pointer coordinate:
 ```rust
 let factor = pow(zoom_base, -wheel_delta_y);
 
-set x_domain = interval(
+set x_domain to interval(
     event_coord("x") + (interval_start(event_domain("x")) - event_coord("x")) * factor,
     event_coord("x") + (interval_end(event_domain("x")) - event_coord("x")) * factor,
 )

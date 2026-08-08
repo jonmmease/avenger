@@ -1,0 +1,115 @@
+avenger 1;
+chart cartesian as actions {
+  param 0.0 as position {
+    sharing: free;
+  }
+  store as rows {
+    primary_key: [id];
+    field utf8 id;
+    field float64 value;
+  }
+  selection as picked {
+    combine: union;
+    empty: none;
+  }
+  on cursor_moved {
+    between: {
+      end: mouse_up {
+      }
+      start: mouse_down {
+      }
+    }
+    set position at start replacing scopes to event.coord.x;
+    clear rows at start replacing scopes;
+    insert rows {
+      row {
+        id: 'insert';
+        value: 1.0;
+      }
+    }
+    replace rows at current replacing scopes {
+      row {
+        id: 'replace';
+        value: 2.0;
+      }
+    }
+    upsert rows {
+      row {
+        id: 'upsert';
+        value: 3.0;
+      }
+    }
+    patch rows {
+      key {
+        id: 'upsert';
+      }
+      fields {
+        value: 4.0;
+      }
+    }
+    delete rows {
+      key {
+        id: 'replace';
+      }
+    }
+    toggle rows {
+      row {
+        id: 'toggle';
+        value: 5.0;
+      }
+    }
+    clear picked within level(1);
+    replace picked {
+      clause {
+        id: 'replace';
+        equality {
+          id {
+            field: "id";
+            value: 'replace';
+          }
+        }
+      }
+    }
+    upsert picked {
+      clause {
+        id: 'upsert';
+        equality {
+          id {
+            field: "id";
+            value: 'upsert';
+          }
+        }
+      }
+    }
+    toggle picked {
+      clause {
+        id: 'toggle';
+        equality {
+          id {
+            field: "id";
+            value: 'toggle';
+          }
+        }
+      }
+    }
+    delete picked within free {
+      ids: ['replace', 'toggle'];
+    }
+    replace picked from scene within level(1) {
+      fields: [ {
+        datum: 'id';
+        field: "id";
+        id: 'id';
+      }
+      ];
+      geometry: polygon(event.path);
+      marks: [points];
+      policy: intersects;
+    }
+    set cursor to 'crosshair';
+  }
+  mark symbol as points {
+    x: encoded "value";
+    y: encoded "value";
+  }
+}

@@ -11,7 +11,7 @@ use avenger_lang_core::{
     BindingCategory, ByteSpan, ModuleId, ResolvedDeclaration, ResolvedModuleGraph,
     ResolvedOutputHandle, ResolvedTarget, ResolvedValue, SourceFile, SourceId, SourceOrigin,
     SourceSpan, StateSharing, allowed_child_declarations,
-    ast::{BindingTime, Visibility},
+    ast::{BindingTime, StateActionVerb, Visibility, is_state_action_keyword},
     sql::{LosslessTokenKind, TokenClass},
     syntax::{SqlIslandSite, TolerantSyntaxNodeId, TolerantSyntaxNodeKind, parse_file},
 };
@@ -1973,7 +1973,7 @@ fn scan_references(
             index = next;
             continue;
         }
-        if token.word() == Some("set") {
+        if token.word().and_then(StateActionVerb::parse).is_some() {
             let mut next = index + 1;
             let Some(first) = tokens.get(next).and_then(SigToken::word) else {
                 index += 1;
@@ -2174,9 +2174,9 @@ enum StructuralCursorState {
     ParamHeader,
     PhysicalType,
     FixedHeader(&'static [&'static str]),
-    SetModifier(&'static [&'static str]),
-    SetTarget,
-    StateOperation(IndexedValueKind),
+    ActionModifier(&'static [&'static str]),
+    ActionTarget(StateActionVerb),
+    ActionBody(&'static [&'static str]),
     DeclarationKind {
         namespace: NativeKindNamespace,
         typed: String,
@@ -2191,8 +2191,7 @@ fn structural_cursor_state(
     syntax: &SyntaxAnalysis,
     cursor: usize,
     prefix: &str,
-    set_target_kind: Option<IndexedValueKind>,
-    action_target: Option<IndexedValueKind>,
+    action_target_kind: Option<IndexedValueKind>,
 ) -> StructuralCursorState {
     let text = syntax.parsed.tokens.text();
     if let Some(state) = version_header_state(syntax, cursor) {
@@ -2227,12 +2226,12 @@ fn structural_cursor_state(
         StructuralCursorState::PhysicalType
     } else if let Some(values) = fixed_header_candidates(syntax, cursor) {
         StructuralCursorState::FixedHeader(values)
-    } else if let Some(values) = set_modifier_candidates(syntax, cursor, set_target_kind) {
-        StructuralCursorState::SetModifier(values)
-    } else if set_target_context(syntax, cursor) {
-        StructuralCursorState::SetTarget
-    } else if let Some(kind) = action_target {
-        StructuralCursorState::StateOperation(kind)
+    } else if let Some(values) = action_modifier_candidates(syntax, cursor, action_target_kind) {
+        StructuralCursorState::ActionModifier(values)
+    } else if let Some(verb) = action_target_context(syntax, cursor) {
+        StructuralCursorState::ActionTarget(verb)
+    } else if let Some(values) = action_body_candidates(syntax, cursor, action_target_kind) {
+        StructuralCursorState::ActionBody(values)
     } else if let Some((namespace, typed, complete)) = declaration_kind_context(syntax, cursor) {
         if complete {
             StructuralCursorState::DeclarationTail
@@ -2313,15 +2312,24 @@ impl<'a> QueryContext<'a> {
         let replacement = replacement_span(syntax, cursor);
         let prefix = &text[replacement.range.start..cursor];
         let mut items = Vec::new();
-        let set_target = set_action_target(syntax, cursor);
-        let set_target_kind = set_target
+        let action_target = state_action_target(syntax, cursor);
+        let action_target_kind = action_target
             .as_deref()
             .and_then(|target| self.state_target_kind(&request.source, cursor, target));
-        let action_target = set_action_rhs_target(syntax, cursor).and(set_target_kind);
-        let structural_state =
-            structural_cursor_state(syntax, cursor, prefix, set_target_kind, action_target);
+        let structural_state = structural_cursor_state(syntax, cursor, prefix, action_target_kind);
         let structural_token_insertion =
             matches!(&structural_state, StructuralCursorState::TokenInsertion(_));
+        let state_action_block = enclosing_property(syntax, cursor)
+            .and_then(|node| match &node.kind {
+                TolerantSyntaxNodeKind::Property { name } => Some(name.as_str()),
+                _ => None,
+            })
+            .and_then(|name| {
+                schema_owner_symbol(self.index, self.registry, &request.source, cursor)
+                    .and_then(|owner| schema_for_symbol(self.registry, owner, self.index))
+                    .and_then(|schema| property_schema(schema, name))
+            })
+            .is_some_and(|property| matches!(property.shape, ValueShape::StateActionBlock));
         let structural_selection_binding = match &structural_state {
             StructuralCursorState::PropertyValue(property_name) => {
                 schema_owner_symbol(self.index, self.registry, &request.source, cursor)
@@ -2332,14 +2340,7 @@ impl<'a> QueryContext<'a> {
             _ => false,
         };
 
-        // Store and selection RHS forms begin with a structural operation
-        // (`insert_rows`, `toggle_clauses`, ...), not a scalar SQL operand.
-        // The tolerant parser still retains the RHS as an exact SQL-island
-        // site for scalar targets, so make this one semantic distinction
-        // before invoking SQL candidate providers.
-        let sql = if matches!(&structural_state, StructuralCursorState::StateOperation(_))
-            || structural_selection_binding
-        {
+        let sql = if structural_selection_binding {
             None
         } else {
             crate::sql_intelligence::complete_sql(
@@ -2556,7 +2557,7 @@ impl<'a> QueryContext<'a> {
                         }
                     }
                 }
-                StructuralCursorState::SetModifier(values) => {
+                StructuralCursorState::ActionModifier(values) => {
                     for value in values {
                         if candidate_matches(value, prefix) {
                             items.push(item(
@@ -2573,15 +2574,53 @@ impl<'a> QueryContext<'a> {
                         }
                     }
                 }
-                StructuralCursorState::SetTarget => self.complete_state_targets(
+                StructuralCursorState::ActionTarget(verb) => self.complete_state_targets(
+                    verb,
                     prefix,
                     replacement,
                     &request.source,
                     cursor,
                     &mut items,
                 ),
-                StructuralCursorState::StateOperation(kind) => {
-                    complete_state_operations(kind, prefix, replacement, &mut items);
+                StructuralCursorState::ActionBody(values) => {
+                    for value in values {
+                        if !candidate_matches(value, prefix) {
+                            continue;
+                        }
+                        let declaration = matches!(*value, "row" | "key" | "fields" | "clause");
+                        let insert_text = if options.snippets {
+                            match *value {
+                                "row" | "key" | "fields" | "clause" => {
+                                    format!("{value} {{\n  $0\n}}")
+                                }
+                                _ => format!("{value}: $0;"),
+                            }
+                        } else if declaration {
+                            format!("{value} {{ }}")
+                        } else {
+                            format!("{value}: ")
+                        };
+                        let mut candidate = item(
+                            (*value).to_owned(),
+                            replacement,
+                            insert_text,
+                            if declaration {
+                                CompletionKind::Declaration
+                            } else {
+                                CompletionKind::Property
+                            },
+                            Some("state action payload member".to_owned()),
+                            None,
+                            CompletionOrigin::Syntax,
+                            false,
+                            "00",
+                        );
+                        if options.snippets {
+                            candidate.insert_text_format = CompletionTextFormat::Snippet;
+                            candidate.validity = CompletionValidity::Scaffold;
+                        }
+                        items.push(candidate);
+                    }
                 }
                 StructuralCursorState::DeclarationKind { namespace, typed } => self
                     .complete_native_kinds(
@@ -2644,7 +2683,15 @@ impl<'a> QueryContext<'a> {
                 StructuralCursorState::PropertyName => {
                     let nested_property = enclosing_property(syntax, cursor).is_some();
                     let legend_overlay = inside_legend_overlay_block(syntax, cursor);
-                    if legend_overlay {
+                    let event_actions_started = event_actions_started(syntax, cursor);
+                    if state_action_block {
+                        self.complete_state_action_heads(
+                            prefix,
+                            replacement,
+                            options.snippets,
+                            &mut items,
+                        );
+                    } else if legend_overlay {
                         if candidate_matches("mark", prefix) {
                             let mut candidate = item(
                                 "mark".to_owned(),
@@ -2664,7 +2711,7 @@ impl<'a> QueryContext<'a> {
                             candidate.validity = CompletionValidity::Scaffold;
                             items.push(candidate);
                         }
-                    } else {
+                    } else if !event_actions_started {
                         self.complete_properties(
                             syntax,
                             &request.source,
@@ -2674,7 +2721,7 @@ impl<'a> QueryContext<'a> {
                             &mut items,
                         );
                     }
-                    if !nested_property && !legend_overlay {
+                    if !nested_property && !legend_overlay && !state_action_block {
                         self.complete_declarations(
                             &request.source,
                             cursor,
@@ -2685,14 +2732,39 @@ impl<'a> QueryContext<'a> {
                         );
                     }
                 }
-                StructuralCursorState::Declaration => self.complete_declarations(
-                    &request.source,
-                    cursor,
-                    prefix,
-                    replacement,
-                    &options,
-                    &mut items,
-                ),
+                StructuralCursorState::Declaration => {
+                    if state_action_block {
+                        self.complete_state_action_heads(
+                            prefix,
+                            replacement,
+                            options.snippets,
+                            &mut items,
+                        );
+                    } else {
+                        let payload_owner = owner_symbol(self.index, &request.source, cursor)
+                            .map(|owner| owner.keyword.as_str());
+                        if matches!(payload_owner, Some("row" | "key" | "fields" | "clause")) {
+                            self.complete_properties(
+                                syntax,
+                                &request.source,
+                                cursor,
+                                prefix,
+                                replacement,
+                                &mut items,
+                            );
+                        }
+                        if !matches!(payload_owner, Some("row" | "key" | "fields")) {
+                            self.complete_declarations(
+                                &request.source,
+                                cursor,
+                                prefix,
+                                replacement,
+                                &options,
+                                &mut items,
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -2854,6 +2926,51 @@ impl<'a> QueryContext<'a> {
         } else {
             authored_properties(syntax, owner.scope_span, cursor)
         };
+        if matches!(owner.keyword.as_str(), "row" | "key" | "fields")
+            && let Some(fields) = self.action_store_fields(origin, cursor)
+        {
+            for (name, data_type, primary_key) in fields {
+                let valid_member = match owner.keyword.as_str() {
+                    "row" => true,
+                    "key" => primary_key,
+                    "fields" => !primary_key,
+                    _ => false,
+                };
+                if valid_member && !authored.contains(&name) && candidate_matches(&name, prefix) {
+                    output.push(item(
+                        name.clone(),
+                        replacement,
+                        format!("{name}: "),
+                        CompletionKind::Property,
+                        Some(format!("store field: {data_type}")),
+                        Some(format!(
+                            "Destination-typed `{data_type}` field in this `{}` payload.",
+                            owner.keyword
+                        )),
+                        CompletionOrigin::DatasetSchema,
+                        false,
+                        "00",
+                    ));
+                }
+            }
+            return;
+        }
+        if owner.keyword == "clause" {
+            if !authored.contains("id") && candidate_matches("id", prefix) {
+                output.push(item(
+                    "id".to_owned(),
+                    replacement,
+                    "id: ".to_owned(),
+                    CompletionKind::Property,
+                    Some("stable selection clause identity".to_owned()),
+                    Some("Required non-empty UTF-8 identity for this selection clause.".to_owned()),
+                    CompletionOrigin::Syntax,
+                    false,
+                    "00",
+                ));
+            }
+            return;
+        }
         if owner.keyword == "when" {
             if !authored.contains("predicate") && candidate_matches("predicate", prefix) {
                 output.push(item(
@@ -3396,6 +3513,7 @@ impl<'a> QueryContext<'a> {
 
     fn complete_state_targets(
         &self,
+        verb: StateActionVerb,
         prefix: &str,
         replacement: SourceSpan,
         origin: &SourceOrigin,
@@ -3406,10 +3524,8 @@ impl<'a> QueryContext<'a> {
             return;
         };
         for symbol in &document.symbols {
-            if !matches!(
-                symbol.value_kind,
-                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
-            ) || !scope_visible(document, symbol, cursor)
+            if !action_target_kind_allowed(verb, symbol.value_kind)
+                || !scope_visible(document, symbol, cursor)
                 || !candidate_matches(&symbol.name, prefix)
             {
                 continue;
@@ -3427,10 +3543,8 @@ impl<'a> QueryContext<'a> {
             ));
         }
         for binding in self.index.public_bindings.values() {
-            if matches!(
-                binding.value_kind,
-                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
-            ) && candidate_matches(&binding.path, prefix)
+            if action_target_kind_allowed(verb, binding.value_kind)
+                && candidate_matches(&binding.path, prefix)
             {
                 output.push(item(
                     binding.path.clone(),
@@ -3445,7 +3559,7 @@ impl<'a> QueryContext<'a> {
                 ));
             }
         }
-        if candidate_matches("cursor", prefix) {
+        if verb == StateActionVerb::Set && candidate_matches("cursor", prefix) {
             output.push(item(
                 "cursor".to_owned(),
                 replacement,
@@ -3458,6 +3572,51 @@ impl<'a> QueryContext<'a> {
                 "10",
             ));
         }
+    }
+
+    fn action_store_fields(
+        &self,
+        origin: &SourceOrigin,
+        cursor: usize,
+    ) -> Option<Vec<(String, String, bool)>> {
+        self.semantic_roots.values().find_map(|root| {
+            let analysis = root.result.as_ref().ok()?;
+            let project = analysis.resolved_module_graph.as_deref()?;
+            let mut declarations = BTreeMap::new();
+            for module in project.source_modules.values() {
+                collect_resolved_declarations(&module.roots, &mut declarations);
+            }
+            let action = declarations
+                .values()
+                .filter(|declaration| is_state_action_keyword(&declaration.keyword))
+                .filter_map(|declaration| {
+                    let authored = project.expansion_source_map.authored_span(declaration.span);
+                    let source = project.sources.get(authored.source)?;
+                    (source.origin.canonical_uri() == origin.canonical_uri()
+                        && authored.range.start <= cursor
+                        && cursor <= authored.range.end)
+                        .then_some((authored.range.len(), *declaration))
+                })
+                .min_by_key(|(span_len, _)| *span_len)?
+                .1;
+            let ResolvedTarget::Store(id) = &action.state_lvalue.as_ref()?.target else {
+                return None;
+            };
+            let store = project.stores.get(id)?;
+            Some(
+                store
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            field.data_type.to_string(),
+                            store.primary_key.contains(&field.name),
+                        )
+                    })
+                    .collect(),
+            )
+        })
     }
 
     fn state_target_kind(
@@ -3643,6 +3802,10 @@ impl<'a> QueryContext<'a> {
         output: &mut Vec<CompletionItem>,
     ) {
         let parent = owner_symbol(self.index, origin, cursor);
+        if parent.is_some_and(|parent| parent.keyword == "on") {
+            self.complete_state_action_heads(prefix, replacement, options.snippets, output);
+            return;
+        }
         let keywords: Vec<&str> = if let Some(parent) = parent {
             allowed_child_declarations(&parent.keyword).collect()
         } else {
@@ -3712,6 +3875,41 @@ impl<'a> QueryContext<'a> {
                 "20",
             );
             candidate.insert_text_format = format;
+            output.push(candidate);
+        }
+    }
+
+    fn complete_state_action_heads(
+        &self,
+        prefix: &str,
+        replacement: SourceSpan,
+        snippets: bool,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        for verb in StateActionVerb::ALL {
+            let label = verb.as_str();
+            if !candidate_matches(label, prefix) {
+                continue;
+            }
+            let mut candidate = item(
+                label.to_owned(),
+                replacement,
+                if snippets {
+                    declaration_snippet(label)
+                } else {
+                    label.to_owned()
+                },
+                CompletionKind::Keyword,
+                Some("state action verb".to_owned()),
+                None,
+                CompletionOrigin::Syntax,
+                false,
+                "00",
+            );
+            if snippets {
+                candidate.insert_text_format = CompletionTextFormat::Snippet;
+                candidate.validity = CompletionValidity::Scaffold;
+            }
             output.push(candidate);
         }
     }
@@ -4010,13 +4208,23 @@ impl<'a> QueryContext<'a> {
                 .target_identity
                 .as_deref()
                 .and_then(|identity| self.index.symbol_by_identity(identity));
-            let sigil = matches!(
-                reference.value_kind,
-                IndexedValueKind::Scalar | IndexedValueKind::Table | IndexedValueKind::Selection
-            )
-            .then_some("$")
-            .unwrap_or("");
+            let action = enclosing_state_action(syntax, request.byte_offset)
+                .filter(|(_, action_target, _)| action_target == &reference.name);
+            let sigil = action.is_none()
+                && matches!(
+                    reference.value_kind,
+                    IndexedValueKind::Scalar
+                        | IndexedValueKind::Table
+                        | IndexedValueKind::Selection
+                );
+            let sigil = if sigil { "$" } else { "" };
             let mut markdown = format!("```avenger\n{sigil}{}\n```", reference.name);
+            if let Some((verb, _, header)) = action {
+                markdown.push_str(&format!(
+                    "\n\n{}",
+                    state_action_hover_docs(verb, reference.value_kind, &header)
+                ));
+            }
             if let Some(target) = target {
                 if let Some(detail) = &target.detail {
                     markdown.push_str(&format!("\n\n{detail}"));
@@ -4191,6 +4399,66 @@ impl<'a> QueryContext<'a> {
             source_revision: request.source_revision.clone(),
         })
     }
+}
+
+fn state_action_hover_docs(
+    verb: StateActionVerb,
+    target_kind: IndexedValueKind,
+    header: &[String],
+) -> String {
+    let category = match target_kind {
+        IndexedValueKind::Scalar => "scalar parameter",
+        IndexedValueKind::Table => "store",
+        IndexedValueKind::Selection => "selection",
+        _ => "state binding",
+    };
+    let payload = match (target_kind, verb) {
+        (IndexedValueKind::Scalar, StateActionVerb::Set) => {
+            "The SQL expression is cast at the target parameter's physical Arrow boundary."
+        }
+        (IndexedValueKind::Table, StateActionVerb::Clear) => {
+            "Clears every row in the routed store."
+        }
+        (IndexedValueKind::Table, StateActionVerb::Patch) => {
+            "Updates non-key fields of the row identified by the exact `key` block."
+        }
+        (IndexedValueKind::Table, StateActionVerb::Delete) => {
+            "Deletes the row identified by the exact `key` block."
+        }
+        (IndexedValueKind::Table, _) => {
+            "Uses destination-typed `row` payloads and the store's primary-key contract."
+        }
+        (IndexedValueKind::Selection, StateActionVerb::Clear) => {
+            "Clears all clauses, or only the clauses selected by `within`."
+        }
+        (IndexedValueKind::Selection, StateActionVerb::Delete) => {
+            "Deletes the supplied clause IDs, optionally limited by `within`."
+        }
+        (IndexedValueKind::Selection, _)
+            if header.windows(2).any(|words| words == ["from", "scene"]) =>
+        {
+            "Builds clauses from a scene hit query; a scoped replace takes its coordination scope from `within`."
+        }
+        (IndexedValueKind::Selection, _) => "Mutates the supplied typed selection clauses.",
+        _ => "The resolved target category determines this verb's payload contract.",
+    };
+    let route = if header.windows(2).any(|words| words == ["at", "start"]) {
+        "gesture-start owner"
+    } else {
+        "current routed owner"
+    };
+    let replacing = if header
+        .windows(2)
+        .any(|words| words == ["replacing", "scopes"])
+    {
+        " Existing concrete owner copies are removed before this action."
+    } else {
+        ""
+    };
+    format!(
+        "`{}` action on a {category}; writes the {route}. {payload}{replacing}",
+        verb.as_str()
+    )
 }
 
 fn channel_mode_at(
@@ -4800,52 +5068,194 @@ fn physical_type_header_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool 
     split_header_type(rest.trim_start()).is_none()
 }
 
-fn set_target_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+fn action_target_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<StateActionVerb> {
     let tokens = structural_statement_tokens(syntax, cursor);
-    tokens
-        .first()
-        .is_some_and(|token| token.word() == Some("set"))
-        && cursor_has_gap_after(tokens.first(), cursor)
-        && !tokens
-            .iter()
-            .any(|token| matches!(token.token, Some(Token::Eq)))
-        && tokens.len() <= 2
+    let verb = StateActionVerb::parse(tokens.first()?.word()?)?;
+    (cursor_has_gap_after(tokens.first(), cursor) && tokens.len() <= 2).then_some(verb)
 }
 
-fn set_action_target(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
+fn state_action_target(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
     let tokens = structural_statement_tokens(syntax, cursor);
-    let set = tokens.first().filter(|token| token.word() == Some("set"))?;
-    cursor_has_gap_after(Some(set), cursor).then_some(())?;
-    let target = tokens.get(1)?;
-    if matches!(target.token, Some(Token::Eq)) {
+    if let Some(action) = tokens
+        .first()
+        .filter(|token| token.word().and_then(StateActionVerb::parse).is_some())
+    {
+        cursor_has_gap_after(Some(action), cursor).then_some(())?;
+        return state_action_target_path(&tokens);
+    }
+    let (_, target, _) = enclosing_state_action(syntax, cursor)?;
+    Some(target)
+}
+
+fn event_actions_started(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+    let Some(event) = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                &node.kind,
+                TolerantSyntaxNodeKind::Declaration { keyword, .. } if keyword == "on"
+            ) && node.span.range.start <= cursor
+                && cursor <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())
+    else {
+        return false;
+    };
+    if syntax.parsed.nodes.iter().any(|node| {
+        node.id != event.id
+            && matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. })
+            && event.span.range.start <= node.span.range.start
+            && node.span.range.start <= cursor
+            && cursor <= node.span.range.end
+    }) {
+        return false;
+    }
+    syntax.parsed.nodes.iter().any(|node| {
+        matches!(
+            &node.kind,
+            TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                if StateActionVerb::parse(keyword).is_some()
+        ) && event.span.range.start <= node.span.range.start
+            && node.span.range.end <= cursor
+    })
+}
+
+fn enclosing_state_action(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+) -> Option<(StateActionVerb, String, Vec<String>)> {
+    let node = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                &node.kind,
+                TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                    if StateActionVerb::parse(keyword).is_some()
+            ) && node.span.range.start <= cursor
+                && cursor <= node.span.range.end
+        })
+        .min_by_key(|node| node.span.range.len())?;
+    if syntax.parsed.nodes.iter().any(|candidate| {
+        candidate.id != node.id
+            && matches!(candidate.kind, TolerantSyntaxNodeKind::Declaration { .. })
+            && node.span.range.start <= candidate.span.range.start
+            && candidate.span.range.start <= cursor
+            && cursor <= candidate.span.range.end
+    }) {
         return None;
     }
-    Some(target.raw.trim_start_matches('$').to_owned())
-}
-
-fn set_action_rhs_target(syntax: &SyntaxAnalysis, cursor: usize) -> Option<String> {
-    let tokens = structural_statement_tokens(syntax, cursor);
-    tokens
+    let tokens = significant_tokens(syntax, Some(node.span));
+    let verb = StateActionVerb::parse(tokens.first()?.word()?)?;
+    let target = state_action_target_path(&tokens)?;
+    let header = tokens
         .iter()
-        .any(|token| matches!(token.token, Some(Token::Eq)))
-        .then(|| set_action_target(syntax, cursor))?
+        .take_while(|token| !matches!(token.token, Some(Token::LBrace | Token::SemiColon)))
+        .filter_map(SigToken::word)
+        .map(str::to_owned)
+        .collect();
+    Some((verb, target, header))
 }
 
-fn set_modifier_candidates(
+fn state_action_target_path(tokens: &[SigToken<'_>]) -> Option<String> {
+    let mut position = 1;
+    let mut target = tokens.get(position)?.word()?.to_owned();
+    position += 1;
+    while position + 1 < tokens.len()
+        && matches!(tokens[position].token, Some(Token::Period))
+        && tokens[position + 1].word().is_some()
+    {
+        target.push('.');
+        target.push_str(tokens[position + 1].word().unwrap());
+        position += 2;
+    }
+    Some(target)
+}
+
+fn action_body_candidates(
     syntax: &SyntaxAnalysis,
     cursor: usize,
     target_kind: Option<IndexedValueKind>,
 ) -> Option<&'static [&'static str]> {
     let tokens = structural_statement_tokens(syntax, cursor);
-    let set = tokens.first().filter(|token| token.word() == Some("set"))?;
-    if !cursor_has_gap_after(Some(set), cursor)
+    if tokens.len() > 1
         || tokens
             .iter()
-            .any(|token| matches!(token.token, Some(Token::Eq)))
+            .any(|token| matches!(token.token, Some(Token::Colon)))
     {
         return None;
     }
+    let (verb, _, header) = enclosing_state_action(syntax, cursor)?;
+    let from_scene = header.windows(2).any(|words| words == ["from", "scene"]);
+    let within = header.iter().any(|word| word == "within");
+    match (target_kind, verb, from_scene, within) {
+        (Some(IndexedValueKind::Table), StateActionVerb::Insert, _, _)
+        | (Some(IndexedValueKind::Table), StateActionVerb::Replace, _, _)
+        | (Some(IndexedValueKind::Table), StateActionVerb::Upsert, _, _)
+        | (Some(IndexedValueKind::Table), StateActionVerb::Toggle, _, _) => Some(&["row"]),
+        (Some(IndexedValueKind::Table), StateActionVerb::Patch, _, _) => Some(&["key", "fields"]),
+        (Some(IndexedValueKind::Table), StateActionVerb::Delete, _, _) => Some(&["key"]),
+        (Some(IndexedValueKind::Selection), _, true, false) => Some(&[
+            "geometry",
+            "policy",
+            "marks",
+            "fields",
+            "unique_by",
+            "max_hits",
+            "sharing",
+            "clause_id",
+        ]),
+        (Some(IndexedValueKind::Selection), _, true, true) => Some(&[
+            "geometry",
+            "policy",
+            "marks",
+            "fields",
+            "unique_by",
+            "max_hits",
+            "clause_id",
+        ]),
+        (
+            Some(IndexedValueKind::Selection),
+            StateActionVerb::Replace | StateActionVerb::Upsert | StateActionVerb::Toggle,
+            false,
+            _,
+        ) => Some(&["clause"]),
+        (Some(IndexedValueKind::Selection), StateActionVerb::Delete, false, _) => Some(&["ids"]),
+        _ => None,
+    }
+}
+
+fn action_target_kind_allowed(verb: StateActionVerb, kind: IndexedValueKind) -> bool {
+    match verb {
+        StateActionVerb::Set => kind == IndexedValueKind::Scalar,
+        StateActionVerb::Clear => {
+            matches!(kind, IndexedValueKind::Table | IndexedValueKind::Selection)
+        }
+        StateActionVerb::Insert | StateActionVerb::Patch => kind == IndexedValueKind::Table,
+        StateActionVerb::Replace
+        | StateActionVerb::Upsert
+        | StateActionVerb::Delete
+        | StateActionVerb::Toggle => {
+            matches!(kind, IndexedValueKind::Table | IndexedValueKind::Selection)
+        }
+    }
+}
+
+fn action_modifier_candidates(
+    syntax: &SyntaxAnalysis,
+    cursor: usize,
+    target_kind: Option<IndexedValueKind>,
+) -> Option<&'static [&'static str]> {
+    let tokens = structural_statement_tokens(syntax, cursor);
+    let verb = StateActionVerb::parse(tokens.first()?.word()?)?;
+    if !cursor_has_gap_after(tokens.first(), cursor) {
+        return None;
+    }
     let target = tokens.get(1)?;
+    let cursor_target = target.word() == Some("cursor");
     let tail = tokens[2..]
         .iter()
         .map(SigToken::word)
@@ -4854,17 +5264,16 @@ fn set_modifier_candidates(
         if !cursor_has_gap_after(Some(target), cursor) {
             return None;
         }
-        return Some(if target_kind == Some(IndexedValueKind::Selection) {
-            &["at"]
-        } else {
-            &["at", "replacing"]
-        });
+        return action_initial_modifier_candidates(verb, target_kind, cursor_target);
     }
     match tail.as_slice() {
         [partial] if "at".starts_with(*partial) => Some(&["at"]),
         ["at"] if cursor_has_gap_after(tokens.last(), cursor) => Some(&["current", "start"]),
         ["at", partial] if "current".starts_with(*partial) || "start".starts_with(*partial) => {
             Some(&["current", "start"])
+        }
+        ["at", "current" | "start"] if cursor_has_gap_after(tokens.last(), cursor) => {
+            action_post_route_candidates(verb, target_kind)
         }
         [partial]
             if target_kind != Some(IndexedValueKind::Selection)
@@ -4874,63 +5283,77 @@ fn set_modifier_candidates(
         }
         ["replacing"] if cursor_has_gap_after(tokens.last(), cursor) => Some(&["scopes"]),
         ["replacing", partial] if "scopes".starts_with(*partial) => Some(&["scopes"]),
+        ["replacing", "scopes"] if cursor_has_gap_after(tokens.last(), cursor) => {
+            (verb == StateActionVerb::Set).then_some(&["to"] as &'static [&'static str])
+        }
+        [partial] if "from".starts_with(*partial) => Some(&["from"]),
+        ["from"] if cursor_has_gap_after(tokens.last(), cursor) => Some(&["scene"]),
+        ["from", partial] if "scene".starts_with(*partial) => Some(&["scene"]),
+        ["from", "scene"] if cursor_has_gap_after(tokens.last(), cursor) => {
+            (verb == StateActionVerb::Replace).then_some(&["within"] as &'static [&'static str])
+        }
+        [partial] if "within".starts_with(*partial) => Some(&["within"]),
+        ["within"] if cursor_has_gap_after(tokens.last(), cursor) => {
+            Some(&["shared", "free", "level"])
+        }
+        ["within", partial]
+            if ["shared", "free", "level"]
+                .iter()
+                .any(|candidate| candidate.starts_with(*partial)) =>
+        {
+            Some(&["shared", "free", "level"])
+        }
+        [partial] if verb == StateActionVerb::Set && "to".starts_with(*partial) => Some(&["to"]),
         _ => None,
     }
 }
 
-fn complete_state_operations(
-    kind: IndexedValueKind,
-    prefix: &str,
-    replacement: SourceSpan,
-    output: &mut Vec<CompletionItem>,
-) {
-    let operations: &[&str] = match kind {
-        IndexedValueKind::Table => &[
-            "clear",
-            "insert_rows",
-            "replace_rows",
-            "upsert_rows",
-            "update_by_key",
-            "delete_by_key",
-            "toggle_rows",
-        ],
-        IndexedValueKind::Selection => &[
-            "clear",
-            "clear_in_scope",
-            "replace_all_clauses",
-            "replace_clauses_in_scope",
-            "upsert_clauses",
-            "toggle_clauses",
-            "delete_clauses",
-            "delete_clauses_in_scope",
-            "replace_all_from_scene_query",
-            "replace_from_scene_query_in_scope",
-            "upsert_from_scene_query",
-            "toggle_from_scene_query",
-        ],
-        _ => &[],
-    };
-    for operation in operations {
-        if candidate_matches(operation, prefix) {
-            output.push(item(
-                (*operation).to_owned(),
-                replacement,
-                (*operation).to_owned(),
-                CompletionKind::Function,
-                Some(
-                    match kind {
-                        IndexedValueKind::Table => "store update operation",
-                        IndexedValueKind::Selection => "selection update operation",
-                        _ => "state update operation",
-                    }
-                    .to_owned(),
-                ),
-                None,
-                CompletionOrigin::Syntax,
-                false,
-                "00",
-            ));
+fn action_initial_modifier_candidates(
+    verb: StateActionVerb,
+    target_kind: Option<IndexedValueKind>,
+    cursor_target: bool,
+) -> Option<&'static [&'static str]> {
+    if cursor_target {
+        return (verb == StateActionVerb::Set).then_some(&["to"]);
+    }
+    match (verb, target_kind) {
+        (StateActionVerb::Set, _) => Some(&["at", "replacing", "to"]),
+        (_, Some(IndexedValueKind::Table)) => Some(&["at", "replacing"]),
+        (StateActionVerb::Clear | StateActionVerb::Delete, Some(IndexedValueKind::Selection)) => {
+            Some(&["at", "within"])
         }
+        (StateActionVerb::Replace, Some(IndexedValueKind::Selection)) => {
+            Some(&["at", "from", "within"])
+        }
+        (StateActionVerb::Upsert | StateActionVerb::Toggle, Some(IndexedValueKind::Selection)) => {
+            Some(&["at", "from"])
+        }
+        (StateActionVerb::Insert | StateActionVerb::Patch, _) => Some(&["at", "replacing"]),
+        (StateActionVerb::Replace | StateActionVerb::Upsert | StateActionVerb::Toggle, None) => {
+            Some(&["at", "replacing", "from", "within"])
+        }
+        (StateActionVerb::Clear | StateActionVerb::Delete, None) => {
+            Some(&["at", "replacing", "within"])
+        }
+        _ => None,
+    }
+}
+
+fn action_post_route_candidates(
+    verb: StateActionVerb,
+    target_kind: Option<IndexedValueKind>,
+) -> Option<&'static [&'static str]> {
+    match (verb, target_kind) {
+        (StateActionVerb::Set, _) => Some(&["replacing", "to"]),
+        (_, Some(IndexedValueKind::Table)) => Some(&["replacing"]),
+        (StateActionVerb::Clear | StateActionVerb::Delete, Some(IndexedValueKind::Selection)) => {
+            Some(&["within"])
+        }
+        (StateActionVerb::Replace, Some(IndexedValueKind::Selection)) => Some(&["from", "within"]),
+        (StateActionVerb::Upsert | StateActionVerb::Toggle, Some(IndexedValueKind::Selection)) => {
+            Some(&["from"])
+        }
+        _ => None,
     }
 }
 
@@ -5120,7 +5543,7 @@ fn property_value_context(syntax: &SyntaxAnalysis, cursor: usize) -> Option<&str
         .iter()
         .filter_map(|node| match &node.kind {
             TolerantSyntaxNodeKind::Property { name }
-                if node.span.range.start <= cursor && cursor <= node.span.range.end =>
+                if node.span.range.start < cursor && cursor <= node.span.range.end =>
             {
                 let body_started =
                     significant_tokens(syntax, Some(node.span))
@@ -5550,7 +5973,7 @@ fn complete_shape(
         | ValueShape::ChannelMap
         | ValueShape::ChannelConfig
         | ValueShape::WidgetData
-        | ValueShape::ParamChangeAction => push_shape_scaffold(
+        | ValueShape::StateActionBlock => push_shape_scaffold(
             "block",
             if snippets { "{\n  $0\n}" } else { "{ }" },
             "structured value",
@@ -6050,6 +6473,11 @@ fn declaration_snippet(keyword: &str) -> String {
         "output" => "output ${1:value} as ${2:name};".to_owned(),
         "adjust" => "adjust expr {\n  $0\n}".to_owned(),
         "view" => "view ${1:kind} as ${2:name} {\n  $0\n}".to_owned(),
+        "set" => "set ${1:target} to ${2:value};$0".to_owned(),
+        "clear" => "clear ${1:target};$0".to_owned(),
+        "insert" | "replace" | "upsert" | "patch" | "delete" | "toggle" => {
+            format!("{keyword} ${{1:target}} {{\n  $0\n}}")
+        }
         _ => keyword.to_owned(),
     }
 }
@@ -6093,6 +6521,13 @@ fn source_declaration_label(semantic_keyword: &str) -> Option<&str> {
         "frame" => Some("frame"),
         "on" => Some("on"),
         "set" => Some("set"),
+        "clear" => Some("clear"),
+        "insert" => Some("insert"),
+        "replace" => Some("replace"),
+        "upsert" => Some("upsert"),
+        "patch" => Some("patch"),
+        "delete" => Some("delete"),
+        "toggle" => Some("toggle"),
         "scale_edit" => Some("scale_edit"),
         "match" => Some("match"),
         "splice" => Some("splice"),
@@ -6194,8 +6629,8 @@ chart cartesian {
     opacity: $offset;
   }
   on click {
-    set cursor = 'crosshair';
-    set offset = $offset + 1;
+    set cursor to 'crosshair';
+    set offset to $offset + 1;
   }
 }"#;
         let (origin, syntax) = fixture(text);
@@ -6419,7 +6854,7 @@ chart cartesian {
             ValueShape::TableBinding,
             ValueShape::SelectionBinding,
             ValueShape::WidgetData,
-            ValueShape::ParamChangeAction,
+            ValueShape::StateActionBlock,
             ValueShape::MarkBlock,
             ValueShape::TypedReference {
                 namespaces: BTreeSet::new(),
@@ -6544,6 +6979,20 @@ chart cartesian {
     }
 
     #[test]
+    fn state_action_analysis_preserves_complete_qualified_targets() {
+        let text =
+            "avenger 1; chart cartesian { on click { set controls.width at current to 2; } }";
+        let (_, syntax) = fixture(text);
+        let cursor = text.find(" at current").unwrap();
+        assert_eq!(
+            state_action_target(&syntax, cursor).as_deref(),
+            Some("controls.width")
+        );
+        let (_, target, _) = enclosing_state_action(&syntax, cursor).unwrap();
+        assert_eq!(target, "controls.width");
+    }
+
+    #[test]
     fn local_import_paths_are_relative_to_the_importing_module() {
         assert_eq!(
             relative_module_path(
@@ -6564,7 +7013,7 @@ chart cartesian {
     }
 
     #[test]
-    fn unified_header_and_set_target_completion_use_semantic_categories() {
+    fn unified_header_and_action_completion_use_semantic_categories() {
         let initializers = completion_labels("avenger 1; chart cartesian { param | }");
         assert!(initializers.contains(&"CAST".to_owned()));
         assert!(initializers.contains(&"NULL".to_owned()));
@@ -6576,38 +7025,39 @@ chart cartesian {
         assert!(fields.contains(&"utf8".to_owned()));
 
         let targets = completion_labels(
-            "avenger 1; chart cartesian { param 1 as width; store as rows {} selection as picked {} on click { set | = 1; } }",
+            "avenger 1; chart cartesian { param 1 as width; store as rows {} selection as picked {} on click { set | } }",
         );
-        for target in ["width", "rows", "picked", "cursor"] {
+        for target in ["width", "cursor"] {
             assert!(targets.contains(&target.to_owned()), "{targets:?}");
         }
+        for invalid in ["rows", "picked"] {
+            assert!(!targets.contains(&invalid.to_owned()), "{targets:?}");
+        }
 
-        let store_ops = completion_labels(
-            "avenger 1; chart cartesian { store as rows {} on click { set rows = |; } }",
+        let store_targets = completion_labels(
+            "avenger 1; chart cartesian { store as rows {} selection as picked {} on click { insert | } }",
         );
         assert!(
-            store_ops.contains(&"insert_rows".to_owned()),
-            "{store_ops:?}"
+            store_targets.contains(&"rows".to_owned()),
+            "{store_targets:?}"
         );
         assert!(
-            !store_ops.contains(&"toggle_clauses".to_owned()),
-            "{store_ops:?}"
+            !store_targets.contains(&"picked".to_owned()),
+            "{store_targets:?}"
         );
 
-        let selection_ops = completion_labels(
-            "avenger 1; chart cartesian { selection as picked {} on click { set picked = |; } }",
+        let mutation_targets = completion_labels(
+            "avenger 1; chart cartesian { store as rows {} selection as picked {} on click { replace | } }",
         );
-        assert!(
-            selection_ops.contains(&"toggle_clauses".to_owned()),
-            "{selection_ops:?}"
-        );
-        assert!(
-            !selection_ops.contains(&"insert_rows".to_owned()),
-            "{selection_ops:?}"
-        );
+        for target in ["rows", "picked"] {
+            assert!(
+                mutation_targets.contains(&target.to_owned()),
+                "{mutation_targets:?}"
+            );
+        }
 
         let scalar_modifiers = completion_labels(
-            "avenger 1; chart cartesian { param 1 as width; on click { set width | = 2; } }",
+            "avenger 1; chart cartesian { param 1 as width; on click { set width | } }",
         );
         assert!(
             scalar_modifiers.contains(&"at".to_owned()),
@@ -6619,15 +7069,67 @@ chart cartesian {
         );
 
         let selection_modifiers = completion_labels(
-            "avenger 1; chart cartesian { selection as picked {} on click { set picked | = clear; } }",
+            "avenger 1; chart cartesian { selection as picked {} on click { clear picked | } }",
         );
         assert!(
             selection_modifiers.contains(&"at".to_owned()),
             "{selection_modifiers:?}"
         );
         assert!(
+            selection_modifiers.contains(&"within".to_owned()),
+            "{selection_modifiers:?}"
+        );
+        assert!(
             !selection_modifiers.contains(&"replacing".to_owned()),
             "{selection_modifiers:?}"
+        );
+
+        let action_heads = completion_labels("avenger 1; chart cartesian { on click { | } }");
+        for verb in StateActionVerb::ALL {
+            assert!(
+                action_heads.contains(&verb.as_str().to_owned()),
+                "{action_heads:?}"
+            );
+        }
+        let widget_action_heads = completion_labels(
+            "avenger 1; chart zerod { widget button as button { label: 'Run'; action: { | } } }",
+        );
+        for verb in StateActionVerb::ALL {
+            assert!(
+                widget_action_heads.contains(&verb.as_str().to_owned()),
+                "{widget_action_heads:?}"
+            );
+        }
+        let chart_body = completion_labels("avenger 1; chart cartesian { | }");
+        for verb in StateActionVerb::ALL {
+            assert!(
+                !chart_body.contains(&verb.as_str().to_owned()),
+                "{chart_body:?}"
+            );
+        }
+
+        let store_body = completion_labels(
+            "avenger 1; chart cartesian { store as rows {} on click { patch rows { | } } }",
+        );
+        assert_eq!(store_body, ["fields", "key"]);
+
+        let scene_body = completion_labels(
+            "avenger 1; chart cartesian { selection as picked {} on click { replace picked from scene within free { | } } }",
+        );
+        for property in [
+            "clause_id",
+            "fields",
+            "geometry",
+            "marks",
+            "max_hits",
+            "policy",
+            "unique_by",
+        ] {
+            assert!(scene_body.contains(&property.to_owned()), "{scene_body:?}");
+        }
+        assert!(
+            !scene_body.contains(&"sharing".to_owned()),
+            "{scene_body:?}"
         );
 
         let bindings = completion_labels(

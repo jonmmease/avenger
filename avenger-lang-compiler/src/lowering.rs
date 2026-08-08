@@ -55,7 +55,7 @@ use avenger_lang_core::{
     ResolvedRelationTarget, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
     ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue, ResolvedViewAxis,
     ResolvedViewField, SelectionId, SourceLabel, SourceLoader, SourceSpan, StateSharing, StoreId,
-    ast::{BindingTime, SqlExpression, SqlQuery, Visibility},
+    ast::{BindingTime, SqlExpression, SqlQuery, Visibility, is_state_action_keyword},
     contextual_access_signature,
     module_graph::resolve_relative_origin,
     sql::AvengerSqlDialect,
@@ -90,6 +90,22 @@ use crate::{
 
 pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
+}
+
+enum LoweredStateAction {
+    Cursor(Expr),
+    Param {
+        param: Param,
+        value: Expr,
+    },
+    Store {
+        name: String,
+        update: StoreUpdate,
+    },
+    Selection {
+        id: String,
+        update: Box<SelectionUpdate>,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1480,98 +1496,57 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         for action in &declaration.children {
-            if action.keyword != "set" {
+            if !is_state_action_keyword(&action.keyword) {
                 continue;
             }
-            let value = action
-                .properties
-                .get("value")
-                .ok_or_else(|| lowerer_error(action, "state action requires a value"))?;
-            match action.kind.as_deref() {
-                Some("cursor") => {
-                    binding =
-                        binding.set_cursor(self.boundary_source_value(value, data, action, true)?);
-                }
-                Some("param") => {
+            let lowered = self.lower_state_action(chart, data, action, true)?;
+            binding = match lowered {
+                LoweredStateAction::Cursor(value) => binding.set_cursor(value),
+                LoweredStateAction::Param { param, value } => {
                     let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
                         lowerer_error(action, "parameter action target was not resolved")
                     })?;
-                    let ResolvedTarget::Param(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned parameter actions require Phase 7 expansion",
-                        ));
-                    };
-                    let param = self.params.get(id).ok_or_else(|| {
-                        lowerer_error(action, "resolved parameter is unavailable")
-                    })?;
-                    let expr = self.boundary_source_value(value, data, action, true)?;
-                    binding = match (lvalue.route, lvalue.replacing_scopes) {
-                        (ResolvedActionRoute::Current, false) => binding.set_param(param, expr),
+                    match (lvalue.route, lvalue.replacing_scopes) {
+                        (ResolvedActionRoute::Current, false) => binding.set_param(&param, value),
                         (ResolvedActionRoute::Current, true) => {
-                            binding.set_param_replacing_scopes(param, expr)
+                            binding.set_param_replacing_scopes(&param, value)
                         }
                         (ResolvedActionRoute::Start, false) => {
-                            binding.set_param_at_start_scope(param, expr)
+                            binding.set_param_at_start_scope(&param, value)
                         }
                         (ResolvedActionRoute::Start, true) => {
-                            binding.set_param_at_start_scope_replacing_scopes(param, expr)
+                            binding.set_param_at_start_scope_replacing_scopes(&param, value)
                         }
-                    };
+                    }
                 }
-                Some("store") => {
+                LoweredStateAction::Store { name, update } => {
                     let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
                         lowerer_error(action, "store action target was not resolved")
                     })?;
-                    let ResolvedTarget::Store(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned store actions require Phase 7 expansion",
-                        ));
-                    };
-                    let store = self
-                        .stores
-                        .get(id)
-                        .ok_or_else(|| lowerer_error(action, "resolved store is unavailable"))?;
-                    let update = self.lower_store_update(value, data, action)?;
-                    binding = match (lvalue.route, lvalue.replacing_scopes) {
-                        (ResolvedActionRoute::Current, false) => {
-                            binding.set_store(store.name.clone(), update)
-                        }
+                    match (lvalue.route, lvalue.replacing_scopes) {
+                        (ResolvedActionRoute::Current, false) => binding.set_store(name, update),
                         (ResolvedActionRoute::Current, true) => {
-                            binding.set_store_replacing_scopes(store.name.clone(), update)
+                            binding.set_store_replacing_scopes(name, update)
                         }
                         (ResolvedActionRoute::Start, false) => {
-                            binding.set_store_at_start_scope(store.name.clone(), update)
+                            binding.set_store_at_start_scope(name, update)
                         }
-                        (ResolvedActionRoute::Start, true) => binding
-                            .set_store_at_start_scope_replacing_scopes(store.name.clone(), update),
-                    };
+                        (ResolvedActionRoute::Start, true) => {
+                            binding.set_store_at_start_scope_replacing_scopes(name, update)
+                        }
+                    }
                 }
-                Some("selection") => {
+                LoweredStateAction::Selection { id, update } => {
                     let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
                         lowerer_error(action, "selection action target was not resolved")
                     })?;
-                    let ResolvedTarget::Selection(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned selection actions require Phase 7 expansion",
-                        ));
-                    };
-                    let selection = self.selections.get(id).ok_or_else(|| {
-                        lowerer_error(action, "resolved selection is unavailable")
-                    })?;
-                    let update = self.lower_selection_update(chart, value, data, action)?;
-                    binding = match lvalue.route {
-                        ResolvedActionRoute::Current => {
-                            binding.set_selection(selection.id.clone(), update)
-                        }
+                    match lvalue.route {
+                        ResolvedActionRoute::Current => binding.set_selection(id, *update),
                         ResolvedActionRoute::Start => {
-                            binding.set_selection_at_start_scope(selection.id.clone(), update)
+                            binding.set_selection_at_start_scope(id, *update)
                         }
-                    };
+                    }
                 }
-                _ => return Err(lowerer_error(action, "unsupported event action kind")),
             }
         }
         binding
@@ -1580,7 +1555,93 @@ impl<'a> ModuleLowerer<'a> {
         Ok(binding)
     }
 
-    fn lower_param_change_action(
+    fn lower_state_action(
+        &self,
+        chart: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+        action: &ResolvedDeclaration,
+        event_scalar_values: bool,
+    ) -> Result<LoweredStateAction, Diagnostic> {
+        match action.kind.as_deref() {
+            Some("cursor") => {
+                let value = action
+                    .properties
+                    .get("value")
+                    .ok_or_else(|| lowerer_error(action, "cursor action requires a value"))?;
+                Ok(LoweredStateAction::Cursor(self.boundary_source_value(
+                    value,
+                    data,
+                    action,
+                    event_scalar_values,
+                )?))
+            }
+            Some("param") => {
+                let value = action
+                    .properties
+                    .get("value")
+                    .ok_or_else(|| lowerer_error(action, "param action requires a value"))?;
+                let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                    lowerer_error(action, "parameter action target was not resolved")
+                })?;
+                let ResolvedTarget::Param(id) = &lvalue.target else {
+                    return Err(lowerer_error(
+                        action,
+                        "definition-owned parameter actions require Phase 7 expansion",
+                    ));
+                };
+                let param = self
+                    .params
+                    .get(id)
+                    .ok_or_else(|| lowerer_error(action, "resolved parameter is unavailable"))?;
+                Ok(LoweredStateAction::Param {
+                    param: param.clone(),
+                    value: self.boundary_source_value(value, data, action, event_scalar_values)?,
+                })
+            }
+            Some("store") => {
+                let lvalue = action
+                    .state_lvalue
+                    .as_ref()
+                    .ok_or_else(|| lowerer_error(action, "store action target was not resolved"))?;
+                let ResolvedTarget::Store(id) = &lvalue.target else {
+                    return Err(lowerer_error(
+                        action,
+                        "definition-owned store actions require Phase 7 expansion",
+                    ));
+                };
+                let store = self
+                    .stores
+                    .get(id)
+                    .ok_or_else(|| lowerer_error(action, "resolved store is unavailable"))?;
+                Ok(LoweredStateAction::Store {
+                    name: store.name.clone(),
+                    update: self.lower_store_update(data, action)?,
+                })
+            }
+            Some("selection") => {
+                let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                    lowerer_error(action, "selection action target was not resolved")
+                })?;
+                let ResolvedTarget::Selection(id) = &lvalue.target else {
+                    return Err(lowerer_error(
+                        action,
+                        "definition-owned selection actions require Phase 7 expansion",
+                    ));
+                };
+                let selection = self
+                    .selections
+                    .get(id)
+                    .ok_or_else(|| lowerer_error(action, "resolved selection is unavailable"))?;
+                Ok(LoweredStateAction::Selection {
+                    id: selection.id.clone(),
+                    update: Box::new(self.lower_selection_update(chart, data, action)?),
+                })
+            }
+            _ => Err(lowerer_error(action, "unsupported state action kind")),
+        }
+    }
+
+    fn lower_state_action_block(
         &self,
         value: &ResolvedValue,
         data: Option<&DataFrame>,
@@ -1595,102 +1656,51 @@ impl<'a> ModuleLowerer<'a> {
         else {
             return Err(lowerer_error(
                 declaration,
-                "parameter-change action must be an unheaded action block",
+                "state action must be an unheaded action block",
             ));
         };
         if !properties.is_empty() {
             return Err(lowerer_error(
                 declaration,
-                "parameter-change action blocks contain only ordered `set` declarations",
+                "state action blocks contain only ordered action declarations",
             ));
         }
 
-        let chart_id = self.active_chart_id.as_ref().ok_or_else(|| {
-            lowerer_error(declaration, "parameter-change action has no active chart")
-        })?;
+        let chart_id = self
+            .active_chart_id
+            .as_ref()
+            .ok_or_else(|| lowerer_error(declaration, "state action has no active chart"))?;
         let chart = find_declaration(self.project, chart_id)
             .ok_or_else(|| lowerer_error(declaration, "active chart declaration is unavailable"))?;
         let mut lowered = ChartAction::new();
         for action in children {
-            if action.keyword != "set" {
+            if !is_state_action_keyword(&action.keyword) {
                 return Err(lowerer_error(
                     action,
-                    "parameter-change action blocks contain only `set` declarations",
+                    "state action blocks contain only action declarations",
                 ));
             }
-            let value = action
-                .properties
-                .get("value")
-                .ok_or_else(|| lowerer_error(action, "state action requires a value"))?;
-            let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
-                lowerer_error(action, "parameter-change action target was not resolved")
-            })?;
+            let lvalue = action
+                .state_lvalue
+                .as_ref()
+                .ok_or_else(|| lowerer_error(action, "state action target was not resolved"))?;
             if lvalue.route != ResolvedActionRoute::Current || lvalue.replacing_scopes {
                 return Err(lowerer_error(
                     action,
-                    "parameter-change actions cannot use event-only state routing",
+                    "widget state actions cannot use event-only state routing",
                 ));
             }
-            match action.kind.as_deref() {
-                Some("param") => {
-                    let ResolvedTarget::Param(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned parameter actions require Phase 7 expansion",
-                        ));
-                    };
-                    let param = self.params.get(id).ok_or_else(|| {
-                        lowerer_error(action, "resolved parameter is unavailable")
-                    })?;
-                    lowered = lowered.set_param(
-                        param,
-                        self.boundary_source_value(value, data, action, false)?,
-                    );
-                }
-                Some("store") => {
-                    let ResolvedTarget::Store(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned store actions require Phase 7 expansion",
-                        ));
-                    };
-                    let store = self
-                        .stores
-                        .get(id)
-                        .ok_or_else(|| lowerer_error(action, "resolved store is unavailable"))?;
-                    lowered = lowered.set_store(
-                        store.name.clone(),
-                        self.lower_store_update(value, data, action)?,
-                    );
-                }
-                Some("selection") => {
-                    let ResolvedTarget::Selection(id) = &lvalue.target else {
-                        return Err(lowerer_error(
-                            action,
-                            "definition-owned selection actions require Phase 7 expansion",
-                        ));
-                    };
-                    let selection = self.selections.get(id).ok_or_else(|| {
-                        lowerer_error(action, "resolved selection is unavailable")
-                    })?;
-                    lowered = lowered.set_selection(
-                        selection.id.clone(),
-                        self.lower_selection_update(chart, value, data, action)?,
-                    );
-                }
-                Some("cursor") => {
+            lowered = match self.lower_state_action(chart, data, action, false)? {
+                LoweredStateAction::Param { param, value } => lowered.set_param(&param, value),
+                LoweredStateAction::Store { name, update } => lowered.set_store(name, update),
+                LoweredStateAction::Selection { id, update } => lowered.set_selection(id, *update),
+                LoweredStateAction::Cursor(_) => {
                     return Err(lowerer_error(
                         action,
-                        "parameter-change actions cannot publish a cursor",
+                        "widget state actions cannot publish a cursor",
                     ));
                 }
-                _ => {
-                    return Err(lowerer_error(
-                        action,
-                        "unsupported parameter-change action kind",
-                    ));
-                }
-            }
+            };
         }
         lowered
             .validate()
@@ -1700,24 +1710,15 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_store_update(
         &self,
-        value: &ResolvedValue,
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<StoreUpdate, Diagnostic> {
-        if matches!(value, ResolvedValue::Atom(kind) if kind == "clear") {
+        if declaration.keyword == "clear" {
             return Ok(StoreUpdate::clear());
         }
-        let ResolvedValue::Object { kind, children, .. } = value else {
-            return Err(lowerer_error(declaration, "invalid store update payload"));
-        };
-        let kind = kind.as_deref().ok_or_else(|| {
-            lowerer_error(
-                declaration,
-                "store update payload requires an operation kind",
-            )
-        })?;
         let rows = || {
-            children
+            declaration
+                .children
                 .iter()
                 .filter(|child| child.keyword == "row")
                 .map(|row| {
@@ -1732,24 +1733,22 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect::<Result<Vec<_>, Diagnostic>>()
         };
-        Ok(match kind {
-            "replace_rows" => StoreUpdate::replace_rows(rows()?),
-            "insert_rows" => StoreUpdate::insert_rows(rows()?),
-            "upsert_rows" => StoreUpdate::upsert_rows(rows()?),
-            "toggle_rows" => StoreUpdate::toggle_rows(rows()?),
-            "update_by_key" => {
-                let key = children
+        Ok(match declaration.keyword.as_str() {
+            "replace" => StoreUpdate::replace_rows(rows()?),
+            "insert" => StoreUpdate::insert_rows(rows()?),
+            "upsert" => StoreUpdate::upsert_rows(rows()?),
+            "toggle" => StoreUpdate::toggle_rows(rows()?),
+            "patch" => {
+                let key = declaration
+                    .children
                     .iter()
                     .find(|child| child.keyword == "key")
-                    .ok_or_else(|| {
-                        lowerer_error(declaration, "update_by_key requires a key payload")
-                    })?;
-                let fields = children
+                    .ok_or_else(|| lowerer_error(declaration, "patch requires a key payload"))?;
+                let fields = declaration
+                    .children
                     .iter()
                     .find(|child| child.keyword == "fields")
-                    .ok_or_else(|| {
-                        lowerer_error(declaration, "update_by_key requires a fields payload")
-                    })?;
+                    .ok_or_else(|| lowerer_error(declaration, "patch requires a fields payload"))?;
                 StoreUpdate::update_by_key(
                     self.lower_store_key(key, data, declaration)?,
                     fields.properties.iter().try_fold(
@@ -1763,19 +1762,18 @@ impl<'a> ModuleLowerer<'a> {
                     )?,
                 )
             }
-            "delete_by_key" => {
-                let key = children
+            "delete" => {
+                let key = declaration
+                    .children
                     .iter()
                     .find(|child| child.keyword == "key")
-                    .ok_or_else(|| {
-                        lowerer_error(declaration, "delete_by_key requires a key payload")
-                    })?;
+                    .ok_or_else(|| lowerer_error(declaration, "delete requires a key payload"))?;
                 StoreUpdate::delete_by_key(self.lower_store_key(key, data, declaration)?)
             }
             _ => {
                 return Err(lowerer_error(
                     declaration,
-                    format!("unsupported store update `{kind}`"),
+                    format!("unsupported store update `{}`", declaration.keyword),
                 ));
             }
         })
@@ -1800,66 +1798,68 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_selection_update(
         &self,
         chart: &ResolvedDeclaration,
-        value: &ResolvedValue,
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<SelectionUpdate, Diagnostic> {
-        match value {
-            ResolvedValue::Atom(kind) if kind == "clear" => Ok(SelectionUpdate::clear()),
-            ResolvedValue::Object {
-                kind: Some(kind),
-                properties,
-                ..
-            } if kind == "clear_in_scope" => {
-                let scope = properties
-                    .get("scope")
-                    .ok_or_else(|| lowerer_error(declaration, "clear_in_scope requires scope"))?;
-                Ok(SelectionUpdate::clear_in_scope(
-                    self.coordination_scope(scope, declaration)?,
-                ))
+        let within = declaration.properties.get("within");
+        let from_scene = declaration.properties.contains_key("from_scene");
+        match declaration.keyword.as_str() {
+            "clear" => Ok(if let Some(scope) = within {
+                SelectionUpdate::clear_in_scope(self.coordination_scope(scope, declaration)?)
+            } else {
+                SelectionUpdate::clear()
+            }),
+            "replace" | "upsert" | "toggle" if from_scene => {
+                let mut query = self.lower_selection_scene_query(
+                    chart,
+                    &declaration.properties,
+                    data,
+                    declaration,
+                )?;
+                if let Some(scope) = within {
+                    query = query.sharing(self.coordination_scope(scope, declaration)?);
+                }
+                Ok(match (declaration.keyword.as_str(), within.is_some()) {
+                    ("replace", false) => SelectionUpdate::replace_all_from_scene_query(query),
+                    ("replace", true) => SelectionUpdate::replace_from_scene_query_in_scope(query),
+                    ("upsert", false) => SelectionUpdate::upsert_from_scene_query(query),
+                    ("toggle", false) => SelectionUpdate::toggle_from_scene_query(query),
+                    _ => {
+                        return Err(lowerer_error(
+                            declaration,
+                            "unsupported scoped scene-query selection operation",
+                        ));
+                    }
+                })
             }
-            ResolvedValue::Object {
-                kind: Some(kind),
-                properties,
-                children,
-                ..
-            } if matches!(
-                kind.as_str(),
-                "replace_all_clauses"
-                    | "replace_clauses_in_scope"
-                    | "upsert_clauses"
-                    | "toggle_clauses"
-            ) =>
-            {
-                let clauses = children
+            "replace" | "upsert" | "toggle" => {
+                let clauses = declaration
+                    .children
                     .iter()
                     .filter(|child| child.keyword == "clause")
                     .map(|clause| self.lower_selection_clause(clause, data, declaration))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(match kind.as_str() {
-                    "replace_all_clauses" => SelectionUpdate::replace_all_clauses(clauses),
-                    "replace_clauses_in_scope" => {
-                        let scope = properties.get("scope").ok_or_else(|| {
-                            lowerer_error(declaration, "replace_clauses_in_scope requires scope")
-                        })?;
-                        SelectionUpdate::replace_clauses_in_scope(
-                            self.coordination_scope(scope, declaration)?,
-                            clauses,
-                        )
+                Ok(match (declaration.keyword.as_str(), within) {
+                    ("replace", None) => SelectionUpdate::replace_all_clauses(clauses),
+                    ("replace", Some(scope)) => SelectionUpdate::replace_clauses_in_scope(
+                        self.coordination_scope(scope, declaration)?,
+                        clauses,
+                    ),
+                    ("upsert", None) => SelectionUpdate::upsert_clauses(clauses),
+                    ("toggle", None) => SelectionUpdate::toggle_clauses(clauses),
+                    _ => {
+                        return Err(lowerer_error(
+                            declaration,
+                            "unsupported scoped selection clause operation",
+                        ));
                     }
-                    "upsert_clauses" => SelectionUpdate::upsert_clauses(clauses),
-                    "toggle_clauses" => SelectionUpdate::toggle_clauses(clauses),
-                    _ => unreachable!("guarded selection clause update kind"),
                 })
             }
-            ResolvedValue::Object {
-                kind: Some(kind),
-                properties,
-                ..
-            } if matches!(kind.as_str(), "delete_clauses" | "delete_clauses_in_scope") => {
-                let ResolvedValue::Array(values) = properties.get("ids").ok_or_else(|| {
-                    lowerer_error(declaration, "selection clause deletion requires ids")
-                })?
+            "delete" => {
+                let ResolvedValue::Array(values) =
+                    declaration.properties.get("ids").ok_or_else(|| {
+                        lowerer_error(declaration, "selection clause deletion requires ids")
+                    })?
                 else {
                     return Err(lowerer_error(
                         declaration,
@@ -1870,49 +1870,18 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .map(|value| self.event_expression_value(value, data, declaration))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(if kind == "delete_clauses" {
-                    SelectionUpdate::delete_clauses(ids)
-                } else {
-                    let scope = properties.get("scope").ok_or_else(|| {
-                        lowerer_error(declaration, "delete_clauses_in_scope requires scope")
-                    })?;
+                Ok(if let Some(scope) = within {
                     SelectionUpdate::delete_clauses_in_scope(
                         self.coordination_scope(scope, declaration)?,
                         ids,
                     )
+                } else {
+                    SelectionUpdate::delete_clauses(ids)
                 })
             }
-            ResolvedValue::Object {
-                kind: Some(kind), ..
-            } if kind.contains("scene_query") => {
-                let query = self.lower_selection_scene_query(chart, value, data, declaration)?;
-                Ok(match kind.as_str() {
-                    "replace_all_from_scene_query" => {
-                        SelectionUpdate::replace_all_from_scene_query(query)
-                    }
-                    "replace_from_scene_query_in_scope" => {
-                        SelectionUpdate::replace_from_scene_query_in_scope(query)
-                    }
-                    "upsert_from_scene_query" => SelectionUpdate::upsert_from_scene_query(query),
-                    "toggle_from_scene_query" => SelectionUpdate::toggle_from_scene_query(query),
-                    _ => {
-                        return Err(lowerer_error(
-                            declaration,
-                            format!("unsupported scene-query selection update `{kind}`"),
-                        ));
-                    }
-                })
-            }
-            ResolvedValue::Object { kind, .. } => Err(lowerer_error(
-                declaration,
-                format!(
-                    "selection update `{}` is not implemented yet",
-                    kind.as_deref().unwrap_or("<missing>")
-                ),
-            )),
             _ => Err(lowerer_error(
                 declaration,
-                "invalid selection update payload",
+                format!("unsupported selection update `{}`", declaration.keyword),
             )),
         }
     }
@@ -2031,16 +2000,10 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_selection_scene_query(
         &self,
         chart: &ResolvedDeclaration,
-        value: &ResolvedValue,
+        properties: &BTreeMap<String, ResolvedValue>,
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<SelectionSceneQuery, Diagnostic> {
-        let ResolvedValue::Object { properties, .. } = value else {
-            return Err(lowerer_error(
-                declaration,
-                "scene-query selection update requires an object payload",
-            ));
-        };
         let geometry = properties
             .get("geometry")
             .ok_or_else(|| lowerer_error(declaration, "scene query requires geometry"))?;
@@ -2653,8 +2616,8 @@ impl<'a> ModuleLowerer<'a> {
                             );
                         }
                         if let Some(action) = child.properties.get("action") {
-                            declaration.param_change_action = Some(
-                                self.lower_param_change_action(
+                            declaration.state_action = Some(
+                                self.lower_state_action_block(
                                     action,
                                     widget_data
                                         .as_ref()
@@ -3115,7 +3078,7 @@ impl<'a> ModuleLowerer<'a> {
             // Ordered action children are lowered to `ChartAction`, not an
             // untyped native object. The owner-facing declaration carries the
             // result separately so authored order cannot be lost in a map.
-            if property_shape == Some(&ValueShape::ParamChangeAction) {
+            if property_shape == Some(&ValueShape::StateActionBlock) {
                 continue;
             }
             // Language-owned mark blocks are lowered asynchronously before

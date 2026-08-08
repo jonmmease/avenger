@@ -1202,8 +1202,8 @@ request to fall back to the outer declaration.
 Event expressions may qualify a param read with a temporal version:
 
 ```avenger
-set width = $width@start + event.coord.x - event.start.coord.x;
-set velocity = event.coord.x - $position@previous;
+set width to $width@start + event.coord.x - event.start.coord.x;
+set velocity to event.coord.x - $position@previous;
 ```
 
 `$param` reads the current transaction's working value at the current routed
@@ -2871,8 +2871,8 @@ on click as select_outlier {
   filter: datum."value" > $threshold;
   consume: true;
 
-  set selected_group = datum."group";
-  set selected_value = datum."value";
+  set selected_group to datum."group";
+  set selected_value to datum."value";
 }
 ```
 
@@ -2887,11 +2887,11 @@ than specially named params:
 
 ```avenger
 on mark_mouse_enter {
-  set cursor = crosshair;
+  set cursor to crosshair;
 }
 
 on mark_mouse_leave {
-  set cursor = default;
+  set cursor to default;
 }
 ```
 
@@ -2901,7 +2901,7 @@ accepts a cursor-style expression; a bare registered style name is the canonical
 literal form, while a computed SQL expression must return `utf8`:
 
 ```avenger
-set cursor = CASE WHEN $enabled THEN 'grab' ELSE 'default' END;
+set cursor to CASE WHEN $enabled THEN 'grab' ELSE 'default' END;
 ```
 
 The unqualified name `cursor` is reserved in the state-binding namespace, so
@@ -2938,10 +2938,10 @@ SQL scalar subqueries are valid in action expressions and participate in the
 same ordering:
 
 ```avenger
-set brush = insert_rows {
+insert brush {
   row { id: datum."id"; }
 }
-set brush_count = (SELECT count(*) FROM $brush);
+set brush_count to (SELECT count(*) FROM $brush);
 ```
 
 The second action sees the row inserted by the first. Each action evaluates all
@@ -2951,7 +2951,7 @@ mutation aborts the whole event transaction.
 
 There is no v1 spelling for a live working-state read from a non-current owner.
 For example, if a drag has crossed facets, neither `$width` nor `$width@start`
-reads a value just written by `set width at start = ...`: the first reads
+reads a value just written by `set width at start to ...`: the first reads
 the current owner and the second reads the frozen gesture-start snapshot. Store
 update primitives routed `at start` still inspect and mutate their target
 store's own pre-action working rows internally, but an RHS `FROM $store` scan
@@ -3063,7 +3063,7 @@ on cursor_moved as drag_box {
     }
   }
 
-  set drag_x at start = event.coord.x;
+  set drag_x at start to event.coord.x;
 }
 ```
 
@@ -3107,13 +3107,13 @@ published by earlier successful invocations.
 An action may select the facet owner of its **left-hand target** with `at`:
 
 ```avenger
-set brush at start = replace_rows {
+replace brush at start {
   row { x0: event.start.coord.x; x1: event.coord.x; }
 }
-set drag_x at current = event.coord.x;
-set picked at start = clear;
+set drag_x at current to event.coord.x;
+clear picked at start;
 
-set active_brush at start replacing scopes = replace_rows {
+replace active_brush at start replacing scopes {
   row { x0: event.start.coord.x; x1: event.coord.x; }
 }
 ```
@@ -3127,23 +3127,23 @@ resolve to root and an explicit `at start` earns a redundant-modifier warning.
 If the selected route is absent, the adopted non-shared-write rule applies: the
 action is a no-op, never an implicit root write.
 
-`at` applies only to the target before `=`. It does not change RHS evaluation:
+`at` applies only to the action target. It does not change payload evaluation:
 start-derived event values remain explicit through contextual accesses such as
 `event.start.coord.x`, and a start-derived param value uses `$param@start`, while
 ordinary `$param` expressions use the handler transaction's current routed
 owner and working state. Thus LHS `at start` selects where to write; RHS
 `@start` selects which frozen value to read, and neither implies the other.
 Actions in one transaction may route different targets to different owner
-paths; the transaction still commits them atomically. For selection
-updates such as `clear_in_scope`, target routing via `at start` is distinct
-from a payload's `scope: level(n)`, which filters clauses within that selection.
+paths; the transaction still commits them atomically. For selection updates,
+target routing via `at start` is distinct from `within level(n)`, which limits
+a clear, replace, or delete operation to clauses in that coordination scope.
 
 Params and stores additionally admit the LHS modifier `replacing scopes` after
 the optional `at` route:
 
 ```avenger
-set brush at start replacing scopes = replace_rows { ... }
-set active at current replacing scopes = true;
+replace brush at start replacing scopes { ... }
+set active at current replacing scopes to true;
 ```
 
 At that action's position in the transaction, the modifier removes every
@@ -3169,21 +3169,22 @@ file-watch event is host tooling.) Binding properties include `target:`,
 `mode: preview | exact`, and
 `settle_exact:`.
 
-Store and selection updates use the same action form with typed update
-payloads:
+State mutations use a closed verb set. `set` assigns scalar params and the
+write-only cursor effect; stores and selections use operation-specific verbs
+with target-resolved payloads:
 
 ```avenger
-set hover = clear;
-set hover = insert_rows  { row { id: datum."id"; } }
-set hover = replace_rows { row { id: datum."id"; } }
-set hover = upsert_rows  { row { id: datum."id"; x: event.coord.x; } }
-set hover = update_by_key { key { id: datum."id"; } fields { x: event.coord.x; } }
-set hover = delete_by_key { key { id: datum."id"; } }
-set hover = toggle_rows  { row { id: datum."id"; } }
+clear hover;
+insert hover  { row { id: datum."id"; } }
+replace hover { row { id: datum."id"; } }
+upsert hover  { row { id: datum."id"; x: event.coord.x; } }
+patch hover { key { id: datum."id"; } fields { x: event.coord.x; } }
+delete hover { key { id: datum."id"; } }
+toggle hover  { row { id: datum."id"; } }
 
-set picked = clear;
-set picked = clear_in_scope { scope: level(1); }
-set picked = toggle_clauses {
+clear picked;
+clear picked within level(1);
+toggle picked {
   clause {
     id: datum."id";
     equality {
@@ -3193,21 +3194,28 @@ set picked = toggle_clauses {
 }
 ```
 
-Update kinds mirror `StoreUpdate` and `SelectionUpdate`; `replace_all_clauses`,
-`replace_clauses_in_scope`, and `upsert_clauses` follow the same shape as
-`toggle_clauses`, while `delete_clauses` and `delete_clauses_in_scope` take
-clause ids through a non-empty `ids: [...]` array (and the scoped form also
-requires `scope:`). Clause predicates support keyed `equality` and `interval`
-dimensions (`x { field: "x"; from: event.start.coord.x; to: event.coord.x; }`). The
-parent fixes the child category and predicate type, so the dimension ID is the
-complete header; it is not a scoped declaration or `as` binder. Geometry-driven
-selection uses the scene-query update kinds —
-`replace_all_from_scene_query`, `replace_from_scene_query_in_scope`,
-`upsert_from_scene_query`, and `toggle_from_scene_query`, the primitives
-that make lasso and box selection definable in the language:
+For stores, the authored verbs map directly to the corresponding Rust update:
+`clear` to `Clear`, `insert` to `InsertRows`, `replace` to `ReplaceRows`,
+`upsert` to `UpsertRows`, `patch` to `UpdateByKey`, `delete` to `DeleteByKey`,
+and `toggle` to `ToggleRows`. All store verbs accept `at current|start` and
+`replacing scopes`; `from scene` and `within` are invalid.
+
+For clause selections, `clear`, `replace`, and `delete` optionally accept
+`within shared|free|level(n)`. An unscoped `replace` replaces all clauses,
+while a scoped `replace` replaces only clauses in that scope. `upsert` and
+`toggle` use each supplied clause's resolved scope and therefore do not accept
+`within`. `delete` takes clause ids through a non-empty `ids: [...]` array.
+`insert` and `patch` are not selection operations. Clause predicates support
+keyed `equality` and `interval` dimensions
+(`x { field: "x"; from: event.start.coord.x; to: event.coord.x; }`). The parent
+fixes the child category and predicate type, so the dimension ID is the
+complete header; it is not a scoped declaration or `as` binder.
+
+Geometry-driven selection adds `from scene` to `replace`, `upsert`, or
+`toggle`, making lasso and box selection definable in the language:
 
 ```avenger
-set picked = replace_all_from_scene_query {
+replace picked from scene {
   geometry: polygon(event.path);
   policy: intersects;
   marks: [points];
@@ -3275,20 +3283,20 @@ of ordered field ids and typed Arrow scalar values — never Rust `Debug` text.
 An explicit scene-query `clause_id` expression follows the same exact-`utf8`
 rule as an authored clause id.
 
-The update operations are:
+The clause-selection operations are:
 
-- `replace_all_clauses` replaces the complete selection after validating unique
+- Unscoped `replace` replaces the complete selection after validating unique
   identities across its payload.
-- `replace_clauses_in_scope` resolves one target owner path, removes only the
+- `replace ... within S` resolves one target owner path, removes only the
   clauses in that path, and assigns every supplied clause to that same path.
   A clause-level scope that would resolve elsewhere is a scope-mismatch error,
   not an insertion outside the replacement scope.
-- `upsert_clauses` replaces the complete predicate and facet context of an
+- `upsert` replaces the complete predicate and facet context of an
   existing identity or inserts the supplied clause when absent.
-- `toggle_clauses` removes an existing identity regardless of the supplied
+- `toggle` removes an existing identity regardless of the supplied
   predicate details, or inserts the supplied complete clause when absent.
-- `delete_clauses` removes each supplied non-empty UTF-8 id from every owner
-  path; `delete_clauses_in_scope` removes it only from the one resolved target
+- Unscoped `delete` removes each supplied non-empty UTF-8 id from every owner
+  path; `delete ... within S` removes it only from the one resolved target
   path. Missing ids are valid no-ops.
 
 All ids, scopes, predicates, and facet contexts are evaluated before mutation.
@@ -3307,12 +3315,11 @@ Store primary keys and mutation conflicts have strict, order-independent
 semantics. Every `primary_key` field must name a declared non-nullable field;
 the ordered field tuple is the row identity and must be unique within every
 committed or working store snapshot. An unkeyed store may contain duplicate
-rows, but `upsert_rows`, `update_by_key`, `delete_by_key`, and `toggle_rows` are
-invalid for it. `insert_rows` and `replace_rows` work for keyed and unkeyed
-stores.
+rows, but `upsert`, `patch`, `delete`, and `toggle` are invalid for it. `insert`
+and `replace` work for keyed and unkeyed stores.
 
-Every row supplied to `insert_rows`, `replace_rows`, `upsert_rows`, or
-`toggle_rows` is a complete row: missing nullable fields normalize to typed
+Every row supplied to `insert`, `replace`, `upsert`, or `toggle` is a complete
+row: missing nullable fields normalize to typed
 `NULL`; missing non-nullable fields, unknown fields, failed strict casts, and
 null key fields are errors. Every field, key, and patch RHS is a SQL expression
 strictly cast to its declared field type; nested members recursively use their
@@ -3320,21 +3327,21 @@ declared destination types. A multi-row keyed payload must contain unique key tu
 within the payload before it is applied. Duplicate payload keys are errors,
 never sequential toggles or last-write-wins behavior.
 
-The individual operations are:
+The store operations are:
 
-- `insert_rows` appends every row. On a keyed store, conflict with either an
+- `insert` appends every row. On a keyed store, conflict with either an
   existing key or another payload row is an error.
-- `replace_rows` replaces the complete table and validates key uniqueness across
+- `replace` replaces the complete table and validates key uniqueness across
   the replacement.
-- `upsert_rows` requires a key and replaces the complete existing row for each
+- `upsert` requires a key and replaces the complete existing row for each
   key, or appends the complete row when the key is absent.
-- `update_by_key` requires a `key` block containing exactly every primary-key
+- `patch` requires a `key` block containing exactly every primary-key
   field and no others. Its non-empty `fields` block may contain only non-key
   fields. It patches the matching row or is a valid no-op when no row matches;
   primary-key changes require an explicit delete plus insert/upsert.
-- `delete_by_key` uses the same exact key shape and removes the matching row, or
+- `delete` uses the same exact key shape and removes the matching row, or
   is a valid no-op when no row matches.
-- `toggle_rows` requires a key. An existing key is removed regardless of the
+- `toggle` requires a key. An existing key is removed regardless of the
   payload's non-key values; an absent key inserts the supplied complete row.
 
 All payload expressions are evaluated before the mutation is applied. Any
@@ -3368,9 +3375,9 @@ then determines the valid RHS expression or update operation. These are typed
 l-values, not value reads, so they deliberately do not take `$`:
 
 ```avenger
-set zoom.domain = span(0, 100);
-set hover.hovered = clear;
-set brush.points = clear;
+set zoom.domain to span(0, 100);
+clear hover.hovered;
+clear brush.points;
 ```
 
 Inside the owning component, the lexical forms `set domain`, `set hovered`, and
@@ -3649,8 +3656,8 @@ widget button as clear {
   position: right;
   label: 'Clear selection';
   action: {
-    set picked = clear;
-    set query = '';
+    clear picked;
+    set query to '';
   }
 }
 ```
@@ -3882,7 +3889,7 @@ The public event paths contain every visible named ancestor:
 ```avenger
 on click as select_outlier {
   target: mark manual_box_plot.fence.outlier_layer.outliers;
-  set selected_group = datum."group";
+  set selected_group to datum."group";
 }
 ```
 
@@ -5056,7 +5063,7 @@ tool behavior as hover {
 
   on mark_mouse_enter {
     target: mark points;
-    set hovered = replace_all_clauses {
+    replace hovered {
       clause {
         equality {
           id { field: "id"; value: datum."id"; }
@@ -5131,7 +5138,7 @@ define tool drag_pan {
       end: mouse_up;
     }
 
-    set domain = span(
+    set domain to span(
       event.domain.axis.start - (event.coord.axis - event.start.coord.axis),
       event.domain.axis.end - (event.coord.axis - event.start.coord.axis)
     );
@@ -5146,7 +5153,7 @@ claim with a native pan/zoom kind. Geometry-driven custom tools can use the
 event system's scene queries:
 a lasso-like definition can combine a between-binding accumulating
 `event.path` with a scene-query selection update
-(`set picked = replace_all_from_scene_query { ... }`). This is an
+(`replace picked from scene { ... }`). This is an
 example of the custom surface, not a required implementation of the native
 `lasso_selection` kind. Definitions may also wrap native kinds or imported
 definitions, preconfiguring them through slots:
@@ -5181,7 +5188,7 @@ export define tool hover_highlight {
 
   on mark_mouse_enter {
     target: mark target;
-    set hovered = replace_all_clauses {
+    replace hovered {
       clause {
         equality {
           id { field: "id"; value: datum."id"; }
@@ -5192,7 +5199,7 @@ export define tool hover_highlight {
 
   on mark_mouse_leave {
     target: mark target;
-    set hovered = clear;
+    clear hovered;
   }
 }
 ```
@@ -5684,12 +5691,12 @@ define tool click_picker {
 
     match mode {
       toggle {
-        set sel = toggle_clauses {
+        toggle sel {
           clause { equality { id { field: "id"; value: datum."id"; } } }
         }
       }
       replace {
-        set sel = replace_all_clauses {
+        replace sel {
           clause { equality { id { field: "id"; value: datum."id"; } } }
         }
       }
@@ -6320,14 +6327,25 @@ selection_clause = "clause" , body ;       (* selection-update payload only *)
 equality_predicate = "equality" , "{" , { predicate_entry } , "}" ;
 interval_predicate = "interval" , "{" , { predicate_entry } , "}" ;
 predicate_entry = ident , body ;           (* parent fixes entry category/type *)
-key           = "key" , body ;             (* update payloads: delete_by_key, update_by_key *)
-fields        = "fields" , body ;          (* update payloads: update_by_key *)
-action        = "set" , ( state_action | cursor_action ) ;
-state_action  = qual ,
+key           = "key" , body ;             (* store patch/delete payload *)
+fields        = "fields" , body ;          (* store patch payload *)
+action        = set_action | clear_action | block_action ;
+set_action    = "set" , qual ,
                 [ "at" , ( "current" | "start" ) ] ,
-                [ "replacing" , "scopes" ] , "=" ,
-                ( sql_expr , ";" | ident , ( body | ";" ) ) ;
-cursor_action = "cursor" , "=" , sql_expr , ";" ;
+                [ "replacing" , "scopes" ] ,
+                "to" , sql_expr , ";" ;
+clear_action  = "clear" , qual ,
+                [ "at" , ( "current" | "start" ) ] ,
+                [ "replacing" , "scopes" ] ,
+                [ "within" , coordination_scope ] , ";" ;
+block_action  = ( "insert" | "replace" | "upsert" | "patch"
+                | "delete" | "toggle" ) , qual ,
+                [ "at" , ( "current" | "start" ) ] ,
+                [ "replacing" , "scopes" ] ,
+                [ "from" , "scene" ] ,
+                [ "within" , coordination_scope ] , body ;
+coordination_scope
+              = "shared" | "free" | "level" , "(" , number , ")" ;
 typed_ref     = ref_kind , qual , ";" ;
 ref_kind      = "mark" | "selection" | "tool" | "widget" | "resource" ;
 
@@ -6437,14 +6455,17 @@ lowerer.
   qualified path; when a property schema already fixes the kind, its shorter
   bare `qual` form lowers to the same typed reference node. Scalar and store
   reads use `$qual` and lower to a typed scalar/table binding node. An
-  imperative `set <qual>` target is resolved first, and its scalar, store, or
-  selection category then selects the valid update algebra.
+  imperative action target is resolved first, and its scalar, store, or
+  selection category then selects the valid verb and payload algebra.
   An action's optional `at current|start` modifies that l-value's routed owner,
   never its RHS; the authoring schema permits `start` only under `between:`.
-  `replacing scopes` is a second LHS modifier, valid only for scalar params and stores,
+  `replacing scopes` is a second target modifier, valid only for scalar params and stores,
   that clears every concrete owner copy before writing the routed target.
-  `set cursor` is the one write-only effect action: it has no target path, `at`,
-  or `replacing scopes` modifier. The grammar lists the union of forms.
+  `from scene` selects a selection scene-query payload, and `within` limits
+  supported selection operations to one coordination scope. `set cursor` is
+  the one write-only effect action: it accepts neither a qualified target nor
+  any modifier. The grammar is a syntactic superset; target resolution applies
+  the operation/modifier legality matrix described above.
 - The `ident , body` alternative has priority over the `sql_expr , terminator`
   alternative when the expression would be exactly one bare identifier and the
   terminator is a body. Thus `linear { ... }` is structurally a typed object.
@@ -7715,7 +7736,7 @@ context. The fixed boundary contexts are:
 | ordinary/configurable property, channel value, filter, or `value` payload | property/prefix and optional configuration body | one scalar expression | top-level `;` or the configuration `{` |
 | scalar `param <expr> as <name>` initializer | `param`, top-level `as`, declared name, and `;` | one row-free scalar expression | top-level `as` |
 | explicit `output <expr> as <name>` | `output`, top-level `as`, public name, and `;` | one scalar expression | top-level `as` |
-| `set ... =` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
+| `set ... to` or another structurally terminated expression | declaration/action header and terminating `;` | one scalar expression | top-level `;` |
 | structural array element | outer `[]`, commas, anonymous bodies, and `value`/`pattern`/`none` prefixes | one scalar expression for that element | top-level `,` or `]` |
 
 The SQL parser recognizes SQL-owned parentheses, brackets, braces, subqueries,

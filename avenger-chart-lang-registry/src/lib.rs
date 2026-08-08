@@ -2323,7 +2323,7 @@ mod tests {
             ValueShape::TableBinding => ResolvedValue::String("input".to_string()),
             ValueShape::SelectionBinding => ResolvedValue::Selection(Selection::new("smoke")),
             ValueShape::WidgetData => ResolvedValue::WidgetItems(WidgetItems::Static(vec![])),
-            ValueShape::ParamChangeAction => ResolvedValue::Object(IndexMap::new()),
+            ValueShape::StateActionBlock => ResolvedValue::Object(IndexMap::new()),
             ValueShape::MarkBlock => ResolvedValue::Object(IndexMap::new()),
             ValueShape::Union(shapes) => schema_smoke_value(shapes.first().unwrap(), property),
             ValueShape::OneOrMany(inner) => schema_smoke_value(inner, property),

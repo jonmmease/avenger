@@ -326,6 +326,13 @@
                         "decl": {
                           "enum": [
                             "set",
+                            "clear",
+                            "insert",
+                            "replace",
+                            "upsert",
+                            "patch",
+                            "delete",
+                            "toggle",
                             "on"
                           ]
                         }
@@ -259192,7 +259199,7 @@
                       "block"
                     ],
                     "type": "object",
-                    "x-avenger-value-shape": "param_change_action"
+                    "x-avenger-value-shape": "state_action_block"
                   },
                   "activation_param": {
                     "additionalProperties": false,
@@ -260664,6 +260671,10 @@
         },
         "ref": {
           "$ref": "#/$defs/ref"
+        },
+        "relation": {
+          "pattern": "^(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*(?:\\.(?:_|\\p{Alphabetic})(?:_|[0-9]|\\p{Alphabetic})*)*$",
+          "type": "string"
         }
       },
       "type": "object"
@@ -260717,7 +260728,7 @@
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",
   "x-avenger-language-major": 1,
-  "x-avenger-native-profile": "avenger-native-1-3472293568f1ff54f8c5e8c3677a2bb781de349060fa0d401a0e85a259505965",
+  "x-avenger-native-profile": "avenger-native-1-47a766b5110fb107f98df641fdf9f3c1e0fa75648f3e2c4cd43dea270b486a68",
   "x-avenger-native-schema": {
     "entries": [
       {
@@ -271554,7 +271565,7 @@
             "alias": "store",
             "docs": "Hidden interval-row backing store.",
             "lazy": false,
-            "value_kind": "store"
+            "value_kind": "store<struct(field(utf8,'id'),field(utf8,'cell_id'),field(utf8,'row_id'),field(utf8,'column_id'),field(float64,'x_min'),field(float64,'x_max'),field(float64,'y_min'),field(float64,'y_max'))>"
           }
         },
         "key": {
@@ -272383,7 +272394,7 @@
             "docs": "Ordered shared-state mutations run atomically after each activation.",
             "required": false,
             "shape": {
-              "shape": "param_change_action"
+              "shape": "state_action_block"
             }
           },
           "activation_param": {

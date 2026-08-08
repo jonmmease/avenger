@@ -36,8 +36,8 @@ chart cartesian as chart {
     }
     on click {
       target: mark points;
-      set __av_d485012cfe02_enabled = NOT $__av_d485012cfe02_enabled;
-      set __av_d485012cfe02_hovered = clear;
+      set __av_d485012cfe02_enabled to NOT $__av_d485012cfe02_enabled;
+      clear __av_d485012cfe02_hovered;
     }
     private mark group as __av_d485012cfe02_chrome_layer {
       private mark symbol as __av_d485012cfe02_chrome {

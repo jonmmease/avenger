@@ -1,7 +1,7 @@
 avenger 1;
 chart cartesian {
   on pointermove {
-    set brush = update {
+    replace brush {
       clause {
         id: 'primary';
         equality {

@@ -24,8 +24,8 @@ export define tool inspect_points {
   }
   on click {
     target: mark target;
-    set enabled = NOT $enabled;
-    set hovered = clear;
+    set enabled to NOT $enabled;
+    clear hovered;
   }
   mark group as chrome_layer {
     mark symbol as chrome {

@@ -7,7 +7,10 @@ use sha2::{Digest, Sha256};
 use crate::{
     Diagnostic, ExpansionOrImportFrame, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin,
     SourceSpan,
-    ast::{AstNodeRole, Body, Decl, File, ModuleItem, Name, PropertyMap, Value, Visibility},
+    ast::{
+        AstNodeRole, Body, Decl, File, ModuleItem, Name, PropertyMap, Value, Visibility,
+        is_state_action_keyword,
+    },
     module_graph::{ModuleId, ParsedModule, ParsedModuleGraph, SourceModuleId},
     print::print_file,
     resolve::{
@@ -657,7 +660,8 @@ impl Expander<'_> {
         if let Some(context) = context
             && owner == &context.definition.module
             && let Some(source_name) = declaration.name.as_ref().map(Name::as_str)
-            && (binds_private_name(declaration) || declaration.keyword.as_str() == "set")
+            && (binds_private_name(declaration)
+                || is_state_action_keyword(declaration.keyword.as_str()))
             && let Some(private_name) = context.private_names.get(source_name)
         {
             substituted.name = Some(name(private_name));

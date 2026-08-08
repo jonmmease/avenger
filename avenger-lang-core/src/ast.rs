@@ -69,6 +69,57 @@ pub fn is_name(value: &str) -> bool {
     is_unquoted_identifier(value)
 }
 
+/// Closed authored verb set for ordered state actions.
+///
+/// These words are contextual at an action-statement head. Target resolution
+/// determines whether a particular verb is valid for a scalar param, store,
+/// selection, or the reserved cursor effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StateActionVerb {
+    Set,
+    Clear,
+    Insert,
+    Replace,
+    Upsert,
+    Patch,
+    Delete,
+    Toggle,
+}
+
+impl StateActionVerb {
+    pub const ALL: [Self; 8] = [
+        Self::Set,
+        Self::Clear,
+        Self::Insert,
+        Self::Replace,
+        Self::Upsert,
+        Self::Patch,
+        Self::Delete,
+        Self::Toggle,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Set => "set",
+            Self::Clear => "clear",
+            Self::Insert => "insert",
+            Self::Replace => "replace",
+            Self::Upsert => "upsert",
+            Self::Patch => "patch",
+            Self::Delete => "delete",
+            Self::Toggle => "toggle",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|verb| verb.as_str() == value)
+    }
+}
+
+pub fn is_state_action_keyword(value: &str) -> bool {
+    StateActionVerb::parse(value).is_some()
+}
+
 /// Exact canonical spelling of one SQL numeric literal.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NumericLiteral(String);

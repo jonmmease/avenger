@@ -12,7 +12,8 @@ use crate::{
     ast::{
         AstError, AstNodeId, AstNodeRole, AstSourceMap, BindingKind, BindingTime, Body, Decl, File,
         Import, ImportClause, ImportSpecifier, ModuleItem, Name, NumericLiteral, PropertyMap,
-        QualifiedName, RefKind, SqlExpression, SqlProjection, SqlQuery, Value, Visibility,
+        QualifiedName, RefKind, SqlExpression, SqlProjection, SqlQuery, StateActionVerb, Value,
+        Visibility,
     },
     physical_type::PhysicalType,
     sql::{
@@ -1063,7 +1064,7 @@ impl Parser {
             "output" => self.output()?,
             "export" => self.export()?,
             "match" => self.match_block()?,
-            "set" => self.action()?,
+            keyword if StateActionVerb::parse(keyword).is_some() => self.action()?,
             "theme" => self.theme()?,
             _ => self.splice()?,
         };
@@ -1454,56 +1455,91 @@ impl Parser {
 
     fn action(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
+        let verb = StateActionVerb::parse(keyword.as_str())
+            .ok_or_else(|| self.error("AVENGER-PARSE-048", "expected a state-action verb"))?;
         let target = self.qual()?;
         let is_cursor = target.len() == 1 && target[0].as_str() == "cursor";
         let mut props = PropertyMap::default();
-        if is_cursor {
-            self.expect(Token::Eq, "`=` in cursor action")?;
-            let value = self.expression(BindingKind::Param, SqlIslandSite::CursorActionRhs)?;
-            props.insert(n("value"), value).expect("new property");
-            self.expect(Token::SemiColon, "`;` after cursor action")?;
-        } else {
-            if target.len() == 1
-                && matches!(target[0].as_str(), "param" | "store" | "selection")
-                && !self.is(&Token::Eq)
-            {
-                return Err(self.error(
-                    "AVENGER-PARSE-013",
-                    "set actions use `set <target> = ...` without a target-kind prefix",
-                ));
-            }
-            props
-                .insert(n("target"), path_value(target))
-                .expect("new property");
-            if self.consume_word("at") {
-                let at = Value::Atom(self.name()?);
-                props.insert(n("at"), at).expect("new property");
-            }
-            if self.consume_word("replacing") {
-                self.expect_word("scopes")?;
-                props
-                    .insert(n("replacing_scopes"), Value::Bool(true))
-                    .expect("new property");
-            }
-            self.expect(Token::Eq, "`=` in set action")?;
-            let value = if self.word().is_some() && self.nth_is(1, &Token::LBrace) {
-                let head = Value::Atom(self.name()?);
-                Value::Block {
-                    head: Some(Box::new(head)),
-                    body: self.body()?,
-                }
-            } else {
-                let value = self.expression(BindingKind::Param, SqlIslandSite::StateActionRhs)?;
-                self.expect(Token::SemiColon, "`;` after set action")?;
-                value
-            };
-            props.insert(n("value"), value).expect("new property");
+        props
+            .insert(n("target"), path_value(target))
+            .expect("new property");
+        if self.consume_word("at") {
+            let at = Value::Atom(self.name()?);
+            props.insert(n("at"), at).expect("new property");
         }
+        if self.consume_word("replacing") {
+            self.expect_word("scopes")?;
+            props
+                .insert(n("replacing_scopes"), Value::Bool(true))
+                .expect("new property");
+        }
+        if self.consume_word("from") {
+            self.expect_word("scene")?;
+            props
+                .insert(n("from_scene"), Value::Bool(true))
+                .expect("new property");
+        }
+        if self.consume_word("within") {
+            let within = self.coordination_scope()?;
+            props.insert(n("within"), within).expect("new property");
+        }
+
+        let mut children = Vec::new();
+        match verb {
+            StateActionVerb::Set => {
+                if !self.consume_word("to") {
+                    return Err(self.error(
+                        "AVENGER-PARSE-049",
+                        "`set` uses `set <target> to <expression>;`",
+                    ));
+                }
+                let site = if is_cursor {
+                    SqlIslandSite::CursorActionRhs
+                } else {
+                    SqlIslandSite::StateActionRhs
+                };
+                let value = self.expression(BindingKind::Param, site)?;
+                props.insert(n("value"), value).expect("new property");
+                self.expect(Token::SemiColon, "`;` after set action")?;
+            }
+            StateActionVerb::Clear => {
+                self.expect(Token::SemiColon, "`;` after clear action")?;
+            }
+            StateActionVerb::Insert
+            | StateActionVerb::Replace
+            | StateActionVerb::Upsert
+            | StateActionVerb::Patch
+            | StateActionVerb::Delete
+            | StateActionVerb::Toggle => {
+                let body = self.body()?;
+                for (name, value) in body.props.iter() {
+                    props
+                        .insert(name.clone(), value.clone())
+                        .map_err(|error| self.ast_error(error))?;
+                }
+                children = body.children;
+            }
+        }
+
         Ok(Decl {
             keyword,
-            kind: is_cursor.then(|| n("cursor").into()),
             props,
-            ..Decl::new(n("set"))
+            children,
+            ..Decl::new(n(verb.as_str()))
+        })
+    }
+
+    fn coordination_scope(&mut self) -> Result<Value, ParseError> {
+        let scope = self.name()?;
+        if scope.as_str() != "level" {
+            return Ok(Value::Atom(scope));
+        }
+        self.expect(Token::LParen, "`(` after `level`")?;
+        let level = NumericLiteral::new(&self.number()?).map_err(|error| self.ast_error(error))?;
+        self.expect(Token::RParen, "`)` after coordination level")?;
+        Ok(Value::Call {
+            function: scope,
+            args: vec![Value::Num(level)],
         })
     }
 
@@ -2325,7 +2361,7 @@ chart cartesian as example {
     size: $radius@start * 2;
   }
   on pointermove as drag {
-    set radius at start = $radius + 1;
+    set radius at start to $radius + 1;
   }
 }
 "#,
@@ -2472,7 +2508,7 @@ chart cartesian as chart {
   variable row mpg {}
   adjust expr { x: "x" + 1; }
   equality { id { field: "id"; value: datum."id"; } }
-  on click { set point = NULL; set picked = clear; set cursor = 'crosshair'; }
+  on click { set point to NULL; clear picked; set cursor to 'crosshair'; }
 }"#,
         );
         let chart = &only_item(&parsed).declaration;
@@ -2497,13 +2533,10 @@ chart cartesian as chart {
         assert_eq!(chart.children[6].kind, None);
         assert_eq!(chart.children[6].children[0].keyword.as_str(), "dimension");
         assert_eq!(chart.children[7].children[0].kind, None);
+        assert_eq!(chart.children[7].children[2].keyword.as_str(), "set");
         assert_eq!(
-            chart.children[7].children[2]
-                .kind
-                .as_ref()
-                .unwrap()
-                .as_str(),
-            "cursor"
+            chart.children[7].children[2].props.get("target").unwrap(),
+            &Value::Array(vec![Value::Atom(super::n("cursor"))])
         );
 
         let definition = parse(
@@ -2546,7 +2579,8 @@ chart cartesian as chart {
             ("variable row as mpg {}", "AVENGER-PARSE-035"),
             ("field x: float64;", "AVENGER-PARSE-034"),
             ("output total: values.total;", "AVENGER-PARSE-038"),
-            ("set param value = 1;", "AVENGER-PARSE-013"),
+            ("set param value = 1;", "AVENGER-PARSE-049"),
+            ("set value = 1;", "AVENGER-PARSE-049"),
         ];
         for (declaration, code) in cases {
             let source = SourceFile::new(

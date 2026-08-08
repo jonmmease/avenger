@@ -22,8 +22,8 @@ use crate::{
     Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceFile,
     SourceId, SourceLabel, SourceMap, SourceSpan,
     ast::{
-        AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, SqlExpression, Value,
-        Visibility,
+        AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, SqlExpression, StateActionVerb,
+        Value, Visibility, is_state_action_keyword,
     },
     expand::ExpansionSourceMap,
     module_graph::{ModuleId, ModuleImportEdge, ParsedModule, ParsedModuleGraph, SourceModuleId},
@@ -4613,7 +4613,7 @@ impl<'a> Resolver<'a> {
             transform_outputs =
                 self.transform_outputs(declaration, &info, &children, definition_schema.as_ref());
         }
-        self.validate_event_actions(declaration, &mut children, info.span);
+        self.validate_event_actions(declaration, &mut children);
 
         let interface = self.instances.get(&info.id).cloned().unwrap_or_default();
         let published_exports = interface
@@ -5339,7 +5339,7 @@ impl<'a> Resolver<'a> {
                 span,
                 "widget implementations and expansion are supplied by the Rust registry",
             ),
-            "set" if !in_event => self.error(
+            keyword if is_state_action_keyword(keyword) && !in_event => self.error(
                 "AVENGER-RESOLVE-039",
                 "state actions are only valid in event or widget-action bodies",
                 span,
@@ -5446,10 +5446,8 @@ impl<'a> Resolver<'a> {
         };
         let valid = if is_mark_group(parent) {
             ordinary_plot_child(declaration.keyword.as_str())
-                || matches!(
-                    declaration.keyword.as_str(),
-                    "export" | "set" | "match" | "splice"
-                )
+                || matches!(declaration.keyword.as_str(), "export" | "match" | "splice")
+                || is_state_action_keyword(declaration.keyword.as_str())
         } else {
             placement_allowed(parent.keyword.as_str(), declaration.keyword.as_str())
         };
@@ -7318,7 +7316,7 @@ impl<'a> Resolver<'a> {
             event_binding: None,
             state_lvalue: None,
         };
-        if declaration.keyword.as_str() == "set" && widget_action {
+        if is_state_action_keyword(declaration.keyword.as_str()) && widget_action {
             self.validate_action(declaration, &mut resolved, None, span, scope, true);
         }
         resolved
@@ -8269,30 +8267,32 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    fn validate_event_actions(
-        &mut self,
-        declaration: &Decl,
-        children: &mut [ResolvedDeclaration],
-        span: SourceSpan,
-    ) {
+    fn validate_event_actions(&mut self, declaration: &Decl, children: &mut [ResolvedDeclaration]) {
         if declaration.keyword.as_str() != "on" {
             return;
         }
         let mut seen_action = false;
         for (source_child, child) in declaration.children.iter().zip(children) {
-            if child.keyword == "set" {
+            if is_state_action_keyword(&child.keyword) {
                 seen_action = true;
                 let scope = self
                     .declarations
                     .values()
                     .find(|info| info.id == child.id)
                     .map_or(ScopeId(0), |info| info.containing_scope);
-                self.validate_action(source_child, child, Some(declaration), span, scope, false);
-            } else if seen_action && child.keyword != "set" {
+                self.validate_action(
+                    source_child,
+                    child,
+                    Some(declaration),
+                    child.span,
+                    scope,
+                    false,
+                );
+            } else if seen_action && !is_state_action_keyword(&child.keyword) {
                 self.error(
                     "AVENGER-RESOLVE-090",
                     "event actions must remain in authored order",
-                    span,
+                    child.span,
                     "non-action declarations cannot interrupt the ordered action vector",
                 );
             }
@@ -8308,15 +8308,31 @@ impl<'a> Resolver<'a> {
         scope: ScopeId,
         widget_action: bool,
     ) {
-        let kind = action.kind.clone().unwrap_or_default();
-        if kind == "cursor" {
+        let Some(verb) = StateActionVerb::parse(&action.keyword) else {
+            return;
+        };
+        let path = action
+            .properties
+            .get("target")
+            .and_then(resolved_path)
+            .unwrap_or_default();
+        if path.as_slice() == ["cursor"] {
+            action.kind = Some("cursor".to_owned());
+            if verb != StateActionVerb::Set {
+                self.error(
+                    "AVENGER-RESOLVE-107",
+                    "cursor supports only scalar assignment",
+                    span,
+                    "use `set cursor to <utf8 expression>;`",
+                );
+            }
             let value = action.properties.get("value");
             if value.is_none() {
                 self.error(
                     "AVENGER-RESOLVE-087",
                     "cursor action is missing its value",
                     span,
-                    "use `set cursor = <utf8 expression>`",
+                    "use `set cursor to <utf8 expression>;`",
                 );
             }
             if value.is_some_and(|value| {
@@ -8364,7 +8380,7 @@ impl<'a> Resolver<'a> {
                 );
             }
             for property in action.properties.keys() {
-                if property != "value" {
+                if !matches!(property.as_str(), "target" | "value") {
                     self.error(
                         "AVENGER-RESOLVE-086",
                         "cursor action has an invalid l-value modifier",
@@ -8373,13 +8389,25 @@ impl<'a> Resolver<'a> {
                     );
                 }
             }
+            if !action.children.is_empty() {
+                self.error(
+                    "AVENGER-RESOLVE-091",
+                    "cursor action cannot have a payload body",
+                    span,
+                    "use `set cursor to <utf8 expression>;`",
+                );
+            }
+            if widget_action {
+                self.error(
+                    "AVENGER-RESOLVE-124",
+                    "widget actions cannot publish a cursor",
+                    span,
+                    "cursor effects require an event binding",
+                );
+            }
             return;
         }
-        let path = action
-            .properties
-            .get("target")
-            .and_then(resolved_path)
-            .unwrap_or_default();
+
         let target = self.resolve_any_path(scope, &path, span, true);
         let kind = match target.as_ref() {
             Some(ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. }) => "param",
@@ -8402,27 +8430,6 @@ impl<'a> Resolver<'a> {
             None => return,
         };
         action.kind = Some(kind.to_owned());
-        if !action.properties.contains_key("value") {
-            self.error(
-                "AVENGER-RESOLVE-085",
-                "state action is missing its update value",
-                span,
-                "every param, store, and selection action requires `= <value>`",
-            );
-        }
-        for property in action.properties.keys() {
-            if !matches!(
-                property.as_str(),
-                "target" | "value" | "at" | "replacing_scopes"
-            ) {
-                self.error(
-                    "AVENGER-RESOLVE-134",
-                    "unknown state action property",
-                    span,
-                    format!("state l-values do not have a `{property}` modifier"),
-                );
-            }
-        }
         if let Some(ResolvedValue::Atom(at)) = action.properties.get("at")
             && !matches!(at.as_str(), "current" | "start")
         {
@@ -8455,14 +8462,6 @@ impl<'a> Resolver<'a> {
                 );
             }
         }
-        if kind == "store"
-            && let Some(target) = target.as_ref()
-        {
-            self.validate_store_action(source, action, target, span);
-        }
-        if kind == "selection" {
-            self.validate_selection_action(source, action, span, scope);
-        }
         if matches!(action.properties.get("at"), Some(ResolvedValue::Atom(at)) if at == "start")
             && event.is_none_or(|event| event.props.get("between").is_none())
         {
@@ -8473,12 +8472,95 @@ impl<'a> Resolver<'a> {
                 "the modifier routes the l-value to the gesture-start owner",
             );
         }
+        if widget_action && action.properties.contains_key("at") {
+            self.error(
+                "AVENGER-RESOLVE-093",
+                "widget actions cannot use event owner routing",
+                span,
+                "remove `at current|start`; widget action targets must be shared",
+            );
+        }
+        if widget_action && action.properties.contains_key("replacing_scopes") {
+            self.error(
+                "AVENGER-RESOLVE-094",
+                "widget actions cannot replace event-routed scopes",
+                span,
+                "remove `replacing scopes`; widget action targets must be shared",
+            );
+        }
         if action.properties.contains_key("replacing_scopes") && kind == "selection" {
             self.error(
                 "AVENGER-RESOLVE-094",
                 "`replacing scopes` is invalid for selections",
                 span,
                 "the modifier is defined only for params and stores",
+            );
+        }
+
+        if let Some(within) = action.properties.get("within")
+            && !value_matches_shape(within, &ValueShape::CoordinationScope)
+        {
+            self.error(
+                "AVENGER-RESOLVE-136",
+                "invalid selection action scope",
+                span,
+                "use `within shared`, `within free`, or `within level(n)`",
+            );
+        }
+
+        match kind {
+            "param" => self.validate_param_action(action, verb, span),
+            "store" => {
+                if let Some(target) = target.as_ref() {
+                    self.validate_store_action(source, action, target, verb, span);
+                }
+            }
+            "selection" => self.validate_selection_action(source, action, verb, span, scope),
+            _ => unreachable!("resolved state target category"),
+        }
+    }
+
+    fn validate_param_action(
+        &mut self,
+        action: &ResolvedDeclaration,
+        verb: StateActionVerb,
+        span: SourceSpan,
+    ) {
+        if verb != StateActionVerb::Set {
+            self.error(
+                "AVENGER-RESOLVE-107",
+                "scalar params support only `set`",
+                span,
+                "use `set <param> to <expression>;`",
+            );
+        }
+        if !action.properties.contains_key("value") {
+            self.error(
+                "AVENGER-RESOLVE-085",
+                "param action is missing its value",
+                span,
+                "use `set <param> to <expression>;`",
+            );
+        }
+        for property in action.properties.keys() {
+            if !matches!(
+                property.as_str(),
+                "target" | "value" | "at" | "replacing_scopes"
+            ) {
+                self.error(
+                    "AVENGER-RESOLVE-134",
+                    "invalid param action modifier or payload",
+                    span,
+                    format!("`{property}` is not valid on scalar assignment"),
+                );
+            }
+        }
+        if !action.children.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-085",
+                "param assignment cannot have a payload body",
+                span,
+                "use `set <param> to <expression>;`",
             );
         }
     }
@@ -8913,78 +8995,91 @@ impl<'a> Resolver<'a> {
         source: &Decl,
         action: &ResolvedDeclaration,
         target: &ResolvedTarget,
+        verb: StateActionVerb,
         span: SourceSpan,
     ) {
-        if matches!(action.properties.get("value"), Some(ResolvedValue::Atom(operation)) if operation == "clear")
-        {
-            return;
-        }
-        let operation = match action.properties.get("value") {
-            Some(ResolvedValue::Object {
-                kind: Some(operation),
-                ..
-            }) => matches!(
-                operation.as_str(),
-                "insert_rows"
-                    | "replace_rows"
-                    | "upsert_rows"
-                    | "update_by_key"
-                    | "delete_by_key"
-                    | "toggle_rows"
-            )
-            .then_some(operation.as_str()),
-            _ => None,
-        };
-        let Some(operation) = operation else {
+        if !matches!(
+            verb,
+            StateActionVerb::Clear
+                | StateActionVerb::Insert
+                | StateActionVerb::Replace
+                | StateActionVerb::Upsert
+                | StateActionVerb::Patch
+                | StateActionVerb::Delete
+                | StateActionVerb::Toggle
+        ) {
             self.error(
                 "AVENGER-RESOLVE-107",
                 "invalid store update operation",
                 span,
-                "use clear, insert_rows, replace_rows, upsert_rows, update_by_key, delete_by_key, or toggle_rows",
+                "use clear, insert, replace, upsert, patch, delete, or toggle",
             );
             return;
-        };
+        }
+        for property in action.properties.keys() {
+            if !matches!(property.as_str(), "target" | "at" | "replacing_scopes") {
+                self.error(
+                    "AVENGER-RESOLVE-134",
+                    "invalid store action modifier or payload",
+                    span,
+                    format!("`{property}` is not valid for `{}`", verb.as_str()),
+                );
+            }
+        }
+        if verb == StateActionVerb::Clear {
+            if !action.children.is_empty() {
+                self.error(
+                    "AVENGER-RESOLVE-115",
+                    "clear store action cannot have a payload",
+                    span,
+                    "use `clear <store>;`",
+                );
+            }
+            return;
+        }
+
         let Some((fields, primary_key)) = self.store_shape(target) else {
             return;
         };
         if matches!(
-            operation,
-            "upsert_rows" | "update_by_key" | "delete_by_key" | "toggle_rows"
+            verb,
+            StateActionVerb::Upsert
+                | StateActionVerb::Patch
+                | StateActionVerb::Delete
+                | StateActionVerb::Toggle
         ) && primary_key.is_empty()
         {
             self.error(
                 "AVENGER-RESOLVE-114",
                 "store operation requires a primary key",
                 span,
-                format!("`{operation}` cannot target an unkeyed store"),
+                format!("`{}` cannot target an unkeyed store", verb.as_str()),
             );
         }
-        let (
-            Some(Value::Block {
-                body: source_body, ..
-            }),
-            Some(ResolvedValue::Object { children, .. }),
-        ) = (source.props.get("value"), action.properties.get("value"))
-        else {
-            return;
-        };
-        match operation {
-            "insert_rows" | "replace_rows" | "upsert_rows" | "toggle_rows" => {
-                let source_rows = source_body
+        match verb {
+            StateActionVerb::Insert
+            | StateActionVerb::Replace
+            | StateActionVerb::Upsert
+            | StateActionVerb::Toggle => {
+                let source_rows = source
                     .children
                     .iter()
                     .filter(|child| child.keyword.as_str() == "row")
                     .collect::<Vec<_>>();
-                let resolved_rows = children
+                let resolved_rows = action
+                    .children
                     .iter()
                     .filter(|child| child.keyword == "row")
                     .collect::<Vec<_>>();
-                if source_rows.is_empty() || source_rows.len() != source_body.children.len() {
+                if source_rows.is_empty() || source_rows.len() != source.children.len() {
                     self.error(
                         "AVENGER-RESOLVE-115",
                         "store row operation requires only row payloads",
                         span,
-                        format!("`{operation}` requires one or more `row {{ ... }}` children"),
+                        format!(
+                            "`{}` requires one or more `row {{ ... }}` children",
+                            verb.as_str()
+                        ),
                     );
                 }
                 for (source_row, row) in source_rows.into_iter().zip(resolved_rows) {
@@ -8998,7 +9093,7 @@ impl<'a> Resolver<'a> {
                     );
                 }
                 let mut keys = BTreeSet::new();
-                for row in source_body
+                for row in source
                     .children
                     .iter()
                     .filter(|child| child.keyword.as_str() == "row")
@@ -9015,13 +9110,25 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
-            "update_by_key" => {
-                self.validate_key_patch_payload(source_body, children, &fields, &primary_key, span);
+            StateActionVerb::Patch => {
+                self.validate_key_patch_payload(
+                    &source.body(),
+                    &action.children,
+                    &fields,
+                    &primary_key,
+                    span,
+                );
             }
-            "delete_by_key" => {
-                self.validate_key_only_payload(source_body, children, &fields, &primary_key, span);
+            StateActionVerb::Delete => {
+                self.validate_key_only_payload(
+                    &source.body(),
+                    &action.children,
+                    &fields,
+                    &primary_key,
+                    span,
+                );
             }
-            _ => {}
+            StateActionVerb::Set | StateActionVerb::Clear => {}
         }
     }
 
@@ -9151,7 +9258,7 @@ impl<'a> Resolver<'a> {
         {
             self.error(
                 "AVENGER-RESOLVE-122",
-                "update_by_key requires one key and one fields block",
+                "patch requires one key and one fields block",
                 span,
                 "use `key { ... } fields { ... }` with no other children",
             );
@@ -9188,7 +9295,7 @@ impl<'a> Resolver<'a> {
         if source_key.is_none() || source.children.len() != 1 || resolved_key.is_none() {
             self.error(
                 "AVENGER-RESOLVE-123",
-                "delete_by_key requires exactly one key block",
+                "delete requires exactly one key block",
                 span,
                 "use `key { ... }` with no other children",
             );
@@ -9208,207 +9315,273 @@ impl<'a> Resolver<'a> {
         &mut self,
         source: &Decl,
         action: &mut ResolvedDeclaration,
+        verb: StateActionVerb,
         span: SourceSpan,
         scope: ScopeId,
     ) {
-        let valid = match action.properties.get("value") {
-            Some(ResolvedValue::Atom(operation)) => operation == "clear",
-            Some(ResolvedValue::Object {
-                kind: Some(operation),
-                ..
-            }) => matches!(
-                operation.as_str(),
-                "clear_in_scope"
-                    | "replace_all_clauses"
-                    | "replace_clauses_in_scope"
-                    | "upsert_clauses"
-                    | "toggle_clauses"
-                    | "delete_clauses"
-                    | "delete_clauses_in_scope"
-                    | "replace_all_from_scene_query"
-                    | "replace_from_scene_query_in_scope"
-                    | "upsert_from_scene_query"
-                    | "toggle_from_scene_query"
-            ),
-            _ => false,
-        };
-        if !valid {
+        let from_scene = action.properties.contains_key("from_scene");
+        if !matches!(
+            verb,
+            StateActionVerb::Clear
+                | StateActionVerb::Replace
+                | StateActionVerb::Upsert
+                | StateActionVerb::Delete
+                | StateActionVerb::Toggle
+        ) {
             self.error(
                 "AVENGER-RESOLVE-108",
                 "invalid selection update operation",
                 span,
-                "use one of the closed v1 clause or scene-query update operations",
+                "use clear, replace, upsert, delete, or toggle",
             );
             return;
         }
-        let (
-            Some(Value::Block {
-                body: source_body, ..
-            }),
-            Some(ResolvedValue::Object {
-                kind: Some(operation),
-                properties,
-                children,
-                ..
-            }),
-        ) = (
-            source.props.get("value"),
-            action.properties.get_mut("value"),
-        )
-        else {
+
+        if from_scene {
+            self.validate_scene_selection_action(source, action, verb, span, scope);
             return;
-        };
-        if operation == "clear_in_scope" && !properties.contains_key("scope") {
-            self.error(
-                "AVENGER-RESOLVE-136",
-                "clear_in_scope requires a selection scope",
-                span,
-                "add `scope: level(n)` to the update payload",
-            );
         }
-        if matches!(
-            operation.as_str(),
-            "replace_clauses_in_scope" | "delete_clauses_in_scope"
-        ) && !properties.contains_key("scope")
+
+        for property in action.properties.keys() {
+            let allowed = matches!(
+                property.as_str(),
+                "target" | "at" | "within" | "replacing_scopes"
+            ) || (verb == StateActionVerb::Delete && property == "ids");
+            if !allowed {
+                self.error(
+                    "AVENGER-RESOLVE-134",
+                    "invalid selection action modifier or payload",
+                    span,
+                    format!("`{property}` is not valid for `{}`", verb.as_str()),
+                );
+            }
+        }
+        if action.properties.contains_key("within")
+            && !matches!(
+                verb,
+                StateActionVerb::Clear | StateActionVerb::Replace | StateActionVerb::Delete
+            )
         {
             self.error(
                 "AVENGER-RESOLVE-158",
-                "scoped selection update requires a scope",
+                "selection operation has no scoped variant",
                 span,
-                format!("add `scope:` to `{operation}`"),
+                format!("remove `within` from `{}`", verb.as_str()),
             );
         }
-        if matches!(
-            operation.as_str(),
-            "replace_all_clauses"
-                | "replace_clauses_in_scope"
-                | "upsert_clauses"
-                | "toggle_clauses"
-        ) {
-            let clauses = children
-                .iter()
-                .filter(|child| child.keyword == "clause")
-                .collect::<Vec<_>>();
-            if clauses.is_empty() || clauses.len() != children.len() {
-                self.error(
-                    "AVENGER-RESOLVE-137",
-                    "selection clause update requires only clause payloads",
-                    span,
-                    format!("`{operation}` requires one or more `clause {{ ... }}` children"),
-                );
+
+        match verb {
+            StateActionVerb::Clear => {
+                if !action.children.is_empty() {
+                    self.error(
+                        "AVENGER-RESOLVE-137",
+                        "clear selection action cannot have a payload",
+                        span,
+                        "use `clear <selection>;` or `clear <selection> within <scope>;`",
+                    );
+                }
             }
-            let source_clauses = source_body
-                .children
-                .iter()
-                .filter(|child| child.keyword.as_str() == "clause");
-            for (source_clause, clause) in source_clauses.zip(clauses) {
-                let source_id = source_clause.props.get("id");
-                let resolved_id = clause.properties.get("id");
-                if source_id.is_none() || resolved_id.is_none() {
+            StateActionVerb::Replace | StateActionVerb::Upsert | StateActionVerb::Toggle => {
+                let clauses = action
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword == "clause")
+                    .collect::<Vec<_>>();
+                if clauses.is_empty() || clauses.len() != action.children.len() {
                     self.error(
-                        "AVENGER-RESOLVE-138",
-                        "selection clause requires an id",
+                        "AVENGER-RESOLVE-137",
+                        "selection clause update requires only clause payloads",
                         span,
-                        "clause ids are exact non-empty utf8 values",
-                    );
-                    continue;
-                }
-                if matches!(source_id, Some(Value::Null))
-                    || matches!(source_id, Some(Value::Str(value)) if value.is_empty())
-                {
-                    self.error(
-                        "AVENGER-RESOLVE-139",
-                        "selection clause id must be non-empty utf8",
-                        span,
-                        "NULL and the empty string are not stable clause identities",
+                        format!(
+                            "`{}` requires one or more `clause {{ ... }}` children",
+                            verb.as_str()
+                        ),
                     );
                 }
+                let source_clauses = source
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "clause");
+                for (source_clause, clause) in source_clauses.zip(clauses) {
+                    let source_id = source_clause.props.get("id");
+                    let resolved_id = clause.properties.get("id");
+                    if source_id.is_none() || resolved_id.is_none() {
+                        self.error(
+                            "AVENGER-RESOLVE-138",
+                            "selection clause requires an id",
+                            span,
+                            "clause ids are exact non-empty utf8 values",
+                        );
+                        continue;
+                    }
+                    if matches!(source_id, Some(Value::Null))
+                        || matches!(source_id, Some(Value::Str(value)) if value.is_empty())
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-139",
+                            "selection clause id must be non-empty utf8",
+                            span,
+                            "NULL and the empty string are not stable clause identities",
+                        );
+                    }
+                }
+            }
+            StateActionVerb::Delete => {
+                match (source.props.get("ids"), action.properties.get("ids")) {
+                    (Some(Value::Array(source_ids)), Some(ResolvedValue::Array(ids)))
+                        if !source_ids.is_empty() && source_ids.len() == ids.len() => {}
+                    _ => self.error(
+                        "AVENGER-RESOLVE-159",
+                        "selection deletion requires ids",
+                        span,
+                        "`delete` requires a non-empty `ids: [...]` array",
+                    ),
+                }
+                if !action.children.is_empty() {
+                    self.error(
+                        "AVENGER-RESOLVE-159",
+                        "selection deletion accepts only an ids property",
+                        span,
+                        "remove child declarations from the `delete` body",
+                    );
+                }
+            }
+            StateActionVerb::Set | StateActionVerb::Insert | StateActionVerb::Patch => {}
+        }
+    }
+
+    fn validate_scene_selection_action(
+        &mut self,
+        source: &Decl,
+        action: &mut ResolvedDeclaration,
+        verb: StateActionVerb,
+        span: SourceSpan,
+        scope: ScopeId,
+    ) {
+        if !matches!(
+            verb,
+            StateActionVerb::Replace | StateActionVerb::Upsert | StateActionVerb::Toggle
+        ) {
+            self.error(
+                "AVENGER-RESOLVE-108",
+                "selection operation cannot use `from scene`",
+                span,
+                "scene queries support replace, upsert, or toggle",
+            );
+        }
+        if action.properties.contains_key("within") && verb != StateActionVerb::Replace {
+            self.error(
+                "AVENGER-RESOLVE-158",
+                "scene selection operation has no scoped variant",
+                span,
+                "only `replace <selection> from scene within <scope>` is scoped",
+            );
+        }
+        if action.properties.contains_key("within") && action.properties.contains_key("sharing") {
+            self.error(
+                "AVENGER-RESOLVE-158",
+                "scoped scene replacement has two sharing scopes",
+                span,
+                "remove `sharing:`; `within <scope>` supplies the scene-query sharing scope",
+            );
+        }
+        let allowed = [
+            "target",
+            "at",
+            "replacing_scopes",
+            "from_scene",
+            "within",
+            "geometry",
+            "policy",
+            "marks",
+            "fields",
+            "unique_by",
+            "max_hits",
+            "sharing",
+            "clause_id",
+        ];
+        for property in action.properties.keys() {
+            if !allowed.contains(&property.as_str()) {
+                self.error(
+                    "AVENGER-RESOLVE-134",
+                    "unknown scene-query action property",
+                    span,
+                    format!("`{property}` is not part of a selection scene query"),
+                );
             }
         }
-        if matches!(
-            operation.as_str(),
-            "delete_clauses" | "delete_clauses_in_scope"
-        ) {
-            match (source_body.props.get("ids"), properties.get("ids")) {
-                (Some(Value::Array(source_ids)), Some(ResolvedValue::Array(ids)))
-                    if !source_ids.is_empty() && source_ids.len() == ids.len() =>
-                {
-                    let _ = (source_ids, ids);
-                }
-                _ => self.error(
-                    "AVENGER-RESOLVE-159",
-                    "selection clause deletion requires ids",
+        if !action.children.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-140",
+                "scene-query actions require a property-only body",
+                span,
+                "remove child declarations from the scene-query body",
+            );
+        }
+        for required in ["geometry", "policy", "marks", "fields"] {
+            if !action.properties.contains_key(required) {
+                self.error(
+                    "AVENGER-RESOLVE-140",
+                    "scene-query selection update is incomplete",
                     span,
-                    format!("`{operation}` requires a non-empty `ids: [...]` array"),
-                ),
+                    format!("`{}` requires `{required}:`", verb.as_str()),
+                );
             }
         }
-        if operation.contains("scene_query") {
-            for required in ["geometry", "policy", "marks", "fields"] {
-                if !properties.contains_key(required) {
-                    self.error(
-                        "AVENGER-RESOLVE-140",
-                        "scene-query selection update is incomplete",
-                        span,
-                        format!("`{operation}` requires `{required}:`"),
-                    );
-                }
-            }
-            if !matches!(
-                properties.get("geometry"),
-                Some(ResolvedValue::Call { function, args })
-                    if crate::intrinsic_operation_signature(function).is_some_and(|signature| {
-                        signature.arguments.len() == args.len()
-                            && signature
-                                .contexts
-                                .contains(&crate::IntrinsicOperationContext::SceneGeometry)
-                    })
-            ) {
-                self.error(
-                    "AVENGER-RESOLVE-160",
-                    "scene-query geometry is invalid",
-                    span,
-                    "use `polygon(points)`, `rect(x0, y0, x1, y1)`, or `circle(cx, cy, radius)`",
-                );
-            }
-            if !matches!(
-                properties.get("policy"),
-                Some(ResolvedValue::Atom(value) | ResolvedValue::String(value))
-                    if matches!(
-                        value.as_str(),
-                        "intersects"
-                            | "geometry_intersects"
-                            | "envelope_intersects"
-                            | "contained"
-                            | "geometry_contained"
-                            | "anchor_inside"
-                            | "centroid_inside"
-                    )
-            ) {
-                self.error(
-                    "AVENGER-RESOLVE-161",
-                    "scene-query hit policy is invalid",
-                    span,
-                    "use intersects, envelope_intersects, contained, anchor_inside, or centroid_inside",
-                );
-            }
-            if !matches!(
-                properties.get("fields"),
-                Some(ResolvedValue::Array(fields)) if !fields.is_empty()
-            ) {
-                self.error(
-                    "AVENGER-RESOLVE-162",
-                    "scene-query selection requires captured fields",
-                    span,
-                    "add one or more `{ id: 'name'; field: \"column\"; }` entries to `fields:`",
-                );
-            }
-            if let Some(source_marks) = source_body.props.get("marks") {
-                properties.insert(
-                    "marks".to_owned(),
-                    self.resolve_scene_query_targets(scope, source_marks, span),
-                );
-            }
+        if !matches!(
+            action.properties.get("geometry"),
+            Some(ResolvedValue::Call { function, args })
+                if crate::intrinsic_operation_signature(function).is_some_and(|signature| {
+                    signature.arguments.len() == args.len()
+                        && signature
+                            .contexts
+                            .contains(&crate::IntrinsicOperationContext::SceneGeometry)
+                })
+        ) {
+            self.error(
+                "AVENGER-RESOLVE-160",
+                "scene-query geometry is invalid",
+                span,
+                "use `polygon(points)`, `rect(x0, y0, x1, y1)`, or `circle(cx, cy, radius)`",
+            );
+        }
+        if !matches!(
+            action.properties.get("policy"),
+            Some(ResolvedValue::Atom(value) | ResolvedValue::String(value))
+                if matches!(
+                    value.as_str(),
+                    "intersects"
+                        | "geometry_intersects"
+                        | "envelope_intersects"
+                        | "contained"
+                        | "geometry_contained"
+                        | "anchor_inside"
+                        | "centroid_inside"
+                )
+        ) {
+            self.error(
+                "AVENGER-RESOLVE-161",
+                "scene-query hit policy is invalid",
+                span,
+                "use intersects, envelope_intersects, contained, anchor_inside, or centroid_inside",
+            );
+        }
+        if !matches!(
+            action.properties.get("fields"),
+            Some(ResolvedValue::Array(fields)) if !fields.is_empty()
+        ) {
+            self.error(
+                "AVENGER-RESOLVE-162",
+                "scene-query selection requires captured fields",
+                span,
+                "add one or more `{ id: 'name'; field: \"column\"; }` entries to `fields:`",
+            );
+        }
+        if let Some(source_marks) = source.props.get("marks") {
+            action.properties.insert(
+                "marks".to_owned(),
+                self.resolve_scene_query_targets(scope, source_marks, span),
+            );
         }
     }
 
@@ -10136,7 +10309,12 @@ pub fn placement_allowed(parent: &str, child: &str) -> bool {
         "store" => matches!(child, "field" | "row"),
         "widget" => false,
         "transform" => matches!(child, "transform" | "output" | "match" | "splice"),
-        "on" => matches!(child, "set" | "on" | "match" | "splice"),
+        "on" => is_state_action_keyword(child) || matches!(child, "on" | "match" | "splice"),
+        parent if is_state_action_keyword(parent) => {
+            matches!(child, "row" | "key" | "fields" | "clause")
+        }
+        "clause" => matches!(child, "equality" | "interval"),
+        "equality" | "interval" => child == "dimension",
         "match" => child == "arm",
         "arm" => !matches!(child, "slot" | "channel" | "output" | "export" | "arm"),
         "view" => matches!(child, "transform" | "mark"),
@@ -10147,7 +10325,7 @@ pub fn placement_allowed(parent: &str, child: &str) -> bool {
         "table" => matches!(child, "param" | "field" | "row" | "key"),
         "catalog" => matches!(child, "schema"),
         "schema" => matches!(child, "table"),
-        _ => ordinary_plot_child(child) || matches!(child, "export" | "set" | "match" | "splice"),
+        _ => ordinary_plot_child(child) || matches!(child, "export" | "match" | "splice"),
     }
 }
 
@@ -10157,11 +10335,18 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
     "catalog",
     "cell",
     "channel",
+    "clause",
+    "clear",
     "define",
+    "delete",
     "derive",
     "dimension",
+    "equality",
     "export",
     "field",
+    "fields",
+    "insert",
+    "interval",
     "key",
     "layer",
     "level",
@@ -10171,7 +10356,9 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
     "output",
     "param",
     "part",
+    "patch",
     "plot",
+    "replace",
     "resource",
     "row",
     "scale_edit",
@@ -10183,8 +10370,10 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
     "store",
     "table",
     "theme",
+    "toggle",
     "tool",
     "transform",
+    "upsert",
     "variable",
     "view",
     "when",
@@ -10400,7 +10589,7 @@ fn resolved_channel_branch_from_properties(
 fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
     match shape {
         ValueShape::Any => !matches!(value, ResolvedValue::Invalid),
-        ValueShape::ParamChangeAction => matches!(
+        ValueShape::StateActionBlock => matches!(
             value,
             ResolvedValue::Object {
                 head: None,
@@ -10974,7 +11163,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::TableBinding => "store binding",
         ValueShape::SelectionBinding => "selection reference",
         ValueShape::WidgetData => "widget data source",
-        ValueShape::ParamChangeAction => "ordered parameter-change action block",
+        ValueShape::StateActionBlock => "ordered state action block",
         ValueShape::MarkBlock => "mark-only block",
         ValueShape::TypedReference { .. } => "typed reference",
         ValueShape::Union(_) => "one of the allowed shapes",
@@ -11723,21 +11912,12 @@ fn runtime_target(declaration: &Decl, id: &DeclarationId) -> Option<ResolvedTarg
 fn is_structural(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart"
-            | "mark"
-            | "tool"
-            | "widget"
-            | "view"
-            | "cell"
-            | "plot"
-            | "variable"
-            | "dimension"
-            | "resource"
+        "chart" | "mark" | "tool" | "widget" | "view" | "cell" | "plot" | "variable" | "resource"
     )
 }
 
 fn declaration_binds_name(declaration: &Decl) -> bool {
-    declaration.name.is_some() && declaration.keyword.as_str() != "set"
+    declaration.name.is_some() && !is_state_action_keyword(declaration.keyword.as_str())
 }
 
 fn is_generated_private_binder(name: &str) -> bool {

@@ -283,11 +283,11 @@ fn tolerant_and_strict_frontends_agree_on_authored_island_spans() {
             SqlIslandSite::ParamInitializer => ("avenger 1; chart cartesian { param ", "; }"),
             SqlIslandSite::OutputSource => ("avenger 1; define transform sample { output ", "; }"),
             SqlIslandSite::CursorActionRhs => (
-                "avenger 1; chart cartesian { on click { set cursor = ",
+                "avenger 1; chart cartesian { on click { set cursor to ",
                 " } }",
             ),
             SqlIslandSite::StateActionRhs => (
-                "avenger 1; chart cartesian { param 1 as width; on click { set width = ",
+                "avenger 1; chart cartesian { param 1 as width; on click { set width to ",
                 " } }",
             ),
         };

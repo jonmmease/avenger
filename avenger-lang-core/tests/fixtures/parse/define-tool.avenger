@@ -13,10 +13,10 @@ define tool brush {
       scope: subplots [cells.left, cells.right];
       surface: legend color;
       target: marks [points, overlays.handles];
-      set brush = update {
+      replace brush {
         mode: $mode;
       }
-      set cursor = 'crosshair';
+      set cursor to 'crosshair';
     }
     scale_edit {
       target: plot;

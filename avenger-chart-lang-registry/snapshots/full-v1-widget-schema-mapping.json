@@ -44,7 +44,7 @@
           "docs": "Ordered shared-state mutations run atomically after each activation.",
           "required": false,
           "shape": {
-            "shape": "param_change_action"
+            "shape": "state_action_block"
           }
         },
         "activation_param": {
