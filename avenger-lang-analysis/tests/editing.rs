@@ -971,13 +971,12 @@ chart cartesian as chart {
 }
 
 #[test]
-fn removed_state_param_actions_preserve_the_direct_declaration() {
+fn removed_state_syntax_has_no_compatibility_code_actions() {
     for (category, code) in [
         ("store", "AVENGER-PARSE-026"),
         ("selection", "AVENGER-PARSE-027"),
     ] {
-        let source =
-            format!("avenger 1; chart cartesian {{ param /* keep */ {category} as state {{}} }}");
+        let source = format!("avenger 1; chart cartesian {{ param {category} as state {{}} }}");
         let (analysis, origin, revision) = workspace_analysis(&source);
         let start = source.find(category).unwrap();
         let actions = analysis
@@ -997,18 +996,12 @@ fn removed_state_param_actions_preserve_the_direct_declaration() {
                 &AnalysisCancellation::default(),
             )
             .unwrap();
-        let action = actions
-            .iter()
-            .find(|action| action.title == format!("Use `{category} as` declaration syntax"))
-            .unwrap_or_else(|| panic!("missing {category} action: {actions:#?}"));
-        assert!(action.preferred);
-        let edit = &action.edit.sources[&origin].edits[0];
-        assert_eq!(&source[edit.span.range.as_range()], "param");
-        assert!(edit.new_text.is_empty());
-
-        let mut fixed = source.clone();
-        fixed.replace_range(edit.span.range.as_range(), &edit.new_text);
-        assert!(fixed.contains(&format!("/* keep */ {category} as state")));
+        assert!(
+            actions
+                .iter()
+                .all(|action| !action.title.contains(&format!("`{category} as`"))),
+            "unexpected compatibility action: {actions:#?}"
+        );
     }
 }
 
