@@ -38,7 +38,7 @@ async fn semantic_project(text: &str) -> avenger_lang_core::ParsedModuleGraph {
 
 fn type_value(spelling: &str) -> Value {
     let text = format!(
-        "avenger 1; chart cartesian as chart {{ param store as rows {{ field {spelling} value; }} }}"
+        "avenger 1; chart cartesian as chart {{ store as rows {{ field {spelling} value; }} }}"
     );
     let source = SourceFile::new(
         SourceId::new(1),
@@ -61,7 +61,7 @@ fn type_source(spelling: &str) -> SourceFile {
         SourceId::new(3),
         SourceOrigin::Memory("invalid-type.avenger".into()),
         format!(
-            "avenger 1; chart cartesian as chart {{ param store as rows {{ field {spelling} value; }} }}"
+            "avenger 1; chart cartesian as chart {{ store as rows {{ field {spelling} value; }} }}"
         ),
     )
 }
@@ -210,13 +210,13 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             true,
             r#"avenger 1; chart cartesian as chart {
-                param selection as picked { empty: none; combine: union; }
+                selection as picked { empty: none; combine: union; }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param selection as picked { empty: maybe; combine: union; }
+                selection as picked { empty: maybe; combine: union; }
             }"#,
         ),
         (
@@ -276,13 +276,13 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param selection as picked { mark symbol { x: encoded "x"; y: encoded "y"; } }
+                selection as picked { mark symbol { x: encoded "x"; y: encoded "y"; } }
             }"#,
         ),
         (
             false,
             r#"avenger 1; chart cartesian as chart {
-                param store as rows { primary_key: []; field utf8 id; }
+                store as rows { primary_key: []; field utf8 id; }
             }"#,
         ),
         (

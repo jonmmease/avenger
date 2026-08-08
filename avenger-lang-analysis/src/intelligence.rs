@@ -2215,7 +2215,7 @@ fn structural_cursor_state(
         StructuralCursorState::Nothing
     } else if struct_field_name_context(syntax, cursor) {
         StructuralCursorState::StructFieldName
-    } else if param_binder_context(syntax, cursor) {
+    } else if declaration_binder_context(syntax, cursor) {
         StructuralCursorState::ParamBinder
     } else if field_name_invention_context(syntax, cursor) {
         StructuralCursorState::NameInvention
@@ -2322,13 +2322,24 @@ impl<'a> QueryContext<'a> {
             structural_cursor_state(syntax, cursor, prefix, set_target_kind, action_target);
         let structural_token_insertion =
             matches!(&structural_state, StructuralCursorState::TokenInsertion(_));
+        let structural_selection_binding = match &structural_state {
+            StructuralCursorState::PropertyValue(property_name) => {
+                schema_owner_symbol(self.index, self.registry, &request.source, cursor)
+                    .and_then(|owner| schema_for_symbol(self.registry, owner, self.index))
+                    .and_then(|schema| property_schema(schema, property_name))
+                    .is_some_and(|property| matches!(property.shape, ValueShape::SelectionBinding))
+            }
+            _ => false,
+        };
 
         // Store and selection RHS forms begin with a structural operation
         // (`insert_rows`, `toggle_clauses`, ...), not a scalar SQL operand.
         // The tolerant parser still retains the RHS as an exact SQL-island
         // site for scalar targets, so make this one semantic distinction
         // before invoking SQL candidate providers.
-        let sql = if matches!(&structural_state, StructuralCursorState::StateOperation(_)) {
+        let sql = if matches!(&structural_state, StructuralCursorState::StateOperation(_))
+            || structural_selection_binding
+        {
             None
         } else {
             crate::sql_intelligence::complete_sql(
@@ -2480,7 +2491,7 @@ impl<'a> QueryContext<'a> {
                             replacement,
                             "as".to_owned(),
                             CompletionKind::Keyword,
-                            Some("parameter binder".to_owned()),
+                            Some("declaration binder".to_owned()),
                             None,
                             CompletionOrigin::Syntax,
                             false,
@@ -2505,8 +2516,6 @@ impl<'a> QueryContext<'a> {
                 }
                 StructuralCursorState::ParamHeader => {
                     for (label, detail) in [
-                        ("store", "table-valued parameter category"),
-                        ("selection", "selection parameter category"),
                         ("CAST", "SQL cast expression"),
                         ("NULL", "SQL null literal; cast it to infer a concrete type"),
                         ("true", "SQL boolean literal"),
@@ -2517,11 +2526,7 @@ impl<'a> QueryContext<'a> {
                                 label.to_owned(),
                                 replacement,
                                 label.to_owned(),
-                                if matches!(label, "store" | "selection") {
-                                    CompletionKind::Type
-                                } else {
-                                    CompletionKind::Keyword
-                                },
+                                CompletionKind::Keyword,
                                 Some(detail.to_owned()),
                                 None,
                                 CompletionOrigin::Syntax,
@@ -3196,8 +3201,8 @@ impl<'a> QueryContext<'a> {
             }
             return;
         }
-        let owner_schema =
-            owner.and_then(|owner| schema_for_symbol(self.registry, owner, self.index));
+        let owner_schema = schema_owner_symbol(self.index, self.registry, origin, cursor)
+            .and_then(|owner| schema_for_symbol(self.registry, owner, self.index));
         if let Some(channel) = owner_schema.and_then(|schema| schema.channels.get(property_name)) {
             let has_head_mode = self.syntax.get(origin).is_some_and(|syntax| {
                 enclosing_property(syntax, cursor)
@@ -3507,6 +3512,16 @@ impl<'a> QueryContext<'a> {
         cursor: usize,
         output: &mut Vec<CompletionItem>,
     ) {
+        if matches!(shape, ValueShape::SelectionBinding) {
+            self.complete_typed_state_references(
+                prefix,
+                replacement,
+                origin,
+                cursor,
+                IndexedValueKind::Selection,
+                output,
+            );
+        }
         let mut namespaces = BTreeSet::new();
         collect_reference_namespaces(shape, &mut namespaces);
         if namespaces.is_empty() {
@@ -3554,6 +3569,61 @@ impl<'a> QueryContext<'a> {
                     reference.path.clone(),
                     CompletionKind::Variable,
                     Some(reference.detail.clone()),
+                    None,
+                    CompletionOrigin::LexicalScope,
+                    false,
+                    "10",
+                ));
+            }
+        }
+    }
+
+    fn complete_typed_state_references(
+        &self,
+        prefix: &str,
+        replacement: SourceSpan,
+        origin: &SourceOrigin,
+        cursor: usize,
+        expected: IndexedValueKind,
+        output: &mut Vec<CompletionItem>,
+    ) {
+        let Some(document) = self.index.documents.get(origin) else {
+            return;
+        };
+        let owner_span = schema_owner_symbol(self.index, self.registry, origin, cursor)
+            .map(|owner| owner.declaration_span.range);
+        for symbol in &document.symbols {
+            if symbol.value_kind != expected
+                || symbol.selection_span.range.start >= cursor
+                || !scope_visible(document, symbol, cursor)
+                || owner_span.is_some_and(|owner| {
+                    owner.start <= symbol.selection_span.range.start
+                        && symbol.selection_span.range.end <= owner.end
+                })
+                || !candidate_matches(&symbol.name, prefix)
+            {
+                continue;
+            }
+            output.push(item(
+                symbol.name.clone(),
+                replacement,
+                symbol.name.clone(),
+                CompletionKind::Variable,
+                symbol.detail.clone(),
+                symbol.documentation.clone(),
+                CompletionOrigin::LexicalScope,
+                false,
+                "00",
+            ));
+        }
+        for binding in self.index.public_bindings.values() {
+            if binding.value_kind == expected && candidate_matches(&binding.path, prefix) {
+                output.push(item(
+                    binding.path.clone(),
+                    replacement,
+                    binding.path.clone(),
+                    CompletionKind::Variable,
+                    Some(binding.detail.clone()),
                     None,
                     CompletionOrigin::LexicalScope,
                     false,
@@ -4214,15 +4284,6 @@ pub(crate) fn physical_type_spans(syntax: &SyntaxAnalysis) -> Vec<SourceSpan> {
             continue;
         };
         let tokens = significant_tokens(syntax, Some(node.span));
-        if matches!(keyword.as_str(), "store" | "selection") {
-            if let Some(token) = tokens
-                .iter()
-                .find(|token| token.word() == Some(keyword.as_str()))
-            {
-                output.push(token.span);
-            }
-            continue;
-        }
         if matches!(keyword.as_str(), "slot" | "variable" | "adjust") {
             if let Some(index) = tokens
                 .iter()
@@ -4277,6 +4338,32 @@ pub(crate) fn owner_symbol<'a>(
             symbol.scope_span.range.start <= cursor && cursor <= symbol.scope_span.range.end
         })
         .min_by_key(|symbol| symbol.scope_span.range.len())
+}
+
+fn schema_owner_symbol<'a>(
+    index: &'a WorkspaceSemanticIndex,
+    registry: &NativeSchemaSnapshot,
+    origin: &SourceOrigin,
+    cursor: usize,
+) -> Option<&'a IndexedSymbol> {
+    let document = index.documents.get(origin)?;
+    let mut current = document
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| {
+            symbol.scope_span.range.start <= cursor && cursor <= symbol.scope_span.range.end
+        })
+        .min_by_key(|(_, symbol)| symbol.scope_span.range.len())
+        .map(|(position, _)| position);
+    while let Some(position) = current {
+        let symbol = document.symbols.get(position)?;
+        if schema_for_symbol(registry, symbol, index).is_some() {
+            return Some(symbol);
+        }
+        current = symbol.parent;
+    }
+    None
 }
 
 fn scope_visible(
@@ -4847,21 +4934,20 @@ fn complete_state_operations(
     }
 }
 
-fn param_binder_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
+fn declaration_binder_context(syntax: &SyntaxAnalysis, cursor: usize) -> bool {
     let tokens = structural_statement_tokens(syntax, cursor);
-    let Some(param) = tokens.first().filter(|token| token.word() == Some("param")) else {
+    let Some(keyword) = tokens.first().and_then(SigToken::word) else {
         return false;
     };
-    if !cursor_has_gap_after(Some(param), cursor) || !cursor_has_gap_after(tokens.last(), cursor) {
+    if !cursor_has_gap_after(tokens.first(), cursor) || !cursor_has_gap_after(tokens.last(), cursor)
+    {
         return false;
     }
-    if tokens.len() == 2
-        && tokens
-            .get(1)
-            .and_then(SigToken::word)
-            .is_some_and(|word| matches!(word, "store" | "selection"))
-    {
-        return true;
+    if matches!(keyword, "store" | "selection") {
+        return tokens.len() == 1;
+    }
+    if keyword != "param" {
+        return false;
     }
     if contains_top_level_word_tokens(&tokens[1..], "as") {
         return false;
@@ -4929,9 +5015,7 @@ fn physical_type_is_valid(data_type: &str) -> bool {
     let probe = SourceFile::new(
         SourceId::new(u32::MAX),
         SourceOrigin::Memory("completion-field-type-probe.avenger".to_owned()),
-        format!(
-            "avenger 1; chart cartesian {{ param store as rows {{ field {data_type} value; }} }}"
-        ),
+        format!("avenger 1; chart cartesian {{ store as rows {{ field {data_type} value; }} }}"),
     );
     parse_file(&probe).is_ok()
 }
@@ -5309,13 +5393,9 @@ fn nested_object_properties<'a>(
 
 fn declaration_header_role(syntax: &SyntaxAnalysis, symbol: &IndexedSymbol) -> Option<String> {
     let tokens = significant_tokens(syntax, Some(symbol.declaration_span));
-    let source_keyword = match symbol.keyword.as_str() {
-        "store" | "selection" => "param",
-        keyword => keyword,
-    };
     let keyword = tokens
         .iter()
-        .position(|token| token.word() == Some(source_keyword))?;
+        .position(|token| token.word() == Some(symbol.keyword.as_str()))?;
     tokens.get(keyword + 1)?.word().map(str::to_owned)
 }
 
@@ -5957,7 +6037,7 @@ fn annotate_structural_usage_prevalence(
 fn declaration_snippet(keyword: &str) -> String {
     match keyword {
         "param" => "param ${1:CAST(NULL AS DOUBLE)} as ${2:name};$0".to_owned(),
-        "param store" | "param selection" => {
+        "store" | "selection" => {
             format!("{keyword} as ${{1:name}} {{\n  $0\n}}")
         }
         "mark" | "transform" | "tool" | "widget" | "resource" => {
@@ -5976,8 +6056,8 @@ fn declaration_snippet(keyword: &str) -> String {
 
 fn source_declaration_label(semantic_keyword: &str) -> Option<&str> {
     match semantic_keyword {
-        "store" => Some("param store"),
-        "selection" => Some("param selection"),
+        "store" => Some("store"),
+        "selection" => Some("selection"),
         "channel" => Some("slot channel"),
         "dimension" => None,
         "param" => Some("param"),
@@ -6198,8 +6278,8 @@ chart cartesian {
     #[test]
     fn index_preserves_unified_header_names_and_semantic_categories() {
         let text = r#"avenger 1; chart cartesian {
-          param store as rows {}
-          param selection as picked {}
+          store as rows {}
+          selection as picked {}
           mark group as layer {}
           variable row mpg {}
           field float64 amount;
@@ -6268,8 +6348,8 @@ chart cartesian {
             "avenger 1; chart cartesian as |",
             "avenger 1; chart cartesian { mark symbol as | }",
             "avenger 1; chart cartesian { param CAST(1 AS DOUBLE) as wi| }",
-            "avenger 1; chart cartesian { param store as rows { field int64 nullable | } }",
-            "avenger 1; chart cartesian { param store as rows { field int64 ident| } }",
+            "avenger 1; chart cartesian { store as rows { field int64 nullable | } }",
+            "avenger 1; chart cartesian { store as rows { field int64 ident| } }",
         ] {
             assert!(completion_labels(marked).is_empty(), "{marked}");
         }
@@ -6280,13 +6360,12 @@ chart cartesian {
         let declaration = completion_labels("avenger 1; chart cartesian {\n  mark symbol\n  |\n}");
         assert_eq!(declaration, ["as", "body"]);
 
-        let field_type = completion_labels(
-            "avenger 1; chart cartesian { param store as rows {\n  field utf|\n} }",
-        );
+        let field_type =
+            completion_labels("avenger 1; chart cartesian { store as rows {\n  field utf|\n} }");
         assert!(field_type.contains(&"utf8".to_owned()), "{field_type:?}");
 
         let nullable = completion_labels(
-            "avenger 1; chart cartesian { param store as rows {\n  field int64\n  |\n} }",
+            "avenger 1; chart cartesian { store as rows {\n  field int64\n  |\n} }",
         );
         assert_eq!(nullable, ["nullable"]);
     }
@@ -6430,15 +6509,15 @@ chart cartesian {
             ("param_header", "avenger 1; chart cartesian { param | }"),
             (
                 "store_body",
-                "avenger 1; chart cartesian { param store as rows { | } }",
+                "avenger 1; chart cartesian { store as rows { | } }",
             ),
             (
                 "field_type",
-                "avenger 1; chart cartesian { param store as rows { field | } }",
+                "avenger 1; chart cartesian { store as rows { field | } }",
             ),
             (
                 "field_nullable",
-                "avenger 1; chart cartesian { param store as rows { field int64 name | } }",
+                "avenger 1; chart cartesian { store as rows { field int64 name | } }",
             ),
             (
                 "set_target",
@@ -6489,22 +6568,22 @@ chart cartesian {
         let initializers = completion_labels("avenger 1; chart cartesian { param | }");
         assert!(initializers.contains(&"CAST".to_owned()));
         assert!(initializers.contains(&"NULL".to_owned()));
-        assert!(initializers.contains(&"store".to_owned()));
-        assert!(initializers.contains(&"selection".to_owned()));
+        assert!(!initializers.contains(&"store".to_owned()));
+        assert!(!initializers.contains(&"selection".to_owned()));
         assert!(!initializers.contains(&"float64".to_owned()));
 
         let fields = completion_labels("avenger 1; chart cartesian { field utf| }");
         assert!(fields.contains(&"utf8".to_owned()));
 
         let targets = completion_labels(
-            "avenger 1; chart cartesian { param 1 as width; param store as rows {} param selection as picked {} on click { set | = 1; } }",
+            "avenger 1; chart cartesian { param 1 as width; store as rows {} selection as picked {} on click { set | = 1; } }",
         );
         for target in ["width", "rows", "picked", "cursor"] {
             assert!(targets.contains(&target.to_owned()), "{targets:?}");
         }
 
         let store_ops = completion_labels(
-            "avenger 1; chart cartesian { param store as rows {} on click { set rows = |; } }",
+            "avenger 1; chart cartesian { store as rows {} on click { set rows = |; } }",
         );
         assert!(
             store_ops.contains(&"insert_rows".to_owned()),
@@ -6516,7 +6595,7 @@ chart cartesian {
         );
 
         let selection_ops = completion_labels(
-            "avenger 1; chart cartesian { param selection as picked {} on click { set picked = |; } }",
+            "avenger 1; chart cartesian { selection as picked {} on click { set picked = |; } }",
         );
         assert!(
             selection_ops.contains(&"toggle_clauses".to_owned()),
@@ -6540,7 +6619,7 @@ chart cartesian {
         );
 
         let selection_modifiers = completion_labels(
-            "avenger 1; chart cartesian { param selection as picked {} on click { set picked | = clear; } }",
+            "avenger 1; chart cartesian { selection as picked {} on click { set picked | = clear; } }",
         );
         assert!(
             selection_modifiers.contains(&"at".to_owned()),
@@ -6552,19 +6631,23 @@ chart cartesian {
         );
 
         let bindings = completion_labels(
-            "avenger 1; chart cartesian { param 1 as width; param store as rows {} param selection as picked {} mark symbol { size: $|; } }",
+            "avenger 1; chart cartesian { param 1 as width; store as rows {} selection as picked {} mark symbol { size: $|; } }",
         );
         assert!(bindings.contains(&"$width".to_owned()));
         assert!(!bindings.contains(&"$rows".to_owned()));
-        assert!(!bindings.contains(&"$picked".to_owned()));
+        assert!(bindings.contains(&"$picked".to_owned()));
 
         let binder = completion_labels("avenger 1; chart cartesian { param 1 | }");
         assert!(binder.contains(&"as".to_owned()), "{binder:?}");
         assert!(!binder.contains(&"float64".to_owned()), "{binder:?}");
+        for category in ["store", "selection"] {
+            let binder =
+                completion_labels(&format!("avenger 1; chart cartesian {{ {category} | }}"));
+            assert!(binder.contains(&"as".to_owned()), "{category}: {binder:?}");
+        }
 
-        let field = completion_labels(
-            "avenger 1; chart cartesian { param store as rows { field utf8 name | } }",
-        );
+        let field =
+            completion_labels("avenger 1; chart cartesian { store as rows { field utf8 name | } }");
         assert!(field.contains(&"nullable".to_owned()), "{field:?}");
 
         let member = completion_labels(
@@ -6697,11 +6780,11 @@ chart cartesian {
     #[test]
     fn declaration_completion_emits_only_canonical_source_starters() {
         let labels = completion_labels("avenger 1; chart cartesian { | }");
-        assert!(labels.contains(&"param store".to_owned()));
-        assert!(labels.contains(&"param selection".to_owned()));
+        assert!(labels.contains(&"store".to_owned()));
+        assert!(labels.contains(&"selection".to_owned()));
         assert!(labels.contains(&"mark group".to_owned()));
-        assert!(!labels.contains(&"store".to_owned()));
-        assert!(!labels.contains(&"selection".to_owned()));
+        assert!(!labels.contains(&"param store".to_owned()));
+        assert!(!labels.contains(&"param selection".to_owned()));
         assert!(!labels.contains(&"group".to_owned()));
         assert!(!labels.contains(&"dimension".to_owned()));
     }

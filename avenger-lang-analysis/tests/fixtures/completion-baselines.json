@@ -109,7 +109,7 @@
     {
       "id": "chart_body",
       "source": "avenger 1; chart cartesian { | }",
-      "expected": ["mark group", "theme", "adjust", "cell", "data", "derive", "export", "format", "guide", "layer", "layout", "level", "mark", "match", "on", "param", "param selection", "param store", "part", "plot", "resource", "scale_edit", "scale_hint", "set", "subtitle", "theme", "time", "title", "tool", "transform", "unit_aspect", "variable", "when", "widget"]
+      "expected": ["mark group", "theme", "adjust", "cell", "data", "derive", "export", "format", "guide", "layer", "layout", "level", "mark", "match", "on", "param", "part", "plot", "resource", "scale_edit", "scale_hint", "selection", "set", "store", "subtitle", "theme", "time", "title", "tool", "transform", "unit_aspect", "variable", "when", "widget"]
     },
     {
       "id": "mark_kind",
@@ -134,21 +134,21 @@
     {
       "id": "param_header",
       "source": "avenger 1; chart cartesian { param | }",
-      "expected": ["CAST", "false", "NULL", "selection", "store", "true"]
+      "expected": ["CAST", "false", "NULL", "true"]
     },
     {
       "id": "store_body",
-      "source": "avenger 1; chart cartesian { param store as rows { | } }",
+      "source": "avenger 1; chart cartesian { store as rows { | } }",
       "expected": ["primary_key", "sharing", "field", "row"]
     },
     {
       "id": "field_type",
-      "source": "avenger 1; chart cartesian { param store as rows { field | } }",
+      "source": "avenger 1; chart cartesian { store as rows { field | } }",
       "expected": ["binary", "boolean", "date32", "date64", "decimal128", "decimal256", "duration", "fixed_size_binary", "fixed_size_list", "float16", "float32", "float64", "int16", "int32", "int64", "int8", "interval", "large_binary", "large_list", "large_utf8", "list", "map", "struct", "time32", "time64", "timestamp", "uint16", "uint32", "uint64", "uint8", "utf8"]
     },
     {
       "id": "field_nullable",
-      "source": "avenger 1; chart cartesian { param store as rows { field int64 name | } }",
+      "source": "avenger 1; chart cartesian { store as rows { field int64 name | } }",
       "expected": ["nullable"]
     },
     {

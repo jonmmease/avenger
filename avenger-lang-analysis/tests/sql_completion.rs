@@ -117,8 +117,8 @@ chart cartesian as chart {{
   data: {{ table: vega.movies; }}
   param 5.0 as minimum;
   param named_struct('label', 'base', 'weight', 2) as config;
-  param selection as picked {{ combine: union; empty: none; }}
-  param store as selected {{
+  selection as picked {{ combine: union; empty: none; }}
+  store as selected {{
     field int64 id;
     field utf8 label;
   }}

@@ -33,7 +33,7 @@ chart cartesian as values {
   ref_value: mark points;
   string_value: 'Avenger';
   param 640 as width;
-  param store as rows {
+  store as rows {
     schema: struct(field(float64, 'x'));
   }
   mark symbol as points {

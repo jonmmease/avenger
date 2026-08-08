@@ -166,7 +166,7 @@ async fn typed_boundary_hover_reports_sql_source_and_arrow_destination() {
     let source = r#"avenger 1;
 chart zerod as chart {
   param CAST(3.9 AS INT) as narrowed;
-  param store as rows {
+  store as rows {
     field int16 amount;
     field struct(field(int16, 'x'), field(utf8, 'label')) nested;
     row {
@@ -497,7 +497,7 @@ chart cartesian as chart {
 fn selection_param_rename_updates_target_resolved_set_references() {
     let source = r#"avenger 1;
 chart cartesian {
-  param selection as picked {}
+  selection as picked {}
   on click { set picked = clear; }
 }"#;
     let (analysis, origin, revision) = workspace_analysis(source);
@@ -519,7 +519,7 @@ chart cartesian {
     for edit in edits.iter().rev() {
         text.replace_range(edit.span.range.as_range(), &edit.new_text);
     }
-    assert!(text.contains("param selection as selected"));
+    assert!(text.contains("selection as selected"));
     assert!(text.contains("set selected = clear"));
 }
 
@@ -968,6 +968,48 @@ chart cartesian as chart {
             .iter()
             .all(|action| action.title != "Add required `query:` property")
     );
+}
+
+#[test]
+fn removed_state_param_actions_preserve_the_direct_declaration() {
+    for (category, code) in [
+        ("store", "AVENGER-PARSE-026"),
+        ("selection", "AVENGER-PARSE-027"),
+    ] {
+        let source =
+            format!("avenger 1; chart cartesian {{ param /* keep */ {category} as state {{}} }}");
+        let (analysis, origin, revision) = workspace_analysis(&source);
+        let start = source.find(category).unwrap();
+        let actions = analysis
+            .code_actions(
+                &CodeActionRequest {
+                    source: origin.clone(),
+                    range: SourceSpan {
+                        source: analysis.syntax[&origin].parsed.tokens.source(),
+                        range: ByteSpan {
+                            start,
+                            end: start + category.len(),
+                        },
+                    },
+                    source_revision: revision,
+                    diagnostic_codes: vec![code.to_owned()],
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap();
+        let action = actions
+            .iter()
+            .find(|action| action.title == format!("Use `{category} as` declaration syntax"))
+            .unwrap_or_else(|| panic!("missing {category} action: {actions:#?}"));
+        assert!(action.preferred);
+        let edit = &action.edit.sources[&origin].edits[0];
+        assert_eq!(&source[edit.span.range.as_range()], "param");
+        assert!(edit.new_text.is_empty());
+
+        let mut fixed = source.clone();
+        fixed.replace_range(edit.span.range.as_range(), &edit.new_text);
+        assert!(fixed.contains(&format!("/* keep */ {category} as state")));
+    }
 }
 
 #[test]

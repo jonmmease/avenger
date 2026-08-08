@@ -1025,18 +1025,8 @@ impl Parser {
                     "`container` was removed; use `mark group` or a legend `overlay:` property",
                 ));
             }
-            "store" => {
-                return Err(self.error(
-                    "AVENGER-PARSE-026",
-                    "store declarations use `param store as <name>`",
-                ));
-            }
-            "selection" => {
-                return Err(self.error(
-                    "AVENGER-PARSE-027",
-                    "selection declarations use `param selection as <name>`",
-                ));
-            }
+            "store" => self.state_binding("store", "AVENGER-PARSE-026")?,
+            "selection" => self.state_binding("selection", "AVENGER-PARSE-027")?,
             "group" | "overlay" => {
                 return Err(self.error(
                     "AVENGER-PARSE-028",
@@ -1147,18 +1137,16 @@ impl Parser {
         }
 
         if self.word_is("store") && self.nth_word_is(1, "as") {
-            self.expect_word("store")?;
-            self.expect_word("as")?;
-            let binder = self.name()?;
-            let body = self.body()?;
-            return Ok(from_body(n("store"), None, Some(binder), body));
+            return Err(self.error(
+                "AVENGER-PARSE-026",
+                "`param store` was removed; declare `store as <name> { ... }`",
+            ));
         }
         if self.word_is("selection") && self.nth_word_is(1, "as") {
-            self.expect_word("selection")?;
-            self.expect_word("as")?;
-            let binder = self.name()?;
-            let body = self.body()?;
-            return Ok(from_body(n("selection"), None, Some(binder), body));
+            return Err(self.error(
+                "AVENGER-PARSE-027",
+                "`param selection` was removed; declare `selection as <name> { ... }`",
+            ));
         }
 
         let checkpoint = self.index;
@@ -1202,6 +1190,23 @@ impl Parser {
             .insert(n("value"), initializer)
             .expect("param body cannot author `value`");
         Ok(from_body(n("param"), None, Some(binder), body))
+    }
+
+    fn state_binding(
+        &mut self,
+        keyword: &'static str,
+        diagnostic: &'static str,
+    ) -> Result<Decl, ParseError> {
+        self.expect_word(keyword)?;
+        if !self.consume_word("as") {
+            return Err(self.error(
+                diagnostic,
+                format!("`{keyword}` declarations use `{keyword} as <name> {{ ... }}`"),
+            ));
+        }
+        let binder = self.name()?;
+        let body = self.body()?;
+        Ok(from_body(n(keyword), None, Some(binder), body))
     }
 
     fn event(&mut self) -> Result<Decl, ParseError> {
@@ -2461,8 +2466,8 @@ chart cartesian as example {
             r#"avenger 1;
 chart cartesian as chart {
   param CAST(NULL AS DOUBLE) as point;
-  param store as rows { field float64 x nullable; }
-  param selection as picked {}
+  store as rows { field float64 x nullable; }
+  selection as picked {}
   mark group as layer {}
   variable row mpg {}
   adjust expr { x: "x" + 1; }
@@ -2526,8 +2531,10 @@ chart cartesian as chart {
                 "param as value { type: float64; default: 1; }",
                 "AVENGER-PARSE-031",
             ),
-            ("store as rows {}", "AVENGER-PARSE-026"),
-            ("selection as picked {}", "AVENGER-PARSE-027"),
+            ("param store as rows {}", "AVENGER-PARSE-026"),
+            ("param selection as picked {}", "AVENGER-PARSE-027"),
+            ("store table as rows {}", "AVENGER-PARSE-026"),
+            ("selection predicate as picked {}", "AVENGER-PARSE-027"),
             ("group as layer {}", "AVENGER-PARSE-028"),
             ("overlay {}", "AVENGER-PARSE-028"),
             ("container group {}", "AVENGER-PARSE-028"),
@@ -2661,5 +2668,16 @@ export chart cartesian as grouped {
             panic!("expected a query")
         };
         assert!(query.canonical_sql().contains("GROUP BY"));
+
+        let parsed = parse(
+            "avenger 1; chart cartesian { param store(1) as stored; param selection(1) as selected; }",
+        );
+        assert!(
+            only_item(&parsed)
+                .declaration
+                .children
+                .iter()
+                .all(|declaration| declaration.keyword.as_str() == "param")
+        );
     }
 }

@@ -595,6 +595,7 @@ pub(crate) fn code_actions(
     let mut actions = Vec::new();
     close_property_action(analysis, request, &mut actions);
     missing_as_action(analysis, request, &mut actions);
+    removed_state_param_action(analysis, request, &mut actions);
     missing_required_properties_action(analysis, request, &mut actions);
     ambiguous_qualification_actions(analysis, request, cancellation, &mut actions);
     missing_param_action(analysis, request, &mut actions);
@@ -610,6 +611,67 @@ pub(crate) fn code_actions(
     });
     actions.dedup_by(|left, right| left.title == right.title && left.edit == right.edit);
     Ok(actions)
+}
+
+fn removed_state_param_action(
+    analysis: &WorkspaceAnalysis,
+    request: &CodeActionRequest,
+    output: &mut Vec<CodeAction>,
+) {
+    let requested = if request
+        .diagnostic_codes
+        .iter()
+        .any(|code| code == "AVENGER-PARSE-026")
+    {
+        Some("store")
+    } else if request
+        .diagnostic_codes
+        .iter()
+        .any(|code| code == "AVENGER-PARSE-027")
+    {
+        Some("selection")
+    } else {
+        None
+    };
+    let Some(expected) = requested else {
+        return;
+    };
+    let Some(syntax) = analysis.syntax.get(&request.source) else {
+        return;
+    };
+    let declaration = syntax
+        .parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                &node.kind,
+                avenger_lang_core::syntax::TolerantSyntaxNodeKind::Declaration { keyword, .. }
+                    if keyword == "param"
+            ) && spans_overlap(node.span, request.range)
+        })
+        .min_by_key(|node| node.span.range.len());
+    let Some(declaration) = declaration else {
+        return;
+    };
+    let tokens = significant_header_tokens(syntax, declaration.span);
+    let Some((param_span, Some(Token::Word(param)))) = tokens.first() else {
+        return;
+    };
+    let Some((_, Some(Token::Word(category)))) = tokens.get(1) else {
+        return;
+    };
+    if !param.value.eq_ignore_ascii_case("param") || !category.value.eq_ignore_ascii_case(expected)
+    {
+        return;
+    }
+    output.push(quick_fix(
+        format!("Use `{expected} as` declaration syntax"),
+        request,
+        *param_span,
+        String::new(),
+        true,
+    ));
 }
 
 fn missing_required_properties_action(

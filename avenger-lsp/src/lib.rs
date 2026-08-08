@@ -3142,7 +3142,7 @@ chart cartesian as detail {
     async fn utf16_transcript_preserves_complex_type_and_unicode_name_spans() {
         let project = tempdir().unwrap();
         let chart = project.path().join("unicode.avenger");
-        let text = "avenger 1; chart cartesian as chart { title: '😀'; param CAST(NULL AS DOUBLE) as café; param store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: encoded $café; } }";
+        let text = "avenger 1; chart cartesian as chart { title: '😀'; param CAST(NULL AS DOUBLE) as café; store as rows { field struct(field(float64, 'x')) données; } mark symbol { size: encoded $café; } }";
         fs::write(&chart, text).unwrap();
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();

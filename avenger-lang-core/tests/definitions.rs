@@ -1234,7 +1234,7 @@ avenger 1;
 export define tool hover {
   slot ref target { kind: mark; }
   export hovered;
-  param selection as hovered { empty: none; }
+  selection as hovered { empty: none; }
   on mark_mouse_enter {
     target: mark target;
     set hovered = clear;
@@ -1254,7 +1254,7 @@ export define tool hover {
     assert!(text.contains("tool behavior as highlighter"), "{text}");
     assert!(text.contains("component_kind: hover;"), "{text}");
     assert!(text.contains(" as hovered;"), "{text}");
-    assert!(text.contains("private param selection as __av_"), "{text}");
+    assert!(text.contains("private selection as __av_"), "{text}");
     assert!(text.contains("set __av_"), "{text}");
     assert!(text.contains("target: mark points;"), "{text}");
 

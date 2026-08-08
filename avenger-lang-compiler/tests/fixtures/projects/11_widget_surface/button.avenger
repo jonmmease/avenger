@@ -1,11 +1,11 @@
 avenger 1;
 chart zerod as button {
   param 'initial' as query;
-  param store as history {
+  store as history {
     primary_key: [id];
     field utf8 id;
   }
-  param selection as picked {
+  selection as picked {
     combine: union;
     empty: none;
   }

@@ -46,13 +46,14 @@ retains caller-owned names beneath the instance); ordinary groups can express
 the fully inlined form with `private` declarations, constrained `public`
 hoisting, component-boundary `export` aliases, and opaque `component_kind`
 provenance — there is no generated-only expansion dialect;
-scalar, store, and selection params share one collision-checked lexical param
-namespace; scalar and store `$path` reads are checked by use context, store
-relations are valid in SQL `FROM`, selections retain typed references, and
+scalar params, stores, and selections share one collision-checked lexical
+state-binding namespace; `$path` reads are checked by use context, store
+relations are valid in SQL `FROM`, selections retain typed references and
+current-row predicates, and
 target-first `set <path>` resolution selects the update algebra; scalar params
 bind a required row-free SQL initializer before `as` and take their exact Arrow
-type from DataFusion planning, while store and selection are reserved param
-categories with category-specific bodies;
+type from DataFusion planning, while stores and selections are peer state
+declaration categories with category-specific bodies;
 registry-free distribution — imports are uniform (`std:`, `native:`, relative,
 URL) in every module however obtained, relative imports resolve against the
 importer's location, and named or namespace clauses bind explicit exports
@@ -151,14 +152,24 @@ already establishes their role omit `as` and put type/shape before name
 parent establishes both role and type use only their key (`equality { id {
 ... } }`, `dimensions: { mpg: { ... } }`). `as` otherwise retains its true
 source-to-alias meaning for imports, exports, and explicit transform outputs.
-Scalar params require a header initializer; stores and selections are the reserved param
-categories `param store` and `param selection`; mutation is target-resolved through
-one `set <path>` form. Logical dataflow groups are the language-owned
+Scalar params require a header initializer; stores and selections are complete
+declaration categories spelled `store as <name>` and `selection as <name>`;
+mutation is target-resolved through one `set <path>` form. Logical dataflow groups are the language-owned
 `mark group` kind. Continuous-colorbar overlays are the `overlay:` mark-block
 property of a standard legend; there is no `container` declaration family.
 Definition channels are `slot channel`,
 expression adjustment is `adjust expr`, and nested Arrow struct fields are
 type-first `field(<type>, '<name>')` constructors.
+
+Adopted 2026-08-08: **`param` exclusively binds a scalar SQL expression.**
+Stores and selections are peer declarations, not param types in the
+expression position: `store as rows { ... }` and `selection as picked {
+... }`. A declaration supplies an implementation kind only when the category
+admits meaningful alternatives; `store` and `selection` are already complete
+categories. Scalar params, stores, and selections retain one collision-checked
+state-binding namespace, `$path` reads, target-resolved `set`, component
+exports, runtime identities, and hot-reload behavior. The removed `param
+store` and `param selection` forms are diagnosed but not accepted.
 
 Adopted 2026-07-24: **every `.avenger` source file is a static module**.
 A module contains an ordered mixture of chart entrypoints, reusable
@@ -237,10 +248,11 @@ param initializers, and full SQL queries, and it cannot take `@start` or
 - Every expression-driven channel chooses `encoded` or `direct` explicitly.
   `encoded` invokes the registered channel policy; `direct` bypasses scale and
   domain processing but still accepts row-varying SQL expressions.
-- Scalar, store, and selection params share one param namespace. `$name`
-  references the nearest scalar-valued param or table-valued store, and `$component.alias`
-  references an exported binding; the surrounding scalar or relation-valued slot
-  checks its kind. In event expressions, param reads may add `@start` or
+- Scalar params, stores, and selections share one state-binding namespace.
+  `$name` references the nearest binding and the surrounding scalar,
+  relation-valued, or current-row predicate slot checks its kind;
+  `$component.alias` references an exported binding. In event expressions,
+  scalar param reads may add `@start` or
   `@previous` to select a frozen temporal version (`$width@start` reads “width at
   start”); stores do not admit temporal qualifiers. Positional placeholders are
   rejected. Other compiler-provided values use contextual qualified identifiers
@@ -630,7 +642,7 @@ namespace. Names must be non-empty and unique within one struct; an empty struct
 is `struct()`. For example:
 
 ```avenger
-param store as state {
+store as state {
   field struct(field(float64, 'x'), field(list(utf8), 'labels')) pointer;
 }
 ```
@@ -879,11 +891,11 @@ param <sql-expression> as <name> {
   sharing: shared | free | level(<nonnegative-integer>);
 }
 
-param store as <name> {
+store as <name> {
   ...
 }
 
-param selection as <name> {
+selection as <name> {
   ...
 }
 ```
@@ -905,9 +917,9 @@ The body mode depends on the declaration. `chart` and `mark group` bodies are mi
 container blocks with ordered child declarations. A `mark` body is mixed only
 to admit its optional inline `view` child alongside ordinary mark properties.
 Ordinary `transform` kinds, scalar-param sharing bodies, `scale`, `axis`, `legend`, tools,
-widgets, and selection params have property blocks;
+widgets, and selections have property blocks;
 an inline `view` has a mixed body containing its properties and dependent
-transforms/render children; store params have mixed bodies with ordered
+transforms/render children; stores have mixed bodies with ordered
 `field`/`row` children; and the
 `data:` property takes either an anonymous source block or a table-valued
 `$store` binding. The core
@@ -985,7 +997,7 @@ definition expansion:
   kind remains.
 
 `private` and `public` are permitted on declarations with a named public
-identity, including marks, mark groups, scalar/store/selection params,
+identity, including marks, mark groups, scalar params, stores, and selections,
 tools, and widgets. They
 do not alter dataflow visibility: transform aliases remain lexical
 names governed by their dataflow scope. Both modifiers are rejected inside a
@@ -1130,13 +1142,13 @@ visible: "amount" is not null;
 label: "category" || ': ' || cast("amount" as varchar);
 ```
 
-Scalar params and store params are value bindings. Scalars carry scalar values
-and stores carry table values; both are referenced with a named `$path`:
+Scalar params and stores are value bindings. Scalars carry scalar values and
+stores carry table values; both are referenced with a named `$path`:
 
 ```avenger
 param 0 as min_amount;
 
-param store as brush {
+store as brush {
   field utf8 id;
   field float64 x;
 }
@@ -1152,12 +1164,11 @@ mark symbol {
 ```
 
 Only named `$` binding references are valid. Positional placeholders such as `$1`,
-`$2`, and `?` are rejected. Scalar, store, and selection params occupy one
-collision-checked **param namespace** in each lexical scope: declaring
-`param 0 as x` and `param store as x`, or any other category pair, in the
-same scope is an error. A `$name` reference first resolves the nearest param by
-name, then requires its category to be scalar or store and checks that value
-kind against the use site. It never skips an incompatible nearer binding to
+`$2`, and `?` are rejected. Scalar params, stores, and selections occupy one
+collision-checked **state-binding namespace** in each lexical scope: declaring
+`param 0 as x` and `store as x`, or any other category pair, in the
+same scope is an error. A `$name` reference first resolves the nearest state
+binding by name, then requires the category allowed by the use site. It never skips an incompatible nearer binding to
 find a compatible outer one, and it never crosses a component boundary by
 guessing or concatenating names.
 
@@ -2893,8 +2904,8 @@ literal form, while a computed SQL expression must return `utf8`:
 set cursor = CASE WHEN $enabled THEN 'grab' ELSE 'default' END;
 ```
 
-The unqualified name `cursor` is reserved in the param namespace, so no
-scalar, store, or selection param may bind it. This keeps `set cursor`
+The unqualified name `cursor` is reserved in the state-binding namespace, so
+no scalar param, store, or selection may bind it. This keeps `set cursor`
 unambiguously the cursor effect rather than a state assignment.
 
 Literal styles are checked statically against the registered `CursorStyle`
@@ -3364,24 +3375,23 @@ set brush.points = clear;
 
 Inside the owning component, the lexical forms `set domain`, `set hovered`, and
 `set points` remain canonical. A qualified path must resolve through explicit
-exports at every component boundary. Scalar, store, and selection params retain
-their categories for validation. All three share the param namespace, while a component's
+exports at every component boundary. Scalar params, stores, and selections retain
+their categories for validation. All three share the state-binding namespace, while a component's
 external aliases occupy the single collision-checked interface namespace
 established above.
 
 ## Tools, Selections, Stores, And Views
 
-The same object syntax covers interaction state. `param` is the common state
-declaration category: a scalar header maps one row-free SQL initializer to a
-name, while `store` and `selection` are reserved param categories with
-category-specific bodies:
+The same object syntax covers interaction state. A scalar `param` maps one
+row-free SQL initializer to a name. `store` and `selection` are peer state
+declaration categories with category-specific bodies:
 
 ```avenger
 param CAST(NULL AS DOUBLE[]) as x_domain {
   sharing: shared;
 }
 
-param store as hover {
+store as hover {
   field utf8 id;
   field float64 x nullable;
   field float64 y nullable;
@@ -3391,17 +3401,18 @@ param store as hover {
   row { id: 'initial'; x: NULL; y: NULL; }
 }
 
-param selection as picked {
+selection as picked {
   empty: none;
   combine: union;
 }
 ```
 
-Scalar, store, and selection params share one collision-checked param namespace
-within each scope. Nested scopes may shadow. `$name` always selects the nearest
-declaration before requiring a scalar/table value category; `$selection` is
-invalid because selections are consumed through typed selection references.
-Their bodies and mutation operations remain distinct because scalar
+Scalar params, stores, and selections share one collision-checked
+state-binding namespace within each scope. Nested scopes may shadow. `$name`
+always selects the nearest declaration before requiring the use site's scalar,
+table, or current-row predicate role. Selections also retain typed references
+for properties such as `selection: picked`. Their bodies and mutation
+operations remain distinct because scalar
 replacement, table-row updates, and clause updates have different schemas.
 
 The initializer's DataFusion-planned Arrow type is carried by the placeholder
@@ -3430,7 +3441,7 @@ consumer role does not change a param's type or identity, and a compatible param
 may serve more than one consumer.
 
 `sharing:` maps directly to Rust's `CoordinationScope` and defaults to
-`shared` for scalar and store params:
+`shared` for scalar params and stores:
 
 ```avenger
 sharing: shared;    -- one root-owned value across all facets
@@ -5039,7 +5050,7 @@ tool behavior as hover {
   component_kind: hover_highlight;
   export hovered;
 
-  private param selection as hovered {
+  private selection as hovered {
     empty: none;
   }
 
@@ -5086,8 +5097,8 @@ chrome.
 A custom tool definition composes the following language-level expansion
 content, all instance-scoped:
 
-- scalar `param <sql-expression> as <name>`, `param store as <name>`, and
-  `param selection as <name>` declarations
+- scalar `param <sql-expression> as <name>`, `store as <name>`, and
+  `selection as <name>` declarations
   (generated state);
 - `on` event bindings;
 - `scale_edit { channel: ...; ... }` declarations, which apply scale
@@ -5164,7 +5175,7 @@ export define tool hover_highlight {
   slot ref target { kind: mark; }
   export hovered;
 
-  param selection as hovered {
+  selection as hovered {
     empty: none;
   }
 
@@ -6031,13 +6042,13 @@ language.
 
 Name binding is category-based rather than uniformly textual. Entering a
 lexical scope performs a predeclaration pass for identities whose existence is
-independent of execution order: named marks, groups, all three param
+independent of execution order: named marks, groups, all three state-binding
 categories, tools, resources, and events. Their complete bindings are
 therefore available throughout that scope, including before their textual
 declaration. Duplicate bindings are diagnosed during predeclaration before any
-body is resolved. Scalar, store, and selection params share one param
-namespace, so the same scope cannot reuse `state` across
-`param 0 as state`, `param store as state`, or `param selection as state`;
+body is resolved. Scalar params, stores, and selections share one
+state-binding namespace, so the same scope cannot reuse `state` across
+`param 0 as state`, `store as state`, or `selection as state`;
 the other
 typed namespaces and public-interface collision rules determine remaining
 conflicts.
@@ -6430,7 +6441,7 @@ lowerer.
   selection category then selects the valid update algebra.
   An action's optional `at current|start` modifies that l-value's routed owner,
   never its RHS; the authoring schema permits `start` only under `between:`.
-  `replacing scopes` is a second LHS modifier, valid only for scalar and store params,
+  `replacing scopes` is a second LHS modifier, valid only for scalar params and stores,
   that clears every concrete owner copy before writing the routed target.
   `set cursor` is the one write-only effect action: it has no target path, `at`,
   or `replacing scopes` modifier. The grammar lists the union of forms.
@@ -6449,9 +6460,9 @@ lowerer.
 - A scalar param puts exactly one SQL scalar initializer before `as`; the
   initializer's DataFusion-planned Arrow type is authoritative. Its optional
   body accepts only `sharing:` and the empty body is canonically `;`. `type:`,
-  `value:`, `default:`, and `kind:` are invalid. `param store` and `param
-  selection` are reserved categories with their own body schemas. Sharing
-  defaults to `shared`; chart/component scalar initializers may use the acyclic
+  `value:`, `default:`, and `kind:` are invalid. Stores and selections are peer
+  declarations with their own body schemas. Sharing defaults to `shared` for
+  scalar params and stores; chart/component scalar initializers may use the acyclic
   dependency rule, while catalog-table scalar initializers remain
   self-contained and row-free.
 - Store fields are declared `field <arrow_type> <name> [nullable];`; nested
@@ -7089,8 +7100,9 @@ Surface-header normalization likewise keeps the generic AST closed. A scalar
 semantic `value` property came from the header expression; the parser forbids
 authored body `type:` and `value:` properties and the canonical printer moves
 the semantic value back into the header. Its Arrow type exists only in the
-compiler-owned `ParamTypeIndex`, not the dependency-light AST. `param store` and `param selection`
-normalize to the existing `store` and `selection` declaration keywords.
+compiler-owned `ParamTypeIndex`, not the dependency-light AST. `store as rows`
+and `selection as picked` map directly to `Decl { keyword: "store" }` and
+`Decl { keyword: "selection" }`; there is no param-category normalization.
 `mark group` remains `Decl { keyword: "mark", kind: "group" }` throughout
 parsing, printing, expansion, and resolution. A `legend.overlay` mark block is
 an ordinary object value whose `children` are fully resolved mark

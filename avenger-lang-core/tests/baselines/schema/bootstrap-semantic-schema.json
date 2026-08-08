@@ -271558,7 +271558,7 @@
             "alias": "store",
             "docs": "Hidden interval-row backing store.",
             "lazy": false,
-            "value_kind": "store"
+            "value_kind": "store<struct(field(utf8,'id'),field(utf8,'cell_id'),field(utf8,'row_id'),field(utf8,'column_id'),field(float64,'x_min'),field(float64,'x_max'),field(float64,'y_min'),field(float64,'y_max'))>"
           }
         },
         "key": {

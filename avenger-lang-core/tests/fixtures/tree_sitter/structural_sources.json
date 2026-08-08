@@ -14,13 +14,13 @@
   "sources": [
     {
       "path": "avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger",
-      "sha256": "311fe1392c7773301bcac9010858e9a503661e919ff61e6064a8760f71293557",
+      "sha256": "5a64b35f470287c97c75256897efaae261b7f1f178a49e833f08244e09da4deb",
       "classification": "strict_valid",
       "root": "chart"
     },
     {
       "path": "avenger-lang-cli/tests/fixtures/watch_project/chart.avenger",
-      "sha256": "bee6e835bec34cde1dfb8ef4898a7b3a7cc94fe7c06040e6fe3e63c47c78f387",
+      "sha256": "0f9c635df1b12fecc69f06d29a6a37b1e9d7f9f33948f175218e22f71b90f015",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -50,7 +50,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/baselines/expansion/05_custom_tool.avenger",
-      "sha256": "d34c5e73fea650e00930c5a4322b533aaef1476d86b51cfb9a7c3d541e20c5f3",
+      "sha256": "b61791fe4959933bbf15af1a971ea0d0ea7fb8e2c505738750b3b15167de1ba6",
       "classification": "canonical_valid",
       "root": "chart"
     },
@@ -62,7 +62,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/modules/multi_chart/charts.avenger",
-      "sha256": "59c58ce62d06e85ad36816d757b42f92454da922b0837dabe7dbbf17e21b1c75",
+      "sha256": "f98b8e3f50fd87a7310a19ecbc88fc6fde38a5fde741fa761ce0965f186dc901",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -86,13 +86,13 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline/chart.avenger",
-      "sha256": "54d652ab6a9b0585810fa84753a54b39a27c36169f05fc41bfbb2100c1c9c76e",
+      "sha256": "78acc426a737305b7d1678fa7a775135206abf698412477d508fb97b3edcb328",
       "classification": "strict_valid",
       "root": "chart"
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush/chart.avenger",
-      "sha256": "18086bfb20d018b1b1bf1e759c1dc1b8a6fa1ae8be84087580c600b553471c5a",
+      "sha256": "baabe0c09fdd73a6588b6241955d672946e1ff2a9f3c87d72826b37360069c1e",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -146,7 +146,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/05_custom_tool/inspect_points.avenger",
-      "sha256": "e077ceefe561206fc07e49eda76f17663eb4fb001c9b447c16ebfe7f18c07d01",
+      "sha256": "ef1bef07ac98a5aa27dbe9f70a543a6124d50d20734409df6340ba01ee174e0e",
       "classification": "strict_valid",
       "root": "definition"
     },
@@ -194,13 +194,13 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/movies.avenger",
-      "sha256": "918b4d7873cf12d25bdff21a4c3c94b046350ee4bd47d89bdea400f00c104e2c",
+      "sha256": "36d6051fa3149a6b52a7aabf73c0ba52c22c09418f21b2401a379c0641233213",
       "classification": "strict_valid",
       "root": "chart"
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/06_catalog_project/regions.avenger",
-      "sha256": "6692845ba0f3ae41f65ccf0dc9f855d506f3b18d599ef9c1b12406da07e65588",
+      "sha256": "63c4fc9eaa21b06d7dccf60e47b3ff628496bebac8833321b9379a7188120349",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -212,7 +212,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/cartesian.avenger",
-      "sha256": "0b288b854faa49c363d91fef77058d96f796f0daaafd6cfe7d97dffaa34d99b7",
+      "sha256": "ec126d296b1ed6964576e29d2cf5d78030134d53f73ad1e54d1e003a0299fb04",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -224,7 +224,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/08_multi_chart_project/polar.avenger",
-      "sha256": "be64bb1c6c77f0d5f8c762e55ad3b421c52c861d7a7e652ca2fb1a32919ce364",
+      "sha256": "a68212392f962863e9ffb3104c2e9b0e80b646cde5934bb373112e0875116460",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -296,7 +296,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/10_native_surface_contracts/store_backed.avenger",
-      "sha256": "d0c1350f37eaa43acb27c16051c644cc0fc234951ade75f483e805a9e12e77b2",
+      "sha256": "60a3098f8b98b4f7897246b0ce717d2c3f2d1e959fa31f2a895ff43eca240f7d",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -308,7 +308,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/button.avenger",
-      "sha256": "f10d22d838a165ab76e2047c1aa7604bd4b3a7496fd62601f36279aadb425f13",
+      "sha256": "46fac5ab27e06242a23c15705383ed25d647d0408dea4050b146a8245d85bb8b",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -320,7 +320,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/11_widget_surface/checkbox_list.avenger",
-      "sha256": "72daded6786492e6dcacd35aac6e4fa82ca0aae61c87e4f6e43cef5887a52aee",
+      "sha256": "f5d373a732a9b45c391bd35fbae30f10749bb9999456abc313a63bc64a5755dd",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -362,7 +362,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-files/chart.avenger",
-      "sha256": "ce0eb5ce3b5000ec5bc3a414c203ac7e4db4fe9ca04c45519d94d6d6c93ff41e",
+      "sha256": "3f7a5d7ebacae15d84026ad48a11a8fa69dc8d3e1aea5d00bbe256d29aacec55",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -374,7 +374,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-pack/chart.avenger",
-      "sha256": "804aaf91fc45fb98d9f1185379106ccc2b476b0025fd0f5143bbf09d2db7e31f",
+      "sha256": "51544f54c2aecffb7dd64eafce8a6df7a81b2a6174b2812accfb70e6e9276b45",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -386,7 +386,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-parameterized/chart.avenger",
-      "sha256": "36f5749730d6f3bee4ae2d054fc135c660b8a9eccf84abbb106adf6ed9b907b8",
+      "sha256": "b2b163b55f0d41ba6cb2e8df07547269db39f43c0e50e2b1adb3fd758c76e2f6",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -410,7 +410,7 @@
     },
     {
       "path": "avenger-lang-compiler/tests/fixtures/projects/phase9-schema-chain/chart.avenger",
-      "sha256": "6e75cce107bb025acd86ec64e36ce8a5945dcead81c58af067d12d7134fd82e6",
+      "sha256": "651e07d859754d21776cdc6a1582e6c57938ea01f207228178d6ba7ee81aca59",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -452,7 +452,7 @@
     },
     {
       "path": "avenger-lang-core/tests/baselines/parse/chart.printed.avenger",
-      "sha256": "4b80fb53d1650869238f8186fd76de236a3cbec25ff80d6dc8bf4650039f4c90",
+      "sha256": "06a94afd84bf05619d7e098190d3ff4ce380848fb2dff6efed5b0578bd8a68a4",
       "classification": "canonical_valid",
       "root": "chart"
     },
@@ -470,7 +470,7 @@
     },
     {
       "path": "avenger-lang-core/tests/baselines/parse/define-tool.printed.avenger",
-      "sha256": "71bc17cefc599187699f9ce8285f6dce4b4835044efe3b79796737f0052d77b7",
+      "sha256": "8a54e376630e4c58a2b31efc2ce66ba659a8997db817eb1e332a079e0bf024ad",
       "classification": "canonical_valid",
       "root": "definition"
     },
@@ -494,7 +494,7 @@
     },
     {
       "path": "avenger-lang-core/tests/baselines/parse/query-entry.printed.avenger",
-      "sha256": "c61a0843704cdc88291c832b36faa9cc618a14a354d78b06d273494828d91c8d",
+      "sha256": "bc53ad7c28f4877bcaeb67de06e57190b0f49bd92696bce217804e1769f8320c",
       "classification": "canonical_valid",
       "root": "chart"
     },
@@ -506,7 +506,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/modules/consumer.avenger",
-      "sha256": "ded1aba3506634fc1ab1c490e34ec2edf1b5df6d487673c33a6a9322e3023732",
+      "sha256": "adf4d761b95c18f10bd35897123cbebe3f8199eae247a33a0bea148566580e8c",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -518,13 +518,13 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/modules/mixed-singleton.avenger",
-      "sha256": "c7ab68a0d38d8da8ddc4208c8847bbbdab25f199bcff131418db04ce4165f3fa",
+      "sha256": "a5011c091d970ca9108c317ef2e500558b6aabbee97049077c2d9f6855ef27b1",
       "classification": "strict_valid",
       "root": "data"
     },
     {
       "path": "avenger-lang-core/tests/fixtures/modules/multi-chart.avenger",
-      "sha256": "5d9c01d7818ea096f9671f91e2052926d339ea3ca9c8d6be7001d4c231b8d20e",
+      "sha256": "8112fbe1e5b564202c15b7cd1e333174891e7680eda1c7a100eab7874af830a9",
       "classification": "strict_valid",
       "root": "data"
     },
@@ -542,7 +542,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/parse/chart.avenger",
-      "sha256": "4b80fb53d1650869238f8186fd76de236a3cbec25ff80d6dc8bf4650039f4c90",
+      "sha256": "06a94afd84bf05619d7e098190d3ff4ce380848fb2dff6efed5b0578bd8a68a4",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -560,7 +560,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/parse/define-tool.avenger",
-      "sha256": "71bc17cefc599187699f9ce8285f6dce4b4835044efe3b79796737f0052d77b7",
+      "sha256": "8a54e376630e4c58a2b31efc2ce66ba659a8997db817eb1e332a079e0bf024ad",
       "classification": "strict_valid",
       "root": "definition"
     },
@@ -662,7 +662,7 @@
     },
     {
       "path": "avenger-lang-core/tests/fixtures/parse/query-entry.avenger",
-      "sha256": "c61a0843704cdc88291c832b36faa9cc618a14a354d78b06d273494828d91c8d",
+      "sha256": "bc53ad7c28f4877bcaeb67de06e57190b0f49bd92696bce217804e1769f8320c",
       "classification": "strict_valid",
       "root": "chart"
     },
@@ -782,7 +782,7 @@
     },
     {
       "path": "avenger-lang/examples/projects/multi_chart/cartesian.avenger",
-      "sha256": "c234936ffe10d960ba7c2d2add82dd7420dd182c33a72146af7d4b1ee61e2841",
+      "sha256": "d1f52386ee00d52c7f298c675bff2426da1e4e28e2bbaa61089abe22f805bf86",
       "classification": "example_valid",
       "root": "chart"
     },
@@ -794,7 +794,7 @@
     },
     {
       "path": "avenger-lang/examples/projects/multi_chart/polar.avenger",
-      "sha256": "e15ffd51c19b207a4c52232aea9f355118d623686319a5d30fde186b30f507ec",
+      "sha256": "40f02f34aa04d922c3a04757739d1a700f532de78c539bbfe9572a21462368f1",
       "classification": "example_valid",
       "root": "chart"
     },

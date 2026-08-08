@@ -1,6 +1,6 @@
 avenger 1;
 chart cartesian as store_backed {
-  param store as points {
+  store as points {
     primary_key: [id];
     field utf8 id;
     field float64 x;

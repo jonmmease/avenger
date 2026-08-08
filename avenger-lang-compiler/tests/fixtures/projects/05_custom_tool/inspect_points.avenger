@@ -8,10 +8,10 @@ export define tool inspect_points {
   export chrome_layer.chrome as chrome;
   param true as enabled;
   param CAST(NULL AS DOUBLE[]) as x_domain;
-  param selection as hovered {
+  selection as hovered {
     empty: none;
   }
-  param selection as nested_selected {
+  selection as nested_selected {
     empty: none;
   }
   scale_edit {

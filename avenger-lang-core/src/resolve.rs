@@ -3258,7 +3258,7 @@ impl<'a> Resolver<'a> {
                 "duplicate state parameter binding",
                 span,
                 format!(
-                    "`{name}` is already bound by a scalar, store, or selection param in this scope"
+                    "`{name}` is already bound by a scalar param, store, or selection in this scope"
                 ),
             );
         } else {
@@ -8393,7 +8393,7 @@ impl<'a> Resolver<'a> {
                     "state action target has the wrong kind",
                     span,
                     format!(
-                        "`{}` is not a scalar, store, or selection parameter",
+                        "`{}` is not a scalar param, store, or selection state binding",
                         path.join(".")
                     ),
                 );
@@ -12439,7 +12439,7 @@ fn parse_type_text(text: &str) -> Option<PhysicalType> {
     let source = crate::SourceFile::new(
         SourceId::new(0),
         crate::SourceOrigin::Memory("<registry-type>".into()),
-        format!("avenger 1; chart cartesian {{ param store as rows {{ field {text} value; }} }}"),
+        format!("avenger 1; chart cartesian {{ store as rows {{ field {text} value; }} }}"),
     );
     let parsed = crate::syntax::parse_file(&source).ok()?;
     let chart = parsed

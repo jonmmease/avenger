@@ -332,9 +332,9 @@ chart facet_wrap {
 #[tokio::test]
 async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
     for declarations in [
-        "param 0 as state; param store as state { field int64 id; }",
-        "param 0 as state; param selection as state {}",
-        "param store as state { field int64 id; } param selection as state {}",
+        "param 0 as state; store as state { field int64 id; }",
+        "param 0 as state; selection as state {}",
+        "store as state { field int64 id; } selection as state {}",
     ] {
         let source = format!("avenger 1; chart cartesian {{ {declarations} }}");
         let project = project(&[("duplicate.avenger", &source)], "duplicate.avenger").await;
@@ -358,7 +358,7 @@ async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
 chart cartesian {
   param 1 as state;
   mark group {
-    param store as state { field int64 id; }
+    store as state { field int64 id; }
     mark symbol { x: encoded "x"; y: encoded "y"; size: encoded $state; }
   }
 }"#,
@@ -408,7 +408,7 @@ async fn resolve_namespace_matrix_unifies_state_but_separates_structure_and_even
 avenger 1;
 chart cartesian as namespaces {
   private param 0 as shared_value;
-  private param selection as shared {}
+  private selection as shared {}
   mark symbol as shared { x: encoded "x"; y: encoded "y"; }
   on click as shared {
     target: mark shared;
@@ -447,8 +447,8 @@ chart cartesian as namespaces {
             r#"
 avenger 1;
 chart cartesian {
-  param selection as picked {}
-  param selection as picked {}
+  selection as picked {}
+  selection as picked {}
   mark symbol as points { x: encoded "x"; y: encoded "y"; }
   mark symbol as points { x: encoded "x"; y: encoded "y"; }
   on click as handler {}
@@ -613,7 +613,7 @@ chart cartesian as chart {
 avenger 1;
 chart cartesian {
   param 1 as wrong;
-  param store as wrong_kind { field utf8 id; }
+  store as wrong_kind { field utf8 id; }
   widget radio_button_list as choice {
     data: { values: [{ value: 'a'; label: 'A'; }]; }
     position: top;
@@ -754,7 +754,7 @@ avenger 1;
 chart cartesian {
   param 1 as data;
   mark group as nested {
-    param store as data { field int64 id; }
+    store as data { field int64 id; }
     param $data as copy;
   }
 }
@@ -810,7 +810,7 @@ async fn resolve_selection_contract_is_hoisted_and_core_properties_are_closed() 
             r#"
 avenger 1;
 chart cartesian {
-  param selection as picked { empty: all; combine: intersect; }
+  selection as picked { empty: all; combine: intersect; }
 }
 "#,
         )],
@@ -830,7 +830,7 @@ chart cartesian {
             r#"
 avenger 1;
 chart cartesian {
-  param selection as picked { empty: maybe; combine: either; bogus: true; }
+  selection as picked { empty: maybe; combine: either; bogus: true; }
 }
 "#,
         )],
@@ -1928,7 +1928,7 @@ async fn resolve_sql_placeholders_distinguish_scalar_and_table_bindings() {
 avenger 1;
 chart cartesian as bindings {
   param 1 as minimum;
-  param store as rows { field int64 id; }
+  store as rows { field int64 id; }
   transform sql as filtered {
     query:
       SELECT * FROM $rows WHERE "id" >= $minimum;
@@ -1963,7 +1963,7 @@ chart cartesian as bindings {
 avenger 1;
 chart cartesian as wrong_bindings {
   param 1 as scalar;
-  param store as relation { field int64 id; }
+  store as relation { field int64 id; }
   transform sql {
     query:
       SELECT * FROM $scalar;
@@ -1997,7 +1997,7 @@ async fn resolve_selection_binding_as_current_row_boolean_predicate() {
 avenger 1;
 chart cartesian as selection_predicate {
   data: { values: [{x: 1.0; y: 2.0;}]; }
-  param selection as picked { empty: none; }
+  selection as picked { empty: none; }
   mark symbol as points {
     x: encoded "x";
     y: encoded "y";
@@ -2039,7 +2039,7 @@ chart cartesian as selection_predicate {
 avenger 1;
 chart cartesian as selection_query {
   data: { values: [{x: 1.0;}]; }
-  param selection as picked { empty: none; }
+  selection as picked { empty: none; }
   transform sql { query: SELECT * FROM input WHERE $picked; }
 }
 "#,
@@ -2061,7 +2061,7 @@ chart cartesian as selection_query {
             r#"
 avenger 1;
 chart cartesian as selection_initializer {
-  param selection as picked { empty: none; }
+  selection as picked { empty: none; }
   param $picked as impossible;
 }
 "#,
@@ -2091,7 +2091,7 @@ chart cartesian as state {
     'labels', ['a', 'b']
   ) as pointer;
   param CASE WHEN false THEN named_struct('x', CAST(0 AS DOUBLE)) ELSE NULL END as empty_pointer;
-  param store as rows {
+  store as rows {
     field utf8 id;
     field struct(field(int8, 'count'),field(list(utf8), 'tags')) payload nullable;
     primary_key: [id];
@@ -2118,7 +2118,7 @@ chart cartesian as state {
             r#"
 avenger 1;
 chart cartesian as bad_state {
-  param store as rows {
+  store as rows {
     field utf8 __avenger_store_owner;
     field int8 id;
     primary_key: [id, id];
@@ -2297,7 +2297,7 @@ async fn resolve_reserved_helpers_bind_typed_targets_and_registered_channels() {
 avenger 1;
 chart cartesian as helpers {
   param 0 as cursor_x;
-  param selection as picked {}
+  selection as picked {}
   mark symbol as points { x: encoded channel.y + 1; y: encoded "y"; }
   on click {
     target: mark points;
@@ -2491,12 +2491,12 @@ async fn resolve_event_scope_targets_and_action_lvalues_are_fully_typed() {
 avenger 1;
 chart cartesian as events {
   param 0 as x { sharing: free; }
-  param store as rows {
+  store as rows {
     field utf8 id;
     field float64 value nullable;
     primary_key: [id];
   }
-  param selection as picked { empty: none; combine: union; }
+  selection as picked { empty: none; combine: union; }
   cell cartesian as overview { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
   cell cartesian as detail { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
   on cursor_moved as drag {
@@ -2580,7 +2580,7 @@ async fn resolve_rejects_invalid_scene_query_mark_targets() {
             r#"
 avenger 1;
 chart cartesian as bad_scene_targets {
-  param selection as picked { empty: none; combine: union; }
+  selection as picked { empty: none; combine: union; }
   mark group as panel { mark symbol as points { x: encoded "x"; y: encoded "y"; } }
   widget radio_button_list as choice {
     data: { values: [{ value: 'a'; label: 'A'; }]; }

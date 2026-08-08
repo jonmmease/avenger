@@ -815,7 +815,7 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
     let source = r#"avenger 1;
         chart cartesian as chart {
           data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
-          param selection as picked {
+          selection as picked {
             empty: none;
             combine: union;
           }
@@ -860,8 +860,8 @@ async fn native_surface_tool_instances_own_distinct_generated_state_and_exports(
     let source = r#"avenger 1;
 chart cartesian as chart {
   data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
-  param selection as first_selection { empty: none; }
-  param selection as second_selection { empty: none; }
+  selection as first_selection { empty: none; }
+  selection as second_selection { empty: none; }
   tool point_selection as first { selection: first_selection; fields: [id]; }
   tool point_selection as second { selection: second_selection; fields: [id]; }
   mark symbol as points { x: encoded "x"; y: encoded "y"; details: [id]; }
@@ -1654,11 +1654,11 @@ async fn native_surface_button_actions_preserve_order_and_shared_state_targets()
     let source = r#"avenger 1;
         chart zerod as chart {
           param 'initial' as query;
-          param store as history {
+          store as history {
             field utf8 id;
             primary_key: [id];
           }
-          param selection as picked {
+          selection as picked {
             empty: none;
             combine: union;
           }
@@ -2064,12 +2064,12 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
           param true as enabled;
           param 0.0 as drag_x { sharing: free; }
           param [0.0, 0.0] as drag_domain;
-          param store as hovered {
+          store as hovered {
             field utf8 id;
             field float64 x;
             primary_key: [id];
           }
-          param selection as picked { empty: none; combine: union; }
+          selection as picked { empty: none; combine: union; }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
           mark symbol as points { x: encoded "x"; y: encoded "y"; }
           on cursor_moved as drag {
@@ -2254,7 +2254,7 @@ async fn typed_boundaries_plan_sql_then_strictly_cast_to_declared_arrow_types() 
           param CAST('2' AS SMALLINT) as source;
           param (-0.0) as negative_zero;
           param named_struct('x', CAST(1 + 2.9 AS INT), 'label', upper('ok')) as nested;
-          param store as rows {
+          store as rows {
             field utf8 id;
             field int32 amount;
             primary_key: [id];
@@ -2810,7 +2810,7 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         " as hovered;",
         " as chrome;",
         "private param true as __av_",
-        "private param selection as __av_",
+        "private selection as __av_",
         "private tool point_selection as __av_",
         "scale_edit {",
         "private mark group as __av_",

@@ -1479,12 +1479,7 @@ impl<'a> TolerantTreeBuilder<'a> {
         if !SOURCE_DECLARATION_KEYWORDS.contains(&keyword) {
             return None;
         }
-        let semantic = match (keyword, self.word_at(position + 1)) {
-            ("param", Some("store")) => "store",
-            ("param", Some("selection")) => "selection",
-            _ => keyword,
-        };
-        Some(semantic.to_owned())
+        Some(keyword.to_owned())
     }
 
     fn is_predicate_owner(&self, parent: Option<TolerantSyntaxNodeId>) -> bool {
@@ -1725,8 +1720,8 @@ impl<'a> TolerantTreeBuilder<'a> {
 }
 
 /// Canonical source starters. Internal semantic declaration keywords such as
-/// `store`, `selection`, `dimension`, and `channel` do not
-/// enter the tolerant source grammar through this list.
+/// `dimension` and `channel` do not enter the tolerant source grammar through
+/// this list.
 const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "adjust",
     "axis",
@@ -1758,9 +1753,11 @@ const SOURCE_DECLARATION_KEYWORDS: &[&str] = &[
     "scale_edit",
     "scale_hint",
     "schema",
+    "selection",
     "set",
     "slot",
     "splice",
+    "store",
     "table",
     "theme",
     "tool",
@@ -1903,8 +1900,8 @@ mod tests {
               slot expr amount;
               output amount;
               output amount + 1 as next;
-              param store as rows {}
-              param selection as picked {}
+              store as rows {}
+              selection as picked {}
               mark group as layer {}
               variable row mpg {}
               field float64 value;

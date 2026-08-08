@@ -1,6 +1,6 @@
 avenger 1;
 chart zerod as checkbox_list {
-  param selection as regions {
+  selection as regions {
     combine: union;
     empty: none;
   }

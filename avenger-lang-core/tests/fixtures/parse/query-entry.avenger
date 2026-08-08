@@ -1,7 +1,7 @@
 avenger 1;
 chart cartesian as query_entry {
   param 1 as minimum;
-  param store as rows {
+  store as rows {
     field int64 id;
   }
   transform sql as filtered {

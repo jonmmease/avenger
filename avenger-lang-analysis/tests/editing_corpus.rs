@@ -87,7 +87,7 @@ fn adjustment_completion_uses_the_registered_inventory_and_schema() {
 fn structural_binding_completion_is_shape_exact_and_has_no_global_fallback() {
     let source = |body: &str| {
         format!(
-            "avenger 1; chart cartesian as chart {{\n  param 1 as scalar;\n  param store as rows {{ field int64 id; }}\n  param selection as picked {{ combine: union; empty: none; }}\n  {body}\n}}"
+            "avenger 1; chart cartesian as chart {{\n  param 1 as scalar;\n  store as rows {{ field int64 id; }}\n  selection as picked {{ combine: union; empty: none; }}\n  {body}\n}}"
         )
     };
 
@@ -103,9 +103,9 @@ fn structural_binding_completion_is_shape_exact_and_has_no_global_fallback() {
     assert_eq!(table, ["$rows"]);
 
     let selection = completion_labels(&source(
-        "tool box_selection as brush { selection: $⟦cursor⟧; }",
+        "tool box_selection as brush { selection: ⟦cursor⟧; }",
     ));
-    assert_eq!(selection, ["$picked"]);
+    assert_eq!(selection, ["picked"]);
 
     let scalar = completion_labels(&source(
         "widget checkbox as toggle { checked_param: $⟦cursor⟧; }",

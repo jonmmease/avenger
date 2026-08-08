@@ -13,7 +13,7 @@ chart cartesian as chart {
     }
     ];
   }
-  param selection as picked {
+  selection as picked {
     combine: union;
     empty: none;
   }

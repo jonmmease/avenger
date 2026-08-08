@@ -145,7 +145,7 @@ impl Printer {
             | "resource" | "derive" | "tool" => self.kind_bind_decl(decl),
             "variable" => self.variable(decl),
             "param" => self.param(decl),
-            "store" | "selection" => self.state_param(decl),
+            "store" | "selection" => self.state_binding(decl),
             "dimension" => self.predicate_entry(decl),
             "on" => self.event(decl),
             "cell" => self.cell(decl),
@@ -201,8 +201,7 @@ impl Printer {
         }
     }
 
-    fn state_param(&mut self, decl: &Decl) {
-        self.text("param ");
+    fn state_binding(&mut self, decl: &Decl) {
         self.text(decl.keyword.as_str());
         self.text(" as ");
         self.text(name_or(&decl.name, "binding"));

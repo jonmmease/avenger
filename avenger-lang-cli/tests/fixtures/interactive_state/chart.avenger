@@ -23,13 +23,13 @@ chart cartesian as chart {
   param CAST(640.0 AS DOUBLE) as canvas_width;
   param CAST(420.0 AS DOUBLE) as canvas_height;
   param CAST(80.0 AS DOUBLE) as selected_size;
-  param store as dragged {
+  store as dragged {
     primary_key: [id];
     field utf8 id;
     field float64 x;
     field float64 y;
   }
-  param selection as picked {
+  selection as picked {
     combine: union;
     empty: none;
   }
