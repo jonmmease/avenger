@@ -1,7 +1,7 @@
 //! Antimeridian cutting.
 //!
 //! Ported from d3-geo `src/clip/antimeridian.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use super::{BufPoint, ClipPolicy, LineClipper};
 use crate::math::{EPSILON, HALF_PI, PI};

@@ -1,6 +1,6 @@
 //! The geometry stream protocol.
 //!
-//! Ported from d3-geo's stream contract (ISC), https://github.com/d3/d3-geo:
+//! Ported from d3-geo's stream contract (ISC), <https://github.com/d3/d3-geo>:
 //! geometry is pushed through transform stages as a sequence of
 //! `point`/`line_start`/`line_end`/`polygon_start`/`polygon_end`/`sphere`
 //! calls, so no intermediate geometry is materialized between stages.

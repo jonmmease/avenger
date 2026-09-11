@@ -1,7 +1,7 @@
 //! Graticule generation.
 //!
 //! Ported from d3-geo `src/graticule.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use crate::math::EPSILON;
 use crate::streamable::MultiLine;

@@ -2,7 +2,7 @@
 //! machinery.
 //!
 //! Ported from d3-geo `src/clip/index.js`, `src/clip/buffer.js`,
-//! `src/clip/rejoin.js` (ISC), https://github.com/d3/d3-geo.
+//! `src/clip/rejoin.js` (ISC), <https://github.com/d3/d3-geo>.
 //!
 //! The clip stage sits between rotation and resampling. Lines are clipped
 //! by a policy-supplied line clipper; polygons are collected ring by ring
