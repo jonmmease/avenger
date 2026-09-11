@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{StrokeCap, StrokeJoin};
@@ -32,15 +32,15 @@ use avenger_scenegraph::{
 use avenger_text::{
     path::{TextPathItem, TextPathKind, TextPathLineCap, TextPathLineJoin},
     pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
-    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
-    FontResolutionOptions, MissingFontPolicy, TextEngine,
+    types::{TextAlign, TextBaseline},
+    TextEngine,
 };
 use avenger_typst_label::{FontResource, FontResourceId, PdfGlyphRun};
 use itertools::izip;
 use krilla::{
     color::rgb,
     geom::{PathBuilder, Point, Rect, Size, Transform},
-    image::Image,
+    image::{BitsPerComponent, CustomImage, Image, ImageColorspace},
     mask::{Mask, MaskType},
     num::NormalizedF32,
     page::PageSettings,
@@ -61,31 +61,39 @@ use crate::{
     options::{PdfBackground, PdfRenderOptions},
 };
 
+/// Export scene graphs as PDF documents with embedded fonts and selectable text.
 #[derive(Debug, Clone, Default)]
 pub struct PdfRenderer {
     options: PdfRenderOptions,
+    text_engine: Option<TextEngine>,
 }
 
 impl PdfRenderer {
+    /// Create a renderer with bundled fonts and a white background.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Set output options. A supplied text engine takes precedence over font options.
     pub fn with_options(mut self, options: PdfRenderOptions) -> Self {
         self.options = options;
         self
     }
 
+    /// Use the same engine and resolved fonts as scene layout.
+    pub fn with_text_engine(mut self, text_engine: TextEngine) -> Self {
+        self.text_engine = Some(text_engine);
+        self
+    }
+
+    /// Export a single PDF page. Image resources must be resolved before export.
     pub fn render_scene_graph(&self, scene_graph: &SceneGraph) -> Result<Vec<u8>, AvengerPdfError> {
-        let width = scene_graph.width.max(3.0);
-        let height = scene_graph.height.max(3.0);
+        let (width, height) = (scene_graph.width, scene_graph.height);
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err(AvengerPdfError::InvalidPageSize { width, height });
+        }
         let page_settings = PageSettings::from_wh(width, height)
             .ok_or(AvengerPdfError::InvalidPageSize { width, height })?;
-        let font_resolution = effective_font_resolution(scene_graph, &self.options.font_resolution);
-        if matches!(font_resolution.missing_font, MissingFontPolicy::Error) {
-            let fontdb = avenger_text::fonts::build_fontdb(&font_resolution);
-            validate_scene_graph_text_fonts(scene_graph, &fontdb)?;
-        }
 
         let settings = SerializeSettings {
             compress_content_streams: self.options.compress,
@@ -95,9 +103,14 @@ impl PdfRenderer {
         let mut document = Document::new_with(settings);
         let mut page = document.start_page_with(page_settings);
         let mut surface = page.surface();
-        let text_engine = TextEngine::with_font_resolution(&font_resolution).map_err(|err| {
-            AvengerPdfError::TextBuffer(format!("failed to initialize text engine: {err}"))
-        })?;
+        let text_engine = match &self.text_engine {
+            Some(engine) => engine.clone(),
+            None => {
+                TextEngine::with_font_resolution(&self.options.font_resolution).map_err(|err| {
+                    AvengerPdfError::TextBuffer(format!("failed to initialize text engine: {err}"))
+                })?
+            }
+        };
         let mut font_cache = PdfFontCache::default();
         self.draw_background(&mut surface, width, height)?;
         self.draw_scene_graph(&mut surface, scene_graph, &text_engine, &mut font_cache)?;
@@ -107,16 +120,18 @@ impl PdfRenderer {
         Ok(document.finish()?)
     }
 
+    /// Render and write a PDF file, creating parent directories when needed.
     pub fn write_scene_graph_pdf<P: AsRef<Path>>(
         &self,
         scene_graph: &SceneGraph,
         output: P,
     ) -> Result<(), AvengerPdfError> {
+        let bytes = self.render_scene_graph(scene_graph)?;
         let output = output.as_ref();
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(output, self.render_scene_graph(scene_graph)?)?;
+        std::fs::write(output, bytes)?;
         Ok(())
     }
 
@@ -169,6 +184,9 @@ impl PdfRenderer {
 
         for item in display_list.ordered_items() {
             let clip_path = clip_to_krilla_path(&item.clip)?;
+            if !matches!(item.clip, Clip::None) && clip_path.is_none() {
+                continue;
+            }
             if let Some(path) = clip_path.as_ref() {
                 surface.push_clip_path(path, &FillRule::NonZero);
             }
@@ -202,6 +220,8 @@ impl PdfRenderer {
         Ok(())
     }
 
+    // Keep the display item geometry and shared text context together.
+    #[allow(clippy::too_many_arguments)]
     fn draw_scene_mark(
         &self,
         surface: &mut Surface<'_>,
@@ -234,7 +254,7 @@ impl PdfRenderer {
             SceneMark::Image(mark) => self.draw_image_mark(surface, mark, origin),
             SceneMark::WarpedImage(mark) => self.draw_warped_image_mark(surface, mark, origin),
             SceneMark::Text(mark) => {
-                self.draw_text_mark(surface, mark, origin, text_engine, font_cache)
+                self.draw_text_mark(surface, mark, origin, chart_bounds, text_engine, font_cache)
             }
             SceneMark::Group(_) => Ok(()),
         }
@@ -521,6 +541,7 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneTextMark,
         origin: [f32; 2],
+        chart_bounds: PatternRect,
         text_engine: &TextEngine,
         font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
@@ -655,6 +676,7 @@ impl PdfRenderer {
                     align,
                     baseline,
                     angle: *angle,
+                    viewport: [chart_bounds.width, chart_bounds.height],
                 },
                 font_cache,
             )?;
@@ -682,6 +704,26 @@ impl PdfRenderer {
             ));
         }
 
+        if let Some(width) = buffer.clip_width {
+            // Other clip edges lie outside the viewport after label rotation.
+            let margin = placement.viewport[0]
+                + placement.viewport[1]
+                + 2.0 * (placement.label[0].abs() + placement.label[1].abs())
+                + x.abs()
+                + text_top.abs()
+                + width;
+            let rect = Rect::from_xywh(x - margin, text_top - margin, margin + width, 2.0 * margin)
+                .ok_or_else(|| AvengerPdfError::TextBuffer("invalid text clip geometry".into()))?;
+            let mut path = PathBuilder::new();
+            path.push_rect(rect);
+            surface.push_clip_path(
+                &path.finish().ok_or_else(|| {
+                    AvengerPdfError::TextBuffer("empty text clip geometry".into())
+                })?,
+                &FillRule::NonZero,
+            );
+        }
+
         let result = (|| {
             for draw_item in &buffer.draw_items {
                 match *draw_item {
@@ -706,6 +748,9 @@ impl PdfRenderer {
             Ok(())
         })();
 
+        if buffer.clip_width.is_some() {
+            surface.pop();
+        }
         if placement.angle != 0.0 {
             surface.pop();
         }
@@ -887,7 +932,7 @@ impl PdfRenderer {
                 continue;
             };
 
-            let image = Image::from_rgba8(image.data.clone(), image.width, image.height);
+            let image = rgba_image(image, mark.smooth)?;
             surface.push_transform(&Transform::from_translate(bbox.min.x, bbox.min.y));
             surface.draw_image(image, size);
             surface.pop();
@@ -921,7 +966,7 @@ impl PdfRenderer {
         let Some(size) = Size::from_wh(width, height) else {
             return Ok(());
         };
-        let image = Image::from_rgba8(raster.data, raster.width, raster.height);
+        let image = rgba_image(&raster, mark.smooth)?;
         surface.push_transform(&Transform::from_translate(min_x, min_y));
         surface.draw_image(image, size);
         surface.pop();
@@ -1220,6 +1265,7 @@ struct TextPdfPlacement<'a> {
     align: &'a TextAlign,
     baseline: &'a TextBaseline,
     angle: f32,
+    viewport: [f32; 2],
 }
 
 struct LeaderStrokeStyle<'a> {
@@ -1257,18 +1303,71 @@ impl PdfFontCache {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FontCacheKey {
     face_index: u32,
-    data_ptr: usize,
-    data_len: usize,
+    data: Arc<[u8]>,
 }
 
 impl FontCacheKey {
     fn from_resource(resource: &FontResource) -> Self {
         Self {
             face_index: resource.face_index,
-            data_ptr: resource.data.as_ref().as_ptr() as usize,
-            data_len: resource.data.len(),
+            data: resource.data.clone(),
         }
     }
+}
+
+// Dimensions participate in identity so equal pixel bytes cannot alias different images.
+#[derive(Clone, Hash)]
+struct PdfRgbaImage {
+    width: u32,
+    height: u32,
+    rgb: Arc<[u8]>,
+    alpha: Arc<[u8]>,
+}
+
+impl CustomImage for PdfRgbaImage {
+    fn color_channel(&self) -> &[u8] {
+        &self.rgb
+    }
+    fn alpha_channel(&self) -> Option<&[u8]> {
+        Some(&self.alpha)
+    }
+    fn bits_per_component(&self) -> BitsPerComponent {
+        BitsPerComponent::Eight
+    }
+    fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+    fn icc_profile(&self) -> Option<&[u8]> {
+        None
+    }
+    fn color_space(&self) -> ImageColorspace {
+        ImageColorspace::Rgb
+    }
+}
+
+fn rgba_image(image: &avenger_image::RgbaImage, smooth: bool) -> Result<Image, AvengerPdfError> {
+    let expected_len = (image.width as usize)
+        .checked_mul(image.height as usize)
+        .and_then(|n| n.checked_mul(4));
+    if image.width == 0 || image.height == 0 || expected_len != Some(image.data.len()) {
+        return Err(AvengerPdfError::Image("invalid RGBA image buffer".into()));
+    }
+    let mut rgb = Vec::with_capacity(image.data.len() / 4 * 3);
+    let mut alpha = Vec::with_capacity(image.data.len() / 4);
+    for pixel in image.data.chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+        alpha.push(pixel[3]);
+    }
+    Image::from_custom(
+        PdfRgbaImage {
+            width: image.width,
+            height: image.height,
+            rgb: rgb.into(),
+            alpha: alpha.into(),
+        },
+        smooth,
+    )
+    .map_err(AvengerPdfError::Image)
 }
 
 fn lyon_path_to_krilla(path: &LyonPath) -> Option<krilla::geom::Path> {
@@ -1490,13 +1589,20 @@ fn gradient_paint(
     let width = (bbox.max.x - bbox.min.x).max(0.0);
     let height = (bbox.max.y - bbox.min.y).max(0.0);
 
+    // Object-bounding-box paint is undefined on zero-area geometry, as in SVG.
+    // Avoid passing a singular gradient transform to the PDF writer.
+    if width == 0.0 || height == 0.0 {
+        return Ok(None);
+    }
+
     Ok(Some(match gradient {
         Gradient::LinearGradient(gradient) => LinearGradient {
-            x1: left + gradient.x0.clamp(0.0, 1.0) * width,
-            y1: top + gradient.y0.clamp(0.0, 1.0) * height,
-            x2: left + gradient.x1.clamp(0.0, 1.0) * width,
-            y2: top + gradient.y1.clamp(0.0, 1.0) * height,
-            transform: Transform::identity(),
+            x1: gradient.x0.clamp(0.0, 1.0),
+            y1: gradient.y0.clamp(0.0, 1.0),
+            x2: gradient.x1.clamp(0.0, 1.0),
+            y2: gradient.y1.clamp(0.0, 1.0),
+            // Gradient geometry is defined in the unit bounding box, including its normals.
+            transform: Transform::from_row(width, 0.0, 0.0, height, left, top),
             spread_method: SpreadMethod::Pad,
             stops,
             anti_alias: false,
@@ -1509,7 +1615,15 @@ fn gradient_paint(
             cx: gradient.x1.clamp(0.0, 1.0),
             cy: gradient.y1.clamp(0.0, 1.0),
             cr: gradient.r1.clamp(0.0, 1.0),
-            transform: Transform::from_row(width, 0.0, 0.0, height, left, top),
+            // Core radial gradients use a centered square enclosing the mark bounds.
+            transform: Transform::from_row(
+                width.max(height),
+                0.0,
+                0.0,
+                width.max(height),
+                left - (height - width).max(0.0) / 2.0,
+                top - (width - height).max(0.0) / 2.0,
+            ),
             spread_method: SpreadMethod::Pad,
             stops,
             anti_alias: false,
@@ -1864,126 +1978,6 @@ fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
         }
     }
     builder.build()
-}
-
-fn effective_font_resolution(
-    scene_graph: &SceneGraph,
-    options: &FontResolutionOptions,
-) -> FontResolutionOptions {
-    let mut options = options.clone();
-    if scene_graph_contains_system_fallback_text(scene_graph) {
-        options.load_system_fonts = true;
-    }
-    options
-}
-
-fn scene_graph_contains_system_fallback_text(scene_graph: &SceneGraph) -> bool {
-    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
-    display_list.ordered_items().iter().any(|item| {
-        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
-            return false;
-        };
-        mark.text_iter()
-            .any(|text| text_needs_system_font_fallback(text))
-    })
-}
-
-fn text_needs_system_font_fallback(text: &str) -> bool {
-    text.contains("#emoji.")
-        || text
-            .chars()
-            .any(|ch| !ch.is_ascii() || is_color_emoji_char(ch))
-}
-
-fn is_color_emoji_char(ch: char) -> bool {
-    matches!(
-        ch as u32,
-        0x1F000..=0x1FAFF
-            | 0x2600..=0x27BF
-            | 0x2300..=0x23FF
-            | 0xFE0F
-            | 0x200D
-    )
-}
-
-fn validate_scene_graph_text_fonts(
-    scene_graph: &SceneGraph,
-    fontdb: &fontdb::Database,
-) -> Result<(), AvengerPdfError> {
-    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
-    for item in display_list.ordered_items() {
-        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
-            continue;
-        };
-
-        for (((text, font), font_weight), font_style) in mark
-            .text_iter()
-            .zip(mark.font_iter())
-            .zip(mark.font_weight_iter())
-            .zip(mark.font_style_iter())
-        {
-            if text.chars().all(char::is_whitespace) {
-                continue;
-            }
-
-            let family = font.trim();
-            if family.is_empty() || is_generic_font_family(family) {
-                continue;
-            }
-
-            if !fontdb_has_scene_family(fontdb, family, font_weight, font_style) {
-                return Err(AvengerPdfError::Font(format!(
-                    "missing requested text font family {family}"
-                )));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn is_generic_font_family(family: &str) -> bool {
-    matches!(
-        family,
-        "serif" | "sans-serif" | "cursive" | "fantasy" | "monospace"
-    )
-}
-
-fn fontdb_has_scene_family(
-    fontdb: &fontdb::Database,
-    family: &str,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
-) -> bool {
-    let families = [fontdb::Family::Name(family)];
-    let query = fontdb::Query {
-        families: &families,
-        weight: fontdb::Weight(font_weight_number(font_weight)),
-        stretch: fontdb::Stretch::Normal,
-        style: scene_font_style(font_style),
-    };
-    fontdb.query(&query).is_some()
-}
-
-fn font_weight_number(font_weight: &FontWeight) -> u16 {
-    match font_weight {
-        FontWeight::Name(name) => font_weight_name_number(name),
-        FontWeight::Number(weight) => weight.clamp(1.0, 1000.0).round() as u16,
-    }
-}
-
-fn font_weight_name_number(name: &FontWeightNameSpec) -> u16 {
-    match name {
-        FontWeightNameSpec::Normal => 400,
-        FontWeightNameSpec::Bold => 700,
-    }
-}
-
-fn scene_font_style(font_style: &FontStyle) -> fontdb::Style {
-    match font_style {
-        FontStyle::Normal => fontdb::Style::Normal,
-        FontStyle::Italic => fontdb::Style::Italic,
-    }
 }
 
 #[cfg(test)]
@@ -2565,12 +2559,8 @@ mod tests {
             .render_scene_graph(&missing_font_scene_graph())
             .unwrap_err();
 
-        assert!(matches!(
-            err,
-            AvengerPdfError::Font(message)
-                if message.contains("missing requested text font family")
-                    && message.contains("Definitely Missing Avenger Font")
-        ));
+        assert!(matches!(err, AvengerPdfError::Text(_)));
+        assert!(err.to_string().contains("Definitely Missing Avenger Font"));
     }
 
     #[test]
