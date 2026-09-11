@@ -11,12 +11,15 @@ use avenger_scenegraph::{
             StripePatternLayer,
         },
         rect::SceneRectMark,
+        rule::SceneRuleMark,
         text::SceneTextMark,
         warped_image::SceneWarpedImageMark,
     },
     scene_graph::SceneGraph,
 };
 use avenger_text::types::TextSyntaxMode;
+
+const CLIP_GUIDE_COLOR: [f32; 4] = [0.80, 0.25, 0.05, 1.0];
 
 pub fn fonts() -> avenger_text::FontResolutionOptions {
     avenger_text::FontResolutionOptions {
@@ -45,6 +48,30 @@ fn rect(x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) -> SceneRectMa
         width: Some(ScalarOrArray::new_scalar(width)),
         height: Some(ScalarOrArray::new_scalar(height)),
         fill: ScalarOrArray::new_scalar(ColorOrGradient::Color(color)),
+        ..Default::default()
+    }
+}
+
+fn text_clip_boundary(label: [f32; 2], limit: f32, angle: f32, size: f32) -> SceneRuleMark {
+    let (sin, cos) = angle.to_radians().sin_cos();
+    let point = |y: f32| {
+        [
+            label[0] + limit * cos - y * sin,
+            label[1] + limit * sin + y * cos,
+        ]
+    };
+    // A text limit clips only the right edge, in the label's rotated coordinates.
+    let start = point(-1.2 * size);
+    let end = point(0.6 * size);
+    SceneRuleMark {
+        clip: false,
+        x: ScalarOrArray::new_scalar(start[0]),
+        y: ScalarOrArray::new_scalar(start[1]),
+        x2: ScalarOrArray::new_scalar(end[0]),
+        y2: ScalarOrArray::new_scalar(end[1]),
+        stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(CLIP_GUIDE_COLOR)),
+        stroke_width: ScalarOrArray::new_scalar(1.5),
+        stroke_dash: Some(ScalarOrArray::new_scalar(vec![4.0, 3.0])),
         ..Default::default()
     }
 }
@@ -140,8 +167,10 @@ pub fn gallery() -> SceneGraph {
     let mut annotation = text("*Radius* $sqrt(x^2+y^2)$", 20.0, 107.0, 21.0);
     annotation.dx = ScalarOrArray::new_scalar(28.0);
     annotation.dy = ScalarOrArray::new_scalar(-53.0);
-    annotation.angle = ScalarOrArray::new_scalar(-12.0);
-    annotation.limit = ScalarOrArray::new_scalar(128.0);
+    let annotation_angle = -12.0;
+    let annotation_limit = 128.0;
+    annotation.angle = ScalarOrArray::new_scalar(annotation_angle);
+    annotation.limit = ScalarOrArray::new_scalar(annotation_limit);
     annotation.leader = ScalarOrArray::new_scalar(true);
     annotation.leader_arrow = ScalarOrArray::new_scalar(SceneTextLeaderArrow::Triangle);
     annotation.clip = true;
@@ -157,11 +186,17 @@ pub fn gallery() -> SceneGraph {
             marks: vec![
                 rect(0.0, 0.0, 218.0, 132.0, [0.94, 0.96, 0.98, 1.0]).into(),
                 annotation.into(),
+                text_clip_boundary([48.0, 54.0], annotation_limit, annotation_angle, 21.0).into(),
             ],
             ..Default::default()
         }
         .into(),
     );
+    let mut group_boundary = rect(544.0, 138.0, 218.0, 132.0, [0.0; 4]);
+    group_boundary.clip = false;
+    group_boundary.stroke = ScalarOrArray::new_scalar(ColorOrGradient::Color(CLIP_GUIDE_COLOR));
+    group_boundary.stroke_width = ScalarOrArray::new_scalar(1.5);
+    marks.push(group_boundary.into());
     marks.extend([
         text("*Typeset text & mathematics*", 28.0, 320.0, 17.0).into(),
         text("*Radius* $sqrt(x^2+y^2)$", 28.0, 366.0, 28.0).into(),
@@ -180,8 +215,10 @@ pub fn gallery() -> SceneGraph {
         454.0,
         22.0,
     );
-    limited.limit = ScalarOrArray::new_scalar(285.0);
+    let text_limit = 285.0;
+    limited.limit = ScalarOrArray::new_scalar(text_limit);
     marks.push(limited.into());
+    marks.push(text_clip_boundary([28.0, 454.0], text_limit, 0.0, 22.0).into());
     marks.push(
         SceneImageMark {
             image: ScalarOrArray::new_scalar(SceneImageSource::Inline(checker())),
@@ -212,6 +249,9 @@ pub fn gallery() -> SceneGraph {
         .into(),
     );
     marks.push(text("One scene. Shared fonts and geometry.", 28.0, 501.0, 14.0).into());
+    let mut clip_key = text("Orange guides: clipping boundaries", 430.0, 501.0, 14.0);
+    clip_key.color = ScalarOrArray::new_scalar(ColorOrGradient::Color(CLIP_GUIDE_COLOR));
+    marks.push(clip_key.into());
     SceneGraph {
         width: 800.0,
         height: 528.0,
