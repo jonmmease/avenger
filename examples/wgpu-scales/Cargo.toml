@@ -27,7 +27,7 @@ pollster = "0.3"
 serde_json = { version = "1.0.111" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["cosmic-text"] }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = [] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"

@@ -89,7 +89,6 @@ geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
 rstar = { git = "https://github.com/georust/rstar.git", rev = "c1b704de7606676fbc871badfde66bf10fd10536" }
-cosmic-text = "0.14.2"
 geo-svg = "0.7.3"
 indexmap = { version = "2.9.0", features = ["serde"] }
 pollster = "0.4.0"
@@ -125,3 +124,5 @@ rustybuzz = "0.20.1"
 ttf-parser = "0.25.1"
 
 brotli = "8.0.1"
+
+svgtypes = "0.16.1"

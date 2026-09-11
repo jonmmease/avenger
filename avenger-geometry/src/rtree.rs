@@ -99,12 +99,23 @@ impl SceneGraphRTree {
     }
 
     pub fn from_scene_graph(scene_graph: &SceneGraph) -> SceneGraphRTree {
+        Self::from_scene_graph_with_text_engine(scene_graph, &avenger_text::default_text_engine())
+    }
+
+    pub fn from_scene_graph_with_text_engine(
+        scene_graph: &SceneGraph,
+        text_engine: &avenger_text::TextEngine,
+    ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 
         for (group_index, group) in scene_graph.marks.iter().enumerate() {
             let mark_path = vec![group_index];
             let origin = [scene_graph.origin[0], scene_graph.origin[1]];
-            geometry_instances.extend(group.geometry_iter(mark_path, origin));
+            geometry_instances.extend(group.geometry_iter_with_text_engine(
+                mark_path,
+                origin,
+                text_engine,
+            ));
         }
 
         SceneGraphRTree::new(

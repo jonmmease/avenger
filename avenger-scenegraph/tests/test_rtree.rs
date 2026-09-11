@@ -8,7 +8,6 @@ use avenger_scenegraph::marks::{
     area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
 use geo_svg::ToSvg;
@@ -226,7 +225,6 @@ fn test_text_rtree() {
         ..Default::default()
     };
 
-    let _rasterizer = CosmicTextRasterizer::<()>::new();
     let _dimensions = CanvasDimensions {
         size: [100.0, 100.0],
         scale: 1.0,

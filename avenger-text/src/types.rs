@@ -15,6 +15,16 @@ pub enum TextAlign {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, VariantNames)]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+#[strum(serialize_all = "snake_case")]
+pub enum TextSyntaxMode {
+    #[default]
+    Plain,
+    TypstMarkup,
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash, VariantNames)]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[strum(serialize_all = "snake_case")]

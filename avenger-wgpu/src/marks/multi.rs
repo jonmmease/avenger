@@ -48,6 +48,14 @@ use {crate::par_izip, rayon::prelude::*};
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
 pub const TEXT_TEXTURE_CODE: f32 = -3.0;
+pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
+pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
+    let normalized = angle.rem_euclid(360.0);
+    (normalized < 0.001)
+        || ((normalized - 90.0).abs() < 0.001)
+        || ((normalized - 180.0).abs() < 0.001)
+        || ((normalized - 270.0).abs() < 0.001)
+}
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
@@ -109,32 +117,137 @@ pub struct MultiMarkRenderer {
 }
 
 impl MultiMarkRenderer {
+    pub(crate) fn make_text_bind_groups_dual_sampler(
+        device: &Device,
+        queue: &Queue,
+        texture_bind_group_layout: &BindGroupLayout,
+        size: Extent3d,
+        images: &[DynamicImage],
+    ) -> Vec<BindGroup> {
+        // Create texture for each image
+        let mut texture_bind_groups: Vec<BindGroup> = Vec::new();
+
+        for image in images {
+            // Create Texture
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("text_texture"),
+                view_formats: &[],
+            });
+            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Create linear sampler
+            let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            // Create nearest sampler
+            let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&linear_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&nearest_sampler),
+                    },
+                ],
+                label: Some("text_dual_sampler_bind_group"),
+            });
+
+            queue.write_texture(
+                // Tells wgpu where to copy the pixel data
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                // The actual pixel data
+                image.to_rgba8().as_raw(),
+                // The layout of the texture
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * image.width()),
+                    rows_per_image: Some(image.height()),
+                },
+                size,
+            );
+
+            texture_bind_groups.push(texture_bind_group);
+        }
+
+        texture_bind_groups
+    }
+
+    fn make_text_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("text_dual_sampler_bind_group_layout"),
+        })
+    }
+
     pub fn new(
         dimensions: CanvasDimensions,
         text_atlas_builder_ctor: Option<TextBuildCtor>,
+        text_engine: avenger_text::TextEngine,
     ) -> Self {
-        let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
-            text_atlas_builder_ctor()
+        let text_atlas_builder = if let Some(ctor) = text_atlas_builder_ctor {
+            ctor()
         } else {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "cosmic-text")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else if #[cfg(target_arch = "wasm32")] {
-                    use crate::marks::text::TextAtlasBuilder;
-                    use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                        avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                    ));
-                } else {
-                    use crate::marks::text::NullTextAtlasBuilder;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-                }
-            };
-            inner_text_atlas_builder
+            Box::new(crate::marks::text::TextAtlasBuilder::new(
+                std::sync::Arc::new(text_engine),
+            ))
         };
 
         Self {
@@ -1098,6 +1211,14 @@ impl MultiMarkRenderer {
                     font_weight,
                     font_style,
                     limit: *limit,
+                    syntax_mode: mark.text_syntax,
+                    params: &mark.text_params,
+                    number_locale: mark.number_locale.as_deref(),
+                    number_locale_specs: &mark.number_locale_specs,
+                    datetime_locale: mark.datetime_locale.as_deref(),
+                    datetime_timezone: mark.datetime_timezone.as_deref(),
+                    datetime_locale_specs: &mark.datetime_locale_specs,
+                    use_nearest_filter: is_axis_aligned_angle(*angle),
                 };
                 self.text_atlas_builder
                     .register_text(instance, self.dimensions)
@@ -1229,13 +1350,13 @@ impl MultiMarkRenderer {
 
         // Text Textures
         let (text_texture_size, text_images) = self.text_atlas_builder.build();
-        let (text_layout, text_texture_bind_groups) = Self::make_texture_bind_groups(
+        let text_layout = Self::make_text_bind_group_layout(device);
+        let text_texture_bind_groups = Self::make_text_bind_groups_dual_sampler(
             device,
             queue,
+            &text_layout,
             text_texture_size,
             &text_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
         );
 
         // Shaders
