@@ -1,6 +1,6 @@
 # avenger-svg
 
-Export an Avenger `SceneGraph` to an SVG string without a GPU or window. Marks, gradients, clipping paths, pattern masks, and math outlines remain vector geometry. Plain text remains text. Images are embedded as PNGs.
+Export an Avenger `SceneGraph` to an SVG string without a GPU or window. Marks, gradients, clipping paths, pattern masks, and math outlines remain vector geometry. Ordinary text remains text. Images are embedded as PNGs.
 
 ```rust
 use avenger_svg::SvgRenderer;
@@ -16,7 +16,7 @@ Pass the same `TextEngine` used for layout to `SvgRenderer::with_text_engine`. T
 
 Embedded fonts use unique document names and the exact face bytes returned by the text engine. TrueType faces use WOFF2. Subsetting is used only when it can preserve shaping behavior. Faces with kerning, shaping, variation, or color tables remain complete. Other supported OpenType faces use embedded OpenType data. `SvgFontEmbedding::None` omits font data and requires the viewer to supply the fonts. Missing fonts still follow the text engine's policy during layout.
 
-Positive finite text limits ellipsize plain text at grapheme boundaries. Typst labels compile in full, then clip at the limit before rotation and placement. SVG supports the same Typst subset and plain fallback as `avenger-text`. Gradient text paint returns an error. Math uses paths and is not selectable text. Color glyph images are embedded by default when the text engine supplies them.
+Positive finite text limits ellipsize plain text at grapheme boundaries. Typst labels compile in full, then clip at the limit before rotation and placement. SVG supports the same Typst subset and plain fallback as `avenger-text`. Gradient text paint returns an error. Math and runs with explicit OpenType features (such as typographic subscripts, superscripts, and small caps) use paths and are not selectable text. Outlining these runs preserves the shaped glyphs and spacing in viewers that do not support those features. Synthesized scripts remain native text. Color glyph images are embedded by default when the text engine supplies them.
 
 Resolve resource-backed images with `avenger_scenegraph::image_resources::resolve_ready_image_resources` before export. The helper reads ready resources from the caller's resolver and returns a scene with inline images. Neither the helper nor the SVG renderer waits for loading. Warped images use software rasterization at two pixels per scene unit, capped at 8192 pixels per dimension. The cap reduces resolution while preserving the complete mesh.
 

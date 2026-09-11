@@ -38,6 +38,36 @@ fn gallery_visual_regression() {
 }
 
 #[test]
+fn typographic_script_glyphs_do_not_touch_adjacent_letters() {
+    for source in ["H#sub[2]O", "H#super[2]O"] {
+        let graph = SceneGraph {
+            width: 120.0,
+            height: 70.0,
+            origin: [0.0, 0.0],
+            marks: vec![scene::text(source, 10.0, 45.0, 40.0).into()],
+        };
+        let svg = renderer().render_scene_graph(&graph).unwrap();
+        let png = raster::svg_to_png(&svg, 2.0);
+        let mut intervals = Vec::new();
+        let mut previous_visible = false;
+        for x in 0..png.width() {
+            let visible = (0..png.height()).any(|y| png.get_pixel(x, y)[3] > 128);
+            if visible && !previous_visible {
+                intervals.push(x..x + 1);
+            } else if visible {
+                intervals.last_mut().unwrap().end = x + 1;
+            }
+            previous_visible = visible;
+        }
+        assert_eq!(intervals.len(), 3, "{source}: glyphs touch: {intervals:?}");
+        assert!(
+            intervals[1].end + 1 < intervals[2].start,
+            "{source}: {intervals:?}"
+        );
+    }
+}
+
+#[test]
 fn clips_complete_markup_in_label_coordinates_and_scene_clip_outside_rotation() {
     for angle in [0.0, 28.0, -28.0] {
         let mut text = scene::text("*Bold* $sqrt(x^2+y^2)$ tail", 10.0, 40.0, 22.0);
