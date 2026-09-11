@@ -226,7 +226,7 @@ fn clipboard_and_grapheme_deletion_use_the_editor() {
 #[test]
 fn annotation_drag_captures_its_target_and_never_pans_the_plot() {
     let mut h = Harness::new();
-    let p = h.state().point_position(7);
+    let p = h.state().point_position(7).unwrap();
     let offset = h.state().points[7].offset;
     let start = [p[0] + offset[0] + 20.0, p[1] + offset[1] - 7.0];
     h.move_to(start);
@@ -266,9 +266,156 @@ fn field_selection_and_background_pan_have_separate_ownership() {
 }
 
 #[test]
+fn panning_moves_points_ticks_and_grid_together_without_snapping() {
+    let mut h = Harness::new();
+    let before = [axis_positions(&h, "x"), axis_positions(&h, "y")];
+    let point_before = rendered_point_position(&h, "point-7");
+    let [x, y, _, height] = h.state().plot();
+    let start = [x + 5.0, y + height - 5.0];
+    h.move_to(start);
+    h.down();
+    assert_eq!(h.state().drag, Some(Drag::Plot));
+
+    for delta in [[0.25, -0.375], [-126.25, 91.5]] {
+        h.move_to([start[0] + delta[0], start[1] + delta[1]]);
+        let point = rendered_point_position(&h, "point-7");
+        for (axis, name) in ["x", "y"].into_iter().enumerate() {
+            let after = axis_positions(&h, name);
+            assert!((point[axis] - point_before[axis] - delta[axis]).abs() < 0.001);
+            for label in ["40", "60", "80"] {
+                assert!((after[label] - before[axis][label] - delta[axis]).abs() < 0.001);
+            }
+        }
+    }
+    // Crossing a tick interval brings a new round value into each axis.
+    for name in ["x", "y"] {
+        let ticks = axis_positions(&h, name);
+        assert!(ticks.contains_key("120"));
+        assert!(!ticks.contains_key("0"));
+        assert!(!ticks.contains_key("20"));
+    }
+    h.move_to(start);
+    h.up();
+    assert_eq!(axis_positions(&h, "x"), before[0]);
+    assert_eq!(axis_positions(&h, "y"), before[1]);
+    assert_eq!(rendered_point_position(&h, "point-7"), point_before);
+}
+
+#[test]
+fn resized_plot_keeps_ticks_and_points_on_the_same_scales_after_panning() {
+    let mut h = Harness::new();
+    let [x, y, _, height] = h.state().plot();
+    h.move_to([x + 5.0, y + height - 5.0]);
+    h.down();
+    h.move_to([x + 35.25, y + height - 20.5]);
+    h.up();
+    h.send(WindowEvent::WindowResize(WindowResizeEvent {
+        size: [820.0, 560.0],
+    }));
+    let point = rendered_point_position(&h, "point-7");
+    let values = h.state().points[7].position;
+    for (axis, name) in ["x", "y"].into_iter().enumerate() {
+        let ticks = axis_positions(&h, name);
+        let fraction = (values[axis] - 60.0) / 20.0;
+        let expected = ticks["60"] + fraction * (ticks["80"] - ticks["60"]);
+        assert!((point[axis] - expected).abs() < 0.001);
+    }
+}
+
+// Check the rendered labels against their grid lines, including viewport bounds.
+fn axis_positions(h: &Harness, axis: &str) -> std::collections::BTreeMap<String, f32> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    let scene = h.app.scene_graph();
+    let plot = scene
+        .marks
+        .iter()
+        .find_map(|mark| match mark {
+            SceneMark::Group(group)
+                if group
+                    .marks
+                    .iter()
+                    .any(|m| matches!(m, SceneMark::Rect(r) if r.name == "plot")) =>
+            {
+                Some(group)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let labels: Vec<_> = text_marks(&scene.marks)
+        .into_iter()
+        .filter(|mark| mark.name == format!("{axis}-tick-label"))
+        .collect();
+    let grids: Vec<_> = plot
+        .marks
+        .iter()
+        .filter_map(|mark| match mark {
+            SceneMark::Rule(rule) if rule.name == format!("{axis}-grid") => Some(rule),
+            _ => None,
+        })
+        .collect();
+    assert!(!labels.is_empty());
+    assert_eq!(labels.len(), grids.len());
+    let avenger_scenegraph::marks::group::Clip::Rect {
+        x,
+        y,
+        width,
+        height,
+    } = plot.clip
+    else {
+        panic!("plot must clip its grid and points");
+    };
+    labels
+        .into_iter()
+        .zip(grids)
+        .map(|(label, grid)| {
+            assert!(!label.interactive && !grid.interactive && grid.clip);
+            let (position, start, end, lower, upper) = if axis == "x" {
+                (
+                    *label.x.first().unwrap(),
+                    *grid.x.first().unwrap(),
+                    *grid.x2.first().unwrap(),
+                    x,
+                    x + width,
+                )
+            } else {
+                (
+                    *label.y.first().unwrap(),
+                    *grid.y.first().unwrap(),
+                    *grid.y2.first().unwrap(),
+                    y,
+                    y + height,
+                )
+            };
+            assert_eq!(position, start);
+            assert_eq!(position, end);
+            assert!(position >= lower - 0.001 && position <= upper + 0.001);
+            (label.text.first().unwrap().clone(), position)
+        })
+        .collect()
+}
+
+fn rendered_point_position(h: &Harness, name: &str) -> [f32; 2] {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    h.app
+        .scene_graph()
+        .marks
+        .iter()
+        .find_map(|mark| match mark {
+            SceneMark::Group(group) => group.marks.iter().find_map(|mark| match mark {
+                SceneMark::Symbol(point) if point.name == name => {
+                    Some([*point.x.first().unwrap(), *point.y.first().unwrap()])
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
 fn tooltip_wakes_move_and_cancel_without_rebuilding_the_scene() {
     let mut h = Harness::new();
-    let p = h.state().point_position(3);
+    let p = h.state().point_position(3).unwrap();
     let initial = h.move_to(p);
     let hover = wake(&initial, "hover");
     let builds = h.state().scene_builds;
@@ -294,7 +441,7 @@ fn selection_changes_flush_the_old_point_and_reject_its_timer() {
     h.focus();
     let update = h.replace("Label for point eight");
     let old = wake(&update, "apply");
-    let p = h.state().point_position(2);
+    let p = h.state().point_position(2).unwrap();
     h.move_to(p);
     h.down();
     h.up();
@@ -447,7 +594,7 @@ fn escape_and_point_changes_discard_invalid_markup_without_losing_the_valid_labe
     assert!(!h.state().focused);
     assert_eq!(h.state().editor.text(), "$sqrt(x");
     assert_eq!(h.state().points[7].annotation, previous);
-    let point = h.state().point_position(2);
+    let point = h.state().point_position(2).unwrap();
     h.send(WindowEvent::WindowFocused(true));
     h.move_to(point);
     h.down();

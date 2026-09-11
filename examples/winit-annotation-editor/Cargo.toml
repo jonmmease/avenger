@@ -10,6 +10,7 @@ avenger-common = { path = "../../avenger-common" }
 avenger-color = { path = "../../avenger-color" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-geometry = { path = "../../avenger-geometry" }
+avenger-scales = { path = "../../avenger-scales" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-text = { path = "../../avenger-text" }
 avenger-wgpu = { path = "../../avenger-wgpu" }

@@ -11,6 +11,7 @@ cargo run --release -p winit-annotation-editor
 - Invalid source stays editable and shows an error while the chart retains its last valid label. Enter keeps the field focused until the source is valid. Escape restores the applied source. Selecting another point discards an invalid draft.
 - Select text with a drag, a double-click, Shift with arrow keys, or the platform select-all shortcut. Use the usual clipboard shortcuts. Input-method composition stays in the field until committed.
 - Drag a label to move it. Drag the plot background to pan. A gesture keeps its original target until release, even over another mark.
+- The x and y linear scales position points and generate ticks for the visible domains. Tick labels and grid lines share these positions and move smoothly with the points during panning.
 - Hover over a point for 400 ms to show a tooltip. Tooltip movement does not rebuild the application scene.
 - Switch samples to replace the application in the same window. Edits are in memory and reset when a sample loads.
 
@@ -22,7 +23,7 @@ cargo test --release -p winit-annotation-editor
 cargo run --release -p winit-annotation-editor --example snapshot -- target/annotation-editor
 ```
 
-The snapshot example renders selection and composition at 1× and 2×. The window uses scale 2 on macOS and scale 1 elsewhere. Override the raster scale with `--scale NUMBER` when testing another display configuration.
+The snapshot example renders selection, composition, and panning at 1× and 2×. The window uses scale 2 on macOS and scale 1 elsewhere. Override the raster scale with `--scale NUMBER` when testing another display configuration.
 
 `state.rs` owns the editor and draft. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications on Tokio, advances the request epoch before preparation, and observes installation results. `scene.rs` draws the UI with the same text engine used for editing and picking.
 

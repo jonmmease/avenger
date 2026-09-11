@@ -1,6 +1,10 @@
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use avenger_eventstream::runtime::{DebounceConfig, DebouncedCommit, RuntimeWakeKey};
+use avenger_scales::{
+    error::AvengerScaleError,
+    scales::{linear::LinearScale, ConfiguredScale},
+};
 use avenger_text::{
     measurement::TextMeasurementConfig,
     text_edit::{cursor_rect_for_offset, Action, ShapedLine, SingleLineEditor},
@@ -31,6 +35,20 @@ pub struct Point {
     pub position: [f32; 2],
     pub annotation: String,
     pub offset: [f32; 2],
+}
+
+pub struct PlotScales {
+    pub x: ConfiguredScale,
+    pub y: ConfiguredScale,
+}
+
+impl PlotScales {
+    pub fn position(&self, [x, y]: [f32; 2]) -> Result<[f32; 2], AvengerScaleError> {
+        Ok([
+            self.x.scale_scalar(&x)?.as_f32()?,
+            self.y.scale_scalar(&y)?.as_f32()?,
+        ])
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,13 +177,17 @@ impl State {
     pub fn field_text_origin(&self) -> [f32; 2] {
         [self.field()[0] + 10.0 - self.scroll, self.field()[1] + 11.0]
     }
-    pub fn point_position(&self, index: usize) -> [f32; 2] {
+    pub fn scales(&self) -> Result<PlotScales, AvengerScaleError> {
         let [x, y, w, h] = self.plot();
-        let p = &self.points[index];
-        [
-            x + p.position[0] * w / 100.0 + self.pan[0],
-            y + h - p.position[1] * h / 100.0 + self.pan[1],
-        ]
+        // Pan the visible domains without rounding them. The reversed y range
+        // needs the opposite pan fraction to follow the pointer down the screen.
+        Ok(PlotScales {
+            x: LinearScale::configured((0.0, 100.0), (x, x + w)).pan(self.pan[0] / w)?,
+            y: LinearScale::configured((0.0, 100.0), (y + h, y)).pan(-self.pan[1] / h)?,
+        })
+    }
+    pub fn point_position(&self, index: usize) -> Result<[f32; 2], AvengerScaleError> {
+        self.scales()?.position(self.points[index].position)
     }
     pub fn key(&self, purpose: &str) -> RuntimeWakeKey {
         RuntimeWakeKey::new(

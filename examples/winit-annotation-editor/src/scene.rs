@@ -1,5 +1,6 @@
 use avenger_color::ColorOrGradient;
 use avenger_common::types::{SceneTextLeaderArrow, SceneTextLeaderShape};
+use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::{
     marks::{
         group::{Clip, SceneGroup},
@@ -13,7 +14,7 @@ use avenger_scenegraph::{
 };
 use avenger_text::{
     text_edit::{cursor_rect_for_offset, selection_rects},
-    types::{FontWeight, TextBaseline},
+    types::{FontWeight, TextAlign, TextBaseline},
 };
 
 use crate::state::{annotation_config, Sample, State};
@@ -55,6 +56,16 @@ fn rule(x: f32, y: f32, x2: f32, y2: f32, color: [f32; 4]) -> SceneRuleMark {
         interactive: false,
         ..Default::default()
     }
+}
+
+fn axis_ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, AvengerScaleError> {
+    let ticks = scale.ticks(Some(5.0))?;
+    let positions = scale.scale_to_numeric(&ticks)?;
+    let labels = scale.format(&ticks)?;
+    Ok(positions
+        .as_iter_owned(ticks.len(), None)
+        .zip(labels.as_iter_owned(ticks.len(), None))
+        .collect())
 }
 
 pub fn build(state: &mut State) -> Result<SceneGraph, String> {
@@ -106,49 +117,30 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
     }
     let mut plot_marks: Vec<SceneMark> =
         vec![rect("plot", state.plot(), [0.98, 0.986, 0.993, 1.0]).into()];
-    for i in 0..=5 {
-        let t = i as f32 / 5.0;
-        plot_marks.push(
-            rule(
-                px + pw * t,
-                py,
-                px + pw * t,
-                py + ph,
-                [0.87, 0.9, 0.93, 1.0],
-            )
-            .into(),
-        );
-        plot_marks.push(
-            rule(
-                px,
-                py + ph * t,
-                px + pw,
-                py + ph * t,
-                [0.87, 0.9, 0.93, 1.0],
-            )
-            .into(),
-        );
-        marks.push(
-            text(
-                format!("{:.0}", t * 100.0 - state.pan[0] / pw * 100.0),
-                px + pw * t - 8.0,
-                py + ph + 23.0,
-                12.0,
-            )
-            .into(),
-        );
-        marks.push(
-            text(
-                format!("{:.0}", 100.0 - t * 100.0 + state.pan[1] / ph * 100.0),
-                px - 30.0,
-                py + ph * t + 4.0,
-                12.0,
-            )
-            .into(),
-        );
+    let scales = state.scales().map_err(|e| e.to_string())?;
+    for (x, value) in axis_ticks(&scales.x).map_err(|e| e.to_string())? {
+        let mut grid = rule(x, py, x, py + ph, [0.87, 0.9, 0.93, 1.0]);
+        grid.name = "x-grid".into();
+        grid.clip = true;
+        plot_marks.push(grid.into());
+        let mut label = text(value, x, py + ph + 23.0, 12.0);
+        label.name = "x-tick-label".into();
+        label.align = TextAlign::Center.into();
+        marks.push(label.into());
+    }
+    for (y, value) in axis_ticks(&scales.y).map_err(|e| e.to_string())? {
+        let mut grid = rule(px, y, px + pw, y, [0.87, 0.9, 0.93, 1.0]);
+        grid.name = "y-grid".into();
+        grid.clip = true;
+        plot_marks.push(grid.into());
+        let mut label = text(value, px - 12.0, y, 12.0);
+        label.name = "y-tick-label".into();
+        label.align = TextAlign::Right.into();
+        label.baseline = TextBaseline::Middle.into();
+        marks.push(label.into());
     }
     for (i, point) in state.points.iter().enumerate() {
-        let [x, y] = state.point_position(i);
+        let [x, y] = scales.position(point.position).map_err(|e| e.to_string())?;
         plot_marks.push(
             SceneSymbolMark {
                 name: format!("point-{i}"),
