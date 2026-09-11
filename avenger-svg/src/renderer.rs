@@ -609,7 +609,7 @@ impl SvgRenderer {
                             "Typst SVG text buffer referenced a missing path item".to_string(),
                         ));
                     };
-                    self.write_math_text_path_item(document, item, 0.0, 0.0)?;
+                    self.write_text_path_item(document, item, 0.0, 0.0)?;
                 }
                 TextPathDrawItem::ImageItem(index) => {
                     if !self.options.rasterize_color_emoji {
@@ -680,7 +680,7 @@ impl SvgRenderer {
         Ok(())
     }
 
-    fn write_math_text_path_item(
+    fn write_text_path_item(
         &self,
         document: &mut SvgDocument,
         item: &TextPathItem,
@@ -2768,13 +2768,15 @@ mod tests {
     }
 
     #[test]
-    fn renders_typst_static_sub_super_as_smaller_native_svg_text() {
+    fn renders_synthesized_sub_super_as_smaller_native_svg_text() {
         let scene_graph = SceneGraph {
             width: 120.0,
             height: 30.0,
             origin: [0.0, 0.0],
             marks: vec![SceneTextMark {
-                text: ScalarOrArray::new_scalar("H#sub[2]O #super[\\*]".to_string()),
+                text: ScalarOrArray::new_scalar(
+                    "H#sub(typographic: false)[2]O #super(typographic: false)[\\*]".to_string(),
+                ),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
