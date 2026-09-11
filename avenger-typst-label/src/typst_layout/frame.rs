@@ -63,6 +63,15 @@ pub enum PositionedTextLineRunKind {
     Math,
 }
 
+/// An OpenType substitution or positioning feature applied during shaping.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct FontFeature {
+    /// Four-byte OpenType feature tag applied to the complete text run.
+    pub tag: [u8; 4],
+    pub value: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PositionedTextLineRun {
@@ -75,6 +84,9 @@ pub struct PositionedTextLineRun {
     /// Style for native plain-text output. Math runs leave this empty because
     /// their SVG/PDF representation is carried by paths/PDF glyph metadata.
     pub text_style: Option<TextStyle>,
+    /// Shaping features that native text output must preserve or replace with outlines.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub font_features: Vec<FontFeature>,
     /// X coordinate of the run start in the tight Typst line frame.
     pub x: f32,
     /// Baseline coordinate for plain text in the tight Typst line frame.

@@ -63,11 +63,11 @@ pub(crate) fn rasterize_path_artifact(
         ));
     };
 
-    let mut draw_items = Vec::new();
+    let mut draw_items = std::collections::HashMap::new();
     let mut draw_images = Vec::new();
     let mut bounds = RasterBounds::empty();
 
-    for item in &artifact.items {
+    for (index, item) in artifact.items.iter().enumerate() {
         if item.clip.is_some() {
             return Err(LabelError::UnsupportedOutput(
                 "clipped Typst paths are not supported in raster output yet",
@@ -97,7 +97,7 @@ pub(crate) fn rasterize_path_artifact(
         }
 
         bounds.include_rect(item_bounds);
-        draw_items.push((path, item));
+        draw_items.insert(index, (path, item));
     }
 
     for image in &artifact.images {
@@ -129,7 +129,19 @@ pub(crate) fn rasterize_path_artifact(
         "raster dimensions are too large",
     ))?;
 
-    for (path, item) in draw_items {
+    for draw in artifact.ordered_items() {
+        let index = match draw {
+            crate::typst_svg::PathDrawItem::Image(i) => {
+                if let Some(image) = artifact.images.get(i) {
+                    draw_image_item(&mut pixmap, image, scale, left_px, top_px)?;
+                }
+                continue;
+            }
+            crate::typst_svg::PathDrawItem::Path(i) => i,
+        };
+        let Some((path, item)) = draw_items.get(&index) else {
+            continue;
+        };
         let item_transform = tiny_transform_from_math_transform(item.transform);
         let draw_transform = item_transform
             .post_scale(scale, scale)
@@ -138,7 +150,7 @@ pub(crate) fn rasterize_path_artifact(
         if let Some(fill) = item.fill {
             let paint = paint_from_color(fill);
             pixmap.fill_path(
-                &path,
+                path,
                 &paint,
                 tiny_skia::FillRule::Winding,
                 draw_transform,
@@ -156,12 +168,8 @@ pub(crate) fn rasterize_path_artifact(
                 dash: stroke.dash.as_ref().and_then(tiny_dash_pattern),
                 miter_limit: stroke.miter_limit,
             };
-            pixmap.stroke_path(&path, &paint, &tiny_stroke, draw_transform, None);
+            pixmap.stroke_path(path, &paint, &tiny_stroke, draw_transform, None);
         }
-    }
-
-    for image in draw_images {
-        draw_image_item(&mut pixmap, image, scale, left_px, top_px)?;
     }
 
     Ok(RasterImage {
@@ -233,7 +241,45 @@ mod tests {
                 clip: None,
             }],
             images: Vec::new(),
+            draw_order: Vec::new(),
         }
+    }
+
+    #[test]
+    fn bitmap_glyphs_obey_path_painter_order() {
+        use crate::typst_svg::PathDrawItem;
+        let mut png_data = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_data, 8, 8);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[0, 0, 0, 255].repeat(64)).unwrap();
+        }
+        let mut artifact = horizontal_rule(4.0, None);
+        artifact.items[0].stroke.as_mut().unwrap().color = Color::rgba(1.0, 0.0, 0.0, 1.0);
+        artifact.images.push(PathImageItem {
+            data: png_data,
+            format: PathImageFormat::Png,
+            width: 8.0,
+            height: 8.0,
+            transform: Transform {
+                tx: 20.0,
+                ty: 6.0,
+                ..Transform::IDENTITY
+            },
+        });
+        let pixel = |raster: &RasterImage| {
+            let x = (24.0 - raster.origin_x) as usize;
+            let y = (10.0 - raster.origin_y) as usize;
+            raster.image.data[(y * raster.image.width as usize + x) * 4..][..4].to_vec()
+        };
+        artifact.draw_order = vec![PathDrawItem::Path(0), PathDrawItem::Image(0)];
+        let behind = rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
+        artifact.draw_order.reverse();
+        let foreground = rasterize_path_artifact(&artifact, RasterRequest { scale: 1.0 }).unwrap();
+        assert_eq!(pixel(&behind), [0, 0, 0, 255]);
+        assert_eq!(pixel(&foreground), [255, 0, 0, 255]);
     }
 
     #[test]

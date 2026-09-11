@@ -41,26 +41,33 @@ pub(crate) fn is_retained_markup_name(name: &str) -> bool {
 }
 
 pub(crate) fn named_color(name: &str) -> Option<Color> {
-    Some(match name {
-        "black" => Color::rgba(0.0, 0.0, 0.0, 1.0),
-        "white" => Color::rgba(1.0, 1.0, 1.0, 1.0),
-        "red" => Color::rgba(1.0, 0.0, 0.0, 1.0),
-        "green" => Color::rgba(0.0, 0.5, 0.0, 1.0),
-        "blue" => Color::rgba(0.0, 0.0, 1.0, 1.0),
-        "yellow" => Color::rgba(1.0, 1.0, 0.0, 1.0),
-        "orange" => Color::rgba(1.0, 0.65, 0.0, 1.0),
-        "purple" => Color::rgba(0.5, 0.0, 0.5, 1.0),
-        "maroon" => Color::rgba(0.5, 0.0, 0.0, 1.0),
-        "gray" | "grey" => Color::rgba(0.5, 0.5, 0.5, 1.0),
-        "silver" => Color::rgba(0.75, 0.75, 0.75, 1.0),
-        "teal" => Color::rgba(0.0, 0.5, 0.5, 1.0),
-        "aqua" | "cyan" => Color::rgba(0.0, 1.0, 1.0, 1.0),
-        "navy" => Color::rgba(0.0, 0.0, 0.5, 1.0),
-        "lime" => Color::rgba(0.0, 1.0, 0.0, 1.0),
-        "olive" => Color::rgba(0.5, 0.5, 0.0, 1.0),
-        "fuchsia" | "magenta" => Color::rgba(1.0, 0.0, 1.0, 1.0),
+    let rgb = match name {
+        "black" => 0x000000,
+        "white" => 0xffffff,
+        "gray" | "grey" => 0xaaaaaa,
+        "silver" => 0xdddddd,
+        "navy" => 0x001f3f,
+        "blue" => 0x0074d9,
+        "aqua" | "cyan" => 0x7fdbff,
+        "teal" => 0x39cccc,
+        "eastern" => 0x239dad,
+        "purple" => 0xb10dc9,
+        "fuchsia" | "magenta" => 0xf012be,
+        "maroon" => 0x85144b,
+        "red" => 0xff4136,
+        "orange" => 0xff851b,
+        "yellow" => 0xffdc00,
+        "olive" => 0x3d9970,
+        "green" => 0x2ecc40,
+        "lime" => 0x01ff70,
         _ => return None,
-    })
+    };
+    Some(Color::rgba(
+        ((rgb >> 16) & 255) as f32 / 255.0,
+        ((rgb >> 8) & 255) as f32 / 255.0,
+        (rgb & 255) as f32 / 255.0,
+        1.0,
+    ))
 }
 
 pub(crate) fn parse_text_markup_option(
