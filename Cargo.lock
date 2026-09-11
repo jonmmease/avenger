@@ -643,7 +643,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
- "svgtypes",
+ "svgtypes 0.15.3",
  "thiserror 2.0.12",
 ]
 
@@ -672,6 +672,30 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "avenger-svg"
+version = "0.0.8"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-image",
+ "avenger-scenegraph",
+ "avenger-text",
+ "base64",
+ "brotli",
+ "font-subset",
+ "fontdb",
+ "image",
+ "itertools 0.14.0",
+ "lyon_algorithms",
+ "lyon_path",
+ "resvg",
+ "svgtypes 0.16.1",
+ "thiserror 2.0.12",
+ "tiny-skia",
+ "usvg",
 ]
 
 [[package]]
@@ -1582,6 +1606,15 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "font-subset"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e47922b9d737f16d425c10ec7b9b9751590cf8908270b5f9647bdad960b4b979"
+dependencies = [
+ "brotli",
+]
 
 [[package]]
 name = "fontconfig-parser"
@@ -2610,6 +2643,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89234b2cc610a7dd927ebde6b41dd1a5d4214cffaef4cf1fb2195d592f92518f"
 dependencies = [
  "arrayvec",
+ "smallvec",
+]
+
+[[package]]
+name = "kurbo"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
+dependencies = [
+ "arrayvec",
+ "euclid",
+ "polycool",
  "smallvec",
 ]
 
@@ -3748,6 +3793,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
+name = "polycool"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4133,7 +4187,7 @@ dependencies = [
  "log",
  "pico-args",
  "rgb",
- "svgtypes",
+ "svgtypes 0.15.3",
  "tiny-skia",
  "usvg",
  "zune-jpeg 0.4.13",
@@ -4657,7 +4711,17 @@ version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68c7541fff44b35860c1a7a47a7cadf3e4a304c457b58f9870d9706ece028afc"
 dependencies = [
- "kurbo",
+ "kurbo 0.11.1",
+ "siphasher 1.0.3",
+]
+
+[[package]]
+name = "svgtypes"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
+dependencies = [
+ "kurbo 0.13.1",
  "siphasher 1.0.3",
 ]
 
@@ -5114,7 +5178,7 @@ dependencies = [
  "flate2",
  "fontdb",
  "imagesize",
- "kurbo",
+ "kurbo 0.11.1",
  "log",
  "pico-args",
  "roxmltree",
@@ -5122,7 +5186,7 @@ dependencies = [
  "simplecss",
  "siphasher 1.0.3",
  "strict-num",
- "svgtypes",
+ "svgtypes 0.15.3",
  "tiny-skia-path",
  "unicode-bidi",
  "unicode-script",
