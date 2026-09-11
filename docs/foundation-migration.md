@@ -57,3 +57,15 @@ cargo run --release -p wgpu-scales --bin nested_bands -- docs/images/nested-band
 ```
 
 ![Nested categorical bands with a currency guide](images/nested-bands.png)
+
+## Fill marks with patterns
+
+Set `fill_pattern` on filled marks to combine stripe or symbol layers. Layers support add, subtract, and XOR operations. Pattern coverage is clipped to the host shape and its group clip; overlapping crosshatch strokes do not accumulate opacity.
+
+Choose mark, plot, or chart anchoring. Plot anchoring requires a `PatternReferenceFrame` on the mark's group or an ancestor. The frame uses that group's local coordinates, so neighboring marks can share a stripe phase. Symbol legends accept the same pattern definitions.
+
+```sh
+cargo run --release -p avenger-wgpu --example patterns_and_text -- docs/images/patterns-and-text.png
+```
+
+![Bars with aligned stripe fills and a math label](images/patterns-and-text.png)

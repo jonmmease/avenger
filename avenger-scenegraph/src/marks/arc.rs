@@ -15,7 +15,12 @@ use lyon_path::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::mark::{default_interactive, SceneMark};
+use super::{
+    mark::{default_interactive, SceneMark},
+    pattern::{
+        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -35,6 +40,11 @@ pub struct SceneArcMark {
     pub pad_angle: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(
+        default = "default_no_fill_pattern",
+        skip_serializing_if = "is_no_fill_pattern"
+    )]
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
@@ -57,6 +67,7 @@ impl Hash for SceneArcMark {
         self.pad_angle.hash(state);
         self.corner_radius.hash(state);
         self.fill.hash(state);
+        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
         self.stroke.hash(state);
         self.stroke_width.hash(state);
         self.indices.hash(state);
@@ -98,7 +109,10 @@ impl SceneArcMark {
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
-
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -574,6 +588,7 @@ impl Default for SceneArcMark {
             pad_angle: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             indices: None,
@@ -619,6 +634,23 @@ mod tests {
             assert!(path.iter().any(|event| matches!(event, Event::Line { from, to }
                 if from.distance_to(expected_outer) < 1e-4 && to.distance_to(expected_inner) < 1e-4)));
         }
+    }
+
+    #[test]
+    fn default_fill_pattern_is_skipped_when_serializing() {
+        let value = serde_json::to_value(SceneArcMark::default()).unwrap();
+
+        assert!(value.get("fill-pattern").is_none());
+    }
+
+    #[test]
+    fn missing_fill_pattern_deserializes_as_no_overlay() {
+        let mut value = serde_json::to_value(SceneArcMark::default()).unwrap();
+        value.as_object_mut().unwrap().remove("fill-pattern");
+
+        let mark: SceneArcMark = serde_json::from_value(value).unwrap();
+
+        assert!(is_no_fill_pattern(&mark.fill_pattern));
     }
 
     #[test]
