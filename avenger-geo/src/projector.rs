@@ -14,6 +14,7 @@
 use crate::clip::antimeridian::AntimeridianPolicy;
 use crate::clip::rectangle::ClipRectangle;
 use crate::clip::Clip;
+use crate::error::AvengerGeoError;
 use crate::math::{DEGREES, RADIANS};
 use crate::raw::{ProjectionKind, RawProjection};
 use crate::resample::Resample;
@@ -294,43 +295,78 @@ impl Projection {
 
     /// Invert raw planar units back to spherical degrees where defined.
     pub fn invert_raw_units(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let raw = self.kind.raw();
-        if self.kind.is_identity() {
-            return raw.invert(x, y);
+        if !x.is_finite() || !y.is_finite() {
+            return None;
         }
-        let rotation = Rotation::from_degrees(self.rotate);
+        let raw = self.kind.raw();
         let (l, p) = raw.invert(x, y)?;
-        let (l, p) = rotation.invert(l, p);
-        Some((l * DEGREES, p * DEGREES))
+        let result = if self.kind.is_identity() {
+            (l, p)
+        } else {
+            let rotation = Rotation::from_degrees(self.rotate);
+            let (l, p) = rotation.invert(l, p);
+            (l * DEGREES, p * DEGREES)
+        };
+        (result.0.is_finite() && result.1.is_finite()).then_some(result)
     }
 
-    /// Solve scale+translate so `object`'s projected bounds fill `extent`
-    /// (d3 `fitExtent`).
+    /// Fit the projected bounds of `object` inside `extent` (d3 `fitExtent`).
+    /// The configured clip extent is ignored during fitting and retained afterward.
+    ///
+    /// # Errors
+    /// Returns an error for a non-finite or empty target rectangle, empty or
+    /// non-finite geometry bounds, or geometry with zero width and height.
+    /// On error, the projection remains unchanged. A horizontal or vertical
+    /// line can be fitted using its nonzero dimension.
     pub fn fit_extent(
         &mut self,
         extent: [[f64; 2]; 2],
         object: &dyn crate::streamable::Streamable,
-    ) {
-        let saved_clip = self.clip_extent.take();
-        self.scale = 150.0;
-        self.translate = [0.0, 0.0];
-        let projector = self.build();
-        let mut bounds = BoundsSink::default();
-        projector.stream(object, &mut bounds);
-        if let Some([[bx0, by0], [bx1, by1]]) = bounds.result() {
-            let w = extent[1][0] - extent[0][0];
-            let h = extent[1][1] - extent[0][1];
-            let k = f64::min(w / (bx1 - bx0), h / (by1 - by0));
-            let x = extent[0][0] + (w - k * (bx1 + bx0)) / 2.0;
-            let y = extent[0][1] + (h - k * (by1 + by0)) / 2.0;
-            self.scale = 150.0 * k;
-            self.translate = [x, y];
+    ) -> Result<(), AvengerGeoError> {
+        let w = extent[1][0] - extent[0][0];
+        let h = extent[1][1] - extent[0][1];
+        if !extent.iter().flatten().all(|v| v.is_finite())
+            || !w.is_finite()
+            || !h.is_finite()
+            || w <= 0.0
+            || h <= 0.0
+        {
+            return Err(AvengerGeoError::FitError(
+                "extent must be a finite, positive rectangle".into(),
+            ));
         }
-        self.clip_extent = saved_clip;
+        let mut trial = self.clone();
+        trial.clip_extent = None;
+        trial.scale = 150.0;
+        trial.translate = [0.0, 0.0];
+        let mut bounds = BoundsSink::default();
+        trial.build().stream(object, &mut bounds);
+        let [[bx0, by0], [bx1, by1]] = bounds.result().ok_or_else(|| {
+            AvengerGeoError::FitError("geometry has no finite projected bounds".into())
+        })?;
+        let k = f64::min(w / (bx1 - bx0), h / (by1 - by0));
+        let scale = 150.0 * k;
+        let x = extent[0][0] + (w - k * (bx1 + bx0)) / 2.0;
+        let y = extent[0][1] + (h - k * (by1 + by0)) / 2.0;
+        if !scale.is_finite() || scale <= 0.0 || !x.is_finite() || !y.is_finite() {
+            return Err(AvengerGeoError::FitError(
+                "geometry cannot be fitted at a finite, positive scale".into(),
+            ));
+        }
+        self.scale = scale;
+        self.translate = [x, y];
+        Ok(())
     }
 
-    /// `fit_extent` with a `[[0, 0], size]` extent (d3 `fitSize`).
-    pub fn fit_size(&mut self, size: [f64; 2], object: &dyn crate::streamable::Streamable) {
+    /// Fit inside `[[0, 0], size]` (d3 `fitSize`).
+    ///
+    /// # Errors
+    /// Returns the errors described by [`Self::fit_extent`].
+    pub fn fit_size(
+        &mut self,
+        size: [f64; 2],
+        object: &dyn crate::streamable::Streamable,
+    ) -> Result<(), AvengerGeoError> {
         self.fit_extent([[0.0, 0.0], size], object)
     }
 }
@@ -365,20 +401,34 @@ impl Projector {
     }
 
     /// Invert a display-space point back to degrees (or planar units for
-    /// identity).
+    /// identity). Returns `None` for non-finite input or output.
     pub fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
         let planar = self.transform.invert((x, y));
+        if !planar.0.is_finite() || !planar.1.is_finite() {
+            return None;
+        }
         let inv = self.raw.invert(planar.0, planar.1)?;
-        if self.identity {
-            Some(inv)
+        let result = if self.identity {
+            inv
         } else {
             let (l, p) = self.rotation.invert(inv.0, inv.1);
-            Some((l * DEGREES, p * DEGREES))
-        }
+            (l * DEGREES, p * DEGREES)
+        };
+        (result.0.is_finite() && result.1.is_finite()).then_some(result)
     }
 
     /// Stream `object` through the full pipeline into `sink`.
     pub fn stream(&self, object: &dyn crate::streamable::Streamable, sink: &mut dyn GeoStream) {
+        // A view can lie entirely outside Mercator's world square. Its
+        // intersection is empty, so do not stream an inverted rectangle.
+        if self.clip_extent.is_some_and(|e| {
+            !e.iter().flatten().all(|v| v.is_finite()) || e[0][0] >= e[1][0] || e[0][1] >= e[1][1]
+        }) {
+            return;
+        }
         if self.identity {
             let mut chain = PlanarPoints {
                 raw: self.raw.as_ref(),
@@ -475,16 +525,25 @@ pub struct BoundsSink {
     y0: f64,
     x1: f64,
     y1: f64,
+    invalid: bool,
 }
 
 impl BoundsSink {
     pub fn result(&self) -> Option<[[f64; 2]; 2]> {
-        self.x0.map(|x0| [[x0, self.y0], [self.x1, self.y1]])
+        if self.invalid {
+            None
+        } else {
+            self.x0.map(|x0| [[x0, self.y0], [self.x1, self.y1]])
+        }
     }
 }
 
 impl GeoStream for BoundsSink {
     fn point(&mut self, x: f64, y: f64, _m: Option<f64>) {
+        if !x.is_finite() || !y.is_finite() {
+            self.invalid = true;
+            return;
+        }
         match self.x0 {
             None => {
                 self.x0 = Some(x);
@@ -576,7 +635,7 @@ mod tests {
     #[test]
     fn fit_size_sphere_centers_world() {
         let mut proj = Projection::new(ProjectionKind::Equirectangular);
-        proj.fit_size([720.0, 360.0], &Sphere);
+        proj.fit_size([720.0, 360.0], &Sphere).unwrap();
         let p = proj.build();
         let (x, y) = p.project(0.0, 0.0).unwrap();
         assert!((x - 360.0).abs() < 1e-6, "x = {x}");

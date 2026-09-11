@@ -1,5 +1,5 @@
 //! Planar identity "projection" for pre-projected data (the d3
-//! `geoIdentity` analog, doc §9). Input is treated as planar x/y rather
+//! `geoIdentity` analog). Input is treated as planar x/y rather
 //! than spherical degrees; the pipeline skips spherical stages for it.
 
 use super::RawProjection;
@@ -11,10 +11,11 @@ pub struct IdentityRaw {
 
 impl RawProjection for IdentityRaw {
     fn project(&self, x: f64, y: f64) -> (f64, f64) {
-        (x, if self.reflect_y { -y } else { y })
+        // The shared affine stage flips y; cancel that flip unless requested.
+        (x, if self.reflect_y { y } else { -y })
     }
 
     fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        Some((x, if self.reflect_y { -y } else { y }))
+        Some((x, if self.reflect_y { y } else { -y }))
     }
 }

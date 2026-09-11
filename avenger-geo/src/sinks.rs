@@ -13,6 +13,7 @@ pub struct LyonPathSink {
     builder: lyon_path::path::Builder,
     fill: bool,
     started: bool,
+    in_line: bool,
     has_content: bool,
 }
 
@@ -22,6 +23,7 @@ impl LyonPathSink {
             builder: Path::builder(),
             fill: true,
             started: false,
+            in_line: false,
             has_content: false,
         }
     }
@@ -31,6 +33,7 @@ impl LyonPathSink {
             builder: Path::builder(),
             fill: false,
             started: false,
+            in_line: false,
             has_content: false,
         }
     }
@@ -49,8 +52,15 @@ impl LyonPathSink {
 
 impl GeoStream for LyonPathSink {
     fn point(&mut self, x: f64, y: f64, _m: Option<f64>) {
+        if !self.in_line {
+            return;
+        }
         let p = Point::new(x as f32, y as f32);
         if !p.x.is_finite() || !p.y.is_finite() {
+            if self.started {
+                self.builder.end(false);
+                self.started = false;
+            }
             return;
         }
         if self.started {
@@ -63,6 +73,7 @@ impl GeoStream for LyonPathSink {
     }
 
     fn line_start(&mut self) {
+        self.in_line = true;
         if self.started {
             self.builder.end(false);
             self.started = false;
@@ -70,6 +81,7 @@ impl GeoStream for LyonPathSink {
     }
 
     fn line_end(&mut self) {
+        self.in_line = false;
         if self.started {
             self.builder.end(self.fill);
             self.started = false;
@@ -82,6 +94,8 @@ impl GeoStream for LyonPathSink {
 
 /// Collects streamed lines as polylines with a `defined` mask suitable for
 /// `SceneLineMark`-style consumers: line boundaries insert a break.
+/// Isolated points are ignored. Coordinates that are not finite as `f32`
+/// break the line and are omitted from the output.
 #[derive(Debug, Default)]
 pub struct PolylineSink {
     pub x: Vec<f32>,
@@ -93,7 +107,15 @@ pub struct PolylineSink {
 
 impl GeoStream for PolylineSink {
     fn point(&mut self, x: f64, y: f64, _m: Option<f64>) {
-        if self.in_line && !self.emitted_any_in_line && !self.x.is_empty() {
+        if !self.in_line {
+            return;
+        }
+        let (x, y) = (x as f32, y as f32);
+        if !x.is_finite() || !y.is_finite() {
+            self.emitted_any_in_line = false;
+            return;
+        }
+        if !self.emitted_any_in_line && !self.x.is_empty() {
             // Break between lines: repeat the previous point as undefined.
             let px = *self.x.last().unwrap();
             let py = *self.y.last().unwrap();
@@ -101,8 +123,8 @@ impl GeoStream for PolylineSink {
             self.y.push(py);
             self.defined.push(false);
         }
-        self.x.push(x as f32);
-        self.y.push(y as f32);
+        self.x.push(x);
+        self.y.push(y);
         self.defined.push(true);
         self.emitted_any_in_line = true;
     }

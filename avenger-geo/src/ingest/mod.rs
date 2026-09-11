@@ -1,12 +1,8 @@
-//! GeoJSON → WKB ingest (doc §7).
-//!
-//! GeoJSON features become row-oriented parts: geometry as ISO WKB bytes
-//! (the `geoarrow.wkb` fallback encoding, byte-identical — tagging the
-//! Arrow field is deferred until the DataFusion upgrade, doc §7.1),
-//! lon/lat bbox side-values recomputed from coordinates, and properties as
-//! typed columns. Ring winding is normalized to the d3 spherical
-//! convention (clockwise exteriors, counter-clockwise holes in planar
-//! signed-area terms) so the clipping pipeline can trust it downstream.
+//! Parse GeoJSON into ISO WKB geometry, recomputed longitude/latitude bounds,
+//! and JSON properties. Ring winding is normalized to the d3 spherical
+//! convention: clockwise exteriors and counter-clockwise holes, measured
+//! by planar signed area. Already spherical or polar geometry should use
+//! [`crate::Streamable`] directly to preserve its authored winding.
 //!
 //! Reading back is zero-copy: [`wkb_streamer`] walks WKB bytes straight
 //! into a [`GeoStream`] via geo-traits without materializing geo-types.

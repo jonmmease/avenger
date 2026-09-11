@@ -5,7 +5,6 @@
 //! adaptive great-circle resampling, planar rectangle clipping), plus fit,
 //! graticule/sphere generators, projection blending, and geometry sinks.
 //!
-//! Design reference: `avenger-chart/docs/future-work/geo-coordinate-system.md`.
 //! Pipeline architecture ported from [d3-geo](https://github.com/d3/d3-geo)
 //! (ISC license); per-module headers note the source files.
 //!
