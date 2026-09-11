@@ -45,6 +45,13 @@ path = "../avenger-color"
 path = "../avenger-typst-label"
 features = ["raster"]
 
+[dependencies.avenger-image]
+path = "../avenger-image"
+default-features = false
+
+[dependencies.avenger-resource]
+path = "../avenger-resource"
+
 [dependencies.rayon]
 workspace = true
 optional = true

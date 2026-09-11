@@ -6,6 +6,7 @@ use crate::marks::{
     arc::SceneArcMark, area::SceneAreaMark, group::SceneGroup, image::SceneImageMark,
     line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
     symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+    warped_image::SceneWarpedImageMark,
 };
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
@@ -20,6 +21,7 @@ pub enum SceneMark {
     Rule(SceneRuleMark),
     Text(Arc<SceneTextMark>),
     Image(Arc<SceneImageMark>),
+    WarpedImage(Arc<SceneWarpedImageMark>),
     Group(SceneGroup),
 }
 
@@ -36,6 +38,7 @@ impl SceneMark {
             Self::Rule(mark) => mark.zindex,
             Self::Text(mark) => mark.zindex,
             Self::Image(mark) => mark.zindex,
+            Self::WarpedImage(mark) => mark.zindex,
             Self::Group(mark) => mark.zindex,
         }
     }
@@ -53,6 +56,7 @@ impl SceneMark {
             Self::Rule(mark) => mark.interactive,
             Self::Text(mark) => mark.interactive,
             Self::Image(mark) => mark.interactive,
+            Self::WarpedImage(mark) => mark.interactive,
             Self::Group(mark) => mark.interactive,
         }
     }
@@ -70,6 +74,7 @@ impl SceneMark {
             Self::Rule(mark) => mark.interactive = Some(interactive),
             Self::Text(mark) => Arc::make_mut(mark).interactive = Some(interactive),
             Self::Image(mark) => Arc::make_mut(mark).interactive = Some(interactive),
+            Self::WarpedImage(mark) => Arc::make_mut(mark).interactive = Some(interactive),
             Self::Group(mark) => mark.interactive = Some(interactive),
         }
     }
@@ -98,6 +103,7 @@ impl SceneMark {
             Self::Rule(..) => SceneMarkType::Rule,
             Self::Text(..) => SceneMarkType::Text,
             Self::Image(..) => SceneMarkType::Image,
+            Self::WarpedImage(..) => SceneMarkType::WarpedImage,
             Self::Group(..) => SceneMarkType::Group,
         }
     }
@@ -114,6 +120,7 @@ impl SceneMark {
             Self::Rect(mark) => &mark.name,
             Self::Rule(mark) => &mark.name,
             Self::Image(mark) => &mark.name,
+            Self::WarpedImage(mark) => &mark.name,
             Self::Group(mark) => &mark.name,
         }
     }
@@ -131,6 +138,7 @@ pub enum SceneMarkType {
     Rule,
     Text,
     Image,
+    WarpedImage,
     Group,
 }
 
