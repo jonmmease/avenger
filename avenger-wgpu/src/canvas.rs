@@ -6,10 +6,21 @@ use std::{
 use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
-        arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+        arc::SceneArcMark,
+        area::SceneAreaMark,
+        group::Clip,
+        image::SceneImageMark,
+        line::SceneLineMark,
+        mark::SceneMark,
+        path::ScenePathMark,
+        pattern::{is_no_fill_pattern, PatternReferenceFrame},
+        rect::SceneRectMark,
+        rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+        trail::SceneTrailMark,
     },
+    pattern_geometry::PatternRect,
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
@@ -145,9 +156,16 @@ pub trait Canvas {
         mark: &SceneArcMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_arc_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_arc_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -156,9 +174,16 @@ pub trait Canvas {
         mark: &ScenePathMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_path_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_path_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -189,9 +214,16 @@ pub trait Canvas {
         mark: &SceneAreaMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_area_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_area_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -200,6 +232,8 @@ pub trait Canvas {
         mark: &SceneSymbolMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
         if symbol_mark_is_instanced_eligible(mark, group_clip) {
             let effective_clip = group_clip.maybe_clip(mark.clip);
@@ -235,8 +269,13 @@ pub trait Canvas {
                 mark.y_adjustment,
             );
         } else {
-            self.get_multi_renderer()
-                .add_symbol_mark(mark, origin, group_clip)?;
+            self.get_multi_renderer().add_symbol_mark(
+                mark,
+                origin,
+                group_clip,
+                pattern_reference_frame,
+                chart_bounds,
+            )?;
         }
 
         Ok(())
@@ -247,9 +286,16 @@ pub trait Canvas {
         mark: &SceneRectMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_rect_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_rect_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -314,27 +360,58 @@ pub trait Canvas {
         text_engine: &LabelEngine,
     ) -> Result<(), AvengerWgpuError> {
         self.begin_scene(scene_graph, text_engine);
+        let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         for item in display_list.ordered_items() {
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.add_path_mark(mark, item.origin, &item.clip)?;
+                    self.add_path_mark(
+                        mark,
+                        item.origin,
+                        &item.clip,
+                        item.pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneDisplayMark::Borrowed(mark) => match mark {
                     SceneMark::Arc(mark) => {
-                        self.add_arc_mark(mark, item.origin, &item.clip)?;
+                        self.add_arc_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Symbol(mark) => {
-                        self.add_symbol_mark(mark, item.origin, &item.clip)?;
+                        self.add_symbol_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Rect(mark) => {
-                        self.add_rect_mark(mark, item.origin, &item.clip)?;
+                        self.add_rect_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Rule(mark) => {
                         self.add_rule_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Path(mark) => {
-                        self.add_path_mark(mark, item.origin, &item.clip)?;
+                        self.add_path_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Line(mark) => {
                         self.add_line_mark(mark, item.origin, &item.clip)?;
@@ -343,7 +420,13 @@ pub trait Canvas {
                         self.add_trail_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Area(mark) => {
-                        self.add_area_mark(mark, item.origin, &item.clip)?;
+                        self.add_area_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Text(mark) => {
                         self.add_text_mark(mark, item.origin, &item.clip, text_engine)?;
@@ -363,6 +446,7 @@ pub trait Canvas {
 fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) -> bool {
     mark.len >= 100
         && mark.gradients.is_empty()
+        && is_no_fill_pattern(&mark.fill_pattern)
         && matches!(group_clip, Clip::None | Clip::Rect { .. })
 }
 
@@ -777,6 +861,11 @@ impl PngCanvas {
             output_target,
             readback,
         })
+    }
+
+    /// The samples per pixel that the canvas draws with.
+    pub fn sample_count(&self) -> u32 {
+        self.renderer.sample_count()
     }
 
     #[tracing::instrument(skip_all)]

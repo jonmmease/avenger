@@ -22,6 +22,9 @@ features = [ "serialization",]
 [dependencies.lyon_algorithms]
 workspace = true
 
+[dependencies.lyon_tessellation]
+workspace = true
+
 [dependencies.pyo3]
 workspace = true
 optional = true
@@ -50,6 +53,7 @@ path = "../avenger-typst-label"
 features = ["serde"]
 
 [dev-dependencies]
+serde_json = { workspace = true }
 float-cmp = "0.10.0"
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 geo = { workspace = true }

@@ -671,10 +671,12 @@ dependencies = [
  "lyon_algorithms",
  "lyon_extra",
  "lyon_path",
+ "lyon_tessellation",
  "ordered-float",
  "pyo3",
  "rstar 0.13.0",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -757,6 +759,7 @@ dependencies = [
  "avenger-annotation",
  "avenger-color",
  "avenger-common",
+ "avenger-image",
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-vega-scenegraph",
