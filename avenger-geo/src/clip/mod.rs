@@ -90,8 +90,7 @@ pub trait LineClipper {
     fn clean(&self) -> u8;
 }
 
-/// A spherical clip policy (antimeridian today; small-circle `clip_angle`
-/// slots in here later — doc §4).
+/// A spherical clip policy. The built-in policy cuts at the antimeridian.
 pub trait ClipPolicy {
     type Line: LineClipper;
 
