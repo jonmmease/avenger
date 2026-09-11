@@ -13,6 +13,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-text",
+    "avenger-svg",
     "avenger-typst-label",
     "avenger-image",
     "avenger-eventstream",
@@ -113,3 +114,4 @@ brotli = "8.0.1"
 urlencoding = "2.1.3"
 svgtypes = "0.16.1"
 lru = "0.12.5"
+font-subset = { version = "0.1.0", features = ["woff2"] }

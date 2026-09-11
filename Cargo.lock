@@ -635,6 +635,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-svg"
+version = "0.0.8"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-image",
+ "avenger-resource",
+ "avenger-scenegraph",
+ "avenger-text",
+ "base64",
+ "brotli",
+ "font-subset",
+ "image",
+ "itertools 0.14.0",
+ "lyon_algorithms",
+ "lyon_path",
+ "resvg",
+ "thiserror 2.0.12",
+ "tiny-skia",
+ "ttf-parser",
+ "usvg",
+]
+
+[[package]]
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
@@ -1535,6 +1559,15 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "font-subset"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e47922b9d737f16d425c10ec7b9b9751590cf8908270b5f9647bdad960b4b979"
+dependencies = [
+ "brotli",
+]
 
 [[package]]
 name = "fontconfig-parser"
