@@ -35,6 +35,7 @@ pub(crate) struct DecoratedText {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TextMarkupRun {
+    pub(crate) byte_range: std::ops::Range<usize>,
     pub(crate) kind: TextMarkupKind,
     pub(crate) options: TextMarkupOptions,
 }
@@ -131,10 +132,22 @@ pub(crate) fn realize_static_markup_line(
                 let Some(kind) = supported_static_markup_kind(span.kind) else {
                     return Ok(None);
                 };
-                let Some(body) = render_static_body(&span.body, params, &mut quote_context)? else {
+                let Some(mut body) = render_static_body(&span.body, params, &mut quote_context)?
+                else {
                     return Ok(None);
                 };
                 let text = transform_static_text(kind, &body.text);
+                // Case conversion can change UTF-8 length (for example İ -> i + ◌̇).
+                // Transform the whole string for contextual casing, then map each
+                // decoration boundary by the transformed prefix length.
+                if matches!(kind, TextMarkupKind::Lower | TextMarkupKind::Upper) {
+                    for run in &mut body.nested {
+                        run.byte_range =
+                            transform_static_text(kind, &body.text[..run.byte_range.start]).len()
+                                ..transform_static_text(kind, &body.text[..run.byte_range.end])
+                                    .len();
+                    }
+                }
                 flush_plain(
                     &mut nodes,
                     &mut pending_plain,
@@ -273,12 +286,17 @@ fn render_static_body(
                 let Some(body) = render_static_body(&span.body, params, quote_context)? else {
                     return Ok(None);
                 };
+                let start = text.len();
                 text.push_str(&body.text);
                 nested.push(TextMarkupRun {
+                    byte_range: start..text.len(),
                     kind: span.kind,
                     options: span.options.clone(),
                 });
-                nested.extend(body.nested);
+                nested.extend(body.nested.into_iter().map(|mut run| {
+                    run.byte_range = start + run.byte_range.start..start + run.byte_range.end;
+                    run
+                }));
             }
             LineNode::Math(_) | LineNode::TextSpan(_) => return Ok(None),
         }
