@@ -82,6 +82,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 line_marks.push(SceneMark::Line(mark));
             }
             return Ok(SceneMark::Group(SceneGroup {
+                pattern_reference_frame: None,
                 interactive: self.interactive,
                 name: "symbol_line_legend".to_string(),
                 origin: [0.0, 0.0],

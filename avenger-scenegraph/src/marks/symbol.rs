@@ -1,16 +1,25 @@
-use super::mark::SceneMark;
-use crate::marks::mark::default_interactive;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{LinearScaleAdjustment, PathTransform, SymbolShape};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_common::{
+    types::{LinearScaleAdjustment, PathTransform, SymbolShape},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
-use lyon_path::geom::Angle;
-use lyon_path::Path;
+use lyon_path::{geom::Angle, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+
+use super::{
+    mark::{default_interactive, SceneMark},
+    pattern::{
+        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -27,6 +36,11 @@ pub struct SceneSymbolMark {
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(
+        default = "default_no_fill_pattern",
+        skip_serializing_if = "is_no_fill_pattern"
+    )]
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub size: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub angle: ScalarOrArray<f32>,
@@ -52,6 +66,7 @@ impl Hash for SceneSymbolMark {
         self.x.hash(state);
         self.y.hash(state);
         self.fill.hash(state);
+        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
         self.size.hash(state);
         self.stroke.hash(state);
         self.angle.hash(state);
@@ -107,6 +122,16 @@ impl SceneSymbolMark {
 
     pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
         self.fill.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_pattern_vec(&self) -> Vec<Option<PatternFill>> {
+        self.fill_pattern
+            .as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
@@ -196,8 +221,8 @@ impl SceneSymbolMark {
 impl Default for SceneSymbolMark {
     fn default() -> Self {
         Self {
-            interactive: true,
             name: "".to_string(),
+            interactive: true,
             clip: true,
             shapes: vec![Default::default()],
             stroke_width: None,
@@ -206,6 +231,7 @@ impl Default for SceneSymbolMark {
             y: ScalarOrArray::new_scalar(0.0),
             shape_index: ScalarOrArray::new_scalar(0),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             size: ScalarOrArray::new_scalar(20.0),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             angle: ScalarOrArray::new_scalar(0.0),
@@ -221,5 +247,27 @@ impl Default for SceneSymbolMark {
 impl From<SceneSymbolMark> for SceneMark {
     fn from(mark: SceneSymbolMark) -> Self {
         SceneMark::Symbol(mark)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_fill_pattern_is_skipped_when_serializing() {
+        let value = serde_json::to_value(SceneSymbolMark::default()).unwrap();
+
+        assert!(value.get("fill-pattern").is_none());
+    }
+
+    #[test]
+    fn missing_fill_pattern_deserializes_as_no_overlay() {
+        let mut value = serde_json::to_value(SceneSymbolMark::default()).unwrap();
+        value.as_object_mut().unwrap().remove("fill-pattern");
+
+        let mark: SceneSymbolMark = serde_json::from_value(value).unwrap();
+
+        assert!(is_no_fill_pattern(&mark.fill_pattern));
     }
 }
