@@ -4,6 +4,7 @@ use std::{
 };
 
 use avenger_common::{canvas::CanvasDimensions, time::Instant, types::LinearScaleAdjustment};
+use avenger_eventstream::runtime::{RuntimeTooltipState, RuntimeTooltipUpdate};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark,
@@ -53,6 +54,7 @@ use crate::{
     readback::TextureReadback,
     renderer::{mark_renderer_counts, AvengerRendererCore},
     target::{AvengerRenderTarget, WHITE_CLEAR},
+    tooltip::TooltipOverlayLayout,
 };
 use avenger_scenegraph::render_order::compute_zindex_layers;
 
@@ -836,6 +838,91 @@ fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) 
         && matches!(group_clip, Clip::None | Clip::Rect { .. })
 }
 
+#[cfg(test)]
+mod tests {
+    use avenger_color::{Gradient, GradientStop, LinearGradient};
+    use avenger_common::value::ScalarOrArray;
+    use avenger_scenegraph::marks::{
+        group::Clip,
+        pattern::{PatternAnchor, PatternFill, PatternLayer, StripePatternLayer},
+        symbol::SceneSymbolMark,
+    };
+
+    use super::symbol_mark_is_instanced_eligible;
+
+    fn large_symbol_mark() -> SceneSymbolMark {
+        SceneSymbolMark {
+            len: 100,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn large_symbol_mark_with_no_clip_is_instanced_eligible() {
+        assert!(symbol_mark_is_instanced_eligible(
+            &large_symbol_mark(),
+            &Clip::None
+        ));
+    }
+
+    #[test]
+    fn stroked_symbol_mark_is_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            stroke_width: Some(2.0),
+            ..large_symbol_mark()
+        };
+
+        assert!(symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+    }
+
+    #[test]
+    fn gradient_symbol_mark_is_not_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            gradients: vec![Gradient::LinearGradient(LinearGradient {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 1.0,
+                y1: 1.0,
+                stops: vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: [0.0, 0.0, 0.0, 1.0],
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: [1.0, 1.0, 1.0, 1.0],
+                    },
+                ],
+            })],
+            ..large_symbol_mark()
+        };
+
+        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+    }
+
+    #[test]
+    fn path_clipped_symbol_mark_is_not_instanced_eligible() {
+        assert!(!symbol_mark_is_instanced_eligible(
+            &large_symbol_mark(),
+            &Clip::Path(lyon::path::Path::default()),
+        ));
+    }
+
+    #[test]
+    fn patterned_symbol_mark_is_not_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            fill_pattern: ScalarOrArray::new_scalar(Some(PatternFill {
+                anchor: PatternAnchor::Mark,
+                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+                ..Default::default()
+            })),
+            ..large_symbol_mark()
+        };
+
+        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+    }
+}
+
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
@@ -951,6 +1038,9 @@ pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
     renderer: AvengerRendererCore,
     frame_overlay: Option<CanvasFrameOverlay>,
+    tooltip_state: RuntimeTooltipState,
+    tooltip_overlay: Option<TooltipOverlayLayout>,
+    tooltip_text_engine: TextEngine,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -1024,6 +1114,7 @@ impl WindowCanvas<'_> {
 
         let renderer =
             AvengerRendererCore::new(&device, dimensions, surface_format, sample_count, config);
+        let tooltip_text_engine = renderer.text_engine();
 
         Ok(Self {
             surface,
@@ -1034,6 +1125,9 @@ impl WindowCanvas<'_> {
             window,
             renderer,
             frame_overlay: None,
+            tooltip_state: RuntimeTooltipState::default(),
+            tooltip_overlay: None,
+            tooltip_text_engine,
         })
     }
 
@@ -1047,6 +1141,41 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    /// Apply a host-neutral tooltip update and request a frame when it changes.
+    pub fn set_tooltip_update(
+        &mut self,
+        update: RuntimeTooltipUpdate,
+    ) -> Result<bool, AvengerWgpuError> {
+        let changed = self.tooltip_state.apply(update.clone());
+        if !changed {
+            return Ok(false);
+        }
+        match update {
+            RuntimeTooltipUpdate::Move { owner, anchor } => {
+                if let Some(overlay) = self.tooltip_overlay.as_mut() {
+                    if overlay.presentation.owner == owner {
+                        overlay.presentation.anchor = anchor;
+                    }
+                }
+            }
+            RuntimeTooltipUpdate::Show(presentation) => {
+                self.tooltip_overlay = Some(TooltipOverlayLayout::new(
+                    presentation,
+                    &self.tooltip_text_engine,
+                ));
+            }
+            RuntimeTooltipUpdate::Hide { .. } | RuntimeTooltipUpdate::Clear => {
+                self.tooltip_overlay = None;
+            }
+        }
+        self.window.request_redraw();
+        Ok(true)
+    }
+
+    pub fn clear_tooltip(&mut self) {
+        let _ = self.set_tooltip_update(RuntimeTooltipUpdate::Clear);
     }
 
     pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
@@ -1171,6 +1300,7 @@ impl WindowCanvas<'_> {
             &self.queue,
             render_target,
             self.frame_overlay,
+            self.tooltip_overlay.as_ref(),
         )?;
 
         let command_build_elapsed = command_build_start.elapsed();
@@ -1342,6 +1472,13 @@ impl PngCanvas {
 
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
+        self.render_with_tooltip_overlay(None).await
+    }
+
+    async fn render_with_tooltip_overlay(
+        &mut self,
+        tooltip: Option<&TooltipOverlayLayout>,
+    ) -> Result<image::RgbaImage, AvengerWgpuError> {
         let render_start = Instant::now();
         self.renderer.commit_all_multi_renderers();
         let sample_count = self.renderer.sample_count();
@@ -1372,9 +1509,13 @@ impl PngCanvas {
         };
 
         let command_build_start = Instant::now();
-        let commands =
-            self.renderer
-                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
+        let commands = self.renderer.build_frame_commands(
+            &self.device,
+            &self.queue,
+            render_target,
+            None,
+            tooltip,
+        )?;
         let command_build_elapsed = command_build_start.elapsed();
         let command_count = commands.len();
 
@@ -1521,86 +1662,106 @@ impl Canvas for PngCanvas {
 }
 
 #[cfg(test)]
-mod tests {
-    use avenger_color::{Gradient, GradientStop, LinearGradient};
-    use avenger_common::value::ScalarOrArray;
-    use avenger_scenegraph::marks::{
-        group::Clip,
-        pattern::{PatternAnchor, PatternFill, PatternLayer, StripePatternLayer},
-        symbol::SceneSymbolMark,
+mod tooltip_overlay_tests {
+    use std::{fs, path::PathBuf};
+
+    use avenger_eventstream::runtime::{
+        RuntimeTooltipPresentation, RuntimeTooltipRow, RuntimeTooltipStyle,
     };
 
-    use super::symbol_mark_is_instanced_eligible;
-
-    fn large_symbol_mark() -> SceneSymbolMark {
-        SceneSymbolMark {
-            len: 100,
-            ..Default::default()
-        }
-    }
+    use super::*;
 
     #[test]
-    fn large_symbol_mark_with_no_clip_is_instanced_eligible() {
-        assert!(symbol_mark_is_instanced_eligible(
-            &large_symbol_mark(),
-            &Clip::None
-        ));
-    }
-
-    #[test]
-    fn stroked_symbol_mark_is_instanced_eligible() {
-        let mark = SceneSymbolMark {
-            stroke_width: Some(2.0),
-            ..large_symbol_mark()
+    fn tooltip_overlay_offscreen_content_baseline() {
+        let dimensions = CanvasDimensions {
+            size: [480.0, 320.0],
+            scale: 1.0,
         };
-
-        assert!(symbol_mark_is_instanced_eligible(&mark, &Clip::None));
-    }
-
-    #[test]
-    fn gradient_symbol_mark_is_not_instanced_eligible() {
-        let mark = SceneSymbolMark {
-            gradients: vec![Gradient::LinearGradient(LinearGradient {
-                x0: 0.0,
-                y0: 0.0,
-                x1: 1.0,
-                y1: 1.0,
-                stops: vec![
-                    GradientStop {
-                        offset: 0.0,
-                        color: [0.0, 0.0, 0.0, 1.0],
+        let config = CanvasConfig::default();
+        let text_engine = TextEngine::with_font_resolution(&config.font_resolution)
+            .expect("tooltip baseline text engine");
+        let style = RuntimeTooltipStyle {
+            max_width: 300.0,
+            ..RuntimeTooltipStyle::default()
+        };
+        let layout = TooltipOverlayLayout::new(
+            RuntimeTooltipPresentation {
+                owner: "baseline".into(),
+                anchor: [470.0, 310.0],
+                offset: [12.0, 12.0],
+                rows: vec![
+                    RuntimeTooltipRow {
+                        label: "Short".into(),
+                        value: "Falcon".into(),
                     },
-                    GradientStop {
-                        offset: 1.0,
-                        color: [1.0, 1.0, 1.0, 1.0],
+                    RuntimeTooltipRow {
+                        label: "Long label that truncates".into(),
+                        value: "A long value wraps without escaping the canvas boundary".into(),
+                    },
+                    RuntimeTooltipRow {
+                        label: "Unicode".into(),
+                        value: "東京 · naïve · λ".into(),
+                    },
+                    RuntimeTooltipRow {
+                        label: "Multiline".into(),
+                        value: "first line\nsecond line".into(),
+                    },
+                    RuntimeTooltipRow {
+                        label: "Null".into(),
+                        value: "—".into(),
+                    },
+                    RuntimeTooltipRow {
+                        label: "Nested".into(),
+                        value: r#"{"a":[1,true],"b":{"c":"d"}}"#.into(),
                     },
                 ],
-            })],
-            ..large_symbol_mark()
-        };
+                style,
+            },
+            &text_engine,
+        );
+        let mut canvas = pollster::block_on(PngCanvas::new(dimensions, config))
+            .expect("tooltip baseline canvas");
+        let actual = pollster::block_on(canvas.render_with_tooltip_overlay(Some(&layout)))
+            .expect("render tooltip baseline");
 
-        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
-    }
+        let baseline = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/baselines/tooltip-overlay-content.png");
+        if std::env::var_os("AVENGER_WGPU_UPDATE_BASELINES").is_some() {
+            fs::create_dir_all(baseline.parent().expect("baseline parent"))
+                .expect("create tooltip baseline directory");
+            actual.save(&baseline).expect("save tooltip baseline");
+            eprintln!("updated {}", baseline.display());
+            return;
+        }
 
-    #[test]
-    fn path_clipped_symbol_mark_is_not_instanced_eligible() {
-        assert!(!symbol_mark_is_instanced_eligible(
-            &large_symbol_mark(),
-            &Clip::Path(lyon::path::Path::default()),
-        ));
-    }
-
-    #[test]
-    fn patterned_symbol_mark_is_not_instanced_eligible() {
-        let mark = SceneSymbolMark {
-            fill_pattern: ScalarOrArray::new_scalar(Some(PatternFill {
-                anchor: PatternAnchor::Mark,
-                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
-                ..Default::default()
-            })),
-            ..large_symbol_mark()
-        };
-
-        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
+        let expected = image::open(&baseline)
+            .unwrap_or_else(|error| panic!("load {}: {error}", baseline.display()))
+            .into_rgba8();
+        assert_eq!(actual.dimensions(), expected.dimensions());
+        let total_difference = actual
+            .pixels()
+            .zip(expected.pixels())
+            .flat_map(|(actual, expected)| {
+                actual
+                    .0
+                    .into_iter()
+                    .zip(expected.0)
+                    .map(|(actual, expected)| actual.abs_diff(expected) as u64)
+            })
+            .sum::<u64>();
+        let normalized_difference = total_difference as f64
+            / (actual.width() as f64 * actual.height() as f64 * 4.0 * 255.0);
+        assert!(
+            normalized_difference < 0.01,
+            "tooltip baseline drifted by {normalized_difference:.6}"
+        );
+        assert!(
+            actual
+                .pixels()
+                .filter(|pixel| pixel.0[..3] != [255, 255, 255])
+                .count()
+                > 1_000,
+            "tooltip overlay should render visible content"
+        );
     }
 }

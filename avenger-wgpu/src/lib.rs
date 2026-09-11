@@ -7,6 +7,7 @@ pub mod offscreen;
 pub(crate) mod readback;
 pub mod renderer;
 pub mod target;
+mod tooltip;
 pub mod util;
 pub mod zindex_layers;
 

@@ -1,10 +1,9 @@
 [workspace]
 members = [
-    "avenger-resource",
-    "avenger-typst-label",
     "avenger-color",
     "avenger-format-number",
     "avenger-format-datetime",
+    "avenger-resource",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
     "avenger-wgpu",
@@ -13,6 +12,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-text",
+    "avenger-typst-label",
     "avenger-image",
     "avenger-eventstream",
     "avenger-app",
@@ -21,11 +21,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
 ]
-exclude = [
-    "tools/upstream-typst-probe",
-    "avenger-vega-test-data",
-]
-
+exclude = ["avenger-vega-test-data", "tools/upstream-typst-probe"]
 resolver = "2"
 
 [profile.dev]
@@ -75,31 +71,32 @@ lyon_algorithms = "1.0.5"
 lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+png = "0.18.1"
 lazy_static = "1.5.0"
 pyo3 = "0.25.1"
-pythonize = "0.25.0"
 tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+smol_str = "0.2.2"
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 rayon = "1.10.0"
 winit = "0.30.11"
 wgpu = "27.0.1"
-palette = "0.7.6"
+palette = { version = "0.7.6", default-features = false, features = ["approx", "libm"] }
 chrono = "0.4.41"
 chrono-tz = "0.10.3"
 geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
 rstar = { git = "https://github.com/georust/rstar.git", rev = "c1b704de7606676fbc871badfde66bf10fd10536" }
+fontdb = "0.23.0"
+rustybuzz = "0.20.1"
+ttf-parser = "0.25.1"
 geo-svg = "0.7.3"
 indexmap = { version = "2.9.0", features = ["serde"] }
-pollster = "0.4.0"
 log = "0.4.27"
 ordered-float = "5.0.0"
-tokio = { version = "*" }
+tokio = { version = "1.*", default-features = false }
 async-trait = "0.1"
-async-recursion = "1.1.1"
 arrow = { version = "58.3.0" }
-arrow-schema = { version = "*" }
 css-color-parser = "0.1.2"
 paste = "1.0.15"
 strum = { version="0.27", features = ["derive"] }
@@ -108,24 +105,10 @@ reqwest = { version = "0.12.20", default-features = false }
 cfg-if = { version = "1.0.1" }
 resvg = { version = "0.45.1" }
 usvg = { version = "0.45.1" }
-tiny-skia = { version = "0.11.4" }
-anyhow = { version = "1.0.98" }
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std"] }
 regex = { version = "1.11.1"}
 base64 = "0.22.1"
-urlencoding = "2.1.3"
-
-pixelmatch = "0.1"
-rstest = "0.25.0"
-png = "0.18.1"
-
-fontdb = "0.23.0"
-
-rustybuzz = "0.20.1"
-
-ttf-parser = "0.25.1"
-
 brotli = "8.0.1"
-
+urlencoding = "2.1.3"
 svgtypes = "0.16.1"
-
 lru = "0.12.5"

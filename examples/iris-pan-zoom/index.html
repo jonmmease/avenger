@@ -15,9 +15,10 @@
 
 <body id="wasm-example">
 <script type="module">
-    import init from "./pkg/iris.js";
+    const cacheBust = Date.now();
+    const { default: init } = await import(`./pkg/iris.js?v=${cacheBust}`);
     console.log("Loading Iris Pan Zoom WASM...");
-    init().then(() => {
+    init({ module_or_path: `./pkg/iris_bg.wasm?v=${cacheBust}` }).then(() => {
         console.log("Iris Pan Zoom WASM Loaded");
     });
 </script>

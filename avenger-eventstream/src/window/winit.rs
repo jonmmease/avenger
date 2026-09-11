@@ -1,12 +1,19 @@
-use super::*;
 use ::winit::{
     event::{
-        ElementState as WinitElementState, MouseButton as WinitMouseButton,
+        ElementState as WinitElementState, Ime as WinitIme, MouseButton as WinitMouseButton,
         MouseScrollDelta as WinitMouseScrollDelta, TouchPhase as WinitTouchPhase,
         WindowEvent as WinitEvent,
     },
     keyboard::{Key as WinitKey, NamedKey as WinitNamedKey},
 };
+
+use super::*;
+
+fn is_ime_consumed_key(key: &WinitKey) -> bool {
+    // Windows reports VK_PROCESSKEY while the IME owns the physical key. It
+    // must not also enter the editor's ordinary keybinding/text path.
+    matches!(key, WinitKey::Named(WinitNamedKey::Process))
+}
 
 impl WindowEvent {
     /// Convert a winit WindowEvent into an Avenger WindowEvent
@@ -29,6 +36,16 @@ impl WindowEvent {
             WinitEvent::CloseRequested => Some(Self::WindowCloseRequested),
 
             WinitEvent::Focused(focused) => Some(Self::WindowFocused(focused)),
+
+            WinitEvent::ModifiersChanged(modifiers) => {
+                let modifiers = modifiers.state();
+                Some(Self::ModifiersChanged(crate::scene::ModifiersState {
+                    shift: modifiers.shift_key(),
+                    control: modifiers.control_key(),
+                    alt: modifiers.alt_key(),
+                    meta: modifiers.super_key(),
+                }))
+            }
 
             WinitEvent::CursorMoved { position, .. } => {
                 Some(Self::CursorMoved(WindowCursorMoved {
@@ -70,6 +87,9 @@ impl WindowEvent {
             }
 
             WinitEvent::KeyboardInput { event, .. } => {
+                if is_ime_consumed_key(&event.logical_key) {
+                    return None;
+                }
                 Some(Self::KeyboardInput(WindowKeyboardInput {
                     state: match event.state {
                         WinitElementState::Pressed => ElementState::Pressed,
@@ -85,8 +105,19 @@ impl WindowEvent {
                         }
                         _ => return None,
                     },
+                    text: event.text,
                 }))
             }
+
+            WinitEvent::Ime(event) => Some(Self::Ime(match event {
+                WinitIme::Enabled => ImeEvent::Enabled,
+                WinitIme::Preedit(text, cursor) => ImeEvent::Preedit {
+                    text: text.into(),
+                    cursor,
+                },
+                WinitIme::Commit(text) => ImeEvent::Commit(text.into()),
+                WinitIme::Disabled => ImeEvent::Disabled,
+            })),
 
             WinitEvent::Touch(touch) => Some(Self::Touch(WindowTouch {
                 phase: match touch.phase {
@@ -165,5 +196,41 @@ impl TryFrom<WinitNamedKey> for NamedKey {
             // Return Err for unhandled keys
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn winit_ime_events_preserve_preedit_cursor_and_commit_text() {
+        assert_eq!(
+            WindowEvent::from_winit_event(
+                WinitEvent::Ime(WinitIme::Preedit("かな".to_string(), Some((3, 6)))),
+                2.0,
+            ),
+            Some(WindowEvent::Ime(ImeEvent::Preedit {
+                text: "かな".into(),
+                cursor: Some((3, 6)),
+            }))
+        );
+        assert_eq!(
+            WindowEvent::from_winit_event(
+                WinitEvent::Ime(WinitIme::Commit("仮名".to_string())),
+                2.0,
+            ),
+            Some(WindowEvent::Ime(ImeEvent::Commit("仮名".into())))
+        );
+    }
+
+    #[test]
+    fn process_key_consumed_by_windows_ime_is_filtered() {
+        assert!(is_ime_consumed_key(&WinitKey::Named(
+            WinitNamedKey::Process
+        )));
+        assert!(!is_ime_consumed_key(&WinitKey::Named(
+            WinitNamedKey::ArrowLeft
+        )));
     }
 }
