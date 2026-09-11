@@ -26,6 +26,9 @@ pub struct FontResource {
     pub postscript_name: Option<String>,
     pub face_index: u32,
     pub units_per_em: f32,
+    /// User-space OpenType variation coordinates selected for this instance.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub variations: Vec<([u8; 4], f32)>,
     #[cfg_attr(feature = "serde", serde(skip, default = "empty_font_data"))]
     pub data: Arc<[u8]>,
 }

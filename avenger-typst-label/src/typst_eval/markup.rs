@@ -1378,7 +1378,7 @@ mod tests {
         assert_eq!(span.kind, TextMarkupKind::Underline);
         assert_eq!(
             span.options.decoration.stroke.paint,
-            Some(Color::rgba(1.0, 0.0, 0.0, 1.0))
+            Some(Color::rgba(1.0, 65.0 / 255.0, 54.0 / 255.0, 1.0))
         );
         assert_eq!(
             span.options.decoration.stroke.thickness,

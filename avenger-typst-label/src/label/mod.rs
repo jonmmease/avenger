@@ -46,6 +46,7 @@ use crate::typst_render::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+pub use crate::typst_layout::frame::FontFeature;
 pub use crate::typst_library::{MathFontBytesId, TextStyle};
 pub use error::{LabelError, LabelInitError};
 pub use pdf::{
@@ -433,7 +434,6 @@ impl LabelFrame {
                 }
             }
         }
-        push_missing_aggregate_shape_items(&mut items, 0..artifact.source.len(), &artifact.paths);
 
         Self {
             size: Size {
@@ -446,37 +446,6 @@ impl LabelFrame {
     }
 }
 
-fn push_missing_aggregate_shape_items(
-    items: &mut Vec<(Point, LabelFrameItem)>,
-    byte_range: Range<usize>,
-    paths: &PathArtifact,
-) {
-    for item in &paths.items {
-        if !matches!(item.kind, PathKind::MathShape) {
-            continue;
-        }
-        if frame_contains_path_item(items, item) {
-            continue;
-        }
-        items.push((
-            Point::ZERO,
-            LabelFrameItem::Shape(ShapeItem {
-                byte_range: byte_range.clone(),
-                text_kind: None,
-                item: item.clone(),
-            }),
-        ));
-    }
-}
-
-fn frame_contains_path_item(items: &[(Point, LabelFrameItem)], path: &PathItem) -> bool {
-    items.iter().any(|(_, item)| match item {
-        LabelFrameItem::Shape(shape) => &shape.item == path,
-        LabelFrameItem::Group(group) => frame_contains_path_item(&group.items, path),
-        LabelFrameItem::Text(_) | LabelFrameItem::Image(_) => false,
-    })
-}
-
 fn push_plain_run_items(
     items: &mut Vec<(Point, LabelFrameItem)>,
     run: &PositionedTextLineRun,
@@ -484,39 +453,25 @@ fn push_plain_run_items(
     pdf_text: Option<PdfTextLayer>,
     font_resources: Vec<FontResource>,
 ) {
-    let mut foreground_shapes = Vec::new();
-    let mut images = Vec::new();
-
+    use crate::typst_svg::PathDrawItem;
+    let mut pending = Some((pdf_text, font_resources));
     if let Some(paths) = paths {
-        for item in &paths.items {
-            let shape = (
-                Point::ZERO,
-                LabelFrameItem::Shape(ShapeItem {
-                    byte_range: run.byte_range.clone(),
-                    text_kind: Some(TextItemKind::Plain),
-                    item: item.clone(),
-                }),
-            );
-            if item.fill.is_some() && item.stroke.is_none() {
-                items.push(shape);
-            } else {
-                foreground_shapes.push(shape);
+        for draw in paths.ordered_items() {
+            let glyph = match draw {
+                PathDrawItem::Path(i) => {
+                    matches!(paths.items[i].kind, PathKind::GlyphOutline { .. })
+                }
+                PathDrawItem::Image(_) => true,
+            };
+            if glyph && let Some((pdf, resources)) = pending.take() {
+                push_text_item(items, run, TextItemKind::Plain, pdf, resources);
             }
-        }
-        for image in &paths.images {
-            images.push((
-                Point::ZERO,
-                LabelFrameItem::Image(ImageItem {
-                    byte_range: run.byte_range.clone(),
-                    image: image.clone(),
-                }),
-            ));
+            push_path_draw_item(items, &run.byte_range, TextItemKind::Plain, paths, draw);
         }
     }
-
-    push_text_item(items, run, TextItemKind::Plain, pdf_text, font_resources);
-    items.extend(images);
-    items.extend(foreground_shapes);
+    if let Some((pdf, resources)) = pending {
+        push_text_item(items, run, TextItemKind::Plain, pdf, resources);
+    }
 }
 
 fn push_text_item(
@@ -535,6 +490,7 @@ fn push_text_item(
             byte_range: run.byte_range.clone(),
             is_rtl: run.is_rtl,
             style: run.text_style.clone(),
+            font_features: run.font_features.clone(),
             metrics: LabelMetrics::from(run.metrics),
             glyphs: glyphs_from_pdf_text(pdf_text.as_ref(), run.byte_range.start),
             pdf_text,
@@ -550,34 +506,44 @@ fn push_path_items(
     paths: Option<&PathArtifact>,
 ) {
     if let Some(paths) = paths {
-        for item in &paths.items {
-            items.push((
-                Point::ZERO,
-                LabelFrameItem::Shape(ShapeItem {
-                    byte_range: byte_range.clone(),
-                    text_kind: Some(text_kind),
-                    item: item.clone(),
-                }),
-            ));
-        }
-        for image in &paths.images {
-            items.push((
-                Point::ZERO,
-                LabelFrameItem::Image(ImageItem {
-                    byte_range: byte_range.clone(),
-                    image: image.clone(),
-                }),
-            ));
+        for draw in paths.ordered_items() {
+            push_path_draw_item(items, &byte_range, text_kind, paths, draw);
         }
     }
 }
 
+fn push_path_draw_item(
+    items: &mut Vec<(Point, LabelFrameItem)>,
+    range: &Range<usize>,
+    kind: TextItemKind,
+    paths: &PathArtifact,
+    draw: crate::typst_svg::PathDrawItem,
+) {
+    use crate::typst_svg::PathDrawItem;
+    let item = match draw {
+        PathDrawItem::Path(i) => LabelFrameItem::Shape(ShapeItem {
+            byte_range: range.clone(),
+            text_kind: Some(kind),
+            item: paths.items[i].clone(),
+        }),
+        PathDrawItem::Image(i) => LabelFrameItem::Image(ImageItem {
+            byte_range: range.clone(),
+            image: paths.images[i].clone(),
+        }),
+    };
+    items.push((Point::ZERO, item));
+}
+
 fn paths_for_run(run: &PositionedTextLineRun, aggregate: &PathArtifact) -> Option<PathArtifact> {
+    if let Some(paths) = &run.paths {
+        return Some(paths.clone());
+    }
     let mut paths = run.paths.clone().unwrap_or_else(|| PathArtifact {
         logical_width: run.metrics.width,
         logical_height: run.metrics.height,
         items: Vec::new(),
         images: Vec::new(),
+        draw_order: Vec::new(),
     });
 
     for item in &aggregate.items {
@@ -603,6 +569,9 @@ fn pdf_text_for_run(
     aggregate: &PdfTextLayer,
     aggregate_resources: &[FontResource],
 ) -> (Option<PdfTextLayer>, Vec<FontResource>) {
+    if run.pdf_text.is_some() {
+        return (run.pdf_text.clone(), run.font_resources.clone());
+    }
     let glyph_runs = aggregate
         .glyph_runs
         .iter()
@@ -679,12 +648,20 @@ fn command_points(command: &crate::typst_svg::PathCommand) -> Vec<(f32, f32)> {
 }
 
 fn collect_semantic_text(items: &[(Point, LabelFrameItem)], output: &mut String) {
-    for (_, item) in items {
-        match item {
-            LabelFrameItem::Text(text) => output.push_str(&text.text),
-            LabelFrameItem::Group(group) => collect_semantic_text(&group.items, output),
-            LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => {}
+    fn collect<'a>(items: &'a [(Point, LabelFrameItem)], runs: &mut Vec<(usize, &'a str)>) {
+        for (_, item) in items {
+            match item {
+                LabelFrameItem::Text(text) => runs.push((text.byte_range.start, &text.text)),
+                LabelFrameItem::Group(group) => collect(&group.items, runs),
+                _ => {}
+            }
         }
+    }
+    let mut runs = Vec::new();
+    collect(items, &mut runs);
+    runs.sort_by_key(|(start, _)| *start);
+    for (_, text) in runs {
+        output.push_str(text);
     }
 }
 
@@ -731,6 +708,9 @@ pub struct TextItem {
     #[cfg_attr(feature = "serde", serde(default))]
     pub is_rtl: bool,
     pub style: Option<TextStyle>,
+    /// OpenType features used to produce the positioned glyphs.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub font_features: Vec<FontFeature>,
     pub metrics: LabelMetrics,
     pub glyphs: Vec<Glyph>,
     pub pdf_text: Option<PdfTextLayer>,
@@ -907,6 +887,7 @@ fn frame_path_artifact(frame: &LabelFrame) -> PathArtifact {
         logical_height: frame.size.y,
         items: Vec::new(),
         images: Vec::new(),
+        draw_order: Vec::new(),
     };
     collect_frame_paths(&frame.items, &mut artifact);
     artifact
@@ -915,8 +896,18 @@ fn frame_path_artifact(frame: &LabelFrame) -> PathArtifact {
 fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut PathArtifact) {
     for (_, item) in items {
         match item {
-            LabelFrameItem::Shape(shape) => artifact.items.push(shape.item.clone()),
-            LabelFrameItem::Image(image) => artifact.images.push(image.image.clone()),
+            LabelFrameItem::Shape(shape) => {
+                artifact
+                    .draw_order
+                    .push(crate::typst_svg::PathDrawItem::Path(artifact.items.len()));
+                artifact.items.push(shape.item.clone());
+            }
+            LabelFrameItem::Image(image) => {
+                artifact
+                    .draw_order
+                    .push(crate::typst_svg::PathDrawItem::Image(artifact.images.len()));
+                artifact.images.push(image.image.clone());
+            }
             LabelFrameItem::Group(group) => collect_frame_paths(&group.items, artifact),
             LabelFrameItem::Text(_) => {}
         }

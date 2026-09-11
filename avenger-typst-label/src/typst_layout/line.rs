@@ -198,6 +198,7 @@ fn empty_line_layout_artifact(source: &str) -> LineLayoutArtifact {
         logical_height: 0.0,
         items: Vec::new(),
         images: Vec::new(),
+        draw_order: Vec::new(),
     };
     let pdf_text = PdfTextLayer {
         logical_width: 0.0,
@@ -296,8 +297,21 @@ mod tests {
             return;
         }
 
-        assert_eq!(artifact.positioned_runs.len(), 1);
-        assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
+        assert!(artifact.positioned_runs.len() >= 2);
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+            "Hello 温度"
+        );
+        assert!(
+            artifact
+                .positioned_runs
+                .iter()
+                .all(|run| run.pdf_text.is_some())
+        );
         assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
@@ -327,8 +341,21 @@ mod tests {
             return;
         }
 
-        assert_eq!(artifact.positioned_runs.len(), 1);
-        assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
+        assert!(artifact.positioned_runs.len() >= 2);
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+            "Hello 温度"
+        );
+        assert!(
+            artifact
+                .positioned_runs
+                .iter()
+                .all(|run| run.pdf_text.is_some())
+        );
         assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
@@ -540,6 +567,27 @@ mod tests {
     }
 
     #[test]
+    fn styled_plain_pdf_ranges_index_semantic_text() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        for (source, expected) in [
+            ("*Bold label*", "Bold label"),
+            ("_Italic label_", "Italic label"),
+            ("#upper[caption]", "CAPTION"),
+        ] {
+            let artifact = engine
+                .typeset_markup_line(source, &LineLayoutOptions::default())
+                .unwrap();
+            assert_eq!(artifact.pdf_text.semantic_text, expected);
+            for run in &artifact.pdf_text.glyph_runs {
+                assert_eq!(run.text, expected);
+                for glyph in &run.glyphs {
+                    assert_eq!(&run.text[glyph.text_range.clone()], glyph.unicode);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn static_smallcaps_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
@@ -562,7 +610,7 @@ mod tests {
         assert!(has_path_output(&smallcaps.paths));
         assert_eq!(
             smallcaps.pdf_text.semantic_text.as_str(),
-            "#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]"
+            "Smallcaps UNICEF"
         );
         assert!(
             smallcaps.metrics.width > 0.0,
@@ -688,12 +736,15 @@ mod tests {
     }
 
     #[test]
-    fn static_subscript_and_superscript_use_typst_engine() {
+    fn synthesized_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
         let artifact = engine
-            .typeset_markup_line("H#sub[2]O #super[\\*]", &options)
+            .typeset_markup_line(
+                "H#sub(typographic: false)[2]O #super(typographic: false)[\\*]",
+                &options,
+            )
             .unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 4);
@@ -1096,9 +1147,9 @@ mod tests {
         assert_eq!(artifact.font_resources.len(), 2);
         assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(artifact.positioned_runs.len(), 3);
-        assert!(artifact.positioned_runs[0].pdf_text.is_none());
+        assert!(artifact.positioned_runs[0].pdf_text.is_some());
         assert!(artifact.positioned_runs[1].pdf_text.is_some());
-        assert!(artifact.positioned_runs[2].pdf_text.is_none());
+        assert!(artifact.positioned_runs[2].pdf_text.is_some());
     }
 
     #[cfg(feature = "raster")]
