@@ -2,7 +2,7 @@
   "name": "geo-fixtures",
   "private": true,
   "type": "module",
-  "description": "Generates d3-geo golden fixtures for avenger-geo (see scratch/geo/phase-1-avenger-geo-engine.md)",
+  "description": "Generates d3-geo golden fixtures for avenger-geo",
   "scripts": {
     "generate": "node generate.mjs"
   },

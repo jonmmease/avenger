@@ -3,7 +3,7 @@ name = "avenger-geo"
 version = "0.1.0"
 edition = "2021"
 description = "d3-geo-style spherical projection engine: raw projections, rotation, antimeridian clipping, adaptive resampling, fit, graticules"
-license = "BSD-3-Clause"
+license = "BSD-3-Clause AND ISC AND MIT"
 
 [dependencies]
 geo-types = { workspace = true }
@@ -18,3 +18,4 @@ thiserror = { workspace = true }
 itertools = { workspace = true }
 
 [dev-dependencies]
+resvg.workspace = true

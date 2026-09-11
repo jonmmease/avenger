@@ -536,6 +536,7 @@ dependencies = [
  "geojson",
  "itertools 0.14.0",
  "lyon_path",
+ "resvg",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
