@@ -38,17 +38,20 @@ pub(crate) fn try_typeset_simple_row_fragment_with_fontdb(
         return Ok(None);
     }
 
-    let Some(font) =
-        load_default_math_font_with_fontdb(
-            config,
-            fontdb,
-            &options.style.font,
-            &options.style.font_weight,
-        )
-    else {
+    let Some(mut font) = load_default_math_font_with_fontdb(
+        config,
+        fontdb,
+        &options.style.font,
+        &options.style.font_weight,
+    ) else {
         return Ok(None);
     };
-    let Some(layout) = layout_simple_row(&font, math, options.style.font_size.max(1.0))? else {
+    font.text_fonts = Some(Arc::new(fontdb.clone()));
+    font.weight = options.style.font_weight.clone();
+    font.optical_size = options.style.font_size;
+    let Some(layout) =
+        layout_simple_row(&font, math, options.style.font_size.max(f32::MIN_POSITIVE))?
+    else {
         return Ok(None);
     };
     let paths = path_artifact_from_simple_row(&font, &layout, options.style.fill);
@@ -81,10 +84,15 @@ struct LaidOutMathAtom {
     metrics: TypesetMetrics,
     ink_ascent: f32,
     ink_descent: f32,
+    left_spacing: Option<(f32, u8)>,
+    right_spacing: Option<(f32, u8)>,
     left_class: SimpleMathClass,
     right_class: SimpleMathClass,
     italic_correction: f32,
     script_kernable: bool,
+    base_metrics: Option<(f32, f32)>,
+    accent_attachment: Option<(f32, f32)>,
+    spaced: bool,
     glyphs: Vec<LaidOutGlyph>,
     shapes: Vec<LaidOutShape>,
     draw_order: Vec<LaidOutDrawItem>,
@@ -99,6 +107,8 @@ struct LaidOutGlyph {
     x_advance: f32,
     font_size: f32,
     pdf_run_group: Option<usize>,
+    font: Option<crate::typst_layout::inline::font::TextFace>,
+    text_range: Option<(Arc<str>, std::ops::Range<usize>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,31 +187,63 @@ enum SimpleMathClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MathLayoutSize {
-    Display,
-    Text,
-    Script,
-    ScriptScript,
+struct MathLayoutSize {
+    level: u8,
+    display: bool,
+    cramped: bool,
 }
 
+#[allow(non_upper_case_globals)]
 impl MathLayoutSize {
+    const Display: Self = Self {
+        level: 0,
+        display: true,
+        cramped: false,
+    };
+    const Text: Self = Self {
+        level: 0,
+        display: false,
+        cramped: false,
+    };
+    const Script: Self = Self {
+        level: 1,
+        display: false,
+        cramped: false,
+    };
+    const ScriptScript: Self = Self {
+        level: 2,
+        display: false,
+        cramped: false,
+    };
+
+    fn cramped(self) -> Self {
+        Self {
+            cramped: true,
+            ..self
+        }
+    }
+
     fn fraction_child(self) -> Self {
-        match self {
-            Self::Display => Self::Text,
-            Self::Text => Self::Script,
-            Self::Script | Self::ScriptScript => Self::ScriptScript,
+        if self.display {
+            Self {
+                display: false,
+                ..self
+            }
+        } else {
+            self.script_child()
         }
     }
 
     fn script_child(self) -> Self {
-        match self {
-            Self::Display | Self::Text => Self::Script,
-            Self::Script | Self::ScriptScript => Self::ScriptScript,
+        Self {
+            level: (self.level + 1).min(2),
+            display: false,
+            ..self
         }
     }
 
     fn is_display(self) -> bool {
-        self == Self::Display
+        self.display
     }
 
     fn child_context(
@@ -211,20 +253,33 @@ impl MathLayoutSize {
         font_size: f32,
         script_level: u8,
     ) -> Result<(f32, u8, Self), LabelError> {
-        let reduce = matches!(
-            (self, child),
-            (Self::Text, Self::Script)
-                | (Self::Script, Self::ScriptScript)
-                | (Self::Display, Self::Script)
-        );
-        if reduce {
-            Ok((
-                script_font_size(font, font_size, script_level)?,
-                script_level + 1,
-                child,
-            ))
-        } else {
-            Ok((font_size, script_level, child))
-        }
+        // Math size commands are absolute categories. Recover the equation's
+        // root size before selecting a category, including when growing again.
+        let root_size = font_size / math_size_scale(font, script_level)?;
+        Ok((
+            root_size * math_size_scale(font, child.level)?,
+            child.level,
+            child,
+        ))
     }
+}
+
+fn math_size_scale(font: &MathFont, level: u8) -> Result<f32, LabelError> {
+    let face = parse_math_face(font, "math size constants")?;
+    let constants = face.tables().math.and_then(|math| math.constants);
+    Ok(match level {
+        0 => 1.0,
+        1 => {
+            constants
+                .map_or(70, |c| c.script_percent_scale_down())
+                .max(1) as f32
+                / 100.0
+        }
+        _ => {
+            constants
+                .map_or(50, |c| c.script_script_percent_scale_down())
+                .max(1) as f32
+                / 100.0
+        }
+    })
 }

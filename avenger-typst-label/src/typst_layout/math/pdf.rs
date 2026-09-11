@@ -4,22 +4,22 @@ fn pdf_text_from_simple_row(
     source: &str,
     fill: crate::typst_library::Color,
 ) -> Result<PdfArtifact, LabelError> {
-    let face =
-        ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
-            start: 0,
-            end: source.len(),
-            message: "failed to parse Typst math font for PDF glyph output".to_string(),
-        })?;
+    let face = font.parsed_face().map_err(|_| LabelError::Engine {
+        start: 0,
+        end: source.len(),
+        message: "failed to parse Typst math font for PDF glyph output".to_string(),
+    })?;
     let font_id = FontResourceId(0);
-    let font_resources = vec![FontResource {
+    let mut font_resources = vec![FontResource {
         id: font_id,
         family: font_name(&face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
             .or_else(|| font_name(&face, ttf_parser::name_id::FAMILY))
             .unwrap_or_else(|| "Unknown".to_string()),
         postscript_name: font_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME),
         face_index: font.face_index,
+        variations: font.variation_coordinates(),
         units_per_em: face.units_per_em() as f32,
-        data: Arc::<[u8]>::from(font.data.clone()),
+        data: font.data.clone(),
     }];
 
     let mut glyph_runs = Vec::new();
@@ -27,6 +27,23 @@ fn pdf_text_from_simple_row(
         let mut index = 0;
         while index < atom.glyphs.len() {
             let glyph = &atom.glyphs[index];
+            let font_id = if let Some(face) = &glyph.font {
+                let mut resource = face.font_resource(FontResourceId(0));
+                if let Some(existing) = font_resources.iter().find(|f| {
+                    f.data == resource.data
+                        && f.face_index == resource.face_index
+                        && f.variations == resource.variations
+                }) {
+                    existing.id
+                } else {
+                    resource.id = FontResourceId(font_resources.len() as u32);
+                    let id = resource.id;
+                    font_resources.push(resource);
+                    id
+                }
+            } else {
+                font_id
+            };
             if let Some(group) = glyph.pdf_run_group {
                 let start = index;
                 index += 1;
@@ -76,10 +93,19 @@ fn push_pdf_glyph_run(
 ) {
     let mut text = String::new();
     let mut glyph_text_ranges = Vec::with_capacity(glyphs.len());
-    for glyph in glyphs {
-        let start = text.len();
-        text.push_str(&glyph.unicode);
-        glyph_text_ranges.push(start..text.len());
+    if let Some((source, _)) = glyphs.first().and_then(|g| g.text_range.as_ref()) {
+        text.push_str(source);
+        glyph_text_ranges.extend(glyphs.iter().map(|g| {
+            g.text_range
+                .as_ref()
+                .map_or(0..0, |(_, range)| range.clone())
+        }));
+    } else {
+        for glyph in glyphs {
+            let start = text.len();
+            text.push_str(&glyph.unicode);
+            glyph_text_ranges.push(start..text.len());
+        }
     }
 
     glyph_runs.push(PdfGlyphRun {

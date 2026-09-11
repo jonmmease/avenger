@@ -3,12 +3,13 @@ fn path_artifact_from_simple_row(
     layout: &SimpleRowLayout,
     fill: crate::typst_library::Color,
 ) -> PathArtifact {
-    let Ok(face) = ttf_parser::Face::parse(&font.data, font.face_index) else {
+    let Ok(face) = font.parsed_face() else {
         return PathArtifact {
             logical_width: layout.metrics.width,
             logical_height: layout.metrics.height,
             items: Vec::new(),
             images: Vec::new(),
+            draw_order: Vec::new(),
         };
     };
     let mut items = Vec::new();
@@ -21,13 +22,11 @@ fn path_artifact_from_simple_row(
                     let Some(glyph) = atom.glyphs.get(index) else {
                         continue;
                     };
-                    let path = outline_glyph_path(
-                        &face,
-                        glyph.glyph_id,
-                        glyph.font_size,
-                        glyph.x,
-                        glyph.y,
-                    );
+                    let path = if let Some(font) = &glyph.font {
+                        font.outline_glyph_path(glyph.glyph_id, glyph.font_size, glyph.x, glyph.y)
+                    } else {
+                        outline_glyph_path(&face, glyph.glyph_id, glyph.font_size, glyph.x, glyph.y)
+                    };
                     if !path.commands.is_empty() {
                         items.push(PathItem {
                             path,
@@ -76,5 +75,6 @@ fn path_artifact_from_simple_row(
         logical_height: layout.metrics.height,
         items,
         images: Vec::new(),
+        draw_order: Vec::new(),
     }
 }

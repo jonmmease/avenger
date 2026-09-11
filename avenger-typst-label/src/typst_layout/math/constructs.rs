@@ -92,7 +92,10 @@ fn layout_simple_cancel(
     Ok(Some(body))
 }
 
-#[allow(clippy::too_many_arguments, reason = "Keep the explicit inputs of the existing layout and rendering pipeline.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
 fn push_cancel_line(
     body: &mut LaidOutMathAtom,
     width: f32,
@@ -137,73 +140,149 @@ fn layout_simple_accent(
     script_level: u8,
     math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let base_nodes = if accent.dotless {
-        dotless_accent_base_nodes(&accent.base)
+    let top = !is_bottom_math_accent(accent.accent);
+    let base_font = if top && accent.dotless {
+        font.with_feature(b"dtls")
     } else {
-        accent.base.clone()
+        font.clone()
     };
-    let Some(mut base) = layout_simple_nodes_as_atom_with_context(
-        font,
-        &base_nodes,
+    let Some(base) = layout_simple_nodes_as_atom_with_context(
+        &base_font,
+        &accent.base,
         font_size,
         script_level,
         None,
-        math_size,
+        if top { math_size.cramped() } else { math_size },
     )?
     else {
         return Ok(None);
     };
-    let width = base.metrics.width;
-    let height = base.metrics.height;
-    let baseline = base.metrics.baseline;
-    let mut accent_atom = layout_accent_atom(font, accent.accent, font_size, script_level)?;
-    let accent_target_width = resolve_relative_math_size(accent.size, width, font_size).max(0.0);
-    let _ = stretch_single_glyph_variant(
+    let target = resolve_relative_math_size(accent.size, base.metrics.width, font_size).max(0.0);
+    compose_math_accent(
         font,
-        &mut accent_atom,
-        MathStretchAxis::Horizontal,
-        accent_target_width,
+        base,
+        accent.accent,
+        top,
+        target,
         ACCENT_SHORT_FALL_EM * font_size,
         false,
-        "math accent stretch variants",
-    )?;
-    let base_attach = atom_top_accent_attachment(font, &base)?;
-    let accent_attach = atom_top_accent_attachment(font, &accent_atom)?;
-    let accent_x = base_attach - accent_attach;
-    let accent_y = baseline - accent_atom.metrics.baseline;
-    let output_height = if is_bottom_math_accent(accent.accent) {
-        height.max(accent_y + accent_atom.metrics.height)
+        font_size,
+        script_level,
+    )
+    .map(Some)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_math_accent(
+    font: &MathFont,
+    mut base: LaidOutMathAtom,
+    accent: char,
+    top: bool,
+    target: f32,
+    short_fall: f32,
+    exact_width: bool,
+    font_size: f32,
+    script_level: u8,
+) -> Result<LaidOutMathAtom, LabelError> {
+    let flatten_height =
+        math_constant(font, font_size, |c| c.flattened_accent_base_height().value)?;
+    let accent_font = if top && base.metrics.ascent > flatten_height {
+        font.with_feature(b"flac")
     } else {
-        height
+        font.clone()
     };
-
-    offset_atom(&mut base, 0.0, 0.0);
-    offset_atom(&mut accent_atom, accent_x, accent_y);
-
-    let mut glyphs = Vec::new();
-    let mut shapes = Vec::new();
-    let mut draw_order = Vec::new();
-    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
-    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, accent_atom);
-
-    Ok(Some(LaidOutMathAtom {
-        metrics: TypesetMetrics {
-            width,
-            height: output_height,
-            baseline,
-            ascent: baseline,
-            descent: output_height - baseline,
-        },
-        ink_ascent: baseline,
-        ink_descent: output_height - baseline,
-        left_class: SimpleMathClass::Alphabetic,
-        right_class: SimpleMathClass::Alphabetic,
-        italic_correction: 0.0,
-        script_kernable: false,
-        glyphs,
-        shapes,
-        draw_order,
-    }))
+    let mut ornament = layout_accent_atom(&accent_font, accent, font_size, script_level)?;
+    // Some flattened/script alternates lack constructions. Retry the original
+    // glyph before accepting an accent too narrow for its base.
+    if stretch_single_glyph_variant(
+        font,
+        &mut ornament,
+        MathStretchAxis::Horizontal,
+        target,
+        short_fall,
+        false,
+        "math accent variants",
+    )?
+    .is_none()
+        && ornament.metrics.width < target - short_fall
+    {
+        ornament = layout_accent_atom(font, accent, font_size, 0)?;
+        stretch_single_glyph_variant(
+            font,
+            &mut ornament,
+            MathStretchAxis::Horizontal,
+            target,
+            short_fall,
+            false,
+            "math accent variants",
+        )?;
+    }
+    let base_attach = (
+        atom_top_accent_attachment(font, &base)?,
+        base.accent_attachment.map_or(
+            (base.metrics.width - base.italic_correction) / 2.0,
+            |(_, bottom)| bottom,
+        ),
+    );
+    let attach = if top { base_attach.0 } else { base_attach.1 };
+    let ornament_attach = atom_top_accent_attachment(font, &ornament)?;
+    let base_x = if exact_width {
+        (ornament_attach - attach).max(0.0)
+    } else {
+        0.0
+    };
+    let ornament_x = base_x + attach - ornament_attach;
+    let width = if exact_width {
+        (base_x + base.metrics.width).max(ornament_x + ornament.metrics.width)
+    } else {
+        base.metrics.width
+    };
+    let (base_y, ornament_y, height) = if top {
+        let accent_base = math_constant(font, font_size, |c| c.accent_base_height().value)?;
+        let gap = -ornament.metrics.descent - base.metrics.ascent.min(accent_base);
+        let base_y = ornament.metrics.height + gap;
+        (base_y, 0.0, base_y + base.metrics.height)
+    } else {
+        let ornament_y = base.metrics.height - ornament.metrics.ascent;
+        (0.0, ornament_y, ornament_y + ornament.metrics.height)
+    };
+    let baseline = base_y + base.metrics.ascent;
+    let mut result = base.clone();
+    result.metrics = TypesetMetrics {
+        width,
+        height,
+        baseline,
+        ascent: baseline,
+        descent: height - baseline,
+    };
+    result.ink_ascent = baseline;
+    result.ink_descent = height - baseline;
+    if exact_width {
+        result.base_metrics = Some(
+            base.base_metrics
+                .unwrap_or((base.metrics.ascent, base.metrics.descent)),
+        );
+    }
+    result.accent_attachment = Some((base_attach.0 + base_x, base_attach.1 + base_x));
+    result.script_kernable = false;
+    result.glyphs.clear();
+    result.shapes.clear();
+    result.draw_order.clear();
+    offset_atom(&mut base, base_x, base_y);
+    offset_atom(&mut ornament, ornament_x, ornament_y);
+    append_atom_items(
+        &mut result.glyphs,
+        &mut result.shapes,
+        &mut result.draw_order,
+        base,
+    );
+    append_atom_items(
+        &mut result.glyphs,
+        &mut result.shapes,
+        &mut result.draw_order,
+        ornament,
+    );
+    Ok(result)
 }
 
 fn is_bottom_math_accent(accent: char) -> bool {
@@ -226,47 +305,6 @@ fn is_bottom_math_accent(accent: char) -> bool {
     )
 }
 
-fn dotless_accent_base_nodes(nodes: &[MathNode]) -> Vec<MathNode> {
-    if nodes.len() != 1 {
-        return nodes.to_vec();
-    }
-    match &nodes[0] {
-        MathNode::Identifier(identifier) if identifier.symbol.is_none() => {
-            dotless_char(&identifier.name).map_or_else(
-                || nodes.to_vec(),
-                |text| {
-                    vec![MathNode::Identifier(ast::MathIdentifier {
-                        name: text.to_string(),
-                        symbol: None,
-                        byte_range: identifier.byte_range.clone(),
-                    })]
-                },
-            )
-        }
-        MathNode::Text(text) if matches!(text.kind, MathTextKind::Grapheme) => {
-            dotless_char(&text.text).map_or_else(
-                || nodes.to_vec(),
-                |dotless| {
-                    vec![MathNode::Text(ast::MathText {
-                        text: dotless.to_string(),
-                        kind: text.kind,
-                        byte_range: text.byte_range.clone(),
-                    })]
-                },
-            )
-        }
-        _ => nodes.to_vec(),
-    }
-}
-
-fn dotless_char(text: &str) -> Option<char> {
-    match text {
-        "i" => Some('ı'),
-        "j" => Some('ȷ'),
-        _ => None,
-    }
-}
-
 fn layout_simple_radical(
     font: &MathFont,
     radicand_nodes: &[MathNode],
@@ -281,7 +319,7 @@ fn layout_simple_radical(
         font_size,
         script_level,
         None,
-        math_size,
+        math_size.cramped(),
     )?
     else {
         return Ok(None);
@@ -318,9 +356,13 @@ fn layout_simple_radical(
     })?;
     let index = index_nodes
         .map(|nodes| {
-            let script_size = script_font_size(font, font_size, script_level)?;
-            let script_script_size = script_font_size(font, script_size, script_level + 1)?;
-            layout_simple_nodes_as_atom(font, nodes, script_script_size, script_level + 2)
+            let (size, level, context) = math_size.child_context(
+                MathLayoutSize::ScriptScript.cramped(),
+                font,
+                font_size,
+                script_level,
+            )?;
+            layout_simple_nodes_as_atom_with_context(font, nodes, size, level, None, context)
         })
         .transpose()?
         .flatten();
@@ -329,6 +371,15 @@ fn layout_simple_radical(
     }
 
     let radicand_height = radicand.ink_ascent + radicand.ink_descent;
+    stretch_single_glyph_variant(
+        font,
+        &mut sqrt,
+        MathStretchAxis::Vertical,
+        radicand_height + thickness + gap,
+        0.0,
+        false,
+        "radical variants",
+    )?;
     let sqrt_height = sqrt.ink_ascent + sqrt.ink_descent;
     gap = gap.max((sqrt_height - thickness - radicand_height + gap) / 2.0);
 

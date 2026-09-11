@@ -5,8 +5,20 @@ fn layout_simple_row(
     math: &MathAst,
     font_size: f32,
 ) -> Result<Option<SimpleRowLayout>, LabelError> {
-    let Some(atom) = layout_simple_nodes_as_atom(font, &math.nodes, font_size, 0)? else {
+    let Some(mut atom) = layout_simple_nodes_as_atom(font, &math.nodes, font_size, 0)? else {
         return Ok(None);
+    };
+    let ascent = font_cap_height(font, font_size)?
+        .max(atom.metrics.ascent - INLINE_MATH_LEADING_SLACK_EM * font_size);
+    let descent = (atom.metrics.descent - INLINE_MATH_LEADING_SLACK_EM * font_size).max(0.0);
+    let dy = ascent - atom.metrics.baseline;
+    offset_atom(&mut atom, 0.0, dy);
+    atom.metrics = TypesetMetrics {
+        width: atom.metrics.width,
+        height: ascent + descent,
+        baseline: ascent,
+        ascent,
+        descent,
     };
     Ok(Some(SimpleRowLayout {
         metrics: atom.metrics,
@@ -53,12 +65,12 @@ fn layout_simple_nodes_as_atom_with_context(
     while index < nodes.len() {
         let node = &nodes[index];
         match node {
-            MathNode::Space(_) => {}
+            MathNode::Space(_) => items.push(RowLayoutItem::Space),
             MathNode::Spacing(spacing) => {
                 items.push(RowLayoutItem::Spacing(spacing.clone()));
             }
             _ => {
-                let (atom, consumed) =
+                let (mut atom, consumed) =
                     if let (MathNode::Attach(attach), Some(MathNode::Group(group))) =
                         (node, nodes.get(index + 1))
                     {
@@ -103,6 +115,8 @@ fn layout_simple_nodes_as_atom_with_context(
                         };
                         (atom, 1)
                     };
+                atom.left_spacing.get_or_insert((font_size, script_level));
+                atom.right_spacing.get_or_insert((font_size, script_level));
                 items.push(RowLayoutItem::Atom(atom));
                 index += consumed;
                 continue;
@@ -125,12 +139,20 @@ fn layout_simple_nodes_as_atom_with_context(
     let mut laid_out_atoms = Vec::new();
     let mut previous = None;
     let mut has_material = false;
+    let mut pending_space = false;
+    let mut previous_spaced = false;
+    let mut row_left_spacing = None;
+    let mut row_right_spacing = None;
     let mut row_left_class = None;
     let mut row_right_class = None;
 
     let mut items = items.into_iter().peekable();
     while let Some(item) = items.next() {
         match item {
+            RowLayoutItem::Space => {
+                pending_space = has_material;
+                continue;
+            }
             RowLayoutItem::Spacing(spacing) => {
                 let next_class = items.peek().and_then(RowLayoutItem::left_class);
                 if spacing.weak
@@ -145,26 +167,65 @@ fn layout_simple_nodes_as_atom_with_context(
                 }
                 metrics.width += spacing.kind.em_width() * font_size;
                 previous = None;
+                pending_space = false;
                 has_material = true;
                 continue;
             }
             RowLayoutItem::Atom(mut atom) => {
                 let left_class = resolved_left_class(previous, atom.left_class);
                 if let Some(previous) = previous {
-                    metrics.width +=
-                        math_spacing_for_level(previous, left_class, font_size, script_level);
+                    let automatic = math_spacing_for_items(
+                        previous,
+                        left_class,
+                        row_right_spacing.unwrap_or((font_size, script_level)),
+                        atom.left_spacing.unwrap_or((font_size, script_level)),
+                    );
+                    let visible = pending_space
+                        && (previous_spaced || atom.spaced)
+                        && !matches!(
+                            previous,
+                            SimpleMathClass::Opening
+                                | SimpleMathClass::Binary
+                                | SimpleMathClass::Relation
+                                | SimpleMathClass::Large
+                                | SimpleMathClass::Punctuation
+                        )
+                        && !matches!(
+                            left_class,
+                            SimpleMathClass::Closing
+                                | SimpleMathClass::Binary
+                                | SimpleMathClass::Relation
+                                | SimpleMathClass::Large
+                                | SimpleMathClass::Punctuation
+                        );
+                    metrics.width += if visible {
+                        let face = parse_math_face(font, "math word space")?;
+                        face.glyph_index(' ')
+                            .and_then(|id| face.glyph_hor_advance(id))
+                            .unwrap_or(250) as f32
+                            * font_size
+                            / face.units_per_em() as f32
+                    } else {
+                        automatic
+                    };
                 }
                 if atom.left_class == atom.right_class {
                     atom.right_class = left_class;
                 }
                 atom.left_class = left_class;
                 row_left_class.get_or_insert(atom.left_class);
+                if row_left_spacing.is_none() {
+                    row_left_spacing = atom.left_spacing;
+                }
+                row_right_spacing = atom.right_spacing;
                 offset_atom(&mut atom, metrics.width, 0.0);
                 metrics.width += atom.metrics.width;
                 metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
                 metrics.descent = metrics.descent.max(atom.metrics.descent);
                 metrics.height = metrics.ascent + metrics.descent;
                 metrics.baseline = metrics.ascent;
+                pending_space = false;
+                previous_spaced = atom.spaced;
                 previous = Some(atom.right_class);
                 row_right_class = Some(atom.right_class);
                 has_material = true;
@@ -173,6 +234,11 @@ fn layout_simple_nodes_as_atom_with_context(
         }
     }
 
+    if laid_out_atoms.len() == 1 {
+        let mut atom = laid_out_atoms.remove(0);
+        atom.metrics.width = metrics.width;
+        return Ok(Some(atom));
+    }
     let ink_ascent = laid_out_atoms
         .iter()
         .map(|atom| atom.ink_ascent)
@@ -184,7 +250,9 @@ fn layout_simple_nodes_as_atom_with_context(
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
-    for atom in laid_out_atoms {
+    for mut atom in laid_out_atoms {
+        let dy = metrics.baseline - atom.metrics.baseline;
+        offset_atom(&mut atom, 0.0, dy);
         append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, atom);
     }
 
@@ -192,10 +260,15 @@ fn layout_simple_nodes_as_atom_with_context(
         metrics,
         ink_ascent,
         ink_descent,
+        left_spacing: row_left_spacing,
+        right_spacing: row_right_spacing,
         left_class: row_left_class.unwrap_or(SimpleMathClass::Normal),
         right_class: row_right_class.unwrap_or(SimpleMathClass::Normal),
         italic_correction: 0.0,
         script_kernable: true,
+        base_metrics: Some((metrics.ascent, metrics.descent)),
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -205,13 +278,14 @@ fn layout_simple_nodes_as_atom_with_context(
 enum RowLayoutItem {
     Atom(LaidOutMathAtom),
     Spacing(MathSpacing),
+    Space,
 }
 
 impl RowLayoutItem {
     fn left_class(&self) -> Option<SimpleMathClass> {
         match self {
             Self::Atom(atom) => Some(atom.left_class),
-            Self::Spacing(_) => None,
+            Self::Spacing(_) | Self::Space => None,
         }
     }
 }
@@ -261,6 +335,9 @@ fn layout_simple_node_with_mid_target(
     mid_target_height: Option<f32>,
     math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    if let MathNode::StringLiteral(string) = node {
+        return layout_math_text(font, &string.text, font_size).map(Some);
+    }
     if let Some(atom) = simple_atom(node) {
         let mut layout = if atom.text_operator {
             layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
@@ -325,7 +402,7 @@ fn layout_simple_node_with_mid_target(
             return layout_simple_class_call(font, call, font_size, script_level, math_size);
         }
         if let Some(size) = MathSizeCall::from_name(&call.name) {
-            return layout_simple_size_call(font, call, size, font_size, script_level);
+            return layout_simple_size_call(font, call, size, font_size, script_level, math_size);
         }
         if let Some(position) = MathLineCall::from_name(&call.name) {
             return layout_simple_line_call(
@@ -453,27 +530,19 @@ fn layout_simple_size_call(
     size: MathSizeCall,
     font_size: f32,
     script_level: u8,
+    parent_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    let (font_size, script_level, math_size) = match size {
-        MathSizeCall::Display => (font_size, script_level, MathLayoutSize::Display),
-        MathSizeCall::Inline => (font_size, script_level, MathLayoutSize::Text),
-        MathSizeCall::Script => (
-            script_font_size(font, font_size, script_level)?,
-            script_level + 1,
-            MathLayoutSize::Script,
-        ),
-        MathSizeCall::ScriptScript => {
-            let script_size = script_font_size(font, font_size, script_level)?;
-            (
-                script_font_size(font, script_size, script_level + 1)?,
-                script_level + 2,
-                MathLayoutSize::ScriptScript,
-            )
-        }
+    let math_size = match size {
+        MathSizeCall::Display => MathLayoutSize::Display,
+        MathSizeCall::Inline => MathLayoutSize::Text,
+        MathSizeCall::Script => MathLayoutSize::Script,
+        MathSizeCall::ScriptScript => MathLayoutSize::ScriptScript,
     };
+    let (font_size, script_level, math_size) =
+        parent_size.child_context(math_size, font, font_size, script_level)?;
     layout_simple_nodes_as_atom_with_context(
         font,
         &arg.nodes,

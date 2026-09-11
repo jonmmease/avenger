@@ -169,7 +169,7 @@ fn layout_simple_attach(
         return Ok(None);
     }
 
-    layout_simple_attach_parts(font, font_size, base, slots, mode)
+    layout_simple_attach_parts(font, font_size, base, slots, mode, math_size.cramped)
 }
 
 fn layout_simple_attach_with_bottom_continuation(
@@ -215,14 +215,14 @@ fn layout_simple_attach_with_bottom_continuation(
         script_font_size,
         script_level,
         None,
-        script_math_size,
+        script_math_size.cramped(),
     )?;
     if attach_slots_missing_requested(attach, &slots) || bottom.is_none() {
         return Ok(None);
     }
     slots.bottom = bottom;
 
-    layout_simple_attach_parts(font, font_size, base, slots, mode)
+    layout_simple_attach_parts(font, font_size, base, slots, mode, math_size.cramped)
 }
 
 fn is_identifier_subscript_group_continuation(
@@ -265,7 +265,7 @@ fn layout_attach_slots(
             attach.bottom.as_deref(),
             font_size,
             script_level,
-            math_size,
+            math_size.cramped(),
         )?,
         top_left: layout_script_nodes(
             font,
@@ -286,14 +286,14 @@ fn layout_attach_slots(
             attach.bottom_left.as_deref(),
             font_size,
             script_level,
-            math_size,
+            math_size.cramped(),
         )?,
         bottom_right: layout_script_nodes(
             font,
             attach.bottom_right.as_deref(),
             font_size,
             script_level,
-            math_size,
+            math_size.cramped(),
         )?,
     })
 }
@@ -321,15 +321,30 @@ fn layout_prime_slot(
     if primes == 0 {
         return Ok(None);
     }
-    let text = PRIME_CHAR.to_string().repeat(primes);
-    layout_styled_atom_with_class(
+    let prime = layout_styled_atom_with_class(
         font,
-        &text,
+        &PRIME_CHAR.to_string(),
         font_size,
         script_style_feature(script_level),
         SimpleMathClass::Normal,
-    )
-    .map(Some)
+    )?;
+    let advance = prime.metrics.width;
+    let mut result = prime.clone();
+    result.glyphs.clear();
+    result.draw_order.clear();
+    for index in 0..primes {
+        let mut part = prime.clone();
+        offset_atom(&mut part, index as f32 * advance / 2.0, 0.0);
+        append_atom_items(
+            &mut result.glyphs,
+            &mut result.shapes,
+            &mut result.draw_order,
+            part,
+        );
+    }
+    result.metrics.width = advance * (primes + 1) as f32 / 2.0;
+    result.script_kernable = false;
+    Ok(Some(result))
 }
 
 fn layout_script_nodes(
@@ -363,13 +378,14 @@ fn layout_simple_attach_parts(
     base: LaidOutMathAtom,
     slots: LaidOutAttachSlots,
     mode: MathAttachmentMode,
+    cramped: bool,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     match mode {
         MathAttachmentMode::Scripts | MathAttachmentMode::DisplayLimits => {
-            layout_simple_script_attach_parts(font, font_size, base, slots)
+            layout_simple_script_attach_parts(font, font_size, base, slots, cramped)
         }
         MathAttachmentMode::Limits => {
-            layout_simple_limit_attach_parts(font, font_size, base, slots)
+            layout_simple_limit_attach_parts(font, font_size, base, slots, cramped)
         }
     }
 }
@@ -379,13 +395,27 @@ fn layout_simple_script_attach_parts(
     font_size: f32,
     base: LaidOutMathAtom,
     slots: LaidOutAttachSlots,
+    cramped: bool,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    if [
+        &slots.top,
+        &slots.bottom,
+        &slots.top_left,
+        &slots.top_right,
+        &slots.bottom_left,
+        &slots.bottom_right,
+    ]
+    .iter()
+    .all(|slot| slot.is_none())
+    {
+        return Ok(Some(base));
+    }
     let post_top = combine_script_slots(font_size, slots.top, slots.top_right)?;
     let post_bottom = combine_script_slots(font_size, slots.bottom, slots.bottom_right)?;
     let top_ref = post_top.as_ref().or(slots.top_left.as_ref());
     let bottom_ref = post_bottom.as_ref().or(slots.bottom_left.as_ref());
     let (shift_up, shift_down) =
-        compute_script_shifts(font, font_size, &base, top_ref, bottom_ref)?;
+        compute_script_shifts(font, font_size, &base, top_ref, bottom_ref, cramped)?;
     let space_after_script = math_constant(font, font_size, |constants| {
         constants.space_after_script().value
     })?;
@@ -434,11 +464,8 @@ fn layout_simple_script_attach_parts(
         .map(|bottom| space_after_script + bottom.metrics.width + pre_bottom_kern)
         .unwrap_or_default();
     let base_width = base.metrics.width;
-    let base_metrics = base.metrics;
     let base_left_class = base.left_class;
     let base_right_class = base.right_class;
-    let base_italic_correction = base.italic_correction;
-    let base_script_kernable = base.script_kernable;
     let pre_width = top_pre_width.max(bottom_pre_width);
     let post_width = top_post_width.max(bottom_post_width);
     let width = pre_width + base_width + post_width;
@@ -491,6 +518,9 @@ fn layout_simple_script_attach_parts(
                 .as_ref()
                 .map_or(0.0, |bottom| shift_down + bottom.ink_descent),
         );
+    let final_baseline = ink_ascent;
+    let base_dy = final_baseline - baseline;
+    let baseline = final_baseline;
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
@@ -508,7 +538,7 @@ fn layout_simple_script_attach_parts(
         append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, bottom_left);
     }
     let mut base = base;
-    offset_atom(&mut base, pre_width, 0.0);
+    offset_atom(&mut base, pre_width, base_dy);
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
 
     if let Some(mut top) = post_top {
@@ -527,14 +557,22 @@ fn layout_simple_script_attach_parts(
     Ok(Some(LaidOutMathAtom {
         metrics: TypesetMetrics {
             width,
-            ..base_metrics
+            height: ink_ascent + ink_descent,
+            ascent: ink_ascent,
+            baseline: ink_ascent,
+            descent: ink_descent,
         },
         ink_ascent,
         ink_descent,
+        left_spacing: None,
+        right_spacing: None,
         left_class: base_left_class,
         right_class: base_right_class,
-        italic_correction: base_italic_correction,
-        script_kernable: base_script_kernable,
+        italic_correction: 0.0,
+        script_kernable: false,
+        base_metrics: Some((ink_ascent, ink_descent)),
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -546,14 +584,16 @@ fn layout_simple_limit_attach_parts(
     font_size: f32,
     base: LaidOutMathAtom,
     mut slots: LaidOutAttachSlots,
+    cramped: bool,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if slots.top.is_none() && slots.bottom.is_none() {
-        return layout_simple_script_attach_parts(font, font_size, base, slots);
+        return layout_simple_script_attach_parts(font, font_size, base, slots, cramped);
     }
 
     let top = slots.top.take();
     let bottom = slots.bottom.take();
-    let Some(mut base) = layout_simple_script_attach_parts(font, font_size, base, slots)? else {
+    let Some(mut base) = layout_simple_script_attach_parts(font, font_size, base, slots, cramped)?
+    else {
         return Ok(None);
     };
     let (upper_shift, lower_shift) =
@@ -570,8 +610,6 @@ fn layout_simple_limit_attach_parts(
     );
     let base_left_class = base.left_class;
     let base_right_class = base.right_class;
-    let base_italic_correction = base.italic_correction;
-    let base_script_kernable = base.script_kernable;
     let base_y = baseline - base.metrics.baseline;
     let base_x = (width - base.metrics.width) / 2.0;
     let mut height = base_y + base.metrics.height;
@@ -616,10 +654,15 @@ fn layout_simple_limit_attach_parts(
         },
         ink_ascent,
         ink_descent,
+        left_spacing: None,
+        right_spacing: None,
         left_class: base_left_class,
         right_class: base_right_class,
-        italic_correction: base_italic_correction,
-        script_kernable: base_script_kernable,
+        italic_correction: 0.0,
+        script_kernable: false,
+        base_metrics: None,
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -644,11 +687,10 @@ fn combine_script_slots(
             offset_atom(&mut second, second_x, second_dy);
 
             let width = first.metrics.width + gap + second.metrics.width;
-            let ascent = (first.metrics.ascent + first_dy).max(second.metrics.ascent + second_dy);
-            let descent =
-                (first.metrics.descent - first_dy).max(second.metrics.descent - second_dy);
-            let ink_ascent = (first.ink_ascent + first_dy).max(second.ink_ascent + second_dy);
-            let ink_descent = (first.ink_descent - first_dy).max(second.ink_descent - second_dy);
+            let ascent = first.metrics.ascent.max(second.metrics.ascent);
+            let descent = first.metrics.descent.max(second.metrics.descent);
+            let ink_ascent = first.ink_ascent.max(second.ink_ascent);
+            let ink_descent = first.ink_descent.max(second.ink_descent);
 
             let mut glyphs = Vec::new();
             let mut shapes = Vec::new();
@@ -666,10 +708,15 @@ fn combine_script_slots(
                 },
                 ink_ascent,
                 ink_descent,
+                left_spacing: None,
+                right_spacing: None,
                 left_class: SimpleMathClass::Normal,
                 right_class: SimpleMathClass::Normal,
                 italic_correction: 0.0,
                 script_kernable: false,
+                base_metrics: None,
+                accent_attachment: None,
+                spaced: false,
                 glyphs,
                 shapes,
                 draw_order,
@@ -698,37 +745,20 @@ fn layout_script_child(
     layout_simple_node_with_mid_target(font, node, font_size, script_level, None, math_size)
 }
 
-fn script_font_size(font: &MathFont, font_size: f32, script_level: u8) -> Result<f32, LabelError> {
-    let face = parse_math_face(font, "math script constants")?;
-    let (script_percent, script_script_percent) = face
-        .tables()
-        .math
-        .and_then(|math| math.constants)
-        .map(|constants| {
-            (
-                constants.script_percent_scale_down(),
-                constants.script_script_percent_scale_down(),
-            )
-        })
-        .unwrap_or((70, 50));
-    let script_percent = script_percent.max(1) as f32;
-    let script_script_percent = script_script_percent.max(1) as f32;
-    if script_level == 0 {
-        Ok(font_size * script_percent / 100.0)
-    } else {
-        Ok(font_size * script_script_percent / script_percent)
-    }
-}
-
 fn compute_script_shifts(
     font: &MathFont,
     font_size: f32,
     base: &LaidOutMathAtom,
     top: Option<&LaidOutMathAtom>,
     bottom: Option<&LaidOutMathAtom>,
+    cramped: bool,
 ) -> Result<(f32, f32), LabelError> {
     let sup_shift_up = math_constant(font, font_size, |constants| {
-        constants.superscript_shift_up().value
+        if cramped {
+            constants.superscript_shift_up_cramped().value
+        } else {
+            constants.superscript_shift_up().value
+        }
     })?;
     let sup_bottom_min = math_constant(font, font_size, |constants| {
         constants.superscript_bottom_min().value
@@ -755,6 +785,17 @@ fn compute_script_shifts(
         shift_down = f32::max(sub_shift_down, bottom.ink_ascent - sub_top_max);
     }
 
+    if let Some((ascent, descent)) = base.base_metrics {
+        if top.is_some() {
+            let drop = math_constant(font, font_size, |c| c.superscript_baseline_drop_max().value)?;
+            shift_up = shift_up.max(ascent - drop);
+        }
+        if bottom.is_some() {
+            let drop = math_constant(font, font_size, |c| c.subscript_baseline_drop_min().value)?;
+            shift_down = shift_down.max(descent + drop);
+        }
+    }
+
     if let (Some(top), Some(bottom)) = (top, bottom) {
         let sup_bottom = shift_up - top.ink_descent;
         let sub_top = bottom.ink_ascent - shift_down;
@@ -767,11 +808,6 @@ fn compute_script_shifts(
             shift_down += rest;
         }
     }
-
-    // Text-like bases intentionally do not apply Typst's base ascent/descent
-    // drop rules. Keep `base` in the signature because non-text-like boxes will
-    // need those fields when fractions and radicals become supported.
-    let _ = base;
 
     Ok((shift_up, shift_down))
 }
