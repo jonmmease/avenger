@@ -1,0 +1,1 @@
+$cancel(x, inverted: #true) + cancel(x, cross: #true) + cancel(x, length: #200%) + cancel(x, angle: #0deg) + cancel(x, angle: #90deg) + cancel(x, stroke: #(thickness: 0.25em, paint: maroon, cap: "round"))$

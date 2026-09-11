@@ -1,0 +1,21 @@
+[package]
+name = "upstream-typst-math-svg-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+typst-layout-upstream = { package = "typst-layout", path = "../../../typst/crates/typst-layout" }
+typst-svg-upstream = { package = "typst-svg", path = "../../../typst/crates/typst-svg" }
+typst-upstream = { package = "typst", path = "../../../typst/crates/typst" }
+
+[profile.release-size]
+inherits = "release"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = "symbols"
+incremental = false
