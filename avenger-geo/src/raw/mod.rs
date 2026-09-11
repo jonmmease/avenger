@@ -33,8 +33,8 @@ pub trait RawProjection: Send + Sync {
     fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)>;
 }
 
-/// The catalog of supported projections (doc §4). All are "blendable":
-/// injective over the antimeridian-cut sphere with finite output.
+/// Projection catalog. Spherical inputs use degrees at the pipeline boundary.
+/// Some projections have singularities, such as the Mercator poles.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProjectionKind {

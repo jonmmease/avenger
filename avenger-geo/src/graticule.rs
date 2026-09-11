@@ -5,6 +5,7 @@
 
 use crate::math::EPSILON;
 use crate::streamable::MultiLine;
+use crate::AvengerGeoError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,7 +77,59 @@ impl Graticule {
 
     /// Generate the graticule lines (d3 `graticule().lines()` as one
     /// MultiLine).
+    ///
+    /// # Panics
+    /// Panics for invalid or excessively dense configurations. Use
+    /// [`Self::try_lines`] when the configuration comes from user input.
     pub fn lines(&self) -> MultiLine {
+        self.try_lines().expect("invalid graticule configuration")
+    }
+
+    /// Generate lines with finite, ordered extents and positive steps.
+    ///
+    /// # Errors
+    /// Returns an error for invalid extents, steps, or precision, or when
+    /// the upper bound on generated vertices exceeds one million.
+    pub fn try_lines(&self) -> Result<MultiLine, AvengerGeoError> {
+        let steps = [
+            self.step_minor[0],
+            self.step_minor[1],
+            self.step_major[0],
+            self.step_major[1],
+            self.precision,
+        ];
+        if !steps.iter().all(|v| v.is_finite() && *v > 0.0) {
+            return Err(AvengerGeoError::InvalidConfig(
+                "graticule steps and precision must be finite and positive".into(),
+            ));
+        }
+        let mut max_vertices = 0.0;
+        for (extent, step) in [
+            (self.extent_minor, self.step_minor),
+            (self.extent_major, self.step_major),
+        ] {
+            if !extent.iter().flatten().all(|v| v.is_finite())
+                || extent[0][0] > extent[1][0]
+                || extent[0][1] > extent[1][1]
+                || extent[0][0] < -180.0
+                || extent[1][0] > 180.0
+                || extent[0][1] < -90.0
+                || extent[1][1] > 90.0
+            {
+                return Err(AvengerGeoError::InvalidConfig(
+                    "graticule extents must be ordered longitude/latitude bounds".into(),
+                ));
+            }
+            let width = extent[1][0] - extent[0][0];
+            let height = extent[1][1] - extent[0][1];
+            max_vertices += (width / step[0]).ceil() * ((height / 90.0).ceil() + 1.0)
+                + (height / step[1]).ceil() * ((width / self.precision).ceil() + 1.0);
+        }
+        if !max_vertices.is_finite() || max_vertices > 1_000_000.0 {
+            return Err(AvengerGeoError::InvalidConfig(
+                "graticule exceeds the one-million-vertex limit".into(),
+            ));
+        }
         let [[x0, y0], [x1, y1]] = self.extent_minor;
         let [[bx0, by0], [bx1, by1]] = self.extent_major;
         let [dx, dy] = self.step_minor;
@@ -105,7 +158,7 @@ impl Graticule {
             }
         }
 
-        MultiLine(lines)
+        Ok(MultiLine(lines))
     }
 }
 
