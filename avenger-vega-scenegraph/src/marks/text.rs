@@ -1,15 +1,18 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::MissingNullOrValue;
-use avenger_color::ColorOrGradient;
+use std::{f32::consts::PI, sync::Arc};
 
+use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::MissingNullOrValue,
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,11 +80,9 @@ impl VegaMarkContainer<VegaTextItem> {
             }
             if let Some(v) = item.fill.as_option() {
                 let c = csscolorparser::parse(v)?;
-                let opacity =
-                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push(ColorOrGradient::Color([
-                    c.r as f32, c.g as f32, c.b as f32, opacity,
-                ]))
+                let [r, g, b, a] = [c.r as f32, c.g as f32, c.b as f32, c.a as f32];
+                let opacity = a * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                color.push(ColorOrGradient::Color([r, g, b, opacity]))
             }
 
             // Compute x and y
@@ -91,10 +92,10 @@ impl VegaMarkContainer<VegaTextItem> {
                 item_x += radius * f32::cos(theta - PI / 2.0);
                 item_y += radius * f32::sin(theta - PI / 2.0);
             }
-            item_x += item.dx.unwrap_or(0.0);
-            item_y += item.dy.unwrap_or(0.0);
             x.push(item_x);
             y.push(item_y);
+            dx.push(item.dx.unwrap_or(0.0));
+            dy.push(item.dy.unwrap_or(0.0));
             text.push(match item.text.clone() {
                 Some(serde_json::Value::String(s)) => s,
                 Some(serde_json::Value::Null) | None => "".to_string(),
@@ -111,14 +112,6 @@ impl VegaMarkContainer<VegaTextItem> {
 
             if let Some(v) = item.angle {
                 angle.push(v);
-            }
-
-            if let Some(v) = item.dx {
-                dx.push(v);
-            }
-
-            if let Some(v) = item.dy {
-                dy.push(v);
             }
 
             if let Some(v) = &item.font {
@@ -157,6 +150,12 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if y.len() == len {
             mark.y = ScalarOrArray::new_array(y);
+        }
+        if dx.len() == len {
+            mark.dx = ScalarOrArray::new_array(dx);
+        }
+        if dy.len() == len {
+            mark.dy = ScalarOrArray::new_array(dy);
         }
         if text.len() == len {
             mark.text = ScalarOrArray::new_array(text);

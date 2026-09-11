@@ -1,10 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex},
+};
 
 use avenger_image::RgbaImage;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -283,17 +285,17 @@ impl Hash for ScalarOrArray<Vec<f32>> {
 
 #[macro_export]
 macro_rules! impl_hash_for_scalar_or_array {
-    ($t:ty) => {
-        impl Hash for $crate::value::ScalarOrArray<$t> {
-            fn hash<H: Hasher>(&self, state: &mut H) {
+    ($type_name:ty) => {
+        impl std::hash::Hash for $crate::value::ScalarOrArray<$type_name> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                 let mut hash_cache = self.hash_cache.lock().unwrap();
 
                 match &self.value {
                     $crate::value::ScalarOrArrayValue::Scalar(value) => {
                         let hash_value = hash_cache.get_or_insert_with(|| {
                             let mut inner_hasher = std::hash::DefaultHasher::new();
-                            value.hash(&mut inner_hasher);
-                            inner_hasher.finish()
+                            std::hash::Hash::hash(value, &mut inner_hasher);
+                            std::hash::Hasher::finish(&inner_hasher)
                         });
                         state.write_u64(*hash_value);
                     }
@@ -301,9 +303,9 @@ macro_rules! impl_hash_for_scalar_or_array {
                         let hash_value = hash_cache.get_or_insert_with(|| {
                             let mut inner_hasher = std::hash::DefaultHasher::new();
                             for value in values.iter() {
-                                value.hash(&mut inner_hasher);
+                                std::hash::Hash::hash(value, &mut inner_hasher);
                             }
-                            inner_hasher.finish()
+                            std::hash::Hasher::finish(&inner_hasher)
                         });
                         state.write_u64(*hash_value);
                     }
@@ -313,15 +315,11 @@ macro_rules! impl_hash_for_scalar_or_array {
     };
 }
 
-impl_hash_for_scalar_or_array!(i32);
-impl_hash_for_scalar_or_array!(i64);
-impl_hash_for_scalar_or_array!(usize);
-impl_hash_for_scalar_or_array!(u32);
-impl_hash_for_scalar_or_array!(u64);
 impl_hash_for_scalar_or_array!(bool);
+impl_hash_for_scalar_or_array!(usize);
 impl_hash_for_scalar_or_array!(String);
 impl_hash_for_scalar_or_array!(RgbaImage);
-impl_hash_for_scalar_or_array!(FontWeight);
 impl_hash_for_scalar_or_array!(FontStyle);
+impl_hash_for_scalar_or_array!(FontWeight);
 impl_hash_for_scalar_or_array!(TextAlign);
 impl_hash_for_scalar_or_array!(TextBaseline);

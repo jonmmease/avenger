@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::marks::{group::SceneGroup, mark::SceneMark};
 use serde::{Deserialize, Serialize};
+
+use crate::marks::{group::SceneGroup, mark::SceneMark};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneGraph {

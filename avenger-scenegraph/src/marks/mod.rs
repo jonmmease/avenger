@@ -7,6 +7,8 @@ pub mod mark;
 pub mod path;
 pub mod rect;
 pub mod rule;
+pub mod stroke_dash;
 pub mod symbol;
 pub mod text;
+pub mod text_leader;
 pub mod trail;

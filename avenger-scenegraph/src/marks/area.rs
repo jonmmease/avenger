@@ -1,17 +1,24 @@
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{
+    types::{AreaOrientation, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::{
+    mark::{default_interactive, SceneMark},
+    stroke_dash::dash_paths,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneAreaMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub orientation: AreaOrientation,
@@ -33,6 +40,7 @@ pub struct SceneAreaMark {
 impl std::hash::Hash for SceneAreaMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.orientation.hash(state);
@@ -141,12 +149,22 @@ impl SceneAreaMark {
         close_area(&mut path_builder, &mut tail);
         path_builder.build()
     }
+
+    pub fn transformed_stroke_path(&self, origin: [f32; 2]) -> Path {
+        let path = self.transformed_path(origin);
+        if let Some(stroke_dash) = &self.stroke_dash {
+            dash_paths(std::iter::once(&path), stroke_dash)
+        } else {
+            path
+        }
+    }
 }
 
 impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
             name: "area_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             orientation: Default::default(),
@@ -170,5 +188,36 @@ impl Default for SceneAreaMark {
 impl From<SceneAreaMark> for SceneMark {
     fn from(mark: SceneAreaMark) -> Self {
         SceneMark::Area(mark)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lyon_path::Event;
+
+    #[test]
+    fn transformed_stroke_path_applies_dash_pattern() {
+        let mark = SceneAreaMark {
+            len: 2,
+            x: ScalarOrArray::new_array(vec![0.0, 10.0]),
+            y: ScalarOrArray::new_array(vec![0.0, 0.0]),
+            x2: ScalarOrArray::new_array(vec![0.0, 10.0]),
+            y2: ScalarOrArray::new_array(vec![10.0, 10.0]),
+            stroke_dash: Some(vec![2.0, 2.0]),
+            ..Default::default()
+        };
+
+        let fill_path = mark.transformed_path([0.0, 0.0]);
+        let stroke_path = mark.transformed_stroke_path([0.0, 0.0]);
+
+        assert!(begin_count(&stroke_path) > begin_count(&fill_path));
+        assert!(stroke_path.iter().count() > fill_path.iter().count());
+    }
+
+    fn begin_count(path: &Path) -> usize {
+        path.iter()
+            .filter(|event| matches!(event, Event::Begin { .. }))
+            .count()
     }
 }

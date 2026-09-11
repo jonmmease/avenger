@@ -1,28 +1,29 @@
-use crate::canvas::CanvasDimensionUtils;
-use crate::canvas::{
-    create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, MarkRenderer,
-};
-use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::InstancedMarkRenderer;
-use crate::marks::multi::MultiMarkRenderer;
-use avenger_common::canvas::CanvasDimensions;
-use std::collections::HashMap;
 use std::sync::Arc;
+
+use avenger_common::canvas::CanvasDimensions;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    Device, Extent3d, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat,
+    TextureUsages, TextureView, TextureViewDescriptor,
+};
+
+use crate::{
+    canvas::{
+        create_multisampled_framebuffer, get_supported_sample_count, make_wgpu_adapter,
+        request_wgpu_device, select_sample_count, Canvas, CanvasConfig, CanvasDimensionUtils,
+    },
+    error::AvengerWgpuError,
+    marks::{
+        instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer,
+        text::TextAtlasBuilderTrait,
+    },
+    renderer::AvengerRendererCore,
+    target::{AvengerRenderTarget, WHITE_CLEAR},
 };
 
 pub struct HtmlCanvasCanvas<'window> {
-    sample_count: u32,
     surface_config: SurfaceConfiguration,
-    dimensions: CanvasDimensions,
-    marks: Vec<MarkRenderer>,
-    multi_renderer: Option<MultiMarkRenderer>,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    config: CanvasConfig,
+    renderer: AvengerRendererCore,
 
     // The order of properties determines that drop order and device must be dropped after
     // the buffers and textures associated with marks.
@@ -71,7 +72,11 @@ impl<'window> HtmlCanvasCanvas<'window> {
         surface.configure(&device, &surface_config);
 
         let format_flags = adapter.get_texture_format_features(surface_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
+        let sample_count = select_sample_count(
+            format_flags,
+            config.sample_count,
+            get_supported_sample_count(format_flags),
+        );
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
             surface_config.width,
@@ -80,23 +85,21 @@ impl<'window> HtmlCanvasCanvas<'window> {
             sample_count,
         );
 
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, surface_format, sample_count, config);
+
         Ok(Self {
             surface,
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
             surface_config,
-            dimensions,
-            marks: Vec::new(),
-            multi_renderer: None,
-            instanced_renderers: HashMap::new(),
-            config,
+            renderer,
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.dimensions.to_physical_size()
+        self.renderer.dimensions().to_physical_size()
     }
 
     pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
@@ -110,68 +113,43 @@ impl<'window> HtmlCanvasCanvas<'window> {
 
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let output = self.surface.get_current_texture()?;
+        let output_extent = output.texture.size();
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        // Commit open multi-renderer
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
-
-        let background_command = if self.sample_count > 1 {
-            make_background_command(self, &self.multisampled_framebuffer, Some(&view))
+        let sample_count = self.renderer.sample_count();
+        let render_target_extent = if sample_count > 1 {
+            Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            }
         } else {
-            make_background_command(self, &view, None)
+            output_extent
         };
-        let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
-        for mark in &mut self.marks {
-            let command = match mark {
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
-                    }
-                }
-                MarkRenderer::Multi(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &view,
-                            None,
-                        )
-                    }
-                }
-            };
 
-            commands.push(command);
-        }
+        let render_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
+                &self.multisampled_framebuffer,
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
+            )
+        } else {
+            AvengerRenderTarget::swapchain(
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                WHITE_CLEAR,
+            )
+        };
 
+        let commands =
+            self.renderer
+                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
         self.queue.submit(commands);
         output.present();
 
@@ -180,15 +158,24 @@ impl<'window> HtmlCanvasCanvas<'window> {
 }
 
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        self.renderer.set_current_zindex(zindex);
+    }
+
+    fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
+        self.renderer.commit_multi_renderer_if_needed();
+    }
+
+    fn get_current_zindex(&self) -> i32 {
+        self.renderer.current_zindex()
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(
-                self.dimensions,
-                self.config.text_builder_ctor.clone(),
-                self.config.resolved_text_engine(),
-            ));
-        }
-        self.multi_renderer.as_mut().unwrap()
+        self.renderer.shared_multi_mut()
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn add_instanced_mark_renderer(
@@ -198,27 +185,28 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         x_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
         y_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
     ) {
-        if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
-        }
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
             x_adjustment,
             y_adjustment,
-        });
+        );
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.get_multi_renderer().clear();
-        self.marks.clear();
-        self.instanced_renderers.clear();
+        self.renderer.clear_mark_renderer();
+    }
+
+    fn begin_scene(&mut self, scene: &avenger_scenegraph::scene_graph::SceneGraph) {
+        self.renderer.begin_scene(scene);
+    }
+
+    fn finish_scene(&mut self) {
+        self.renderer.finish_scene();
     }
 
     fn device(&self) -> &Device {
@@ -230,14 +218,22 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
+    }
+
+    fn font_resolution(&self) -> &avenger_text::FontResolutionOptions {
+        self.renderer.font_resolution()
+    }
+
+    fn text_engine(&self) -> avenger_text::TextEngine {
+        self.renderer.text_engine()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.surface_config.format
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }
