@@ -246,12 +246,8 @@ impl NumberFormat {
         significant_digits: Option<usize>,
     ) -> (String, isize) {
         // Use exponential formatting to get the expected number of significant digits.
-        let formatted_value = if significant_digits.is_some() {
-            let precision = if significant_digits.unwrap() == 0 {
-                0
-            } else {
-                significant_digits.unwrap() - 1
-            };
+        let formatted_value = if let Some(significant_digits) = significant_digits {
+            let precision = significant_digits.saturating_sub(1);
             format!("{value:.precision$e}")
         } else {
             format!("{value:e}")

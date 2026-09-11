@@ -1,4 +1,5 @@
-use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
+use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
+
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
 

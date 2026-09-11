@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::mark::SceneMark;
-use avenger_common::types::ColorOrGradient;
+use avenger_color::ColorOrGradient;
+
 use avenger_common::value::ScalarOrArray;
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};

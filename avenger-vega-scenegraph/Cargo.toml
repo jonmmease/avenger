@@ -11,6 +11,7 @@ image-reqwest = [ "reqwest", "avenger-image/reqwest"]
 svg = [ "resvg", "usvg", "tiny-skia",]
 
 [dependencies]
+avenger-color = { path = "../avenger-color" }
 cfg-if = "1"
 csscolorparser = "0.7.0"
 

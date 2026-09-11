@@ -3,8 +3,9 @@ use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
+use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::{ColorOrGradient, PathTransform, StrokeCap, StrokeJoin};
+use avenger_common::types::{PathTransform, StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;
@@ -50,6 +51,7 @@ pub const TEXT_TEXTURE_CODE: f32 = -3.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MultiUniform {
@@ -58,6 +60,7 @@ pub struct MultiUniform {
     _pad: [f32; 1],
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MultiVertex {

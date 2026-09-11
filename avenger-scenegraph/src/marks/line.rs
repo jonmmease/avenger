@@ -1,4 +1,5 @@
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use lyon_algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon_path::{geom::point, Path};

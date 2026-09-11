@@ -1,0 +1,14 @@
+[package]
+name = "avenger-color"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+css-color-parser = { workspace = true }
+ordered-float = { workspace = true }
+palette = { workspace = true }
+serde = { workspace = true }
+
+
+[dev-dependencies]
+png = "0.18.1"
