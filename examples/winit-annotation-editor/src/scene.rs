@@ -69,6 +69,14 @@ fn axis_ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, AvengerScal
 }
 
 pub fn build(state: &mut State) -> Result<SceneGraph, String> {
+    // Browser copy/cut events need the current selection synchronously.
+    {
+        let mut clipboard = state.clipboard_text.lock().expect("clipboard selection");
+        // Preparing another sample must not change the installed editor's selection.
+        if clipboard.0 == state.generation {
+            clipboard.1 = state.editor.selected_text().to_string();
+        }
+    }
     state.scene_builds += 1;
     state.keep_caret_visible();
     let [width, height] = state.size;

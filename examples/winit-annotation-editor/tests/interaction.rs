@@ -110,6 +110,55 @@ fn shows_tooltip(update: &AppUpdate) -> bool {
 }
 
 #[test]
+fn clipboard_snapshot_tracks_selection_before_a_browser_copy_event() {
+    let mut h = Harness::new();
+    h.focus();
+    h.all();
+    let clipboard = h.state().clipboard_text.clone();
+    assert_eq!(clipboard.lock().unwrap().1, h.state().editor.text());
+    h.key(Key::Named(NamedKey::ArrowLeft), None);
+    assert_eq!(clipboard.lock().unwrap().1, "");
+    h.replace("New source");
+    h.all();
+    assert_eq!(clipboard.lock().unwrap().1, "New source");
+    h.send(WindowEvent::Clipboard(ClipboardEvent::Cut));
+    assert_eq!(clipboard.lock().unwrap().1, "");
+}
+
+#[test]
+fn preparing_a_sample_does_not_replace_the_installed_clipboard_selection() {
+    let mut h = Harness::new();
+    h.focus();
+    h.all();
+    let clipboard = h.state().clipboard_text.clone();
+    let expected = clipboard.lock().unwrap().clone();
+    let mut next = State::new(Sample::B, 1, avenger_text::default_text_engine());
+    next.clipboard_text = clipboard.clone();
+    pollster::block_on(make_app(next)).unwrap();
+    assert_eq!(*clipboard.lock().unwrap(), expected);
+}
+
+#[test]
+fn select_all_uses_the_runtime_platform_shortcut() {
+    for mac in [true, false] {
+        let mut h = Harness::new();
+        h.state().mac_shortcuts = mac;
+        h.focus();
+        h.key(
+            Key::Named(if mac {
+                NamedKey::Super
+            } else {
+                NamedKey::Control
+            }),
+            None,
+        );
+        h.key(Key::Character('a'), Some("a"));
+        let source = h.state().editor.text().to_string();
+        assert_eq!(h.state().editor.selected_text(), source);
+    }
+}
+
+#[test]
 fn draft_applies_after_silence_and_navigation_does_not_postpone_it() {
     let mut h = Harness::new();
     h.focus();

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Annotation editor</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; background: #edf2f6; color: #1f3042; font: 15px system-ui, sans-serif; }
+    main { width: 1000px; margin: 24px auto; }
+    canvas { display: block; background: white; outline: none; touch-action: none; }
+    #status { padding: 24px; }
+    .help { margin: 12px 0; }
+    a { color: #1f739f; }
+    @media (max-width: 1048px) { main { margin: 12px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="status" role="status">Loading annotation editor…</div>
+    <div id="wasm-example"></div>
+    <p class="help">Select a point, edit its Typst source, and drag its label. Drag the plot to pan.</p>
+    <p class="help"><a id="slow-loads" href="?slow-loads">Try delayed sample loading</a></p>
+  </main>
+  <script type="module">
+    const status = document.getElementById("status");
+    const slow = new URLSearchParams(location.search).has("slow-loads");
+    const link = document.getElementById("slow-loads");
+    if (slow) {
+      link.href = location.pathname;
+      link.textContent = "Delayed loads enabled. Switch to normal loading.";
+    }
+    try {
+      const { default: init, run } = await import("./pkg/winit_annotation_editor.js");
+      await init();
+      await run(slow);
+      status.hidden = true;
+    } catch (error) {
+      status.textContent = `The annotation editor could not start: ${error}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

@@ -1,10 +1,19 @@
 # Annotation editor
 
-Select a point, edit its Typst source, and drag the typeset label into position. This native example uses scene marks, the shared text editor, event streams, and the winit host directly.
+Select a point, edit its Typst source, and drag the typeset label into position. This example runs in a native window or a browser. Both modes use the same scene marks, text editor, event streams, and winit host.
 
 ```sh
 cargo run --release -p winit-annotation-editor
 ```
+
+To run in a browser, build with `wasm-pack` and serve the example directory:
+
+```sh
+wasm-pack build examples/winit-annotation-editor --target web --release
+python3 -m http.server 8767 --directory examples/winit-annotation-editor
+```
+
+Open [localhost:8767](http://localhost:8767). The page uses the display's pixel ratio and bundled fonts. It needs a browser with WebGPU support. The editor handles text input and composition through a hidden browser input. Copy and cut use the current selection during the browser's clipboard event.
 
 - The field edits literal Typst source. Chart labels typeset markup such as `*bold*`, `_italic_`, and `$sqrt(x^2+y^2)$`.
 - Valid labels update after 350 ms without an edit. Enter applies immediately. Escape restores the applied label and leaves the field.
@@ -17,6 +26,19 @@ cargo run --release -p winit-annotation-editor
 
 To exercise out-of-order preparation, run with `--slow-loads`, click Sample A, then click Sample B within 1.6 seconds. B prepares in 150 ms. Its result stays installed when the earlier A request finishes. The window remains usable during preparation.
 
+In the browser, use the delayed-loading link or open [localhost:8767/?slow-loads](http://localhost:8767/?slow-loads), then perform the same sample switch. Browser preparation uses local asynchronous tasks and browser timers.
+
+After building the WASM package, run the browser interaction tests with Node.js 20 or later and Chrome:
+
+```sh
+cd examples/winit-annotation-editor
+npm ci
+npx playwright install chrome
+npm run test:browser
+```
+
+The tests start a local server when needed. They exercise typing, clipboard events, composition, focus changes, panning, annotation dragging, and delayed sample replacement. CI also runs this suite.
+
 ```sh
 cargo run --release -p winit-annotation-editor -- --slow-loads
 cargo test --release -p winit-annotation-editor
@@ -25,6 +47,8 @@ cargo run --release -p winit-annotation-editor --example snapshot -- target/anno
 
 The snapshot example renders selection, composition, and panning at 1× and 2×. The window uses scale 2 on macOS and scale 1 elsewhere. Override the raster scale with `--scale NUMBER` when testing another display configuration.
 
-`state.rs` owns the editor and draft. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications on Tokio, advances the request epoch before preparation, and observes installation results. `scene.rs` draws the UI with the same text engine used for editing and picking.
+`state.rs` owns the editor and draft. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications, advances the request epoch before preparation, and observes installation results. `tasks.rs` uses Tokio on native targets and local futures with browser timers on WASM. `web.rs` starts the browser host and keeps the reload coordinator alive with it. `scene.rs` draws the UI with the same text engine used for editing and picking.
 
 ![Native annotation editor](../../docs/images/annotation-editor.png)
+
+![Browser annotation editor](../../docs/images/annotation-editor-wasm.png)

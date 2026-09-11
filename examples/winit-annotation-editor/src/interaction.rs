@@ -252,7 +252,8 @@ fn select(state: &mut State, selected: usize, status: &mut UpdateStatus) {
 }
 
 struct InputHandler;
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<State> for InputHandler {
     async fn handle(&self, _: &Event, _: &mut State, _: &SceneGraphRTree) -> UpdateStatus {
         rejected()
@@ -347,12 +348,12 @@ impl EventStreamHandler<State> for InputHandler {
                 if state.editor.compose_range().is_some() {
                     return status;
                 }
-                let command = if cfg!(target_os = "macos") {
+                let command = if state.mac_shortcuts {
                     e.modifiers.meta
                 } else {
                     e.modifiers.control
                 };
-                let word = if cfg!(target_os = "macos") {
+                let word = if state.mac_shortcuts {
                     e.modifiers.alt
                 } else {
                     e.modifiers.control
@@ -376,7 +377,7 @@ impl EventStreamHandler<State> for InputHandler {
                     }
                     Key::Character('a' | 'A') if command => Some(Action::SelectAll),
                     Key::Named(NamedKey::ArrowLeft) => Some(Action::Motion {
-                        motion: if command && cfg!(target_os = "macos") {
+                        motion: if command && state.mac_shortcuts {
                             Motion::Start
                         } else if word {
                             Motion::WordLeft
@@ -386,7 +387,7 @@ impl EventStreamHandler<State> for InputHandler {
                         extend: e.modifiers.shift,
                     }),
                     Key::Named(NamedKey::ArrowRight) => Some(Action::Motion {
-                        motion: if command && cfg!(target_os = "macos") {
+                        motion: if command && state.mac_shortcuts {
                             Motion::End
                         } else if word {
                             Motion::WordRight
@@ -595,7 +596,8 @@ impl EventStreamHandler<State> for InputHandler {
 }
 
 struct DragHandler(Drag);
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<State> for DragHandler {
     async fn handle(&self, _: &Event, _: &mut State, _: &SceneGraphRTree) -> UpdateStatus {
         rejected()
@@ -666,7 +668,8 @@ impl EventStreamHandler<State> for DragHandler {
 }
 
 struct HoverHandler;
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<State> for HoverHandler {
     async fn handle(&self, _: &Event, _: &mut State, _: &SceneGraphRTree) -> UpdateStatus {
         rejected()

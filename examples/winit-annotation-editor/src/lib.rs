@@ -10,9 +10,14 @@ pub mod interaction;
 pub mod reload;
 pub mod scene;
 pub mod state;
+mod tasks;
+
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 struct Builder;
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl SceneGraphBuilder<state::State> for Builder {
     async fn build(&self, state: &mut state::State) -> Result<SceneGraph, AvengerAppError> {
         scene::build(state).map_err(AvengerAppError::InternalError)

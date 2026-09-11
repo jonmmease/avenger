@@ -1,14 +1,20 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::{error::Error, sync::Arc};
 
+#[cfg(not(target_arch = "wasm32"))]
 use avenger_wgpu::canvas::CanvasConfig;
+#[cfg(not(target_arch = "wasm32"))]
 use avenger_winit_wgpu::{WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions};
+#[cfg(not(target_arch = "wasm32"))]
 use winit::{dpi::LogicalSize, window::WindowAttributes};
+#[cfg(not(target_arch = "wasm32"))]
 use winit_annotation_editor::{
     make_app,
     reload::ReloadCoordinator,
     state::{Sample, State},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let slow = args.iter().any(|arg| arg == "--slow-loads");
@@ -29,6 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let engine = avenger_text::default_text_engine();
     let mut state = State::new(Sample::A, 0, engine.clone());
     state.reload = Arc::downgrade(&reload);
+    state.clipboard_text = reload.clipboard_text.clone();
     let app = runtime.block_on(make_app(state))?;
     let options = WinitWgpuAvengerAppOptions::new(scale)
         .window_attributes(
@@ -52,3 +59,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

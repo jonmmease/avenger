@@ -87,6 +87,8 @@ pub struct State {
     pub annotation_error: Option<String>,
     pub loading: Option<Sample>,
     pub reload: Weak<ReloadCoordinator>,
+    pub clipboard_text: Arc<Mutex<(u64, String)>>,
+    pub mac_shortcuts: bool,
     pub scene_builds: usize,
 }
 
@@ -164,6 +166,8 @@ impl State {
             annotation_error: None,
             loading: None,
             reload: Weak::new(),
+            clipboard_text: Default::default(),
+            mac_shortcuts: uses_mac_shortcuts(),
             scene_builds: 0,
         }
     }
@@ -278,5 +282,18 @@ pub fn annotation_config(text: &str) -> TextMeasurementConfig<'_> {
         font_size: 16.0,
         syntax_mode: TextSyntaxMode::TypstMarkup,
         ..text_config()
+    }
+}
+
+fn uses_mac_shortcuts() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|window| window.navigator().platform().ok())
+            .is_some_and(|platform| platform.starts_with("Mac") || platform.starts_with("iP"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        cfg!(target_os = "macos")
     }
 }

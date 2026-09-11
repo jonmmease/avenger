@@ -4,19 +4,21 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 
 use avenger_app::app::AvengerApp;
+use avenger_common::time::{Duration, Instant};
 use avenger_text::TextEngine;
 use avenger_winit_wgpu::{
     HostUpdateInstallOutcome, HostUpdateSender, PreparedHostUpdate, WindowSceneSizing,
 };
-use tokio::{runtime::Handle, task::JoinHandle};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::runtime::Handle;
 
 use crate::{
     make_app,
     state::{Sample, State},
+    tasks::{sleep, Executor, Job, MaybeSend},
 };
 
 type Feedback = Arc<Mutex<Option<Result<(), String>>>>;
@@ -28,18 +30,23 @@ struct Target {
 }
 
 pub struct ReloadCoordinator {
-    runtime: Handle,
+    executor: Executor,
+    pub clipboard_text: Arc<Mutex<(u64, String)>>,
     target: Mutex<Option<Target>>,
     latest: AtomicU64,
     closed: AtomicBool,
-    jobs: Mutex<Vec<JoinHandle<()>>>,
+    jobs: Mutex<Vec<Job>>,
     slow: bool,
 }
 
 impl ReloadCoordinator {
-    pub fn new(runtime: Handle, slow: bool) -> Arc<Self> {
+    pub fn new(#[cfg(not(target_arch = "wasm32"))] runtime: Handle, slow: bool) -> Arc<Self> {
         Arc::new(Self {
-            runtime,
+            #[cfg(not(target_arch = "wasm32"))]
+            executor: Executor(runtime),
+            #[cfg(target_arch = "wasm32")]
+            executor: Executor,
+            clipboard_text: Default::default(),
             target: Mutex::new(None),
             latest: AtomicU64::new(0),
             closed: AtomicBool::new(false),
@@ -69,9 +76,10 @@ impl ReloadCoordinator {
     ) -> Result<(), String> {
         let weak = Arc::downgrade(self);
         let slow = self.slow;
+        let clipboard_text = self.clipboard_text.clone();
         self.start(sample, feedback, move |epoch| async move {
             if slow {
-                tokio::time::sleep(Duration::from_millis(if sample == Sample::A {
+                sleep(Duration::from_millis(if sample == Sample::A {
                     1600
                 } else {
                     150
@@ -81,6 +89,7 @@ impl ReloadCoordinator {
             let mut state = State::new(sample, epoch, engine);
             state.size = size;
             state.reload = weak;
+            state.clipboard_text = clipboard_text;
             make_app(state).await.map_err(|e| e.to_string())
         })
     }
@@ -91,8 +100,8 @@ impl ReloadCoordinator {
         prepare: F,
     ) -> Result<(), String>
     where
-        F: FnOnce(u64) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<AvengerApp<State>, String>> + Send + 'static,
+        F: FnOnce(u64) -> Fut,
+        Fut: Future<Output = Result<AvengerApp<State>, String>> + MaybeSend + 'static,
     {
         if self.closed.load(Ordering::Acquire) {
             return Err("The window is closing".into());
@@ -111,8 +120,9 @@ impl ReloadCoordinator {
         }
         *feedback.lock().expect("load feedback") = None;
         let this = self.clone();
-        let job = self.runtime.spawn(async move {
-            let result = prepare(epoch).await;
+        let preparation = prepare(epoch);
+        let job = self.executor.spawn(async move {
+            let result = preparation.await;
             if !this.current(epoch) {
                 return;
             }
@@ -137,29 +147,26 @@ impl ReloadCoordinator {
                     match submitted {
                         Err(error) => Err(error),
                         Ok(()) => {
-                            let completion =
-                                tokio::time::timeout(Duration::from_secs(10), async move {
-                                    loop {
-                                        match receiver.try_recv() {
-                                            Ok(value) => break Ok(value),
-                                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                                break Err(
-                                                    "Window closed before installation".to_string()
-                                                )
-                                            }
-                                            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                                tokio::time::sleep(Duration::from_millis(10)).await
-                                            }
-                                        }
+                            let deadline = Instant::now() + Duration::from_secs(10);
+                            loop {
+                                match receiver.try_recv() {
+                                    Ok(HostUpdateInstallOutcome::Installed) => break Ok(()),
+                                    Ok(HostUpdateInstallOutcome::Superseded) => return,
+                                    Ok(HostUpdateInstallOutcome::Failed(error)) => {
+                                        break Err(error)
                                     }
-                                })
-                                .await;
-                            match completion {
-                                Ok(Ok(HostUpdateInstallOutcome::Installed)) => Ok(()),
-                                Ok(Ok(HostUpdateInstallOutcome::Superseded)) => return,
-                                Ok(Ok(HostUpdateInstallOutcome::Failed(error)))
-                                | Ok(Err(error)) => Err(error),
-                                Err(_) => Err("The window did not confirm installation".into()),
+                                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                        break Err("Window closed before installation".into());
+                                    }
+                                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                        if Instant::now() >= deadline {
+                                            break Err(
+                                                "The window did not confirm installation".into()
+                                            );
+                                        }
+                                        sleep(Duration::from_millis(10)).await;
+                                    }
+                                }
                             }
                         }
                     }
@@ -173,6 +180,9 @@ impl ReloadCoordinator {
                 if let Some(target) = this.target.lock().expect("reload target").as_ref() {
                     (target.title)(format!("Annotation editor — load failed: {error}"));
                 }
+            }
+            if outcome.is_ok() {
+                *this.clipboard_text.lock().expect("clipboard selection") = (epoch, String::new());
             }
             *feedback.lock().expect("load feedback") = Some(outcome);
         });
@@ -192,7 +202,7 @@ impl ReloadCoordinator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
