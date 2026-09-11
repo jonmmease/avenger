@@ -122,3 +122,36 @@ requires `../typst`; fixture operation and failure artifacts are documented in
   from `#let`.
 - SVG/PDF/raster lowerers expose Avenger artifact structs instead of upstream
   frame/render APIs.
+
+## September 2026 correctness audit
+
+The fixes below follow upstream commit `c98e910391a8544b28bd5c99a6f3b1ac1ada9a84`.
+The portable PNG corpus compares against upstream output. `tests/upstream_audit.rs`
+checks geometry, shaping metadata, font instances, UTF-8 ranges, and frame order.
+
+| Finding | Corrected behavior | Upstream source |
+| --- | --- | --- |
+| U01 | Align math rows by baseline and keep rules outside expression bounds. | `typst-layout/src/math/run.rs` |
+| U02 | Stretch radicals with MATH variants and vertical assemblies. | `typst-layout/src/math/radical.rs` |
+| U03 | Place nested/tall accents using base ascent, flattened and dotless glyphs. | `typst-layout/src/math/accent.rs` |
+| U04 | Shape decorated text with fallback, script segmentation, and line-level bidi. | `typst-layout/src/inline/{prepare,shaping}.rs` |
+| U05 | Keep nested decorations within their realized text ranges, including case expansion. | `typst-layout/src/rules.rs` |
+| U06 | Shape quoted math text as text and preserve spaces between text fragments. | `typst-layout/src/math/text.rs` |
+| U07 | Attach scripts relative to composite base bounds. | `typst-layout/src/math/scripts.rs` |
+| U08 | Select absolute math size categories and stop at scriptscript size. | `typst-library/src/math/style.rs` |
+| U09 | Propagate cramped style through roots, denominators, and top accents. | `typst-library/src/math/ir/resolve.rs` |
+| U10 | Retain operator spacing in scripts and use each adjacent item's size. | `typst-library/src/math/ir/process.rs` |
+| U11 | Require GSUB script-feature coverage for every character, including spaces. | `typst-layout/src/inline/shaping.rs` |
+| U12 | Preserve small positive sizes and signed script offsets; use upstream metric defaults. | `typst-library/src/text/shift.rs` |
+| U13 | Carry resolved variable-font coordinates through shaping, metrics, outlines, and export resources. | `typst-library/src/text/font/variations.rs` |
+| U14 | Shape variation selectors with their base glyphs. | `typst-library/src/math/style.rs` |
+| U15 | Stretch font ornaments for under/over braces and attach annotations. | `typst-library/src/math/ir/resolve.rs` |
+| U16 | Preserve painter order across paths, glyphs, and bitmap images. | `typst-render/src/lib.rs` |
+| U17 | Interpret named markup colors using the Typst palette. | `typst-library/src/visualize/color.rs` |
+| U18 | Saturate strong weight arithmetic before clamping. | `typst-library/src/text/font/variant.rs` |
+
+The SVG text adapter outlines variable-font runs so downstream SVG engines do
+not reshape them at default axis coordinates. PDF font resources retain the same
+coordinates and distinguish instances in the renderer's font cache. These tests
+cover the retained single-line subset; they do not establish full Typst document
+compatibility.

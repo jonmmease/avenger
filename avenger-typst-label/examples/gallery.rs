@@ -30,6 +30,8 @@ const FONT_BYTES: &[&[u8]] = &[
     include_bytes!("../../avenger-text/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
     include_bytes!("../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
     include_bytes!("../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
+    include_bytes!("../tests/fixtures/fonts/NotoSansHebrew.ttf.br"),
+    include_bytes!("../tests/fixtures/fonts/NotoSansDevanagari.ttf.br"),
 ];
 
 use avenger_typst_label::{LabelEngine, LabelOptions, RasterOptions, rasterize};
@@ -45,9 +47,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lines = [
         "#strong[Single-line typesetting] with _emphasis_",
         "$sqrt(x^2 + y^2)$   $frac(a + b, c)$   $sum_(i=1)^n i$",
-        "#underline[Measured once]   #strike[old value]   #super[annotation]",
+        "#underline[Measured once]   #strike[old value]   H#sub[2]O",
+        "$sqrt(frac(1,x^2))_n^m$   $hat(hat(x))$   $underbrace(x+y, n)$",
+        "abc #underline[אבג 123] xyz   $\"हिन्दी\"$   $cal(A B C)$   $scr(A B C)$",
     ];
-    let (width, height) = (1440usize, 520usize);
+    let (width, height) = (1440usize, 850usize);
     let mut pixels = vec![255u8; width * height * 4];
     for (row, source) in lines.iter().enumerate() {
         let label = engine.compile(source, &options)?;
