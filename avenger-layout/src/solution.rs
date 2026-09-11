@@ -50,8 +50,8 @@ impl SolvedTracks {
             return None;
         }
 
-        let row_end = slot.row_end();
-        let column_end = slot.column_end();
+        let row_end = slot.row.checked_add(slot.row_span)?;
+        let column_end = slot.column.checked_add(slot.column_span)?;
         if row_end > self.row_starts.len()
             || row_end > self.row_sizes.len()
             || column_end > self.column_starts.len()
