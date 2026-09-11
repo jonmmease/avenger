@@ -305,6 +305,20 @@ mod tests {
     #[test]
     fn default_mixed_script_text_can_segment_fallback_fonts_when_available() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        // Separate script runs can still use the same missing-glyph font.
+        // Require an actual CJK face before asserting cross-font fallback.
+        let has_cjk_font = engine.text_fontdb.faces().any(|info| {
+            engine
+                .text_fontdb
+                .with_face_data(info.id, |data, index| {
+                    ttf_parser::Face::parse(data, index)
+                        .is_ok_and(|face| "温度".chars().all(|ch| face.glyph_index(ch).is_some()))
+                })
+                .unwrap_or(false)
+        });
+        if !has_cjk_font {
+            return;
+        }
         let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Hello 温度", &options).unwrap();
