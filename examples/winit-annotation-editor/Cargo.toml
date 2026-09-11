@@ -1,0 +1,42 @@
+[package]
+name = "winit-annotation-editor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[dependencies]
+avenger-app = { path = "../../avenger-app" }
+avenger-common = { path = "../../avenger-common" }
+avenger-color = { path = "../../avenger-color" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-scales = { path = "../../avenger-scales" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-text = { path = "../../avenger-text" }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+async-trait = { workspace = true }
+winit = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["rayon"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+futures = { workspace = true }
+gloo-timers = { version = "0.3", features = ["futures"] }
+log = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Navigator"] }
+
+[dev-dependencies]
+pollster = "0.4"

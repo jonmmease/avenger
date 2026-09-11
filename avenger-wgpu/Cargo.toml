@@ -37,6 +37,9 @@ version = "0.0.8"
 [dependencies.avenger-common]
 path = "../avenger-common"
 
+[dependencies.avenger-eventstream]
+path = "../avenger-eventstream"
+
 [dependencies.avenger-color]
 path = "../avenger-color"
 

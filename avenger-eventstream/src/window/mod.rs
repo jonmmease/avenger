@@ -1,11 +1,18 @@
 use std::path::PathBuf;
 
+use smol_str::SmolStr;
+
+use crate::runtime::RuntimeWakeEvent;
+
 mod winit;
 
 /// Native window events, in logical coordinates
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowEvent {
     WindowResize(WindowResizeEvent),
+    WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
@@ -15,7 +22,12 @@ pub enum WindowEvent {
     CursorLeft,
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
+    ModifiersChanged(crate::scene::ModifiersState),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
+    RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
+    InteractionSettled { generation: u64 },
     FileChanged(WindowFileChangedEvent),
 }
 
@@ -31,13 +43,50 @@ impl WindowEvent {
     pub fn skip_if_render_pending(&self) -> bool {
         !matches!(
             self,
-            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_)
+            Self::MouseInput(_)
+                | Self::KeyboardInput(_)
+                | Self::ModifiersChanged(_)
+                | Self::Ime(_)
+                | Self::Clipboard(_)
+                | Self::WindowFocused(_)
+                | Self::WindowCloseRequested
+                | Self::CursorLeft
+                | Self::RuntimeWake(_)
+                | Self::FileChanged(_)
+                | Self::InteractionSettled { .. }
+                | Self::WindowResizeSettled(_)
+                | Self::CanvasResizeSettled(_)
         )
     }
 }
 
+/// Host-neutral input-method-editor event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImeEvent {
+    Enabled,
+    Preedit {
+        text: SmolStr,
+        cursor: Option<(usize, usize)>,
+    },
+    Commit(SmolStr),
+    Disabled,
+}
+
+/// Host-neutral clipboard action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardEvent {
+    Cut,
+    Copy,
+    Paste(SmolStr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowResizeEvent {
+    pub size: [f32; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanvasResizeEvent {
     pub size: [f32; 2],
 }
 
@@ -65,6 +114,11 @@ pub struct WindowMouseWheel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowKeyboardInput {
     pub key: Key,
+    /// Text produced by this key event, including multi-code-point input.
+    ///
+    /// `key` remains the shortcut/navigation identity; text insertion must
+    /// use this field rather than deriving text from [`Key::Character`].
+    pub text: Option<SmolStr>,
     pub state: ElementState,
 }
 

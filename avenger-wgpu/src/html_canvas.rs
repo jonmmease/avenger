@@ -152,9 +152,13 @@ impl<'window> HtmlCanvasCanvas<'window> {
             )
         };
 
-        let commands =
-            self.renderer
-                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
+        let commands = self.renderer.build_frame_commands(
+            &self.device,
+            &self.queue,
+            render_target,
+            None,
+            None,
+        )?;
         self.queue.submit(commands);
         output.present();
 

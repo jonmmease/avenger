@@ -695,6 +695,11 @@ impl MultiMarkRenderResources {
 }
 
 impl MultiMarkRenderer {
+    /// Translate all geometry in logical pixels at draw time.
+    pub(crate) fn set_translation(&mut self, translation: [f32; 2]) {
+        self.uniform.translation = translation;
+    }
+
     pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],

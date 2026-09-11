@@ -1,8 +1,13 @@
 use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
+use smol_str::SmolStr;
 
-use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
+use crate::runtime::RuntimeWakeEvent;
+use crate::window::{
+    CanvasResizeEvent, ClipboardEvent, ImeEvent, Key, MouseButton, MouseScrollDelta,
+    WindowMovedEvent, WindowResizeEvent,
+};
 
 /// Events that can be handled by event streams
 #[derive(Debug, Clone, PartialEq)]
@@ -14,13 +19,20 @@ pub enum SceneGraphEvent {
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
+    RuntimeWake(RuntimeWakeEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
     WindowResize(WindowResizeEvent),
+    WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(SceneFileChangedEvent),
 }
 
@@ -66,13 +78,20 @@ impl SceneGraphEvent {
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
+            Self::Ime(..) => SceneGraphEventType::Ime,
+            Self::Clipboard(..) => SceneGraphEventType::Clipboard,
+            Self::RuntimeWake(..) => SceneGraphEventType::RuntimeWake,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
             Self::WindowResize(..) => SceneGraphEventType::WindowResize,
+            Self::WindowResizeSettled(..) => SceneGraphEventType::WindowResizeSettled,
+            Self::CanvasResize(..) => SceneGraphEventType::CanvasResize,
+            Self::CanvasResizeSettled(..) => SceneGraphEventType::CanvasResizeSettled,
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
+            Self::InteractionSettled => SceneGraphEventType::InteractionSettled,
             Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
                 SceneGraphEventType::FileChanged(file_path.clone())
             }
@@ -89,13 +108,20 @@ pub enum SceneGraphEventType {
     MouseWheel,
     KeyPress,
     KeyRelease,
+    Ime,
+    Clipboard,
+    RuntimeWake,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,
     WindowResize,
+    WindowResizeSettled,
+    CanvasResize,
+    CanvasResizeSettled,
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(PathBuf),
 }
 
@@ -142,6 +168,9 @@ pub struct SceneMouseWheelEvent {
 pub struct SceneKeyPressEvent {
     pub position: [f32; 2],
     pub key: Key,
+    /// Text produced by the key press. This is the sole native keyboard text
+    /// insertion source and may contain multiple Unicode code points.
+    pub text: Option<SmolStr>,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
 }
