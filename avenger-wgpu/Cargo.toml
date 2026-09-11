@@ -27,7 +27,6 @@ colorgrad = "0.8.0"
 ordered-float = { workspace = true }
 
 [dev-dependencies]
-avenger-image = { path = "../avenger-image" }
 dssim = "3.3.4"
 rstest = "0.25.0"
 
@@ -44,6 +43,13 @@ path = "../avenger-color"
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
+
+[dependencies.avenger-image]
+path = "../avenger-image"
+default-features = false
+
+[dependencies.avenger-resource]
+path = "../avenger-resource"
 
 [dependencies.rayon]
 workspace = true

@@ -8,12 +8,11 @@ license = "BSD-3-Clause"
 [features]
 default = [ "image-reqwest", "svg",]
 image-reqwest = [ "reqwest", "avenger-image/reqwest"]
-svg = [ "resvg", "usvg", "tiny-skia",]
+svg = [ "resvg", "usvg", "tiny-skia", "avenger-image/svg",]
 
 [dependencies]
-avenger-color = { path = "../avenger-color" }
 cfg-if = "1"
-csscolorparser = "0.7.0"
+avenger-color = { path = "../avenger-color" }
 
 [dependencies.resvg]
 workspace = true
@@ -48,6 +47,7 @@ version = "0.0.8"
 
 [dependencies.avenger-image]
 path = "../avenger-image"
+default-features = false
 
 [dependencies.thiserror]
 workspace = true

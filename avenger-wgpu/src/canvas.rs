@@ -42,6 +42,7 @@ use winit::{
 
 use crate::{
     error::AvengerWgpuError,
+    image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderer, TextLeaderRenderItem},
@@ -124,6 +125,7 @@ pub struct CanvasConfig {
     /// Shared layout and raster context. When supplied, takes precedence over
     /// font_resolution. Pass clones to guides and interaction geometry too.
     pub text_engine: Option<TextEngine>,
+    pub image_resource_config: WgpuImageResourceConfig,
     pub sample_count: Option<u32>,
 }
 
@@ -133,6 +135,7 @@ impl Default for CanvasConfig {
             text_builder_ctor: None,
             text_engine: None,
             font_resolution: avenger_text::default_font_resolution(),
+            image_resource_config: WgpuImageResourceConfig::default(),
             sample_count: None,
         }
     }
@@ -545,6 +548,17 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_warped_image_mark(
+        &mut self,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        origin: [f32; 2],
+        group_clip: &Clip,
+    ) -> Result<(), AvengerWgpuError> {
+        self.get_multi_renderer()
+            .add_warped_image_mark(mark, origin, group_clip)?;
+        Ok(())
+    }
+
     fn add_group_mark(
         &mut self,
         group: &SceneGroup,
@@ -657,7 +671,9 @@ pub trait Canvas {
                 SceneMark::Image(mark) => {
                     self.add_image_mark(mark, origin, &clip)?;
                 }
-
+                SceneMark::WarpedImage(mark) => {
+                    self.add_warped_image_mark(mark, origin, &clip)?;
+                }
                 SceneMark::Group(group) => {
                     self.add_group_mark(
                         group,
@@ -776,7 +792,10 @@ pub trait Canvas {
                         item_kind = "image";
                         self.add_image_mark(mark, item.origin, &item.clip)?;
                     }
-
+                    SceneMark::WarpedImage(mark) => {
+                        item_kind = "image";
+                        self.add_warped_image_mark(mark, item.origin, &item.clip)?;
+                    }
                     SceneMark::Group(_) => {}
                 },
             }
@@ -1028,6 +1047,27 @@ impl WindowCanvas<'_> {
 
     pub fn set_frame_overlay(&mut self, overlay: Option<CanvasFrameOverlay>) {
         self.frame_overlay = overlay;
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    pub fn set_image_resource_resolver(
+        &mut self,
+        resolver: Arc<dyn crate::image_resources::ImageResourceResolver>,
+    ) {
+        self.renderer.set_image_resource_resolver(resolver);
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::marks::tile_array::TileUploadStats,
+        crate::marks::tile_array::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -1382,6 +1422,20 @@ impl PngCanvas {
             "png.render"
         );
         Ok(img)
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::marks::tile_array::TileUploadStats,
+        crate::marks::tile_array::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 }
 

@@ -1,16 +1,22 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::CssColorOrGradient;
+use std::{collections::HashSet, sync::Arc};
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::lyon::parse_svg_path;
-use avenger_common::types::{PathTransform, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::path::ScenePathMark;
+use avenger_common::{
+    lyon::parse_svg_path,
+    types::{PathTransform, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
+use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark};
 use lyon_extra::parser::ParseError;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::CssColorOrGradient,
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

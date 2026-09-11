@@ -148,6 +148,79 @@ fn renderer_resize_preserves_logical_mark_coordinates() {
 }
 
 #[test]
+fn installed_scene_retains_images_until_replaced_or_renderer_dropped() {
+    use avenger_image::{ImageResourceLease, ImageResourceResolver, ImageResourceState};
+    use avenger_resource::ResourceKey;
+    use avenger_scenegraph::{
+        marks::image::{SceneImageMark, SceneImageResource, SceneImageSource},
+        scene_graph::SceneGraph,
+    };
+    use avenger_wgpu::{
+        canvas::CanvasConfig,
+        renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Resolver(Arc<AtomicUsize>);
+    impl ImageResourceResolver for Resolver {
+        fn image_state(&self, _: &ResourceKey) -> ImageResourceState {
+            ImageResourceState::Missing
+        }
+        fn retain_images(&self, keys: &[ResourceKey]) -> ImageResourceLease {
+            let count = keys.len();
+            self.0.fetch_add(count, Ordering::SeqCst);
+            let active = self.0.clone();
+            ImageResourceLease::new(move || {
+                active.fetch_sub(count, Ordering::SeqCst);
+            })
+        }
+    }
+    let active = Arc::new(AtomicUsize::new(0));
+    let mut config = CanvasConfig::default();
+    config.image_resource_config.resolver = Some(Arc::new(Resolver(active.clone())));
+    let (device, queue) = gpu_device();
+    let mut renderer = AvengerWgpuRenderer::new(
+        &device,
+        AvengerRendererConfig::new(
+            avenger_common::canvas::CanvasDimensions {
+                size: [100.0, 100.0],
+                scale: 1.0,
+            },
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+        .with_canvas_config(config),
+    );
+    let mut scene = SceneGraph {
+        marks: vec![SceneImageMark {
+            image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                key: ResourceKey::new("retained-image"),
+                intrinsic_width: 1,
+                intrinsic_height: 1,
+                fallback_key: None,
+            })),
+            ..Default::default()
+        }
+        .into()],
+        width: 100.0,
+        height: 100.0,
+        origin: [0.0, 0.0],
+    };
+    renderer.set_scene(&device, &queue, &scene).unwrap();
+    assert_eq!(active.load(Ordering::SeqCst), 1);
+    renderer.set_scene(&device, &queue, &scene).unwrap();
+    assert_eq!(active.load(Ordering::SeqCst), 1);
+    let saved = scene.clone();
+    scene.marks.clear();
+    renderer.set_scene(&device, &queue, &scene).unwrap();
+    assert_eq!(active.load(Ordering::SeqCst), 0);
+    renderer.set_scene(&device, &queue, &saved).unwrap();
+    drop(renderer);
+    assert_eq!(active.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn configured_text_engine_controls_the_rendered_font_and_rich_limit() {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_scenegraph::{marks::text::SceneTextMark, scene_graph::SceneGraph};
