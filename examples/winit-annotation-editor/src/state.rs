@@ -66,6 +66,7 @@ pub struct State {
     pub load_feedback: Arc<Mutex<Option<Result<(), String>>>>,
     pub debounce: DebouncedCommit<String>,
     pub error: Option<String>,
+    pub annotation_error: Option<String>,
     pub loading: Option<Sample>,
     pub reload: Weak<ReloadCoordinator>,
     pub scene_builds: usize,
@@ -110,7 +111,7 @@ impl State {
                 name: format!("Point {:02}", i + 1),
                 position,
                 annotation: if i == 7 {
-                    "A point worth discussing".into()
+                    "*Radius* $sqrt(x^2+y^2)$".into()
                 } else {
                     String::new()
                 },
@@ -142,6 +143,7 @@ impl State {
             load_feedback: Arc::new(Mutex::new(None)),
             debounce: DebouncedCommit::new(DebounceConfig::new(350)),
             error: None,
+            annotation_error: None,
             loading: None,
             reload: Weak::new(),
             scene_builds: 0,
@@ -189,8 +191,12 @@ impl State {
         self.editor.committed_text().into_string() != self.points[self.selected].annotation
     }
     pub fn apply_action(&mut self, action: Action) -> bool {
+        let before = self.editor.text().to_string();
         match self.editor.apply(action, &self.engine, &text_config()) {
             Ok(changed) => {
+                if before != self.editor.text() {
+                    self.annotation_error = None;
+                }
                 self.error = None;
                 changed
             }
@@ -240,5 +246,15 @@ pub fn text_config() -> TextMeasurementConfig<'static> {
         datetime_locale: None,
         datetime_timezone: None,
         datetime_locale_specs: None,
+    }
+}
+
+// Validation and the chart annotation use the same typesetting configuration.
+pub fn annotation_config(text: &str) -> TextMeasurementConfig<'_> {
+    TextMeasurementConfig {
+        text,
+        font_size: 16.0,
+        syntax_mode: TextSyntaxMode::TypstMarkup,
+        ..text_config()
     }
 }

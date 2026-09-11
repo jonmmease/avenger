@@ -20,7 +20,7 @@ use avenger_eventstream::{
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_text::text_edit::{cursor_rect_for_offset, Action, Motion, SingleLineEditor};
 
-use crate::state::{Drag, Sample, State};
+use crate::state::{annotation_config, Drag, Sample, State};
 
 type Registration = (EventStreamConfig, Arc<dyn EventStreamHandler<State>>);
 
@@ -162,6 +162,32 @@ fn discard_composition(state: &mut State) {
         }
     }
 }
+// Keep incomplete source in the editor while the chart retains its last valid label.
+fn apply_annotation(state: &mut State, text: String, status: &mut UpdateStatus) -> bool {
+    let validation = if text.trim().is_empty() {
+        Ok(())
+    } else {
+        state
+            .engine
+            .measure_bounds(&annotation_config(&text))
+            .map(|_| ())
+    };
+    match validation {
+        Ok(()) => {
+            let changed = text != state.points[state.selected].annotation;
+            state.points[state.selected].annotation = text;
+            status.rebuild_geometry |= changed;
+            let cleared_error = state.annotation_error.take().is_some();
+            status.rerender |= changed || cleared_error;
+            true
+        }
+        Err(error) => {
+            state.annotation_error = Some(error.to_string());
+            status.rerender = true;
+            false
+        }
+    }
+}
 fn blur(state: &mut State, cancel: bool, status: &mut UpdateStatus) {
     if !state.focused {
         return;
@@ -170,13 +196,13 @@ fn blur(state: &mut State, cancel: bool, status: &mut UpdateStatus) {
     let key = state.key("apply");
     status.commands.extend(state.debounce.cancel(&key).commands);
     if cancel {
+        state.annotation_error = None;
         state
             .editor
             .replace_committed_text(state.points[state.selected].annotation.clone());
     } else {
         let text = state.editor.committed_text().into_string();
-        status.rebuild_geometry |= text != state.points[state.selected].annotation;
-        state.points[state.selected].annotation = text;
+        apply_annotation(state, text, status);
     }
     status.commands.extend([
         Command::CancelWakeup {
@@ -219,6 +245,7 @@ fn select(state: &mut State, selected: usize, status: &mut UpdateStatus) {
     blur(state, false, status);
     state.selected = selected;
     state.editor = SingleLineEditor::new(state.points[selected].annotation.clone());
+    state.annotation_error = None;
     state.scroll = 0.0;
     status.rerender = true;
     status.rebuild_geometry = true;
@@ -332,6 +359,10 @@ impl EventStreamHandler<State> for InputHandler {
                 };
                 let action = match e.key {
                     Key::Named(NamedKey::Enter) => {
+                        let text = state.editor.committed_text().into_string();
+                        if !apply_annotation(state, text, &mut status) {
+                            return status;
+                        }
                         blur(state, false, &mut status);
                         return status;
                     }
@@ -457,9 +488,7 @@ impl EventStreamHandler<State> for InputHandler {
                 let update = state.debounce.handle_wakeup(wake, time);
                 status.commands.extend(update.commands);
                 if let Some(text) = update.commit {
-                    state.points[state.selected].annotation = text;
-                    status.rerender = true;
-                    status.rebuild_geometry = true;
+                    apply_annotation(state, text, &mut status);
                 }
                 if wake.key == state.key("blink")
                     && wake.generation == state.blink_generation

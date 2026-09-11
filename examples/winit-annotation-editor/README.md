@@ -1,12 +1,14 @@
 # Annotation editor
 
-Select a point, edit its annotation, and drag the label into position. This native example uses scene marks, the shared text editor, event streams, and the winit host directly.
+Select a point, edit its Typst source, and drag the typeset label into position. This native example uses scene marks, the shared text editor, event streams, and the winit host directly.
 
 ```sh
 cargo run --release -p winit-annotation-editor
 ```
 
-- Labels update after 350 ms without an edit. Enter applies immediately. Escape restores the applied label and leaves the field.
+- The field edits literal Typst source. Chart labels typeset markup such as `*bold*`, `_italic_`, and `$sqrt(x^2+y^2)$`.
+- Valid labels update after 350 ms without an edit. Enter applies immediately. Escape restores the applied label and leaves the field.
+- Invalid source stays editable and shows an error while the chart retains its last valid label. Enter keeps the field focused until the source is valid. Escape restores the applied source. Selecting another point discards an invalid draft.
 - Select text with a drag, a double-click, Shift with arrow keys, or the platform select-all shortcut. Use the usual clipboard shortcuts. Input-method composition stays in the field until committed.
 - Drag a label to move it. Drag the plot background to pan. A gesture keeps its original target until release, even over another mark.
 - Hover over a point for 400 ms to show a tooltip. Tooltip movement does not rebuild the application scene.

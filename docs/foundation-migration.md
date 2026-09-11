@@ -97,6 +97,6 @@ cargo run --release -p winit-annotation-editor
 cargo run --release -p winit-annotation-editor -- --slow-loads
 ```
 
-The [annotation editor](../examples/winit-annotation-editor/README.md) combines text selection, composition, clipboard actions, debounced edits, draggable labels, tooltips, and prepared sample replacement.
+The [annotation editor](../examples/winit-annotation-editor/README.md) edits literal Typst source and displays typeset chart labels. Invalid drafts retain the last valid preview. It combines text selection, composition, clipboard actions, debounced edits, draggable labels, tooltips, and prepared sample replacement.
 
 ![Native annotation editor](images/annotation-editor.png)

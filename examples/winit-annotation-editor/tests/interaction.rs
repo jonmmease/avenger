@@ -357,3 +357,122 @@ fn an_old_application_wake_cannot_change_a_replacement() {
     assert!(!h.state().focused);
     assert_ne!(h.state().points[7].annotation, "old generation");
 }
+
+fn text_marks(
+    marks: &[avenger_scenegraph::marks::mark::SceneMark],
+) -> Vec<&avenger_scenegraph::marks::text::SceneTextMark> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    marks
+        .iter()
+        .flat_map(|mark| match mark {
+            SceneMark::Text(mark) => vec![mark.as_ref()],
+            SceneMark::Group(group) => text_marks(&group.marks),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn typst_source_stays_literal_in_the_field_and_typesets_in_the_annotation() {
+    use avenger_text::types::TextSyntaxMode;
+    let mut h = Harness::new();
+    h.focus();
+    let source = "*Distance* $sqrt(x^2+y^2)$";
+    h.replace(source);
+    h.key(Key::Named(NamedKey::Enter), None);
+    assert_eq!(h.state().editor.text(), source);
+    assert!(h.state().annotation_error.is_none());
+    let marks = text_marks(&h.app.scene_graph().marks);
+    let annotation = marks
+        .iter()
+        .find(|mark| mark.name == "annotation-7")
+        .unwrap();
+    assert_eq!(annotation.text, source.to_string().into());
+    assert_eq!(annotation.text_syntax, TextSyntaxMode::TypstMarkup);
+    assert!(marks
+        .iter()
+        .any(|mark| mark.text == source.to_string().into()
+            && mark.text_syntax == TextSyntaxMode::Plain));
+    let state = h.state();
+    let plain = state.shaped_line().unwrap();
+    let typeset = state
+        .engine
+        .measure_bounds(&winit_annotation_editor::state::annotation_config(source))
+        .unwrap();
+    assert!(plain.bounds.width > typeset.width + 10.0);
+}
+
+#[test]
+fn invalid_markup_preserves_the_preview_and_enter_keeps_the_draft_editable() {
+    let mut h = Harness::new();
+    h.focus();
+    let previous = h.state().points[7].annotation.clone();
+    let update = h.replace("$sqrt(x");
+    let stale = wake(&update, "apply");
+    h.advance(350);
+    let update = h.wake(stale.clone());
+    assert!(update.scene_graph.is_some());
+    assert!(!update.status.rebuild_geometry);
+    assert_eq!(h.state().points[7].annotation, previous);
+    assert_eq!(h.state().editor.text(), "$sqrt(x");
+    assert!(h.state().annotation_error.is_some());
+    h.key(Key::Named(NamedKey::ArrowLeft), None);
+    assert!(h.state().annotation_error.is_some());
+    h.key(Key::Named(NamedKey::Enter), None);
+    assert!(h.state().focused);
+    assert_eq!(h.state().points[7].annotation, previous);
+    h.replace("_Fixed_ $sqrt(x)$");
+    h.key(Key::Named(NamedKey::Enter), None);
+    assert!(!h.state().focused);
+    assert!(h.state().annotation_error.is_none());
+    assert_eq!(h.state().points[7].annotation, "_Fixed_ $sqrt(x)$");
+    h.advance(500);
+    h.wake(stale);
+    assert_eq!(h.state().points[7].annotation, "_Fixed_ $sqrt(x)$");
+}
+
+#[test]
+fn escape_and_point_changes_discard_invalid_markup_without_losing_the_valid_label() {
+    let mut h = Harness::new();
+    h.focus();
+    let previous = h.state().points[7].annotation.clone();
+    h.replace("$sqrt(x");
+    h.key(Key::Named(NamedKey::Enter), None);
+    h.key(Key::Named(NamedKey::Escape), None);
+    assert_eq!(h.state().editor.text(), previous);
+    assert!(h.state().annotation_error.is_none());
+    h.focus();
+    h.replace("$sqrt(x");
+    h.send(WindowEvent::WindowFocused(false));
+    assert!(!h.state().focused);
+    assert_eq!(h.state().editor.text(), "$sqrt(x");
+    assert_eq!(h.state().points[7].annotation, previous);
+    let point = h.state().point_position(2);
+    h.send(WindowEvent::WindowFocused(true));
+    h.move_to(point);
+    h.down();
+    h.up();
+    assert_eq!(h.state().selected, 2);
+    assert_eq!(h.state().editor.text(), "");
+    assert!(h.state().annotation_error.is_none());
+    assert_eq!(h.state().points[7].annotation, previous);
+}
+
+#[test]
+fn blank_source_removes_the_annotation() {
+    for source in ["", "   "] {
+        let mut h = Harness::new();
+        h.focus();
+        h.all();
+        h.key(Key::Named(NamedKey::Backspace), None);
+        if !source.is_empty() {
+            h.key(Key::Character(' '), Some(source));
+        }
+        h.key(Key::Named(NamedKey::Enter), None);
+        assert_eq!(h.state().points[7].annotation, source);
+        assert!(h.state().annotation_error.is_none());
+        assert!(!text_marks(&h.app.scene_graph().marks)
+            .iter()
+            .any(|mark| mark.name == "annotation-7"));
+    }
+}

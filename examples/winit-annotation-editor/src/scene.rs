@@ -16,7 +16,7 @@ use avenger_text::{
     types::{FontWeight, TextBaseline},
 };
 
-use crate::state::{Sample, State};
+use crate::state::{annotation_config, Sample, State};
 
 const INK: [f32; 4] = [0.12, 0.19, 0.26, 1.0];
 const BLUE: [f32; 4] = [0.12, 0.45, 0.67, 1.0];
@@ -65,7 +65,7 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
     let mut marks: Vec<SceneMark> = vec![
         text("Annotation editor", 32.0, 47.0, 28.0).into(),
         text(
-            "Select a point, edit its label, then drag the annotation into place.",
+            "Edit Typst source to typeset a label, then drag the annotation into place.",
             32.0,
             77.0,
             15.0,
@@ -169,8 +169,13 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
             }
             .into(),
         );
-        if !point.annotation.is_empty() {
-            let mut label = text(point.annotation.clone(), x, y, 16.0);
+        if !point.annotation.trim().is_empty() {
+            let config = annotation_config(&point.annotation);
+            let mut label = text(point.annotation.clone(), x, y, config.font_size);
+            label.text_syntax = config.syntax_mode;
+            label.font = config.font.to_string().into();
+            label.font_weight = config.font_weight.into();
+            label.font_style = config.font_style.into();
             label.name = format!("annotation-{i}");
             label.interactive = true;
             label.clip = true;
@@ -214,7 +219,7 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
         )
         .into(),
     );
-    marks.push(text("Annotation", ix, 240.0, 14.0).into());
+    marks.push(text("Typst source", ix, 240.0, 14.0).into());
     let mut field = rect("field", state.field(), [1.0; 4]);
     field.stroke = ColorOrGradient::Color(if state.focused {
         BLUE
@@ -285,13 +290,25 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
     );
     let status = if state.editor.compose_range().is_some() {
         "Composing…"
+    } else if state.annotation_error.is_some() {
+        "Invalid markup · preview unchanged"
     } else if state.pending() {
         "Waiting to apply…"
     } else {
         "Applied"
     };
-    marks.push(text(status, ix, 325.0, 14.0).into());
+    let mut status_label = text(status, ix, 325.0, 14.0);
+    if let Some(error) = &state.annotation_error {
+        let color = ColorOrGradient::Color([0.7, 0.16, 0.12, 1.0]);
+        status_label.color = color.clone().into();
+        let mut detail = text(error.replace(['\n', '\r'], " "), ix, 348.0, 11.0);
+        detail.color = color.into();
+        detail.limit = 245.0.into();
+        marks.push(detail.into());
+    }
+    marks.push(status_label.into());
     for (i, line) in [
+        "Use *bold*, _italic_, or $sqrt(x)$.",
         "Labels update after you pause.",
         "Enter applies and leaves the field.",
         "Escape restores the applied label.",
