@@ -40,6 +40,12 @@ jobs:
         run: |
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
+      - name: Install pinned PDF rasterizer
+        run: avenger-pdf/scripts/fetch_pdfium.sh
+      - name: Verify PDF export images
+        env:
+          AVENGER_PDFIUM_LIBRARY_PATH: ${{ github.workspace }}/target/pdfium/lib/libpdfium.so
+        run: cargo test --release -p avenger-pdf --test export --locked -- --include-ignored
       - name: Verify Typst layout against upstream PNGs
         run: cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --locked
       - name: Run doc tests
