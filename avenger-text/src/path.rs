@@ -104,6 +104,12 @@ pub struct TextPathImageItem {
 pub struct PlainTextPathRun {
     pub text: String,
     pub byte_range: Range<usize>,
+    /// Resolved faces used to shape this run. Resource IDs are local to the run.
+    pub font_resources: Vec<avenger_typst_label::FontResource>,
+    /// Resolved foreground color.
+    pub color: [f32; 4],
+    /// Whether the run uses right-to-left text direction.
+    pub is_rtl: bool,
     pub font: String,
     pub font_size: f32,
     pub font_weight: FontWeight,
@@ -223,10 +229,29 @@ impl TextPathExtractorImpl {
             &avenger_typst_label::SvgOptions::default(),
         )?;
 
+        // Native SVG text cannot reproduce arbitrary OpenType substitutions in every viewer.
+        // Retain the already shaped outlines for those runs, including subscripts and small caps.
+        let outlined_ranges: Vec<_> = svg
+            .items
+            .iter()
+            .filter_map(|(_, item)| match item {
+                avenger_typst_label::LabelFrameItem::Text(text)
+                    if !text.font_features.is_empty()
+                        || text.font_resources.iter().any(|r| !r.variations.is_empty()) =>
+                {
+                    Some(text.byte_range.clone())
+                }
+                _ => None,
+            })
+            .collect();
+
         for (point, item) in svg.items {
             match item {
                 avenger_typst_label::LabelFrameItem::Text(text) => {
-                    if text.kind != avenger_typst_label::TextItemKind::Plain {
+                    if text.kind != avenger_typst_label::TextItemKind::Plain
+                        || !text.font_features.is_empty()
+                        || text.font_resources.iter().any(|r| !r.variations.is_empty())
+                    {
                         continue;
                     }
                     let run_font = text
@@ -235,10 +260,38 @@ impl TextPathExtractorImpl {
                         .map(|style| style.font_family.clone())
                         .unwrap_or_else(|| config.font.to_string());
                     let run_bounds = tight_bounds_from_metrics(text.metrics);
+                    // A frame item can carry the whole label's font table. Keep only
+                    // faces referenced by this run, in glyph order for fallback selection.
+                    let mut font_resources = Vec::new();
+                    if let Some(pdf) = &text.pdf_text {
+                        for glyph_run in &pdf.glyph_runs {
+                            if font_resources.iter().any(
+                                |resource: &avenger_typst_label::FontResource| {
+                                    resource.id == glyph_run.font
+                                },
+                            ) {
+                                continue;
+                            }
+                            if let Some(resource) = text
+                                .font_resources
+                                .iter()
+                                .find(|resource| resource.id == glyph_run.font)
+                            {
+                                font_resources.push(resource.clone());
+                            }
+                        }
+                    }
                     let run_index = output.plain_runs.len();
                     output.plain_runs.push(PlainTextPathRun {
                         text: text.text,
                         byte_range: text.byte_range,
+                        font_resources,
+                        color: text
+                            .style
+                            .as_ref()
+                            .map(|style| rgba_from_typst_color(style.fill))
+                            .unwrap_or(config.color),
+                        is_rtl: text.is_rtl,
                         font: run_font,
                         font_size: text
                             .style
@@ -269,16 +322,23 @@ impl TextPathExtractorImpl {
                             shape.item.kind,
                             avenger_typst_label::PathKind::GlyphOutline { .. }
                         )
+                        && !outlined_ranges.contains(&shape.byte_range)
                     {
                         continue;
                     }
                     let path_index = output.items.len();
-                    output.items.push(typst_path_item_to_text_path_item(
+                    let mut path_item = typst_path_item_to_text_path_item(
                         shape.item,
                         shape.byte_range,
                         0.0,
                         y_offset,
-                    ));
+                    );
+                    if shape.text_kind == Some(avenger_typst_label::TextItemKind::Plain)
+                        && path_item.kind == TextPathKind::MathGlyph
+                    {
+                        path_item.kind = TextPathKind::PlainGlyph;
+                    }
+                    output.items.push(path_item);
                     output
                         .draw_items
                         .push(TextPathDrawItem::PathItem(path_index));
@@ -494,6 +554,125 @@ mod tests {
         avenger_typst_label::LabelEngine::new(Default::default()).unwrap()
     }
 
+    fn lato_runs(source: &str) -> Vec<(avenger_typst_label::Point, avenger_typst_label::TextItem)> {
+        use avenger_typst_label::{
+            EngineOptions, FontOptions, LabelEngine, LabelFrameItem, LabelOptions,
+        };
+        let engine = LabelEngine::new(EngineOptions {
+            fonts: FontOptions {
+                load_system_fonts: false,
+                registered_fonts: crate::fonts::registered_default_fonts(),
+                ..Default::default()
+            },
+        })
+        .unwrap();
+        let mut options = LabelOptions::default();
+        options.text.font_family = "Lato".into();
+        options.text.font_size = 40.0;
+        engine
+            .compile(source, &options)
+            .unwrap()
+            .frame
+            .items
+            .into_iter()
+            .filter_map(|(point, item)| match item {
+                LabelFrameItem::Text(text) => Some((point, text)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn typographic_scripts_keep_parent_size_and_baseline() {
+        for (function, tag) in [("sub", *b"subs"), ("super", *b"sups")] {
+            // Explicit size and baseline affect only synthesized scripts.
+            for arguments in ["", "(size: 0.25em, baseline: 0.8em)"] {
+                let runs = lato_runs(&format!("H#{function}{arguments}[2]O"));
+                assert_eq!(runs.len(), 3);
+                let (parent_position, parent) = &runs[0];
+                let (script_position, script) = &runs[1];
+                assert_eq!(script.text, "2");
+                assert_eq!(script.style.as_ref().unwrap().font_size, 40.0);
+                assert_eq!(script_position.y, parent_position.y);
+                assert_eq!(
+                    script.font_features,
+                    vec![avenger_typst_label::FontFeature { tag, value: 1 }]
+                );
+                assert!(script.metrics.width < parent.metrics.width);
+            }
+        }
+    }
+
+    #[test]
+    fn incomplete_script_features_synthesize_the_entire_run() {
+        // Lato provides script digits but no script at sign.
+        for function in ["sub", "super"] {
+            let runs = lato_runs(&format!("H#{function}(size: 0.5em)[2@]O"));
+            let (_, script) = runs.iter().find(|(_, run)| run.text == "2@").unwrap();
+            assert_eq!(script.style.as_ref().unwrap().font_size, 20.0);
+            assert!(script.font_features.is_empty());
+            assert_eq!(script.font_resources[0].family, "Lato");
+        }
+    }
+
+    #[test]
+    fn svg_extraction_outlines_feature_runs_and_retains_ordinary_text() {
+        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+            load_system_fonts: false,
+            ..crate::default_font_resolution()
+        })
+        .unwrap();
+        for source in [
+            "H#sub[2]O",
+            "H#super[2]O",
+            "#smallcaps[Smallcaps]",
+            "H#smallcaps(all: true)[CAPS]O",
+        ] {
+            let buffer = engine
+                .extract_paths(&TextPathExtractionConfig {
+                    font: "Lato",
+                    font_size: 40.0,
+                    ..config(source)
+                })
+                .unwrap();
+            assert!(!buffer.items.is_empty(), "{source}");
+            assert!(buffer
+                .items
+                .iter()
+                .all(|item| item.kind == TextPathKind::PlainGlyph));
+            let native: String = buffer
+                .plain_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect();
+            assert_eq!(native, if source.starts_with('H') { "HO" } else { "" });
+        }
+    }
+
+    #[test]
+    fn plain_runs_only_include_their_resolved_faces() {
+        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+            load_system_fonts: false,
+            ..crate::default_font_resolution()
+        })
+        .unwrap();
+        let buffer = engine
+            .extract_paths(&TextPathExtractionConfig {
+                font: "Lato",
+                ..config("Regular _Italic_ *Bold* $sqrt(x)$")
+            })
+            .unwrap();
+        for run in &buffer.plain_runs {
+            assert_eq!(run.font_resources.len(), 1, "{}", run.text);
+            let resource = &run.font_resources[0];
+            let face = ttf_parser::Face::parse(&resource.data, resource.face_index).unwrap();
+            assert_eq!(face.is_italic(), run.font_style == FontStyle::Italic);
+            if run.text.contains("Bold") {
+                assert_eq!(face.weight().to_number(), 700);
+            }
+        }
+    }
+
     #[test]
     fn text_line_extractor_returns_plain_runs_and_math_paths() {
         let typst = typst();
@@ -552,10 +731,10 @@ mod tests {
     }
 
     #[test]
-    fn text_line_extractor_returns_script_runs_with_smaller_style() {
+    fn text_line_extractor_returns_synthesized_script_runs_with_smaller_style() {
         let typst = typst();
         let extractor = TextPathExtractorImpl::new(typst, math_config());
-        let text = "H#sub[2]O #super[\\*]".to_string();
+        let text = "H#sub(typographic: false)[2]O #super(typographic: false)[\\*]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
         assert_eq!(buffer.plain_runs.len(), 4);
