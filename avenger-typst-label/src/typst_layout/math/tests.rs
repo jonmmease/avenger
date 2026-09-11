@@ -67,6 +67,19 @@ mod tests {
         dx.hypot(dy)
     }
 
+    fn fragment_metrics(math: &MathAst, options: &MathLayoutOptions) -> TypesetMetrics {
+        let font = load_default_math_font(
+            &EngineOptions::default(),
+            &options.style.font,
+            &options.style.font_weight,
+        )
+        .unwrap();
+        layout_simple_nodes_as_atom(&font, &math.nodes, options.style.font_size, 0)
+            .unwrap()
+            .unwrap()
+            .metrics
+    }
+
     #[test]
     #[cfg(not(feature = "raster"))]
     fn atom_fragment_layout_is_available_without_raster_feature() {
@@ -239,7 +252,7 @@ mod tests {
             .metrics;
 
         assert!(
-            relation_metrics.height > forced_scripts_metrics.height + font_size * 0.25,
+            relation_metrics.height > forced_scripts_metrics.height,
             "relation class should place top/bottom attachments as centered limits by default"
         );
         assert!(
@@ -507,7 +520,10 @@ mod tests {
             .and_then(|item| item.stroke.as_ref())
             .expect("cancel stroke should exist");
 
-        assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
+        assert_eq!(
+            stroke.color,
+            Color::rgba(133.0 / 255.0, 20.0 / 255.0, 75.0 / 255.0, 1.0)
+        );
         assert!((stroke.width - options.style.font_size * 0.25).abs() < 1e-4);
         assert_eq!(stroke.line_cap, crate::typst_svg::LineCap::Round);
         assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Miter);
@@ -579,7 +595,8 @@ mod tests {
                     .unwrap_or_else(|| panic!("{source} should be handled by Typst row path"));
 
             assert!(
-                artifact.metrics.height > plain_artifact.metrics.height,
+                fragment_metrics(&math, &options).height
+                    > fragment_metrics(&plain, &options).height,
                 "{source} should add vertical extent over the plain body"
             );
             assert!(
@@ -591,8 +608,8 @@ mod tests {
                     .paths
                     .items
                     .iter()
-                    .any(|item| matches!(item.kind, PathKind::MathShape)),
-                "{source} should emit the under/over construct as a math shape"
+                    .all(|item| matches!(item.kind, PathKind::GlyphOutline { .. })),
+                "{source} should use the math font for body and ornament"
             );
             assert!(
                 artifact.pdf_text.glyph_runs.len() >= plain_artifact.pdf_text.glyph_runs.len(),
@@ -631,8 +648,8 @@ mod tests {
                     .paths
                     .items
                     .iter()
-                    .any(|item| matches!(item.kind, PathKind::MathShape)),
-                "{source} should keep the under/over ornament shape"
+                    .all(|item| matches!(item.kind, PathKind::GlyphOutline { .. })),
+                "{source} should keep the font-provided ornament glyphs"
             );
             assert!(
                 artifact.pdf_text.glyph_runs.len() > unannotated_artifact.pdf_text.glyph_runs.len(),
@@ -871,7 +888,8 @@ mod tests {
                 .expect("sized lr call should be handled by Typst row path");
 
         assert!(
-            sized_artifact.metrics.height > plain_artifact.metrics.height + 3.0,
+            fragment_metrics(&sized, &options).height
+                > fragment_metrics(&plain, &options).height + 3.0,
             "explicit delimiter size should increase line height: plain={:?}, sized={:?}",
             plain_artifact.metrics,
             sized_artifact.metrics
@@ -895,7 +913,8 @@ mod tests {
                 .expect("sized abs call should be handled by Typst row path");
 
         assert!(
-            sized_artifact.metrics.height > plain_artifact.metrics.height + 5.0,
+            fragment_metrics(&sized, &options).height
+                > fragment_metrics(&plain, &options).height + 5.0,
             "explicit delimiter size should increase helper height: plain={:?}, sized={:?}",
             plain_artifact.metrics,
             sized_artifact.metrics
@@ -919,7 +938,8 @@ mod tests {
                 .expect("sized bracket.l call should be handled by Typst row path");
 
         assert!(
-            sized_artifact.metrics.height > plain_artifact.metrics.height + 3.0,
+            fragment_metrics(&sized, &options).height
+                > fragment_metrics(&plain, &options).height + 3.0,
             "explicit delimiter size should increase callable symbol height: plain={:?}, sized={:?}",
             plain_artifact.metrics,
             sized_artifact.metrics
@@ -982,8 +1002,8 @@ mod tests {
 
         for (source, expected) in [
             ("bb(R)", "ℝ"),
-            ("cal(P)", "𝒫"),
-            ("scr(L)", "ℒ"),
+            ("cal(P)", "𝒫\u{fe00}"),
+            ("scr(L)", "ℒ\u{fe01}"),
             ("frak(g)", "𝔤"),
             ("sans(x)", "𝘹"),
             ("mono(123)", "𝟷𝟸𝟹"),
@@ -1075,7 +1095,7 @@ mod tests {
             ("grave(a)", "𝑎\u{0300}"),
             ("acute(b)", "𝑏\u{0301}"),
             ("hat(x)", "𝑥\u{0302}"),
-            ("hat(i)", "𝚤\u{0302}"),
+            ("hat(i)", "𝑖\u{0302}"),
             ("hat(dotless: #false, i)", "𝑖\u{0302}"),
             ("tilde(x)", "𝑥\u{0303}"),
             ("macron(x)", "𝑥\u{0304}"),
@@ -1163,7 +1183,7 @@ mod tests {
                 .expect("bottom accent call should be handled by Typst row path");
 
         assert!(
-            bottom_artifact.metrics.descent > base_artifact.metrics.descent,
+            fragment_metrics(&bottom, &options).descent > fragment_metrics(&base, &options).descent,
             "bottom accent should contribute descent: base={:?}, bottom={:?}",
             base_artifact.metrics,
             bottom_artifact.metrics

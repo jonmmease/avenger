@@ -159,7 +159,10 @@ fn contains_mid_call(nodes: &[MathNode]) -> bool {
     })
 }
 
-#[allow(clippy::too_many_arguments, reason = "Keep the explicit inputs of the existing layout and rendering pipeline.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
 fn layout_simple_delimited_nodes(
     font: &MathFont,
     left: char,
@@ -234,7 +237,10 @@ fn delimiter_target_height_for_body(
         .max(0.0))
 }
 
-#[allow(clippy::too_many_arguments, reason = "Keep the explicit inputs of the existing layout and rendering pipeline.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
 fn layout_simple_delimited_atom(
     font: &MathFont,
     left: char,
@@ -259,7 +265,10 @@ fn layout_simple_delimited_atom(
     )
 }
 
-#[allow(clippy::too_many_arguments, reason = "Keep the explicit inputs of the existing layout and rendering pipeline.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
 fn layout_simple_delimited_atom_with_target_height(
     font: &MathFont,
     left: char,
@@ -312,13 +321,11 @@ fn layout_simple_delimited_atom_with_target_height(
     offset_atom(&mut body, body_dx, body_dy);
     offset_atom(&mut right, right_dx, right_dy);
 
-    let ink_ascent = (left.ink_ascent + left_dy)
-        .max(body.ink_ascent + body_dy)
-        .max(right.ink_ascent + right_dy);
-    let ink_descent = (left.ink_descent - left_dy)
-        .max(body.ink_descent - body_dy)
-        .max(right.ink_descent - right_dy);
-
+    let ink_ascent = left.ink_ascent.max(body.ink_ascent).max(right.ink_ascent);
+    let ink_descent = left
+        .ink_descent
+        .max(body.ink_descent)
+        .max(right.ink_descent);
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
@@ -336,10 +343,15 @@ fn layout_simple_delimited_atom_with_target_height(
         },
         ink_ascent,
         ink_descent,
+        left_spacing: None,
+        right_spacing: None,
         left_class: SimpleMathClass::Opening,
         right_class: SimpleMathClass::Closing,
         italic_correction: 0.0,
         script_kernable: true,
+        base_metrics: Some((ascent, descent)),
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -465,8 +477,8 @@ fn stretch_single_glyph_variant(
             .or_else(|| variant_advance.map(|advance| advance * scale))
             .unwrap_or(glyph.x_advance);
         if let Some(bounds) = face.glyph_bounding_box(variant_glyph) {
-            let ascent = bounds.y_max.max(0) as f32 * scale;
-            let descent = (-bounds.y_min).max(0) as f32 * scale;
+            let ascent = bounds.y_max as f32 * scale;
+            let descent = -bounds.y_min as f32 * scale;
             atom.metrics.height = ascent + descent;
             atom.metrics.baseline = ascent;
             atom.metrics.ascent = ascent;
@@ -475,19 +487,16 @@ fn stretch_single_glyph_variant(
             atom.ink_descent = descent;
             glyph.y = ascent;
         }
+        atom.italic_correction =
+            italic_correction(&face, variant_glyph).unwrap_or_default() as f32 * scale;
+        atom.base_metrics = Some((atom.metrics.ascent, atom.metrics.descent));
+        atom.accent_attachment = None;
         atom.metrics.width = glyph.x_advance;
         return Ok(Some(()));
     }
 
-    if axis == MathStretchAxis::Horizontal
-        && let Some(assembly) = construction.assembly
-        && assemble_horizontal_glyph_from_math_parts(
-            &face,
-            atom,
-            &base_glyph,
-            assembly,
-            target_units,
-        )
+    if let Some(assembly) = construction.assembly
+        && assemble_glyph_from_math_parts(&face, atom, &base_glyph, assembly, target_units, axis)
     {
         return Ok(Some(()));
     }
@@ -502,8 +511,8 @@ fn stretch_single_glyph_variant(
         .or_else(|| variant_advance.map(|advance| advance * scale))
         .unwrap_or(glyph.x_advance);
     if let Some(bounds) = face.glyph_bounding_box(variant_glyph) {
-        let ascent = bounds.y_max.max(0) as f32 * scale;
-        let descent = (-bounds.y_min).max(0) as f32 * scale;
+        let ascent = bounds.y_max as f32 * scale;
+        let descent = -bounds.y_min as f32 * scale;
         atom.metrics.height = ascent + descent;
         atom.metrics.baseline = ascent;
         atom.metrics.ascent = ascent;
@@ -512,16 +521,21 @@ fn stretch_single_glyph_variant(
         atom.ink_descent = descent;
         glyph.y = ascent;
     }
+    atom.italic_correction =
+        italic_correction(&face, variant_glyph).unwrap_or_default() as f32 * scale;
+    atom.base_metrics = Some((atom.metrics.ascent, atom.metrics.descent));
+    atom.accent_attachment = None;
     atom.metrics.width = glyph.x_advance;
     Ok(Some(()))
 }
 
-fn assemble_horizontal_glyph_from_math_parts(
+fn assemble_glyph_from_math_parts(
     face: &ttf_parser::Face<'_>,
     atom: &mut LaidOutMathAtom,
     base_glyph: &LaidOutGlyph,
     assembly: ttf_parser::math::GlyphAssembly<'_>,
     target_units: f32,
+    axis: MathStretchAxis,
 ) -> bool {
     let Some(math) = face.tables().math else {
         return false;
@@ -579,8 +593,20 @@ fn assemble_horizontal_glyph_from_math_parts(
             String::new()
         };
         glyph.x_advance = advance_units * scale;
-        glyph.x = base_glyph.x + cursor * scale;
-        glyph.y = base_glyph.y;
+        glyph.x = if axis == MathStretchAxis::Horizontal {
+            cursor * scale
+        } else {
+            0.0
+        };
+        glyph.y = if axis == MathStretchAxis::Vertical {
+            (full_units - cursor
+                + face
+                    .glyph_bounding_box(part.glyph_id)
+                    .map_or(0.0, |b| b.y_min as f32))
+                * scale
+        } else {
+            0.0
+        };
         glyphs.push(glyph);
         cursor += advance_units;
         first_part = false;
@@ -590,31 +616,42 @@ fn assemble_horizontal_glyph_from_math_parts(
         return false;
     }
 
-    let (ascent, descent) = glyphs
+    let (mut ascent, mut descent) = glyphs
         .iter()
         .filter_map(|glyph| face.glyph_bounding_box(glyph.glyph_id))
-        .map(|bounds| {
-            (
-                bounds.y_max.max(0) as f32 * scale,
-                (-bounds.y_min).max(0) as f32 * scale,
-            )
-        })
+        .map(|bounds| (bounds.y_max as f32 * scale, -bounds.y_min as f32 * scale))
         .fold(
-            (0.0f32, 0.0f32),
+            (f32::NEG_INFINITY, f32::NEG_INFINITY),
             |(max_ascent, max_descent), (ascent, descent)| {
                 (max_ascent.max(ascent), max_descent.max(descent))
             },
         );
-    for glyph in &mut glyphs {
-        glyph.y = ascent;
+    if axis == MathStretchAxis::Horizontal {
+        for glyph in &mut glyphs {
+            glyph.y = ascent;
+        }
+        atom.metrics.width = full_units * scale;
+        atom.accent_attachment = Some((atom.metrics.width / 2.0, atom.metrics.width / 2.0));
+    } else {
+        ascent = full_units * scale;
+        descent = 0.0;
+        atom.metrics.width = glyphs
+            .iter()
+            .filter_map(|g| face.glyph_hor_advance(g.glyph_id))
+            .max()
+            .unwrap_or_default() as f32
+            * scale;
+        for glyph in &mut glyphs {
+            glyph.x_advance = 0.0;
+        }
     }
-    atom.metrics.width = full_units * scale;
     atom.metrics.height = ascent + descent;
     atom.metrics.baseline = ascent;
     atom.metrics.ascent = ascent;
     atom.metrics.descent = descent;
     atom.ink_ascent = ascent;
     atom.ink_descent = descent;
+    atom.base_metrics = Some((ascent, descent));
     atom.italic_correction = assembly.italics_correction.value as f32 * scale;
     atom.glyphs = glyphs;
     atom.draw_order = (0..atom.glyphs.len()).map(LaidOutDrawItem::Glyph).collect();

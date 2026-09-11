@@ -59,13 +59,12 @@ fn layout_operator_atom(
     font_size: f32,
     script_level: u8,
 ) -> Result<LaidOutMathAtom, LabelError> {
-    let face =
-        ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
-            start: 0,
-            end: text.len(),
-            message: "failed to parse Typst math font".to_string(),
-        })?;
-    let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
+    let face = font.parsed_face().map_err(|_| LabelError::Engine {
+        start: 0,
+        end: text.len(),
+        message: "failed to parse Typst math font".to_string(),
+    })?;
+    let Some(mut rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
         return Err(LabelError::Engine {
             start: 0,
             end: text.len(),
@@ -87,6 +86,9 @@ fn layout_operator_atom(
     buffer.set_direction(rustybuzz::Direction::LeftToRight);
     buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
 
+    for (tag, value) in font.variation_coordinates() {
+        rusty.set_variation(ttf_parser::Tag::from_bytes(&tag), value);
+    }
     let scale = font_size / face.units_per_em() as f32;
     let shaped = rustybuzz::shape(&rusty, &features, buffer);
     let mut cursor_x = 0i32;
@@ -113,6 +115,8 @@ fn layout_operator_atom(
             x_advance: position.x_advance as f32 * scale,
             font_size,
             pdf_run_group: Some(0),
+            font: None,
+            text_range: None,
         });
         if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
             glyph_ascent = glyph_ascent.max(bounds.y_max);
@@ -133,10 +137,15 @@ fn layout_operator_atom(
         },
         ink_ascent: glyph_ascent.max(0) as f32 * scale,
         ink_descent: glyph_descent.max(0) as f32 * scale,
+        left_spacing: None,
+        right_spacing: None,
         left_class: SimpleMathClass::Large,
         right_class: SimpleMathClass::Large,
         italic_correction: 0.0,
         script_kernable: false,
+        base_metrics: None,
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes: Vec::new(),
         draw_order: Vec::new(),
@@ -188,8 +197,12 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         MathNode::Space(_)
         | MathNode::Spacing(_)
         | MathNode::Operator(_)
-        | MathNode::Shorthand(_)
-        | MathNode::StringLiteral(_) => vec![node.clone()],
+        | MathNode::Shorthand(_) => vec![node.clone()],
+        MathNode::StringLiteral(string) => {
+            let mut string = string.clone();
+            string.text = style_math_text_with_selection(&string.text, selection);
+            vec![MathNode::StringLiteral(string)]
+        }
         MathNode::Text(text) => vec![MathNode::Text(ast::MathText {
             text: style_math_text_with_selection(&text.text, selection),
             kind: MathTextKind::Number,
