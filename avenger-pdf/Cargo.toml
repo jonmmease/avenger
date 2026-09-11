@@ -1,0 +1,49 @@
+[package]
+name = "avenger-pdf"
+version = "0.0.8"
+edition = "2021"
+description = "PDF renderer for Avenger scene graphs"
+license = "BSD-3-Clause"
+
+[dependencies]
+thiserror = { workspace = true }
+krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
+itertools = { workspace = true }
+lyon_algorithms = { workspace = true }
+lyon_path = { workspace = true }
+fontdb = { workspace = true }
+
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
+version = "0.0.8"
+
+[dependencies.avenger-color]
+path = "../avenger-color"
+
+[dependencies.avenger-common]
+path = "../avenger-common"
+version = "0.0.8"
+
+[dependencies.avenger-image]
+path = "../avenger-image"
+default-features = false
+
+[dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
+default-features = false
+
+[dev-dependencies.pdf-extract]
+version = "0.10.0"
+
+[dev-dependencies.image]
+workspace = true
+
+[dev-dependencies.pdfium-render]
+workspace = true
+
+[dev-dependencies.tempfile]
+version = "3.14"
