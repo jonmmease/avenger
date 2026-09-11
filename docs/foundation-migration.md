@@ -45,3 +45,15 @@ cargo run --release -p avenger-wgpu --example annotation_leaders -- docs/images/
 ```
 
 ![Curved annotation leader and transparent circle strokes](images/annotation-leaders.png)
+
+## Configure scales and guides
+
+`ConfiguredScale` validates options and normalizes domains with typed context. Numeric and temporal guides accept explicit formats, locale context, and tick spacing. `AxisConfig` has new optional fields; use `..Default::default()` when setting a subset. Arrow consumers now use version 58.
+
+`NestedBandScale` accepts a struct array with one field per category level. Its layout exposes parent spans and leaf widths. `make_nested_band_axis_marks` uses the same layout for hierarchical labels and separators. Free nesting allocates space to observed children; shared nesting reserves missing child slots across parents.
+
+```sh
+cargo run --release -p wgpu-scales --bin nested_bands -- docs/images/nested-bands.png
+```
+
+![Nested categorical bands with a currency guide](images/nested-bands.png)

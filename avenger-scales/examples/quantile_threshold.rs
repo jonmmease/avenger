@@ -1,8 +1,9 @@
+use std::sync::Arc;
+
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_scales::scales::{
     quantile::QuantileScale, quantize::QuantizeScale, threshold::ThresholdScale,
 };
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Quantile and Threshold Scale Examples ===\n");

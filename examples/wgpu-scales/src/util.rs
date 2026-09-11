@@ -1,33 +1,40 @@
+use std::{cell::RefCell, rc::Rc, sync::Arc};
+
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
-use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_wgpu::canvas::{Canvas, WindowCanvas};
-use avenger_wgpu::error::AvengerWgpuError;
-use std::sync::Arc;
-
-use avenger_scales::scales::band::BandScale;
-use avenger_scales::scales::linear::LinearScale;
-use std::cell::RefCell;
-use std::rc::Rc;
+use avenger_guides::{
+    axis::{
+        band::make_band_axis_marks,
+        numeric::make_numeric_axis_marks,
+        opts::{AxisConfig, AxisOrientation},
+    },
+    legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation},
+};
+use avenger_scales::scales::{band::BandScale, linear::LinearScale};
+use avenger_scenegraph::{
+    marks::{
+        group::{Clip, SceneGroup},
+        mark::{MarkInstance, SceneMark},
+        rect::SceneRectMark,
+    },
+    scene_graph::SceneGraph,
+};
+use avenger_wgpu::{
+    canvas::{Canvas, WindowCanvas},
+    error::AvengerWgpuError,
+};
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{self, NamedKey},
+    window::{WindowAttributes, WindowId},
+};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
-use winit::window::{WindowAttributes, WindowId};
 
 struct App {
     canvas_shared: Rc<RefCell<Option<WindowCanvas<'static>>>>,
@@ -259,6 +266,9 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
+            format_number: None,
+            title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -272,6 +282,9 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
+            format_number: None,
+            title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -324,6 +337,29 @@ pub async fn run() {
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
+            colorbar_width: None,
+            colorbar_height: None,
+            colorbar_margin: Some(8.0),
+            format_number: None,
+            number_locale: None,
+            number_locale_registry: None,
+            number_locale_specs: Default::default(),
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            title_color: None,
+            title_syntax_mode: Default::default(),
+            title_text_params: Default::default(),
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
+            label_color: None,
+            domain_color: None,
+            tick_color: None,
         },
     )
     .unwrap();

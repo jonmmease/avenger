@@ -1,18 +1,15 @@
 use std::sync::Arc;
 
-use crate::scalar::Scalar;
-use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::take,
-    datatypes::Float32Type,
-};
+use arrow::array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array};
+use arrow::datatypes::Float32Type;
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    linear::{LinearScale, NormalizationConfig},
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionConstraint,
+    OptionDefinition, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Quantize scale that divides a continuous numeric domain into uniform segments,
@@ -69,7 +66,14 @@ impl QuantizeScale {
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use LinearScale normalization since quantize scale works with linear domains
         // Quantize scale doesn't use padding, so we pass dummy range and None for padding
-        LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)
+        LinearScale::apply_normalization(NormalizationConfig {
+            domain,
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero,
+            nice,
+        })
     }
 }
 
@@ -80,6 +84,14 @@ impl ScaleImpl for QuantizeScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -108,7 +120,7 @@ impl ScaleImpl for QuantizeScale {
             config.options.get("nice"),
         )?;
 
-        let indices = Arc::new(UInt32Array::from(
+        let indices = Int16Array::from(
             values
                 .as_primitive::<Float32Type>()
                 .iter()
@@ -117,7 +129,7 @@ impl ScaleImpl for QuantizeScale {
                         if x.is_finite() {
                             let normalized = (x - domain_span.0) / domain_span.1;
                             let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-                            Some(idx as u32)
+                            Some(idx as i16)
                         } else {
                             None
                         }
@@ -125,9 +137,11 @@ impl ScaleImpl for QuantizeScale {
                     None => None,
                 })
                 .collect::<Vec<_>>(),
-        )) as ArrayRef;
+        );
 
-        Ok(take::take(&config.range, &indices, None)?)
+        // Create dictionary array with indices pointing to range values
+        let dict_array = DictionaryArray::try_new(indices, config.range.clone())?;
+        Ok(Arc::new(dict_array) as ArrayRef)
     }
 
     fn ticks(
@@ -140,7 +154,10 @@ impl ScaleImpl for QuantizeScale {
         linear_scale.ticks(config, count)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let (domain_start, domain_end) = QuantizeScale::apply_normalization(
             config.numeric_interval_domain()?,
             config.options.get("zero"),
@@ -148,6 +165,48 @@ impl ScaleImpl for QuantizeScale {
         )?;
 
         Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
+
+    fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        // Get the normalized domain (after applying nice/zero)
+        let Ok(interval_domain) = config.numeric_interval_domain() else {
+            return None;
+        };
+        let (min, max) = match QuantizeScale::apply_normalization(
+            interval_domain,
+            config.options.get("zero"),
+            config.options.get("nice"),
+        ) {
+            Ok(domain) => domain,
+            Err(_) => return None,
+        };
+
+        let n_bins = config.range.len();
+        if n_bins == 0 {
+            return None;
+        }
+
+        let step = (max - min) / n_bins as f32;
+
+        // Use the formatter to format bin boundary values
+        let formatter = &config.context.formatters.number;
+
+        let entries: Vec<LegendEntry> = (0..n_bins)
+            .map(|i| {
+                let start = min + (i as f32) * step;
+                let end = min + ((i + 1) as f32) * step;
+
+                let formatted_start = formatter.format(&[Some(start)], None);
+                let formatted_end = formatter.format(&[Some(end)], None);
+
+                LegendEntry {
+                    label: format!("{} - {}", formatted_start[0], formatted_end[0]),
+                    representative_value: Scalar::from((start + end) / 2.0),
+                }
+            })
+            .collect();
+
+        Some(entries)
     }
 }
 

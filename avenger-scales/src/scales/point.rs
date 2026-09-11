@@ -7,8 +7,8 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    band::BandScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
@@ -31,6 +31,12 @@ use super::{
 ///
 /// - **range_offset** (f32, default: 0.0): Additional offset applied to all point positions
 ///   after computing their base positions. Useful for fine-tuning placement.
+///
+/// - **clip_padding_lower** (f32, default: 0.0): Padding in pixels at the lower end of the range
+///   to prevent clipping of visual marks. This is converted to step-based padding internally.
+///
+/// - **clip_padding_upper** (f32, default: 0.0): Padding in pixels at the upper end of the range
+///   to prevent clipping of visual marks. This is converted to step-based padding internally.
 #[derive(Debug, Clone)]
 pub struct PointScale;
 
@@ -64,6 +70,22 @@ impl ScaleImpl for PointScale {
         InferDomainFromDataMethod::Unique
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
+    }
+
+    fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {
+        let mut options = std::collections::HashMap::new();
+        options.insert("padding".to_string(), crate::scalar::Scalar::from_f32(0.5));
+        options.insert("align".to_string(), crate::scalar::Scalar::from_f32(0.5));
+        options.insert("round".to_string(), crate::scalar::Scalar::from_bool(true));
+        options
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -74,6 +96,14 @@ impl ScaleImpl for PointScale {
                 OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
             ];
         }
 
@@ -118,6 +148,8 @@ pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
     let align = point_config.option_f32("align", 0.5);
     let range_offset = point_config.option_f32("range_offset", 0.0);
     let round = point_config.option_boolean("round", false);
+    let clip_padding_lower = point_config.option_f32("clip_padding_lower", 0.0);
+    let clip_padding_upper = point_config.option_f32("clip_padding_upper", 0.0);
 
     ScaleConfig {
         domain: point_config.domain.clone(),
@@ -129,6 +161,8 @@ pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
             ("align".to_string(), align.into()),
             ("range_offset".to_string(), range_offset.into()),
             ("round".to_string(), round.into()),
+            ("clip_padding_lower".to_string(), clip_padding_lower.into()),
+            ("clip_padding_upper".to_string(), clip_padding_upper.into()),
         ]
         .into_iter()
         .collect(),

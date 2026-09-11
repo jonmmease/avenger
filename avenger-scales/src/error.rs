@@ -1,6 +1,9 @@
-use crate::scalar::Scalar;
 use arrow::error::ArrowError;
+use avenger_format_datetime::DateTimeFormatError;
 use avenger_image::error::AvengerImageError;
+
+use crate::scalar::Scalar;
+use crate::scales::domain_solver::DomainError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
@@ -15,6 +18,9 @@ pub enum AvengerScaleError {
 
     #[error("Empty range")]
     EmptyRange,
+
+    #[error("Failed to compute domain from padded data: {0}")]
+    DomainFromPaddingError(#[from] DomainError),
 
     #[error("Bins must be in ascending order: {0:?}")]
     BinsNotAscending(Vec<f32>),
@@ -74,6 +80,9 @@ pub enum AvengerScaleError {
         format_str: String,
         data_type: String,
     },
+
+    #[error("Datetime format error: {0}")]
+    DateTimeFormatError(#[from] DateTimeFormatError),
 
     #[error("Avenger image error: {0}")]
     AvengerImageError(#[from] AvengerImageError),

@@ -128,8 +128,13 @@
 //! A current limitation is that the number to be formatted should implement the `Into<f64>`
 //! trait. While this covers a broad range of use cases, for big numbers (>u64::MAX) some
 //! precision will be lost.
-use regex::{Captures, Regex};
 use std::cmp::max;
+
+use avenger_format_number::{
+    format_number, parse_number_spec, NumberFormatContext, NumberFormatOverrides,
+    NumberLocaleRegistry,
+};
+use regex::{Captures, Regex};
 
 const PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
@@ -246,8 +251,8 @@ impl NumberFormat {
         significant_digits: Option<usize>,
     ) -> (String, isize) {
         // Use exponential formatting to get the expected number of significant digits.
-        let formatted_value = if let Some(significant_digits) = significant_digits {
-            let precision = significant_digits.saturating_sub(1);
+        let formatted_value = if let Some(sig_digits) = significant_digits {
+            let precision = if sig_digits == 0 { 0 } else { sig_digits - 1 };
             format!("{value:.precision$e}")
         } else {
             format!("{value:e}")
@@ -335,11 +340,29 @@ impl NumberFormat {
     /// details changes.
     ///
     /// The format spec pattern is the following: [[fill]align][sign][symbol][0][width][,][.precision][type]
-    fn parse_pattern<'a>(&self, pattern: &'a str) -> FormatSpec<'a> {
+    fn parse_pattern<'a>(&self, pattern: &'a str) -> Option<FormatSpec<'a>> {
         let re =
             Regex::new(r"^(?:(.)?([<>=^]))?([+\- ])?([$#])?(0)?(\d+)?(,)?(\.\d+)?([A-Za-z%])?$")
                 .unwrap();
-        FormatSpec::from(re.captures(pattern).unwrap())
+        re.captures(pattern).map(FormatSpec::from)
+    }
+
+    fn format_avenger_extension(&self, pattern: &str, input: f64) -> Option<String> {
+        let parsed = parse_number_spec(pattern).ok()?;
+        let format_type = parsed.format_type?;
+        if !format_type.is_avenger_extension() {
+            return None;
+        }
+        let registry = NumberLocaleRegistry::with_builtins();
+        let locale = registry.resolve("en-US").ok()?;
+        format_number(
+            input,
+            Some(pattern),
+            NumberFormatOverrides::default(),
+            NumberFormatContext::new(&locale).with_registry(&registry),
+        )
+        .ok()
+        .map(|formatted| formatted.text)
     }
 
     /// Group digits using the `group_delimiter` character.
@@ -447,9 +470,13 @@ impl NumberFormat {
     /// The method takes in a string specifier and a number and returns the string representation
     /// of the formatted number.
     pub fn format<T: Into<f64>>(&self, pattern: &str, input: T) -> String {
-        let format_spec = self.parse_pattern(pattern);
-
         let input_f64: f64 = input.into();
+        if let Some(formatted) = self.format_avenger_extension(pattern, input_f64) {
+            return formatted;
+        }
+        let Some(format_spec) = self.parse_pattern(pattern) else {
+            return input_f64.to_string();
+        };
         let mut value_is_negative: bool = input_f64.is_sign_negative();
 
         let mut decimal_part = String::new();
@@ -528,6 +555,7 @@ impl NumberFormat {
                 Some("X") => "0x",
                 _ => "",
             },
+            Some("$") => "$",
             _ => "",
         };
 
@@ -616,6 +644,20 @@ mod tests {
         let num = NumberFormat::new();
         assert_eq!(num.decimal, '.');
         assert_eq!(num.group_delimiter, ',');
+    }
+
+    #[test]
+    fn delegates_avenger_extension_specs() {
+        let num = NumberFormat::new();
+        assert_eq!(num.format(".2S", 1_200_000), "1.2M");
+        assert_eq!(num.format(".2L", 1_200_000), "1.2 million");
+        assert_eq!(num.format(",C[USD]", 1234.5), "$1,234.50");
+    }
+
+    #[test]
+    fn invalid_patterns_do_not_panic() {
+        let num = NumberFormat::new();
+        assert_eq!(num.format("C[usd]", 1234.5), "1234.5");
     }
 
     #[test]
