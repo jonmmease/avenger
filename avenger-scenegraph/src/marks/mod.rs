@@ -14,3 +14,4 @@ pub mod trail;
 
 pub mod stroke_dash;
 pub mod text_leader;
+pub mod warped_image;
