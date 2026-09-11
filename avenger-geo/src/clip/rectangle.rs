@@ -1,7 +1,7 @@
 //! Planar rectangle (extent) clipping.
 //!
 //! Ported from d3-geo `src/clip/rectangle.js` and `src/clip/line.js` (ISC),
-//! https://github.com/d3/d3-geo. Operates on projected planar coordinates
+//! <https://github.com/d3/d3-geo>. Operates on projected planar coordinates
 //! after the resample stage.
 
 use super::{rejoin, BufPoint, ClipBuffer};

@@ -1,7 +1,7 @@
 //! Conic conformal (Lambert).
 //!
 //! Ported from d3-geo `src/projection/conicConformal.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use super::{MercatorRaw, RawProjection};
 use crate::math::{sign, tany, EPSILON, HALF_PI, PI};

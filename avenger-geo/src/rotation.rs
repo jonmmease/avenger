@@ -1,7 +1,7 @@
 //! Three-axis spherical rotation (λ, φ, γ).
 //!
 //! Ported from d3-geo `src/rotation.js` and `src/compose.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use crate::math::{asin, PI, TAU};
 

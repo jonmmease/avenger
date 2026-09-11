@@ -13,12 +13,11 @@ keep a selected location and its local north direction stable.
 use avenger_geo::{LyonPathSink, Projection, ProjectionKind, Sphere};
 
 let mut projection = Projection::new(ProjectionKind::EqualEarth);
-projection.fit_size([640.0, 360.0], &Sphere)?;
+projection.fit_size([640.0, 360.0], &Sphere).unwrap();
 let projector = projection.build();
 let mut sink = LyonPathSink::fill();
 projector.stream(&Sphere, &mut sink);
 let outline = sink.finish();
-# Ok::<(), avenger_geo::AvengerGeoError>(())
 ```
 
 Spherical coordinates enter the pipeline as longitude/latitude **degrees**.
