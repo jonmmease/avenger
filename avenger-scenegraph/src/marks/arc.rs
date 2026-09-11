@@ -1,4 +1,5 @@
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::types::PathTransform;
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{

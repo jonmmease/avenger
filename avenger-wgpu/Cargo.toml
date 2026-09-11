@@ -15,6 +15,7 @@ cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
 deno = []
 
 [dependencies]
+avenger-color = { path = "../avenger-color" }
 cfg-if = "1.0.1"
 winit = { workspace = true }
 wgpu = { workspace = true }

@@ -1,4 +1,5 @@
-use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};

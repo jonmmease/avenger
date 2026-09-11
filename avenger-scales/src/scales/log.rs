@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn test_integration_log_scale_three_colors() -> Result<(), AvengerScaleError> {
-        use avenger_common::types::ColorOrGradient;
+        use avenger_color::ColorOrGradient;
 
         // Create a log scale with domain [1, 100] and three-color range: red, yellow, blue
         let red = [1.0, 0.0, 0.0, 1.0]; // Red

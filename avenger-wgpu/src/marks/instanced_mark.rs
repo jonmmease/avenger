@@ -40,6 +40,7 @@ pub trait InstancedMarkShader {
     }
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MarkUniform {

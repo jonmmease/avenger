@@ -59,3 +59,6 @@ features = ["cosmic-text"]
 
 [dev-dependencies.avenger-geometry]
 path = "../avenger-geometry"
+
+[dependencies.avenger-color]
+path = "../avenger-color"

@@ -8,6 +8,7 @@ serde = ["dep:serde"]
 default = ["serde"]
 
 [dependencies]
+avenger-color = { path = "../avenger-color" }
 avenger-image = { path = "../avenger-image" }
 avenger-text = { path = "../avenger-text" }
 serde = { workspace = true, optional = true, features = ["rc"] }
