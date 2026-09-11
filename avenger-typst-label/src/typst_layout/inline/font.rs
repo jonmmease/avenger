@@ -925,7 +925,9 @@ mod tests {
 
     #[test]
     fn normal_lato_prefers_medium_when_regular_is_not_bundled() {
-        let fontdb = test_fontdb();
+        let mut options = EngineOptions::default();
+        options.fonts.load_system_fonts = false;
+        let fontdb = build_text_fontdb(&options);
         let style = TextStyle {
             font_weight: FontWeight::Normal,
             ..TextStyle::default()
