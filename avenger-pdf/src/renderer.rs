@@ -1288,13 +1288,22 @@ impl PdfFontCache {
             return Ok(font.clone());
         }
 
-        let font = KrillaFont::new(Data::from(resource.data.to_vec()), resource.face_index)
-            .ok_or_else(|| {
-                AvengerPdfError::Font(format!(
-                    "failed to load font resource {} ({})",
-                    resource.id.0, resource.family
-                ))
-            })?;
+        let coordinates = resource
+            .variations
+            .iter()
+            .map(|(tag, value)| (krilla::text::Tag::new(tag), *value))
+            .collect::<Vec<_>>();
+        let font = KrillaFont::new_variable(
+            Data::from(resource.data.to_vec()),
+            resource.face_index,
+            &coordinates,
+        )
+        .ok_or_else(|| {
+            AvengerPdfError::Font(format!(
+                "failed to load font resource {} ({})",
+                resource.id.0, resource.family
+            ))
+        })?;
         self.fonts.insert(key, font.clone());
         Ok(font)
     }
@@ -1303,6 +1312,7 @@ impl PdfFontCache {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FontCacheKey {
     face_index: u32,
+    variations: Vec<([u8; 4], u32)>,
     data: Arc<[u8]>,
 }
 
@@ -1310,6 +1320,11 @@ impl FontCacheKey {
     fn from_resource(resource: &FontResource) -> Self {
         Self {
             face_index: resource.face_index,
+            variations: resource
+                .variations
+                .iter()
+                .map(|(tag, value)| (*tag, value.to_bits()))
+                .collect(),
             data: resource.data.clone(),
         }
     }
