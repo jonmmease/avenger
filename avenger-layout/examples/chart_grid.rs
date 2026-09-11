@@ -1,36 +1,19 @@
-//! Charts at a lower level: avenger-guides + avenger-layout, no
-//! avenger-chart.
+//! Arrange three plots with measured guides and a spanning bottom row.
+//! Guide measurement and layout repeat until the allocated plot sizes settle.
+//! The same text engine measures guides and renders the final scene.
 //!
-//! The estimate → solve → final loop that any chart library needs:
-//!
-//! 1. ESTIMATE — build each plot's axes (and legend) with
-//!    `avenger-guides` at a guessed plot size, and measure how far they
-//!    overflow the plot rectangle. Those measurements become per-side
-//!    [`EdgeDemand`]s: axis material in the `guide` stratum, legend
-//!    material in the `legend` stratum.
-//! 2. SOLVE — declare the page as a [`Layout`] grid (three plots, one
-//!    spanning the full bottom row), attach the measured demands to each
-//!    leaf, and solve once at the canvas size. The solver aligns the
-//!    plot rectangles into shared tracks and reserves every track edge
-//!    for the worst demand along it — the spanning plot's wide tick
-//!    labels push the whole left column, the legend pushes the right
-//!    edge for the column above it.
-//! 3. FINAL — read each plot's solved content rectangle, rebuild the
-//!    guides at their exact final sizes, position the legend just past
-//!    the solved guide stratum, scatter the data with scales ranged to
-//!    the final rectangle, and render the assembled scene graph to a
-//!    PNG.
-//!
-//! Run with: `cargo run --release -p avenger-layout --example chart_grid`
+//! Run `cargo run --release -p avenger-layout --example chart_grid`.
+//! An optional first argument sets the PNG path; the default is
+//! `target/layout-gallery/chart-grid.png`.
 
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
+use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_with_text_engine};
 use avenger_layout::{EdgeDemand, Edges, Layout, LayoutSolution, Rect, Side, Size, SolveOptions};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scales::scales::linear::LinearScale;
@@ -39,15 +22,14 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_text::TextEngine;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 const CANVAS: Size = Size {
     width: 900.0,
     height: 620.0,
 };
-/// The size we GUESS each plot will get, before the solve. Guides built
-/// at this size give honest overflow measurements; the solver then hands
-/// every plot its real rectangle.
+/// Minimum plot size, also used for the first guide measurement.
 const ESTIMATE: Size = Size {
     width: 320.0,
     height: 220.0,
@@ -145,10 +127,16 @@ fn plot_scales(spec: &PlotSpec, size: Size) -> (ConfiguredScale, ConfiguredScale
 
 /// Build the plot's axes at the given size with a local origin, ready to
 /// measure or to place.
-fn build_axes(spec: &PlotSpec, size: Size, origin: [f32; 2], grid: bool) -> Vec<SceneGroup> {
+fn build_axes(
+    spec: &PlotSpec,
+    size: Size,
+    origin: [f32; 2],
+    grid: bool,
+    text_engine: &TextEngine,
+) -> Vec<SceneGroup> {
     let (x_scale, y_scale) = plot_scales(spec, size);
     let dims = [size.width, size.height];
-    let x_axis = make_numeric_axis_marks(
+    let x_axis = make_numeric_axis_marks_with_text_engine(
         &x_scale,
         spec.x_title,
         origin,
@@ -158,9 +146,10 @@ fn build_axes(spec: &PlotSpec, size: Size, origin: [f32; 2], grid: bool) -> Vec<
             grid,
             ..Default::default()
         },
+        text_engine,
     )
     .expect("x axis");
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_numeric_axis_marks_with_text_engine(
         &y_scale,
         spec.y_title,
         origin,
@@ -170,6 +159,7 @@ fn build_axes(spec: &PlotSpec, size: Size, origin: [f32; 2], grid: bool) -> Vec<
             grid,
             ..Default::default()
         },
+        text_engine,
     )
     .expect("y axis");
     vec![x_axis, y_axis]
@@ -179,30 +169,33 @@ fn build_axes(spec: &PlotSpec, size: Size, origin: [f32; 2], grid: bool) -> Vec<
 /// chart area so the whole group is self-contained: placing its origin
 /// on the plot's right edge puts every item (and the title) just past
 /// it, and the group's bbox width is exactly the clearance to demand.
-fn build_legend(plot_height: f32) -> SceneGroup {
-    make_symbol_legend(&SymbolLegendConfig {
-        title: Some("cohort".to_string()),
-        text: ScalarOrArray::new_array(CATEGORY_NAMES.iter().map(|s| s.to_string()).collect()),
-        fill: ScalarOrArray::new_array(
-            CATEGORY_COLORS
-                .iter()
-                .map(|c| ColorOrGradient::Color(*c))
-                .collect(),
-        ),
-        inner_width: 0.0,
-        inner_height: plot_height,
-        outer_margin: 8.0,
-        ..Default::default()
-    })
+fn build_legend(plot_height: f32, text_engine: &TextEngine) -> SceneGroup {
+    make_symbol_legend_with_text_engine(
+        &SymbolLegendConfig {
+            title: Some("cohort".to_string()),
+            text: ScalarOrArray::new_array(CATEGORY_NAMES.iter().map(|s| s.to_string()).collect()),
+            fill: ScalarOrArray::new_array(
+                CATEGORY_COLORS
+                    .iter()
+                    .map(|c| ColorOrGradient::Color(*c))
+                    .collect(),
+            ),
+            inner_width: 0.0,
+            inner_height: plot_height,
+            outer_margin: 8.0,
+            ..Default::default()
+        },
+        text_engine,
+    )
     .expect("legend")
 }
 
 /// Measure how far a set of guide groups overflows a `size` plot
 /// rectangle whose top-left sits at the groups' shared origin.
-fn measure_overflow(groups: &[SceneGroup], size: Size) -> Edges<f32> {
+fn measure_overflow(groups: &[SceneGroup], size: Size, text_engine: &TextEngine) -> Edges<f32> {
     let mut edges: Edges<f32> = Edges::default();
     for group in groups {
-        let bbox = group.bounding_box();
+        let bbox = group.bounding_box_with_text_engine(text_engine);
         edges.left = edges.left.max(-bbox.lower()[0]);
         edges.top = edges.top.max(-bbox.lower()[1]);
         edges.right = edges.right.max(bbox.upper()[0] - size.width);
@@ -218,15 +211,31 @@ fn measure_overflow(groups: &[SceneGroup], size: Size) -> Edges<f32> {
 
 /// The scatter for one plot, positioned inside its solved rectangle.
 fn build_points(spec: &PlotSpec, content: Rect) -> SceneMark {
-    let map_x = |v: f32| {
-        content.x + (v - spec.x_domain.0) / (spec.x_domain.1 - spec.x_domain.0) * content.width
-    };
-    let map_y = |v: f32| {
-        content.y + content.height
-            - (v - spec.y_domain.0) / (spec.y_domain.1 - spec.y_domain.0) * content.height
-    };
-    let xs: Vec<f32> = spec.points.iter().map(|p| map_x(p.0)).collect();
-    let ys: Vec<f32> = spec.points.iter().map(|p| map_y(p.1)).collect();
+    let (x_scale, y_scale) = plot_scales(spec, Size::new(content.width, content.height));
+    let xs: Vec<f32> = spec
+        .points
+        .iter()
+        .map(|p| {
+            content.x
+                + x_scale
+                    .scale_scalar(&p.0)
+                    .expect("x coordinate")
+                    .as_f32()
+                    .expect("numeric x")
+        })
+        .collect();
+    let ys: Vec<f32> = spec
+        .points
+        .iter()
+        .map(|p| {
+            content.y
+                + y_scale
+                    .scale_scalar(&p.1)
+                    .expect("y coordinate")
+                    .as_f32()
+                    .expect("numeric y")
+        })
+        .collect();
     let fills: Vec<ColorOrGradient> = spec
         .points
         .iter()
@@ -245,50 +254,30 @@ fn build_points(spec: &PlotSpec, content: Rect) -> SceneMark {
     })
 }
 
-#[tokio::main]
-async fn main() {
-    // ------------------------------------------------------------------
-    // 1. ESTIMATE: guides at guessed sizes -> per-side demands.
-    // ------------------------------------------------------------------
-    let specs = specs();
-    let mut demands: Vec<Edges<f32>> = Vec::new();
-    let mut legend_width = 0.0f32;
-    for spec in &specs {
-        let axes = build_axes(spec, ESTIMATE, [0.0, 0.0], false);
-        let mut edges = measure_overflow(&axes, ESTIMATE);
-        if spec.legend {
-            // The legend group is self-contained (zero-width chart area):
-            // its bbox width, outer margin included, is the clearance to
-            // ask for in the `legend` stratum.
-            let legend = build_legend(ESTIMATE.height);
-            legend_width = legend.bounding_box().upper()[0].ceil();
-            edges.right += legend_width;
-        }
-        demands.push(edges);
-        println!(
-            "estimated {:>10}: guide overflow l={:>3} r={:>3} t={:>2} b={:>2}{}",
-            spec.id,
-            edges.left,
-            edges.right,
-            edges.top,
-            edges.bottom,
-            if spec.legend {
-                format!("  (right includes {legend_width}px legend)")
-            } else {
-                String::new()
-            }
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // 2. SOLVE: a 2x2 grid; `latency` spans the full bottom row. Axis
-    //    overflow is a `guide` demand; the legend is a `legend` demand
-    //    (it stacks beyond any guide material on the same edge).
-    // ------------------------------------------------------------------
-    let leaf = |index: usize, legend_right: f32| -> Layout<&'static str> {
+/// Measure at the current allocations. The leaf sizes stay at the plot
+/// minimum so an earlier, larger allocation does not prevent later shrinking.
+fn solve_page(
+    specs: &[PlotSpec],
+    sizes: &[Size],
+    text_engine: &TextEngine,
+) -> LayoutSolution<&'static str> {
+    let leaf = |index: usize| -> Layout<&'static str> {
         let spec = &specs[index];
-        let edges = demands[index];
-        Layout::leaf(Size::new(ESTIMATE.width, ESTIMATE.height))
+        let size = sizes[index];
+        let edges = measure_overflow(
+            &build_axes(spec, size, [0.0, 0.0], false, text_engine),
+            size,
+            text_engine,
+        );
+        let legend_width = if spec.legend {
+            build_legend(size.height, text_engine)
+                .bounding_box_with_text_engine(text_engine)
+                .upper()[0]
+                .ceil()
+        } else {
+            0.0
+        };
+        Layout::leaf(ESTIMATE)
             .id(spec.id)
             .demand(
                 Side::Left,
@@ -300,8 +289,8 @@ async fn main() {
             .demand(
                 Side::Right,
                 EdgeDemand {
-                    guide: edges.right - legend_right,
-                    legend: legend_right,
+                    guide: edges.right,
+                    legend: legend_width,
                 },
             )
             .demand(
@@ -319,23 +308,48 @@ async fn main() {
                 },
             )
     };
-    let page: Layout<&'static str> = Layout::grid(2, 2)
-        .cell(0, 0, leaf(0, 0.0))
-        .cell(0, 1, leaf(1, legend_width))
-        .cell_span(1, 0, 1, 2, leaf(2, 0.0))
+    Layout::grid(2, 2)
+        .cell(0, 0, leaf(0))
+        .cell(0, 1, leaf(1))
+        .cell_span(1, 0, 1, 2, leaf(2))
         .min_gap(28.0)
-        .margin(14.0);
-    let solved: LayoutSolution<&'static str> = page
+        .margin(14.0)
         .solve(&SolveOptions {
             width: Some(CANVAS.width),
             height: Some(CANVAS.height),
         })
-        .expect("solve");
+        .expect("solve")
+}
 
-    // ------------------------------------------------------------------
-    // 3. FINAL: rebuild guides at the solved rectangles and assemble the
-    //    scene graph.
-    // ------------------------------------------------------------------
+fn settle_layout(specs: &[PlotSpec], text_engine: &TextEngine) -> LayoutSolution<&'static str> {
+    let mut sizes = vec![ESTIMATE; specs.len()];
+    let mut previous: Option<LayoutSolution<&'static str>> = None;
+    for iteration in 1..=8 {
+        let solved = solve_page(specs, &sizes, text_engine);
+        if previous
+            .as_ref()
+            .is_some_and(|prev| solved.content_delta(prev) < 0.01)
+        {
+            println!("Guide measurement settled after {iteration} solves");
+            return solved;
+        }
+        sizes = specs
+            .iter()
+            .map(|spec| {
+                let slot = solved.region(&spec.id).expect("plot region").slot;
+                Size::new(slot.width, slot.height)
+            })
+            .collect();
+        previous = Some(solved);
+    }
+    panic!("guide measurement did not settle after eight solves");
+}
+
+#[tokio::main]
+async fn main() {
+    let specs = specs();
+    let text_engine = TextEngine::with_default_config().expect("text engine");
+    let solved = settle_layout(&specs, &text_engine);
     let mut marks: Vec<SceneMark> = vec![SceneMark::Rect(SceneRectMark {
         len: 1,
         x: 0.0.into(),
@@ -370,7 +384,7 @@ async fn main() {
         );
 
         let size = Size::new(content.width, content.height);
-        for axis in build_axes(spec, size, [content.x, content.y], true) {
+        for axis in build_axes(spec, size, [content.x, content.y], true, &text_engine) {
             marks.push(axis.into());
         }
         marks.push(build_points(spec, content));
@@ -378,7 +392,7 @@ async fn main() {
             // The strata law as placement: legend material stacks beyond
             // guide material on the same edge, so the group's origin is
             // the plot's right edge pushed by the granted guide stratum.
-            let mut legend = build_legend(size.height);
+            let mut legend = build_legend(size.height, &text_engine);
             legend.origin = [content.x + content.width + granted.right.guide, content.y];
             marks.push(legend.into());
         }
@@ -406,13 +420,58 @@ async fn main() {
             size: [scene.width, scene.height],
             scale: 2.0,
         },
-        CanvasConfig::default(),
+        CanvasConfig {
+            text_engine: Some(text_engine),
+            ..Default::default()
+        },
     )
     .await
     .expect("canvas");
     canvas.set_scene(&scene).expect("set scene");
     let image = canvas.render().await.expect("render");
-    let out = std::env::temp_dir().join("avenger_layout_chart_grid.png");
+    let out = std::env::args_os()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/layout-gallery/chart-grid.png"));
+    if let Some(parent) = out.parent().filter(|path| !path.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).expect("create output directory");
+    }
     image.save(&out).expect("save png");
     println!("wrote {}", out.display());
+}
+
+#[test]
+fn measured_guides_fit_final_allocations() {
+    let specs = specs();
+    let engine = TextEngine::with_default_config().expect("text engine");
+    let solved = settle_layout(&specs, &engine);
+    for spec in &specs {
+        let region = solved.region(&spec.id).unwrap();
+        let size = Size::new(region.slot.width, region.slot.height);
+        let measured = measure_overflow(
+            &build_axes(spec, size, [0.0, 0.0], false, &engine),
+            size,
+            &engine,
+        );
+        for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
+            assert!(
+                *measured.side(side) <= region.granted.side(side).guide + 0.01,
+                "{} {:?}: {:?} exceeds {:?}",
+                spec.id,
+                side,
+                measured,
+                region.granted
+            );
+        }
+        if spec.legend {
+            let bounds = build_legend(size.height, &engine).bounding_box_with_text_engine(&engine);
+            assert!(bounds.upper()[0] <= region.granted.right.legend + 0.01);
+            assert!(bounds.upper()[1] <= size.height);
+        }
+    }
+    let left = solved.region(&"revenue").unwrap().slot;
+    let right = solved.region(&"conversion").unwrap().slot;
+    let bottom = solved.region(&"latency").unwrap().slot;
+    assert_eq!(left.x, bottom.x);
+    assert!((right.x + right.width - bottom.x - bottom.width).abs() < 0.01);
 }
