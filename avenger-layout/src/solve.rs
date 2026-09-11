@@ -1186,7 +1186,16 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
     /// Solve this layout in one step: measure up, coordinate share groups
     /// (one pure round), allocate down. See the [crate docs](crate) and
     /// [`SolveOptions`].
+    ///
+    /// # Errors
+    /// Returns an error for invalid slots, duplicate IDs, non-finite input
+    /// values, or coordinates that overflow the finite `f32` range.
     pub fn solve(&self, options: &SolveOptions) -> Result<LayoutSolution<Id>, LayoutError> {
+        finite_values(
+            "canvas size",
+            options.width.into_iter().chain(options.height),
+        )?;
+        validate_inputs(self)?;
         let mut seen = HashSet::new();
         check_duplicate_ids(self, &mut seen)?;
 
@@ -1283,6 +1292,12 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
         }
         let size = Size::new(envelope_w.max(max_x), envelope_h.max(max_y));
 
+        if !size.width.is_finite()
+            || !size.height.is_finite()
+            || regions.iter().any(|region| !region_is_finite(region))
+        {
+            return Err(LayoutError::CoordinateOverflow);
+        }
         let root_content = regions[0].content;
         Ok(LayoutSolution {
             size,
@@ -1295,6 +1310,120 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
             diagnostics,
         })
     }
+}
+
+fn finite_values(
+    field: &'static str,
+    values: impl IntoIterator<Item = f32>,
+) -> Result<(), LayoutError> {
+    if values.into_iter().all(f32::is_finite) {
+        Ok(())
+    } else {
+        Err(LayoutError::NonFiniteInput { field })
+    }
+}
+
+fn validate_inputs<Id, Key>(node: &Layout<Id, Key>) -> Result<(), LayoutError> {
+    use crate::Side;
+    finite_values(
+        "content minimum",
+        [
+            node.chrome.content_min.width,
+            node.chrome.content_min.height,
+        ],
+    )?;
+    for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
+        let chrome = node.chrome.sides.side(side);
+        finite_values(
+            "edge reservation",
+            [chrome.margin, chrome.legend, chrome.guide]
+                .into_iter()
+                .chain(chrome.strips.iter().copied()),
+        )?;
+    }
+    match &node.kind {
+        LayoutKind::Leaf {
+            content_size,
+            demands,
+        } => {
+            finite_values("content size", [content_size.width, content_size.height])?;
+            for edge in [demands.top, demands.right, demands.bottom, demands.left] {
+                finite_values("edge demand", [edge.guide, edge.legend])?;
+            }
+        }
+        LayoutKind::Grid(spec) => {
+            finite_values(
+                "base cell size",
+                [spec.base_cell_size.width, spec.base_cell_size.height],
+            )?;
+            for spacing in [spec.column_spacing, spec.row_spacing] {
+                finite_values(
+                    "track spacing",
+                    [spacing.outer_start, spacing.outer_end, spacing.min_gap],
+                )?;
+            }
+            for track in spec
+                .column_sizes
+                .iter()
+                .chain(spec.row_sizes.iter())
+                .flatten()
+            {
+                if let TrackSize::Fixed(value) | TrackSize::Flex(value) = track {
+                    finite_values("track size or weight", [*value])?;
+                }
+            }
+            for child in &spec.children {
+                if !child.slot.fits(spec.shape) {
+                    return Err(LayoutError::SlotOutOfBounds {
+                        slot: child.slot,
+                        shape: spec.shape,
+                    });
+                }
+                validate_inputs(&child.layout)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn region_is_finite<Id>(region: &Region<Id>) -> bool {
+    let rect_is_finite = |rect: Rect| {
+        [
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            rect.x + rect.width,
+            rect.y + rect.height,
+        ]
+        .into_iter()
+        .all(f32::is_finite)
+    };
+    let edge_is_finite = |edge: EdgeGrant| {
+        [edge.guide, edge.legend, edge.total]
+            .into_iter()
+            .all(f32::is_finite)
+    };
+    rect_is_finite(region.slot)
+        && rect_is_finite(region.content)
+        && region.slabs.iter().all(|slab| rect_is_finite(slab.rect))
+        && [region.requested, region.coordinated, region.granted]
+            .into_iter()
+            .all(|edges| {
+                [edges.top, edges.right, edges.bottom, edges.left]
+                    .into_iter()
+                    .all(edge_is_finite)
+            })
+        && match &region.detail {
+            RegionDetail::Leaf => true,
+            RegionDetail::Grid { tracks } => tracks
+                .column_starts
+                .iter()
+                .chain(&tracks.column_sizes)
+                .chain(&tracks.row_starts)
+                .chain(&tracks.row_sizes)
+                .all(|v| v.is_finite()),
+        }
 }
 
 /// Root slot start/extent and envelope extent for one axis.
