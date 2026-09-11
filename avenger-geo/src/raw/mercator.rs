@@ -1,5 +1,5 @@
 //! Ported from d3-geo `src/projection/mercator.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use super::RawProjection;
 use crate::math::{HALF_PI, QUARTER_PI};

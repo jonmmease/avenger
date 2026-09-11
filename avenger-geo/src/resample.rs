@@ -1,7 +1,7 @@
 //! Adaptive great-circle resampling.
 //!
 //! Ported from d3-geo `src/projection/resample.js` (ISC),
-//! https://github.com/d3/d3-geo. Recursively bisects each segment along
+//! <https://github.com/d3/d3-geo>. Recursively bisects each segment along
 //! the great circle, comparing the projected spherical midpoint against
 //! the linear midpoint, until the perpendicular deviation is below
 //! `delta2` (squared pixel tolerance in projected output units).
