@@ -625,6 +625,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-panels"
+version = "0.0.1"
+dependencies = [
+ "avenger-layout",
+]
+
+[[package]]
 name = "avenger-pdf"
 version = "0.0.8"
 dependencies = [
