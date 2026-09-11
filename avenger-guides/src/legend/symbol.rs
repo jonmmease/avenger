@@ -4,7 +4,11 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::{
-    group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
+    group::SceneGroup,
+    mark::SceneMark,
+    pattern::{default_no_fill_pattern, PatternFill},
+    rect::SceneRectMark,
+    symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
 use avenger_text::{
@@ -29,6 +33,7 @@ pub struct SymbolLegendConfig {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub angle: ScalarOrArray<f32>,
 
     /// Width of the chart area that the legend may be placed next to
@@ -78,6 +83,7 @@ impl Default for SymbolLegendConfig {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             angle: ScalarOrArray::new_scalar(0.0),
             inner_width: 100.0,
             inner_height: 100.0,
@@ -132,6 +138,7 @@ pub fn make_symbol_legend_itemized_with_text_engine(
         config.size.len(),
         config.stroke.len(),
         config.fill.len(),
+        config.fill_pattern.len(),
         config.angle.len(),
     ])?;
 
@@ -155,6 +162,7 @@ pub fn make_symbol_legend_itemized_with_text_engine(
         stroke: config.stroke.clone(),
         angle: config.angle.clone(),
         fill: config.fill.clone(),
+        fill_pattern: config.fill_pattern.clone(),
 
         // Scalars
         stroke_width: config.stroke_width,

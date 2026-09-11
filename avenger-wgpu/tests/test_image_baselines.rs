@@ -1,5 +1,13 @@
 #[cfg(test)]
 mod test_image_baselines {
+    use avenger_scenegraph::marks::{
+        group::Clip,
+        path::ScenePathMark,
+        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripePatternLayer},
+        rect::SceneRectMark,
+    };
+    use lyon::{geom::point, path::Path as LyonPath};
+
     use avenger_color::ColorOrGradient;
     use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
     use avenger_scenegraph::marks::{group::SceneGroup, symbol::SceneSymbolMark};
@@ -345,5 +353,408 @@ mod test_image_baselines {
             reused_image.as_raw() == fresh_image.as_raw(),
             "instanced renderer reuse must not retain the previous group origin"
         );
+    }
+
+    #[test]
+    fn pattern_layer_operations_render_on_every_host_mark() {
+        use avenger_scenegraph::marks::{
+            arc::SceneArcMark,
+            area::SceneAreaMark,
+            mark::SceneMark,
+            pattern::{PatternLayerOperation, PatternReferenceFrame},
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 40.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(1),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+        for operation in [
+            PatternLayerOperation::Add,
+            PatternLayerOperation::Subtract,
+            PatternLayerOperation::Xor,
+        ] {
+            let mut vertical = StripePatternLayer::new(90.0, 8.0, 4.0);
+            vertical.operation = operation;
+            let pattern = PatternFill {
+                anchor: PatternAnchor::Plot,
+                ink: PatternInk::Solid {
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    opacity: 0.5,
+                },
+                layers: vec![
+                    PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 4.0)),
+                    PatternLayer::Stripe(vertical),
+                ],
+            };
+            let fill = ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0]);
+            let hosts: Vec<(&str, SceneMark)> = vec![
+                (
+                    "rect",
+                    SceneRectMark {
+                        width: Some(ScalarOrArray::new_scalar(32.0)),
+                        height: Some(ScalarOrArray::new_scalar(32.0)),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "arc",
+                    SceneArcMark {
+                        x: ScalarOrArray::new_scalar(16.0),
+                        y: ScalarOrArray::new_scalar(16.0),
+                        inner_radius: ScalarOrArray::new_scalar(4.0),
+                        outer_radius: ScalarOrArray::new_scalar(16.0),
+                        end_angle: ScalarOrArray::new_scalar(std::f32::consts::TAU),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "area",
+                    SceneAreaMark {
+                        len: 2,
+                        x: ScalarOrArray::new_array(vec![0.0, 32.0]),
+                        y: ScalarOrArray::new_scalar(0.0),
+                        y2: ScalarOrArray::new_scalar(32.0),
+                        fill: fill.clone(),
+                        fill_pattern: Some(pattern.clone()),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "path",
+                    ScenePathMark {
+                        path: ScalarOrArray::new_scalar(rect_path(0.0, 0.0, 32.0, 32.0)),
+                        fill: ScalarOrArray::new_scalar(fill.clone()),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                (
+                    "symbol",
+                    SceneSymbolMark {
+                        shapes: vec![SymbolShape::from_vega_str("square").unwrap()],
+                        x: ScalarOrArray::new_scalar(16.0),
+                        y: ScalarOrArray::new_scalar(16.0),
+                        size: ScalarOrArray::new_scalar(1024.0),
+                        fill: ScalarOrArray::new_scalar(fill),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+            ];
+            for (name, host) in hosts {
+                let scene = SceneGraph {
+                    width: 40.0,
+                    height: 40.0,
+                    origin: [0.0, 0.0],
+                    marks: vec![SceneGroup {
+                        origin: [4.0, 4.0],
+                        pattern_reference_frame: Some(PatternReferenceFrame {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 32.0,
+                            height: 32.0,
+                        }),
+                        marks: vec![host],
+                        ..Default::default()
+                    }
+                    .into()],
+                };
+                canvas.set_scene(&scene).unwrap();
+                let image = pollster::block_on(canvas.render()).unwrap();
+                let gap = image.get_pixel(16, 16).0;
+                for (point, covered) in [
+                    ((12, 12), operation == PatternLayerOperation::Add),
+                    ((16, 12), true),
+                    ((12, 16), operation != PatternLayerOperation::Subtract),
+                ] {
+                    let pixel = image.get_pixel(point.0, point.1).0;
+                    assert_eq!(
+                        pixel[0] < gap[0] - 20,
+                        covered,
+                        "{name} {operation:?} at {point:?}: {pixel:?}, gap {gap:?}"
+                    );
+                }
+                assert_eq!(
+                    image.get_pixel(1, 1).0,
+                    [255; 4],
+                    "{name}: pattern escaped host"
+                );
+                if name == "arc" {
+                    assert_eq!(
+                        image.get_pixel(20, 20).0,
+                        [255; 4],
+                        "pattern filled the donut hole"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn patterned_rect_renders_stripe_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 30.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let stripe = image.get_pixel(10, 12).0;
+        let gap = image.get_pixel(10, 8).0;
+
+        assert!(
+            stripe[0] < gap[0] && stripe[1] < gap[1] && stripe[2] < gap[2],
+            "expected stripe pixel to be darker than gap pixel; stripe={stripe:?}, gap={gap:?}"
+        );
+    }
+    #[test]
+    fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.8,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                45.0, 8.0, 5.0,
+            ))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(12.0),
+                y: ScalarOrArray::new_scalar(8.0),
+                width: Some(ScalarOrArray::new_scalar(16.0)),
+                height: Some(ScalarOrArray::new_scalar(12.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                stroke_width: ScalarOrArray::new_scalar(0.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [40.0, 30.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        let leaked_points: Vec<_> = (0..40)
+            .flat_map(|x| (0..30).map(move |y| (x, y)))
+            .filter(|(x, y)| *x < 10 || *x > 30 || *y < 6 || *y > 22)
+            .filter(|(x, y)| image.get_pixel(*x, *y).0 != [255, 255, 255, 255])
+            .collect();
+
+        assert_eq!(
+            leaked_points.len(),
+            0,
+            "expected diagonal pattern overlay to be clipped to the rect host; first leaked points: {:?}",
+            &leaked_points[..leaked_points.len().min(12)]
+        );
+    }
+    #[test]
+    fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity() {
+        assert_crosshatch_intersection_does_not_accumulate_opacity(CanvasConfig::default(), None);
+    }
+    #[test]
+    fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity_without_msaa() {
+        assert_crosshatch_intersection_does_not_accumulate_opacity(
+            CanvasConfig {
+                sample_count: Some(1),
+                ..Default::default()
+            },
+            Some(1),
+        );
+    }
+    #[test]
+    fn patterned_path_with_path_clip_does_not_accumulate_opacity() {
+        let scene_graph = SceneGraph {
+            width: 32.0,
+            height: 32.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip: Clip::Path(rect_path(0.0, 0.0, 24.0, 24.0)),
+                marks: vec![ScenePathMark {
+                    path: ScalarOrArray::new_scalar(notched_host_path()),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+                    fill_pattern: ScalarOrArray::new_scalar(Some(crosshatch_pattern())),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 32.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(1),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_crosshatch_pixels(&image);
+        assert_eq!(
+            image.get_pixel(28, 8).0,
+            [255, 255, 255, 255],
+            "expected inherited path clip to suppress host pixels outside the clip"
+        );
+        assert_eq!(
+            image.get_pixel(4, 22).0,
+            [255, 255, 255, 255],
+            "expected non-rectangular host path to suppress pixels inside the clip but outside the host"
+        );
+    }
+    fn assert_crosshatch_intersection_does_not_accumulate_opacity(
+        config: CanvasConfig,
+        expected_sample_count: Option<u32>,
+    ) {
+        let scene_graph = SceneGraph {
+            width: 32.0,
+            height: 32.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: Some(ScalarOrArray::new_scalar(32.0)),
+                height: Some(ScalarOrArray::new_scalar(32.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(crosshatch_pattern())),
+                stroke_width: ScalarOrArray::new_scalar(0.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 32.0],
+                scale: 1.0,
+            },
+            config,
+        ))
+        .unwrap();
+        if let Some(expected_sample_count) = expected_sample_count {
+            assert_eq!(canvas.sample_count(), expected_sample_count);
+        }
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_crosshatch_pixels(&image);
+    }
+    fn crosshatch_pattern() -> PatternFill {
+        PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.5,
+            },
+            layers: vec![
+                PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 4.0)),
+                PatternLayer::Stripe(StripePatternLayer::new(90.0, 8.0, 4.0)),
+            ],
+        }
+    }
+    fn assert_crosshatch_pixels(image: &image::RgbaImage) {
+        let intersection = image.get_pixel(8, 8).0;
+        let single_stripe = image.get_pixel(4, 8).0;
+        let gap = image.get_pixel(4, 4).0;
+
+        for channel in 0..3 {
+            let delta = intersection[channel].abs_diff(single_stripe[channel]);
+            assert!(
+                delta <= 2,
+                "expected crosshatch intersection opacity to match a single stripe; \
+                 intersection={intersection:?}, single_stripe={single_stripe:?}, gap={gap:?}"
+            );
+            assert!(
+                single_stripe[channel] < gap[channel],
+                "expected stripe to be darker than gap; \
+                 intersection={intersection:?}, single_stripe={single_stripe:?}, gap={gap:?}"
+            );
+        }
+    }
+    fn rect_path(x: f32, y: f32, width: f32, height: f32) -> LyonPath {
+        path_from_points(&[
+            [x, y],
+            [x + width, y],
+            [x + width, y + height],
+            [x, y + height],
+        ])
+    }
+    fn notched_host_path() -> LyonPath {
+        path_from_points(&[
+            [0.0, 0.0],
+            [32.0, 0.0],
+            [32.0, 32.0],
+            [18.0, 32.0],
+            [18.0, 18.0],
+            [0.0, 18.0],
+        ])
+    }
+    fn path_from_points(points: &[[f32; 2]]) -> LyonPath {
+        let mut builder = LyonPath::builder();
+        builder.begin(point(points[0][0], points[0][1]));
+        for point_value in points.iter().skip(1) {
+            builder.line_to(point(point_value[0], point_value[1]));
+        }
+        builder.close();
+        builder.build()
     }
 }

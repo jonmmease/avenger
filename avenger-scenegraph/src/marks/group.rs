@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::marks::{
     mark::{default_interactive, SceneMark},
     path::ScenePathMark,
+    pattern::PatternReferenceFrame,
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -119,6 +120,8 @@ pub struct SceneGroup {
     #[serde(default = "default_interactive")]
     pub interactive: bool,
     pub origin: [f32; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_reference_frame: Option<PatternReferenceFrame>,
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
@@ -138,6 +141,7 @@ impl std::hash::Hash for SceneGroup {
             OrderedFloat::from(self.origin[1]),
         ]
         .hash(state);
+        self.pattern_reference_frame.hash(state);
         self.clip.hash(state);
         self.gradients.hash(state);
         self.fill.hash(state);
@@ -209,6 +213,7 @@ impl SceneGroup {
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             ),
+            fill_pattern: crate::marks::pattern::default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(
                 self.stroke
                     .clone()
@@ -246,6 +251,7 @@ impl Default for SceneGroup {
             name: "".to_string(),
             interactive: true,
             origin: [0.0, 0.0],
+            pattern_reference_frame: None,
             clip: Default::default(),
             marks: vec![],
             gradients: vec![],

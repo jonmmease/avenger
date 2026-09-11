@@ -147,6 +147,7 @@ impl VegaMarkContainer<VegaGroupItem> {
             };
 
             groups.push(SceneMark::Group(SceneGroup {
+                pattern_reference_frame: None,
                 interactive: true,
                 name: self.name.clone().unwrap_or("group_mark".to_string()),
                 zindex: self.zindex,

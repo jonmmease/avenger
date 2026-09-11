@@ -1,11 +1,15 @@
-use avenger_scenegraph::marks::{group::Clip, rect::SceneRectMark};
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
-use avenger_scenegraph::{render_order::compute_zindex_layers, scene_graph::SceneGraph};
+use avenger_scenegraph::{
+    marks::{group::Clip, pattern::default_no_fill_pattern, rect::SceneRectMark},
+    pattern_geometry::PatternRect,
+    render_order::compute_zindex_layers,
+    scene_graph::SceneGraph,
+};
 use wgpu::{
     BindGroup, CommandBuffer, CommandEncoderDescriptor, Device, Extent3d, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureFormat, TextureView,
@@ -304,6 +308,9 @@ impl AvengerRendererCore {
     }
 
     pub(crate) fn begin_scene(&mut self, scene: &SceneGraph) {
+        // Acquire the new working set before releasing the previous one: shared
+        // images must remain resident even when both sets exceed the LRU budget.
+
         self.clear_mark_renderer();
         self.scene = Some(Arc::new(scene.clone()));
         self.scene_dirty = true;
@@ -683,6 +690,7 @@ impl AvengerRendererCore {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_array(fill),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::transparent()),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
@@ -692,7 +700,13 @@ impl AvengerRendererCore {
         };
 
         let mut renderer = MultiMarkRenderer::new(self.dimensions);
-        renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
+        renderer.add_rect_mark(
+            &mark,
+            [0.0, 0.0],
+            &Clip::None,
+            None,
+            PatternRect::new(0.0, 0.0, self.dimensions.size[0], self.dimensions.size[1]),
+        )?;
 
         // The overlay has no text, but `render_with_resources` indexes
         // `text_bind_groups[0]`; reuse the frame's shared text bind groups.
