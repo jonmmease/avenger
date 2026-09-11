@@ -1,13 +1,15 @@
 use avenger_text::FontResolutionOptions;
 
 #[derive(Debug, Clone, PartialEq)]
+/// SVG appearance and font configuration.
 pub struct SvgRenderOptions {
     pub background: SvgBackground,
+    /// Number of fractional digits in geometry coordinates.
     pub precision: usize,
-    pub image_mode: SvgImageMode,
+    /// Used when the renderer does not have a caller-supplied text engine.
     pub font_resolution: FontResolutionOptions,
     pub font_embedding: SvgFontEmbedding,
-    pub include_metadata: bool,
+    /// Embed color glyph images supplied by the text engine. Enabled by default.
     pub rasterize_color_emoji: bool,
 }
 
@@ -16,16 +18,15 @@ impl Default for SvgRenderOptions {
         Self {
             background: SvgBackground::White,
             precision: 3,
-            image_mode: SvgImageMode::EmbedPngDataUris,
-            font_resolution: FontResolutionOptions::default(),
+            font_resolution: avenger_text::default_font_resolution(),
             font_embedding: SvgFontEmbedding::EmbedSubsetWoff2,
-            include_metadata: false,
-            rasterize_color_emoji: false,
+            rasterize_color_emoji: true,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// Background paint for the document viewport.
 pub enum SvgBackground {
     White,
     Transparent,
@@ -33,12 +34,10 @@ pub enum SvgBackground {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SvgImageMode {
-    EmbedPngDataUris,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Font resources included in the SVG document.
 pub enum SvgFontEmbedding {
+    /// Embed resolved faces. Preserve complete fonts when subsetting loses shaping tables.
     EmbedSubsetWoff2,
+    /// Require the viewer to supply the resolved fonts. Layout still requires local fonts.
     None,
 }
