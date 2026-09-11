@@ -112,6 +112,24 @@ fn forwarded_browser_key_event(
     }
 }
 
+fn prevent_browser_key_default(key: &str, control: bool, meta: bool) -> bool {
+    // Printable keys must reach the hidden input so the browser emits text input.
+    matches!(
+        key,
+        "ArrowLeft"
+            | "ArrowRight"
+            | "ArrowUp"
+            | "ArrowDown"
+            | "Home"
+            | "End"
+            | "Backspace"
+            | "Delete"
+            | "Enter"
+            | "Escape"
+            | "Tab"
+    ) || ((control || meta) && key.chars().count() == 1)
+}
+
 fn browser_clipboard_event(name: &str, paste_text: Option<String>) -> Option<WindowEvent> {
     use avenger_eventstream::window::ClipboardEvent;
 
@@ -164,7 +182,7 @@ mod wasm {
     use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey};
     use wasm_bindgen::{closure::Closure, JsCast, JsValue};
     use web_sys::{
-        ClipboardEvent as DomClipboardEvent, CompositionEvent, Event, EventTarget,
+        ClipboardEvent as DomClipboardEvent, CompositionEvent, Event, EventTarget, FocusEvent,
         HtmlCanvasElement, HtmlInputElement, InputEvent, KeyboardEvent,
     };
     use winit::event_loop::EventLoopProxy;
@@ -243,6 +261,7 @@ mod wasm {
                 logical_canvas_size: [1.0, 1.0],
             };
             host.install_input_listeners()?;
+            host.install_focus_listeners(&window)?;
             host.install_clipboard_listeners(document.as_ref(), clipboard_payload_provider)?;
             Ok(host)
         }
@@ -255,6 +274,15 @@ mod wasm {
 
         pub fn set_clipboard_payload(&self, payload: impl Into<String>) {
             *self.clipboard_payload.borrow_mut() = payload.into();
+        }
+
+        pub fn reset_for_replacement(&mut self, size: [f32; 2]) {
+            self.active_wakes.borrow_mut().clear();
+            self.apply_commands(vec![RuntimeHostCommand::SetImeAllowed { allowed: false }]);
+            *self.input_state.borrow_mut() = TextAgentInputState::default();
+            self.input.set_value("");
+            self.set_clipboard_payload("");
+            self.set_logical_canvas_size(size);
         }
 
         pub fn apply_commands(&mut self, commands: Vec<RuntimeHostCommand>) {
@@ -274,8 +302,15 @@ mod wasm {
                             let _ = self.input.focus();
                         } else {
                             self.input_state.borrow_mut().begin_key_input();
-                            let _ = self.input.blur();
-                            let _ = self.canvas.focus();
+                            // Do not steal focus back from another page control.
+                            if self
+                                .input
+                                .owner_document()
+                                .and_then(|doc| doc.active_element())
+                                .is_some_and(|element| element == self.input.clone().into())
+                            {
+                                let _ = self.canvas.focus();
+                            }
                         }
                         if changed {
                             let event = if allowed {
@@ -364,6 +399,9 @@ mod wasm {
                 let state = self.input_state.clone();
                 self.add_listener(&target, name, move |event| {
                     let event = event.unchecked_into::<KeyboardEvent>();
+                    if event.is_composing() {
+                        return;
+                    }
                     if element_state == ElementState::Pressed {
                         state.borrow_mut().begin_key_input();
                     }
@@ -373,11 +411,61 @@ mod wasm {
                         event.ctrl_key(),
                         event.meta_key(),
                     ) {
-                        event.prevent_default();
+                        if prevent_browser_key_default(
+                            &event.key(),
+                            event.ctrl_key(),
+                            event.meta_key(),
+                        ) && !event.get_modifier_state("AltGraph")
+                        {
+                            event.prevent_default();
+                        }
                         let _ = proxy.send_event(App(output));
                     }
                 })?;
             }
+            Ok(())
+        }
+
+        fn install_focus_listeners(&mut self, window: &web_sys::Window) -> Result<(), JsValue> {
+            // The canvas and hidden input form one control. Winit reports a canvas
+            // blur when IME takes focus, which must not cancel the editing session.
+            for target in [
+                EventTarget::from(self.canvas.clone()),
+                EventTarget::from(self.input.clone()),
+            ] {
+                let proxy = self.event_proxy.clone();
+                self.add_listener(&target, "focus", move |_| {
+                    let _ = proxy.send_event(App(WindowEvent::WindowFocused(true)));
+                })?;
+                let proxy = self.event_proxy.clone();
+                let canvas = EventTarget::from(self.canvas.clone());
+                let input = EventTarget::from(self.input.clone());
+                self.add_listener(&target, "blur", move |event| {
+                    let event = event.unchecked_into::<FocusEvent>();
+                    if event
+                        .related_target()
+                        .is_some_and(|target| target == canvas || target == input)
+                    {
+                        return;
+                    }
+                    let _ = proxy.send_event(App(WindowEvent::WindowFocused(false)));
+                })?;
+            }
+            let proxy = self.event_proxy.clone();
+            self.add_listener(window.as_ref(), "blur", move |_| {
+                let _ = proxy.send_event(App(WindowEvent::WindowFocused(false)));
+            })?;
+            let proxy = self.event_proxy.clone();
+            let canvas = self.canvas.clone();
+            let input = self.input.clone();
+            self.add_listener(window.as_ref(), "focus", move |_| {
+                let focused = input.owner_document().and_then(|doc| doc.active_element());
+                if focused.is_some_and(|element| {
+                    element == input.clone().into() || element == canvas.clone().into()
+                }) {
+                    let _ = proxy.send_event(App(WindowEvent::WindowFocused(true)));
+                }
+            })?;
             Ok(())
         }
 
@@ -559,6 +647,20 @@ mod tests {
             );
             assert!(browser_key_event(key, ElementState::Pressed).is_some());
         }
+    }
+
+    #[test]
+    fn printable_browser_keys_keep_their_default_text_input() {
+        for key in [
+            "a", "é", "$", " ", "Shift", "Alt", "Meta", "Control", "Dead",
+        ] {
+            assert!(!prevent_browser_key_default(key, false, false), "{key}");
+        }
+        for key in ["ArrowLeft", "Backspace", "Enter", "Escape", "Tab"] {
+            assert!(prevent_browser_key_default(key, false, false), "{key}");
+        }
+        assert!(prevent_browser_key_default("a", true, false));
+        assert!(prevent_browser_key_default("a", false, true));
     }
 
     #[test]

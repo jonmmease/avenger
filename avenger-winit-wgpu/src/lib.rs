@@ -1051,6 +1051,10 @@ where
         self.window_scene_sizing = update.window_scene_sizing;
         self.canvas_frame = replacement_frame;
         *self.avenger_app.borrow_mut() = update.app;
+        #[cfg(target_arch = "wasm32")]
+        if let Some(host) = self.text_agent.borrow_mut().as_mut() {
+            host.reset_for_replacement([scene_graph.width, scene_graph.height]);
+        }
         self._render_invalidation_subscription = None;
         self.render_invalidation_hub = update.render_invalidation_hub;
         self.last_requested_render_invalidation_epoch = 0;
@@ -1130,6 +1134,11 @@ where
 
                     match update_result {
                         Ok(mut update) => {
+                            if let Some(cursor) = update.status.cursor {
+                                if let Some(canvas) = canvas_shared.borrow().as_ref() {
+                                    canvas.window().set_cursor(cursor_style_to_winit(cursor));
+                                }
+                            }
                             let mut text_commands = Vec::new();
                             for command in std::mem::take(&mut update.status.commands) {
                                 match command {
@@ -1991,6 +2000,12 @@ where
     ) {
         // Check if this is the correct window
         if Some(window_id) != self.window_id {
+            return;
+        }
+
+        // The DOM text agent combines focus on the canvas and its hidden input.
+        #[cfg(target_arch = "wasm32")]
+        if matches!(event, WindowEvent::Focused(_)) {
             return;
         }
 
