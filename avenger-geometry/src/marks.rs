@@ -12,7 +12,7 @@ use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
-use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
+use avenger_text::{measurement::TextMeasurementConfig, TextEngine};
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
@@ -26,6 +26,23 @@ pub trait MarkGeometryUtils {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_>;
+
+    /// Use the same configured text engine for layout, rendering, and picking.
+    fn geometry_iter_with_text_engine(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+        _text_engine: &TextEngine,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        self.geometry_iter(mark_path, origin)
+    }
+
+    fn bounding_box_with_text_engine(&self, text_engine: &TextEngine) -> AABB<[f32; 2]> {
+        self.geometry_iter_with_text_engine(Vec::new(), [0.0, 0.0], text_engine)
+            .map(|g| g.envelope())
+            .reduce(|a, b| a.merged(&b))
+            .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
+    }
 
     fn bounding_box(&self) -> AABB<[f32; 2]> {
         self.geometry_iter(Vec::new(), [0.0, 0.0])
@@ -349,7 +366,16 @@ impl MarkGeometryUtils for SceneTextMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let measurer = default_text_measurer();
+        self.geometry_iter_with_text_engine(mark_path, origin, &avenger_text::default_text_engine())
+    }
+
+    fn geometry_iter_with_text_engine(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+        text_engine: &TextEngine,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let measurer = text_engine.clone();
         let name = self.name.clone();
         Box::new(
             izip!(
@@ -363,7 +389,8 @@ impl MarkGeometryUtils for SceneTextMark {
                 self.font_weight_iter(),
                 self.font_style_iter(),
                 self.align_iter(),
-                self.baseline_iter()
+                self.baseline_iter(),
+                self.limit_iter()
             )
             .enumerate()
             .map(
@@ -381,17 +408,25 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_style,
                         align,
                         baseline,
+                        limit,
                     ),
                 )| {
                     let config = TextMeasurementConfig {
                         text,
                         font,
                         font_size: *font_size,
-                        font_weight,
-                        font_style,
+                        font_weight: *font_weight,
+                        font_style: *font_style,
+                        syntax_mode: self.text_syntax,
+                        params: &self.text_params,
+                        number_locale: self.number_locale.as_deref(),
+                        number_locale_specs: Some(&self.number_locale_specs),
+                        datetime_locale: self.datetime_locale.as_deref(),
+                        datetime_timezone: self.datetime_timezone.as_deref(),
+                        datetime_locale_specs: Some(&self.datetime_locale_specs),
                     };
 
-                    let text_bounds = measurer.measure_text_bounds(&config);
+                    let text_bounds = measurer.measure_bounds_with_limit_or_approx(&config, *limit);
 
                     let local_origin = text_bounds.calculate_origin(
                         [*x + origin[0], *y + origin[1]],
@@ -401,83 +436,11 @@ impl MarkGeometryUtils for SceneTextMark {
 
                     let bounds = geo::Rect::new(
                         coord!(x: local_origin[0], y: local_origin[1]),
-                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.line_height),
+                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.height),
                     );
 
                     let geometry = Geometry::Rect(bounds)
                         .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]));
-
-                    // Experimental: use glyph bounding boxes instead of rect
-                    // // Check if we have path data for every glyph
-                    // let has_any_path_data = text_buffer
-                    //     .glyphs
-                    //     .iter()
-                    //     .any(|(glyph_data, _)| glyph_data.path.is_some());
-                    //
-                    // // Build up the text polygon by unioning the glyph bounding boxes
-                    // let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
-                    // 
-                    // let geometry = if false {
-                    //     for (glyph_data, phys_pos) in text_buffer.glyphs {
-                    //         let glyph_bbox_poly = if let Some(path) = &glyph_data.path {
-                    //             let glyph_bbox = match path.as_geo_type(0.0, true) {
-                    //                 geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
-                    //                 geo::Geometry::MultiPolygon(mpoly) => mpoly,
-                    //                 g => panic!("Expected polygon or multipolygon: {:?}", g),
-                    //             };
-                    //             // Use bounding rect around the glyph, expanded by a pixel in all directions
-                    //             let mut glyph_bbox = glyph_bbox.bounding_rect().unwrap();
-                    //             glyph_bbox.set_max(coord!(x: glyph_bbox.max().x + 1.0, y: glyph_bbox.max().y + 1.0));
-                    //             glyph_bbox.set_min(coord!(x: glyph_bbox.min().x - 1.0, y: glyph_bbox.min().y - 1.0));
-                    //      
-                    //             geo::MultiPolygon::new(vec![
-                    //                 glyph_bbox.to_polygon(),
-                    //             ])
-                    //         } else {
-                    //             let glyph_bbox = glyph_data.bbox;
-                    //             geo::MultiPolygon::new(vec![geo::Polygon::new(
-                    //                     geo::LineString::new(vec![
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
-                    //                             y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                     ]),
-                    //                     vec![],
-                    //                 )])
-                    //         }                               
-                    //          .translate(
-                    //             phys_pos.x + local_origin[0],
-                    //             phys_pos.y + local_origin[1] + text_buffer.text_bounds.height,
-                    //         );
-                    //         text_poly = text_poly.union(&glyph_bbox_poly);
-                    //     }
-                    //     Geometry::MultiPolygon(text_poly)
-                    //         .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]))
-                    // } else {
-                    //     let bounds = geo::Rect::new(
-                    //         coord!(x: local_origin[0], y: local_origin[1]),
-                    //         coord!(x: local_origin[0] + text_buffer.text_bounds.width, y: local_origin[1] + text_buffer.text_bounds.line_height),
-                    //     );
-                    // 
-                    //     Geometry::Rect(bounds)
-                    //         .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]))
-                    // };
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
@@ -501,20 +464,56 @@ impl MarkGeometryUtils for SceneGroup {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        Box::new(
-            self.marks
-                .iter()
-                .enumerate()
-                .flat_map(move |(mark_index, mark)| {
-                    // Build up the mark path
-                    let mut mark_path = mark_path.clone();
-                    mark_path.push(mark_index);
+        self.geometry_iter_with_text_engine(mark_path, origin, &avenger_text::default_text_engine())
+    }
 
-                    // Compute absolute origin for group
-                    let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
-                    mark.geometry_iter(mark_path, origin)
-                }),
-        )
+    fn geometry_iter_with_text_engine(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+        text_engine: &TextEngine,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let mut instances = Vec::new();
+        for (mark_index, mark) in self.marks.iter().enumerate() {
+            let mut mark_path = mark_path.clone();
+            mark_path.push(mark_index);
+            let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
+            instances.extend(mark.geometry_iter_with_text_engine(mark_path, origin, text_engine));
+        }
+        Box::new(instances.into_iter())
+    }
+
+    fn bounding_box(&self) -> AABB<[f32; 2]> {
+        self.bounding_box_with_text_engine(&avenger_text::default_text_engine())
+    }
+
+    fn bounding_box_with_text_engine(&self, text_engine: &TextEngine) -> AABB<[f32; 2]> {
+        use avenger_scenegraph::marks::group::Clip;
+
+        // If the group has a clip rect, use that as the bounding box
+        match &self.clip {
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                // Clip coordinates are relative to the group's origin
+                let min_x = self.origin[0] + x;
+                let min_y = self.origin[1] + y;
+                let max_x = min_x + width;
+                let max_y = min_y + height;
+                AABB::from_corners([min_x, min_y], [max_x, max_y])
+            }
+            _ => {
+                // For other clip types or no clip, use the default implementation
+                // which computes the union of children's bounding boxes
+                self.geometry_iter_with_text_engine(Vec::new(), [0.0, 0.0], text_engine)
+                    .map(|g| g.envelope())
+                    .reduce(|a, b| a.merged(&b))
+                    .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
+            }
+        }
     }
 }
 
@@ -524,18 +523,49 @@ impl MarkGeometryUtils for SceneMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        self.geometry_iter_with_text_engine(mark_path, origin, &avenger_text::default_text_engine())
+    }
+
+    fn geometry_iter_with_text_engine(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+        text_engine: &TextEngine,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         match self {
-            SceneMark::Arc(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Area(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Path(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Symbol(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Line(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Trail(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Rect(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Rule(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Text(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Image(mark) => mark.geometry_iter(mark_path, origin),
-            SceneMark::Group(mark) => mark.geometry_iter(mark_path, origin),
+            SceneMark::Arc(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Area(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Path(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Symbol(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Line(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Trail(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Rect(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Rule(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Text(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Image(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
+            SceneMark::Group(mark) => {
+                mark.geometry_iter_with_text_engine(mark_path, origin, text_engine)
+            }
         }
     }
 }
