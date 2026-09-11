@@ -33,7 +33,7 @@ fn layout_simple_stack_nodes(
         denominator_nodes,
         child_font_size,
         child_script_level,
-        child_math_size,
+        child_math_size.cramped(),
     )?
     else {
         return Ok(None);
@@ -184,42 +184,39 @@ fn layout_simple_no_rule_stack(
     )
 }
 
-#[allow(clippy::too_many_arguments, reason = "Keep the explicit inputs of the existing layout and rendering pipeline.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
+)]
 fn finalize_inline_frame_atom(
     width: f32,
     height: f32,
     baseline: f32,
-    mut glyphs: Vec<LaidOutGlyph>,
-    mut shapes: Vec<LaidOutShape>,
+    glyphs: Vec<LaidOutGlyph>,
+    shapes: Vec<LaidOutShape>,
     draw_order: Vec<LaidOutDrawItem>,
-    font: &MathFont,
-    font_size: f32,
+    _font: &MathFont,
+    _font_size: f32,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let final_ascent =
-        font_cap_height(font, font_size)?.max(baseline - INLINE_MATH_LEADING_SLACK_EM * font_size);
-    let final_descent = (height - baseline - INLINE_MATH_LEADING_SLACK_EM * font_size).max(0.0);
-    let final_dy = final_ascent - baseline;
-    for glyph in &mut glyphs {
-        glyph.y += final_dy;
-    }
-    for shape in &mut shapes {
-        shape.y += final_dy;
-    }
-
     Ok(Some(LaidOutMathAtom {
         metrics: TypesetMetrics {
             width,
-            height: final_ascent + final_descent,
-            baseline: final_ascent,
-            ascent: final_ascent,
-            descent: final_descent,
+            height,
+            baseline,
+            ascent: baseline,
+            descent: height - baseline,
         },
         ink_ascent: baseline,
         ink_descent: height - baseline,
+        left_spacing: None,
+        right_spacing: None,
         left_class: SimpleMathClass::Normal,
         right_class: SimpleMathClass::Normal,
         italic_correction: 0.0,
         script_kernable: true,
+        base_metrics: Some((baseline, height - baseline)),
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -300,7 +297,7 @@ fn layout_simple_skewed_fraction_nodes(
         denominator_nodes,
         child_font_size,
         child_script_level,
-        child_math_size,
+        child_math_size.cramped(),
     )?
     else {
         return Ok(None);
@@ -363,10 +360,15 @@ fn layout_simple_skewed_fraction_nodes(
         },
         ink_ascent: baseline,
         ink_descent: fraction_height - baseline,
+        left_spacing: None,
+        right_spacing: None,
         left_class: SimpleMathClass::Normal,
         right_class: SimpleMathClass::Normal,
         italic_correction: 0.0,
         script_kernable: true,
+        base_metrics: None,
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,
@@ -397,8 +399,8 @@ fn layout_atoms_without_spacing(
 
     for mut atom in atoms {
         let dy = baseline - atom.metrics.baseline;
-        ink_ascent = ink_ascent.max(atom.ink_ascent + dy);
-        ink_descent = ink_descent.max((atom.ink_descent - dy).max(0.0));
+        ink_ascent = ink_ascent.max(atom.ink_ascent);
+        ink_descent = ink_descent.max(atom.ink_descent);
         offset_atom(&mut atom, width, dy);
         width += atom.metrics.width;
         append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, atom);
@@ -414,10 +416,15 @@ fn layout_atoms_without_spacing(
         },
         ink_ascent,
         ink_descent,
+        left_spacing: None,
+        right_spacing: None,
         left_class,
         right_class,
         italic_correction: 0.0,
         script_kernable,
+        base_metrics: Some((baseline, descent)),
+        accent_attachment: None,
+        spaced: false,
         glyphs,
         shapes,
         draw_order,

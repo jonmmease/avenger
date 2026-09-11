@@ -1301,7 +1301,12 @@ mod tests {
         };
         assert_eq!(
             cancel.options.stroke.paint,
-            Some(crate::typst_library::Color::rgba(1.0, 0.0, 0.0, 1.0))
+            Some(crate::typst_library::Color::rgba(
+                1.0,
+                65.0 / 255.0,
+                54.0 / 255.0,
+                1.0
+            ))
         );
         assert_eq!(
             cancel.options.stroke.thickness,
