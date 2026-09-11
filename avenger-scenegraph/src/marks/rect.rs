@@ -1,18 +1,23 @@
-use avenger_color::{ColorOrGradient, Gradient};
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
-#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRectMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -28,6 +33,28 @@ pub struct SceneRectMark {
     pub corner_radius: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+}
+
+impl Hash for SceneRectMark {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.interactive.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.x.hash(state);
+        self.y.hash(state);
+        self.width.hash(state);
+        self.height.hash(state);
+        self.x2.hash(state);
+        self.y2.hash(state);
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        self.stroke_width.hash(state);
+        self.corner_radius.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+    }
 }
 
 impl SceneRectMark {
@@ -221,6 +248,7 @@ impl Default for SceneRectMark {
     fn default() -> Self {
         Self {
             name: "rule_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],

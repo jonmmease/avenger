@@ -1,16 +1,17 @@
 use avenger_color::{ColorOrGradient, Gradient};
-
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{geom::point, Path};
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTrailMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -62,13 +63,15 @@ impl SceneTrailMark {
                     // Finishing single point line. Add extra point at the same location
                     // so that stroke caps are drawn
                     path_builder.end(true);
-                } else {
+                } else if path_len > 1 {
                     path_builder.end(false);
                 }
                 path_len = 0;
             }
         }
-        path_builder.end(false);
+        if path_len > 0 {
+            path_builder.end(false);
+        }
         path_builder.build()
     }
 }
@@ -77,6 +80,7 @@ impl Default for SceneTrailMark {
     fn default() -> Self {
         Self {
             name: "trail_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             x: ScalarOrArray::new_scalar(0.0),

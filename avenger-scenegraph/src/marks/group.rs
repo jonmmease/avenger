@@ -1,18 +1,20 @@
 use std::hash::{DefaultHasher, Hasher};
 
-use crate::marks::mark::SceneMark;
-use crate::marks::path::ScenePathMark;
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::PathTransform;
-use avenger_common::value::ScalarOrArray;
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::Box2D;
-use lyon_path::Winding;
+use avenger_common::{lyon::hash_lyon_path, types::PathTransform, value::ScalarOrArray};
+use lyon_path::{
+    geom::{euclid::Point2D, Box2D},
+    Winding,
+};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+use crate::marks::{
+    mark::{default_interactive, SceneMark},
+    path::ScenePathMark,
+};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
     #[default]
     None,
@@ -114,6 +116,8 @@ impl Clip {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub origin: [f32; 2],
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
@@ -128,6 +132,7 @@ pub struct SceneGroup {
 impl std::hash::Hash for SceneGroup {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         vec![
             OrderedFloat::from(self.origin[0]),
             OrderedFloat::from(self.origin[1]),
@@ -194,6 +199,7 @@ impl SceneGroup {
 
         Some(ScenePathMark {
             name: format!("path_{}", self.name),
+            interactive: self.interactive,
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
@@ -238,6 +244,7 @@ impl Default for SceneGroup {
     fn default() -> Self {
         Self {
             name: "".to_string(),
+            interactive: true,
             origin: [0.0, 0.0],
             clip: Default::default(),
             marks: vec![],

@@ -1,16 +1,19 @@
-use super::mark::SceneMark;
+use std::sync::Arc;
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::StrokeCap;
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use itertools::izip;
 use lyon_path::{geom::Point, Path};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRuleMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -151,6 +154,7 @@ impl Default for SceneRuleMark {
     fn default() -> Self {
         Self {
             name: "rule_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],

@@ -1,20 +1,27 @@
-use super::mark::SceneMark;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{LinearScaleAdjustment, PathTransform, SymbolShape};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_common::{
+    types::{LinearScaleAdjustment, PathTransform, SymbolShape},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
-use lyon_path::geom::Angle;
-use lyon_path::Path;
+use lyon_path::{geom::Angle, Path};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -36,6 +43,7 @@ pub struct SceneSymbolMark {
 impl Hash for SceneSymbolMark {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -193,6 +201,7 @@ impl Default for SceneSymbolMark {
     fn default() -> Self {
         Self {
             name: "".to_string(),
+            interactive: true,
             clip: true,
             shapes: vec![Default::default()],
             stroke_width: None,

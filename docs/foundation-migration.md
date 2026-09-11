@@ -31,3 +31,17 @@ cargo run --release -p avenger-wgpu --example rich_text -- docs/images/rich-text
 ```
 
 ![Rich labels and width limits](images/rich-text.png)
+
+## Render into an application-owned target
+
+`AvengerWgpuRenderer` accepts an existing WGPU device and queue. `OffscreenTarget` and `OffscreenTargetPool` provide reusable targets, and `FramePublisher` publishes completed frames by generation. The workspace now uses WGPU 27.
+
+Window and PNG canvases use the same renderer. A resize rebuilds dimension-dependent scene state while keeping logical coordinates intact. Rendering and picking share display order, including root marks and inherited group z-index. Set a mark's `interactive` field to `false` to exclude it from picking.
+
+Text marks keep their target in `x` and `y`. The `dx` and `dy` channels move the label, and the leader channels control the connecting line and arrowhead. Rendering and picking use the same leader geometry.
+
+```sh
+cargo run --release -p avenger-wgpu --example annotation_leaders -- docs/images/annotation-leaders.png
+```
+
+![Curved annotation leader and transparent circle strokes](images/annotation-leaders.png)

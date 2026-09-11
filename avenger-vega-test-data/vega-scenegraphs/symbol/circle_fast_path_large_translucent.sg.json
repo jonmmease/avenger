@@ -1,0 +1,1628 @@
+{
+  "width": 420,
+  "height": 320,
+  "origin": [
+    0,
+    0
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "x": 0,
+        "y": 0,
+        "clip": false,
+        "items": [
+          {
+            "marktype": "symbol",
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 25.8333,
+                "y": 26.28,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 46.8889,
+                "y": 31.1968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 67.9444,
+                "y": 31.7606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 83.4444,
+                "y": 35.6631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 104.5,
+                "y": 34.6792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 125.5556,
+                "y": 36.696,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 141.0556,
+                "y": 33.7263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 162.1111,
+                "y": 33.9078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 177.6111,
+                "y": 29.485,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 198.6667,
+                "y": 28.779,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 219.7222,
+                "y": 24.1462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 235.2222,
+                "y": 23.9342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 256.2778,
+                "y": 20.4372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 277.3333,
+                "y": 21.8593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 292.8333,
+                "y": 20.2886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 313.8889,
+                "y": 19.686,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 329.3889,
+                "y": 23.8904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 350.4444,
+                "y": 24.6386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 371.5,
+                "y": 29.599,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 387.0,
+                "y": 30.4131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 28.0556,
+                "y": 55.68,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 49.1111,
+                "y": 56.5968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 64.6111,
+                "y": 61.1606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 85.6667,
+                "y": 61.0631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 106.7222,
+                "y": 64.0792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 122.2222,
+                "y": 62.096,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 143.2778,
+                "y": 63.1263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 158.7778,
+                "y": 59.3078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 179.8333,
+                "y": 58.885,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 200.8889,
+                "y": 54.179,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 216.3889,
+                "y": 53.5462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 237.4444,
+                "y": 49.3342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 258.5,
+                "y": 45.8372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 274.0,
+                "y": 47.2593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 295.0556,
+                "y": 45.6886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 310.5556,
+                "y": 49.086,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 331.6111,
+                "y": 49.2904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 352.6667,
+                "y": 54.0386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 368.1667,
+                "y": 54.999,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 389.2222,
+                "y": 59.8131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 30.2778,
+                "y": 81.08,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 45.7778,
+                "y": 85.9968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 66.8333,
+                "y": 86.5606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 82.3333,
+                "y": 90.4631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 103.3889,
+                "y": 89.4792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 124.4444,
+                "y": 91.496,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 139.9444,
+                "y": 88.5263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 161.0,
+                "y": 88.7078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 182.0556,
+                "y": 84.285,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 197.5556,
+                "y": 79.579,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 218.6111,
+                "y": 78.9462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 239.6667,
+                "y": 74.7342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 255.1667,
+                "y": 75.2372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 276.2222,
+                "y": 72.6593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 291.7222,
+                "y": 75.0886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 312.7778,
+                "y": 74.486,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 333.8333,
+                "y": 78.6904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 349.3333,
+                "y": 79.4386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 370.3889,
+                "y": 84.399,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 391.4444,
+                "y": 85.2131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 26.9444,
+                "y": 110.48,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 48.0,
+                "y": 111.3968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 63.5,
+                "y": 115.9606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 84.5556,
+                "y": 115.8631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 105.6111,
+                "y": 118.8792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 121.1111,
+                "y": 116.896,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 142.1667,
+                "y": 113.9263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 163.2222,
+                "y": 114.1078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 178.7222,
+                "y": 109.685,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 199.7778,
+                "y": 108.979,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 215.2778,
+                "y": 104.3462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 236.3333,
+                "y": 104.1342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 257.3889,
+                "y": 100.6372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 272.8889,
+                "y": 102.0593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 293.9444,
+                "y": 100.4886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 315.0,
+                "y": 103.886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 330.5,
+                "y": 104.0904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 351.5556,
+                "y": 108.8386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 372.6111,
+                "y": 109.799,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 388.1111,
+                "y": 114.6131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 29.1667,
+                "y": 135.88,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 44.6667,
+                "y": 136.7968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 65.7222,
+                "y": 141.3606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 86.7778,
+                "y": 141.2631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 102.2778,
+                "y": 144.2792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 123.3333,
+                "y": 142.296,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 144.3889,
+                "y": 143.3263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 159.8889,
+                "y": 139.5078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 180.9444,
+                "y": 139.085,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 196.4444,
+                "y": 134.379,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 217.5,
+                "y": 133.7462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 238.5556,
+                "y": 129.5342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 254.0556,
+                "y": 130.0372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 275.1111,
+                "y": 127.4593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 296.1667,
+                "y": 129.8886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 311.6667,
+                "y": 129.286,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 332.7222,
+                "y": 133.4904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 348.2222,
+                "y": 134.2386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 369.2778,
+                "y": 135.199,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 390.3333,
+                "y": 140.0131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 25.8333,
+                "y": 161.28,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 46.8889,
+                "y": 166.1968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 67.9444,
+                "y": 166.7606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 83.4444,
+                "y": 170.6631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 104.5,
+                "y": 169.6792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 125.5556,
+                "y": 171.696,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 141.0556,
+                "y": 168.7263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 162.1111,
+                "y": 168.9078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 177.6111,
+                "y": 164.485,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 198.6667,
+                "y": 163.779,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 219.7222,
+                "y": 159.1462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 235.2222,
+                "y": 158.9342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 256.2778,
+                "y": 155.4372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 277.3333,
+                "y": 156.8593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 292.8333,
+                "y": 155.2886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 313.8889,
+                "y": 154.686,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 329.3889,
+                "y": 158.8904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 350.4444,
+                "y": 159.6386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 371.5,
+                "y": 164.599,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 387.0,
+                "y": 165.4131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 28.0556,
+                "y": 190.68,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 49.1111,
+                "y": 191.5968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 64.6111,
+                "y": 196.1606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 85.6667,
+                "y": 196.0631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 106.7222,
+                "y": 199.0792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 122.2222,
+                "y": 197.096,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 143.2778,
+                "y": 198.1263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 158.7778,
+                "y": 194.3078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 179.8333,
+                "y": 193.885,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 200.8889,
+                "y": 189.179,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 216.3889,
+                "y": 188.5462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 237.4444,
+                "y": 184.3342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 258.5,
+                "y": 180.8372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 274.0,
+                "y": 182.2593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 295.0556,
+                "y": 180.6886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 310.5556,
+                "y": 184.086,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 331.6111,
+                "y": 184.2904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 352.6667,
+                "y": 189.0386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 368.1667,
+                "y": 189.999,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 389.2222,
+                "y": 194.8131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 30.2778,
+                "y": 216.08,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 45.7778,
+                "y": 220.9968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 66.8333,
+                "y": 221.5606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 82.3333,
+                "y": 225.4631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 103.3889,
+                "y": 224.4792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 124.4444,
+                "y": 226.496,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 139.9444,
+                "y": 223.5263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 161.0,
+                "y": 223.7078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 182.0556,
+                "y": 219.285,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 197.5556,
+                "y": 214.579,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 218.6111,
+                "y": 213.9462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 239.6667,
+                "y": 209.7342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 255.1667,
+                "y": 210.2372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 276.2222,
+                "y": 207.6593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 291.7222,
+                "y": 210.0886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 312.7778,
+                "y": 209.486,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 333.8333,
+                "y": 213.6904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 349.3333,
+                "y": 214.4386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 370.3889,
+                "y": 219.399,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 391.4444,
+                "y": 220.2131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 26.9444,
+                "y": 245.48,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 48.0,
+                "y": 246.3968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 63.5,
+                "y": 250.9606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 84.5556,
+                "y": 250.8631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 105.6111,
+                "y": 253.8792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 121.1111,
+                "y": 251.896,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 142.1667,
+                "y": 248.9263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 163.2222,
+                "y": 249.1078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 178.7222,
+                "y": 244.685,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 199.7778,
+                "y": 243.979,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 215.2778,
+                "y": 239.3462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 236.3333,
+                "y": 239.1342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 257.3889,
+                "y": 235.6372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 272.8889,
+                "y": 237.0593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 293.9444,
+                "y": 235.4886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 315.0,
+                "y": 238.886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 330.5,
+                "y": 239.0904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 351.5556,
+                "y": 243.8386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 372.6111,
+                "y": 244.799,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 388.1111,
+                "y": 249.6131,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 29.1667,
+                "y": 270.88,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 44.6667,
+                "y": 271.7968,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 65.7222,
+                "y": 276.3606,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 86.7778,
+                "y": 276.2631,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 102.2778,
+                "y": 279.2792,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 123.3333,
+                "y": 277.296,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 144.3889,
+                "y": 278.3263,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 159.8889,
+                "y": 274.5078,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 180.9444,
+                "y": 274.085,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 196.4444,
+                "y": 269.379,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 217.5,
+                "y": 268.7462,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 238.5556,
+                "y": 264.5342,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 254.0556,
+                "y": 265.0372,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 275.1111,
+                "y": 262.4593,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 296.1667,
+                "y": 264.8886,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 311.6667,
+                "y": 264.286,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 332.7222,
+                "y": 268.4904,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 348.2222,
+                "y": 269.2386,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 369.2778,
+                "y": 270.199,
+                "size": 144.0
+              },
+              {
+                "shape": "circle",
+                "opacity": 0.45,
+                "fill": "#1f77b4",
+                "x": 390.3333,
+                "y": 275.0131,
+                "size": 144.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
