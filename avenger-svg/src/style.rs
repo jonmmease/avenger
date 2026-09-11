@@ -39,6 +39,8 @@ pub fn push_fill_attrs(
     }
 }
 
+// Keep the complete stroke style and paint resolver together.
+#[allow(clippy::too_many_arguments)]
 pub fn push_stroke_attrs(
     output: &mut String,
     stroke: Option<&ColorOrGradient>,
@@ -94,20 +96,6 @@ pub fn push_stroke_attrs(
     }
 
     Ok(())
-}
-
-pub fn push_color_only_paint_attrs(
-    output: &mut String,
-    attr: &str,
-    paint: &ColorOrGradient,
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    match paint {
-        ColorOrGradient::Color(color) => push_color_attrs(output, attr, *color, precision),
-        ColorOrGradient::GradientIndex(index) => Err(AvengerSvgError::UnsupportedPaint(format!(
-            "gradient index {index}"
-        ))),
-    }
 }
 
 pub fn push_color_attrs(
@@ -169,20 +157,6 @@ pub fn color_to_hex(rgb: [f32; 3]) -> String {
 
 fn hex_byte(value: f32) -> String {
     format!("{:02x}", (value * 255.0).round() as u8)
-}
-
-pub struct ColorOnlyPaintResolver;
-
-impl PaintResolver for ColorOnlyPaintResolver {
-    fn push_paint_attrs(
-        &mut self,
-        output: &mut String,
-        attr: &str,
-        paint: &ColorOrGradient,
-        precision: usize,
-    ) -> Result<(), AvengerSvgError> {
-        push_color_only_paint_attrs(output, attr, paint, precision)
-    }
 }
 
 #[cfg(test)]
