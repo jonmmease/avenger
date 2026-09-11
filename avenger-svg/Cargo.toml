@@ -1,0 +1,40 @@
+[package]
+name = "avenger-svg"
+version = "0.0.8"
+edition = "2021"
+description = "SVG string renderer for Avenger scene graphs"
+license = "BSD-3-Clause"
+
+[dependencies]
+thiserror = { workspace = true }
+itertools = { workspace = true }
+lyon_path = { workspace = true }
+lyon_algorithms = { workspace = true }
+image = { workspace = true }
+base64 = { workspace = true }
+font-subset = { workspace = true }
+fontdb = { workspace = true }
+svgtypes = { workspace = true }
+
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
+version = "0.0.8"
+
+[dependencies.avenger-common]
+path = "../avenger-common"
+
+[dependencies.avenger-color]
+path = "../avenger-color"
+
+[dependencies.avenger-image]
+path = "../avenger-image"
+
+[dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+
+[dev-dependencies]
+brotli = { workspace = true }
+resvg = { workspace = true }
+tiny-skia = { workspace = true }
+usvg = { workspace = true }
