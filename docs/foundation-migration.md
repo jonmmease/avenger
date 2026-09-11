@@ -83,3 +83,20 @@ cargo run --release -p avenger-wgpu --example image_resources -- docs/images/ima
 ```
 
 ![Pending and ready resources with a warped image](images/image-resources.png)
+
+## Coordinate input and host updates
+
+`UpdateStatus` can carry `RuntimeHostCommand` values for keyed wake-ups, IME state, clipboard writes, cursors, and tooltip overlays. `EventAdmission` controls whether a handler advances its stream state. A between stream can emit its end event with the original gesture context. `DebouncedCommit` applies the latest draft after a keyed deadline.
+
+Use `HostUpdateSender::mark_request_epoch` when a replacement request starts, then submit a `PreparedHostUpdate` after preparation completes. The host rejects stale results and preserves the window. Replacement clears old application wake-ups and overlays. `WindowSceneSizing` selects whether the surface follows the window or the scene.
+
+Escape now reaches application handlers. Modifier snapshots and focus changes keep shortcut state current, and close requests reach application cleanup before the host exits.
+
+```sh
+cargo run --release -p winit-annotation-editor
+cargo run --release -p winit-annotation-editor -- --slow-loads
+```
+
+The [annotation editor](../examples/winit-annotation-editor/README.md) combines text selection, composition, clipboard actions, debounced edits, draggable labels, tooltips, and prepared sample replacement.
+
+![Native annotation editor](images/annotation-editor.png)

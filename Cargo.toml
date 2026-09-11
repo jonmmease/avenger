@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "examples/winit-annotation-editor",
     "avenger-color",
     "avenger-format-number",
     "avenger-format-datetime",

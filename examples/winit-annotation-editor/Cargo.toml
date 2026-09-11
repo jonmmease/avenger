@@ -1,0 +1,22 @@
+[package]
+name = "winit-annotation-editor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+avenger-app = { path = "../../avenger-app" }
+avenger-common = { path = "../../avenger-common" }
+avenger-color = { path = "../../avenger-color" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-text = { path = "../../avenger-text" }
+avenger-wgpu = { path = "../../avenger-wgpu" }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+winit = { workspace = true }
+
+[dev-dependencies]
+pollster = "0.4"
