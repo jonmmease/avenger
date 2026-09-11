@@ -243,8 +243,8 @@ The `examples/` directory contains comprehensive examples:
 
 Run examples with:
 ```bash
-cargo run --example linear_scale
-cargo run --example color_scales
+cargo run --release --example linear_scale
+cargo run --release --example color_scales
 ```
 
 ## Contributing

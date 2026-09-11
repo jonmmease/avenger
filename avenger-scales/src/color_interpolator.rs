@@ -1,14 +1,16 @@
-use crate::{
-    error::AvengerScaleError,
-    scales::{ScaleConfig, ScaleImpl},
-};
+use std::{fmt::Debug, sync::Arc};
+
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, ListArray},
     buffer::OffsetBuffer,
     datatypes::{DataType, Field, Float32Type},
 };
-use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
-use std::{fmt::Debug, sync::Arc};
+use avenger_color::{interpolate_colors, ColorInterpolationSpace};
+
+use crate::{
+    error::AvengerScaleError,
+    scales::{ScaleConfig, ScaleImpl},
+};
 
 pub struct ColorInterpolatorConfig {
     pub colors: Vec<[f32; 4]>,
@@ -32,13 +34,7 @@ impl ColorInterpolator for SrgbaColorInterpolator {
         config: &ColorInterpolatorConfig,
         values: &[f32],
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Interpolate in Srgba space
-        let srgba_colors: Vec<Srgba> = config
-            .colors
-            .iter()
-            .map(|c| Srgba::from_components((c[0], c[1], c[2], c[3])))
-            .collect();
-        interpolate_color(&srgba_colors, values)
+        interpolate_to_arrow(ColorInterpolationSpace::Srgba, &config.colors, values)
     }
 }
 
@@ -51,12 +47,7 @@ impl ColorInterpolator for HslaColorInterpolator {
         config: &ColorInterpolatorConfig,
         values: &[f32],
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let hsla_colors: Vec<Hsla> = config
-            .colors
-            .iter()
-            .map(|c| Srgba::from_components((c[0], c[1], c[2], c[3])).into_color())
-            .collect();
-        interpolate_color(&hsla_colors, values)
+        interpolate_to_arrow(ColorInterpolationSpace::Hsla, &config.colors, values)
     }
 }
 
@@ -69,51 +60,21 @@ impl ColorInterpolator for LabaColorInterpolator {
         config: &ColorInterpolatorConfig,
         values: &[f32],
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let laba_colors: Vec<Laba> = config
-            .colors
-            .iter()
-            .map(|c| Srgba::from_components((c[0], c[1], c[2], c[3])).into_color())
-            .collect();
-        interpolate_color(&laba_colors, values)
+        interpolate_to_arrow(ColorInterpolationSpace::Laba, &config.colors, values)
     }
 }
 
-/// A trait for color spaces that can be used with the `NumericColorScale`
-pub trait ColorSpace:
-    Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'static
-{
-}
-
-impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'static> ColorSpace
-    for T
-{
-}
-
-/// Generic helper function to interpolate colors using palette's `Mix` trait
-fn interpolate_color<C: ColorSpace>(
-    colors: &[C],
+fn interpolate_to_arrow(
+    space: ColorInterpolationSpace,
+    colors: &[[f32; 4]],
     values: &[f32],
 ) -> Result<ArrayRef, AvengerScaleError> {
-    let scale_factor = (colors.len() - 1) as f32;
+    let colors = interpolate_colors(space, colors, values)
+        .map_err(|e| AvengerScaleError::InternalError(e.to_string()))?;
     let mut flat_values = Vec::with_capacity(values.len() * 4);
-    values.iter().for_each(|v| {
-        let continuous_index = (v * scale_factor).clamp(0.0, scale_factor);
-        let lower_index = continuous_index.floor() as usize;
-        let upper_index = continuous_index.ceil() as usize;
-
-        if lower_index == upper_index {
-            let srgba_color: Srgba = colors[lower_index].into_color();
-            let (r, g, b, a) = srgba_color.into_components();
-            flat_values.extend_from_slice(&[r, g, b, a]);
-        } else {
-            let lower_color = colors[lower_index];
-            let upper_color = colors[upper_index];
-            let t = continuous_index - lower_index as f32;
-            let srgba_color = lower_color.mix(upper_color, t).into_color();
-            let (r, g, b, a) = srgba_color.into_components();
-            flat_values.extend_from_slice(&[r, g, b, a]);
-        }
-    });
+    colors
+        .iter()
+        .for_each(|color| flat_values.extend_from_slice(color));
 
     Ok(Arc::new(ListArray::new(
         Arc::new(Field::new_list_field(DataType::Float32, true)),
@@ -398,8 +359,7 @@ mod tests {
         let config = ColorInterpolatorConfig { colors: vec![] };
         let values = [0.0, 0.5, 1.0];
 
-        // This should panic or return an error - empty colors array is invalid
-        let result = std::panic::catch_unwind(|| interpolator.interpolate(&config, &values));
+        let result = interpolator.interpolate(&config, &values);
         assert!(result.is_err());
     }
 

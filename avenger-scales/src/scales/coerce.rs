@@ -1,32 +1,29 @@
-use crate::error::AvengerScaleError;
-use crate::formatter::Formatters;
-use crate::scalar::Scalar;
-use crate::scales::ordinal::OrdinalScale;
-use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray};
-use arrow::compute::is_not_null;
-use arrow::compute::kernels::zip::zip;
-use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
+
 use arrow::{
-    array::ArrayRef,
-    compute::kernels::cast,
-    datatypes::{DataType, Field},
+    array::{Array, ArrayRef, AsArray, Float32Array, ListArray, StringArray, StructArray},
+    compute::{is_not_null, kernels::cast, kernels::zip::zip},
+    datatypes::{DataType, Field, Float32Type, UInt32Type, UInt8Type},
 };
-use avenger_color::ColorOrGradient;
-use avenger_common::types::{
-    AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin, SymbolShape,
+use avenger_color::{parse_color_string, ColorOrGradient};
+use avenger_common::{
+    types::{
+        AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin,
+        SymbolShape,
+    },
+    value::{ScalarOrArray, ScalarOrArrayValue},
 };
-use avenger_common::value::ScalarOrArray;
-use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_image::RgbaImage;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
-use css_color_parser::Color;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
-use std::fmt::Debug;
-use std::str::FromStr;
-use std::sync::Arc;
 use strum::VariantNames;
 use svgtypes::Transform;
+
+use crate::{
+    error::AvengerScaleError, formatter::Formatters, scalar::Scalar, scales::ordinal::OrdinalScale,
+};
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
     fn coerce(
@@ -56,6 +53,30 @@ impl NumericCoercer for CastNumericCoercer {
         value: &ArrayRef,
         default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        if matches!(value.data_type(), DataType::Dictionary(_, _)) {
+            let dict_array = value.as_any_dictionary();
+            let coerced_values = self.coerce(dict_array.values(), default_value)?;
+            let keys = dict_array.normalized_keys();
+            let default_value = default_value.unwrap_or(f32::NAN);
+
+            return match coerced_values.value() {
+                ScalarOrArrayValue::Array(unique_values) => {
+                    let mut result = Vec::with_capacity(value.len());
+                    for (i, key) in keys.into_iter().enumerate() {
+                        if dict_array.is_null(i) {
+                            result.push(default_value);
+                        } else {
+                            result.push(unique_values.get(key).copied().unwrap_or(default_value));
+                        }
+                    }
+                    Ok(ScalarOrArray::new_array(result))
+                }
+                ScalarOrArrayValue::Scalar(scalar_value) => {
+                    Ok(ScalarOrArray::new_array(vec![*scalar_value; value.len()]))
+                }
+            };
+        }
+
         let cast_array = cast(value, &DataType::Float32)?;
         let result = cast_array.as_primitive::<Float32Type>();
 
@@ -108,6 +129,36 @@ impl ColorCoercer for CssColorCoercer {
         let dtype = value.data_type();
         let default_value = default_value.unwrap_or(ColorOrGradient::transparent());
         match dtype {
+            DataType::Dictionary(_, _) => {
+                // Handle dictionary arrays efficiently - only coerce unique values
+                let dict_array = value.as_any_dictionary();
+                let values = dict_array.values();
+
+                // Coerce only the unique values
+                let coerced_values = self.coerce(values, Some(default_value.clone()))?;
+
+                // Get the dictionary keys using normalized_keys()
+                let keys = dict_array.normalized_keys();
+
+                match coerced_values.value() {
+                    ScalarOrArrayValue::Array(unique_colors) => {
+                        // Map keys to coerced colors
+                        let mut result = Vec::with_capacity(value.len());
+                        for (i, key) in keys.into_iter().enumerate() {
+                            if dict_array.is_null(i) {
+                                result.push(default_value.clone());
+                            } else {
+                                result.push(unique_colors[key].clone());
+                            }
+                        }
+                        Ok(ScalarOrArray::new_array(result))
+                    }
+                    ScalarOrArrayValue::Scalar(color) => {
+                        // All values map to the same color
+                        Ok(ScalarOrArray::new_array(vec![color.clone(); value.len()]))
+                    }
+                }
+            }
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 // cast to normalize to utf8
                 let cast_array = cast(value, &DataType::Utf8)?;
@@ -115,17 +166,9 @@ impl ColorCoercer for CssColorCoercer {
                 let result = string_array
                     .iter()
                     .map(|el| match el {
-                        Some(el) => el
-                            .parse::<Color>()
-                            .map(|color| {
-                                ColorOrGradient::Color([
-                                    color.r as f32 / 255.0,
-                                    color.g as f32 / 255.0,
-                                    color.b as f32 / 255.0,
-                                    color.a,
-                                ])
-                            })
-                            .unwrap_or_else(|_| default_value.clone()),
+                        Some(el) => parse_color_string(el)
+                            .map(ColorOrGradient::Color)
+                            .unwrap_or(default_value.clone()),
                         _ => default_value.clone(),
                     })
                     .collect::<Vec<_>>();
@@ -251,11 +294,10 @@ impl Coercer {
         match dtype {
             // Handle strings
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                let fetcher = make_image_fetcher()?;
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
                 for s in string_array.iter().flatten() {
-                    let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
+                    let img = RgbaImage::from_str(s, None)?;
                     result.push(img);
                 }
             }
@@ -319,6 +361,8 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
         Ok(ScalarOrArray::new_array(result))
     }
 
+    // Clippy false positive: &self is needed for recursive call in dictionary branch
+    #[allow(clippy::only_used_in_recursion)]
     pub fn to_stroke_dash(
         &self,
         value: &ArrayRef,
@@ -327,17 +371,66 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
         let mut result = Vec::new();
 
         match dtype {
+            DataType::Dictionary(_, _) => {
+                // Handle dictionary arrays efficiently - only coerce unique values
+                let dict_array = value.as_any_dictionary();
+                let values = dict_array.values();
+
+                // Coerce only the unique values
+                let coerced_values = self.to_stroke_dash(values)?;
+
+                // Get the dictionary keys using normalized_keys()
+                let keys = dict_array.normalized_keys();
+
+                match coerced_values.value() {
+                    ScalarOrArrayValue::Array(unique_dashes) => {
+                        // Map keys to coerced dash patterns
+                        for (i, key) in keys.into_iter().enumerate() {
+                            if dict_array.is_null(i) {
+                                result.push(Vec::new());
+                            } else {
+                                result.push(unique_dashes[key].clone());
+                            }
+                        }
+                    }
+                    ScalarOrArrayValue::Scalar(dash) => {
+                        // All values map to the same dash pattern
+                        for _ in 0..value.len() {
+                            result.push(dash.clone());
+                        }
+                    }
+                }
+            }
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 // Convert strings to stroke dash vectors
                 let cast_array = cast(value, &DataType::Utf8)?;
                 let cast_array = cast_array.as_string::<i32>();
                 for s in cast_array.iter() {
                     if let Some(s) = s {
-                        let s = s.replace(",", "");
-                        let v = s
-                            .split(" ")
-                            .filter_map(|p| p.parse::<f32>().ok())
-                            .collect::<Vec<_>>();
+                        // Handle named patterns
+                        // Try the built-in datetime parsing patterns.
+                        let v = match s {
+                            "solid" => vec![],
+                            "dashed" => vec![8.0, 4.0],
+                            "dotted" => vec![2.0, 4.0],
+                            "longdash" | "long-dash" => vec![14.0, 4.0],
+                            "dashdot" | "dash-dot" => vec![9.0, 4.0, 1.0, 4.0, 1.0, 4.0],
+                            "longshort" | "long-short" => vec![11.0, 4.0, 2.0, 4.0],
+                            "tripledot" | "triple-dot" => vec![1.0, 1.0, 1.0, 1.0, 4.0],
+                            "morsedot" | "morse-dot" => vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0],
+                            "doubledash" | "double-dash" => vec![5.0, 4.0, 5.0, 4.0, 5.0, 4.0, 5.0],
+                            "evenshort" | "even-short" => {
+                                vec![6.0, 4.0, 1.0, 4.0, 2.0, 4.0, 1.0, 4.0]
+                            }
+                            "densedash" | "dense-dash" => vec![4.0, 4.0], // Keep for compatibility, not in default cycle
+                            _ => {
+                                // Try to parse as space-separated numbers
+                                let s = s.replace(",", "");
+                                s.split(" ")
+                                    .filter_map(|p| p.parse::<f32>().ok())
+                                    .collect::<Vec<_>>()
+                            }
+                        };
                         result.push(v);
                     } else {
                         result.push(Vec::new());
@@ -362,7 +455,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to color: {dtype:?}"
+                    "Unsupported data type for coercing to stroke dash: {dtype:?}"
                 )))
             }
         }
@@ -549,6 +642,107 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
         }
         Ok(ScalarOrArray::new_array(result))
     }
+
+    #[allow(clippy::only_used_in_recursion)]
+    pub fn to_symbol_shape(
+        &self,
+        value: &ArrayRef,
+        default_value: Option<SymbolShape>,
+    ) -> Result<(Vec<SymbolShape>, ScalarOrArray<usize>), AvengerScaleError> {
+        let dtype = value.data_type();
+        let default_value = default_value.unwrap_or(SymbolShape::Circle);
+        match dtype {
+            DataType::Dictionary(_, _) => {
+                // Handle dictionary arrays efficiently - return unique shapes and indices
+                let dict_array = value.as_any_dictionary();
+                let values = dict_array.values();
+
+                // Coerce only the unique values to get shapes
+                let (unique_shapes, _) =
+                    self.to_symbol_shape(values, Some(default_value.clone()))?;
+
+                // Get the dictionary keys using normalized_keys()
+                let keys = dict_array.normalized_keys();
+
+                // Build indices array, handling nulls
+                let mut indices = Vec::with_capacity(value.len());
+                let mut default_index = None;
+
+                for (i, key) in keys.into_iter().enumerate() {
+                    if dict_array.is_null(i) {
+                        // Find or add default shape
+                        if default_index.is_none() {
+                            default_index = Some(unique_shapes.len());
+                        }
+                        indices.push(default_index.unwrap());
+                    } else {
+                        indices.push(key);
+                    }
+                }
+
+                // Add default shape if it was used
+                let mut final_shapes = unique_shapes;
+                if default_index.is_some() {
+                    final_shapes.push(default_value);
+                }
+
+                Ok((
+                    final_shapes,
+                    ScalarOrArray::new_array(indices).to_scalar_if_len_one(),
+                ))
+            }
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                // cast to normalize to utf8
+                let cast_array = cast::cast(value, &DataType::Utf8)?;
+                let string_array = cast_array.as_string::<i32>();
+
+                // Build unique shapes and indices
+                let mut shapes = Vec::new();
+                let mut indices = Vec::new();
+
+                for s in string_array.iter() {
+                    let shape = if let Some(s) = s {
+                        SymbolShape::from_vega_str(s).unwrap_or(default_value.clone())
+                    } else {
+                        default_value.clone()
+                    };
+
+                    // Find existing shape or add new one
+                    let index = shapes
+                        .iter()
+                        .position(|existing| {
+                            match (existing, &shape) {
+                                (SymbolShape::Circle, SymbolShape::Circle) => true,
+                                (SymbolShape::Path(p1), SymbolShape::Path(p2)) => {
+                                    // Compare paths by their string representation
+                                    format!("{:?}", p1) == format!("{:?}", p2)
+                                }
+                                _ => false,
+                            }
+                        })
+                        .unwrap_or_else(|| {
+                            let idx = shapes.len();
+                            shapes.push(shape);
+                            idx
+                        });
+                    indices.push(index);
+                }
+
+                // If no shapes were found, add the default
+                if shapes.is_empty() {
+                    shapes.push(default_value);
+                }
+
+                Ok((
+                    shapes,
+                    ScalarOrArray::new_array(indices).to_scalar_if_len_one(),
+                ))
+            }
+            _ => Err(AvengerScaleError::InternalError(format!(
+                "Unsupported data type for coercing to symbol shape: {dtype:?}"
+            ))),
+        }
+    }
 }
 
 fn parse_svg_path(path: &str) -> Result<lyon_path::Path, AvengerScaleError> {
@@ -721,7 +915,6 @@ mod tests {
     use arrow::buffer::OffsetBuffer;
     use arrow::datatypes::Field;
     use avenger_color::ColorOrGradient;
-
     use svgtypes::Transform;
 
     fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {
@@ -803,8 +996,7 @@ mod tests {
         }
 
         if let ColorOrGradient::Color(red_8) = &colors_vec[2] {
-            // 8-digit hex colors are not supported by css_color_parser, falls back to transparent
-            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01);
+            assert_color_approx_eq(*red_8, [1.0, 0.0, 0.0, 128.0 / 255.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
@@ -1185,6 +1377,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(",.2f".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(1234.567), Some(0.123), Some(-987.654), None];
         let result = formatter.format(&values, Some("--"));
@@ -1194,12 +1387,52 @@ mod tests {
     }
 
     #[test]
+    fn test_number_formatting_with_builtin_locale() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+
+        let formatter = DefaultFormatter {
+            format_str: Some(",.1f".to_string()),
+            number_locale: Some("de-DE".to_string()),
+            ..Default::default()
+        };
+        let values = vec![Some(1234.5), None];
+        let result = formatter.format(&values, Some("--"));
+
+        assert_eq!(result, vec!["1.234,5", "--"]);
+    }
+
+    #[test]
+    fn test_number_formatting_with_custom_locale_registry() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        use avenger_format_number::NumberLocaleRegistry;
+
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "scale-test",
+                r#"{ "base": "en-US", "decimal": "~", "group": "_" }"#,
+            )
+            .expect("custom locale");
+        let formatter = DefaultFormatter {
+            format_str: Some(",.1f".to_string()),
+            number_locale: Some("scale-test".to_string()),
+            number_locale_registry: Some(Arc::new(registry)),
+            ..Default::default()
+        };
+        let values = vec![Some(1234.5), None];
+        let result = formatter.format(&values, Some("--"));
+
+        assert_eq!(result, vec!["1_234~5", "--"]);
+    }
+
+    #[test]
     fn test_number_formatting_percentage() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
 
         let formatter = DefaultFormatter {
             format_str: Some(".1%".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(0.5), Some(0.123), Some(1.0), None];
         let result = formatter.format(&values, Some("N/A"));
@@ -1215,12 +1448,13 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(".2e".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(1234.0), Some(0.00123), None, Some(0.0)];
         let result = formatter.format(&values, Some("--"));
 
-        // format_num correctly produces scientific notation
-        assert_eq!(result, vec!["1.23e+03", "1.23e-03", "--", "0.00e+00"]);
+        // The shared formatter follows d3 exponent spelling without zero-padded exponents.
+        assert_eq!(result, vec!["1.23e+3", "1.23e-3", "--", "0.00e+0"]);
     }
 
     #[test]
@@ -1247,6 +1481,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%B %d, %Y".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
@@ -1266,6 +1501,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%m/%d/%y".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
@@ -1312,6 +1548,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(
@@ -1365,6 +1602,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M %Z".to_string()),
             local_tz: Some(Tz::America__New_York),
+            ..Default::default()
         };
         let values = vec![
             Some(DateTime::from_timestamp(1640995200, 0).unwrap()), // 2022-01-01 00:00:00 UTC
@@ -1468,6 +1706,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(",.0f".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(1_000_000.0),
@@ -1488,6 +1727,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%j".to_string()), // Year and day of year
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2000, 1, 1).unwrap()), // Leap year start
@@ -1512,5 +1752,115 @@ mod tests {
 
         assert_eq!(number_result, Vec::<String>::new());
         assert_eq!(date_result, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_to_symbol_shape_returns_unique_shapes() {
+        let coercer = Coercer::default();
+
+        // Create input with repeated shapes
+        let values = Arc::new(StringArray::from(vec![
+            "circle",
+            "square",
+            "circle",
+            "diamond",
+            "square",
+            "circle",
+            "triangle-up",
+        ])) as ArrayRef;
+
+        let (shapes, indices) = coercer.to_symbol_shape(&values, None).unwrap();
+
+        // Should have 4 unique shapes
+        assert_eq!(shapes.len(), 4);
+
+        // Check that we got the expected shapes (order might vary)
+        let shape_names: Vec<String> = shapes
+            .iter()
+            .map(|s| match s {
+                SymbolShape::Circle => "circle".to_string(),
+                SymbolShape::Path(_) => "path".to_string(),
+            })
+            .collect();
+
+        // Since all our test shapes map to Path variants except circle
+        assert!(shape_names.contains(&"circle".to_string()));
+        assert_eq!(shape_names.iter().filter(|&s| s == "path").count(), 3);
+
+        // Check indices
+        if let ScalarOrArrayValue::Array(idx_array) = indices.value() {
+            assert_eq!(idx_array.len(), 7);
+
+            // Verify that repeated shapes have the same index
+            let circle_idx = idx_array[0];
+            assert_eq!(idx_array[2], circle_idx); // second circle
+            assert_eq!(idx_array[5], circle_idx); // third circle
+
+            let square_idx = idx_array[1];
+            assert_eq!(idx_array[4], square_idx); // second square
+        } else {
+            panic!("Expected array of indices");
+        }
+    }
+
+    #[test]
+    fn test_to_symbol_shape_with_nulls() {
+        let coercer = Coercer::default();
+
+        // Create input with nulls
+        let values = Arc::new(StringArray::from(vec![
+            Some("circle"),
+            None,
+            Some("square"),
+            None,
+            Some("circle"),
+        ])) as ArrayRef;
+
+        let (shapes, indices) = coercer.to_symbol_shape(&values, None).unwrap();
+
+        // Should have 3 shapes: circle, square, and default (circle)
+        // But since default is circle, might be 2
+        assert!(shapes.len() >= 2);
+
+        // Check indices length
+        if let ScalarOrArrayValue::Array(idx_array) = indices.value() {
+            assert_eq!(idx_array.len(), 5);
+        } else {
+            panic!("Expected array of indices");
+        }
+    }
+
+    #[test]
+    fn test_enum_coercer_with_dictionary() {
+        use arrow::compute::kernels::cast::cast;
+        use arrow::datatypes::DataType;
+        use avenger_common::types::StrokeCap;
+
+        let coercer = Coercer::default();
+
+        // Create a dictionary array with repeated values
+        let values = Arc::new(StringArray::from(vec![
+            "butt", "round", "butt", "square", "round", "butt",
+        ])) as ArrayRef;
+
+        // Cast to dictionary to simulate what ordinal scale returns
+        let dict_type = DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8));
+        let dict_values = cast(&values, &dict_type).unwrap();
+
+        // Coerce to StrokeCap
+        let result = coercer.to_stroke_cap(&dict_values).unwrap();
+
+        // Check results
+        if let ScalarOrArrayValue::Array(caps) = result.value() {
+            assert_eq!(caps.len(), 6);
+            assert_eq!(caps[0], StrokeCap::Butt);
+            assert_eq!(caps[1], StrokeCap::Round);
+            assert_eq!(caps[2], StrokeCap::Butt);
+            assert_eq!(caps[3], StrokeCap::Square);
+            assert_eq!(caps[4], StrokeCap::Round);
+            assert_eq!(caps[5], StrokeCap::Butt);
+        } else {
+            panic!("Expected array of StrokeCap values");
+        }
     }
 }

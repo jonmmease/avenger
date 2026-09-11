@@ -4,14 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-avenger-color = { path = "../avenger-color" }
+avenger-format-datetime = { path = "../avenger-format-datetime" }
+avenger-format-number = { path = "../avenger-format-number" }
 avenger-scales = { path = "../avenger-scales" }
+avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
 avenger-geometry = { path = "../avenger-geometry" }
 arrow = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
 thiserror = { workspace = true }
 itertools = { workspace = true }
 geo = { workspace = true }
 rstar = { workspace = true }
+tracing = { workspace = true }

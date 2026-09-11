@@ -97,7 +97,7 @@ ordered-float = "5.0.0"
 tokio = { version = "*" }
 async-trait = "0.1"
 async-recursion = "1.1.1"
-arrow = { version = "*" }
+arrow = { version = "58.3.0" }
 arrow-schema = { version = "*" }
 css-color-parser = "0.1.2"
 paste = "1.0.15"

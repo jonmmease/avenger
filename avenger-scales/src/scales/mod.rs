@@ -1,29 +1,26 @@
 pub mod band;
 pub mod coerce;
 pub mod linear;
+pub use linear::NormalizationConfig;
 pub mod log;
+pub mod nested_band;
 pub mod ordinal;
 pub mod point;
 pub mod pow;
+pub use pow::PowNormalizationConfig;
+pub mod domain_solver;
 pub mod quantile;
 pub mod quantize;
 pub mod symlog;
+pub use symlog::SymlogNormalizationConfig;
 pub mod threshold;
 pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use crate::{color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar};
-use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
-use crate::{
-    color_interpolator::SrgbaColorInterpolator,
-    scales::coerce::{ColorCoercer, CssColorCoercer},
-};
-use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
-    compute::cast,
-    datatypes::{DataType, Float32Type},
-};
+use arrow::array::{Array, ArrayRef, AsArray, Float32Array, ListArray};
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Field, Float32Type};
 use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
     types::{
@@ -33,7 +30,14 @@ use avenger_common::{
 };
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
+
+use crate::{
+    color_interpolator::{ColorInterpolator, ColorInterpolatorConfig, SrgbaColorInterpolator},
+    error::AvengerScaleError,
+    formatter::Formatters,
+    scalar::Scalar,
+    scales::coerce::{CastNumericCoercer, Coercer, ColorCoercer, CssColorCoercer, NumericCoercer},
+};
 
 /// Validation constraint for a scale option.
 ///
@@ -450,6 +454,22 @@ impl ScaleConfig {
         Ok((domain.value(0), domain.value(1)))
     }
 
+    /// Full-precision domain read: lossless when the domain array is
+    /// Float64 (coordinate-owned domains installed via
+    /// [`ConfiguredScale::with_domain_interval_f64`]). View-domain params
+    /// at Web-Mercator-meter magnitudes lose ~meter-scale precision
+    /// through the f32 accessor.
+    pub fn numeric_interval_domain_f64(&self) -> Result<(f64, f64), AvengerScaleError> {
+        if self.domain.len() != 2 {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "numeric_interval_domain_f64".to_string(),
+            ));
+        }
+        let domain = cast(self.domain.as_ref(), &DataType::Float64)?;
+        let domain = domain.as_primitive::<arrow::datatypes::Float64Type>();
+        Ok((domain.value(0), domain.value(1)))
+    }
+
     pub fn numeric_interval_range(&self) -> Result<(f32, f32), AvengerScaleError> {
         if self.range.len() != 2 {
             return Err(AvengerScaleError::ScaleOperationNotSupported(
@@ -520,6 +540,48 @@ pub enum InferDomainFromDataMethod {
     /// Use all values of the data
     /// In this case the domain will be an array of all values
     All,
+    /// Domain cannot be inferred from data - must be explicitly specified
+    /// Used for scales like threshold that require explicit breakpoints
+    Explicit,
+}
+
+/// A legend entry provided by a scale for custom legend generation
+#[derive(Debug, Clone)]
+pub struct LegendEntry {
+    /// Display label for this entry
+    pub label: String,
+
+    /// Value to pass through the scale for color/shape/etc
+    /// Used for mapping the legend entry to its visual representation
+    pub representative_value: Scalar,
+}
+
+/// The kind of data a scale expects in its domain
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DomainKind {
+    /// Numeric values (floats, integers)
+    /// Used by linear, log, pow, sqrt, symlog, threshold, quantize, quantile scales
+    Numeric,
+    /// Temporal values (dates, timestamps)
+    /// Used by time, utc scales
+    Temporal,
+    /// Categorical values (strings, discrete categories)
+    /// Used by ordinal, band, point scales
+    Categorical,
+    /// Struct-valued categorical paths.
+    /// Used by nested band scales.
+    NestedCategorical,
+}
+
+/// The kind of values a scale produces in its range
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeKind {
+    /// Continuous numeric output
+    /// Used by most scales for position, size, etc.
+    Continuous,
+    /// Discrete categorical output
+    /// Used by ordinal scales for colors, shapes, etc.
+    Discrete,
 }
 
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
@@ -528,6 +590,31 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
 
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
+
+    /// The kind of data this scale expects in its domain
+    fn domain_kind(&self) -> DomainKind;
+
+    /// The kind of values this scale produces in its range
+    fn range_kind(&self) -> RangeKind;
+
+    /// Return default option values for this scale type.
+    ///
+    /// This method returns a HashMap of default option values that should be
+    /// applied when creating a new scale instance. The default implementation
+    /// returns an empty map, indicating no default options.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn default_options(&self) -> HashMap<String, Scalar> {
+    ///     let mut options = HashMap::new();
+    ///     options.insert("nice".to_string(), Scalar::from_bool(true));
+    ///     options.insert("clamp".to_string(), Scalar::from_bool(false));
+    ///     options
+    /// }
+    /// ```
+    fn default_options(&self) -> HashMap<String, Scalar> {
+        HashMap::new()
+    }
 
     /// Return the option definitions for this scale.
     ///
@@ -756,11 +843,30 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
-    /// Compute the nice domain for this scale given the current configuration
-    /// For scales that don't support nice transformations, this returns the original domain
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
-        // Default implementation returns the original domain for scales that don't support nice transformations
+    /// Compute the normalized domain for this scale given the current configuration
+    /// This handles zero, nice, and clip_padding options as appropriate for the scale type
+    /// For scales that don't support normalization, this returns the original domain
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Default implementation returns the original domain for scales that don't support normalization
         Ok(config.domain.clone())
+    }
+
+    /// Check if this scale type supports radius expansion for
+    /// Used for positional scales that need to account for mark radius when computing domain
+    fn supports_radius_expansion(&self) -> bool {
+        false
+    }
+
+    /// Get custom legend entries for this scale
+    ///
+    /// Returns None to use default behavior (extract values directly from domain).
+    /// Scales like threshold, quantize, and quantile that create intervals
+    /// should return Some with their interval descriptions.
+    fn legend_entries(&self, _config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        None // Default: let caller extract from domain
     }
 
     // Scale to enums
@@ -817,6 +923,21 @@ impl ConfiguredScale {
         ConfiguredScale {
             config: ScaleConfig {
                 domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
+                ..self.config
+            },
+            ..self
+        }
+    }
+
+    /// Install a numeric interval domain at full f64 precision. Scale math
+    /// reads domains through the f32 accessor (identical rounding either
+    /// way), but [`ConfiguredScale::numeric_interval_domain_f64`] can then
+    /// recover the exact values — required for view-domain params at
+    /// Web-Mercator-meter magnitudes, where f32 quantizes near meter scale.
+    pub fn with_domain_interval_f64(self, domain: (f64, f64)) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                domain: Arc::new(arrow::array::Float64Array::from(vec![domain.0, domain.1])),
                 ..self.config
             },
             ..self
@@ -909,27 +1030,14 @@ impl ConfiguredScale {
         self.scale_impl.adjust(&self.config, &to_scale.config)
     }
 
-    /// Returns a new scale with zero and nice domain transformations applied and those options disabled.
-    ///
-    /// This method applies zero and nice transformations to the current domain based on the
-    /// zero and nice option settings, then returns a new scale with the transformed domain and
-    /// both options set to false. Zero extension is applied before nice calculations.
-    ///
-    /// # Returns
-    /// * `Result<ConfiguredScale, AvengerScaleError>` - New scale with nice domain applied
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use avenger_scales::scales::linear::LinearScale;
-    /// let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0))
-    ///     .with_option("zero", true)
-    ///     .with_option("nice", true);
-    /// let normalized = scale.normalize()?;
-    /// // normalized now has domain (0.0, 11.0) and both zero and nice options disabled
-    /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
-    /// ```
-    pub fn normalize(self) -> Result<ConfiguredScale, AvengerScaleError> {
-        let normalized_domain = self.scale_impl.compute_nice_domain(&self.config)?;
+    /// Internal method to get the normalized scale configuration
+    fn get_normalized_config(&self) -> Result<ScaleConfig, AvengerScaleError> {
+        if !self.domain().data_type().is_numeric() {
+            // Only scales with numeric domain can be normalized
+            return Ok(self.config.clone());
+        }
+
+        let normalized_domain = self.scale_impl.compute_normalized_domain(&self.config)?;
         let mut new_options = self.config.options.clone();
 
         // Only set normalization options that are supported by this scale type
@@ -946,19 +1054,42 @@ impl ConfiguredScale {
         if supported_options.contains("nice") {
             new_options.insert("nice".to_string(), false.into());
         }
-        if supported_options.contains("padding") {
-            new_options.insert("padding".to_string(), 0.0.into());
+        if supported_options.contains("clip_padding_lower") {
+            new_options.insert("clip_padding_lower".to_string(), 0.0.into());
+        }
+        if supported_options.contains("clip_padding_upper") {
+            new_options.insert("clip_padding_upper".to_string(), 0.0.into());
         }
 
-        Ok(ConfiguredScale {
-            scale_impl: self.scale_impl,
-            config: ScaleConfig {
-                domain: normalized_domain,
-                range: self.config.range,
-                options: new_options,
-                context: self.config.context,
-            },
+        Ok(ScaleConfig {
+            domain: normalized_domain,
+            range: self.config.range.clone(),
+            options: new_options,
+            context: self.config.context.clone(),
         })
+    }
+
+    /// Check if the scale needs normalization based on current options
+    fn needs_normalization(&self) -> bool {
+        if !self.domain().data_type().is_numeric() {
+            return false;
+        }
+
+        let zero = self.config.option_boolean("zero", false);
+        let nice = self
+            .config
+            .options
+            .get("nice")
+            .and_then(|v| {
+                v.as_boolean()
+                    .ok()
+                    .or_else(|| v.as_f32().ok().map(|n| n != 0.0))
+            })
+            .unwrap_or(false);
+        let clip_padding_lower = self.config.option_f32("clip_padding_lower", 0.0) != 0.0;
+        let clip_padding_upper = self.config.option_f32("clip_padding_upper", 0.0) != 0.0;
+
+        zero || nice || clip_padding_lower || clip_padding_upper
     }
 }
 
@@ -970,9 +1101,37 @@ impl ConfiguredScale {
     }
 
     pub fn scale(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
         // Validate options before scaling
-        self.scale_impl.validate_options(&self.config)?;
-        self.scale_impl.scale(&self.config, values)
+        self.scale_impl.validate_options(&config)?;
+        if matches!(values.data_type(), DataType::List(_)) {
+            return self.scale_list_values(&config, values);
+        }
+        self.scale_impl.scale(&config, values)
+    }
+
+    fn scale_list_values(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let list_array = values.as_list::<i32>();
+        let scaled_child = self.scale_impl.scale(config, list_array.values())?;
+        Ok(Arc::new(ListArray::new(
+            Arc::new(Field::new_list_field(
+                scaled_child.data_type().clone(),
+                true,
+            )),
+            list_array.offsets().clone(),
+            scaled_child,
+            list_array.nulls().cloned(),
+        )) as ArrayRef)
     }
 
     pub fn scale_scalar<S: Into<Scalar> + Clone>(
@@ -988,21 +1147,42 @@ impl ConfiguredScale {
         &self,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        self.scale_impl.scale_to_numeric(&self.config, values)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.scale_to_numeric(&config, values)
     }
 
     pub fn scale_scalar_to_numeric(
         &self,
         value: &Scalar,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        self.scale_impl.scale_scalar_to_numeric(&self.config, value)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.scale_scalar_to_numeric(&config, value)
     }
 
     pub fn invert_from_numeric(
         &self,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        self.scale_impl.invert_from_numeric(&self.config, values)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.invert_from_numeric(&config, values)
     }
 
     /// Invert an array of numeric values from range to domain.
@@ -1029,22 +1209,65 @@ impl ConfiguredScale {
     /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
     /// ```
     pub fn invert(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
-        self.scale_impl.invert(&self.config, values)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.invert(&config, values)
     }
 
     pub fn invert_scalar(&self, value: f32) -> Result<f32, AvengerScaleError> {
-        self.scale_impl.invert_scalar(&self.config, value)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.invert_scalar(&config, value)
     }
 
     /// Invert a range interval to a subset of the domain
     pub fn invert_range_interval(&self, range: (f32, f32)) -> Result<ArrayRef, AvengerScaleError> {
-        self.scale_impl.invert_range_interval(&self.config, range)
+        // Auto-normalize if needed
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.invert_range_interval(&config, range)
     }
 
     /// Get the domain values for ticks for the scale
     /// These can be scaled to number for position, and scaled to string for labels
     pub fn ticks(&self, count: Option<f32>) -> Result<ArrayRef, AvengerScaleError> {
-        self.scale_impl.ticks(&self.config, count)
+        // Auto-normalize if needed for ticks
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+
+        self.scale_impl.ticks(&config, count)
+    }
+
+    pub fn temporal_start_step_ticks(
+        &self,
+        start_millis: i64,
+        months: i32,
+        days: i32,
+        nanos: i64,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let config = if self.needs_normalization() {
+            self.get_normalized_config()?
+        } else {
+            self.config.clone()
+        };
+        time::generate_temporal_start_step_ticks(&config, start_millis, months, days, nanos)
     }
 
     /// Scale to color values
@@ -1095,8 +1318,63 @@ impl ConfiguredScale {
         &self.config.domain
     }
 
+    /// Returns the normalized domain that will be used for scaling operations.
+    ///
+    /// This includes any domain expansions from:
+    /// - `zero` option: ensures domain includes zero
+    /// - `nice` option: rounds domain to nice values
+    /// - `clip_padding_lower/upper` options: expands domain to prevent clipping
+    ///
+    /// For scales that don't support normalization (e.g., categorical scales),
+    /// this returns the original domain.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use avenger_scales::scales::linear::LinearScale;
+    /// let scale = LinearScale::configured((3.7, 97.2), (0.0, 100.0))
+    ///     .with_option("nice", true)
+    ///     .with_option("zero", true);
+    ///
+    /// // Original domain is (3.7, 97.2)
+    /// let original = scale.domain();
+    ///
+    /// // Normalized domain is (0.0, 100.0) after applying zero and nice
+    /// let normalized = scale.normalized_domain()?;
+    /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
+    /// ```
+    pub fn normalized_domain(&self) -> Result<ArrayRef, AvengerScaleError> {
+        if self.needs_normalization() {
+            let normalized_config = self.get_normalized_config()?;
+            Ok(normalized_config.domain)
+        } else {
+            Ok(self.config.domain.clone())
+        }
+    }
+
+    /// Returns the normalized two-value numeric domain used by scaling.
+    ///
+    /// Unlike [`Self::numeric_interval_domain`], this includes `zero`, `nice`,
+    /// and clip-padding expansion. It is therefore the appropriate domain for
+    /// interaction chrome that must span the displayed plot extent.
+    pub fn normalized_numeric_interval_domain(&self) -> Result<(f32, f32), AvengerScaleError> {
+        let domain = self.normalized_domain()?;
+        if domain.len() != 2 {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "normalized_numeric_interval_domain".to_string(),
+            ));
+        }
+        let domain = cast(domain.as_ref(), &DataType::Float32)?;
+        let domain = domain.as_primitive::<Float32Type>();
+        Ok((domain.value(0), domain.value(1)))
+    }
+
     pub fn numeric_interval_domain(&self) -> Result<(f32, f32), AvengerScaleError> {
         self.config.numeric_interval_domain()
+    }
+
+    /// See [`ScaleConfig::numeric_interval_domain_f64`].
+    pub fn numeric_interval_domain_f64(&self) -> Result<(f64, f64), AvengerScaleError> {
+        self.config.numeric_interval_domain_f64()
     }
 
     pub fn range(&self) -> &ArrayRef {
@@ -1224,5 +1502,44 @@ impl ConfiguredScale {
                 .timestamptz
                 .format(values, None),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::{
+        array::{Array, ArrayRef, AsArray, ListArray},
+        datatypes::Float32Type,
+    };
+    use std::sync::Arc;
+
+    use super::linear::LinearScale;
+
+    #[test]
+    fn configured_scale_maps_list_values_preserving_offsets_and_nulls() {
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let values = ListArray::from_iter_primitive::<Float32Type, _, _>(vec![
+            Some(vec![Some(0.0), Some(5.0)]),
+            None,
+            Some(vec![Some(10.0), None, Some(2.5)]),
+        ]);
+
+        let values = Arc::new(values) as ArrayRef;
+        let scaled = scale.scale(&values).unwrap();
+        let scaled = scaled.as_list::<i32>();
+        assert_eq!(scaled.offsets().as_ref(), &[0, 2, 2, 5]);
+        assert!(!scaled.is_null(0));
+        assert!(scaled.is_null(1));
+        assert!(!scaled.is_null(2));
+
+        let first = scaled.value(0);
+        let first = first.as_primitive::<Float32Type>();
+        assert_eq!(first.values(), &[0.0, 50.0]);
+
+        let third = scaled.value(2);
+        let third = third.as_primitive::<Float32Type>();
+        assert_eq!(third.value(0), 100.0);
+        assert!(third.is_null(1));
+        assert_eq!(third.value(2), 25.0);
     }
 }

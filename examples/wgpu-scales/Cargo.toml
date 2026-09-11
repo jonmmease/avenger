@@ -6,17 +6,20 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [dependencies]
-avenger-color = { path = "../../avenger-color" }
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 
-arrow = { version = "*", default-features = false, features = ["csv"] }
+arrow = { version = "58.3.0", default-features = false, features = ["csv"] }
 
 cfg-if = "1"
 winit = "0.30.5"
@@ -27,7 +30,7 @@ pollster = "0.3"
 serde_json = { version = "1.0.111" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = [] }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["rayon"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"

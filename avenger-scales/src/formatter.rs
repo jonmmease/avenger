@@ -1,21 +1,41 @@
-use crate::error::AvengerScaleError;
-use crate::format_num::NumberFormat;
-use arrow::array::ArrayRef;
-use arrow::array::{timezone::Tz as ArrowTz, AsArray};
-use arrow::datatypes::Float32Type;
+use std::{fmt::Debug, str::FromStr, sync::Arc};
+
 use arrow::{
+    array::{timezone::Tz as ArrowTz, ArrayRef, AsArray},
     compute::kernels::cast,
-    datatypes::{DataType, Date32Type, TimeUnit, TimestampMillisecondType},
+    datatypes::{DataType, Date32Type, Float32Type, TimeUnit, TimestampMillisecondType},
 };
 use avenger_common::value::ScalarOrArray;
+use avenger_format_number::{
+    format_number, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
+    ResolvedNumberLocale,
+};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use std::{fmt::Debug, str::FromStr, sync::Arc};
+
+use crate::error::AvengerScaleError;
+use crate::format_num::NumberFormat;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DefaultFormatter {
     pub format_str: Option<String>,
     pub local_tz: Option<Tz>,
+    pub number_locale: Option<String>,
+    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
+}
+
+impl DefaultFormatter {
+    fn number_locale_context(&self) -> (Arc<NumberLocaleRegistry>, ResolvedNumberLocale) {
+        let registry = self
+            .number_locale_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()));
+        let locale_id = self.number_locale.as_deref().unwrap_or("en-US");
+        let locale = registry
+            .resolve(locale_id)
+            .unwrap_or_else(|_| ResolvedNumberLocale::en_us());
+        (registry, locale)
+    }
 }
 
 pub trait NumberFormatter: Debug + Send + Sync + 'static {
@@ -38,14 +58,21 @@ impl NumberFormatter for DefaultFormatter {
     fn format(&self, value: &[Option<f32>], default: Option<&str>) -> Vec<String> {
         let default = default.unwrap_or("");
         if let Some(format_str) = &self.format_str {
-            // Use format_num for d3-style formatting
+            let (registry, locale) = self.number_locale_context();
+            let context = NumberFormatContext::new(&locale).with_registry(registry.as_ref());
             let formatter = NumberFormat::new();
             value
                 .iter()
                 .map(|&v| {
                     v.map(|v| {
-                        // Use format_num for d3-style formatting
-                        formatter.format(format_str, v)
+                        format_number(
+                            v as f64,
+                            Some(format_str),
+                            NumberFormatOverrides::default(),
+                            context,
+                        )
+                        .map(|formatted| formatted.text)
+                        .unwrap_or_else(|_| formatter.format(format_str, v))
                     })
                     .unwrap_or_else(|| default.to_string())
                 })

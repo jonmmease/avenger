@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-format-datetime = { path = "../avenger-format-datetime" }
+avenger-format-number = { path = "../avenger-format-number" }
 avenger-text = { path = "../avenger-text" }
-avenger-image = { path = "../avenger-image" }
+avenger-image = { path = "../avenger-image", default-features = false }
 thiserror = { workspace = true }
 palette = { workspace = true }
 chrono = { workspace = true }
@@ -22,7 +24,6 @@ float-cmp = "0.10.0"
 svgtypes = "0.15.1"
 
 arrow = { workspace = true }
-css-color-parser = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 paste = { workspace = true }

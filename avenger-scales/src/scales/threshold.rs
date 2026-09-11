@@ -1,17 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::{cast, take},
+    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
+    compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
@@ -49,7 +49,15 @@ impl ScaleImpl for ThresholdScale {
     }
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::Unique
+        InferDomainFromDataMethod::Explicit
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -79,17 +87,21 @@ impl ScaleImpl for ThresholdScale {
             });
         }
 
-        let indices = Arc::new(UInt32Array::from(
-            values
-                .as_primitive::<Float32Type>()
+        // Cast input values to Float32
+        let values = cast(&values, &DataType::Float32)?;
+        let values_array = values.as_primitive::<Float32Type>();
+
+        // Create indices into the range based on thresholds
+        let indices = Int16Array::from(
+            values_array
                 .iter()
                 .map(|x| match x {
                     Some(x) => {
                         if x.is_finite() {
                             let idx =
                                 match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
-                                    Ok(i) => (i + 1) as u32,
-                                    Err(i) => i as u32,
+                                    Ok(i) => (i + 1) as i16,
+                                    Err(i) => i as i16,
                                 };
                             Some(idx)
                         } else {
@@ -99,9 +111,11 @@ impl ScaleImpl for ThresholdScale {
                     None => None,
                 })
                 .collect::<Vec<_>>(),
-        )) as ArrayRef;
+        );
 
-        Ok(take::take(&config.range, &indices, None)?)
+        // Create dictionary array with indices pointing to range values
+        let dict_array = DictionaryArray::try_new(indices, config.range.clone())?;
+        Ok(Arc::new(dict_array) as ArrayRef)
     }
 
     fn ticks(
@@ -111,6 +125,57 @@ impl ScaleImpl for ThresholdScale {
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Ticks are the same as the domain values
         Ok(config.domain.clone())
+    }
+
+    fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        // Extract threshold values from domain
+        let thresholds = match validate_extract_thresholds(&config.domain) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        // Use the formatter to format threshold values
+        let formatter = &config.context.formatters.number;
+
+        let mut entries = Vec::new();
+
+        // Create n+1 intervals for n thresholds
+        for i in 0..=thresholds.len() {
+            let (label, repr_value) = if i == 0 {
+                // First interval: < first_threshold
+                if let Some(&first) = thresholds.first() {
+                    let formatted = formatter.format(&[Some(first)], None);
+                    (format!("< {}", formatted[0]), first - 1.0)
+                } else {
+                    continue;
+                }
+            } else if i == thresholds.len() {
+                // Last interval: >= last_threshold
+                if let Some(&last) = thresholds.last() {
+                    let formatted = formatter.format(&[Some(last)], None);
+                    (format!("≥ {}", formatted[0]), last + 1.0)
+                } else {
+                    continue;
+                }
+            } else {
+                // Middle intervals: between consecutive thresholds
+                let prev = thresholds[i - 1];
+                let next = thresholds[i];
+                let formatted_prev = formatter.format(&[Some(prev)], None);
+                let formatted_next = formatter.format(&[Some(next)], None);
+                (
+                    format!("{} - {}", formatted_prev[0], formatted_next[0]),
+                    (prev + next) / 2.0,
+                )
+            };
+
+            entries.push(LegendEntry {
+                label,
+                representative_value: Scalar::from(repr_value),
+            });
+        }
+
+        Some(entries)
     }
 }
 
