@@ -29,4 +29,9 @@ const FONT_BYTES: &[&[u8]] = &[
     include_bytes!("../../../avenger-text/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
     include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
     include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
+    include_bytes!("../fixtures/fonts/NotoSansHebrew.ttf.br"),
+    include_bytes!("../fixtures/fonts/NotoSansDevanagari.ttf.br"),
+    include_bytes!("../fixtures/fonts/AuditNoScriptMetrics.ttf.br"),
+    include_bytes!("../fixtures/fonts/AuditScriptOffsets.ttf.br"),
+    include_bytes!("../fixtures/fonts/AuditHebrewRegular.ttf.br"),
 ];

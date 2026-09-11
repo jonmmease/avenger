@@ -448,7 +448,10 @@ fn compile_resolves_stroke_paint_param() {
         .unwrap();
     let stroke = first_stroke(&label);
 
-    assert_eq!(stroke.color, Color::rgba(1.0, 0.0, 0.0, 1.0));
+    assert_eq!(
+        stroke.color,
+        Color::rgba(1.0, 65.0 / 255.0, 54.0 / 255.0, 1.0)
+    );
     assert!(stroke.width > 0.0);
 }
 
@@ -465,7 +468,10 @@ fn compile_resolves_stroke_string_param() {
         .unwrap();
     let stroke = first_stroke(&label);
 
-    assert_eq!(stroke.color, Color::rgba(0.0, 0.0, 1.0, 1.0));
+    assert_eq!(
+        stroke.color,
+        Color::rgba(0.0, 116.0 / 255.0, 217.0 / 255.0, 1.0)
+    );
     assert_metrics_close(stroke.width, 1.5);
 }
 
@@ -502,7 +508,10 @@ fn compile_resolves_stroke_dict_param() {
         .unwrap();
     let stroke = first_stroke(&label);
 
-    assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
+    assert_eq!(
+        stroke.color,
+        Color::rgba(133.0 / 255.0, 20.0 / 255.0, 75.0 / 255.0, 1.0)
+    );
     assert_metrics_close(stroke.width, 2.0);
     assert_eq!(stroke.line_cap, LineCap::Round);
     assert_eq!(stroke.line_join, LineJoin::Bevel);

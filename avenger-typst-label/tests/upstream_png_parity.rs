@@ -24,6 +24,8 @@ struct Case {
     id: String,
     source: String,
     font_size: f32,
+    #[serde(default = "default_scale")]
+    scale: f32,
     font_weight: u16,
     text_font: String,
     math_font: String,
@@ -31,6 +33,10 @@ struct Case {
     min_similarity: f64,
     #[serde(default)]
     requires_system_emoji: bool,
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 #[test]
@@ -93,7 +99,7 @@ fn run_case(engine: &LabelEngine, fixtures_dir: &Path, case: &Case) -> Result<()
     let compiled = engine
         .compile(&source, &options)
         .map_err(|err| format!("{}: failed to compile Avenger label: {err}", case.id))?;
-    let actual = rasterize(&compiled, &RasterOptions { scale: 1.0 })
+    let actual = rasterize(&compiled, &RasterOptions { scale: case.scale })
         .map_err(|err| format!("{}: failed to rasterize Avenger label: {err}", case.id))?;
 
     let expected = read_png_rgba(&expected_path).map_err(|err| {
@@ -212,12 +218,20 @@ fn crop_to_content(image: &TestRgbaImage, padding: u32) -> Option<TestRgbaImage>
         return None;
     }
 
-    min_x = min_x.saturating_sub(padding);
-    min_y = min_y.saturating_sub(padding);
-    max_x = (max_x + padding).min(image.width.saturating_sub(1));
-    max_y = (max_y + padding).min(image.height.saturating_sub(1));
-
-    Some(image.crop(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
+    let width = max_x - min_x + 1;
+    let height = max_y - min_y + 1;
+    let mut cropped = TestRgbaImage::new(width + 2 * padding, height + 2 * padding);
+    for y in 0..cropped.height {
+        for x in 0..cropped.width {
+            cropped.put_pixel(x, y, [255; 4]);
+        }
+    }
+    for y in 0..height {
+        for x in 0..width {
+            cropped.put_pixel(x + padding, y + padding, image.pixel(min_x + x, min_y + y));
+        }
+    }
+    Some(cropped)
 }
 
 struct CompareReport {
@@ -329,16 +343,6 @@ impl TestRgbaImage {
     fn put_pixel(&mut self, x: u32, y: u32, pixel: [u8; 4]) {
         let index = self.index(x, y);
         self.data[index..index + 4].copy_from_slice(&pixel);
-    }
-
-    fn crop(&self, left: u32, top: u32, width: u32, height: u32) -> Self {
-        let mut cropped = Self::new(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                cropped.put_pixel(x, y, self.pixel(left + x, top + y));
-            }
-        }
-        cropped
     }
 
     fn index(&self, x: u32, y: u32) -> usize {

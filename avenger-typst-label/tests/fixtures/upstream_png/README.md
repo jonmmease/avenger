@@ -8,6 +8,24 @@ snippets.
 This is a label-level raster oracle. It is not a full Typst document/page
 render test suite.
 
+## September 2026 audit
+
+The `audit-*` references use upstream Typst commit
+`c98e910391a8544b28bd5c99a6f3b1ac1ada9a84`. They cover the 18 findings listed
+in [UPSTREAM.md](../../../UPSTREAM.md#september-2026-correctness-audit), including
+mixed math sizes, tall radicals, nested accents, complex scripts, bidi markup,
+script metrics, variable fonts, ornaments, and decoration order.
+
+The manifest's `scale` controls both Avenger rasterization and upstream PPI
+(`72 * scale`). Most audit references use scale 2. The 0.2pt script uses scale 16
+and a 2pt surrounding label so its ink survives antialiasing. Geometry tests also
+check that size at ordinary label sizes. Cropping adds equal white padding after
+finding each image's ink bounds.
+
+The generator loads the portable fonts in `../fonts` and the bundled text/math
+fonts. Set `TYPST_BIN` to use an already-built CLI from the pinned revision.
+Reference regeneration is explicit; tests never update the upstream images.
+
 ## Scope
 
 - Build PNG parity only.
