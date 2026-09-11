@@ -14,6 +14,7 @@ use crate::{
     },
     context::AvengerGpuContext,
     error::AvengerWgpuError,
+    image_resources::WgpuImageResourceStatus,
     marks::{
         instanced_mark::{InstancedMarkPipeline, InstancedMarkRenderer},
         multi::MultiMarkRenderer,
@@ -92,6 +93,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
             dimensions,
             surface_format,
             sample_count,
+            config,
         );
 
         Ok(Self {
@@ -106,6 +108,10 @@ impl<'window> HtmlCanvasCanvas<'window> {
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.renderer.dimensions().to_physical_size()
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
     }
 
     pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
