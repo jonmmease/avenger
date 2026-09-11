@@ -129,5 +129,4 @@ rustybuzz = "0.20.1"
 ttf-parser = "0.25.1"
 brotli = "8.0.1"
 lru = "0.12.5"
-svgtypes = "0.16.1"
 font-subset = { version = "0.1.0", features = ["woff2"] }

@@ -13,8 +13,7 @@ lyon_algorithms = { workspace = true }
 image = { workspace = true }
 base64 = { workspace = true }
 font-subset = { workspace = true }
-fontdb = { workspace = true }
-svgtypes = { workspace = true }
+ttf-parser = { workspace = true }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
@@ -38,3 +37,6 @@ brotli = { workspace = true }
 resvg = { workspace = true }
 tiny-skia = { workspace = true }
 usvg = { workspace = true }
+
+[dev-dependencies.avenger-resource]
+path = "../avenger-resource"
