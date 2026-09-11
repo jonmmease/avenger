@@ -26,12 +26,27 @@ pub struct GridSlot {
 }
 
 impl GridSlot {
+    /// Exclusive end row, saturated at `usize::MAX` for an invalid span.
     pub fn row_end(self) -> usize {
-        self.row + self.row_span
+        self.row.saturating_add(self.row_span)
     }
 
+    /// Exclusive end column, saturated at `usize::MAX` for an invalid span.
     pub fn column_end(self) -> usize {
-        self.column + self.column_span
+        self.column.saturating_add(self.column_span)
+    }
+
+    pub(crate) fn fits(self, shape: GridShape) -> bool {
+        self.row_span > 0
+            && self.column_span > 0
+            && self
+                .row
+                .checked_add(self.row_span)
+                .is_some_and(|end| end <= shape.rows)
+            && self
+                .column
+                .checked_add(self.column_span)
+                .is_some_and(|end| end <= shape.columns)
     }
 }
 
@@ -168,11 +183,7 @@ impl GridRequirements {
     ) -> Result<GridRequirements, GridError> {
         for demand in demands {
             let slot = demand.slot;
-            if slot.row_span == 0
-                || slot.column_span == 0
-                || slot.row_end() > shape.rows
-                || slot.column_end() > shape.columns
-            {
+            if !slot.fits(shape) {
                 return Err(GridError::SlotOutOfBounds { slot, shape });
             }
         }
@@ -180,8 +191,7 @@ impl GridRequirements {
     }
 
     /// Like [`GridRequirements::from_items`] for callers whose slots are
-    /// correct by construction (the band adapter derives every slot from
-    /// the item index, so out-of-bounds is structurally impossible).
+    /// correct by construction or already checked by `from_items`.
     /// Bounds are debug-asserted only.
     pub(crate) fn from_items_validated<Id>(
         shape: GridShape,
