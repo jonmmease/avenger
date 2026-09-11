@@ -19,6 +19,11 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
+      - name: Install the validated Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "check-linux"
