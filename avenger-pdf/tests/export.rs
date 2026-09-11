@@ -582,3 +582,70 @@ fn exports_ready_resources_for_ordinary_and_warped_images() {
         renderer().render_scene_graph(&scene::gallery()).unwrap()
     );
 }
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn audited_typst_layout_matches_svg_with_variable_fonts_and_decorations() {
+    let mut fonts = scene::fonts();
+    for (id, data) in [
+        (
+            3001,
+            include_bytes!("fonts/NotoSansHebrew/NotoSansHebrew.ttf").as_slice(),
+        ),
+        (
+            3002,
+            include_bytes!("fonts/NotoSansDevanagari/NotoSansDevanagari.ttf").as_slice(),
+        ),
+    ] {
+        fonts
+            .registered_fonts
+            .push(avenger_text::RegisteredFont::new(
+                avenger_text::MathFontBytesId(id),
+                std::sync::Arc::<[u8]>::from(data),
+            ));
+    }
+    for source in [
+        "אבג #strong[דהו] אבג",
+        "abc #underline[हिन्दी] xyz",
+        "abc #underline[אבג 123] xyz",
+        "$\"हिन्दी\" \"אבג\"$",
+        "$sqrt(frac(1,x^2))_n^m$",
+        "#underline[a #strike[b] c]",
+        "#underline(evade: false, offset: -10pt, stroke: 3pt + red, background: true)[abc]",
+        "#underline(evade: false, offset: -10pt, stroke: 3pt + red, background: false)[abc]",
+    ] {
+        let graph = SceneGraph {
+            width: 500.0,
+            height: 180.0,
+            origin: [0.0, 0.0],
+            marks: vec![scene::text(source, 20.0, 90.0, 32.0).into()],
+        };
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                font_resolution: fonts.clone(),
+                ..Default::default()
+            })
+            .render_scene_graph(&graph)
+            .unwrap();
+        let svg = avenger_svg::SvgRenderer::new()
+            .with_options(avenger_svg::SvgRenderOptions {
+                font_resolution: fonts.clone(),
+                ..Default::default()
+            })
+            .render_scene_graph(&graph)
+            .unwrap();
+        let actual = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
+        let expected = raster::svg_to_png(&svg, 2.0);
+        let mut error = 0u64;
+        let mut ink = 0u64;
+        for (a, b) in actual.pixels().zip(expected.pixels()) {
+            if a[0] < 240 || b[0] < 240 {
+                ink += 1;
+                error += (0..3).map(|c| a[c].abs_diff(b[c]) as u64).sum::<u64>();
+            }
+        }
+        assert!(ink > 100, "{source}");
+        let mean = error as f64 / (ink * 3) as f64;
+        assert!(mean < 12.0, "{source}: mean ink difference {mean}");
+    }
+}
