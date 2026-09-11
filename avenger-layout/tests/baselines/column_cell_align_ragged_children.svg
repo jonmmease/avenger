@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 140 180" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="140" height="180" fill="#ffffff"/>
+  <rect x="0" y="0" width="120" height="136" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="0" y="0" width="120" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">wide</text>
+  <rect x="0" y="48" width="120" height="40" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="25" y="48" width="70" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="28" y="72" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">center</text>
+  <rect x="0" y="96" width="120" height="40" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="25" y="96" width="95" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="28" y="120" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">end</text>
+  <rect x="0" y="146" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="155" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="146" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="82" y="155" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <rect x="0" y="0" width="120" height="136" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>

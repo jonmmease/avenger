@@ -13,6 +13,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-geo",
+    "avenger-layout",
     "avenger-text",
     "avenger-svg",
     "avenger-pdf",
