@@ -333,6 +333,50 @@ fn gallery_visual_regression_and_svg_comparison() {
 
 #[test]
 #[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn script_and_smallcaps_glyphs_match_svg() {
+    for source in [
+        "H#sub[2]O",
+        "H#super[2]O",
+        "H#sub(typographic: false)[2]O",
+        "H#super(typographic: false)[2]O",
+        "#smallcaps[Smallcaps]",
+        "H#smallcaps(all: true)[CAPS]O",
+    ] {
+        let graph = SceneGraph {
+            width: 280.0,
+            height: 70.0,
+            origin: [0.0, 0.0],
+            marks: vec![scene::text(source, 10.0, 45.0, 40.0).into()],
+        };
+        let pdf = renderer().render_scene_graph(&graph).unwrap();
+        let actual = pdf_raster::pdf_to_png(&pdf, graph.width, graph.height);
+        let svg = avenger_svg::SvgRenderer::new()
+            .with_options(avenger_svg::SvgRenderOptions {
+                font_resolution: scene::fonts(),
+                ..Default::default()
+            })
+            .render_scene_graph(&graph)
+            .unwrap();
+        let expected = raster::svg_to_png(&svg, 2.0);
+        let mut error = 0u64;
+        let mut ink_pixels = 0u64;
+        for (a, b) in actual.pixels().zip(expected.pixels()) {
+            // Exclude blank space so a misplaced script cannot hide in the page average.
+            if a[0] < 240 || b[0] < 240 {
+                ink_pixels += 1;
+                error += (0..3)
+                    .map(|channel| a[channel].abs_diff(b[channel]) as u64)
+                    .sum::<u64>();
+            }
+        }
+        assert!(ink_pixels > 100);
+        let mean = error as f64 / (ink_pixels * 3) as f64;
+        assert!(mean < 12.0, "{source}: mean ink difference {mean}");
+    }
+}
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
 fn rotated_markup_clips_before_placement_and_preserves_semantic_text() {
     for angle in [0.0f32, 28.0, -28.0] {
         let mut text = scene::text("*Bold* $sqrt(x^2+y^2)$ tail", 10.0, 40.0, 22.0);
@@ -439,6 +483,8 @@ fn styled_text_extracts_semantic_characters_without_markup() {
         ("_Italic label_", "Italic label"),
         ("#upper[caption]", "CAPTION"),
         ("#underline[Decorated]", "Decorated"),
+        ("#smallcaps[Smallcaps]", "Smallcaps"),
+        ("#smallcaps(all: true)[CAPS]", "CAPS"),
     ] {
         let graph = SceneGraph {
             width: 240.0,
@@ -449,6 +495,23 @@ fn styled_text_extracts_semantic_characters_without_markup() {
         let pdf = renderer().render_scene_graph(&graph).unwrap();
         let text = pdf_extract::extract_text_from_mem(&pdf).unwrap();
         assert_eq!(text.trim(), expected, "{source}");
+    }
+}
+
+#[test]
+fn script_glyphs_preserve_semantic_characters() {
+    for source in ["H#sub[2]O", "H#super[2]O"] {
+        let graph = SceneGraph {
+            width: 120.0,
+            height: 70.0,
+            origin: [0.0, 0.0],
+            marks: vec![scene::text(source, 10.0, 45.0, 40.0).into()],
+        };
+        let pdf = renderer().render_scene_graph(&graph).unwrap();
+        let text = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        // The extractor inserts whitespace between separately positioned text runs.
+        let characters: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        assert_eq!(characters, "H2O", "{source}: {text:?}");
     }
 }
 
