@@ -1,0 +1,20 @@
+[package]
+name = "avenger-geo"
+version = "0.1.0"
+edition = "2021"
+description = "d3-geo-style spherical projection engine: raw projections, rotation, antimeridian clipping, adaptive resampling, fit, graticules"
+license = "BSD-3-Clause"
+
+[dependencies]
+geo-types = { workspace = true }
+geo = { workspace = true }
+geo-traits = { workspace = true }
+geojson = { workspace = true }
+wkb = { workspace = true }
+lyon_path = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+itertools = { workspace = true }
+
+[dev-dependencies]
