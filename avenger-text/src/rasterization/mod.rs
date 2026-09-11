@@ -1,123 +1,117 @@
-use std::{collections::HashMap, hash::Hash};
+use std::hash::Hash;
 
-#[cfg(feature = "cosmic-text")]
-pub mod cosmic;
-
-#[cfg(target_arch = "wasm32")]
-pub mod html_canvas;
+use ordered_float::OrderedFloat;
 
 use crate::{
-    error::AvengerTextError,
-    measurement::{TextBounds, TextMeasurementConfig},
-    types::{FontStyle, FontWeight},
+    measurement::TextBounds,
+    types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 
-// Position of glyph in text buffer
+/// Rasterized text-line origin in text layout coordinates.
+///
+/// `x` and `y` are floating-point logical positions. `physical_x` and
+/// `physical_y` are the pixel-aligned physical positions for the rasterized
+/// bitmap at the requested scale. Renderers can use logical positions for
+/// transformed/vector text and physical positions for crisp, untransformed
+/// bitmap placement.
 #[derive(Debug, Clone)]
-pub struct PhysicalGlyphPosition {
+pub struct TextRasterPosition {
     pub x: f32,
     pub y: f32,
+    pub physical_x: f32,
+    pub physical_y: f32,
 }
 
-// Glyph bounding box relative to glyph origin
+/// Text raster bounding box relative to the text raster origin.
 #[derive(Clone, Copy, Debug)]
-pub struct GlyphBBox {
+pub struct TextRasterBBox {
     pub top: i32,
     pub left: i32,
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Clone)]
-pub struct GlyphImage<CacheKey: Hash + Eq + Clone> {
-    pub cache_key: CacheKey,
-    // None if image for same CacheKey was already included
-    pub image: Option<image::RgbaImage>,
-    pub bbox: GlyphBBox,
-}
-
-impl<CacheKey: Hash + Eq + Clone> GlyphImage<CacheKey> {
-    pub fn without_image(&self) -> Self {
-        Self {
-            cache_key: self.cache_key.clone(),
-            image: None,
-            bbox: self.bbox,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TextRasterizationConfig<'a> {
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub font: &'a String,
+    pub text: &'a str,
+    pub color: [f32; 4],
+    pub font: &'a str,
     pub font_size: f32,
-    pub font_weight: &'a FontWeight,
-    pub font_style: &'a FontStyle,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
+    /// Positive finite width in logical pixels. Plain text uses grapheme-safe
+    /// ellipsis; Typst markup is compiled intact and clipped at this width.
+    /// Other values leave the label unconstrained.
     pub limit: f32,
+    pub syntax_mode: TextSyntaxMode,
+    pub params: &'a avenger_typst_label::LabelParams,
+    pub number_locale: Option<&'a str>,
+    pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
+    pub datetime_locale: Option<&'a str>,
+    pub datetime_timezone: Option<&'a str>,
+    pub datetime_locale_specs: Option<&'a crate::DateTimeLocaleSpecs>,
 }
 
-impl<'a> TextRasterizationConfig<'a> {
-    pub fn to_measurement_config(&self) -> TextMeasurementConfig<'a> {
-        TextMeasurementConfig {
-            text: self.text,
-            font: self.font,
-            font_size: self.font_size,
-            font_weight: self.font_weight,
-            font_style: self.font_style,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TextRasterCacheKey {
+    pub limit: OrderedFloat<f32>,
+    pub text: String,
+    pub font: String,
+    pub font_size: OrderedFloat<f32>,
+    pub font_weight: String,
+    pub font_style: String,
+    pub fill: [u8; 4],
+    pub scale: OrderedFloat<f32>,
+    pub markup: String,
+    pub params: String,
+    pub number_locale: Option<String>,
+    pub number_locale_specs: String,
+    pub datetime_locale: Option<String>,
+    pub datetime_timezone: Option<String>,
+    pub datetime_locale_specs: String,
 }
 
 #[derive(Clone)]
-pub struct GlyphData<CacheKey: Hash + Eq + Clone> {
+pub struct TextRasterEntry<CacheKey: Hash + Eq + Clone> {
     pub cache_key: CacheKey,
-    // image and path are None if the CacheKey was already included
+    /// None if an image for the same cache key was already included.
     pub image: Option<image::RgbaImage>,
-    pub path: Option<lyon_path::Path>,
-    pub bbox: GlyphBBox,
-}
-
-impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
-    pub fn without_image(self) -> Self {
-        Self {
-            image: None,
-            ..self
-        }
-    }
-
-    pub fn with_bbox(self, bbox: GlyphBBox) -> Self {
-        Self {
-            bbox,
-            ..self.clone()
-        }
-    }
+    pub bbox: TextRasterBBox,
 }
 
 #[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<(GlyphData<CacheKey>, PhysicalGlyphPosition)>,
+    pub entries: Vec<(TextRasterEntry<CacheKey>, TextRasterPosition)>,
     pub text_bounds: TextBounds,
 }
 
-pub trait TextRasterizer: 'static {
-    type CacheKey: Hash + Eq + Clone;
-    type CacheValue: Clone;
-
-    fn rasterize(
-        &self,
-        config: &TextRasterizationConfig,
-        scale: f32,
-        cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
-    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
+#[derive(Clone)]
+pub struct CachedTextRasterization {
+    pub entries: Vec<(TextRasterEntry<TextRasterCacheKey>, TextRasterPosition)>,
+    pub text_bounds: TextBounds,
 }
 
-#[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]
-pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    crate::rasterization::cosmic::CosmicTextRasterizer::new()
+impl CachedTextRasterization {
+    pub fn as_buffer(&self) -> TextRasterizationBuffer<TextRasterCacheKey> {
+        TextRasterizationBuffer {
+            entries: self.entries.clone(),
+            text_bounds: self.text_bounds.clone(),
+        }
+    }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    return crate::rasterization::html_canvas::HtmlCanvasTextRasterizer::new();
+pub trait TextRasterCacheValue: Clone {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>>;
+}
+
+impl TextRasterCacheValue for () {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>> {
+        None
+    }
+}
+
+impl TextRasterCacheValue for CachedTextRasterization {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>> {
+        Some(self.as_buffer())
+    }
 }

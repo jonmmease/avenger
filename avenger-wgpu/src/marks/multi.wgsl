@@ -60,15 +60,18 @@ var image_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var image_sampler: sampler;
 
-// Text texture binding
+// Text texture bindings - both samplers in same group
 @group(3) @binding(0)
 var text_texture: texture_2d<f32>;
 @group(3) @binding(1)
-var text_sampler: sampler;
+var text_sampler_linear: sampler;
+@group(3) @binding(2)
+var text_sampler_nearest: sampler;
 
 const GRADIENT_TEXTURE_CODE = -1.0;
 const IMAGE_TEXTURE_CODE = -2.0;
 const TEXT_TEXTURE_CODE = -3.0;
+const TEXT_TEXTURE_NEAREST_CODE = -4.0;
 
 const GRADIENT_LINEAR = 0.0;
 const GRADIENT_RADIAL = 1.0;
@@ -199,9 +202,13 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
         let tex_coords = vec2<f32>(color[1], color[2]);
         return textureSampleGrad(image_texture, image_sampler, tex_coords, dx, dy);
     } else if (color[0] == TEXT_TEXTURE_CODE) {
-        // Text texture coordinates are stored in the second and third color components
+        // Text texture coordinates are stored in the second and third color components (Linear filtering)
         let tex_coords = vec2<f32>(color[1], color[2]);
-        return textureSampleGrad(text_texture, text_sampler, tex_coords, dx, dy);
+        return textureSampleGrad(text_texture, text_sampler_linear, tex_coords, dx, dy);
+    } else if (color[0] == TEXT_TEXTURE_NEAREST_CODE) {
+        // Text texture coordinates for nearest filtering
+        let tex_coords = vec2<f32>(color[1], color[2]);
+        return textureSampleGrad(text_texture, text_sampler_nearest, tex_coords, dx, dy);
     } else {
         return color;
     }
