@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use avenger_resource::ResourceKey;
+
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyErr};
 
@@ -11,6 +13,15 @@ pub enum AvengerSceneGraphError {
     // ParseError doesn't implement std::Error, so #[from] doesn't seem to work
     #[error("Error parsing SVG path")]
     InvalidSvgPath(lyon_extra::parser::ParseError),
+
+    #[error("Image resource is pending: {0:?}")]
+    ImageResourcePending(ResourceKey),
+
+    #[error("Image resource is missing: {0:?}")]
+    ImageResourceMissing(ResourceKey),
+
+    #[error("Image resource failed: {0:?}: {1}")]
+    ImageResourceFailed(ResourceKey, String),
 }
 
 // Conversion to PyO3 error

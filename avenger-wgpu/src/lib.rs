@@ -1,5 +1,6 @@
 pub mod canvas;
 pub mod error;
+pub mod image_resources;
 pub mod marks;
 pub mod offscreen;
 pub(crate) mod readback;
