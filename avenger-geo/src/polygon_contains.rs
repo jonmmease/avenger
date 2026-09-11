@@ -1,7 +1,7 @@
 //! Spherical point-in-polygon test.
 //!
 //! Ported from d3-geo `src/polygonContains.js` (ISC),
-//! https://github.com/d3/d3-geo. Polygon rings are sequences of spherical
+//! <https://github.com/d3/d3-geo>. Polygon rings are sequences of spherical
 //! radian points; the convention is the d3 spherical winding (clockwise
 //! exteriors).
 

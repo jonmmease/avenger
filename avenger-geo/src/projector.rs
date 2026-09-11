@@ -1,7 +1,7 @@
 //! Projection configuration and the composed pipeline.
 //!
 //! Ported from d3-geo `src/projection/index.js` and `src/projection/fit.js`
-//! (ISC), https://github.com/d3/d3-geo. The pipeline composes:
+//! (ISC), <https://github.com/d3/d3-geo>. The pipeline composes:
 //!
 //! ```text
 //! degrees→radians → rotate(λ,φ,γ) → antimeridian clip →

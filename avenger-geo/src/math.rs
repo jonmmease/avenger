@@ -1,7 +1,7 @@
 //! Spherical math helpers.
 //!
 //! Ported from d3-geo `src/math.js` and `src/cartesian.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 pub const EPSILON: f64 = 1e-6;
 pub const EPSILON2: f64 = 1e-12;

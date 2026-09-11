@@ -2,7 +2,7 @@
 //!
 //! Ported from d3-geo `src/projection/conicEqualArea.js` and
 //! `src/projection/cylindricalEqualArea.js` (ISC),
-//! https://github.com/d3/d3-geo
+//! <https://github.com/d3/d3-geo>
 
 use super::RawProjection;
 use crate::math::{asin, sign, EPSILON, PI};
