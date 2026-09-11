@@ -1,10 +1,9 @@
-//! Projection blending for adaptive pan/zoom (doc §8.3) and animated
-//! projection transitions.
+//! Pointwise interpolation between raw projections for pan, zoom, and transitions.
 //!
-//! `P_t(λ, φ) = (1 − t)·A(λ, φ) + t·B(λ, φ)` is itself a valid smooth
-//! projection for every `t ∈ [0, 1]`. The anchoring affine corrects the
-//! drift/rotation a naive blend introduces so position, ground scale, and
-//! the direction of north stay fixed at an anchor point as `t` changes.
+//! `P_t(λ, φ) = (1 − t)·A(λ, φ) + t·B(λ, φ)`. Blending does not guarantee
+//! that the result is globally invertible. The inverse returns `None` when
+//! the numerical solver does not converge. An anchoring similarity can keep
+//! the anchor position, north direction, and local northward scale fixed.
 
 use crate::math::RADIANS;
 use crate::raw::{invert_newton, RawProjection};
@@ -164,7 +163,7 @@ pub fn anchoring_similarity(
 }
 
 /// Like [`anchoring_similarity`], but the target orientation follows the
-/// Mapbox bearing rule (doc §8.3): at `t = 0` north at the anchor points
+/// North-up transition: at `t = 0` north at the anchor points
 /// wherever the authored projection puts it, and as `t → 1` it eases to
 /// straight up (+y in raw space), so the fully-blended map is an
 /// ordinary north-up Mercator. Ground scale at the anchor stays the
