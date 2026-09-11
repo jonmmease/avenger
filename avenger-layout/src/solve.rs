@@ -433,6 +433,7 @@ struct AxisPlacement {
     box_start: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn place_axis(
     sizing: SolveFor,
     leading: &ChromeSide,
@@ -450,7 +451,7 @@ fn place_axis(
             let offset = align.offset(slot_extent, content_extent);
             let content_start = slot_start + offset;
             let axis = FrameAxis {
-                sizing: FrameAxisSizing::ContentFixed {
+                sizing: FrameAxisSizing::Content {
                     content: content_extent,
                 },
                 leading: frame_side(leading),
@@ -469,10 +470,10 @@ fn place_axis(
         SolveFor::Content | SolveFor::Margins => {
             let axis = FrameAxis {
                 sizing: match sizing {
-                    SolveFor::Content => FrameAxisSizing::EnvelopeFixed {
+                    SolveFor::Content => FrameAxisSizing::Envelope {
                         extent: slot_extent,
                     },
-                    _ => FrameAxisSizing::EnvelopeAndContentFixed {
+                    _ => FrameAxisSizing::EnvelopeAndContent {
                         extent: slot_extent,
                         content: natural_content,
                     },
@@ -720,18 +721,18 @@ fn place<Id: Clone, Key>(
     );
 
     // Dry pass: record this shared grid's free-space offer.
-    if let Some(group) = group {
-        if shares.dry {
-            let offer_x = (content_avail(&horizontal, node.chrome.sizing_x, slot.width)
-                - measured.natural_content.width)
-                .max(0.0);
-            let offer_y = (content_avail(&vertical, node.chrome.sizing_y, slot.height)
-                - measured.natural_content.height)
-                .max(0.0);
-            let slack = &mut shares.slack[group];
-            slack[0] = slack[0].min(offer_x);
-            slack[1] = slack[1].min(offer_y);
-        }
+    if let Some(group) = group
+        && shares.dry
+    {
+        let offer_x = (content_avail(&horizontal, node.chrome.sizing_x, slot.width)
+            - measured.natural_content.width)
+            .max(0.0);
+        let offer_y = (content_avail(&vertical, node.chrome.sizing_y, slot.height)
+            - measured.natural_content.height)
+            .max(0.0);
+        let slack = &mut shares.slack[group];
+        slack[0] = slack[0].min(offer_x);
+        slack[1] = slack[1].min(offer_y);
     }
 
     let mut slabs = Vec::new();
@@ -1455,10 +1456,10 @@ fn check_duplicate_ids<'a, Id: Eq + Hash, Key>(
     node: &'a Layout<Id, Key>,
     seen: &mut HashSet<&'a Id>,
 ) -> Result<(), LayoutError> {
-    if let Some(id) = &node.id {
-        if !seen.insert(id) {
-            return Err(LayoutError::DuplicateId);
-        }
+    if let Some(id) = &node.id
+        && !seen.insert(id)
+    {
+        return Err(LayoutError::DuplicateId);
     }
     if let LayoutKind::Grid(spec) = &node.kind {
         for child in &spec.children {
@@ -1540,8 +1541,8 @@ mod tests {
             })
             .expect("solve");
         let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::EnvelopeFixed { extent: 400.0 },
-            FrameAxisSizing::EnvelopeFixed { extent: 300.0 },
+            FrameAxisSizing::Envelope { extent: 400.0 },
+            FrameAxisSizing::Envelope { extent: 300.0 },
         );
 
         let region = solved.region(&"chart").expect("chart region");
@@ -1565,8 +1566,8 @@ mod tests {
             .solve(&SolveOptions::default())
             .expect("solve");
         let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::ContentFixed { content: 200.0 },
-            FrameAxisSizing::ContentFixed { content: 150.0 },
+            FrameAxisSizing::Content { content: 200.0 },
+            FrameAxisSizing::Content { content: 150.0 },
         );
 
         let region = solved.region(&"chart").expect("chart region");
@@ -1590,11 +1591,11 @@ mod tests {
             })
             .expect("solve");
         let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::EnvelopeAndContentFixed {
+            FrameAxisSizing::EnvelopeAndContent {
                 extent: 400.0,
                 content: 200.0,
             },
-            FrameAxisSizing::EnvelopeAndContentFixed {
+            FrameAxisSizing::EnvelopeAndContent {
                 extent: 300.0,
                 content: 150.0,
             },
