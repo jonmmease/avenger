@@ -151,6 +151,10 @@ pub enum LayoutError {
     SlotOutOfBounds { slot: GridSlot, shape: GridShape },
     /// The same id appears on two nodes, which would break solution lookup.
     DuplicateId,
+    /// An input value is NaN or infinite.
+    NonFiniteInput { field: &'static str },
+    /// Finite inputs overflowed the solver's `f32` coordinate range.
+    CoordinateOverflow,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -162,6 +166,8 @@ impl std::fmt::Display for LayoutError {
                 slot, shape.rows, shape.columns
             ),
             Self::DuplicateId => write!(f, "duplicate node id breaks solution lookup"),
+            Self::NonFiniteInput { field } => write!(f, "layout {field} must be finite"),
+            Self::CoordinateOverflow => write!(f, "layout coordinates exceed the finite f32 range"),
         }
     }
 }
