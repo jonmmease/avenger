@@ -12,6 +12,7 @@ members = [
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",
+    "avenger-geo",
     "avenger-text",
     "avenger-svg",
     "avenger-pdf",
@@ -88,6 +89,9 @@ chrono = "0.4.41"
 chrono-tz = "0.10.3"
 geo-types = "0.7.16"
 geo = "0.29.3"
+geo-traits = "0.3"
+geojson = "1.0"
+wkb = "0.9"
 itertools = "0.14.0"
 rstar = { git = "https://github.com/georust/rstar.git", rev = "c1b704de7606676fbc871badfde66bf10fd10536" }
 fontdb = "0.23.0"
