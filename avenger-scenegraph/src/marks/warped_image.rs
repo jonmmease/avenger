@@ -81,10 +81,31 @@ impl SceneWarpedImageMark {
             return None;
         }
         let source = self.image.inline_image()?;
-        if source.width == 0 || source.height == 0 {
+        if source.width == 0
+            || source.height == 0
+            || (source.width as usize)
+                .checked_mul(source.height as usize)?
+                .checked_mul(4)?
+                != source.data.len()
+            || self
+                .positions
+                .iter()
+                .chain(self.uvs.iter())
+                .flatten()
+                .any(|value| !value.is_finite())
+            || origin.iter().any(|value| !value.is_finite())
+        {
             return None;
         }
         let [min_x, min_y, max_x, max_y] = self.bounds(origin)?;
+        if ![min_x, min_y, max_x, max_y]
+            .iter()
+            .all(|value| value.is_finite())
+            || max_x <= min_x
+            || max_y <= min_y
+        {
+            return None;
+        }
         let scale = if scale.is_finite() && scale > 0.0 {
             scale
         } else {
@@ -92,6 +113,9 @@ impl SceneWarpedImageMark {
         };
         let out_width = (((max_x - min_x) * scale).ceil() as usize).clamp(1, 8192);
         let out_height = (((max_y - min_y) * scale).ceil() as usize).clamp(1, 8192);
+        // Use the actual output dimensions when the allocation cap reduces resolution.
+        let scale_x = out_width as f32 / (max_x - min_x);
+        let scale_y = out_height as f32 / (max_y - min_y);
         let mut data = vec![0u8; out_width * out_height * 4];
 
         for triangle in self.indices.chunks_exact(3) {
@@ -102,8 +126,8 @@ impl SceneWarpedImageMark {
             ];
             let pos = |i: usize| -> [f32; 2] {
                 [
-                    (self.positions[i][0] + origin[0] - min_x) * scale,
-                    (self.positions[i][1] + origin[1] - min_y) * scale,
+                    (self.positions[i][0] + origin[0] - min_x) * scale_x,
+                    (self.positions[i][1] + origin[1] - min_y) * scale_y,
                 ]
             };
             let (pa, pb, pc) = (pos(a), pos(b), pos(c));
@@ -294,6 +318,30 @@ mod tests {
         let (image, _) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
         let offset = ((2 * image.width + 17) * 4) as usize; // top-right corner
         assert_eq!(image.data[offset + 3], 0);
+    }
+
+    #[test]
+    fn rasterize_capped_images_keep_the_complete_texture() {
+        let mut mark = quad_mark();
+        mark.positions = vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 2.0], [0.0, 2.0]];
+        let (image, _) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
+        assert_eq!(image.width, 8192);
+        assert_eq!(pixel_at(&image, 1, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&image, 8190, 0), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn rasterize_rejects_invalid_image_data_and_nonfinite_meshes() {
+        let mut mark = quad_mark();
+        mark.image = SceneImageSource::inline(RgbaImage {
+            width: 2,
+            height: 2,
+            data: vec![0; 3],
+        });
+        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
+        let mut mark = quad_mark();
+        mark.positions[0][0] = f32::NAN;
+        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
     }
 
     #[test]
