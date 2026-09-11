@@ -18,11 +18,17 @@ struct Case {
     id: String,
     source: String,
     font_size: f32,
+    #[serde(default = "default_scale")]
+    scale: f32,
     font_weight: u16,
     text_font: String,
     math_font: String,
     #[serde(default)]
     requires_system_emoji: bool,
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -68,18 +74,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         let ref_path = fixtures_dir.join("ref").join(format!("{}.png", case.id));
         fs::write(&wrapped_path, wrapped_source)?;
 
-        let status = Command::new("cargo")
-            .arg("run")
-            .arg("--release")
-            .arg("--manifest-path")
-            .arg(&typst_cli)
-            .arg("--")
+        let mut command = if let Some(binary) = std::env::var_os("TYPST_BIN") {
+            Command::new(binary)
+        } else {
+            let mut command = Command::new("cargo");
+            command
+                .args(["run", "--release", "--manifest-path"])
+                .arg(&typst_cli)
+                .arg("--");
+            command
+        };
+        let status = command
             .arg("compile")
             .arg("--font-path")
             .arg(&font_dir)
             .arg("--ignore-system-fonts")
+            .arg("--ignore-embedded-fonts")
             .arg("--ppi")
-            .arg("72")
+            .arg((72.0 * case.scale).to_string())
             .arg(&wrapped_path)
             .arg(&ref_path)
             .status()?;
@@ -123,6 +135,16 @@ fn prepare_fonts(
         decompress_brotli_file(&source, &font_dir.join(output_name))?;
     }
 
+    for entry in fs::read_dir(repo_root.join("avenger-typst-label/tests/fixtures/fonts"))? {
+        let source = entry?.path();
+        if source
+            .extension()
+            .is_some_and(|extension| extension == "br")
+        {
+            decompress_brotli_file(&source, &font_dir.join(source.file_stem().unwrap()))?;
+        }
+    }
+
     if include_system_emoji {
         let macos_emoji = Path::new("/System/Library/Fonts/Apple Color Emoji.ttc");
         if macos_emoji.is_file() {
@@ -158,6 +180,17 @@ fn read_label_source(path: &Path) -> Result<String, Box<dyn Error>> {
 }
 
 fn wrap_source(case: &Case, source: &str) -> String {
+    if case.id.starts_with("audit-") {
+        return format!(
+            "#set page(width: auto, height: auto, margin: 128pt, fill: white)\n#set text(font: {:?}, size: {}pt, weight: {})\n#show math.equation: set text(font: {:?}, weight: {})\n#show raw: set text(font: \"DejaVu Sans Mono\")\n#box[{}]\n",
+            case.text_font,
+            case.font_size,
+            case.font_weight,
+            case.math_font,
+            case.font_weight,
+            source
+        );
+    }
     format!(
         r#"#set page(width: auto, height: 120pt, margin: 20pt, fill: white)
 #set align(horizon)

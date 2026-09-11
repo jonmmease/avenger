@@ -381,3 +381,770 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 pixel_tolerance = 6
 min_similarity = 0.70
+
+[[case]]
+id = "audit-control-math"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-control-math.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-default"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-default.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-space"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-space.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-super-space"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-super-space.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-partial"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-partial.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-nested-decoration"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-nested-decoration.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-nested-decoration-control"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-nested-decoration-control.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-underline-red"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-underline-red.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-underline-green"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-underline-green.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-strong-max"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-strong-max.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-capital"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-capital.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-double"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-double.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-fraction"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-fraction.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-radical"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-radical.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-script-base"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-script-base.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-hat-bold-dotless"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-hat-bold-dotless.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-fraction-cramped"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-fraction-cramped.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-root-tall"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-root-tall.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-root-nested"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-root-nested.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-root-cramped"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-root-cramped.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-script-operator"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-script-operator.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-script-operator-control"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-script-operator-control.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-mixed-math-size"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-mixed-math-size.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-quoted-spaces"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-quoted-spaces.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-string"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-string.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-underbrace"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-underbrace.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-overbrace"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-overbrace.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-overline"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-overline.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-underline"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-underline.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-small-size"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-small-size.typ"
+font_size = 2.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 16.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-zero-metrics"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-zero-metrics.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "AuditNoScriptMetrics"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-super-zero-metrics"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-super-zero-metrics.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "AuditNoScriptMetrics"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-row-display"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-row-display.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-string-ffi"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-string-ffi.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-string-deva"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-string-deva.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-string-bidi"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-string-bidi.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-sub-horizontal-offset"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-sub-horizontal-offset.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "AuditScriptOffsets"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-super-horizontal-offset"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-super-horizontal-offset.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "AuditScriptOffsets"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-size-idempotent"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-size-idempotent.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-size-control"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-size-control.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-size-reset"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-size-reset.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-size-normal"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-size-normal.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-fraction-script-base"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-fraction-script-base.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-root-script-base"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-root-script-base.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-script-sscript-idempotent"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-script-sscript-idempotent.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-rtl-same-font"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-rtl-same-font.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "Noto Sans Hebrew"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-deva-same-font"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-deva-same-font.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "Noto Sans Devanagari"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-deva-plain-same-font"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-deva-plain-same-font.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "Noto Sans Devanagari"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-rtl-static"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-rtl-static.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "AuditHebrewRegular"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-rtl-markup-static"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-rtl-markup-static.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "AuditHebrewRegular"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-bidi-markup-static"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-bidi-markup-static.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "AuditHebrewRegular"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-bidi-plain-static"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-bidi-plain-static.typ"
+font_size = 32.0
+font_weight = 400
+text_font = "AuditHebrewRegular"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-cal"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-cal.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-scr"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-math-scr.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-text-foreground"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-text-foreground.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-text-background"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "2026-09 label audit"
+source = "audit-text-background.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-root-assembly"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "radical vertical assembly"
+source = "audit-root-assembly.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-operator-size-boundary"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "spacing across math sizes"
+source = "audit-operator-size-boundary.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-relation-size-boundary"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "spacing across math sizes"
+source = "audit-relation-size-boundary.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
