@@ -1,7 +1,10 @@
+use std::{
+    panic,
+    sync::{Arc, Mutex},
+};
+
 use lazy_static::lazy_static;
 use resvg::render;
-use std::panic;
-use std::sync::{Arc, Mutex};
 use usvg::fontdb::Database;
 
 use crate::error::AvengerImageError;

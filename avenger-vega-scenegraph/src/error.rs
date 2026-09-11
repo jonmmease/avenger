@@ -9,7 +9,7 @@ pub enum AvengerVegaError {
     AvengerError(#[from] avenger_scenegraph::error::AvengerSceneGraphError),
 
     #[error("css color parse error")]
-    InvalidColor(#[from] csscolorparser::ParseColorError),
+    InvalidColor(#[from] avenger_color::ColorParseError),
 
     #[error("image error")]
     ImageError(#[from] image::ImageError),

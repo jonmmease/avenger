@@ -69,3 +69,17 @@ cargo run --release -p avenger-wgpu --example patterns_and_text -- docs/images/p
 ```
 
 ![Bars with aligned stripe fills and a math label](images/patterns-and-text.png)
+
+## Supply images through a resolver
+
+`SceneImageMark::image` now contains `SceneImageSource` values. Wrap existing pixel data in `SceneImageSource::Inline`, or use `SceneImageSource::Resource` with a stable key and intrinsic dimensions. Set the image resolver in `CanvasConfig::image_resource_config`.
+
+`ImageResourceCache` handles requests, freshness, eviction, and render invalidation. Installed scenes retain their image keys until replacement or renderer destruction. Pending resources can use a placeholder or skip drawing; a ready resource appears on a later render without another `set_scene` call.
+
+`SceneWarpedImageMark` accepts a textured triangle mesh. Tile hints can route eligible resources through persistent texture arrays. Local data URI decoding works without the HTTP feature; opt into `avenger-image`'s `reqwest` feature for native URL fetching.
+
+```sh
+cargo run --release -p avenger-wgpu --example image_resources -- docs/images/image-resources.png
+```
+
+![Pending and ready resources with a warped image](images/image-resources.png)

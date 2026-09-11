@@ -1,6 +1,6 @@
 use std::{f32::consts::PI, sync::Arc};
 
-use avenger_color::ColorOrGradient;
+use avenger_color::{parse_color_string_strict, ColorOrGradient};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
@@ -79,8 +79,7 @@ impl VegaMarkContainer<VegaTextItem> {
                 continue;
             }
             if let Some(v) = item.fill.as_option() {
-                let c = csscolorparser::parse(v)?;
-                let [r, g, b, a] = [c.r as f32, c.g as f32, c.b as f32, c.a as f32];
+                let [r, g, b, a] = parse_color_string_strict(v)?;
                 let opacity = a * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 color.push(ColorOrGradient::Color([r, g, b, opacity]))
             }

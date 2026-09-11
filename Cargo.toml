@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "avenger-resource",
     "avenger-typst-label",
     "avenger-color",
     "avenger-format-number",
@@ -73,7 +74,7 @@ lyon_extra = "1.0.3"
 lyon_algorithms = "1.0.5"
 lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
-image = { version = "0.25.6", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 lazy_static = "1.5.0"
 pyo3 = "0.25.1"
 pythonize = "0.25.0"
@@ -103,7 +104,7 @@ css-color-parser = "0.1.2"
 paste = "1.0.15"
 strum = { version="0.27", features = ["derive"] }
 futures = { version = "0.3.31" }
-reqwest = { version = "0.12.20" }
+reqwest = { version = "0.12.20", default-features = false }
 cfg-if = { version = "1.0.1" }
 resvg = { version = "0.45.1" }
 usvg = { version = "0.45.1" }
@@ -126,3 +127,5 @@ ttf-parser = "0.25.1"
 brotli = "8.0.1"
 
 svgtypes = "0.16.1"
+
+lru = "0.12.5"

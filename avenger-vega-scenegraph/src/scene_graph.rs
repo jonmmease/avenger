@@ -1,8 +1,10 @@
-use crate::error::AvengerVegaError;
-use crate::marks::group::VegaGroupItem;
-use crate::marks::mark::VegaMarkContainer;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{group::VegaGroupItem, mark::VegaMarkContainer},
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VegaSceneGraph {

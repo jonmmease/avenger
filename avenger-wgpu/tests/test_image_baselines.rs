@@ -1,25 +1,38 @@
 #[cfg(test)]
 mod test_image_baselines {
-    use avenger_scenegraph::marks::{
-        group::Clip,
-        path::ScenePathMark,
-        pattern::{PatternAnchor, PatternFill, PatternInk, PatternLayer, StripePatternLayer},
-        rect::SceneRectMark,
-    };
-    use lyon::{geom::point, path::Path as LyonPath};
-
     use avenger_color::ColorOrGradient;
-    use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
-    use avenger_scenegraph::marks::{group::SceneGroup, symbol::SceneSymbolMark};
-    use avenger_wgpu::canvas::CanvasConfig;
-
-    use avenger_scenegraph::scene_graph::SceneGraph;
+    use avenger_common::{
+        canvas::CanvasDimensions,
+        types::{ImageAlign, ImageBaseline, SymbolShape},
+        value::ScalarOrArray,
+    };
+    use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage};
+    use avenger_resource::ResourceKey;
+    use avenger_scenegraph::{
+        marks::group::{Clip, SceneGroup},
+        marks::image::{
+            SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy,
+        },
+        marks::path::ScenePathMark,
+        marks::pattern::{
+            PatternAnchor, PatternFill, PatternInk, PatternLayer, StripePatternLayer,
+        },
+        marks::rect::SceneRectMark,
+        marks::symbol::SceneSymbolMark,
+        scene_graph::SceneGraph,
+    };
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
-    use avenger_wgpu::canvas::{Canvas, PngCanvas};
+    use avenger_wgpu::{
+        canvas::{Canvas, CanvasConfig, PngCanvas},
+        error::AvengerWgpuError,
+        image_resources::{WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuMissingImagePolicy},
+    };
     use dssim::Dssim;
+    use lyon::{geom::point, path::Path as LyonPath};
     use rstest::rstest;
     use std::fs;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     fn vega_font_family(families: &[&str]) -> String {
         use avenger_text::{font_resolver::FontdbFontResolver, FontResolver};
@@ -33,6 +46,8 @@ mod test_image_baselines {
         )
     }
 
+    // Reference updates and text/subpixel-rectangle tolerance adjustments are
+    // documented in docs/rendering-validation.md.
     #[rstest(
         category,
         spec_name,
@@ -227,7 +242,7 @@ mod test_image_baselines {
                 size: [scene_graph.width, scene_graph.height],
                 scale: 2.0,
             },
-            avenger_wgpu::canvas::CanvasConfig {
+            CanvasConfig {
                 font_resolution: avenger_text::FontResolutionOptions {
                     extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("../avenger-vega-test-data/fonts")],
@@ -300,58 +315,6 @@ mod test_image_baselines {
         assert!(
             image.pixels().all(|pixel| pixel.0[0] >= 254),
             "transparent black contaminated red edges"
-        );
-    }
-
-    #[test]
-    fn reused_instanced_symbol_renderer_respects_changed_group_origin() {
-        let scene = |origin: [f32; 2]| SceneGraph {
-            width: 160.0,
-            height: 160.0,
-            origin: [0.0, 0.0],
-            marks: vec![SceneGroup {
-                origin,
-                marks: vec![SceneSymbolMark {
-                    len: 100,
-                    shapes: vec![SymbolShape::Circle],
-                    x: ScalarOrArray::new_array(
-                        (0..100).map(|index| (index % 10) as f32 * 5.0).collect(),
-                    ),
-                    y: ScalarOrArray::new_array(
-                        (0..100).map(|index| (index / 10) as f32 * 5.0).collect(),
-                    ),
-                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.4, 0.8, 1.0])),
-                    size: ScalarOrArray::new_scalar(9.0),
-                    shape_index: ScalarOrArray::new_scalar(0),
-                    ..Default::default()
-                }
-                .into()],
-                ..Default::default()
-            }
-            .into()],
-        };
-        let dimensions = CanvasDimensions {
-            size: [160.0, 160.0],
-            scale: 1.0,
-        };
-        let first = scene([10.0, 10.0]);
-        let moved = scene([70.0, 70.0]);
-
-        let mut reused = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
-            .expect("reused canvas");
-        reused.set_scene(&first).expect("install first scene");
-        pollster::block_on(reused.render()).expect("render first scene");
-        reused.set_scene(&moved).expect("install moved scene");
-        let reused_image = pollster::block_on(reused.render()).expect("render moved scene");
-
-        let mut fresh = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
-            .expect("fresh canvas");
-        fresh.set_scene(&moved).expect("install fresh moved scene");
-        let fresh_image = pollster::block_on(fresh.render()).expect("render fresh moved scene");
-
-        assert!(
-            reused_image.as_raw() == fresh_image.as_raw(),
-            "instanced renderer reuse must not retain the previous group origin"
         );
     }
 
@@ -504,6 +467,7 @@ mod test_image_baselines {
             }
         }
     }
+
     #[test]
     fn patterned_rect_renders_stripe_overlay() {
         let pattern = PatternFill {
@@ -549,6 +513,153 @@ mod test_image_baselines {
             "expected stripe pixel to be darker than gap pixel; stripe={stripe:?}, gap={gap:?}"
         );
     }
+
+    #[test]
+    fn reused_instanced_symbol_renderer_respects_changed_group_origin() {
+        let scene = |origin: [f32; 2]| SceneGraph {
+            width: 160.0,
+            height: 160.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                origin,
+                marks: vec![SceneSymbolMark {
+                    len: 100,
+                    shapes: vec![SymbolShape::Circle],
+                    x: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index % 10) as f32 * 5.0).collect(),
+                    ),
+                    y: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index / 10) as f32 * 5.0).collect(),
+                    ),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.4, 0.8, 1.0])),
+                    size: ScalarOrArray::new_scalar(9.0),
+                    shape_index: ScalarOrArray::new_scalar(0),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let dimensions = CanvasDimensions {
+            size: [160.0, 160.0],
+            scale: 1.0,
+        };
+        let first = scene([10.0, 10.0]);
+        let moved = scene([70.0, 70.0]);
+
+        let mut reused = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("reused canvas");
+        reused.set_scene(&first).expect("install first scene");
+        pollster::block_on(reused.render()).expect("render first scene");
+        reused.set_scene(&moved).expect("install moved scene");
+        let reused_image = pollster::block_on(reused.render()).expect("render moved scene");
+
+        let mut fresh = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("fresh canvas");
+        fresh.set_scene(&moved).expect("install fresh moved scene");
+        let fresh_image = pollster::block_on(fresh.render()).expect("render fresh moved scene");
+
+        assert!(
+            reused_image.as_raw() == fresh_image.as_raw(),
+            "instanced renderer reuse must not retain the previous group origin"
+        );
+    }
+
+    #[test]
+    fn image_smooth_false_uses_nearest_sampling() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
+                    width: 2,
+                    height: 2,
+                    data: vec![
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                    ],
+                })),
+                x: ScalarOrArray::new_scalar(2.0),
+                y: ScalarOrArray::new_scalar(2.0),
+                width: ScalarOrArray::new_scalar(16.0),
+                height: ScalarOrArray::new_scalar(16.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [20.0, 20.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(image.get_pixel(5, 5).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(14, 5).0, [0, 255, 0, 255]);
+        assert_eq!(image.get_pixel(5, 14).0, [0, 0, 255, 255]);
+        assert_eq!(image.get_pixel(14, 14).0, [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn warped_image_mark_renders_sheared_mesh() {
+        use avenger_scenegraph::marks::warped_image::SceneWarpedImageMark;
+
+        // 2x2 checker (red, green / blue, white) mapped onto a
+        // parallelogram: quad vertices sheared +4px in x from top to bottom.
+        let scene_graph = SceneGraph {
+            width: 24.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneWarpedImageMark {
+                smooth: false,
+                image: SceneImageSource::Inline(RgbaImage {
+                    width: 2,
+                    height: 2,
+                    data: vec![
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                    ],
+                }),
+                positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                indices: vec![0, 1, 2, 0, 2, 3],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [24.0, 20.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        // For a parallelogram the triangle interpolation is affine:
+        // p(u, v) = a + u * (b - a) + v * (d - a).
+        assert_eq!(image.get_pixel(7, 6).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(15, 6).0, [0, 255, 0, 255]);
+        assert_eq!(image.get_pixel(9, 14).0, [0, 0, 255, 255]);
+        assert_eq!(image.get_pixel(17, 14).0, [255, 255, 255, 255]);
+        // Outside the sheared quad (upper-right corner region) shows the
+        // canvas background, not the nearest texture quadrant (green).
+        assert_ne!(image.get_pixel(21, 4).0, [0, 255, 0, 255]);
+    }
+
     #[test]
     fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {
         let pattern = PatternFill {
@@ -602,10 +713,12 @@ mod test_image_baselines {
             &leaked_points[..leaked_points.len().min(12)]
         );
     }
+
     #[test]
     fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity() {
         assert_crosshatch_intersection_does_not_accumulate_opacity(CanvasConfig::default(), None);
     }
+
     #[test]
     fn patterned_rect_crosshatch_intersection_does_not_accumulate_opacity_without_msaa() {
         assert_crosshatch_intersection_does_not_accumulate_opacity(
@@ -616,6 +729,7 @@ mod test_image_baselines {
             Some(1),
         );
     }
+
     #[test]
     fn patterned_path_with_path_clip_does_not_accumulate_opacity() {
         let scene_graph = SceneGraph {
@@ -661,6 +775,7 @@ mod test_image_baselines {
             "expected non-rectangular host path to suppress pixels inside the clip but outside the host"
         );
     }
+
     fn assert_crosshatch_intersection_does_not_accumulate_opacity(
         config: CanvasConfig,
         expected_sample_count: Option<u32>,
@@ -698,6 +813,7 @@ mod test_image_baselines {
         let image = pollster::block_on(canvas.render()).unwrap();
         assert_crosshatch_pixels(&image);
     }
+
     fn crosshatch_pattern() -> PatternFill {
         PatternFill {
             anchor: PatternAnchor::Mark,
@@ -711,6 +827,7 @@ mod test_image_baselines {
             ],
         }
     }
+
     fn assert_crosshatch_pixels(image: &image::RgbaImage) {
         let intersection = image.get_pixel(8, 8).0;
         let single_stripe = image.get_pixel(4, 8).0;
@@ -730,6 +847,7 @@ mod test_image_baselines {
             );
         }
     }
+
     fn rect_path(x: f32, y: f32, width: f32, height: f32) -> LyonPath {
         path_from_points(&[
             [x, y],
@@ -738,6 +856,7 @@ mod test_image_baselines {
             [x, y + height],
         ])
     }
+
     fn notched_host_path() -> LyonPath {
         path_from_points(&[
             [0.0, 0.0],
@@ -748,6 +867,7 @@ mod test_image_baselines {
             [0.0, 18.0],
         ])
     }
+
     fn path_from_points(points: &[[f32; 2]]) -> LyonPath {
         let mut builder = LyonPath::builder();
         builder.begin(point(points[0][0], points[0][1]));
@@ -756,5 +876,240 @@ mod test_image_baselines {
         }
         builder.close();
         builder.build()
+    }
+
+    #[test]
+    fn resource_image_pending_draws_placeholder() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph = resource_image_scene_graph_with_policy(
+            key.clone(),
+            SceneImageUnavailablePolicy::RendererDefault,
+        );
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+        assert_eq!(image.get_pixel(4, 4).0, [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn resource_image_pending_skip_policy_suppresses_placeholder() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph =
+            resource_image_scene_graph_with_policy(key.clone(), SceneImageUnavailablePolicy::Skip);
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+        assert_eq!(image.get_pixel(4, 4).0, [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn resource_image_ready_after_pending_redraws_without_set_scene() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph = resource_image_scene_graph(key.clone());
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let pending = pollster::block_on(canvas.render()).unwrap();
+        assert_eq!(pending.get_pixel(4, 4).0, [10, 20, 30, 255]);
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+
+        resolver.set_state(ImageResourceState::Ready(Arc::new(solid_image([
+            0, 200, 60, 255,
+        ]))));
+        let ready = pollster::block_on(canvas.render()).unwrap();
+
+        assert!(canvas.image_resource_status().pending.is_empty());
+        assert!(canvas.image_resource_status().missing.is_empty());
+        assert!(canvas.image_resource_status().failed.is_empty());
+        assert_eq!(ready.get_pixel(4, 4).0, [0, 200, 60, 255]);
+    }
+
+    #[test]
+    fn resource_image_missing_errors_by_default() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [8.0, 8.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas.set_scene(&resource_image_scene_graph(key)).unwrap();
+
+        let error = pollster::block_on(canvas.render()).unwrap_err();
+        assert!(matches!(
+            error,
+            AvengerWgpuError::ImageResourceError(message)
+                if message.contains("No WGPU image resource resolver configured")
+        ));
+    }
+
+    #[test]
+    fn adjacent_linear_images_do_not_show_atlas_seam() {
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 16.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(&adjacent_image_seam_scene_graph())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        for y in 1..15 {
+            assert_red_pixel(image.get_pixel(15, y).0, 15, y);
+            assert_red_pixel(image.get_pixel(16, y).0, 16, y);
+        }
+    }
+
+    fn resource_image_canvas(resolver: Arc<FakeImageResolver>) -> PngCanvas {
+        pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [8.0, 8.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                image_resource_config: WgpuImageResourceConfig {
+                    resolver: Some(resolver),
+                    missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+                    placeholder: WgpuImagePlaceholder::Solid([10, 20, 30, 255]),
+                },
+                ..Default::default()
+            },
+        ))
+        .unwrap()
+    }
+
+    fn resource_image_scene_graph(key: ResourceKey) -> SceneGraph {
+        resource_image_scene_graph_with_policy(key, SceneImageUnavailablePolicy::RendererDefault)
+    }
+
+    fn resource_image_scene_graph_with_policy(
+        key: ResourceKey,
+        unavailable_policy: SceneImageUnavailablePolicy,
+    ) -> SceneGraph {
+        SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                    key,
+                    intrinsic_width: 2,
+                    intrinsic_height: 2,
+                    fallback_key: None,
+                })),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                unavailable_policy,
+                ..Default::default()
+            }
+            .into()],
+        }
+    }
+
+    fn solid_image(color: [u8; 4]) -> RgbaImage {
+        solid_image_with_size(color, 2, 2)
+    }
+
+    fn solid_image_with_size(color: [u8; 4], width: u32, height: u32) -> RgbaImage {
+        RgbaImage {
+            width,
+            height,
+            data: color.repeat((width * height) as usize),
+        }
+    }
+
+    fn adjacent_image_seam_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 32.0,
+            height: 16.0,
+            origin: [0.0, 0.0],
+            marks: vec![
+                SceneRectMark {
+                    len: 1,
+                    x: ScalarOrArray::new_scalar(0.0),
+                    y: ScalarOrArray::new_scalar(0.0),
+                    width: Some(ScalarOrArray::new_scalar(32.0)),
+                    height: Some(ScalarOrArray::new_scalar(16.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                    zindex: Some(0),
+                    ..Default::default()
+                }
+                .into(),
+                inline_image_mark(0.0, 0.0, 16.0, 16.0).into(),
+                inline_image_mark(16.0, 0.0, 16.0, 16.0).into(),
+            ],
+        }
+    }
+
+    fn inline_image_mark(x: f32, y: f32, width: f32, height: f32) -> SceneImageMark {
+        SceneImageMark {
+            len: 1,
+            aspect: false,
+            smooth: true,
+            image: ScalarOrArray::new_scalar(SceneImageSource::Inline(solid_image_with_size(
+                [220, 20, 20, 255],
+                4,
+                4,
+            ))),
+            x: ScalarOrArray::new_scalar(x),
+            y: ScalarOrArray::new_scalar(y),
+            width: ScalarOrArray::new_scalar(width),
+            height: ScalarOrArray::new_scalar(height),
+            align: ScalarOrArray::new_scalar(ImageAlign::Left),
+            baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+            zindex: Some(1),
+            ..Default::default()
+        }
+    }
+
+    fn assert_red_pixel(pixel: [u8; 4], x: u32, y: u32) {
+        assert!(
+            pixel[0] >= 200 && pixel[1] <= 35 && pixel[2] <= 35 && pixel[3] == 255,
+            "expected red image pixel at ({x}, {y}), got {pixel:?}"
+        );
+    }
+
+    struct FakeImageResolver {
+        state: Mutex<ImageResourceState>,
+    }
+
+    impl FakeImageResolver {
+        fn new(state: ImageResourceState) -> Self {
+            Self {
+                state: Mutex::new(state),
+            }
+        }
+
+        fn set_state(&self, state: ImageResourceState) {
+            *self.state.lock().unwrap() = state;
+        }
+    }
+
+    impl ImageResourceResolver for FakeImageResolver {
+        fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
+            self.state.lock().unwrap().clone()
+        }
     }
 }

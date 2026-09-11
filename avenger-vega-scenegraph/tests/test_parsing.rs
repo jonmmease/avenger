@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use std::fs;
+
+    use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
 
     #[test]
     fn try_it() {
