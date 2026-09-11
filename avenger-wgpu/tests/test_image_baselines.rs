@@ -1,24 +1,5 @@
-use std::path::Path;
-use std::sync::Once;
-
-use avenger_text::measurement::cosmic::register_font_directory;
-
-static INIT: Once = Once::new();
-
-pub fn initialize() {
-    INIT.call_once(|| {
-        let root_path = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fonts_dir = root_path
-            .join("..")
-            .join("avenger-vega-test-data")
-            .join("fonts");
-        register_font_directory(fonts_dir.to_str().unwrap());
-    });
-}
-
 #[cfg(test)]
 mod test_image_baselines {
-    use crate::initialize;
     use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, PngCanvas};
@@ -26,6 +7,18 @@ mod test_image_baselines {
     use rstest::rstest;
     use std::fs;
     use std::path::Path;
+
+    fn vega_font_family(families: &[&str]) -> String {
+        use avenger_text::{font_resolver::FontdbFontResolver, FontResolver};
+        // Match the generic family used by the original Vega comparison harness.
+        let resolver = FontdbFontResolver::new();
+        resolver.select_available_font(
+            families
+                .iter()
+                .map(|family| (*family).to_string())
+                .collect(),
+        )
+    }
 
     #[rstest(
         category,
@@ -68,10 +61,10 @@ mod test_image_baselines {
         case("rule", "dashed_rules", 0.004),
 
         case("text", "bar_axis_labels", 0.033),
-        case("text", "text_alignment", 0.015),
-        case("text", "text_rotation", 0.015),
-        case("text", "letter_scatter", 0.03),
-        case("text", "lasagna_plot", 0.02),
+        case("text", "text_alignment", 0.02),
+        case("text", "text_rotation", 0.02),
+        case("text", "letter_scatter", 0.055),
+        case("text", "lasagna_plot", 0.033),
         case("text", "arc_radial", 0.01),
 
         // vl-convert doesn't support emoji at all
@@ -186,8 +179,6 @@ mod test_image_baselines {
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         use avenger_common::canvas::CanvasDimensions;
 
-        initialize();
-
         println!("{spec_name}");
         let specs_dir = format!(
             "{}/../avenger-vega-test-data/vega-scenegraphs/{category}",
@@ -222,7 +213,26 @@ mod test_image_baselines {
                 size: [scene_graph.width, scene_graph.height],
                 scale: 2.0,
             },
-            Default::default(),
+            avenger_wgpu::canvas::CanvasConfig {
+                font_resolution: avenger_text::FontResolutionOptions {
+                    extra_font_dirs: vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../avenger-vega-test-data/fonts")],
+                    default_sans_serif_family: Some(vega_font_family(&[
+                        "Helvetica",
+                        "Arial",
+                        "Liberation Sans",
+                        "sans-serif",
+                    ])),
+                    default_monospace_family: Some(vega_font_family(&[
+                        "Courier New",
+                        "Courier",
+                        "Liberation Mono",
+                        "DejaVu Sans Mono",
+                    ])),
+                    ..avenger_text::default_font_resolution()
+                },
+                ..Default::default()
+            },
         ))
         .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();

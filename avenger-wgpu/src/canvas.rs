@@ -1,5 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::LinearScaleAdjustment;
+use avenger_text::{FontResolutionOptions, TextEngine};
 use image::imageops::crop_imm;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,9 +60,33 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
+    pub font_resolution: FontResolutionOptions,
+    /// Shared layout and raster context. When supplied, takes precedence over
+    /// font_resolution. Pass clones to guides and interaction geometry too.
+    pub text_engine: Option<TextEngine>,
+}
+
+impl Default for CanvasConfig {
+    fn default() -> Self {
+        Self {
+            text_builder_ctor: None,
+            text_engine: None,
+            font_resolution: avenger_text::default_font_resolution(),
+        }
+    }
+}
+
+impl CanvasConfig {
+    /// Resolve once and share the returned engine with every scene consumer.
+    pub fn resolved_text_engine(&self) -> TextEngine {
+        self.text_engine.clone().unwrap_or_else(|| {
+            TextEngine::with_font_resolution(&self.font_resolution)
+                .expect("failed to initialize text engine")
+        })
+    }
 }
 
 pub trait Canvas {
@@ -640,6 +665,7 @@ impl Canvas for WindowCanvas<'_> {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
                 self.config.text_builder_ctor.clone(),
+                self.config.resolved_text_engine(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()
@@ -944,6 +970,7 @@ impl Canvas for PngCanvas {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
                 self.config.text_builder_ctor.clone(),
+                self.config.resolved_text_engine(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()

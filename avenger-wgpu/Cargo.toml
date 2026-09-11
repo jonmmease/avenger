@@ -10,8 +10,7 @@ repository = "https://github.com/jonmmease/avenger"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon",]
-cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
+default = [  "rayon",]
 deno = []
 
 [dependencies]
@@ -61,10 +60,6 @@ workspace = true
 optional = true
 
 [dependencies.pyo3]
-workspace = true
-optional = true
-
-[dependencies.cosmic-text]
 workspace = true
 optional = true
 
