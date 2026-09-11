@@ -25,7 +25,7 @@ Resolve resource-backed images with `avenger_scenegraph::image_resources::resolv
 Run these commands from the repository root:
 
 ```sh
-cargo run --release -p avenger-svg --example gallery -- svg-gallery.svg
+cargo run --release -p avenger-svg --example svg_gallery -- svg-gallery.svg
 cargo test --release -p avenger-svg
 cargo run --release -p avenger-wgpu --example export_gallery -- wgpu-gallery.png
 ```

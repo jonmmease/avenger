@@ -52,6 +52,7 @@ use crate::{
     },
 };
 
+/// Export scene graphs as self-contained SVG documents.
 #[derive(Debug, Clone, Default)]
 pub struct SvgRenderer {
     options: SvgRenderOptions,
