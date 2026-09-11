@@ -166,10 +166,13 @@ mod tests {
     fn option_resolver_uses_system_fonts_by_default() {
         let resolver = FontdbFontResolver::with_font_resolution(&FontResolutionOptions::default());
 
-        assert!(resolver.resolve_generic_family("sans-serif").is_some());
-        assert_ne!(
-            resolver.select_available_font(vec!["sans-serif".to_string()]),
-            "sans-serif"
+        let mut system = fontdb::Database::new();
+        system.load_system_fonts();
+        // Generic aliases depend on the host's fontconfig setup. This test
+        // checks discovery, including machines with no system fonts.
+        assert_eq!(
+            resolver.get_available_font_families(),
+            available_families(&system)
         );
     }
 
