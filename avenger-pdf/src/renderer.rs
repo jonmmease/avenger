@@ -2545,6 +2545,16 @@ mod tests {
     #[test]
     fn renders_complex_script_text_as_extractable_pdf_text() {
         let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                font_resolution: FontResolutionOptions {
+                    load_system_fonts: false,
+                    extra_font_dirs: vec![
+                        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fonts")
+                    ],
+                    ..avenger_text::default_font_resolution()
+                },
+                ..Default::default()
+            })
             .render_scene_graph(&text_scene_graph("שלום नमस्ते"))
             .unwrap();
         let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
