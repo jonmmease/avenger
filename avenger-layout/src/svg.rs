@@ -386,9 +386,9 @@ impl DebugScene {
         }
         // White background covering the viewBox: the scenes are unreadable
         // over transparent-background viewers (e.g. dark-mode browsers).
-        let _ = write!(
+        let _ = writeln!(
             svg,
-            "  {}\n",
+            "  {}",
             rect_element(
                 Rect::new(
                     bounds.x - PADDING,
@@ -432,14 +432,14 @@ impl DebugScene {
                         ),
                     ] {
                         if rect.width > 0.0 && rect.height > 0.0 {
-                            let _ = write!(svg, "  {}\n", rect_element(rect, &fill));
+                            let _ = writeln!(svg, "  {}", rect_element(rect, &fill));
                         }
                     }
                 }
             }
-            let _ = write!(
+            let _ = writeln!(
                 svg,
-                "  {}\n",
+                "  {}",
                 rect_element(region.content, kind_style(region.kind))
             );
             if region.label.is_empty() {
@@ -449,9 +449,9 @@ impl DebugScene {
                 .label_anchor
                 .unwrap_or([region.content.x + 3.0, region.content.y + 12.0]);
             if region.label_rotated {
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\" {}>{}</text>\n",
+                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\" {}>{}</text>",
                     x,
                     y,
                     x,
@@ -460,9 +460,9 @@ impl DebugScene {
                     escape_text(&region.label),
                 );
             } else {
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>",
                     x,
                     y,
                     TEXT_STYLE,
@@ -488,9 +488,9 @@ impl DebugScene {
                 x,
                 y + 4.0,
             );
-            let _ = write!(
+            let _ = writeln!(
                 svg,
-                "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                "  <text x=\"{}\" y=\"{}\" {}>{}</text>",
                 x + 6.0,
                 y - 3.0,
                 TEXT_STYLE,
@@ -501,9 +501,9 @@ impl DebugScene {
         if show_key {
             let mut cursor = bounds.x.max(0.0);
             let entry_text = |svg: &mut String, cursor: f32, label: &str| {
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>",
                     cursor + 13.0,
                     key_y + 9.0,
                     TEXT_STYLE,
@@ -514,9 +514,9 @@ impl DebugScene {
                 if !self.regions.iter().any(|region| region.kind == kind) {
                     continue;
                 }
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  {}\n",
+                    "  {}",
                     rect_element(Rect::new(cursor, key_y, 10.0, 10.0), kind_style(kind))
                 );
                 entry_text(&mut svg, cursor, label);
@@ -528,17 +528,17 @@ impl DebugScene {
                 let shade = layer_shade(*layer, *depth);
                 // Same border as the hatched half so the split swatch
                 // reads as one aligned chip.
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  {}\n",
+                    "  {}",
                     rect_element(
                         Rect::new(cursor, key_y, 5.0, 10.0),
                         &format!("fill=\"{shade}\" stroke=\"{shade}\" stroke-width=\"1\"")
                     )
                 );
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    "  {}\n",
+                    "  {}",
                     rect_element(
                         Rect::new(cursor + 5.0, key_y, 5.0, 10.0),
                         &hatch_fill(*layer, *depth)
@@ -566,9 +566,9 @@ impl DebugScene {
         // The canvas outline draws last so chrome strips never paint over
         // it.
         if self.draw_bounds {
-            let _ = write!(
+            let _ = writeln!(
                 svg,
-                "  {}\n",
+                "  {}",
                 rect_element(
                     bounds_rect,
                     "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\""

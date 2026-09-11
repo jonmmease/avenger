@@ -34,14 +34,14 @@ pub enum FrameAxisSizing {
     /// the declared chrome, floored at [`FrameAxis::content_min`]. When the
     /// chrome alone exceeds the given extent, the solved extent grows past
     /// it — the floor wins over the envelope.
-    EnvelopeFixed { extent: f32 },
+    Envelope { extent: f32 },
     /// Both the envelope extent and the content extent are given; the two
     /// margins absorb the slack, half each. The margins' declared sizes are
     /// **ignored** in this mode — each margin becomes exactly half of
     /// `max(extent - (strips + legend + guide + content), 0)`.
-    EnvelopeAndContentFixed { extent: f32, content: f32 },
+    EnvelopeAndContent { extent: f32, content: f32 },
     /// The content extent is given; the envelope is the sum of all layers.
-    ContentFixed { content: f32 },
+    Content { content: f32 },
 }
 
 /// One side's declared chrome, ordered outside-in.
@@ -66,7 +66,7 @@ pub struct FrameAxis {
     /// The side after the content on this axis (right, or bottom).
     pub trailing: FrameSide,
     /// Minimum content extent. Applies only in
-    /// [`FrameAxisSizing::EnvelopeFixed`] mode; the other modes take the
+    /// [`FrameAxisSizing::Envelope`] mode; the other modes take the
     /// declared content as-is (clamped to zero).
     pub content_min: f32,
 }
@@ -108,16 +108,16 @@ impl FrameAxis {
         let lead_sizes = side_sizes_outside_in(&self.leading);
         let trail_sizes = side_sizes_outside_in(&self.trailing);
 
-        // In EnvelopeAndContentFixed mode the declared margins are replaced
+        // In EnvelopeAndContent mode the declared margins are replaced
         // by the slack split, so they are flexible and must not count as
         // fixed chrome. Fixed sizes accumulate in spatial order with the
         // flexible entries skipped, never added-then-subtracted: float
         // addition does not cancel exactly.
-        let margins_flex = matches!(self.sizing, FrameAxisSizing::EnvelopeAndContentFixed { .. });
+        let margins_flex = matches!(self.sizing, FrameAxisSizing::EnvelopeAndContent { .. });
         let content_fixed = match self.sizing {
-            FrameAxisSizing::EnvelopeFixed { .. } => None,
-            FrameAxisSizing::EnvelopeAndContentFixed { content, .. }
-            | FrameAxisSizing::ContentFixed { content } => Some(content.max(0.0)),
+            FrameAxisSizing::Envelope { .. } => None,
+            FrameAxisSizing::EnvelopeAndContent { content, .. }
+            | FrameAxisSizing::Content { content } => Some(content.max(0.0)),
         };
 
         let mut fixed_total = 0.0f32;
@@ -138,17 +138,17 @@ impl FrameAxis {
         }
 
         let (content_size, margin_override) = match self.sizing {
-            FrameAxisSizing::EnvelopeFixed { extent } => {
+            FrameAxisSizing::Envelope { extent } => {
                 let min = self.content_min.max(0.0);
                 let available = (extent - fixed_total).max(min);
                 let extra = (available - min).max(0.0);
                 (min + extra, None)
             }
-            FrameAxisSizing::EnvelopeAndContentFixed { extent, content } => {
+            FrameAxisSizing::EnvelopeAndContent { extent, content } => {
                 let slack = (extent - fixed_total).max(0.0);
                 (content.max(0.0), Some(slack / 2.0))
             }
-            FrameAxisSizing::ContentFixed { content } => (content.max(0.0), None),
+            FrameAxisSizing::Content { content } => (content.max(0.0), None),
         };
 
         let mut cursor = 0.0f32;
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn envelope_fixed_gives_remainder_to_content() {
         let solution = axis(
-            FrameAxisSizing::EnvelopeFixed { extent: 330.0 },
+            FrameAxisSizing::Envelope { extent: 330.0 },
             side(10.0, &[], 0.0, 0.0),
             side(20.0, &[], 0.0, 0.0),
         )
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn envelope_fixed_floors_content_when_chrome_overflows() {
         let solution = axis(
-            FrameAxisSizing::EnvelopeFixed { extent: 100.0 },
+            FrameAxisSizing::Envelope { extent: 100.0 },
             side(120.0, &[], 0.0, 0.0),
             side(0.0, &[], 0.0, 0.0),
         )
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn envelope_and_content_fixed_splits_slack_between_margins() {
         let solution = axis(
-            FrameAxisSizing::EnvelopeAndContentFixed {
+            FrameAxisSizing::EnvelopeAndContent {
                 extent: 500.0,
                 content: 300.0,
             },
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn envelope_and_content_fixed_clamps_negative_slack() {
         let solution = axis(
-            FrameAxisSizing::EnvelopeAndContentFixed {
+            FrameAxisSizing::EnvelopeAndContent {
                 extent: 100.0,
                 content: 300.0,
             },
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn content_fixed_extent_is_the_spatial_sum() {
         let solution = axis(
-            FrameAxisSizing::ContentFixed { content: 200.0 },
+            FrameAxisSizing::Content { content: 200.0 },
             side(10.0, &[21.0, 15.4], 30.0, 5.5),
             side(10.0, &[], 12.0, 7.25),
         )
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn content_min_does_not_apply_outside_envelope_fixed() {
         let solution = axis(
-            FrameAxisSizing::ContentFixed { content: 3.0 },
+            FrameAxisSizing::Content { content: 3.0 },
             FrameSide::default(),
             FrameSide::default(),
         )
@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn solved_starts_walk_outside_in_then_inside_out() {
         let solution = axis(
-            FrameAxisSizing::ContentFixed { content: 100.0 },
+            FrameAxisSizing::Content { content: 100.0 },
             side(10.0, &[20.0, 15.0], 30.0, 5.0),
             side(40.0, &[8.0], 25.0, 6.0),
         )
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn negative_slabs_clamp_to_zero() {
         let solution = axis(
-            FrameAxisSizing::ContentFixed { content: -10.0 },
+            FrameAxisSizing::Content { content: -10.0 },
             side(-5.0, &[-1.0], -2.0, -3.0),
             FrameSide::default(),
         )
