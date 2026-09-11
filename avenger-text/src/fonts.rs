@@ -112,19 +112,21 @@ pub fn build_fontdb(options: &crate::FontResolutionOptions) -> fontdb::Database 
         fontdb.load_font_data(font.data.to_vec());
     }
 
-    if let Some(family) = &options.default_sans_serif_family {
-        fontdb.set_sans_serif_family(family);
-    }
-    if let Some(family) = &options.default_monospace_family {
-        fontdb.set_monospace_family(family);
-    }
-
     if options.load_system_fonts {
         fontdb.load_system_fonts();
     }
 
     for font_dir in &options.extra_font_dirs {
         fontdb.load_fonts_dir(font_dir);
+    }
+
+    // Font discovery can replace generic mappings on Linux. Apply explicit
+    // application choices after loading every font source.
+    if let Some(family) = &options.default_sans_serif_family {
+        fontdb.set_sans_serif_family(family);
+    }
+    if let Some(family) = &options.default_monospace_family {
+        fontdb.set_monospace_family(family);
     }
 
     fontdb
