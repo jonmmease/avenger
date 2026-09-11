@@ -2,7 +2,7 @@
 //! parallel acos(2/π)) and Aitoff.
 //!
 //! Ported from d3-geo-projection `src/winkel3.js` + `src/aitoff.js` (ISC),
-//! https://github.com/d3/d3-geo-projection. The inverse uses the generic
+//! <https://github.com/d3/d3-geo-projection>. The inverse uses the generic
 //! Newton fallback rather than the analytic Jacobian.
 
 use super::{invert_newton, RawProjection};
