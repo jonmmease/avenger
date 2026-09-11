@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 572 186" font-family="monospace" font-size="10">
+  <defs>
+    <pattern id="hatch-g1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#e98080" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-g2" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#f7bcbc" stroke-width="1.6"/></pattern>
+  </defs>
+  <rect x="-10" y="-10" width="572" height="186" fill="#ffffff"/>
+  <rect x="34" y="24" width="508" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="24" y="0" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="24" y="114" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="24" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="266" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="34" y="10" width="232" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="34" y="114" width="232" height="18" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="34" y="114" width="232" height="18" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="10" y="24" width="24" height="90" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="10" y="24" width="24" height="90" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="34" y="24" width="232" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="37" y="48" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">left chart</text>
+  <rect x="34" y="24" width="110" height="90" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="34" y="114" width="80" height="18" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="34" y="114" width="80" height="18" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="10" y="24" width="24" height="90" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="10" y="24" width="24" height="90" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="34" y="24" width="80" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="37" y="60" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c00</text>
+  <rect x="156" y="24" width="110" height="90" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="156" y="114" width="80" height="18" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="156" y="114" width="80" height="18" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="156" y="24" width="80" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="159" y="60" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c01</text>
+  <rect x="300" y="0" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="300" y="114" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="300" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="542" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="310" y="10" width="232" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="310" y="114" width="232" height="18" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="310" y="114" width="232" height="4" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="286" y="24" width="24" height="90" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="301" y="24" width="9" height="90" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="310" y="24" width="232" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="313" y="48" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">right chart</text>
+  <rect x="310" y="114" width="110" height="18" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="310" y="114" width="110" height="4" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="286" y="24" width="24" height="90" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="301" y="24" width="9" height="90" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="310" y="24" width="110" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="313" y="60" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c10</text>
+  <rect x="432" y="114" width="110" height="18" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="432" y="114" width="110" height="4" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="432" y="24" width="110" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="435" y="60" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c11</text>
+  <rect x="0" y="152" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="152" width="10" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <text x="82" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">margin</text>
+  <rect x="132" y="152" width="10" height="10" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
+  <text x="145" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">strip</text>
+  <rect x="189" y="152" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="202" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <rect x="240" y="152" width="5" height="10" fill="#e98080" stroke="#e98080" stroke-width="1"/>
+  <rect x="245" y="152" width="5" height="10" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <text x="253" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d1</text>
+  <rect x="315" y="152" width="5" height="10" fill="#f7bcbc" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="320" y="152" width="5" height="10" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <text x="328" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d2</text>
+  <rect x="0" y="0" width="552" height="142" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>
