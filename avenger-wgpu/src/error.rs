@@ -39,6 +39,9 @@ pub enum AvengerWgpuError {
     #[error("Invalid render target: {0}")]
     InvalidTarget(String),
 
+    #[error("Invalid geometry: {0}")]
+    InvalidGeometry(String),
+
     #[error("Text error: {0}")]
     TextError(String),
 
