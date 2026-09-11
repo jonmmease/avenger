@@ -618,6 +618,7 @@ dependencies = [
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-wgpu",
  "resvg",
  "tokio",
