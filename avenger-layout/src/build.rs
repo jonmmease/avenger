@@ -254,7 +254,7 @@ pub(crate) enum LayoutKind<Id, Key> {
 }
 
 /// One node of a layout: a measured leaf or a grid of children, optionally
-/// chromed. See the [module docs](self) for the model.
+/// chromed. See the [crate documentation](crate) for the model.
 ///
 /// `Id` is caller-owned and opaque (solution lookup); `Key` groups grids for
 /// cousin alignment. Both default to `usize`.
