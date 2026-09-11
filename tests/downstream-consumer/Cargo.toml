@@ -9,3 +9,5 @@ publish = false
 
 [dependencies]
 avenger-geometry = { path = "../../avenger-geometry" }
+avenger-svg = { path = "../../avenger-svg" }
+avenger-pdf = { path = "../../avenger-pdf" }

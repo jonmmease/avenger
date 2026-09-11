@@ -598,10 +598,13 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-image",
+ "avenger-resource",
  "avenger-scenegraph",
+ "avenger-svg",
  "avenger-text",
  "avenger-typst-label",
- "fontdb",
+ "base64",
+ "font-subset",
  "image",
  "itertools 0.14.0",
  "krilla",
@@ -609,8 +612,11 @@ dependencies = [
  "lyon_path",
  "pdf-extract",
  "pdfium-render",
+ "resvg",
  "tempfile",
  "thiserror 2.0.12",
+ "tiny-skia",
+ "usvg",
 ]
 
 [[package]]
