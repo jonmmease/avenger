@@ -649,6 +649,14 @@ pub(crate) enum TextScript {
 pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
     let mut db = fontdb::Database::new();
     crate::label::fonts::load_registered_fonts_into_fontdb(&mut db, config);
+    if config.fonts.load_system_fonts {
+        db.load_system_fonts();
+    }
+    for dir in &config.fonts.extra_font_dirs {
+        db.load_fonts_dir(dir);
+    }
+    // System font discovery can change generic families (for example through
+    // fontconfig). Apply application choices after loading all font sources.
     #[cfg(test)]
     if config.fonts.registered_fonts.is_empty() {
         crate::label::fonts::load_test_fonts_into_fontdb(&mut db);
@@ -658,12 +666,6 @@ pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
     }
     if let Some(family) = &config.fonts.default_monospace_family {
         db.set_monospace_family(family);
-    }
-    if config.fonts.load_system_fonts {
-        db.load_system_fonts();
-    }
-    for dir in &config.fonts.extra_font_dirs {
-        db.load_fonts_dir(dir);
     }
     db
 }
@@ -890,6 +892,19 @@ mod tests {
 
     fn test_fontdb() -> fontdb::Database {
         build_text_fontdb(&EngineOptions::default())
+    }
+
+    #[test]
+    fn configured_generic_families_survive_system_font_loading() {
+        let mut options = EngineOptions::default();
+        options.fonts.default_sans_serif_family = Some("Lato".into());
+        options.fonts.default_monospace_family = Some("DejaVu Sans Mono".into());
+        let db = build_text_fontdb(&options);
+        assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Lato");
+        assert_eq!(
+            db.family_name(&fontdb::Family::Monospace),
+            "DejaVu Sans Mono"
+        );
     }
 
     #[test]
