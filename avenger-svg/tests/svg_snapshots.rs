@@ -431,10 +431,12 @@ fn native_text_rasterizes_with_controlled_avenger_fontdb() {
         })
         .render_scene_graph(&scene_graph)
         .unwrap();
-    let mut options = usvg::Options::default();
-    options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
-        &avenger_text::FontResolutionOptions::default(),
-    ));
+    let options = usvg::Options {
+        fontdb: std::sync::Arc::new(avenger_text::fonts::build_fontdb(
+            &avenger_text::default_font_resolution(),
+        )),
+        ..Default::default()
+    };
 
     assert!(svg.contains("<text "));
     assert!(!svg.contains("data:font/woff2;base64,"));
@@ -461,7 +463,10 @@ fn image_smoothing_snapshot_marks_only_unsmoothed_images_pixelated() {
     let svg = render_transparent(scene_graph);
 
     assert_eq!(svg.matches("<image ").count(), 2);
-    assert_eq!(svg.matches(r#"image-rendering="pixelated""#).count(), 1);
+    assert_eq!(
+        svg.matches(r#"style="image-rendering:pixelated""#).count(),
+        1
+    );
     assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
 }
 
