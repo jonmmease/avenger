@@ -1,0 +1,54 @@
+[package]
+name = "avenger-typst-label"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+raster = ["dep:png", "dep:tiny-skia"]
+serde = []
+upstream-png-parity = ["dep:brotli", "dep:toml"]
+wasm = []
+
+[[bin]]
+name = "generate_upstream_png_refs"
+required-features = ["upstream-png-parity"]
+
+[[bin]]
+name = "typst-label-math-svg-probe"
+path = "src/bin/typst_label_math_svg_probe.rs"
+
+[dependencies]
+avenger-format-datetime = { path = "../avenger-format-datetime" }
+avenger-format-number = { path = "../avenger-format-number" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+chrono-tz = { workspace = true }
+fontdb = { workspace = true }
+indexmap = { workspace = true }
+png = { workspace = true, optional = true }
+rustybuzz = { workspace = true }
+ttf-parser = { workspace = true }
+tiny-skia = { workspace = true, optional = true }
+brotli = { workspace = true, optional = true }
+ecow = { version = "0.2.6", features = ["serde"] }
+libm = "0.2.16"
+portable-atomic = "1.13.1"
+rustc-hash = "2.1.2"
+siphasher = "1.0.3"
+smallvec = { version = "1.15.2", features = ["union", "const_generics", "const_new"] }
+toml = { version = "0.8.23", default-features = false, features = ["parse", "display"], optional = true }
+unicode-bidi = "0.3.18"
+unicode-ident = "1.0.24"
+unicode-math-class = "0.1"
+unicode-script = "0.5.7"
+unicode-segmentation = "1.12.0"
+unscanny = "0.1.0"
+
+[dev-dependencies]
+brotli = { workspace = true }
+
+[[example]]
+name = "gallery"
+required-features = ["raster"]
