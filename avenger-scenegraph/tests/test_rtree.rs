@@ -2,12 +2,11 @@ use avenger_common::{
     canvas::CanvasDimensions,
     types::{AreaOrientation, SymbolShape},
 };
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_scenegraph::marks::{
-    area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark,
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
+use avenger_scenegraph::{
+    marks::{area::SceneAreaMark, symbol::SceneSymbolMark, text::SceneTextMark},
+    scene_graph::SceneGraph,
 };
-use avenger_scenegraph::scene_graph::SceneGraph;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
 use geo_svg::ToSvg;
@@ -236,4 +235,21 @@ fn test_text_rtree() {
     println!("{}", geometries[0].geometry.to_svg().svg_str())
     // let instance = rtree.locate_at_point(&[0.0, 0.0]).unwrap();
     // assert_eq!(instance.instance_index, Some(0));
+}
+
+#[test]
+fn test_text_defined_false_omits_geometry() {
+    let mark = SceneTextMark {
+        len: 2,
+        x: vec![0.0, 100.0].into(),
+        y: vec![0.0, 0.0].into(),
+        text: vec!["visible".to_string(), "hidden".to_string()].into(),
+        defined: vec![true, false].into(),
+        ..Default::default()
+    };
+
+    let geometries: Vec<_> = mark.geometry_iter(vec![0], [0.0, 0.0]).collect();
+
+    assert_eq!(geometries.len(), 1);
+    assert_eq!(geometries[0].mark_instance.instance_index, Some(0));
 }
