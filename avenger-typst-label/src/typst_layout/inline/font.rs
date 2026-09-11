@@ -10,15 +10,16 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::typst_library::text::content::DecorationLength;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct TextFace {
     data: TextFontData,
     face_index: u32,
     family_name: Option<String>,
     postscript_name: Option<String>,
+    variations: Vec<([u8; 4], f32)>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum TextFontData {
     Shared(Arc<[u8]>),
 }
@@ -135,7 +136,7 @@ pub(crate) struct TextDecorationLineMetrics {
 
 impl TextDecorationMetrics {
     pub(crate) fn fallback(font_size: f32) -> Self {
-        let font_size = font_size.max(1.0);
+        let font_size = font_size.max(f32::MIN_POSITIVE);
         let thickness = font_size * 0.06;
         Self {
             underline: TextDecorationLineMetrics {
@@ -200,7 +201,9 @@ impl TextFace {
     }
 
     pub(crate) fn same_font(&self, other: &Self) -> bool {
-        self.face_index == other.face_index && self.data.as_slice() == other.data.as_slice()
+        self.face_index == other.face_index
+            && self.data.as_slice() == other.data.as_slice()
+            && self.variations == other.variations
     }
 
     pub(crate) fn default_text_edge_metrics(&self, font_size: f32) -> TextFontMetrics {
@@ -226,7 +229,7 @@ impl TextFace {
     }
 
     pub(crate) fn decoration_metrics(&self, font_size: f32) -> TextDecorationMetrics {
-        let font_size = font_size.max(1.0);
+        let font_size = font_size.max(f32::MIN_POSITIVE);
         let Some(face) = self.parsed_face() else {
             return TextDecorationMetrics::fallback(font_size);
         };
@@ -286,16 +289,37 @@ impl TextFace {
         font_size: f32,
         features: &[rustybuzz::Feature],
     ) -> ShapedText {
+        self.shaped_text_in_direction(text, font_size, features, None)
+    }
+
+    pub(crate) fn shaped_text_in_direction(
+        &self,
+        text: &str,
+        font_size: f32,
+        features: &[rustybuzz::Feature],
+        direction: Option<bool>,
+    ) -> ShapedText {
         let edge_metrics = self.default_text_edge_metrics(font_size);
         let Some(face) = self.parsed_face() else {
             return fallback_shaped_text(text, font_size, edge_metrics);
         };
-        let Some(rusty) = rustybuzz::Face::from_slice(self.data.as_slice(), self.face_index) else {
+        let Some(mut rusty) = rustybuzz::Face::from_slice(self.data.as_slice(), self.face_index)
+        else {
             return fallback_shaped_text(text, font_size, edge_metrics);
         };
+        for (tag, value) in &self.variations {
+            rusty.set_variation(ttf_parser::Tag::from_bytes(tag), *value);
+        }
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
         buffer.guess_segment_properties();
+        if let Some(rtl) = direction {
+            buffer.set_direction(if rtl {
+                rustybuzz::Direction::RightToLeft
+            } else {
+                rustybuzz::Direction::LeftToRight
+            });
+        }
         let glyphs = rustybuzz::shape(&rusty, features, buffer);
         let scale = font_scale(&face, font_size);
         let mut cursor_x = 0i32;
@@ -344,26 +368,28 @@ impl TextFace {
     ) -> TextStyle {
         if let Some(size) = explicit_size {
             return TextStyle {
-                font_size: size.resolve(parent_style.font_size.max(1.0)).max(1.0),
+                font_size: size
+                    .resolve(parent_style.font_size.max(f32::MIN_POSITIVE))
+                    .max(f32::MIN_POSITIVE),
                 ..parent_style.clone()
             };
         }
 
         let Some(face) = self.parsed_face() else {
             return TextStyle {
-                font_size: parent_style.font_size.max(1.0) * 0.7,
+                font_size: parent_style.font_size.max(f32::MIN_POSITIVE) * 0.6,
                 ..parent_style.clone()
             };
         };
-        let scale = font_scale(&face, parent_style.font_size.max(1.0));
+        let scale = font_scale(&face, parent_style.font_size.max(f32::MIN_POSITIVE));
         let metrics = match script {
             TextScript::Subscript => face.subscript_metrics(),
             TextScript::Superscript => face.superscript_metrics(),
         };
         let font_size = metrics
             .and_then(|metrics| (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale))
-            .unwrap_or_else(|| parent_style.font_size.max(1.0) * 0.7)
-            .max(1.0);
+            .unwrap_or_else(|| parent_style.font_size.max(f32::MIN_POSITIVE) * 0.6)
+            .max(f32::MIN_POSITIVE);
 
         TextStyle {
             font_size,
@@ -378,13 +404,13 @@ impl TextFace {
         explicit_baseline: Option<DecorationLength>,
     ) -> f32 {
         if let Some(baseline) = explicit_baseline {
-            return baseline.resolve(parent_font_size.max(1.0));
+            return baseline.resolve(parent_font_size.max(f32::MIN_POSITIVE));
         }
 
         let Some(face) = self.parsed_face() else {
             return fallback_script_shift(parent_font_size, script);
         };
-        let scale = font_scale(&face, parent_font_size.max(1.0));
+        let scale = font_scale(&face, parent_font_size.max(f32::MIN_POSITIVE));
         let metrics = match script {
             TextScript::Subscript => face.subscript_metrics(),
             TextScript::Superscript => face.superscript_metrics(),
@@ -393,8 +419,8 @@ impl TextFace {
             .map(|metrics| {
                 let offset = metrics.y_offset as f32 * scale;
                 match script {
-                    TextScript::Subscript => offset.abs(),
-                    TextScript::Superscript => -offset.abs(),
+                    TextScript::Subscript => offset,
+                    TextScript::Superscript => -offset,
                 }
             })
             .unwrap_or_else(|| fallback_script_shift(parent_font_size, script))
@@ -426,7 +452,7 @@ impl TextFace {
         let raster_image = face
             .glyph_raster_image(glyph_id, u16::MAX)
             .filter(|image| image.format == ttf_parser::RasterImageFormat::PNG)?;
-        let scale = font_size.max(1.0) / raster_image.pixels_per_em as f32;
+        let scale = font_size.max(f32::MIN_POSITIVE) / raster_image.pixels_per_em as f32;
         let width = raster_image.width as f32 * scale;
         let height = raster_image.height as f32 * scale;
         let x_offset = raster_image.x as f32 * scale;
@@ -439,7 +465,7 @@ impl TextFace {
             .as_deref()
             .is_some_and(|family| family.eq_ignore_ascii_case("Apple Color Emoji"))
         {
-            y_offset -= 0.128 * font_size.max(1.0);
+            y_offset -= 0.128 * font_size.max(f32::MIN_POSITIVE);
         }
 
         Some(PathImageItem {
@@ -481,11 +507,64 @@ impl TextFace {
                 .map(|face| face.units_per_em() as f32)
                 .unwrap_or(1000.0),
             data: self.data.resource_data(),
+            variations: self.variations.clone(),
         }
     }
 
-    fn parsed_face(&self) -> Option<ttf_parser::Face<'_>> {
-        ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()
+    pub(crate) fn script_feature_covers_text(&self, text: &str, script: TextScript) -> bool {
+        let Some(face) = self.parsed_face() else {
+            return false;
+        };
+        let Some(gsub) = face.tables().gsub else {
+            return false;
+        };
+        let tag = match script {
+            TextScript::Subscript => b"subs",
+            TextScript::Superscript => b"sups",
+        };
+        let Some(feature) = gsub.features.find(ttf_parser::Tag::from_bytes(tag)) else {
+            return false;
+        };
+        text.chars().all(|ch| {
+            face.glyph_index(ch).is_some_and(|glyph| {
+                feature
+                    .lookup_indices
+                    .into_iter()
+                    .filter_map(|i| gsub.lookups.get(i))
+                    .flat_map(|lookup| {
+                        lookup
+                            .subtables
+                            .into_iter::<ttf_parser::gsub::SubstitutionSubtable>()
+                    })
+                    .any(|subtable| subtable.coverage().contains(glyph))
+            })
+        })
+    }
+
+    fn with_style(mut self, style: &TextStyle) -> Self {
+        if let Ok(face) = ttf_parser::Face::parse(self.data.as_slice(), self.face_index) {
+            self.variations = resolve_variations(&face, style);
+        }
+        self
+    }
+
+    pub(crate) fn script_horizontal_shift(&self, font_size: f32, script: TextScript) -> f32 {
+        let Some(face) = self.parsed_face() else {
+            return 0.0;
+        };
+        let metrics = match script {
+            TextScript::Subscript => face.subscript_metrics(),
+            TextScript::Superscript => face.superscript_metrics(),
+        };
+        metrics.map_or(0.0, |m| m.x_offset as f32 * font_scale(&face, font_size))
+    }
+
+    pub(crate) fn parsed_face(&self) -> Option<ttf_parser::Face<'_>> {
+        let mut face = ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()?;
+        for (tag, value) in &self.variations {
+            face.set_variation(ttf_parser::Tag::from_bytes(tag), *value);
+        }
+        Some(face)
     }
 }
 
@@ -495,6 +574,17 @@ pub(crate) fn shape_plain_text_with_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
+) -> Result<Option<SegmentedText>, LabelError> {
+    shape_text_with_direction(fontdb, style, text, font_size, features, None)
+}
+
+pub(crate) fn shape_text_with_direction(
+    fontdb: &fontdb::Database,
+    style: &TextStyle,
+    text: &str,
+    font_size: f32,
+    features: &[rustybuzz::Feature],
+    direction: Option<bool>,
 ) -> Result<Option<SegmentedText>, LabelError> {
     let Some(primary) = TextFace::for_plain_style(style, fontdb)?
         .or_else(|| fontdb_face_for_style_and_text(fontdb, style, text))
@@ -509,7 +599,17 @@ pub(crate) fn shape_plain_text_with_fallback(
     }
 
     let mut spans = Vec::<TextMarkupSpan>::new();
-    for visual_run in bidi_visual_runs(text) {
+    let visual_runs = direction.map_or_else(
+        || bidi_visual_runs(text),
+        |is_rtl| {
+            vec![BidiVisualRun {
+                byte_range: 0..text.len(),
+                is_rtl,
+            }]
+        },
+    );
+    for visual_run in visual_runs {
+        let span_start = spans.len();
         for (relative_start, grapheme) in text[visual_run.byte_range.clone()].grapheme_indices(true)
         {
             let start = visual_run.byte_range.start + relative_start;
@@ -535,11 +635,12 @@ pub(crate) fn shape_plain_text_with_fallback(
 
             if let Some(span) = spans.last_mut()
                 && span.face.same_font(&face)
-                && span.script == script
+                && (span.script == script || is_neutral_script(span.script))
                 && span.is_rtl == visual_run.is_rtl
                 && span.byte_range.end == start
                 && span.visual_range.end == start
             {
+                span.script = script;
                 span.byte_range.end = end;
                 span.visual_range.end = end;
                 span.text.push_str(grapheme);
@@ -555,6 +656,9 @@ pub(crate) fn shape_plain_text_with_fallback(
                 is_rtl: visual_run.is_rtl,
             });
         }
+        if visual_run.is_rtl {
+            spans[span_start..].reverse();
+        }
     }
 
     let mut x = 0.0f32;
@@ -562,9 +666,9 @@ pub(crate) fn shape_plain_text_with_fallback(
     let mut descent = 0.0f32;
     let mut runs = Vec::new();
     for span in spans {
-        let shaped = span
-            .face
-            .shaped_text_with_features(&span.text, font_size, features);
+        let shaped =
+            span.face
+                .shaped_text_in_direction(&span.text, font_size, features, Some(span.is_rtl));
         ascent = ascent.max(shaped.metrics.ascent);
         descent = descent.max(shaped.metrics.descent);
         let width = shaped.metrics.width;
@@ -603,12 +707,12 @@ struct TextMarkupSpan {
     is_rtl: bool,
 }
 
-struct BidiVisualRun {
-    byte_range: Range<usize>,
-    is_rtl: bool,
+pub(crate) struct BidiVisualRun {
+    pub(crate) byte_range: Range<usize>,
+    pub(crate) is_rtl: bool,
 }
 
-fn bidi_visual_runs(text: &str) -> Vec<BidiVisualRun> {
+pub(crate) fn bidi_visual_runs(text: &str) -> Vec<BidiVisualRun> {
     let bidi = BidiInfo::new(text, None);
     if !bidi.has_rtl() {
         return vec![BidiVisualRun {
@@ -690,7 +794,7 @@ fn fontdb_face_for_style_and_text(
 
     if let Some(face) = db
         .query(&query)
-        .and_then(|id| load_fontdb_face(db, id))
+        .and_then(|id| load_fontdb_face(db, id).map(|face| face.with_style(style)))
         .filter(|face| {
             text.is_empty() || !face.shaped_text(text, style.font_size).has_missing_glyph
         })
@@ -704,7 +808,7 @@ fn fontdb_face_for_style_and_text(
 
     db.faces()
         .filter(|info| info.style == fontdb_style(style.font_style))
-        .filter_map(|info| load_fontdb_face(db, info.id))
+        .filter_map(|info| load_fontdb_face(db, info.id).map(|face| face.with_style(style)))
         .find(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
 }
 
@@ -729,7 +833,7 @@ fn emoji_fontdb_face_for_text(
             style: fontdb::Style::Normal,
         };
         db.query(&query)
-            .and_then(|id| load_fontdb_face(db, id))
+            .and_then(|id| load_fontdb_face(db, id).map(|face| face.with_style(style)))
             .filter(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
     })
 }
@@ -757,6 +861,7 @@ fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<TextFace> {
             face_index,
             family_name,
             postscript_name,
+            variations: Vec::new(),
         })
     })?
 }
@@ -807,7 +912,7 @@ fn fallback_shaped_text(text: &str, font_size: f32, edge_metrics: TextFontMetric
 }
 
 fn fallback_metrics(font_size: f32) -> TextFontMetrics {
-    let font_size = font_size.max(1.0);
+    let font_size = font_size.max(f32::MIN_POSITIVE);
     TextFontMetrics {
         ascent: font_size * 0.8,
         descent: font_size * 0.2,
@@ -817,8 +922,8 @@ fn fallback_metrics(font_size: f32) -> TextFontMetrics {
 
 fn fallback_script_shift(parent_font_size: f32, script: TextScript) -> f32 {
     match script {
-        TextScript::Subscript => parent_font_size.max(1.0) * 0.2,
-        TextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
+        TextScript::Subscript => parent_font_size.max(f32::MIN_POSITIVE) * 0.2,
+        TextScript::Superscript => -parent_font_size.max(f32::MIN_POSITIVE) * 0.5,
     }
 }
 
@@ -879,11 +984,91 @@ fn font_weight_number(weight: &FontWeight) -> u16 {
 }
 
 fn font_scale(face: &ttf_parser::Face<'_>, font_size: f32) -> f32 {
-    font_size.max(1.0) / face.units_per_em() as f32
+    font_size.max(f32::MIN_POSITIVE) / face.units_per_em() as f32
 }
 
 fn fallback_width(text: &str, font_size: f32) -> f32 {
-    text.chars().count() as f32 * font_size.max(1.0) * 0.6
+    text.chars().count() as f32 * font_size.max(f32::MIN_POSITIVE) * 0.6
+}
+
+/// Resolve the standard axes using the pinned upstream FontVariations rules.
+pub(crate) fn resolve_variations(
+    face: &ttf_parser::Face<'_>,
+    style: &TextStyle,
+) -> Vec<([u8; 4], f32)> {
+    resolve_axis_variations(
+        &face.variation_axes().into_iter().collect::<Vec<_>>(),
+        style,
+    )
+}
+
+fn resolve_axis_variations(
+    axes: &[ttf_parser::VariationAxis],
+    style: &TextStyle,
+) -> Vec<([u8; 4], f32)> {
+    let has_ital = axes.iter().any(|axis| axis.tag.to_bytes() == *b"ital");
+    let has_slnt = axes.iter().any(|axis| axis.tag.to_bytes() == *b"slnt");
+    let italic = style.font_style == FontStyle::Italic;
+    let oblique = style.font_style == FontStyle::Oblique;
+    axes.iter()
+        .map(|axis| {
+            let requested = match &axis.tag.to_bytes() {
+                b"wght" => font_weight_number(&style.font_weight) as f32,
+                b"wdth" => 100.0,
+                b"opsz" => style.font_size,
+                b"ital" if italic || (oblique && !has_slnt) => axis.max_value.min(1.0),
+                b"slnt" if oblique || (italic && !has_ital) => {
+                    if axis.min_value < 0.0 {
+                        axis.min_value
+                    } else {
+                        axis.max_value.max(0.0)
+                    }
+                }
+                _ => axis.def_value,
+            };
+            (
+                axis.tag.to_bytes(),
+                requested.clamp(axis.min_value, axis.max_value),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn standard_variation_axes_match_requested_size_and_style() {
+    let axis = |tag, min, default, max| ttf_parser::VariationAxis {
+        tag: ttf_parser::Tag::from_bytes(tag),
+        min_value: min,
+        def_value: default,
+        max_value: max,
+        name_id: 0,
+        hidden: false,
+    };
+    let axes = [
+        axis(b"opsz", 8.0, 12.0, 72.0),
+        axis(b"slnt", -20.0, 0.0, 0.0),
+    ];
+    let mut style = TextStyle {
+        font_size: 32.0,
+        font_style: FontStyle::Italic,
+        ..Default::default()
+    };
+    assert_eq!(
+        resolve_axis_variations(&axes, &style),
+        vec![(*b"opsz", 32.0), (*b"slnt", -20.0)]
+    );
+    style.font_size = 2.0;
+    style.font_style = FontStyle::Normal;
+    assert_eq!(
+        resolve_axis_variations(&axes, &style),
+        vec![(*b"opsz", 8.0), (*b"slnt", 0.0)]
+    );
+    style.font_style = FontStyle::Oblique;
+    assert_eq!(
+        resolve_axis_variations(&[axis(b"ital", 0.0, 0.0, 1.0)], &style),
+        vec![(*b"ital", 1.0)]
+    );
 }
 
 #[cfg(test)]

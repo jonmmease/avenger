@@ -185,9 +185,45 @@ pub struct PathImageItem {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PathDrawItem {
+    Path(usize),
+    Image(usize),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PathArtifact {
     pub logical_width: f32,
     pub logical_height: f32,
     pub items: Vec<PathItem>,
     pub images: Vec<PathImageItem>,
+    /// Painter order across outlines, decorations, and bitmap glyphs.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub draw_order: Vec<PathDrawItem>,
+}
+
+impl PathArtifact {
+    pub(crate) fn ordered_items(&self) -> Vec<PathDrawItem> {
+        if self.draw_order.is_empty() {
+            (0..self.items.len())
+                .map(PathDrawItem::Path)
+                .chain((0..self.images.len()).map(PathDrawItem::Image))
+                .collect()
+        } else {
+            self.draw_order.clone()
+        }
+    }
+
+    pub(crate) fn append(&mut self, other: Self) {
+        let paths = self.items.len();
+        let images = self.images.len();
+        self.draw_order = self.ordered_items();
+        self.draw_order
+            .extend(other.ordered_items().into_iter().map(|item| match item {
+                PathDrawItem::Path(i) => PathDrawItem::Path(paths + i),
+                PathDrawItem::Image(i) => PathDrawItem::Image(images + i),
+            }));
+        self.items.extend(other.items);
+        self.images.extend(other.images);
+    }
 }
