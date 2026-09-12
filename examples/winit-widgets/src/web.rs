@@ -19,6 +19,12 @@ pub async fn run() -> Result<(), JsValue> {
     let _ = console_log::init_with_level(log::Level::Warn);
     let engine = avenger_text::default_text_engine();
     let mut state = crate::state::State::new(engine.clone());
+    if let Some(window) = web_sys::window() {
+        state.size = [
+            window.inner_width()?.as_f64().unwrap_or(1120.0).max(960.0) as f32,
+            (window.inner_height()?.as_f64().unwrap_or(928.0) - 88.0).max(840.0) as f32,
+        ];
+    }
     let mac = web_sys::window()
         .and_then(|w| w.navigator().platform().ok())
         .is_some_and(|p| p.starts_with("Mac") || p.starts_with("iP"));

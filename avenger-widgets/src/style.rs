@@ -50,7 +50,7 @@ impl TextStyle {
     }
 }
 
-/// Fill, border, and foreground colors in linear RGBA.
+/// Fill, border, and foreground RGBA colors with components in 0..=1.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ControlPaint {
     pub fill: [f32; 4],
@@ -60,14 +60,14 @@ pub struct ControlPaint {
 
 /// Paint for mutually exclusive interaction states. Geometry is independent.
 #[derive(Clone, Debug, PartialEq)]
-pub struct PaintStates {
-    pub normal: ControlPaint,
-    pub hovered: ControlPaint,
-    pub pressed: ControlPaint,
-    pub disabled: ControlPaint,
+pub struct PaintStates<P = ControlPaint> {
+    pub normal: P,
+    pub hovered: P,
+    pub pressed: P,
+    pub disabled: P,
 }
-impl PaintStates {
-    pub(crate) fn resolve(&self, enabled: bool, hovered: bool, pressed: bool) -> ControlPaint {
+impl<P: Copy> PaintStates<P> {
+    pub(crate) fn resolve(&self, enabled: bool, hovered: bool, pressed: bool) -> P {
         if !enabled {
             self.disabled
         } else if pressed {
@@ -78,20 +78,35 @@ impl PaintStates {
             self.normal
         }
     }
+    fn map<T>(&self, f: impl Fn(P) -> T) -> PaintStates<T> {
+        PaintStates {
+            normal: f(self.normal),
+            hovered: f(self.hovered),
+            pressed: f(self.pressed),
+            disabled: f(self.disabled),
+        }
+    }
+}
+impl PaintStates {
     pub(crate) fn validate(&self) -> Result<(), WidgetError> {
-        for paint in [self.normal, self.hovered, self.pressed, self.disabled] {
-            for color in [paint.fill, paint.border, paint.foreground] {
-                if color
-                    .iter()
-                    .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-                {
-                    return Err(WidgetError::Invalid(
-                        "paint colors require finite RGBA components in 0..=1".into(),
-                    ));
-                }
-            }
+        for p in [self.normal, self.hovered, self.pressed, self.disabled] {
+            colors(&[p.fill, p.border, p.foreground])?;
         }
         Ok(())
+    }
+}
+
+fn colors(values: &[[f32; 4]]) -> Result<(), WidgetError> {
+    if values
+        .iter()
+        .flatten()
+        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+    {
+        Ok(())
+    } else {
+        Err(WidgetError::Invalid(
+            "paint colors require finite RGBA components in 0..=1".into(),
+        ))
     }
 }
 
@@ -157,6 +172,37 @@ pub struct CheckboxStyle {
     pub checked: PaintStates,
 }
 
+/// Radio colors, including the selected outline and center indicator.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RadioPaint {
+    pub fill: [f32; 4],
+    pub border: [f32; 4],
+    pub indicator: [f32; 4],
+    pub foreground: [f32; 4],
+}
+
+/// Circular radio geometry and interaction paint.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RadioStyle {
+    pub text: TextStyle,
+    pub row_height: f32,
+    pub diameter: f32,
+    pub gap: f32,
+    pub border_width: f32,
+    pub focus: FocusStyle,
+    pub paint: PaintStates<RadioPaint>,
+}
+
+/// Colors for a slider's track, progress, thumb, and optional readout.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SliderPaint {
+    pub track: [f32; 4],
+    pub progress: [f32; 4],
+    pub thumb: [f32; 4],
+    pub thumb_border: [f32; 4],
+    pub foreground: [f32; 4],
+}
+
 /// Spacing shared by checkbox and radio groups, in logical pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChoiceGroupStyle {
@@ -175,8 +221,7 @@ pub struct SliderStyle {
     pub readout_width: f32,
     pub readout_gap: f32,
     pub focus: FocusStyle,
-    pub track: PaintStates,
-    pub thumb: PaintStates,
+    pub paint: PaintStates<SliderPaint>,
 }
 
 /// Single-line field typography, geometry, and editor paint in logical pixels.
@@ -202,7 +247,7 @@ pub struct TextInputStyle {
 pub struct WidgetTheme {
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
-    pub radio: CheckboxStyle,
+    pub radio: RadioStyle,
     pub group: ChoiceGroupStyle,
     pub slider: SliderStyle,
     pub text_input: TextInputStyle,
@@ -318,16 +363,24 @@ impl WidgetTheme {
                 neutral: neutral.clone(),
                 accent: accent.clone(),
             },
-            radio: CheckboxStyle {
+            radio: RadioStyle {
                 text: TextStyle::default(),
                 row_height: 30.0,
-                box_size: 18.0,
+                diameter: 18.0,
                 gap: 9.0,
-                radius: 9.0,
                 border_width: 1.5,
                 focus: focus.clone(),
-                unchecked: neutral.clone(),
-                checked: accent.clone(),
+                paint: neutral.map(|p| RadioPaint {
+                    fill: p.fill,
+                    border: p.border,
+                    indicator: [
+                        accent.normal.fill[0],
+                        accent.normal.fill[1],
+                        accent.normal.fill[2],
+                        p.fill[3],
+                    ],
+                    foreground: p.foreground,
+                }),
             },
             group: ChoiceGroupStyle {
                 gap: 12.0,
@@ -343,8 +396,19 @@ impl WidgetTheme {
                 readout_width: 48.0,
                 readout_gap: 10.0,
                 focus: focus.clone(),
-                track: neutral.clone(),
-                thumb: accent.clone(),
+                paint: PaintStates {
+                    normal: (neutral.normal, accent.normal),
+                    hovered: (neutral.hovered, accent.hovered),
+                    pressed: (neutral.pressed, accent.pressed),
+                    disabled: (neutral.disabled, accent.disabled),
+                }
+                .map(|(n, a)| SliderPaint {
+                    track: n.border,
+                    progress: a.fill,
+                    thumb: a.fill,
+                    thumb_border: a.border,
+                    foreground: n.foreground,
+                }),
             },
             checkbox: CheckboxStyle {
                 text: TextStyle::default(),
@@ -394,8 +458,14 @@ impl WidgetTheme {
         let s = &self.slider;
         s.text.validate()?;
         s.focus.validate()?;
-        s.track.validate()?;
-        s.thumb.validate()?;
+        for p in [
+            s.paint.normal,
+            s.paint.hovered,
+            s.paint.pressed,
+            s.paint.disabled,
+        ] {
+            colors(&[p.track, p.progress, p.thumb, p.thumb_border, p.foreground])?;
+        }
         lengths(&[
             s.width,
             s.height,
@@ -404,7 +474,20 @@ impl WidgetTheme {
             s.readout_width,
             s.readout_gap,
         ])?;
-        for c in [&self.checkbox, &self.radio] {
+        let r = &self.radio;
+        r.text.validate()?;
+        r.focus.validate()?;
+        lengths(&[r.row_height, r.diameter, r.gap, r.border_width])?;
+        for p in [
+            r.paint.normal,
+            r.paint.hovered,
+            r.paint.pressed,
+            r.paint.disabled,
+        ] {
+            colors(&[p.fill, p.border, p.indicator, p.foreground])?;
+        }
+        {
+            let c = &self.checkbox;
             c.text.validate()?;
             c.focus.validate()?;
             c.unchecked.validate()?;

@@ -460,7 +460,12 @@ mod wasm {
                 }
             })?;
             let pointer = self.pointer.clone();
-            self.add_listener(document.as_ref(), "pointerup", move |_| pointer.set(None))?;
+            self.add_listener(document.as_ref(), "pointerup", move |event| {
+                let event = event.unchecked_into::<PointerEvent>();
+                if event.button() == 0 && pointer.get() == Some(event.pointer_id()) {
+                    pointer.set(None);
+                }
+            })?;
             for name in ["lostpointercapture", "pointercancel"] {
                 let captured = self.captured.clone();
                 let pointer = self.pointer.clone();

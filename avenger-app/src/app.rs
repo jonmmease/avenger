@@ -143,6 +143,10 @@ where
     }
 
     /// Update the state of the app and return both scene and interaction status.
+    ///
+    /// A failed build discards the event's cloned state, stream state, and effects.
+    /// Keep mutable state owned by the clone. Mutations through shared pointers
+    /// or external side effects in handlers cannot be rolled back.
     pub async fn update_with_status(
         &mut self,
         event: &WindowEvent,
@@ -151,10 +155,8 @@ where
         tracing::debug!(target: "avenger_app::resize", "app.update start");
         let update_start = Instant::now();
         let dispatch_start = Instant::now();
-        let mut update_status = self
-            .event_stream_manager
-            .dispatch_event(event, &self.rtree, instant)
-            .await;
+        let mut candidate = self.event_stream_manager.clone();
+        let mut update_status = candidate.dispatch_event(event, &self.rtree, instant).await;
         let dispatch_elapsed = dispatch_start.elapsed();
         tracing::debug!(
             target: "avenger_app::resize",
@@ -167,8 +169,12 @@ where
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
             let scene_build_start = Instant::now();
-            self.rebuild_scene_graph(update_status.rebuild_geometry)
+            let built = self
+                .scene_graph_builder
+                .build_with_effects(candidate.state_mut())
                 .await?;
+            update_status.rebuild_geometry |= built.rebuild_geometry;
+            self.install_scene(built, update_status.rebuild_geometry);
             tracing::debug!(
                 target: "avenger_app::resize",
                 scene_build_ms = scene_build_start.elapsed().as_secs_f64() * 1000.0,
@@ -176,6 +182,7 @@ where
             );
         }
 
+        self.event_stream_manager = candidate;
         update_status.commands.extend(self.take_host_commands());
 
         // Return the scene graph if the need to rerender
@@ -228,15 +235,19 @@ where
             .scene_graph_builder
             .build_with_effects(&mut candidate)
             .await?;
+        self.install_scene(built, rebuild_geometry);
+        *self.event_stream_manager.state_mut() = candidate;
+        Ok(self.scene_graph.clone())
+    }
+
+    fn install_scene(&mut self, built: SceneBuild, rebuild_geometry: bool) {
         let scene_graph = Arc::new(built.scene_graph);
         if rebuild_geometry || built.rebuild_geometry {
             self.rtree =
                 SceneGraphRTree::from_scene_graph_with_text_engine(&scene_graph, &self.text_engine);
         }
-        *self.event_stream_manager.state_mut() = candidate;
         self.scene_graph = scene_graph;
         self.pending_commands.extend(built.commands);
-        Ok(self.scene_graph.clone())
     }
 }
 
@@ -302,6 +313,69 @@ mod build_tests {
                 .unwrap();
             assert_eq!(update.status.commands.len(), 1);
             assert!(app.take_host_commands().is_empty());
+        });
+    }
+
+    struct Input;
+    #[async_trait]
+    impl EventStreamHandler<State> for Input {
+        async fn handle(
+            &self,
+            event: &avenger_eventstream::scene::SceneGraphEvent,
+            state: &mut State,
+            _: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            if let avenger_eventstream::scene::SceneGraphEvent::WindowFocused(focused) = event {
+                state.fail = *focused;
+                state.builds += 10;
+            }
+            UpdateStatus {
+                rerender: true,
+                commands: vec![RuntimeHostCommand::SetClipboardPayload {
+                    text: "event".into(),
+                }],
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn failed_event_build_preserves_state_scene_and_pending_effects() {
+        futures::executor::block_on(async {
+            let mut app = AvengerApp::try_new(
+                State::default(),
+                Arc::new(Builder),
+                vec![(
+                    EventStreamConfig {
+                        types: vec![avenger_eventstream::scene::SceneGraphEventType::WindowFocused],
+                        ..Default::default()
+                    },
+                    Arc::new(Input),
+                )],
+            )
+            .await
+            .unwrap();
+            let scene = app.scene_graph_arc();
+            assert!(app
+                .update_with_status(&WindowEvent::WindowFocused(true), Instant::now())
+                .await
+                .is_err());
+            assert_eq!(app.app_state_mut().builds, 1);
+            assert!(!app.app_state_mut().fail);
+            assert!(Arc::ptr_eq(&scene, &app.scene_graph_arc()));
+            let pending = app.take_host_commands();
+            assert_eq!(pending.len(), 1);
+            assert!(
+                matches!(&pending[0], RuntimeHostCommand::SetClipboardPayload { text } if text == "1")
+            );
+            let update = app
+                .update_with_status(&WindowEvent::WindowFocused(false), Instant::now())
+                .await
+                .unwrap();
+            assert_eq!(app.app_state_mut().builds, 12);
+            assert_eq!(update.scene_graph.unwrap().width, 12.0);
+            assert_eq!(update.status.commands.len(), 2);
+            assert!(update.status.rebuild_geometry);
         });
     }
 }
