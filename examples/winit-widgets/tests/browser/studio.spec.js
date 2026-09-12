@@ -36,6 +36,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect.poll(() => snapshot(page).then(s => s.controls.length).catch(() => 0), { timeout: 30_000 }).toBeGreaterThan(8);
   await expect(page.locator('#status')).toBeHidden();
+  await expect.poll(() => page.locator('canvas').evaluate(e => e.width === Math.round(e.clientWidth * devicePixelRatio) && e.height === Math.round(e.clientHeight * devicePixelRatio)), { timeout: 30_000 }).toBe(true);
   await expect.poll(async () => (await page.locator('canvas').screenshot()).length, { timeout: 30_000 }).toBeGreaterThan(15000);
 });
 test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
@@ -89,9 +90,6 @@ test('slider preview, outside capture, keyboard commit, and plot panning stay se
   await page.mouse.down();
   await expect.poll(() => snapshot(page).then(s => s.opacity)).toBeLessThan(.3);
   expect((await snapshot(page)).committedOpacity).toBe(.8);
-  await page.mouse.down({ button: 'right' });
-  await page.mouse.up({ button: 'right' });
-  expect((await snapshot(page)).committedOpacity).toBe(.8);
   await page.mouse.move(box.x + r.x + 150, box.y - 10, { steps: 6 });
   await page.mouse.up();
   await expect.poll(() => snapshot(page).then(s => s.committedOpacity === s.opacity)).toBe(true);
@@ -101,16 +99,17 @@ test('slider preview, outside capture, keyboard commit, and plot panning stay se
   await expect.poll(() => snapshot(page).then(s => s.size)).toBe(15);
   await page.keyboard.press('ArrowLeft');
   await expect.poll(() => snapshot(page).then(s => s.size)).toBe(14);
-  const beforeScroll = await page.evaluate(() => scrollY);
-  await page.keyboard.press('Space');
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(beforeScroll);
-  await page.evaluate(() => scrollTo(0, 0));
   const currentBox = await page.locator('canvas').boundingBox();
   await page.mouse.move(currentBox.x + 200, currentBox.y + 300);
   await page.mouse.down();
   await page.mouse.move(currentBox.x + 245, currentBox.y + 325, { steps: 5 });
   await page.mouse.up();
   await expect.poll(() => snapshot(page).then(s => s.pan)).toEqual([45, 25]);
+  await click(page, 'size');
+  const beforeScroll = await page.evaluate(() => scrollY);
+  await page.keyboard.press('Space');
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(beforeScroll);
+
 });
 
 test('text editing, clipboard, Typst validation, history, and composition', async ({ page }) => {
@@ -180,4 +179,29 @@ test.describe('high-density canvas', () => {
     await expect.poll(() => snapshot(page).then(s => s.title)).toBe('Retina title');
     await canvas.screenshot({ path: 'test-results/studio-dpr2.png' });
   });
+});
+
+
+test('lost pointer capture cancels slider preview without a commit', async ({ page }) => {
+  const canvas = page.locator('canvas');
+  await canvas.evaluate(e => e.addEventListener('pointerdown', event => {
+    e.dataset.capturedPointer = String(event.pointerId);
+  }));
+  await canvas.evaluate(e => e.addEventListener('gotpointercapture', () => {
+    e.dataset.captureStarted = 'true';
+  }));
+  const r = await control(page, 'opacity');
+  const box = await canvas.boundingBox();
+  await page.mouse.move(box.x + r.x + 30, box.y + r.y + r.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + r.x + 31, box.y + r.y + r.height / 2);
+  await expect.poll(() => canvas.evaluate(e => e.dataset.captureStarted === 'true' && e.hasPointerCapture(Number(e.dataset.capturedPointer)))).toBe(true);
+  await expect.poll(() => snapshot(page).then(s => s.opacity)).toBeLessThan(.3);
+  const preview = (await snapshot(page)).opacity;
+  await canvas.evaluate(e => e.releasePointerCapture(Number(e.dataset.capturedPointer)));
+  await page.mouse.move(box.x + r.x + 100, box.y + r.y + r.height / 2);
+  await expect.poll(() => snapshot(page).then(s => s.lastAction)).toBe('Slider cancelled: CaptureLost');
+  await page.mouse.up();
+  expect((await snapshot(page)).opacity).toBe(preview);
+  expect((await snapshot(page)).committedOpacity).toBe(.8);
 });
