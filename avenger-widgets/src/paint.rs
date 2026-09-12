@@ -32,6 +32,30 @@ pub(crate) fn rect(
     }
     .into()
 }
+/// Draw a border entirely inside the supplied outer bounds.
+pub(crate) fn bordered_rect(
+    bounds: Rect,
+    fill: [f32; 4],
+    border: [f32; 4],
+    width: f32,
+    radius: f32,
+) -> SceneMark {
+    let width = width.min(bounds.width).min(bounds.height);
+    let inset = width / 2.0;
+    rect(
+        Rect::new(
+            bounds.x + inset,
+            bounds.y + inset,
+            bounds.width - width,
+            bounds.height - width,
+        ),
+        fill,
+        border,
+        width,
+        (radius - inset).max(0.0),
+    )
+}
+
 pub(crate) fn rule(a: [f32; 2], b: [f32; 2], color: [f32; 4], width: f32) -> SceneMark {
     SceneRuleMark {
         interactive: false,
@@ -135,7 +159,7 @@ pub(crate) fn control(
                 ButtonVariant::Accent => &s.accent,
             }
             .resolve(enabled, hovered, pressed);
-            content.marks.push(rect(
+            content.marks.push(bordered_rect(
                 r,
                 colors.fill,
                 colors.border,
@@ -189,7 +213,7 @@ pub(crate) fn control(
                 0.0,
                 style.track_height / 2.0,
             ));
-            content.marks.push(rect(
+            content.marks.push(bordered_rect(
                 Rect::new(x - size / 2.0, cy - size / 2.0, size, size),
                 paint.thumb,
                 paint.thumb_border,
@@ -216,7 +240,7 @@ pub(crate) fn control(
             let size = s.box_size.min(r.height);
             let bx = r.x;
             let by = r.y + (r.height - size) / 2.0;
-            content.marks.push(rect(
+            content.marks.push(bordered_rect(
                 Rect::new(bx, by, size, size),
                 colors.fill,
                 colors.border,
@@ -411,7 +435,7 @@ fn choice_row(
     let size = box_size.min(r.height);
     let bx = r.x;
     let by = r.y + (r.height - size) / 2.0;
-    content.marks.push(rect(
+    content.marks.push(bordered_rect(
         Rect::new(bx, by, size, size),
         fill,
         border,
