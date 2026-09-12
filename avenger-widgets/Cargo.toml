@@ -1,0 +1,18 @@
+[package]
+name = "avenger-widgets"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Scenegraph controls with application-owned values and shared input behavior"
+
+[dependencies]
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-layout = { path = "../avenger-layout" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-text = { path = "../avenger-text" }
+thiserror.workspace = true
+
+[dev-dependencies]
