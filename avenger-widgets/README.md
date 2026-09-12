@@ -49,3 +49,28 @@ Standalone native windows can opt into `FocusBoundary::Cycle`.
 
 `semantics()` provides names, roles, values, focus, and visible bounds for adapter
 code. It does not install an operating-system accessibility bridge.
+
+Checkbox groups bind to `BTreeSet<ChoiceItemId>` and contribute one Tab stop per
+enabled item. Radio groups bind to `Option<ChoiceItemId>` and contribute one Tab
+stop. Arrow keys move the radio selection, wrapping across enabled items.
+Both groups share `ChoiceItem` and vertical/horizontal row layout. Duplicate IDs
+and unknown checked/selected items fail preparation. Disabled selections remain
+visible. Item reordering preserves focus and values by ID.
+
+`SliderDomain::stepped(0.0, 10.0, 3.0)` admits 0, 3, 6, 9, and 10. Normalization
+chooses the nearest allowed value, with ties upward. Continuous domains accept
+any finite value between their bounds. Their default keyboard increment is one
+hundredth of the span. Invalid spans and increments that cannot advance distinct
+values fail construction.
+
+Sliders emit immediate changes and one commit on release after a change. Escape
+restores the transaction's starting value. Focus or capture loss retains its last
+value and emits cancellation without a commit. A different application value
+cancels the transaction during frame installation. Optional readouts reserve a
+fixed width, so changing digit counts do not move the track.
+
+Render the state gallery with `cargo run --release -p avenger-widgets --example
+gallery -- widgets-gallery.png`. The example uses the bundled Lato font and one
+shared text engine for layout and rendering.
+
+![Light and dark widget states](docs/images/gallery.png)

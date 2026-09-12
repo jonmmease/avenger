@@ -17,3 +17,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+avenger-wgpu = {path="../avenger-wgpu",default-features=false}
+pollster="0.4"

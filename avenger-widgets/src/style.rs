@@ -157,11 +157,36 @@ pub struct CheckboxStyle {
     pub checked: PaintStates,
 }
 
+/// Spacing shared by checkbox and radio groups, in logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChoiceGroupStyle {
+    pub gap: f32,
+    pub label_gap: f32,
+    pub text: TextStyle,
+}
+/// Horizontal slider geometry. The readout reserves a fixed width when present.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SliderStyle {
+    pub text: TextStyle,
+    pub width: f32,
+    pub height: f32,
+    pub thumb_size: f32,
+    pub track_height: f32,
+    pub readout_width: f32,
+    pub readout_gap: f32,
+    pub focus: FocusStyle,
+    pub track: PaintStates,
+    pub thumb: PaintStates,
+}
+
 /// Concrete widget styles. State changes alter paint without changing measurement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetTheme {
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
+    pub radio: CheckboxStyle,
+    pub group: ChoiceGroupStyle,
+    pub slider: SliderStyle,
 }
 
 fn states(fill: [f32; 4], border: [f32; 4], foreground: [f32; 4], dark: bool) -> PaintStates {
@@ -247,6 +272,34 @@ impl WidgetTheme {
                 neutral: neutral.clone(),
                 accent: accent.clone(),
             },
+            radio: CheckboxStyle {
+                text: TextStyle::default(),
+                row_height: 30.0,
+                box_size: 18.0,
+                gap: 9.0,
+                radius: 9.0,
+                border_width: 1.5,
+                focus: focus.clone(),
+                unchecked: neutral.clone(),
+                checked: accent.clone(),
+            },
+            group: ChoiceGroupStyle {
+                gap: 12.0,
+                label_gap: 8.0,
+                text: TextStyle::default(),
+            },
+            slider: SliderStyle {
+                text: TextStyle::default(),
+                width: 240.0,
+                height: 36.0,
+                thumb_size: 18.0,
+                track_height: 4.0,
+                readout_width: 48.0,
+                readout_gap: 10.0,
+                focus: focus.clone(),
+                track: neutral.clone(),
+                thumb: accent.clone(),
+            },
             checkbox: CheckboxStyle {
                 text: TextStyle::default(),
                 row_height: 30.0,
@@ -254,9 +307,9 @@ impl WidgetTheme {
                 gap: 9.0,
                 radius: 3.0,
                 border_width: 1.0,
-                focus,
-                unchecked: neutral,
-                checked: accent,
+                focus: focus.clone(),
+                unchecked: neutral.clone(),
+                checked: accent.clone(),
             },
         }
     }
@@ -267,12 +320,29 @@ impl WidgetTheme {
         b.neutral.validate()?;
         b.accent.validate()?;
         lengths(&[b.height, b.min_width, b.padding, b.radius, b.border_width])?;
-        let c = &self.checkbox;
-        c.text.validate()?;
-        c.focus.validate()?;
-        c.unchecked.validate()?;
-        c.checked.validate()?;
-        lengths(&[c.row_height, c.box_size, c.gap, c.radius, c.border_width])
+        self.group.text.validate()?;
+        lengths(&[self.group.gap, self.group.label_gap])?;
+        let s = &self.slider;
+        s.text.validate()?;
+        s.focus.validate()?;
+        s.track.validate()?;
+        s.thumb.validate()?;
+        lengths(&[
+            s.width,
+            s.height,
+            s.thumb_size,
+            s.track_height,
+            s.readout_width,
+            s.readout_gap,
+        ])?;
+        for c in [&self.checkbox, &self.radio] {
+            c.text.validate()?;
+            c.focus.validate()?;
+            c.unchecked.validate()?;
+            c.checked.validate()?;
+            lengths(&[c.row_height, c.box_size, c.gap, c.radius, c.border_width])?;
+        }
+        Ok(())
     }
 }
 pub(crate) fn lengths(values: &[f32]) -> Result<(), WidgetError> {
