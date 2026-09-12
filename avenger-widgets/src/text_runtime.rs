@@ -4,7 +4,7 @@ use crate::{
 };
 use crate::{
     frame::{intersection, visible},
-    paint::{clip, rect, rule, text},
+    paint::{bordered_rect, clip, rect, rule, text},
     runtime::GestureKind,
     text_input::{EditClass, History, Snapshot, TextLayout, TextState, debounce_config},
 };
@@ -489,7 +489,7 @@ pub(crate) fn paint(
             style.radius + d,
         ));
     }
-    group.marks.push(rect(
+    group.marks.push(bordered_rect(
         r,
         colors.fill,
         if spec.invalid && enabled {
