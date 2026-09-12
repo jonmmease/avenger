@@ -21,6 +21,7 @@ members = [
     "avenger-geo",
     "avenger-layout",
     "avenger-panels",
+    "avenger-widgets",
     "avenger-svg",
     "avenger-pdf",
     "avenger-image",
