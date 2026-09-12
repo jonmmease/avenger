@@ -40,6 +40,8 @@ jobs:
         run: |
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
+      - name: Verify layout example measurements
+        run: cargo test --release -p avenger-layout --example chart_grid --locked
       - name: Install pinned PDF rasterizer
         run: avenger-pdf/scripts/fetch_pdfium.sh
       - name: Verify PDF export images
@@ -58,7 +60,7 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p winit-annotation-editor
-          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo --lib
+          cargo check --release --locked --target wasm32-unknown-unknown -p avenger-geo -p avenger-layout --lib
 
       - uses: actions/setup-node@v4
         with:
