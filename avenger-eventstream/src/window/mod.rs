@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use smol_str::SmolStr;
 
-use crate::runtime::RuntimeWakeEvent;
+use crate::runtime::{InputSession, RuntimeWakeEvent};
 
+#[cfg(feature = "winit_support")]
 mod winit;
 
 /// Native window events, in logical coordinates
@@ -24,6 +25,9 @@ pub enum WindowEvent {
     KeyboardInput(WindowKeyboardInput),
     ModifiersChanged(crate::scene::ModifiersState),
     Ime(ImeEvent),
+    TextInput(SessionInputEvent),
+    PointerCaptureLost,
+    FocusEntered { reverse: bool },
     Clipboard(ClipboardEvent),
     RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
@@ -47,6 +51,9 @@ impl WindowEvent {
                 | Self::KeyboardInput(_)
                 | Self::ModifiersChanged(_)
                 | Self::Ime(_)
+                | Self::TextInput(_)
+                | Self::PointerCaptureLost
+                | Self::FocusEntered { .. }
                 | Self::Clipboard(_)
                 | Self::WindowFocused(_)
                 | Self::WindowCloseRequested
@@ -57,6 +64,49 @@ impl WindowEvent {
                 | Self::WindowResizeSettled(_)
                 | Self::CanvasResizeSettled(_)
         )
+    }
+}
+
+/// Input stamped with the focus session that owned it at the host boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionInputEvent {
+    pub session: InputSession,
+    pub event: TextInputEvent,
+}
+
+/// Actions delivered to a focused text input.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextInputEvent {
+    Keyboard(WindowKeyboardInput),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
+}
+
+impl WindowEvent {
+    /// Preserve legacy input when no session owner is installed.
+    pub fn with_input_session(self, session: Option<InputSession>) -> Self {
+        let Some(session) = session else {
+            return self;
+        };
+        let event = match self {
+            Self::KeyboardInput(event) => TextInputEvent::Keyboard(event),
+            Self::Ime(event) => TextInputEvent::Ime(event),
+            Self::Clipboard(event) => TextInputEvent::Clipboard(event),
+            other => return other,
+        };
+        Self::TextInput(SessionInputEvent { session, event })
+    }
+
+    /// Return keyboard data from ordinary or session-owned input.
+    pub fn keyboard_input(&self) -> Option<&WindowKeyboardInput> {
+        match self {
+            Self::KeyboardInput(event) => Some(event),
+            Self::TextInput(SessionInputEvent {
+                event: TextInputEvent::Keyboard(event),
+                ..
+            }) => Some(event),
+            _ => None,
+        }
     }
 }
 
@@ -113,6 +163,8 @@ pub struct WindowMouseWheel {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowKeyboardInput {
+    /// Whether this press repeats a held key.
+    pub repeat: bool,
     pub key: Key,
     /// Text produced by this key event, including multi-code-point input.
     ///

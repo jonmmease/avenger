@@ -157,6 +157,8 @@ pub struct UpdateStatus {
     /// Stop propagation after this handler. Unlike `EventStreamConfig::consume`,
     /// this is decided dynamically from the accepted event.
     pub consume: bool,
+    /// Suppress synthesized clicks for the current pointer press/release sequence.
+    pub suppress_click: bool,
     /// Whether the handler adopted the matched event. `None` preserves the
     /// historical behavior for non-transactional handlers and is interpreted
     /// as committed by the manager.
@@ -195,6 +197,7 @@ impl UpdateStatus {
                 .cloned()
                 .collect(),
             consume: self.consume || other.consume,
+            suppress_click: self.suppress_click || other.suppress_click,
             admission: match (self.admission, other.admission) {
                 (Some(left), Some(right)) => Some(left.merge(right)),
                 (Some(admission), None) | (None, Some(admission)) => Some(admission),
@@ -557,6 +560,7 @@ mod tests {
         let first_key = RuntimeWakeKey::new("test", 1, "first");
         let second_key = RuntimeWakeKey::new("test", 1, "second");
         let first = UpdateStatus {
+            suppress_click: true,
             rerender: true,
             rebuild_geometry: false,
             cursor: Some(CursorStyle::Crosshair),
@@ -567,6 +571,7 @@ mod tests {
             admission: Some(EventAdmission::Rejected),
         };
         let second = UpdateStatus {
+            suppress_click: false,
             rerender: false,
             rebuild_geometry: true,
             cursor: Some(CursorStyle::Grab),
