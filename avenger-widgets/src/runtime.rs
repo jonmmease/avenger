@@ -772,6 +772,22 @@ impl WidgetRuntime {
                     }
                 }
             }
+            Event::MouseLeave(e) => {
+                if self.hovered.as_ref().is_some_and(|t| {
+                    self.regions
+                        .iter()
+                        .any(|r| &r.target == t && r.name == e.mark_instance.name)
+                }) {
+                    self.hovered = None;
+                    update.status.rerender = true;
+                    update.status.cursor = Some(CursorStyle::Default);
+                    if let Some(g) = &mut self.gesture
+                        && matches!(g.kind, GestureKind::Button)
+                    {
+                        g.inside = false;
+                    }
+                }
+            }
             Event::KeyPress(e) => self.key(e.key, true, e.repeat, e.modifiers, &mut update),
             Event::KeyRelease(e) => self.key(e.key, false, false, e.modifiers, &mut update),
             Event::TextInput { input, modifiers } => {

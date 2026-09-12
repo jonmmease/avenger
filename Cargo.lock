@@ -6675,6 +6675,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "winit-widgets"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-layout",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-text",
+ "avenger-wgpu",
+ "avenger-widgets",
+ "avenger-winit-wgpu",
+ "console_error_panic_hook",
+ "console_log",
+ "log",
+ "pollster 0.4.0",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winit",
+]
+
+[[package]]
 name = "winnow"
 version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
