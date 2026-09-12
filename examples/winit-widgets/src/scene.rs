@@ -16,6 +16,42 @@ use avenger_scenegraph::{
 use avenger_text::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_widgets::{Rect, WidgetTheme};
 const INK: [f32; 4] = [0.08, 0.13, 0.20, 1.0];
+// Keep points separated at the largest marker size, including in the smallest plot.
+const POINT_SERIES: [[(f32, f32); 9]; 3] = [
+    [
+        (8.0, 16.0),
+        (18.0, 23.0),
+        (27.0, 28.0),
+        (37.0, 35.0),
+        (46.0, 40.0),
+        (56.0, 47.0),
+        (66.0, 52.0),
+        (77.0, 60.0),
+        (89.0, 65.0),
+    ],
+    [
+        (10.0, 31.0),
+        (20.0, 36.0),
+        (31.0, 43.0),
+        (40.0, 48.0),
+        (51.0, 55.0),
+        (60.0, 60.0),
+        (72.0, 69.0),
+        (82.0, 74.0),
+        (91.0, 80.0),
+    ],
+    [
+        (7.0, 45.0),
+        (17.0, 51.0),
+        (28.0, 58.0),
+        (38.0, 63.0),
+        (47.0, 70.0),
+        (57.0, 75.0),
+        (66.0, 82.0),
+        (77.0, 87.0),
+        (87.0, 94.0),
+    ],
+];
 fn label(value: impl Into<String>, x: f32, y: f32, size: f32) -> SceneTextMark {
     SceneTextMark {
         interactive: false,
@@ -128,12 +164,7 @@ pub fn build(state: &mut State) -> Result<SceneBuild, String> {
         ],
     };
     if state.layers.contains(&"points".into()) {
-        for i in 0..42 {
-            let x = 8.0 + (i % 14) as f32 * 6.2;
-            let y = 18.0
-                + (i % 14) as f32 * 4.2
-                + (i / 14) as f32 * 8.0
-                + ((i * 17 % 11) as f32 - 5.0) * 2.1;
+        for (i, &(x, y)) in POINT_SERIES.iter().flatten().enumerate() {
             let px = sx
                 .scale_scalar(&x)
                 .and_then(|v| v.as_f32())
@@ -142,7 +173,7 @@ pub fn build(state: &mut State) -> Result<SceneBuild, String> {
                 .scale_scalar(&y)
                 .and_then(|v| v.as_f32())
                 .map_err(|e| e.to_string())?;
-            let mut color = palette[i / 14];
+            let mut color = palette[i / POINT_SERIES[0].len()];
             color[3] = state.opacity as f32;
             plot_marks.push(
                 SceneSymbolMark {
