@@ -15,4 +15,6 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
 thiserror.workspace = true
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+avenger-wgpu = {path="../avenger-wgpu",default-features=false}
+pollster="0.4"
