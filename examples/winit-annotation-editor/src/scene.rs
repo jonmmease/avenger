@@ -12,10 +12,7 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::{
-    text_edit::{cursor_rect_for_offset, selection_rects},
-    types::{FontWeight, TextAlign, TextBaseline},
-};
+use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 
 use crate::state::{annotation_config, Sample, State};
 
@@ -69,16 +66,11 @@ fn axis_ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, AvengerScal
 }
 
 pub fn build(state: &mut State) -> Result<SceneGraph, String> {
-    // Browser copy/cut events need the current selection synchronously.
-    {
-        let mut clipboard = state.clipboard_text.lock().expect("clipboard selection");
-        // Preparing another sample must not change the installed editor's selection.
-        if clipboard.0 == state.generation {
-            clipboard.1 = state.editor.selected_text().to_string();
-        }
-    }
+    build_with_effects(state).map(|b| b.scene_graph)
+}
+
+pub fn build_with_effects(state: &mut State) -> Result<avenger_app::app::SceneBuild, String> {
     state.scene_builds += 1;
-    state.keep_caret_visible();
     let [width, height] = state.size;
     let [px, py, pw, ph] = state.plot();
     let mut marks: Vec<SceneMark> = vec![
@@ -220,75 +212,31 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
         .into(),
     );
     marks.push(text("Typst source", ix, 240.0, 14.0).into());
-    let mut field = rect("field", state.field(), [1.0; 4]);
-    field.stroke = ColorOrGradient::Color(if state.focused {
-        BLUE
-    } else {
-        [0.7, 0.76, 0.82, 1.0]
-    })
-    .into();
-    field.stroke_width = if state.focused { 2.0 } else { 1.0 }.into();
-    marks.push(field.into());
-    let line = state.shaped_line()?;
-    let [tx, ty] = state.field_text_origin();
-    let mut field_marks: Vec<SceneMark> = Vec::new();
-    for r in selection_rects(&line, state.editor.normalized_selection()) {
-        field_marks.push(
-            rect(
-                "",
-                [tx + r.x, ty + r.y, r.width, r.height],
-                [0.72, 0.84, 0.94, 1.0],
-            )
-            .into(),
-        );
-    }
-    let mut value = text(state.editor.text(), tx, ty + line.baseline, 17.0);
-    value.baseline = TextBaseline::Alphabetic.into();
-    value.clip = true;
-    field_marks.push(value.into());
-    if let Some(range) = state.editor.compose_range() {
-        for r in selection_rects(&line, range) {
-            field_marks.push(
-                rule(
-                    tx + r.x,
-                    ty + r.y + r.height,
-                    tx + r.x + r.width,
-                    ty + r.y + r.height,
-                    BLUE,
-                )
-                .into(),
-            );
-        }
-    }
-    if state.focused && state.caret_visible && state.editor.show_cursor() {
-        let head = state.editor.selection().head;
-        let r = cursor_rect_for_offset(&line, head.index, head.affinity);
-        field_marks.push(rect("", [tx + r.x, ty + r.y, 1.2, r.height], INK).into());
-    }
-    // All field drawing shares the horizontal scroll and clip used for hit testing and IME.
-    for mark in &mut field_marks {
-        match mark {
-            SceneMark::Rect(mark) => mark.clip = true,
-            SceneMark::Rule(mark) => mark.clip = true,
-            _ => {}
-        }
-    }
-    let [fx, fy, fw, fh] = state.field();
-    marks.push(
-        SceneGroup {
-            interactive: false,
-            clip: Clip::Rect {
-                x: fx + 5.0,
-                y: fy + 4.0,
-                width: fw - 10.0,
-                height: fh - 8.0,
-            },
-            marks: field_marks,
+    let spec = avenger_widgets::TextInput::new("source", &state.draft)
+        .semantic_name("Typst annotation source")
+        .invalid(state.annotation_error.is_some())
+        .text_style(avenger_widgets::TextStyle {
+            size: 17.0,
             ..Default::default()
-        }
-        .into(),
-    );
-    let status = if state.editor.compose_range().is_some() {
+        })
+        .commit_policy(avenger_widgets::TextCommitPolicy::Debounced(
+            avenger_common::time::Duration::from_millis(350),
+        ));
+    let mut prepared = state
+        .widgets
+        .prepare(
+            &[spec.into()],
+            &avenger_widgets::WidgetTheme::light(),
+            &state.engine,
+        )
+        .map_err(|e| e.to_string())?;
+    let [x, y, w, h] = state.field();
+    prepared
+        .place("source", avenger_widgets::Rect::new(x, y, w, h), None)
+        .map_err(|e| e.to_string())?;
+    let frame = prepared.finish().map_err(|e| e.to_string())?;
+    marks.push(frame.scene.clone().into());
+    let status = if state.widgets.text_is_composing("source") {
         "Composing…"
     } else if state.annotation_error.is_some() {
         "Invalid markup · preview unchanged"
@@ -337,10 +285,16 @@ pub fn build(state: &mut State) -> Result<SceneGraph, String> {
         marks.push(label.into());
     }
     marks.push(text("Hover for details  ·  Drag a label to reposition it  ·  Drag the plot background to pan",32.0,height-32.0,14.0).into());
-    Ok(SceneGraph {
+    let scene_graph = SceneGraph {
         width,
         height,
         origin: [0.0; 2],
         marks,
+    };
+    let update = state.widgets.install(frame).map_err(|e| e.to_string())?;
+    Ok(avenger_app::app::SceneBuild {
+        scene_graph,
+        commands: update.status.commands,
+        rebuild_geometry: update.status.rebuild_geometry,
     })
 }

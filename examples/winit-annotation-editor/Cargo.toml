@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [dependencies]
+avenger-widgets = { path = "../../avenger-widgets" }
 avenger-app = { path = "../../avenger-app" }
 avenger-common = { path = "../../avenger-common" }
 avenger-color = { path = "../../avenger-color" }

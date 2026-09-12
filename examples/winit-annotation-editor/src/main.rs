@@ -35,7 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let engine = avenger_text::default_text_engine();
     let mut state = State::new(Sample::A, 0, engine.clone());
     state.reload = Arc::downgrade(&reload);
-    state.clipboard_text = reload.clipboard_text.clone();
     let app = runtime.block_on(make_app(state))?;
     let options = WinitWgpuAvengerAppOptions::new(scale)
         .window_attributes(

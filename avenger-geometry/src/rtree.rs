@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use avenger_scenegraph::{
+    marks::group::Clip,
     marks::mark::MarkInstance,
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -101,6 +102,9 @@ pub struct SceneGraphRTree {
     /// mark. It is intentionally separate from scene paths, which describe
     /// hierarchy rather than stacking.
     render_orders: HashMap<Vec<usize>, HashMap<Option<usize>, usize>>,
+    /// Effective display-list clips for point picking. Region queries retain
+    /// the underlying mark geometry for selection and spatial analysis.
+    pick_clips: HashMap<Vec<usize>, Clip>,
 }
 
 impl SceneGraphRTree {
@@ -131,6 +135,7 @@ impl SceneGraphRTree {
         let rtree = RTree::bulk_load(geometries);
 
         Self {
+            pick_clips: HashMap::new(),
             rtree,
             envelope,
             group_origins,
@@ -184,12 +189,19 @@ impl SceneGraphRTree {
             })
             .collect();
 
-        SceneGraphRTree::new(
+        let mut tree = SceneGraphRTree::new(
             geometry_instances,
             scene_graph.group_origins(),
             scene_graph.group_names(),
             group_names_by_path,
-        )
+        );
+        tree.pick_clips = display_list
+            .items
+            .iter()
+            .filter(|item| !matches!(item.clip, Clip::None))
+            .map(|item| (item.mark_path.clone(), item.clip.clone()))
+            .collect();
+        tree
     }
 
     /// Whether a picked scene mark belongs to a stable public target.
@@ -268,6 +280,30 @@ impl SceneGraphRTree {
     pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&MarkInstance> {
         self.rtree
             .locate_all_at_point(point)
+            .filter(
+                |instance| match self.pick_clips.get(&instance.mark_instance.mark_path) {
+                    None | Some(Clip::None) => true,
+                    Some(Clip::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    }) => {
+                        *width > 0.0
+                            && *height > 0.0
+                            && point[0] >= *x
+                            && point[0] <= x + width
+                            && point[1] >= *y
+                            && point[1] <= y + height
+                    }
+                    Some(Clip::Path(path)) => lyon_algorithms::hit_test::hit_test_path(
+                        &lyon_path::math::point(point[0], point[1]),
+                        path.iter(),
+                        lyon_path::FillRule::NonZero,
+                        0.01,
+                    ),
+                },
+            )
             .max_by_key(|instance| {
                 self.render_orders
                     .get(instance.mark_instance.mark_path.as_slice())
@@ -742,6 +778,61 @@ mod tests {
         let rtree = SceneGraphRTree::from_scene_graph(&scene);
         assert_eq!(rtree.size(), 0);
         assert!(rtree.pick_top_mark_at_point(&[20.0, 30.0]).is_none());
+    }
+
+    #[test]
+    fn top_pick_obeys_translated_rect_and_path_clips() {
+        let mut top = hit_rect("clipped", None);
+        if let SceneMark::Rect(rect) = &mut top {
+            rect.clip = true;
+        }
+        let scene = hit_scene(vec![
+            hit_rect("under", None),
+            SceneGroup {
+                origin: [3.0, 4.0],
+                clip: Clip::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 5.0,
+                    height: 5.0,
+                },
+                marks: vec![top.clone()],
+                ..Default::default()
+            }
+            .into(),
+        ]);
+        let tree = SceneGraphRTree::from_scene_graph(&scene);
+        assert_eq!(
+            tree.pick_top_mark_at_point(&[4.0, 5.0]).unwrap().name,
+            "clipped"
+        );
+        assert_eq!(
+            tree.pick_top_mark_at_point(&[10.0, 10.0]).unwrap().name,
+            "under"
+        );
+        let mut path = lyon_path::Path::builder();
+        path.begin(lyon_path::math::point(0.0, 0.0));
+        path.line_to(lyon_path::math::point(10.0, 0.0));
+        path.line_to(lyon_path::math::point(0.0, 10.0));
+        path.close();
+        let scene = hit_scene(vec![
+            hit_rect("under", None),
+            SceneGroup {
+                clip: Clip::Path(path.build()),
+                marks: vec![top],
+                ..Default::default()
+            }
+            .into(),
+        ]);
+        let tree = SceneGraphRTree::from_scene_graph(&scene);
+        assert_eq!(
+            tree.pick_top_mark_at_point(&[2.0, 2.0]).unwrap().name,
+            "clipped"
+        );
+        assert_eq!(
+            tree.pick_top_mark_at_point(&[8.0, 8.0]).unwrap().name,
+            "under"
+        );
     }
 
     #[test]

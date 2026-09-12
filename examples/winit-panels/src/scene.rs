@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::state::{CONTROL_LABELS, State};
 use avenger_color::ColorOrGradient;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::{
@@ -41,6 +41,7 @@ pub struct Output {
     pub iterations: usize,
     pub fallback: bool,
     pub columns: usize,
+    pub widget_update: avenger_widgets::WidgetUpdate,
 }
 
 fn text(value: impl Into<String>, x: f32, y: f32, size: f32, color: [f32; 4]) -> SceneTextMark {
@@ -636,6 +637,9 @@ fn settle(
 
 /// Construct the scene and return the actual plans used by the renderer.
 pub fn build(state: &State) -> Result<Output, String> {
+    build_live(&mut state.clone())
+}
+pub fn build_live(state: &mut State) -> Result<Output, String> {
     let tree = hierarchy();
     let domains = domains(&tree, state)?;
     let wrap =
@@ -868,31 +872,37 @@ pub fn build(state: &State) -> Result<Output, String> {
         )
         .into(),
     );
-    for (index, (label, value)) in state.controls().into_iter().enumerate() {
-        let y = 145.0 + index as f32 * 65.0;
+    let specs = state.widget_specs();
+    let mut theme = avenger_widgets::WidgetTheme::light();
+    theme.radio.text.size = 12.0;
+    theme.radio.row_height = 26.0;
+    theme.checkbox.text.size = 12.0;
+    theme.checkbox.row_height = 26.0;
+    theme.group.gap = 6.0;
+    let mut prepared = state
+        .widgets
+        .prepare(&specs, &theme, &state.engine)
+        .map_err(|e| e.to_string())?;
+    let mut y = 145.0;
+    for (label, spec) in CONTROL_LABELS.into_iter().zip(&specs) {
+        let height = prepared
+            .metrics(spec.id().clone())
+            .unwrap()
+            .preferred
+            .height;
         marks.push(text(label, sx, y, 11.0, MUTED).into());
-        marks.push(
-            rect(
-                &format!("control-{index}"),
-                Rect::new(sx, y + 8.0, 222.0, 32.0),
-                [1.0; 4],
-                Some([0.81, 0.86, 0.89, 1.0]),
+        prepared
+            .place(
+                spec.id().clone(),
+                avenger_widgets::Rect::new(sx, y + 8.0, 222.0, height),
+                None,
             )
-            .into(),
-        );
-        marks.push(
-            text(
-                value,
-                sx + 9.0,
-                y + 29.0,
-                if index == 7 { 11.0 } else { 12.0 },
-                INK,
-            )
-            .into(),
-        );
+            .map_err(|e| e.to_string())?;
+        y += 8.0 + height + 20.0;
     }
-    let y = 145.0 + 8.0 * 65.0;
-    marks.push(text("Click a control or press 1–8.", sx, y, 11.0, MUTED).into());
+    let frame = prepared.finish().map_err(|e| e.to_string())?;
+    marks.push(frame.scene.clone().into());
+    marks.push(text("Choose an option or press 1–8.", sx, y, 11.0, MUTED).into());
     marks.push(text("Resize to rewrap each region.", sx, y + 19.0, 11.0, MUTED).into());
     let label_count = settled
         .plan
@@ -961,7 +971,11 @@ pub fn build(state: &State) -> Result<Output, String> {
             .into(),
         ],
     };
+    let widget_update = state.widgets.install(frame).map_err(|e| e.to_string())?;
+    #[cfg(target_arch = "wasm32")]
+    crate::web::record(state);
     Ok(Output {
+        widget_update,
         scene,
         plan: settled.plan,
         frames: settled.frames,
