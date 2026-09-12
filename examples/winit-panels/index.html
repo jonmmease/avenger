@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel explorer</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; background: white; color: #1a2b3b; font: 15px system-ui, sans-serif; }
+    canvas { display: block; width: 100vw !important; height: 100vh !important; min-width: 720px; min-height: 780px; outline: none; touch-action: none; }
+    @media (max-width: 1099px) { canvas { min-height: 1100px; } }
+    @media (max-width: 839px) { canvas { min-height: 1600px; } }
+    #status { padding: 24px; }
+  </style>
+</head>
+<body>
+  <div id="status" role="status">Loading panel explorer…</div>
+  <div id="wasm-example"></div>
+  <script type="module">
+    const status = document.getElementById("status");
+    try {
+      const { default: init, run } = await import("./pkg/winit_panels.js");
+      await init();
+      await run();
+      status.hidden = true;
+    } catch (error) {
+      status.textContent = `The panel explorer could not start: ${error}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>
