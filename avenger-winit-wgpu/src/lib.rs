@@ -2,7 +2,7 @@ use avenger_app::app::AvengerApp;
 use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
 #[cfg(not(target_arch = "wasm32"))]
 use avenger_eventstream::runtime::{
-    LogicalRect, RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey,
+    InputSession, KeyboardPolicy, LogicalRect, RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use avenger_eventstream::window::ClipboardEvent;
@@ -816,6 +816,14 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     clipboard: Option<arboard::Clipboard>,
     #[cfg(not(target_arch = "wasm32"))]
+    input_session: Option<InputSession>,
+    #[cfg(not(target_arch = "wasm32"))]
+    composition_session: Option<Option<InputSession>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    keyboard_policy: Option<KeyboardPolicy>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pointer_captured: bool,
+    #[cfg(not(target_arch = "wasm32"))]
     modifiers: keyboard::ModifiersState,
     #[cfg(not(target_arch = "wasm32"))]
     runtime_wake_scheduler: NativeRuntimeWakeScheduler,
@@ -955,6 +963,14 @@ where
             #[cfg(not(target_arch = "wasm32"))]
             clipboard: None,
             #[cfg(not(target_arch = "wasm32"))]
+            input_session: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            composition_session: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            keyboard_policy: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pointer_captured: false,
+            #[cfg(not(target_arch = "wasm32"))]
             modifiers: keyboard::ModifiersState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             runtime_wake_scheduler,
@@ -1072,6 +1088,19 @@ where
             // than retaining `grabbing`/resize feedback from the old app.
             canvas.window().set_cursor(CursorIcon::Default);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.input_session = None;
+            self.keyboard_policy = None;
+            self.pointer_captured = false;
+        }
+        let commands = self.avenger_app.borrow_mut().take_host_commands();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.apply_runtime_host_commands(commands);
+        #[cfg(target_arch = "wasm32")]
+        if let Some(host) = self.text_agent.borrow_mut().as_mut() {
+            host.apply_commands(commands);
+        }
         self.installed_host_generation = update.generation;
         let installed_generation = update.generation;
 
@@ -1139,6 +1168,24 @@ where
                                     canvas.window().set_cursor(cursor_style_to_winit(cursor));
                                 }
                             }
+                            if let Some(scene_graph) = update.scene_graph {
+                                if let Some(host) = text_agent.borrow_mut().as_mut() {
+                                    host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
+                                }
+                                let mut canvas_borrowed = canvas_shared.borrow_mut();
+                                if let Some(canvas) = canvas_borrowed.as_mut() {
+                                    if let Err(e) = install_scene_graph(
+                                        canvas,
+                                        &scene_graph,
+                                        window_scene_sizing,
+                                        scale,
+                                        None,
+                                    ) {
+                                        log::error!("Failed to set scene: {:?}", e);
+                                        return;
+                                    }
+                                }
+                            }
                             let mut text_commands = Vec::new();
                             for command in std::mem::take(&mut update.status.commands) {
                                 match command {
@@ -1154,23 +1201,6 @@ where
                             }
                             if let Some(host) = text_agent.borrow_mut().as_mut() {
                                 host.apply_commands(text_commands);
-                            }
-                            if let Some(scene_graph) = update.scene_graph {
-                                if let Some(host) = text_agent.borrow_mut().as_mut() {
-                                    host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
-                                }
-                                let mut canvas_borrowed = canvas_shared.borrow_mut();
-                                if let Some(canvas) = canvas_borrowed.as_mut() {
-                                    if let Err(e) = install_scene_graph(
-                                        canvas,
-                                        &scene_graph,
-                                        window_scene_sizing,
-                                        scale,
-                                        None,
-                                    ) {
-                                        log::error!("Failed to set scene: {:?}", e);
-                                    }
-                                }
                             }
                         }
                         Err(e) => {
@@ -1214,7 +1244,6 @@ where
                     self.set_cursor(cursor_style_to_winit(cursor));
                 }
                 let commands = std::mem::take(&mut scene_graph_opt.status.commands);
-                self.apply_runtime_host_commands(commands);
                 let rerender = scene_graph_opt.scene_graph.is_some();
 
                 if let Some(scene_graph) = scene_graph_opt.scene_graph {
@@ -1228,6 +1257,7 @@ where
                             self.canvas_frame.as_mut(),
                         ) {
                             log::error!("Failed to set scene: {err:?}");
+                            return;
                         } else {
                             tracing::debug!(
                                 target: "avenger_winit_wgpu::resize",
@@ -1238,6 +1268,7 @@ where
                         }
                     }
                 }
+                self.apply_runtime_host_commands(commands);
                 tracing::debug!(
                     target: "avenger_winit_wgpu::resize",
                     app_update_ms = app_update_elapsed.as_secs_f64() * 1000.0,
@@ -1385,6 +1416,9 @@ where
                         log::error!("Failed to set invalidated scene graph: {err:?}");
                         return;
                     }
+                    if let Some(host) = text_agent.borrow_mut().as_mut() {
+                        host.apply_commands(app_clone.borrow_mut().take_host_commands());
+                    }
                     tracing::debug!(
                         target: "avenger_winit_wgpu::resize",
                         epoch = invalidation_epoch,
@@ -1437,6 +1471,8 @@ where
                     );
                     self.render_pending = true;
                 }
+                let commands = self.avenger_app.borrow_mut().take_host_commands();
+                self.apply_runtime_host_commands(commands);
                 true
             }
         }
@@ -1663,6 +1699,11 @@ where
                 RuntimeHostCommand::CancelWakeup { key } => {
                     self.runtime_wake_scheduler.cancel(&key)
                 }
+                RuntimeHostCommand::SetInputSession { session } => self.input_session = session,
+                RuntimeHostCommand::SetKeyboardPolicy { policy } => self.keyboard_policy = policy,
+                RuntimeHostCommand::SetPointerCapture { captured } => {
+                    self.pointer_captured = captured
+                }
                 RuntimeHostCommand::SetImeAllowed { allowed } => {
                     if let Some(canvas) = self.canvas.borrow().as_ref() {
                         canvas.window().set_ime_allowed(allowed);
@@ -1679,6 +1720,7 @@ where
                         canvas.window().set_ime_cursor_area(position, size);
                     }
                 }
+                RuntimeHostCommand::SetClipboardPayload { .. } => {}
                 RuntimeHostCommand::WriteClipboard { text } => {
                     if self.clipboard.is_none() {
                         match arboard::Clipboard::new() {
@@ -1727,7 +1769,32 @@ where
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn stamp_native_input(&mut self, event: AvengerWindowEvent) -> AvengerWindowEvent {
+        use avenger_eventstream::window::ImeEvent;
+        let session = match &event {
+            AvengerWindowEvent::Ime(ImeEvent::Preedit { .. }) => {
+                self.composition_session
+                    .get_or_insert_with(|| self.input_session.clone());
+                self.composition_session.clone().flatten()
+            }
+            AvengerWindowEvent::Ime(ImeEvent::Commit(_) | ImeEvent::Disabled) => self
+                .composition_session
+                .take()
+                .unwrap_or_else(|| self.input_session.clone()),
+            _ => self.input_session.clone(),
+        };
+        event.with_input_session(session)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn handle_native_clipboard_shortcut(&mut self, event: &WindowEvent) -> bool {
+        if self
+            .keyboard_policy
+            .as_ref()
+            .is_some_and(|p| !p.text_shortcuts)
+        {
+            return false;
+        }
         let WindowEvent::KeyboardInput { event, .. } = event else {
             return false;
         };
@@ -1773,7 +1840,8 @@ where
                 }
             }
         };
-        self.dispatch_avenger_event(AvengerWindowEvent::Clipboard(clipboard_event), false);
+        let event = self.stamp_native_input(AvengerWindowEvent::Clipboard(clipboard_event));
+        self.dispatch_avenger_event(event, false);
         true
     }
 
@@ -1805,6 +1873,11 @@ where
     State: Clone + Send + Sync + 'static,
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            self.window_attributes = self.window_attributes.clone().with_prevent_default(false);
+        }
         let window = match event_loop.create_window(self.window_attributes.clone()) {
             Ok(window) => window,
             Err(error) => {
@@ -1843,6 +1916,7 @@ where
             host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
         }
 
+        let initial_commands = self.avenger_app.borrow_mut().take_host_commands();
         let canvas_future = WindowCanvas::new(window, dimensions, self.canvas_config.clone());
 
         cfg_if::cfg_if! {
@@ -1851,6 +1925,7 @@ where
 
                 let event_proxy = self.event_proxy.clone();
                 let render_generation = self.installed_host_generation;
+                let text_agent = self.text_agent.clone();
                 let render_invalidation_hub = self.render_invalidation_hub.clone();
                 let setup_future = async move {
                     match canvas_future.await {
@@ -1865,6 +1940,7 @@ where
                                 log::error!("Failed to set initial scene: {err:?}");
                             }
                             *canvas_shared.borrow_mut() = Some(canvas);
+                            if let Some(host) = text_agent.borrow_mut().as_mut() { host.apply_commands(initial_commands); }
                             if let Some(invalidation) = render_invalidation_hub
                                 .as_ref()
                                 .and_then(|hub| hub.latest_evaluation_invalidation())
@@ -1911,6 +1987,7 @@ where
                             return;
                         }
                         *canvas_shared.borrow_mut() = Some(canvas);
+                        self.apply_runtime_host_commands(initial_commands);
                         // Replay any invalidation that arrived while the
                         // canvas didn't exist yet (e.g. an async
                         // materialization that completed during init) so its
@@ -2024,6 +2101,11 @@ where
             return;
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.pointer_captured && matches!(event, WindowEvent::CursorLeft { .. }) {
+            self.pointer_captured = false;
+            self.dispatch_avenger_event(AvengerWindowEvent::PointerCaptureLost, false);
+        }
         if self.handle_canvas_frame_event(&event) {
             return;
         }
@@ -2137,6 +2219,8 @@ where
                         if event_schedules_interaction_settle(&event) {
                             self.schedule_interaction_settle();
                         }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let event = self.stamp_native_input(event);
                         self.dispatch_avenger_event(event, false);
                     }
                 }
@@ -2258,6 +2342,9 @@ fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
         AvengerWindowEvent::CursorLeft => "CursorLeft",
         AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
         AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
+        AvengerWindowEvent::TextInput(_) => "TextInput",
+        AvengerWindowEvent::PointerCaptureLost => "PointerCaptureLost",
+        AvengerWindowEvent::FocusEntered { .. } => "FocusEntered",
         AvengerWindowEvent::ModifiersChanged(_) => "ModifiersChanged",
         AvengerWindowEvent::Ime(_) => "Ime",
         AvengerWindowEvent::Clipboard(_) => "Clipboard",

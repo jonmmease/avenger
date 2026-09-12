@@ -91,6 +91,7 @@ impl WindowEvent {
                     return None;
                 }
                 Some(Self::KeyboardInput(WindowKeyboardInput {
+                    repeat: event.repeat,
                     state: match event.state {
                         WinitElementState::Pressed => ElementState::Pressed,
                         WinitElementState::Released => ElementState::Released,

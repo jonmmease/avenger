@@ -51,6 +51,7 @@ impl Harness {
     }
     fn key(&mut self, key: Key, text: Option<&str>) -> AppUpdate {
         self.send(WindowEvent::KeyboardInput(WindowKeyboardInput {
+            repeat: false,
             key,
             text: text.map(Into::into),
             state: ElementState::Pressed,
@@ -72,6 +73,7 @@ impl Harness {
         self.key(command, None);
         self.key(Key::Character('a'), Some("a"));
         self.send(WindowEvent::KeyboardInput(WindowKeyboardInput {
+            repeat: false,
             key: command,
             text: None,
             state: ElementState::Released,

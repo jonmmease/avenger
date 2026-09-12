@@ -1,5 +1,5 @@
 use avenger_eventstream::{
-    runtime::LogicalRect,
+    runtime::{InputSession, LogicalRect},
     window::{ElementState, ImeEvent, Key, NamedKey, WindowEvent, WindowKeyboardInput},
 };
 
@@ -7,21 +7,32 @@ use crate::ClipboardPayloadProvider;
 #[derive(Debug, Default)]
 struct TextAgentInputState {
     suppress_input_once: Option<String>,
+    session: Option<InputSession>,
+    composition_session: Option<Option<InputSession>>,
 }
 
 impl TextAgentInputState {
     fn composition_update(&mut self, text: impl Into<String>) -> WindowEvent {
         self.suppress_input_once = None;
+        let session = self
+            .composition_session
+            .get_or_insert_with(|| self.session.clone())
+            .clone();
         WindowEvent::Ime(ImeEvent::Preedit {
             text: text.into().into(),
             cursor: None,
         })
+        .with_input_session(session)
     }
 
     fn composition_end(&mut self, text: impl Into<String>) -> WindowEvent {
         let text = text.into();
         self.suppress_input_once = (!text.is_empty()).then(|| text.clone());
-        WindowEvent::Ime(ImeEvent::Commit(text.into()))
+        WindowEvent::Ime(ImeEvent::Commit(text.into())).with_input_session(
+            self.composition_session
+                .take()
+                .unwrap_or_else(|| self.session.clone()),
+        )
     }
 
     fn input(&mut self, text: impl Into<String>) -> Option<WindowEvent> {
@@ -30,11 +41,15 @@ impl TextAgentInputState {
             return None;
         }
         let key = text.chars().next().map(Key::Character)?;
-        Some(WindowEvent::KeyboardInput(WindowKeyboardInput {
-            key,
-            text: Some(text.into()),
-            state: ElementState::Pressed,
-        }))
+        Some(
+            WindowEvent::KeyboardInput(WindowKeyboardInput {
+                repeat: false,
+                key,
+                text: Some(text.into()),
+                state: ElementState::Pressed,
+            })
+            .with_input_session(self.session.clone()),
+        )
     }
 
     fn begin_key_input(&mut self) {
@@ -89,6 +104,7 @@ fn browser_key(key: &str) -> Option<Key> {
 
 fn browser_key_event(key: &str, state: ElementState) -> Option<WindowEvent> {
     Some(WindowEvent::KeyboardInput(WindowKeyboardInput {
+        repeat: false,
         key: browser_key(key)?,
         text: None,
         state,
@@ -179,11 +195,13 @@ mod wasm {
     };
 
     use avenger_common::time::Instant;
-    use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey};
+    use avenger_eventstream::runtime::{
+        KeyboardPolicy, RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey,
+    };
     use wasm_bindgen::{closure::Closure, JsCast, JsValue};
     use web_sys::{
         ClipboardEvent as DomClipboardEvent, CompositionEvent, Event, EventTarget, FocusEvent,
-        HtmlCanvasElement, HtmlInputElement, InputEvent, KeyboardEvent,
+        HtmlCanvasElement, HtmlInputElement, InputEvent, KeyboardEvent, PointerEvent,
     };
     use winit::event_loop::EventLoopProxy;
 
@@ -207,6 +225,10 @@ mod wasm {
         active_wakes: Rc<RefCell<HashMap<RuntimeWakeKey, u64>>>,
         event_proxy: EventLoopProxy<WinitWgpuEvent>,
         logical_canvas_size: [f32; 2],
+        keyboard_policy: Rc<RefCell<Option<KeyboardPolicy>>>,
+        tab_entry: Rc<Cell<Option<bool>>>,
+        pointer: Rc<Cell<Option<i32>>>,
+        captured: Rc<Cell<bool>>,
     }
 
     impl TextAgentHost {
@@ -244,10 +266,10 @@ mod wasm {
             style.set_property("z-index", "-1")?;
             style.set_property("left", "-10000px")?;
             style.set_property("top", "-10000px")?;
-            document
-                .body()
-                .ok_or_else(|| JsValue::from_str("missing document body"))?
-                .append_child(&input)?;
+            canvas
+                .parent_node()
+                .ok_or_else(|| JsValue::from_str("canvas has no parent"))?
+                .insert_before(&input, canvas.next_sibling().as_ref())?;
 
             let mut host = Self {
                 canvas,
@@ -259,7 +281,12 @@ mod wasm {
                 active_wakes: Rc::new(RefCell::new(HashMap::new())),
                 event_proxy,
                 logical_canvas_size: [1.0, 1.0],
+                keyboard_policy: Default::default(),
+                tab_entry: Rc::new(Cell::new(None)),
+                pointer: Rc::new(Cell::new(None)),
+                captured: Rc::new(Cell::new(false)),
             };
+            host.install_canvas_listeners(&document)?;
             host.install_input_listeners()?;
             host.install_focus_listeners(&window)?;
             host.install_clipboard_listeners(document.as_ref(), clipboard_payload_provider)?;
@@ -279,8 +306,12 @@ mod wasm {
         pub fn reset_for_replacement(&mut self, size: [f32; 2]) {
             self.active_wakes.borrow_mut().clear();
             self.apply_commands(vec![RuntimeHostCommand::SetImeAllowed { allowed: false }]);
-            *self.input_state.borrow_mut() = TextAgentInputState::default();
+            // A queued composition end still belongs to the retired session.
+            self.input_state.borrow_mut().session = None;
             self.input.set_value("");
+            *self.keyboard_policy.borrow_mut() = None;
+            self.release_pointer();
+            self.tab_entry.set(None);
             self.set_clipboard_payload("");
             self.set_logical_canvas_size(size);
         }
@@ -295,6 +326,34 @@ mod wasm {
                     } => self.request_wakeup(key, deadline, generation),
                     RuntimeHostCommand::CancelWakeup { key } => {
                         self.active_wakes.borrow_mut().remove(&key);
+                    }
+                    RuntimeHostCommand::SetInputSession { session } => {
+                        self.input_state.borrow_mut().session = session;
+                    }
+                    RuntimeHostCommand::SetKeyboardPolicy { policy } => {
+                        *self.keyboard_policy.borrow_mut() = policy
+                    }
+                    RuntimeHostCommand::SetPointerCapture { captured } => {
+                        if captured {
+                            if let Some(id) = self.pointer.get() {
+                                if self.canvas.set_pointer_capture(id).is_ok() {
+                                    self.captured.set(true);
+                                } else {
+                                    let _ = self
+                                        .event_proxy
+                                        .send_event(App(WindowEvent::PointerCaptureLost));
+                                }
+                            } else {
+                                let _ = self
+                                    .event_proxy
+                                    .send_event(App(WindowEvent::PointerCaptureLost));
+                            }
+                        } else {
+                            self.release_pointer();
+                        }
+                    }
+                    RuntimeHostCommand::SetClipboardPayload { text } => {
+                        self.set_clipboard_payload(text)
                     }
                     RuntimeHostCommand::SetImeAllowed { allowed } => {
                         let changed = self.active.replace(allowed) != allowed;
@@ -318,7 +377,8 @@ mod wasm {
                             } else {
                                 ImeEvent::Disabled
                             };
-                            let _ = self.event_proxy.send_event(App(WindowEvent::Ime(event)));
+                            let _ = self.event_proxy.send_event(App(WindowEvent::Ime(event)
+                                .with_input_session(self.input_state.borrow().session.clone())));
                         }
                     }
                     RuntimeHostCommand::SetImeCursorArea { rect } => {
@@ -334,6 +394,73 @@ mod wasm {
                     RuntimeHostCommand::UpdateTooltip(_) => {}
                 }
             }
+        }
+
+        fn release_pointer(&self) {
+            self.captured.set(false);
+            if let Some(id) = self.pointer.get() {
+                let _ = self.canvas.release_pointer_capture(id);
+            }
+        }
+
+        fn install_canvas_listeners(
+            &mut self,
+            document: &web_sys::Document,
+        ) -> Result<(), JsValue> {
+            let entry = self.tab_entry.clone();
+            self.add_listener(document.as_ref(), "keydown", move |event| {
+                let event = event.unchecked_into::<KeyboardEvent>();
+                entry.set((event.key() == "Tab").then_some(event.shift_key()));
+            })?;
+            let entry = self.tab_entry.clone();
+            self.add_listener(document.as_ref(), "pointerdown", move |_| entry.set(None))?;
+            let target: EventTarget = self.canvas.clone().into();
+            // Winit dispatches the press from pointerdown. If that press opens
+            // the text agent, the following mousedown must not refocus canvas.
+            let active = self.active.clone();
+            self.add_listener(&target, "mousedown", move |event| {
+                if active.get() {
+                    event.prevent_default();
+                }
+            })?;
+            let policy = self.keyboard_policy.clone();
+            self.add_listener(&target, "keydown", move |event| {
+                let event = event.unchecked_into::<KeyboardEvent>();
+                let modifiers = avenger_eventstream::scene::ModifiersState {
+                    shift: event.shift_key(),
+                    control: event.ctrl_key(),
+                    alt: event.alt_key(),
+                    meta: event.meta_key(),
+                };
+                if let (Some(policy), Some(key)) =
+                    (policy.borrow().as_ref(), browser_key(&event.key()))
+                {
+                    if policy.captures(key, modifiers) {
+                        event.prevent_default();
+                    }
+                }
+            })?;
+            let pointer = self.pointer.clone();
+            self.add_listener(&target, "pointerdown", move |event| {
+                let event = event.unchecked_into::<PointerEvent>();
+                if event.button() == 0 {
+                    pointer.set(Some(event.pointer_id()));
+                }
+            })?;
+            let pointer = self.pointer.clone();
+            self.add_listener(document.as_ref(), "pointerup", move |_| pointer.set(None))?;
+            for name in ["lostpointercapture", "pointercancel"] {
+                let captured = self.captured.clone();
+                let pointer = self.pointer.clone();
+                let proxy = self.event_proxy.clone();
+                self.add_listener(&target, name, move |_| {
+                    // Normal pointerup already ends the gesture before automatic capture release.
+                    if captured.replace(false) && pointer.get().is_some() {
+                        let _ = proxy.send_event(App(WindowEvent::PointerCaptureLost));
+                    }
+                })?;
+            }
+            Ok(())
         }
 
         fn add_listener(
@@ -354,6 +481,12 @@ mod wasm {
 
         fn install_input_listeners(&mut self) -> Result<(), JsValue> {
             let target: EventTarget = self.input.clone().into();
+
+            let state = self.input_state.clone();
+            self.add_listener(&target, "compositionstart", move |_| {
+                let mut state = state.borrow_mut();
+                state.composition_session = Some(state.session.clone());
+            })?;
 
             let proxy = self.event_proxy.clone();
             let state = self.input_state.clone();
@@ -397,6 +530,7 @@ mod wasm {
             ] {
                 let proxy = self.event_proxy.clone();
                 let state = self.input_state.clone();
+                let policy = self.keyboard_policy.clone();
                 self.add_listener(&target, name, move |event| {
                     let event = event.unchecked_into::<KeyboardEvent>();
                     if event.is_composing() {
@@ -405,20 +539,39 @@ mod wasm {
                     if element_state == ElementState::Pressed {
                         state.borrow_mut().begin_key_input();
                     }
-                    if let Some(output) = forwarded_browser_key_event(
+                    if let Some(mut output) = forwarded_browser_key_event(
                         &event.key(),
                         element_state,
                         event.ctrl_key(),
                         event.meta_key(),
                     ) {
-                        if prevent_browser_key_default(
-                            &event.key(),
-                            event.ctrl_key(),
-                            event.meta_key(),
-                        ) && !event.get_modifier_state("AltGraph")
-                        {
+                        let modifiers = avenger_eventstream::scene::ModifiersState {
+                            shift: event.shift_key(),
+                            control: event.ctrl_key(),
+                            alt: event.alt_key(),
+                            meta: event.meta_key(),
+                        };
+                        let prevent = policy.borrow().as_ref().map_or_else(
+                            || {
+                                prevent_browser_key_default(
+                                    &event.key(),
+                                    event.ctrl_key(),
+                                    event.meta_key(),
+                                )
+                            },
+                            |p| {
+                                browser_key(&event.key())
+                                    .is_some_and(|key| p.captures(key, modifiers))
+                            },
+                        );
+                        if prevent && !event.get_modifier_state("AltGraph") {
                             event.prevent_default();
                         }
+                        if let WindowEvent::KeyboardInput(input) = &mut output {
+                            input.repeat = event.repeat();
+                        }
+                        let _ = proxy.send_event(App(WindowEvent::ModifiersChanged(modifiers)));
+                        let output = output.with_input_session(state.borrow().session.clone());
                         let _ = proxy.send_event(App(output));
                     }
                 })?;
@@ -434,8 +587,20 @@ mod wasm {
                 EventTarget::from(self.input.clone()),
             ] {
                 let proxy = self.event_proxy.clone();
-                self.add_listener(&target, "focus", move |_| {
+                let entry = self.tab_entry.clone();
+                let canvas: EventTarget = self.canvas.clone().into();
+                let input: EventTarget = self.input.clone().into();
+                self.add_listener(&target, "focus", move |event| {
+                    let event = event.unchecked_into::<FocusEvent>();
+                    let internal = event
+                        .related_target()
+                        .is_some_and(|t| t == canvas || t == input);
                     let _ = proxy.send_event(App(WindowEvent::WindowFocused(true)));
+                    if !internal {
+                        if let Some(reverse) = entry.take() {
+                            let _ = proxy.send_event(App(WindowEvent::FocusEntered { reverse }));
+                        }
+                    }
                 })?;
                 let proxy = self.event_proxy.clone();
                 let canvas = EventTarget::from(self.canvas.clone());
@@ -479,8 +644,18 @@ mod wasm {
                 let payload = self.clipboard_payload.clone();
                 let provider = clipboard_payload_provider.clone();
                 let active = self.active.clone();
+                let state = self.input_state.clone();
+                let canvas = self.canvas.clone();
+                let input = self.input.clone();
                 self.add_listener(document, name, move |event| {
-                    if !active.get() {
+                    if (!active.get() && state.borrow().session.is_none())
+                        || !canvas
+                            .owner_document()
+                            .and_then(|d| d.active_element())
+                            .is_some_and(|e| {
+                                e == canvas.clone().into() || e == input.clone().into()
+                            })
+                    {
                         return;
                     }
                     let event = event.unchecked_into::<DomClipboardEvent>();
@@ -491,15 +666,25 @@ mod wasm {
                         event.prevent_default();
                     }
                     if let Some(output) = browser_clipboard_event(name, None) {
-                        let _ = proxy.send_event(App(output));
+                        let _ = proxy.send_event(App(
+                            output.with_input_session(state.borrow().session.clone())
+                        ));
                     }
                 })?;
             }
 
             let proxy = self.event_proxy.clone();
             let active = self.active.clone();
+            let state = self.input_state.clone();
+            let canvas = self.canvas.clone();
+            let input = self.input.clone();
             self.add_listener(document, "paste", move |event| {
-                if !active.get() {
+                if (!active.get() && state.borrow().session.is_none())
+                    || !canvas
+                        .owner_document()
+                        .and_then(|d| d.active_element())
+                        .is_some_and(|e| e == canvas.clone().into() || e == input.clone().into())
+                {
                     return;
                 }
                 let event = event.unchecked_into::<DomClipboardEvent>();
@@ -509,7 +694,9 @@ mod wasm {
                 if let Ok(text) = data.get_data("text/plain") {
                     event.prevent_default();
                     if let Some(output) = browser_clipboard_event("paste", Some(text)) {
-                        let _ = proxy.send_event(App(output));
+                        let _ = proxy.send_event(App(
+                            output.with_input_session(state.borrow().session.clone())
+                        ));
                     }
                 }
             })?;
@@ -704,6 +891,31 @@ mod tests {
         assert_eq!(
             resolved_clipboard_payload(Some(&empty), "cached selection"),
             "cached selection"
+        );
+    }
+    #[test]
+    fn delayed_composition_keeps_its_original_session() {
+        use avenger_eventstream::window::{SessionInputEvent, TextInputEvent};
+        let old = InputSession {
+            owner: "field-a".into(),
+            generation: 1,
+        };
+        let new = InputSession {
+            owner: "field-b".into(),
+            generation: 2,
+        };
+        let mut state = TextAgentInputState {
+            session: Some(old.clone()),
+            ..Default::default()
+        };
+        state.composition_update("中");
+        state.session = Some(new.clone());
+        assert!(
+            matches!(state.composition_end("中"), WindowEvent::TextInput(SessionInputEvent { session, event: TextInputEvent::Ime(ImeEvent::Commit(_)) }) if session == old)
+        );
+        assert!(state.input("中").is_none());
+        assert!(
+            matches!(state.input("next"), Some(WindowEvent::TextInput(SessionInputEvent { session, .. })) if session == new)
         );
     }
 }
