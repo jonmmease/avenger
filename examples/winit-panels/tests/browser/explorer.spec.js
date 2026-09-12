@@ -20,12 +20,13 @@ async function controlImage(page, index) {
 }
 async function clickControl(page, index) {
   const box = await page.locator("canvas").boundingBox();
-  await page.locator("canvas").click({ position: { x: box.width - 180, y: 170 + index * 65 } });
+  await page.locator("canvas").click({ position: { x: box.width - (index === 0 ? 84 : 180), y: 170 + index * 65 } });
 }
 
 test("pointer and keyboard cycle the same domain scope", async ({ page }) => {
   const initial = await controlImage(page, 0);
   await clickControl(page, 0);
+  await page.mouse.move(4, 4);
   await expect.poll(async () => (await controlImage(page, 0)).equals(initial)).toBe(false);
   const next = await controlImage(page, 0);
   await page.keyboard.press("1");

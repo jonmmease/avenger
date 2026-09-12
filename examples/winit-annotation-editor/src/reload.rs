@@ -123,8 +123,7 @@ impl ReloadCoordinator {
                 return;
             }
             let outcome = match result {
-                Ok(mut app) => {
-                    let clipboard = app.app_state_mut().clipboard_text.clone();
+                Ok(app) => {
                     let (completion, receiver) = std::sync::mpsc::sync_channel(1);
                     let update = PreparedHostUpdate {
                         generation: epoch,
@@ -132,9 +131,7 @@ impl ReloadCoordinator {
                         app,
                         render_invalidation_hub: None,
                         image_resource_resolver: None,
-                        clipboard_payload_provider: Some(Arc::new(move || {
-                            Some(clipboard.lock().unwrap().clone())
-                        })),
+                        clipboard_payload_provider: None,
                         window_title: Some(format!("Annotation editor — sample {}", sample.name())),
                         window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
                         canvas_frame: None,

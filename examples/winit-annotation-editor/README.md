@@ -52,3 +52,8 @@ The snapshot example renders selection, composition, and panning at 1× and 2×.
 ![Native annotation editor](../../docs/images/annotation-editor.png)
 
 ![Browser annotation editor](../../docs/images/annotation-editor-wasm.png)
+
+The source field uses `avenger-widgets::TextInput`. The example applies immediate
+draft changes, validates Typst on commit, and adapts Enter and Escape to its
+annotation workflow. Selection, caret, scrolling, history, clipboard, IME, and
+commit timers belong to the widget runtime.

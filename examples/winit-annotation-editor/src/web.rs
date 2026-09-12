@@ -21,13 +21,11 @@ pub async fn run(slow_loads: bool) -> Result<(), JsValue> {
     let reload = ReloadCoordinator::new(slow_loads);
     let mut state = State::new(Sample::A, 0, avenger_typst_label::bundled_label_engine());
     state.reload = Arc::downgrade(&reload);
-    let clipboard = state.clipboard_text.clone();
     let app = make_app(state)
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let scale = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio()) as f32;
-    let options = WinitWgpuAvengerAppOptions::new(scale)
-        .clipboard_payload_provider(Arc::new(move || Some(clipboard.lock().unwrap().clone())));
+    let options = WinitWgpuAvengerAppOptions::new(scale);
     let (host, event_loop) = WinitWgpuAvengerApp::try_new_and_event_loop_with_options(app, options)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     reload.attach(host.host_update_sender());
