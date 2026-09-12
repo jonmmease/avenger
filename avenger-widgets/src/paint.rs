@@ -1,8 +1,10 @@
 use crate::frame::Measured;
 use crate::{ButtonVariant, Rect, TextStyle, WidgetId, WidgetRuntime, WidgetSpec, WidgetTarget};
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
+    line::SceneLineMark,
     mark::SceneMark,
     rect::SceneRectMark,
     rule::SceneRuleMark,
@@ -71,6 +73,23 @@ pub(crate) fn rule(a: [f32; 2], b: [f32; 2], color: [f32; 4], width: f32) -> Sce
     }
     .into()
 }
+
+fn checkmark(x: f32, y: f32, size: f32, color: [f32; 4]) -> SceneMark {
+    SceneLineMark {
+        interactive: false,
+        clip: true,
+        len: 3,
+        x: vec![x + size * 0.22, x + size * 0.43, x + size * 0.80].into(),
+        y: vec![y + size * 0.52, y + size * 0.73, y + size * 0.27].into(),
+        stroke: ColorOrGradient::Color(color),
+        stroke_width: 2.0,
+        stroke_cap: StrokeCap::Round,
+        stroke_join: StrokeJoin::Round,
+        ..Default::default()
+    }
+    .into()
+}
+
 pub(crate) fn text(
     value: &str,
     x: f32,
@@ -248,18 +267,9 @@ pub(crate) fn control(
                 s.radius,
             ));
             if c.checked {
-                content.marks.push(rule(
-                    [bx + size * 0.22, by + size * 0.52],
-                    [bx + size * 0.43, by + size * 0.73],
-                    colors.foreground,
-                    2.0,
-                ));
-                content.marks.push(rule(
-                    [bx + size * 0.43, by + size * 0.73],
-                    [bx + size * 0.80, by + size * 0.27],
-                    colors.foreground,
-                    2.0,
-                ));
+                content
+                    .marks
+                    .push(checkmark(bx, by, size, colors.foreground));
             }
             let label = runtime
                 .theme
@@ -452,18 +462,7 @@ fn choice_row(
                 size,
             ));
         } else {
-            content.marks.push(rule(
-                [bx + size * 0.22, by + size * 0.52],
-                [bx + size * 0.43, by + size * 0.73],
-                indicator,
-                2.0,
-            ));
-            content.marks.push(rule(
-                [bx + size * 0.43, by + size * 0.73],
-                [bx + size * 0.80, by + size * 0.27],
-                indicator,
-                2.0,
-            ));
+            content.marks.push(checkmark(bx, by, size, indicator));
         }
     }
     content.marks.push(text(
