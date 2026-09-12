@@ -514,3 +514,74 @@ fn paint_only_frames_keep_the_installed_picking_geometry() {
     let (_, moved) = group_frame(&mut runtime, &specs, 260.0);
     assert!(moved.status.rebuild_geometry);
 }
+
+#[test]
+fn unlabeled_groups_report_the_first_row_baseline_and_empty_groups_have_none() {
+    let runtime = WidgetRuntime::new();
+    let specs: Vec<WidgetSpec> = vec![
+        Checkbox::new("single", "Grid", false).into(),
+        CheckboxGroup::new("group", vec![ChoiceItem::new("grid", "Grid")], []).into(),
+        RadioGroup::new("radio", vec![ChoiceItem::new("grid", "Grid")], None).into(),
+        RadioGroup::new("empty", vec![], None).into(),
+    ];
+    let prepared = runtime
+        .prepare(
+            &specs,
+            &WidgetTheme::light(),
+            &avenger_text::default_text_engine(),
+        )
+        .unwrap();
+    assert_eq!(
+        prepared.metrics("single").unwrap().baseline,
+        prepared.metrics("group").unwrap().baseline
+    );
+    assert_eq!(
+        prepared.metrics("single").unwrap().baseline,
+        prepared.metrics("radio").unwrap().baseline
+    );
+    assert_eq!(prepared.metrics("empty").unwrap().baseline, None);
+}
+
+#[test]
+fn modified_keys_pass_through_but_owned_key_releases_finish_the_gesture() {
+    let mut runtime = WidgetRuntime::new();
+    let scene = frame(
+        &mut runtime,
+        vec![Checkbox::new("grid", "Grid", false).into()],
+    );
+    handle(&mut runtime, &scene, key(NamedKey::Tab, false));
+    let policy = handle(&mut runtime, &scene, key(NamedKey::Space, false))
+        .status
+        .commands
+        .into_iter()
+        .find_map(|c| {
+            if let avenger_eventstream::runtime::RuntimeHostCommand::SetKeyboardPolicy { policy } =
+                c
+            {
+                policy
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let modifiers = ModifiersState {
+        control: true,
+        ..Default::default()
+    };
+    assert!(!policy.captures(Key::Named(NamedKey::Space), modifiers));
+    assert!(!policy.captures(Key::Named(NamedKey::Tab), modifiers));
+    let mut end = release(NamedKey::Space);
+    if let SceneGraphEvent::KeyRelease(e) = &mut end {
+        e.modifiers = modifiers;
+    }
+    assert!(matches!(
+        actions(&handle(&mut runtime, &scene, end))[0],
+        WidgetAction::CheckedChanged { value: true }
+    ));
+    let mut tab = key(NamedKey::Tab, false);
+    if let SceneGraphEvent::KeyPress(e) = &mut tab {
+        e.modifiers = modifiers;
+    }
+    assert!(!handle(&mut runtime, &scene, tab).status.consume);
+    assert_eq!(runtime.focused(), Some(&WidgetTarget::new("grid")));
+}

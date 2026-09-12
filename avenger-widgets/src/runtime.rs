@@ -590,7 +590,7 @@ impl WidgetRuntime {
         update: &mut WidgetUpdate,
     ) {
         if key == Key::Named(NamedKey::Tab) && pressed {
-            if repeat {
+            if repeat || modifiers.control || modifiers.alt || modifiers.meta {
                 return;
             }
             let stops = self.stops();
@@ -624,7 +624,7 @@ impl WidgetRuntime {
         if matches!(self.controls[&target.widget].spec, WidgetSpec::TextInput(_)) {
             return;
         }
-        if modifiers.control || modifiers.alt || modifiers.meta {
+        if pressed && (modifiers.control || modifiers.alt || modifiers.meta) {
             return;
         }
         if key == Key::Named(NamedKey::Escape) && pressed && self.gesture.is_some() {

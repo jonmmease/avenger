@@ -98,14 +98,23 @@ impl KeyboardPolicy {
         use crate::window::{Key, NamedKey};
         match key {
             Key::Named(NamedKey::Tab) => {
+                if modifiers.control || modifiers.alt || modifiers.meta {
+                    return false;
+                }
                 if modifiers.shift {
                     self.tab_backward
                 } else {
                     self.tab_forward
                 }
             }
-            Key::Named(key) => self.keys.contains(&key),
-            Key::Character(' ') => self.keys.contains(&NamedKey::Space),
+            Key::Named(key) => {
+                (self.text_shortcuts || !(modifiers.control || modifiers.alt || modifiers.meta))
+                    && self.keys.contains(&key)
+            }
+            Key::Character(' ') => {
+                !(modifiers.control || modifiers.alt || modifiers.meta)
+                    && self.keys.contains(&NamedKey::Space)
+            }
             Key::Character(ch) => {
                 self.text_shortcuts
                     && (modifiers.control || modifiers.meta)

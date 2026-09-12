@@ -152,8 +152,7 @@ pub(crate) fn control(
         }
         WidgetSpec::Slider(s) => {
             let style = &runtime.theme.slider;
-            let track = style.track.resolve(enabled, hovered, pressed);
-            let thumb = style.thumb.resolve(enabled, hovered, pressed);
+            let paint = style.paint.resolve(enabled, hovered, pressed);
             let (left, length) = crate::slider::track(r, style, s.value_label.is_some());
             let x = left + length * s.domain.fraction(s.value);
             let cy = r.y + r.height / 2.0;
@@ -173,7 +172,7 @@ pub(crate) fn control(
                     length,
                     style.track_height,
                 ),
-                track.border,
+                paint.track,
                 [0.0; 4],
                 0.0,
                 style.track_height / 2.0,
@@ -185,15 +184,15 @@ pub(crate) fn control(
                     x - left,
                     style.track_height,
                 ),
-                thumb.fill,
+                paint.progress,
                 [0.0; 4],
                 0.0,
                 style.track_height / 2.0,
             ));
             content.marks.push(rect(
                 Rect::new(x - size / 2.0, cy - size / 2.0, size, size),
-                thumb.fill,
-                thumb.border,
+                paint.thumb,
+                paint.thumb_border,
                 1.0,
                 size / 2.0,
             ));
@@ -203,7 +202,7 @@ pub(crate) fn control(
                     r.x + (r.width - style.readout_width).max(0.0),
                     baseline,
                     &style.text,
-                    track.foreground,
+                    paint.foreground,
                 ));
             }
         }
@@ -293,18 +292,27 @@ fn choice_group(
             clip: clip(outer.map_or(r, |o| crate::frame::intersection(r, o))),
             ..Default::default()
         };
-        let paint =
+        let foreground = if radio {
+            runtime
+                .theme
+                .radio
+                .paint
+                .resolve(c.spec.options().enabled, false, false)
+                .foreground
+        } else {
             runtime
                 .theme
                 .checkbox
                 .unchecked
-                .resolve(c.spec.options().enabled, false, false);
+                .resolve(c.spec.options().enabled, false, false)
+                .foreground
+        };
         label.marks.push(text(
             c.spec.label(),
             r.x,
             r.y + measured.label.ascent,
             &runtime.theme.group.text,
-            paint.foreground,
+            foreground,
         ));
         group.marks.push(label.into());
     }
@@ -343,12 +351,39 @@ fn choice_row(
     let enabled = runtime.eligible(target);
     let hovered = runtime.hovered.as_ref() == Some(target);
     let pressed = runtime.pressed(target);
-    let s = if radio {
-        &runtime.theme.radio
-    } else {
-        &runtime.theme.checkbox
-    };
-    let colors = if checked { &s.checked } else { &s.unchecked }.resolve(enabled, hovered, pressed);
+    let (style, box_size, gap, border_width, focus, radius, fill, border, indicator, foreground) =
+        if radio {
+            let s = &runtime.theme.radio;
+            let p = s.paint.resolve(enabled, hovered, pressed);
+            (
+                &s.text,
+                s.diameter,
+                s.gap,
+                s.border_width,
+                &s.focus,
+                s.diameter / 2.0,
+                p.fill,
+                if checked { p.indicator } else { p.border },
+                p.indicator,
+                p.foreground,
+            )
+        } else {
+            let s = &runtime.theme.checkbox;
+            let p =
+                if checked { &s.checked } else { &s.unchecked }.resolve(enabled, hovered, pressed);
+            (
+                &s.text,
+                s.box_size,
+                s.gap,
+                s.border_width,
+                &s.focus,
+                s.radius,
+                p.fill,
+                p.border,
+                p.foreground,
+                s.unchecked.resolve(enabled, hovered, pressed).foreground,
+            )
+        };
     let region = runtime
         .regions
         .iter()
@@ -359,12 +394,12 @@ fn choice_row(
         ..Default::default()
     };
     if runtime.focus_visible && runtime.focused.as_ref() == Some(target) {
-        let d = s.focus.gap + s.focus.width / 2.0;
+        let d = focus.gap + focus.width / 2.0;
         group.marks.push(rect(
             Rect::new(r.x - d, r.y - d, r.width + 2.0 * d, r.height + 2.0 * d),
             [0.0; 4],
-            s.focus.color,
-            s.focus.width,
+            focus.color,
+            focus.width,
             3.0,
         ));
     }
@@ -373,29 +408,21 @@ fn choice_row(
         clip: clip(region.clip),
         ..Default::default()
     };
-    let size = s.box_size.min(r.height);
+    let size = box_size.min(r.height);
     let bx = r.x;
     let by = r.y + (r.height - size) / 2.0;
     content.marks.push(rect(
         Rect::new(bx, by, size, size),
-        if radio {
-            s.unchecked.resolve(enabled, hovered, pressed).fill
-        } else {
-            colors.fill
-        },
-        if radio && checked {
-            colors.fill
-        } else {
-            colors.border
-        },
-        s.border_width,
-        if radio { size / 2.0 } else { s.radius },
+        fill,
+        border,
+        border_width,
+        if radio { size / 2.0 } else { radius },
     ));
     if checked {
         if radio {
             content.marks.push(rect(
                 Rect::new(bx + size * 0.25, by + size * 0.25, size * 0.5, size * 0.5),
-                colors.fill,
+                indicator,
                 [0.0; 4],
                 0.0,
                 size,
@@ -404,23 +431,23 @@ fn choice_row(
             content.marks.push(rule(
                 [bx + size * 0.22, by + size * 0.52],
                 [bx + size * 0.43, by + size * 0.73],
-                colors.foreground,
+                indicator,
                 2.0,
             ));
             content.marks.push(rule(
                 [bx + size * 0.43, by + size * 0.73],
                 [bx + size * 0.80, by + size * 0.27],
-                colors.foreground,
+                indicator,
                 2.0,
             ));
         }
     }
     content.marks.push(text(
         label,
-        r.x + s.box_size + s.gap,
+        r.x + box_size + gap,
         r.y + (r.height - bounds.height) / 2.0 + bounds.ascent,
-        &s.text,
-        s.unchecked.resolve(enabled, hovered, pressed).foreground,
+        style,
+        foreground,
     ));
     content.marks.push(
         SceneRectMark {

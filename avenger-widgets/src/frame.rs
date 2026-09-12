@@ -296,9 +296,9 @@ fn measure(
             (
                 &s.text,
                 s.row_height,
-                s.box_size + s.gap,
+                s.diameter + s.gap,
                 0.0,
-                s.box_size,
+                s.diameter,
                 &s.focus,
             )
         }
@@ -381,11 +381,16 @@ fn measure(
         metrics: WidgetMetrics {
             minimum: Size::new(min_width.min(w), h),
             preferred: Size::new(w, h),
-            baseline: Some(if spec.items().is_some() {
-                label.ascent
+            baseline: if spec.items().is_some() && spec.label().is_empty() {
+                rows.first()
+                    .map(|(_, bounds, size)| (size.height - bounds.height) / 2.0 + bounds.ascent)
             } else {
-                (h - label.height) / 2.0 + label.ascent
-            }),
+                Some(if spec.items().is_some() {
+                    label.ascent
+                } else {
+                    (h - label.height) / 2.0 + label.ascent
+                })
+            },
             paint_overflow: Edges::new(o, o, o, o),
         },
         label,
