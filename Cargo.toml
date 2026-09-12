@@ -32,6 +32,7 @@ members = [
     "examples/iris-pan-zoom",
     "examples/winit-annotation-editor",
     "examples/winit-panels",
+    "examples/winit-widgets",
 ]
 exclude = [
     "tools/upstream-typst-probe",
