@@ -19,8 +19,9 @@
   <script type="module">
     const status = document.getElementById("status");
     try {
-      const { default: init, run } = await import("./pkg/winit_panels.js");
+      const { default: init, run, snapshot } = await import("./pkg/winit_panels.js");
       await init();
+      window.panelExplorerSnapshot = () => JSON.parse(snapshot());
       await run();
       status.hidden = true;
     } catch (error) {
