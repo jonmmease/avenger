@@ -863,6 +863,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-widgets"
+version = "0.1.0"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-layout",
+ "avenger-scenegraph",
+ "avenger-text",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
