@@ -19,9 +19,7 @@ struct Builder;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl SceneGraphBuilder<state::State> for Builder {
     async fn build(&self, state: &mut state::State) -> Result<SceneBuild, AvengerAppError> {
-        scene::build(state)
-            .map(SceneBuild::new)
-            .map_err(AvengerAppError::InternalError)
+        scene::build_with_effects(state).map_err(AvengerAppError::InternalError)
     }
 }
 

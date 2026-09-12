@@ -7256,6 +7256,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-wgpu",
+ "avenger-widgets",
  "avenger-winit-wgpu",
  "console_error_panic_hook",
  "console_log",
