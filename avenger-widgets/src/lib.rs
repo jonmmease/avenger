@@ -31,7 +31,7 @@ pub use runtime::{
 pub use slider::{Slider, SliderCancelReason, SliderDomain};
 pub use style::{
     ButtonStyle, CheckboxStyle, ChoiceGroupStyle, ControlPaint, FocusStyle, PaintStates,
-    SliderStyle, TextInputStyle, TextStyle, WidgetTheme,
+    RadioPaint, RadioStyle, SliderPaint, SliderStyle, TextInputStyle, TextStyle, WidgetTheme,
 };
 pub use text_input::{
     TextCancelReason, TextCommitPolicy, TextCommitReason, TextInput, TextShortcuts,
