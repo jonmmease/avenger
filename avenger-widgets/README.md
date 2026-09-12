@@ -110,3 +110,72 @@ Read-only fields allow caret navigation, selection, and copying. Caret blinking
 runs only for a focused editable field with a visible caret. Selection dragging
 can scroll horizontally, including while the pointer remains beyond a field edge.
 Selection queries expose byte offsets at grapheme boundaries.
+
+Allocate controls with `WidgetMetrics::preferred` or choose a smaller rectangle
+and let the content clip. `minimum` describes the control's compact geometry.
+`baseline` is the first text baseline relative to its allocation, and
+`paint_overflow` reserves space for the focus outline. Hover, press, and focus
+change paint without changing intrinsic measurements. Place the fragment at the
+root origin because allocations and IME rectangles use root coordinates.
+
+The optional placement clip constrains drawing and picking. The content also
+clips to its allocation, while a focus outline may extend by `paint_overflow`.
+A fully clipped control cannot receive focus. The runtime checks the complete
+scene's topmost interactive mark, so an overlay can block a widget. Decorative
+widget marks do not participate in picking. If another part of the application
+changes interactive geometry, set `rebuild_geometry` on its update.
+
+Use one runtime per canvas. Keep IDs stable across builds and distinct within
+that runtime. Group-item IDs need to be distinct only within their group. A live
+ID cannot switch control kinds. Removing and later reusing an ID starts a new
+attachment, so delayed input and wakeups cannot target its replacement.
+
+The application processes two kinds of output. `handle` returns user actions and
+input effects. `install` returns lifecycle notifications and effects caused by
+reconciliation, such as removal or disabling. Apply user values before the next
+build. Publish install effects only with the corresponding successful scene.
+Keep application work such as validation, data loading, and typesetting separate
+from the widget's commit schedule.
+
+The keyboard map follows each control's value model:
+
+| Control | Keys |
+|---|---|
+| Button | Enter activates on press. Space activates on release. Escape cancels a pending press. |
+| Checkbox or checkbox-group item | Space toggles on release. Escape cancels a pending press. |
+| Radio group | Arrow keys move and select. Space selects the focused item. |
+| Slider | Arrow keys change by one increment. Page Up/Down change by ten. Home/End select endpoints. Key repeat previews, and release commits. |
+| Text input | Arrows, Home/End, Shift selection, word navigation/deletion, select all, clipboard, undo, and redo. Enter submits. Escape cancels. |
+
+Mac text shortcuts use Command for select all, clipboard, history, and line
+start/end, and Option for word navigation. Other platforms use Control for
+shortcuts and words. Command+Shift+Z and Control+Y redo. `TextInput` remains a
+plain source editor when another part of the application typesets its draft.
+`text_is_composing` lets a caller display composition feedback without reading or
+modifying the editor internals.
+
+Concrete theme fields control fonts, spacing, paint states, and focus outlines.
+Use the same `TextEngine` to prepare controls and render the full scene, including
+its font configuration. The runtime emits ordinary scenegraph marks, so an idle
+frame can also be exported through the SVG and PDF renderers.
+
+```sh
+cargo run --release -p avenger-widgets --example gallery -- widgets-light.png light
+cargo run --release -p avenger-widgets --example gallery -- widgets-dark.png dark
+cargo run --release -p avenger-widgets --example gallery -- widgets.svg
+cargo run --release -p avenger-widgets --example gallery -- widgets.pdf
+```
+
+The first version supports desktop mouse and keyboard input, single-line text,
+and horizontal sliders. It does not provide touch gestures, multiline or rich
+text editing, container scrolling, automatic form validation, or native
+accessibility nodes. Semantic snapshots are an input to a future accessibility
+adapter, not a screen-reader integration.
+
+See [Plot Style Studio](../examples/winit-widgets/README.md) for a complete native
+and WASM application. The [annotation editor](../examples/winit-annotation-editor)
+and [panels explorer](../examples/winit-panels) show reuse in other applications.
+A higher-level chart API can map widget IDs and typed actions to its own
+parameters, lay out the measured controls, and schedule work on commit. Those
+bindings belong in that API. The widget crate has no chart, language, expression,
+query-engine, or theme-selector dependency.

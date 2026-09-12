@@ -10,8 +10,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
     use avenger_widgets::prelude::*;
     let engine = avenger_text::default_text_engine();
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "widgets-gallery.png".into());
+    let themes = match std::env::args().nth(2).as_deref() {
+        Some("light") => vec![false],
+        Some("dark") => vec![true],
+        None => vec![false, true],
+        _ => return Err("theme must be light or dark".into()),
+    };
+    let width = themes.len() as f32 * 420.0;
     let mut marks = Vec::new();
-    for (col, dark) in [false, true].into_iter().enumerate() {
+    for (col, dark) in themes.into_iter().enumerate() {
         let x = col as f32 * 420.0;
         let mut theme = if dark {
             WidgetTheme::dark()
@@ -40,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 x: x.into(),
                 y: 0.0.into(),
                 width: Some(420.0.into()),
-                height: Some(680.0.into()),
+                height: Some(790.0.into()),
                 fill: ColorOrGradient::Color(background).into(),
                 ..Default::default()
             }
@@ -100,6 +110,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             TextInput::new("source", "*Radius* $sqrt(x^2+y^2)$")
                 .semantic_name("Annotation source")
                 .into(),
+            TextInput::new("readonly", "Read-only · copy this value")
+                .read_only(true)
+                .into(),
+            TextInput::new(
+                "narrow",
+                "A narrow allocation clips and scrolls this source",
+            )
+            .into(),
             TextInput::new("invalid", "$sqrt(x")
                 .semantic_name("Invalid source")
                 .invalid(true)
@@ -113,7 +131,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let size = prepared.metrics(spec.id().clone()).unwrap().preferred;
                 prepared.place(
                     spec.id().clone(),
-                    Rect::new(x + 28.0, y, 364.0, size.height),
+                    Rect::new(
+                        x + 28.0,
+                        y,
+                        if spec.id().as_str() == "narrow" {
+                            180.0
+                        } else {
+                            364.0
+                        },
+                        size.height,
+                    ),
                     None,
                 )?;
                 y += size.height + 16.0;
@@ -150,13 +177,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let scene = SceneGraph {
         marks,
-        width: 840.0,
-        height: 680.0,
+        width,
+        height: 790.0,
         origin: [0.0; 2],
     };
+    match std::path::Path::new(&path)
+        .extension()
+        .and_then(|s| s.to_str())
+    {
+        Some("svg") => {
+            std::fs::write(
+                &path,
+                avenger_svg::SvgRenderer::new()
+                    .with_text_engine(engine)
+                    .render_scene_graph(&scene)?,
+            )?;
+            return Ok(());
+        }
+        Some("pdf") => {
+            std::fs::write(
+                &path,
+                avenger_pdf::PdfRenderer::new()
+                    .with_text_engine(engine)
+                    .render_scene_graph(&scene)?,
+            )?;
+            return Ok(());
+        }
+        _ => {}
+    }
     let mut canvas = pollster::block_on(PngCanvas::new(
         CanvasDimensions {
-            size: [840.0, 680.0],
+            size: [width, 790.0],
             scale: 1.0,
         },
         CanvasConfig {
@@ -166,9 +217,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))?;
     canvas.set_scene(&scene)?;
     let image = pollster::block_on(canvas.render())?;
-    let path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "widgets-gallery.png".into());
     image.save(&path)?;
     println!("{path}");
     Ok(())
