@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use avenger_app::{
-    app::{AvengerApp, SceneGraphBuilder},
+    app::{AvengerApp, SceneBuild, SceneGraphBuilder},
     error::AvengerAppError,
 };
-use avenger_scenegraph::scene_graph::SceneGraph;
 use std::sync::Arc;
 
 pub mod interaction;
@@ -20,8 +19,10 @@ struct Builder;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl SceneGraphBuilder<state::State> for Builder {
-    async fn build(&self, state: &mut state::State) -> Result<SceneGraph, AvengerAppError> {
-        scene::build(state).map_err(AvengerAppError::InternalError)
+    async fn build(&self, state: &mut state::State) -> Result<SceneBuild, AvengerAppError> {
+        scene::build(state)
+            .map(SceneBuild::new)
+            .map_err(AvengerAppError::InternalError)
     }
 }
 

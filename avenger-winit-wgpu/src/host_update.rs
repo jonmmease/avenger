@@ -315,6 +315,22 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
             // than retaining `grabbing`/resize feedback from the old app.
             canvas.window().set_cursor(CursorIcon::Default);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.input_session = None;
+            self.keyboard_policy = None;
+            self.pointer_captured = false;
+        }
+        let commands = self.avenger_app.borrow_mut().take_host_commands();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.apply_runtime_host_commands(commands);
+        #[cfg(target_arch = "wasm32")]
+        apply_browser_host_commands(
+            commands,
+            &self.wake_scheduler,
+            &self.canvas,
+            &self.text_agent,
+        );
         self.installed_host_generation = update.generation;
         self.background
             .borrow_mut()
@@ -351,14 +367,15 @@ mod tests {
         async fn build(
             &self,
             _state: &mut (),
-        ) -> Result<avenger_scenegraph::scene_graph::SceneGraph, avenger_app::error::AvengerAppError>
-        {
-            Ok(avenger_scenegraph::scene_graph::SceneGraph {
-                marks: Vec::new(),
-                width: self.0,
-                height: 100.0,
-                origin: [0.0, 0.0],
-            })
+        ) -> Result<avenger_app::app::SceneBuild, avenger_app::error::AvengerAppError> {
+            Ok(avenger_app::app::SceneBuild::new(
+                avenger_scenegraph::scene_graph::SceneGraph {
+                    marks: Vec::new(),
+                    width: self.0,
+                    height: 100.0,
+                    origin: [0.0, 0.0],
+                },
+            ))
         }
     }
 
