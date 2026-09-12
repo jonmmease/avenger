@@ -585,3 +585,78 @@ fn modified_keys_pass_through_but_owned_key_releases_finish_the_gesture() {
     assert!(!handle(&mut runtime, &scene, tab).status.consume);
     assert_eq!(runtime.focused(), Some(&WidgetTarget::new("grid")));
 }
+
+#[test]
+fn control_strokes_fit_inside_allocations_including_slider_endpoints() {
+    use avenger_scenegraph::{
+        marks::mark::SceneMark,
+        render_order::{SceneDisplayList, SceneDisplayMark},
+    };
+    let mut theme = WidgetTheme::light();
+    theme.radio.border_width = 4.0;
+    theme.checkbox.border_width = 4.0;
+    theme.button.border_width = 4.0;
+    theme.text_input.border_width = 4.0;
+    let domain = SliderDomain::continuous(0.0, 1.0).unwrap();
+    let controls: Vec<WidgetSpec> = vec![
+        Button::new("button", "Apply").into(),
+        Checkbox::new("checkbox", "Grid", false).into(),
+        CheckboxGroup::new("checks", vec![ChoiceItem::new("grid", "Grid")], []).into(),
+        RadioGroup::new(
+            "radio",
+            vec![ChoiceItem::new("ocean", "Ocean")],
+            Some("ocean".into()),
+        )
+        .into(),
+        Slider::new("min", domain, 0.0).into(),
+        Slider::new("max", domain, 1.0).into(),
+        TextInput::new("text", "Source").into(),
+    ];
+    for control in controls {
+        let runtime = WidgetRuntime::new();
+        let mut prepared = runtime
+            .prepare(
+                std::slice::from_ref(&control),
+                &theme,
+                &avenger_text::default_text_engine(),
+            )
+            .unwrap();
+        let size = prepared.metrics(control.id().clone()).unwrap().preferred;
+        let bounds = Rect::new(10.0, 10.0, size.width, size.height);
+        prepared.place(control.id().clone(), bounds, None).unwrap();
+        let scene = SceneGraph {
+            width: 400.0,
+            height: 100.0,
+            origin: [0.0; 2],
+            marks: vec![prepared.finish().unwrap().scene.into()],
+        };
+        let mut borders = 0;
+        for item in SceneDisplayList::from_scene_graph(&scene).items {
+            let SceneDisplayMark::Borrowed(SceneMark::Rect(mark)) = item.mark else {
+                continue;
+            };
+            let half_stroke = mark.stroke_width.first().unwrap() / 2.0;
+            if half_stroke == 0.0 {
+                continue;
+            }
+            borders += 1;
+            let x = mark.x.first().unwrap() + item.origin[0];
+            let y = mark.y.first().unwrap() + item.origin[1];
+            let width = mark.width.as_ref().unwrap().first().unwrap();
+            let height = mark.height.as_ref().unwrap().first().unwrap();
+            assert!(x - half_stroke >= bounds.x, "{} left border", control.id());
+            assert!(y - half_stroke >= bounds.y, "{} top border", control.id());
+            assert!(
+                x + width + half_stroke <= bounds.x + bounds.width,
+                "{} right border",
+                control.id()
+            );
+            assert!(
+                y + height + half_stroke <= bounds.y + bounds.height,
+                "{} bottom border",
+                control.id()
+            );
+        }
+        assert_eq!(borders, 1, "{} border coverage", control.id());
+    }
+}
