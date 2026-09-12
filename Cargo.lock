@@ -873,6 +873,8 @@ dependencies = [
  "avenger-layout",
  "avenger-scenegraph",
  "avenger-text",
+ "avenger-wgpu",
+ "pollster 0.4.0",
  "thiserror 2.0.12",
 ]
 

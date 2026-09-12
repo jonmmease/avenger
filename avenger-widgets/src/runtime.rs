@@ -1,5 +1,8 @@
 use crate::frame::{Region, visible};
-use crate::{Rect, WidgetError, WidgetId, WidgetSpec, WidgetTarget, WidgetTheme};
+use crate::{
+    ChoiceItemId, Rect, SliderCancelReason, SliderDomain, WidgetError, WidgetId, WidgetSpec,
+    WidgetTarget, WidgetTheme,
+};
 use avenger_common::{cursor::CursorStyle, time::Instant};
 use avenger_eventstream::{
     runtime::{KeyboardPolicy, RuntimeHostCommand as Command},
@@ -9,7 +12,7 @@ use avenger_eventstream::{
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -26,6 +29,23 @@ pub enum FocusBoundary {
 #[derive(Clone, Debug, PartialEq)]
 pub enum WidgetAction {
     Activated,
+    CheckedItemsChanged {
+        item: ChoiceItemId,
+        checked: BTreeSet<ChoiceItemId>,
+    },
+    SelectionChanged {
+        item: ChoiceItemId,
+    },
+    SliderChanged {
+        value: f64,
+    },
+    SliderCommitted {
+        value: f64,
+    },
+    SliderCancelled {
+        value: f64,
+        reason: SliderCancelReason,
+    },
     CheckedChanged {
         value: bool,
     },
@@ -59,11 +79,18 @@ impl WidgetUpdate {
 pub enum WidgetRole {
     Button,
     Checkbox,
+    CheckboxGroup,
+    RadioGroup,
+    Radio,
+    Slider,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum SemanticValue {
     None,
     Checked(bool),
+    CheckedItems(BTreeSet<ChoiceItemId>),
+    Selected(Option<ChoiceItemId>),
+    Number(f64),
 }
 /// Installed identity, naming, state and geometry for external adapters.
 #[derive(Clone, Debug, PartialEq)]
@@ -75,11 +102,15 @@ pub struct WidgetSemantic {
     pub focused: bool,
     pub value: SemanticValue,
     pub bounds: Rect,
+    pub parent: Option<WidgetTarget>,
+    pub domain: Option<SliderDomain>,
+    pub read_only: bool,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Control {
     pub spec: WidgetSpec,
     pub epoch: u64,
+    pub item_epochs: BTreeMap<ChoiceItemId, u64>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Gesture {
@@ -87,6 +118,19 @@ pub(crate) struct Gesture {
     pub epoch: u64,
     pub keyboard: bool,
     pub inside: bool,
+    pub kind: GestureKind,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum GestureKind {
+    Button,
+    Slider {
+        start: f64,
+        last: f64,
+        changed: bool,
+        key: Option<Key>,
+        grab: f32,
+    },
 }
 
 /// Persistent focus and interaction state. Clones are isolated scene-build candidates.
@@ -161,52 +205,153 @@ impl WidgetRuntime {
             .iter()
             .map(|r| {
                 let c = &self.controls[&r.target.widget];
+                let item = r
+                    .target
+                    .item
+                    .as_ref()
+                    .and_then(|id| c.spec.items()?.iter().find(|i| &i.id == id));
+                let (role, value, domain) = match &c.spec {
+                    WidgetSpec::Button(_) => (WidgetRole::Button, SemanticValue::None, None),
+                    WidgetSpec::Checkbox(c) => (
+                        WidgetRole::Checkbox,
+                        SemanticValue::Checked(c.checked),
+                        None,
+                    ),
+                    WidgetSpec::CheckboxGroup(g) => {
+                        if let Some(item) = item {
+                            (
+                                WidgetRole::Checkbox,
+                                SemanticValue::Checked(g.checked.contains(&item.id)),
+                                None,
+                            )
+                        } else {
+                            (
+                                WidgetRole::CheckboxGroup,
+                                SemanticValue::CheckedItems(g.checked.clone()),
+                                None,
+                            )
+                        }
+                    }
+                    WidgetSpec::RadioGroup(g) => {
+                        if let Some(item) = item {
+                            (
+                                WidgetRole::Radio,
+                                SemanticValue::Checked(g.selected.as_ref() == Some(&item.id)),
+                                None,
+                            )
+                        } else {
+                            (
+                                WidgetRole::RadioGroup,
+                                SemanticValue::Selected(g.selected.clone()),
+                                None,
+                            )
+                        }
+                    }
+                    WidgetSpec::Slider(s) => (
+                        WidgetRole::Slider,
+                        SemanticValue::Number(s.value),
+                        Some(s.domain),
+                    ),
+                };
                 WidgetSemantic {
                     target: r.target.clone(),
-                    role: match c.spec {
-                        WidgetSpec::Button(_) => WidgetRole::Button,
-                        WidgetSpec::Checkbox(_) => WidgetRole::Checkbox,
-                    },
-                    name: c
-                        .spec
-                        .options()
-                        .semantic_name
-                        .clone()
-                        .unwrap_or_else(|| c.spec.label().into()),
-                    enabled: c.spec.options().enabled,
+                    role,
+                    value,
+                    domain,
+                    read_only: false,
+                    parent: item.map(|_| WidgetTarget::new(r.target.widget.clone())),
+                    name: item.map(|i| i.label.clone()).unwrap_or_else(|| {
+                        c.spec
+                            .options()
+                            .semantic_name
+                            .clone()
+                            .unwrap_or_else(|| c.spec.label().into())
+                    }),
+                    enabled: c.spec.options().enabled && item.is_none_or(|i| i.enabled),
                     focused: self.focused.as_ref() == Some(&r.target),
-                    value: match &c.spec {
-                        WidgetSpec::Button(_) => SemanticValue::None,
-                        WidgetSpec::Checkbox(c) => SemanticValue::Checked(c.checked),
-                    },
                     bounds: r.clip,
                 }
             })
             .collect()
     }
+    pub(crate) fn target_epoch(&self, t: &WidgetTarget) -> Option<u64> {
+        let c = self.controls.get(&t.widget)?;
+        if !c.spec.options().enabled {
+            return None;
+        }
+        if let Some(item) = &t.item {
+            c.item_epochs.get(item).copied()
+        } else if c.spec.items().is_none() {
+            Some(c.epoch)
+        } else {
+            None
+        }
+    }
     pub(crate) fn eligible(&self, t: &WidgetTarget) -> bool {
-        self.controls
-            .get(&t.widget)
-            .is_some_and(|c| c.spec.options().enabled)
+        self.target_epoch(t).is_some()
             && self
                 .regions
                 .iter()
                 .any(|r| &r.target == t && visible(r.clip))
     }
     pub(crate) fn stops(&self) -> Vec<WidgetTarget> {
-        self.order
-            .iter()
-            .map(|id| WidgetTarget::new(id.clone()))
-            .filter(|t| self.eligible(t))
-            .collect()
+        let mut stops = Vec::new();
+        for id in &self.order {
+            let c = &self.controls[id];
+            let targets: Vec<_> = self
+                .regions
+                .iter()
+                .map(|r| r.target.clone())
+                .filter(|t| &t.widget == id && self.eligible(t))
+                .collect();
+            if let WidgetSpec::RadioGroup(g) = &c.spec {
+                let entry = self
+                    .focused
+                    .as_ref()
+                    .filter(|t| targets.contains(t))
+                    .cloned()
+                    .or_else(|| {
+                        g.selected.as_ref().and_then(|item| {
+                            targets
+                                .iter()
+                                .find(|t| t.item.as_ref() == Some(item))
+                                .cloned()
+                        })
+                    })
+                    .or_else(|| targets.first().cloned());
+                stops.extend(entry);
+            } else {
+                stops.extend(targets);
+            }
+        }
+        stops
     }
     pub(crate) fn pressed(&self, t: &WidgetTarget) -> bool {
         self.gesture
             .as_ref()
             .is_some_and(|g| &g.target == t && g.inside)
     }
-    fn cancel_gesture(&mut self, update: &mut WidgetUpdate) {
+    pub(crate) fn cancel_gesture(&mut self, reason: SliderCancelReason, update: &mut WidgetUpdate) {
         if let Some(g) = self.gesture.take() {
+            if let GestureKind::Slider { start, last, .. } = g.kind {
+                let mut value = if let Some(Control {
+                    spec: WidgetSpec::Slider(s),
+                    ..
+                }) = self.controls.get(&g.target.widget)
+                {
+                    s.value
+                } else {
+                    last
+                };
+                if reason == SliderCancelReason::Escape {
+                    value = start;
+                    self.set_slider(&g.target, value, update);
+                }
+                update.emit(
+                    &g.target.widget,
+                    WidgetAction::SliderCancelled { value, reason },
+                );
+            }
             update.status.rerender = true;
             if !g.keyboard {
                 update
@@ -218,9 +363,18 @@ impl WidgetRuntime {
     }
     pub(crate) fn reconcile_targets(&mut self, update: &mut WidgetUpdate) {
         if self.gesture.as_ref().is_some_and(|g| {
-            !self.eligible(&g.target) || self.controls[&g.target.widget].epoch != g.epoch
+            !self.eligible(&g.target) || self.target_epoch(&g.target) != Some(g.epoch)
         }) {
-            self.cancel_gesture(update);
+            let reason = if self
+                .gesture
+                .as_ref()
+                .is_some_and(|g| self.controls.contains_key(&g.target.widget))
+            {
+                SliderCancelReason::Disabled
+            } else {
+                SliderCancelReason::Removed
+            };
+            self.cancel_gesture(reason, update);
         }
         if self.focused.as_ref().is_some_and(|t| !self.eligible(t)) {
             self.focus(None, false, update);
@@ -240,7 +394,7 @@ impl WidgetRuntime {
             }
             return;
         }
-        self.cancel_gesture(update);
+        self.cancel_gesture(SliderCancelReason::FocusLost, update);
         if let Some(old) = self.focused.take() {
             update.emit(
                 &old.widget,
@@ -280,7 +434,28 @@ impl WidgetRuntime {
         if let Some(t) = &self.focused {
             policy.keys = match &self.controls[&t.widget].spec {
                 WidgetSpec::Button(_) => vec![NamedKey::Enter, NamedKey::Space, NamedKey::Escape],
-                WidgetSpec::Checkbox(_) => vec![NamedKey::Space, NamedKey::Escape],
+                WidgetSpec::Checkbox(_) | WidgetSpec::CheckboxGroup(_) => {
+                    vec![NamedKey::Space, NamedKey::Escape]
+                }
+                WidgetSpec::RadioGroup(_) => vec![
+                    NamedKey::Space,
+                    NamedKey::Escape,
+                    NamedKey::ArrowLeft,
+                    NamedKey::ArrowRight,
+                    NamedKey::ArrowUp,
+                    NamedKey::ArrowDown,
+                ],
+                WidgetSpec::Slider(_) => vec![
+                    NamedKey::Escape,
+                    NamedKey::ArrowLeft,
+                    NamedKey::ArrowRight,
+                    NamedKey::ArrowUp,
+                    NamedKey::ArrowDown,
+                    NamedKey::Home,
+                    NamedKey::End,
+                    NamedKey::PageUp,
+                    NamedKey::PageDown,
+                ],
             };
         }
         update.status.commands.push(Command::SetKeyboardPolicy {
@@ -293,6 +468,32 @@ impl WidgetRuntime {
         }
         match &mut self.controls.get_mut(&target.widget).unwrap().spec {
             WidgetSpec::Button(_) => update.emit(&target.widget, WidgetAction::Activated),
+            WidgetSpec::CheckboxGroup(g) => {
+                if let Some(item) = &target.item {
+                    if !g.checked.remove(item) {
+                        g.checked.insert(item.clone());
+                    }
+                    update.emit(
+                        &target.widget,
+                        WidgetAction::CheckedItemsChanged {
+                            item: item.clone(),
+                            checked: g.checked.clone(),
+                        },
+                    );
+                }
+            }
+            WidgetSpec::RadioGroup(g) => {
+                if let Some(item) = &target.item
+                    && g.selected.as_ref() != Some(item)
+                {
+                    g.selected = Some(item.clone());
+                    update.emit(
+                        &target.widget,
+                        WidgetAction::SelectionChanged { item: item.clone() },
+                    );
+                }
+            }
+            WidgetSpec::Slider(_) => {}
             WidgetSpec::Checkbox(c) => {
                 c.checked = !c.checked;
                 update.emit(
@@ -345,9 +546,21 @@ impl WidgetRuntime {
         if modifiers.control || modifiers.alt || modifiers.meta {
             return;
         }
+        if key == Key::Named(NamedKey::Escape) && pressed && self.gesture.is_some() {
+            self.cancel_gesture(SliderCancelReason::Escape, update);
+            update.status.consume = true;
+            return;
+        }
+        if matches!(self.controls[&target.widget].spec, WidgetSpec::Slider(_)) {
+            self.slider_key(&target, key, pressed, update);
+            return;
+        }
+        if pressed && self.radio_key(&target, key, update) {
+            return;
+        }
         match key {
             Key::Named(NamedKey::Escape) if pressed && self.gesture.is_some() => {
-                self.cancel_gesture(update);
+                self.cancel_gesture(SliderCancelReason::FocusLost, update);
                 update.status.consume = true;
             }
             Key::Named(NamedKey::Enter)
@@ -362,10 +575,11 @@ impl WidgetRuntime {
                 update.status.consume = true;
                 if pressed && !repeat && self.gesture.is_none() {
                     self.gesture = Some(Gesture {
-                        epoch: self.controls[&target.widget].epoch,
+                        epoch: self.target_epoch(&target).unwrap(),
                         target,
                         keyboard: true,
                         inside: true,
+                        kind: GestureKind::Button,
                     });
                     update.status.rerender = true;
                 } else if !pressed
@@ -394,7 +608,11 @@ impl WidgetRuntime {
         let hit = event
             .position()
             .and_then(|p| rtree.pick_top_mark_at_point(&p))
-            .and_then(|m| self.regions.iter().find(|r| r.name == m.name))
+            .and_then(|m| {
+                self.regions
+                    .iter()
+                    .find(|r| !r.name.is_empty() && r.name == m.name)
+            })
             .map(|r| r.target.clone());
         match event {
             Event::MouseDown(e) if e.button == MouseButton::Left => {
@@ -404,11 +622,16 @@ impl WidgetRuntime {
                     if self.eligible(&target) {
                         self.focus(Some(target.clone()), false, &mut update);
                         self.gesture = Some(Gesture {
-                            epoch: self.controls[&target.widget].epoch,
+                            epoch: self.target_epoch(&target).unwrap(),
                             target,
                             keyboard: false,
                             inside: true,
+                            kind: GestureKind::Button,
                         });
+                        if let Some(g) = &self.gesture {
+                            let target = g.target.clone();
+                            self.slider_press(&target, e.position[0], &mut update);
+                        }
                         update
                             .status
                             .commands
@@ -432,10 +655,14 @@ impl WidgetRuntime {
                 if let Some(g) = &mut self.gesture
                     && !g.keyboard
                 {
-                    let inside = hit.as_ref() == Some(&g.target);
+                    let inside = matches!(g.kind, GestureKind::Slider { .. })
+                        || hit.as_ref() == Some(&g.target);
                     update.status.rerender |= g.inside != inside;
                     g.inside = inside;
                     update.status.consume = true;
+                }
+                if let Event::CursorMoved(e) = event {
+                    self.slider_move(e.position[0], &mut update);
                 }
             }
             Event::MouseUp(e) if e.button == MouseButton::Left => {
@@ -448,7 +675,9 @@ impl WidgetRuntime {
                         .status
                         .commands
                         .push(Command::SetPointerCapture { captured: false });
-                    if hit.as_ref() == Some(&g.target) {
+                    if matches!(g.kind, GestureKind::Slider { .. }) {
+                        self.finish_slider(g, &mut update);
+                    } else if hit.as_ref() == Some(&g.target) {
                         self.activate(&g.target, &mut update);
                     }
                 }
@@ -490,7 +719,9 @@ impl WidgetRuntime {
                     self.focus(Some(t), true, &mut update);
                 }
             }
-            Event::PointerCaptureLost => self.cancel_gesture(&mut update),
+            Event::PointerCaptureLost => {
+                self.cancel_gesture(SliderCancelReason::CaptureLost, &mut update)
+            }
             Event::WindowCloseRequested => {
                 self.focus(None, false, &mut update);
                 self.remembered = None;
@@ -500,5 +731,254 @@ impl WidgetRuntime {
         self.revision += 1;
         self.publish_policy(&mut update);
         Ok(update)
+    }
+}
+
+impl WidgetRuntime {
+    pub(crate) fn reconcile_spec(
+        &mut self,
+        spec: &WidgetSpec,
+        update: &mut WidgetUpdate,
+    ) -> Result<(), WidgetError> {
+        let mut spec = spec.clone();
+        match &mut spec {
+            WidgetSpec::CheckboxGroup(g) => {
+                crate::choice::validate(&g.items, g.checked.iter().cloned())?
+            }
+            WidgetSpec::RadioGroup(g) => {
+                crate::choice::validate(&g.items, g.selected.iter().cloned())?
+            }
+            WidgetSpec::Slider(s) => s.value = s.domain.normalize(s.value)?,
+            _ => {}
+        }
+        let mut replaced_slider = false;
+        if let Some(old) = self.controls.get(spec.id()) {
+            if !old.spec.same_kind(&spec) {
+                return Err(WidgetError::Invalid(format!(
+                    "live widget {} changed kind",
+                    spec.id().as_str()
+                )));
+            }
+            if let (WidgetSpec::Slider(old), WidgetSpec::Slider(new)) = (&old.spec, &spec) {
+                replaced_slider = old.value != new.value || old.domain != new.domain;
+            }
+        } else {
+            self.next_epoch += 1;
+            self.controls.insert(
+                spec.id().clone(),
+                Control {
+                    spec: spec.clone(),
+                    epoch: self.next_epoch,
+                    item_epochs: BTreeMap::new(),
+                },
+            );
+        }
+        let id = spec.id().clone();
+        let c = self.controls.get_mut(&id).unwrap();
+        if let Some(items) = spec.items() {
+            c.item_epochs
+                .retain(|id, _| items.iter().any(|i| &i.id == id && i.enabled));
+            for item in items.iter().filter(|i| i.enabled) {
+                if !c.item_epochs.contains_key(&item.id) {
+                    self.next_epoch += 1;
+                    c.item_epochs.insert(item.id.clone(), self.next_epoch);
+                }
+            }
+        }
+        c.spec = spec;
+        if replaced_slider && self.gesture.as_ref().is_some_and(|g| g.target.widget == id) {
+            self.cancel_gesture(SliderCancelReason::Replaced, update);
+        }
+        Ok(())
+    }
+    fn radio_key(&mut self, target: &WidgetTarget, key: Key, update: &mut WidgetUpdate) -> bool {
+        if !matches!(
+            self.controls[&target.widget].spec,
+            WidgetSpec::RadioGroup(_)
+        ) {
+            return false;
+        }
+        let forward = match key {
+            Key::Named(NamedKey::ArrowRight | NamedKey::ArrowDown) => true,
+            Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowUp) => false,
+            _ => return false,
+        };
+        let targets: Vec<_> = self
+            .regions
+            .iter()
+            .map(|r| r.target.clone())
+            .filter(|t| t.widget == target.widget && self.eligible(t))
+            .collect();
+        if let Some(i) = targets.iter().position(|t| t == target) {
+            let next = targets[if forward {
+                (i + 1) % targets.len()
+            } else {
+                (i + targets.len() - 1) % targets.len()
+            }]
+            .clone();
+            self.focus(Some(next.clone()), true, update);
+            self.activate(&next, update);
+        }
+        update.status.consume = true;
+        true
+    }
+    pub(crate) fn set_slider(
+        &mut self,
+        target: &WidgetTarget,
+        value: f64,
+        update: &mut WidgetUpdate,
+    ) {
+        if let Some(Control {
+            spec: WidgetSpec::Slider(s),
+            ..
+        }) = self.controls.get_mut(&target.widget)
+            && s.value != value
+        {
+            s.value = value;
+            update.emit(&target.widget, WidgetAction::SliderChanged { value });
+            if let Some(Gesture {
+                kind: GestureKind::Slider { changed, last, .. },
+                ..
+            }) = &mut self.gesture
+            {
+                *changed = true;
+                *last = value;
+            }
+        }
+    }
+    fn slider_press(&mut self, target: &WidgetTarget, x: f32, update: &mut WidgetUpdate) {
+        let WidgetSpec::Slider(s) = &self.controls[&target.widget].spec else {
+            return;
+        };
+        let region = self.regions.iter().find(|r| &r.target == target).unwrap();
+        let (left, length) =
+            crate::slider::track(region.rect, &self.theme.slider, s.value_label.is_some());
+        let thumb = left + length * s.domain.fraction(s.value);
+        let grab = if (x - thumb).abs() <= self.theme.slider.thumb_size / 2.0 {
+            x - thumb
+        } else {
+            0.0
+        };
+        if let Some(g) = &mut self.gesture {
+            g.kind = GestureKind::Slider {
+                start: s.value,
+                last: s.value,
+                changed: false,
+                key: None,
+                grab,
+            };
+        }
+        self.slider_move(x, update);
+    }
+    fn slider_move(&mut self, x: f32, update: &mut WidgetUpdate) {
+        let Some(Gesture {
+            target,
+            kind: GestureKind::Slider {
+                key: None, grab, ..
+            },
+            ..
+        }) = &self.gesture
+        else {
+            return;
+        };
+        let target = target.clone();
+        let grab = *grab;
+        let WidgetSpec::Slider(s) = &self.controls[&target.widget].spec else {
+            return;
+        };
+        let region = self.regions.iter().find(|r| r.target == target).unwrap();
+        let (left, length) =
+            crate::slider::track(region.rect, &self.theme.slider, s.value_label.is_some());
+        if length > 0.0 {
+            let value = s.domain.at_fraction((x - grab - left) / length);
+            self.set_slider(&target, value, update);
+        }
+    }
+    fn finish_slider(&mut self, g: Gesture, update: &mut WidgetUpdate) {
+        if matches!(g.kind, GestureKind::Slider { changed: true, .. })
+            && let Some(Control {
+                spec: WidgetSpec::Slider(s),
+                ..
+            }) = self.controls.get(&g.target.widget)
+        {
+            update.emit(
+                &g.target.widget,
+                WidgetAction::SliderCommitted { value: s.value },
+            );
+        }
+    }
+    fn slider_key(
+        &mut self,
+        target: &WidgetTarget,
+        key: Key,
+        pressed: bool,
+        update: &mut WidgetUpdate,
+    ) {
+        if !matches!(
+            key,
+            Key::Named(
+                NamedKey::ArrowLeft
+                    | NamedKey::ArrowRight
+                    | NamedKey::ArrowUp
+                    | NamedKey::ArrowDown
+                    | NamedKey::PageUp
+                    | NamedKey::PageDown
+                    | NamedKey::Home
+                    | NamedKey::End
+            )
+        ) {
+            return;
+        }
+        update.status.consume = true;
+        if !pressed {
+            if self
+                .gesture
+                .as_ref()
+                .is_some_and(|g| matches!(g.kind,GestureKind::Slider{key:Some(k),..} if k==key))
+            {
+                let g = self.gesture.take().unwrap();
+                self.finish_slider(g, update);
+                update.status.rerender = true;
+            }
+            return;
+        }
+        if self.gesture.as_ref().is_some_and(|g| !g.keyboard) {
+            return;
+        }
+        if self
+            .gesture
+            .as_ref()
+            .is_some_and(|g| matches!(g.kind,GestureKind::Slider{key:Some(k),..} if k!=key))
+        {
+            let g = self.gesture.take().unwrap();
+            self.finish_slider(g, update);
+        }
+        let WidgetSpec::Slider(s) = &self.controls[&target.widget].spec else {
+            return;
+        };
+        if self.gesture.is_none() {
+            self.gesture = Some(Gesture {
+                target: target.clone(),
+                epoch: self.target_epoch(target).unwrap(),
+                keyboard: true,
+                inside: true,
+                kind: GestureKind::Slider {
+                    start: s.value,
+                    last: s.value,
+                    changed: false,
+                    key: Some(key),
+                    grab: 0.0,
+                },
+            });
+        }
+        let value = match key {
+            Key::Named(NamedKey::Home) => s.domain.min(),
+            Key::Named(NamedKey::End) => s.domain.max(),
+            Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowDown) => s.domain.advance(s.value, -1),
+            Key::Named(NamedKey::PageDown) => s.domain.advance(s.value, -10),
+            Key::Named(NamedKey::PageUp) => s.domain.advance(s.value, 10),
+            _ => s.domain.advance(s.value, 1),
+        };
+        self.set_slider(target, value, update);
     }
 }

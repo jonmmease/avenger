@@ -1,4 +1,3 @@
-use crate::runtime::Control;
 use crate::{
     Edges, Rect, Size, WidgetError, WidgetId, WidgetRuntime, WidgetSpec, WidgetTarget, WidgetTheme,
     WidgetUpdate,
@@ -19,6 +18,8 @@ pub struct WidgetMetrics {
 pub(crate) struct Measured {
     pub metrics: WidgetMetrics,
     pub label: TextBounds,
+    pub rows: Vec<(crate::ChoiceItemId, TextBounds, Size)>,
+    pub header_height: f32,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Region {
@@ -33,6 +34,7 @@ pub struct PreparedWidgets {
     pub(crate) source_revision: u64,
     pub(crate) candidate: WidgetRuntime,
     pub(crate) measurements: BTreeMap<WidgetId, Measured>,
+    pub(crate) update: WidgetUpdate,
     pub(crate) placements: BTreeMap<WidgetId, (Rect, Option<Rect>)>,
 }
 impl PreparedWidgets {
@@ -79,18 +81,67 @@ impl PreparedWidgets {
         for id in &self.candidate.order {
             let control = &self.candidate.controls[id];
             let (rect, outer) = self.placements[id];
-            regions.push(Region {
-                target: WidgetTarget::new(id.clone()),
-                rect,
-                clip: outer.map_or(rect, |c| intersection(rect, c)),
-                name: format!(
-                    "__avenger_widget_{}_{}",
-                    self.candidate.namespace, control.epoch
-                ),
-            });
+            let measured = &self.measurements[id];
+            if let Some(items) = control.spec.items() {
+                regions.push(Region {
+                    target: WidgetTarget::new(id.clone()),
+                    rect,
+                    clip: outer.map_or(rect, |c| intersection(rect, c)),
+                    name: String::new(),
+                });
+                let horizontal = matches!(&control.spec,WidgetSpec::CheckboxGroup(g) if g.orientation==crate::ChoiceOrientation::Horizontal)
+                    || matches!(&control.spec,WidgetSpec::RadioGroup(g) if g.orientation==crate::ChoiceOrientation::Horizontal);
+                let mut x = rect.x;
+                let mut y = rect.y + measured.header_height;
+                for (i, item) in items.iter().enumerate() {
+                    let size = measured.rows[i].2;
+                    let row = Rect::new(
+                        x,
+                        y,
+                        if horizontal { size.width } else { rect.width },
+                        size.height,
+                    );
+                    let epoch = control
+                        .item_epochs
+                        .get(&item.id)
+                        .copied()
+                        .unwrap_or(control.epoch);
+                    regions.push(Region {
+                        target: WidgetTarget::item(id.clone(), item.id.clone()),
+                        rect: row,
+                        clip: intersection(row, outer.map_or(rect, |c| intersection(rect, c))),
+                        name: if item.enabled {
+                            format!(
+                                "__avenger_widget_{}_{}_item",
+                                self.candidate.namespace, epoch
+                            )
+                        } else {
+                            format!(
+                                "__avenger_widget_{}_{}_disabled_{}",
+                                self.candidate.namespace, epoch, i
+                            )
+                        },
+                    });
+                    if horizontal {
+                        x += size.width + self.candidate.theme.group.gap;
+                    } else {
+                        y += size.height + self.candidate.theme.group.gap;
+                    }
+                }
+            } else {
+                regions.push(Region {
+                    target: WidgetTarget::new(id.clone()),
+                    rect,
+                    clip: outer.map_or(rect, |c| intersection(rect, c)),
+                    name: format!(
+                        "__avenger_widget_{}_{}",
+                        self.candidate.namespace, control.epoch
+                    ),
+                });
+            }
         }
         self.candidate.regions = regions;
-        let mut update = WidgetUpdate::default();
+        let mut update = self.update;
         self.candidate.reconcile_targets(&mut update);
         let mut scene = SceneGroup {
             name: format!("__avenger_widgets_{}", self.candidate.namespace),
@@ -136,6 +187,7 @@ impl WidgetRuntime {
         let mut candidate = self.clone();
         candidate.theme = theme.clone();
         let mut seen = BTreeSet::new();
+        let mut update = WidgetUpdate::default();
         let mut measurements = BTreeMap::new();
         for spec in specs {
             if !seen.insert(spec.id().clone()) {
@@ -144,63 +196,14 @@ impl WidgetRuntime {
                     spec.id().as_str()
                 )));
             }
-            if let Some(old) = candidate.controls.get(spec.id()) {
-                if !old.spec.same_kind(spec) {
-                    return Err(WidgetError::Invalid(format!(
-                        "live widget {} changed kind",
-                        spec.id().as_str()
-                    )));
-                }
-            } else {
-                candidate.next_epoch += 1;
-                candidate.controls.insert(
-                    spec.id().clone(),
-                    Control {
-                        spec: spec.clone(),
-                        epoch: candidate.next_epoch,
-                    },
-                );
-            }
-            candidate.controls.get_mut(spec.id()).unwrap().spec = spec.clone();
-            let (text, height, prefix, padding, min_width, focus) = match spec {
-                WidgetSpec::Button(_) => {
-                    let s = &theme.button;
-                    (&s.text, s.height, 0.0, s.padding, s.min_width, &s.focus)
-                }
-                WidgetSpec::Checkbox(_) => {
-                    let s = &theme.checkbox;
-                    (
-                        &s.text,
-                        s.row_height,
-                        s.box_size + s.gap,
-                        0.0,
-                        s.box_size,
-                        &s.focus,
-                    )
-                }
-            };
-            let label = engine.measure_bounds(&text.config(spec.label()))?;
-            let h = height.max(label.height);
-            let w = min_width.max(prefix + label.width + 2.0 * padding);
-            let o = focus.overflow();
-            crate::style::lengths(&[w, h, o, label.ascent])?;
-            measurements.insert(
-                spec.id().clone(),
-                Measured {
-                    metrics: WidgetMetrics {
-                        minimum: Size::new(min_width, h),
-                        preferred: Size::new(w, h),
-                        baseline: Some((h - label.height) / 2.0 + label.ascent),
-                        paint_overflow: Edges::new(o, o, o, o),
-                    },
-                    label,
-                },
-            );
+            candidate.reconcile_spec(spec, &mut update)?;
+            measurements.insert(spec.id().clone(), measure(spec, theme, engine)?);
         }
         candidate.controls.retain(|id, _| seen.contains(id));
         candidate.order = specs.iter().map(|s| s.id().clone()).collect();
         Ok(PreparedWidgets {
             source_revision: self.revision,
+            update,
             candidate,
             measurements,
             placements: BTreeMap::new(),
@@ -249,4 +252,103 @@ pub(crate) fn intersection(a: Rect, b: Rect) -> Rect {
 }
 pub(crate) fn visible(rect: Rect) -> bool {
     rect.width > 0.0 && rect.height > 0.0
+}
+
+fn measure(
+    spec: &WidgetSpec,
+    theme: &WidgetTheme,
+    engine: &TextEngine,
+) -> Result<Measured, WidgetError> {
+    let (text, height, prefix, padding, min_width, focus) = match spec {
+        WidgetSpec::Button(_) => {
+            let s = &theme.button;
+            (&s.text, s.height, 0.0, s.padding, s.min_width, &s.focus)
+        }
+        WidgetSpec::Checkbox(_) | WidgetSpec::CheckboxGroup(_) => {
+            let s = &theme.checkbox;
+            (
+                &s.text,
+                s.row_height,
+                s.box_size + s.gap,
+                0.0,
+                s.box_size,
+                &s.focus,
+            )
+        }
+        WidgetSpec::RadioGroup(_) => {
+            let s = &theme.radio;
+            (
+                &s.text,
+                s.row_height,
+                s.box_size + s.gap,
+                0.0,
+                s.box_size,
+                &s.focus,
+            )
+        }
+        WidgetSpec::Slider(_) => {
+            let s = &theme.slider;
+            (&s.text, s.height, 0.0, 0.0, s.thumb_size, &s.focus)
+        }
+    };
+    let label = engine.measure_bounds(&if spec.items().is_some() {
+        theme.group.text.config(spec.label())
+    } else {
+        text.config(spec.label())
+    })?;
+    let mut h = height.max(label.height);
+    let mut w = min_width.max(prefix + label.width + 2.0 * padding);
+    let mut rows = Vec::new();
+    let mut header_height = 0.0;
+    if let Some(items) = spec.items() {
+        header_height = if spec.label().is_empty() {
+            0.0
+        } else {
+            label.height + theme.group.label_gap
+        };
+        let horizontal = matches!(spec,WidgetSpec::CheckboxGroup(g) if g.orientation==crate::ChoiceOrientation::Horizontal)
+            || matches!(spec,WidgetSpec::RadioGroup(g) if g.orientation==crate::ChoiceOrientation::Horizontal);
+        w = 0.0;
+        h = 0.0;
+        for item in items {
+            let bounds = engine.measure_bounds(&text.config(&item.label))?;
+            let size = Size::new(prefix + bounds.width, height.max(bounds.height));
+            if horizontal {
+                w += size.width;
+                h = h.max(size.height);
+            } else {
+                w = w.max(size.width);
+                h += size.height;
+            }
+            rows.push((item.id.clone(), bounds, size));
+        }
+        let gaps = items.len().saturating_sub(1) as f32 * theme.group.gap;
+        if horizontal {
+            w += gaps;
+        } else {
+            h += gaps;
+        }
+        w = w.max(label.width);
+        h += header_height;
+    }
+    if matches!(spec, WidgetSpec::Slider(_)) {
+        w = theme.slider.width.max(min_width);
+    }
+    let o = focus.overflow();
+    crate::style::lengths(&[w, h, o, label.ascent])?;
+    Ok(Measured {
+        metrics: WidgetMetrics {
+            minimum: Size::new(min_width.min(w), h),
+            preferred: Size::new(w, h),
+            baseline: Some(if spec.items().is_some() {
+                label.ascent
+            } else {
+                (h - label.height) / 2.0 + label.ascent
+            }),
+            paint_overflow: Edges::new(o, o, o, o),
+        },
+        label,
+        rows,
+        header_height,
+    })
 }

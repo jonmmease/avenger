@@ -52,7 +52,7 @@ pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     // Track current mousedown mark, used for click determination
     mousedown_mark: Option<MarkInstance>,
     mousedown_button: Option<MouseButton>,
-    suppress_click: bool,
+    suppressed_click_buttons: Vec<MouseButton>,
     modifiers: ModifiersState,
 }
 
@@ -68,7 +68,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             current_cursor_position: None,
             mousedown_mark: None,
             mousedown_button: None,
-            suppress_click: false,
+            suppressed_click_buttons: Vec::new(),
             modifiers: ModifiersState::default(),
         }
     }
@@ -186,7 +186,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         }))
                     } else if input.state == ElementState::Released {
                         // Check if both mark and button match
-                        if !self.suppress_click
+                        if !self.suppressed_click_buttons.contains(&input.button)
                             && self.mousedown_mark.as_ref() == mark_instance.as_ref()
                             && self.mousedown_button.as_ref() == Some(&input.button)
                         {
@@ -219,7 +219,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                                 );
                             }
                         }
-                        self.suppress_click = false;
+
                         self.mousedown_mark = None;
                         self.mousedown_button = None;
                         Some(SceneGraphEvent::MouseUp(SceneMouseUpEvent {
@@ -328,10 +328,15 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             );
         }
 
-        if matches!(event, WindowEvent::MouseInput(input) if input.state == ElementState::Pressed) {
-            self.suppress_click = update_status.suppress_click;
-            if self.suppress_click {
+        if let WindowEvent::MouseInput(input) = event {
+            if input.state == ElementState::Pressed && update_status.suppress_click {
+                if !self.suppressed_click_buttons.contains(&input.button) {
+                    self.suppressed_click_buttons.push(input.button);
+                }
                 self.last_click = None;
+            } else if input.state == ElementState::Released {
+                self.suppressed_click_buttons
+                    .retain(|button| button != &input.button);
             }
         }
         update_status
@@ -1917,8 +1922,40 @@ mod tests {
                     .await;
             }
         }
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Right,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        assert_eq!(manager.suppressed_click_buttons, vec![MouseButton::Left]);
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        assert!(manager.suppressed_click_buttons.is_empty());
         let events = events.lock().unwrap();
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 7);
         assert!(events.iter().all(|e| matches!(
             e,
             SceneGraphEvent::MouseDown(_) | SceneGraphEvent::MouseUp(_)
