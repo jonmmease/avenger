@@ -1,16 +1,16 @@
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use avenger_eventstream::runtime::{DebounceConfig, DebouncedCommit, RuntimeWakeKey};
+use avenger_eventstream::runtime::RuntimeWakeKey;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{linear::LinearScale, ConfiguredScale},
 };
 use avenger_text::{
     measurement::TextMeasurementConfig,
-    text_edit::{cursor_rect_for_offset, Action, ShapedLine, SingleLineEditor},
     types::{FontStyle, FontWeight, TextSyntaxMode},
     LabelParams, TextEngine,
 };
+use avenger_widgets::{TextShortcuts, WidgetRuntime};
 
 use crate::reload::ReloadCoordinator;
 
@@ -53,7 +53,6 @@ impl PlotScales {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drag {
-    Field,
     Annotation,
     Plot,
 }
@@ -66,15 +65,10 @@ pub struct State {
     pub selected: usize,
     pub size: [f32; 2],
     pub pan: [f32; 2],
-    pub editor: SingleLineEditor,
-    pub composition_snapshot: Option<(String, avenger_text::text_edit::SelectionState)>,
+    pub draft: String,
+    pub widgets: WidgetRuntime,
     pub engine: TextEngine,
-    pub focused: bool,
     pub window_focused: bool,
-    pub caret_visible: bool,
-    pub scroll: f32,
-    pub session: u64,
-    pub blink_generation: u64,
     pub hover_generation: u64,
     pub hover_point: Option<usize>,
     pub hover_visible: bool,
@@ -82,13 +76,10 @@ pub struct State {
     pub drag: Option<Drag>,
     pub drag_origin: [f32; 2],
     pub load_feedback: Arc<Mutex<Option<Result<(), String>>>>,
-    pub debounce: DebouncedCommit<String>,
     pub error: Option<String>,
     pub annotation_error: Option<String>,
     pub loading: Option<Sample>,
     pub reload: Weak<ReloadCoordinator>,
-    pub clipboard_text: Arc<Mutex<(u64, String)>>,
-    pub mac_shortcuts: bool,
     pub scene_builds: usize,
 }
 
@@ -139,8 +130,12 @@ impl State {
             })
             .collect();
         Self {
-            editor: SingleLineEditor::new(points[7].annotation.clone()),
-            composition_snapshot: None,
+            draft: points[7].annotation.clone(),
+            widgets: WidgetRuntime::new().with_text_shortcuts(if uses_mac_shortcuts() {
+                TextShortcuts::Mac
+            } else {
+                TextShortcuts::Control
+            }),
             points,
             selected: 7,
             sample,
@@ -148,12 +143,7 @@ impl State {
             engine,
             size: [1000.0, 680.0],
             pan: [0.0; 2],
-            focused: false,
             window_focused: true,
-            caret_visible: false,
-            scroll: 0.0,
-            session: 0,
-            blink_generation: 0,
             hover_generation: 0,
             hover_point: None,
             hover_visible: false,
@@ -161,13 +151,10 @@ impl State {
             drag: None,
             drag_origin: [0.0; 2],
             load_feedback: Arc::new(Mutex::new(None)),
-            debounce: DebouncedCommit::new(DebounceConfig::new(350)),
             error: None,
             annotation_error: None,
             loading: None,
             reload: Weak::new(),
-            clipboard_text: Default::default(),
-            mac_shortcuts: uses_mac_shortcuts(),
             scene_builds: 0,
         }
     }
@@ -177,9 +164,6 @@ impl State {
     }
     pub fn field(&self) -> [f32; 4] {
         [self.size[0] - 284.0, 252.0, 252.0, 44.0]
-    }
-    pub fn field_text_origin(&self) -> [f32; 2] {
-        [self.field()[0] + 10.0 - self.scroll, self.field()[1] + 11.0]
     }
     pub fn scales(&self) -> Result<PlotScales, AvengerScaleError> {
         let [x, y, w, h] = self.plot();
@@ -194,18 +178,7 @@ impl State {
         self.scales()?.position(self.points[index].position)
     }
     pub fn key(&self, purpose: &str) -> RuntimeWakeKey {
-        RuntimeWakeKey::new(
-            "annotation-editor",
-            self.generation,
-            format!(
-                "{}-{purpose}",
-                if matches!(purpose, "hover" | "load") {
-                    0
-                } else {
-                    self.session
-                }
-            ),
-        )
+        RuntimeWakeKey::new("annotation-editor", self.generation, format!("0-{purpose}"))
     }
     pub fn tooltip_owner(&self) -> String {
         format!(
@@ -214,46 +187,10 @@ impl State {
         )
     }
     pub fn pending(&self) -> bool {
-        self.editor.committed_text().into_string() != self.points[self.selected].annotation
+        self.draft != self.points[self.selected].annotation
     }
-    pub fn apply_action(&mut self, action: Action) -> bool {
-        let before = self.editor.text().to_string();
-        match self.editor.apply(action, &self.engine, &text_config()) {
-            Ok(changed) => {
-                if before != self.editor.text() {
-                    self.annotation_error = None;
-                }
-                self.error = None;
-                changed
-            }
-            Err(error) => {
-                self.error = Some(error.to_string());
-                false
-            }
-        }
-    }
-    pub fn shaped_line(&mut self) -> Result<ShapedLine, String> {
-        self.editor
-            .shape_line(&self.engine, &text_config())
-            .cloned()
-            .map_err(|e| e.to_string())
-    }
-    pub fn keep_caret_visible(&mut self) {
-        let cursor = self.editor.selection().head;
-        if let Ok(line) = self.shaped_line() {
-            let caret = cursor_rect_for_offset(&line, cursor.index, cursor.affinity);
-            let width = self.field()[2] - 22.0;
-            if caret.x < self.scroll {
-                self.scroll = caret.x;
-            }
-            if caret.x > self.scroll + width {
-                self.scroll = caret.x - width;
-            }
-            self.scroll = self
-                .scroll
-                .max(0.0)
-                .min((line.bounds.width - width).max(0.0));
-        }
+    pub fn focused(&self) -> bool {
+        self.widgets.focused().is_some()
     }
 }
 

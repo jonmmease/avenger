@@ -31,7 +31,6 @@ struct Target {
 
 pub struct ReloadCoordinator {
     executor: Executor,
-    pub clipboard_text: Arc<Mutex<(u64, String)>>,
     target: Mutex<Option<Target>>,
     latest: AtomicU64,
     closed: AtomicBool,
@@ -46,7 +45,6 @@ impl ReloadCoordinator {
             executor: Executor(runtime),
             #[cfg(target_arch = "wasm32")]
             executor: Executor,
-            clipboard_text: Default::default(),
             target: Mutex::new(None),
             latest: AtomicU64::new(0),
             closed: AtomicBool::new(false),
@@ -76,7 +74,6 @@ impl ReloadCoordinator {
     ) -> Result<(), String> {
         let weak = Arc::downgrade(self);
         let slow = self.slow;
-        let clipboard_text = self.clipboard_text.clone();
         self.start(sample, feedback, move |epoch| async move {
             if slow {
                 sleep(Duration::from_millis(if sample == Sample::A {
@@ -89,7 +86,6 @@ impl ReloadCoordinator {
             let mut state = State::new(sample, epoch, engine);
             state.size = size;
             state.reload = weak;
-            state.clipboard_text = clipboard_text;
             make_app(state).await.map_err(|e| e.to_string())
         })
     }
@@ -180,9 +176,6 @@ impl ReloadCoordinator {
                 if let Some(target) = this.target.lock().expect("reload target").as_ref() {
                     (target.title)(format!("Annotation editor — load failed: {error}"));
                 }
-            }
-            if outcome.is_ok() {
-                *this.clipboard_text.lock().expect("clipboard selection") = (epoch, String::new());
             }
             *feedback.lock().expect("load feedback") = Some(outcome);
         });

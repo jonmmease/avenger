@@ -1,6 +1,11 @@
 //! Render selection, composition, and panning at two raster scales.
 use avenger_common::canvas::CanvasDimensions;
-use avenger_text::text_edit::Action;
+use avenger_common::time::Instant;
+use avenger_eventstream::{
+    scene::SceneGraphEvent,
+    window::{ImeEvent, SessionInputEvent, TextInputEvent},
+};
+use avenger_text::text_edit::{Affinity, Cursor, Granularity, SelectionState};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use std::path::PathBuf;
 use winit_annotation_editor::{
@@ -14,14 +19,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = avenger_text::default_text_engine();
     for kind in ["selection", "composition", "panned"] {
         let mut state = State::new(Sample::A, 0, engine.clone());
-        state.focused = true;
-        state.caret_visible = true;
-        state.apply_action(Action::SelectAll);
+        let initial = scene::build(&mut state)?;
+        state.widgets.request_focus(
+            Some(avenger_widgets::WidgetTarget::new("source")),
+            Instant::now(),
+        )?;
+        state.widgets.set_text_selection(
+            "source",
+            SelectionState {
+                anchor: Cursor::new(0, Affinity::Downstream),
+                head: Cursor::new(state.draft.len(), Affinity::Upstream),
+                granularity: Granularity::Char,
+            },
+            Instant::now(),
+        )?;
         if kind == "composition" {
-            state.apply_action(Action::Preedit {
-                text: "café".into(),
-                cursor: Some((3, 5)),
-            });
+            let input = SessionInputEvent {
+                session: state.widgets.active_input_session().unwrap().clone(),
+                event: TextInputEvent::Ime(ImeEvent::Preedit {
+                    text: "café".into(),
+                    cursor: Some((3, 5)),
+                }),
+            };
+            state.widgets.handle(
+                &SceneGraphEvent::TextInput {
+                    input,
+                    modifiers: Default::default(),
+                },
+                &avenger_geometry::rtree::SceneGraphRTree::from_scene_graph(&initial),
+                Instant::now(),
+            )?;
         }
         if kind == "panned" {
             state.pan = [-46.25, 31.5];

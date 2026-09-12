@@ -23,20 +23,14 @@ pub async fn run(slow_loads: bool) -> Result<(), JsValue> {
     let engine = avenger_text::default_text_engine();
     let mut state = State::new(Sample::A, 0, engine.clone());
     state.reload = Arc::downgrade(&reload);
-    state.clipboard_text = reload.clipboard_text.clone();
     let app = make_app(state)
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let clipboard = reload.clipboard_text.clone();
     let scale = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio()) as f32;
-    let options = WinitWgpuAvengerAppOptions::new(scale)
-        .canvas_config(CanvasConfig {
-            text_engine: Some(engine),
-            ..Default::default()
-        })
-        .clipboard_payload_provider(Arc::new(move || {
-            clipboard.lock().ok().map(|selection| selection.1.clone())
-        }));
+    let options = WinitWgpuAvengerAppOptions::new(scale).canvas_config(CanvasConfig {
+        text_engine: Some(engine),
+        ..Default::default()
+    });
     let (host, event_loop) = WinitWgpuAvengerApp::try_new_and_event_loop_with_options(app, options)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     reload.attach(host.host_update_sender());

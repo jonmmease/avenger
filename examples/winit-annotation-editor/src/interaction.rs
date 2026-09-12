@@ -8,17 +8,17 @@ use avenger_common::{
 use avenger_eventstream::{
     manager::EventStreamHandler,
     runtime::{
-        LogicalRect, RuntimeHostCommand as Command, RuntimeTooltipPresentation, RuntimeTooltipRow,
+        RuntimeHostCommand as Command, RuntimeTooltipPresentation, RuntimeTooltipRow,
         RuntimeTooltipUpdate,
     },
     scene::{SceneGraphEvent as Event, SceneGraphEventType as Type},
     stream::{
         EventAdmission, EventStreamConfig, EventStreamContext, EventStreamFilter, UpdateStatus,
     },
-    window::{ClipboardEvent, ImeEvent, Key, MouseButton, NamedKey},
+    window::MouseButton,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_text::text_edit::{cursor_rect_for_offset, Action, Motion, SingleLineEditor};
+use avenger_widgets::{TextCancelReason, WidgetAction, WidgetEvent};
 
 use crate::state::{annotation_config, Drag, Sample, State};
 
@@ -57,14 +57,15 @@ pub fn registrations() -> Vec<Registration> {
     let mut registrations: Vec<Registration> = Vec::new();
     // Arm before the input handler consumes the press. Movement and release use
     // the captured start event even when the pointer crosses another mark.
-    for (drag, prefix) in [
-        (Drag::Field, "field"),
-        (Drag::Annotation, "annotation-"),
-        (Drag::Plot, "plot"),
-    ] {
+    for (drag, prefix) in [(Drag::Annotation, "annotation-"), (Drag::Plot, "plot")] {
         registrations.push((
             EventStreamConfig {
-                types: vec![Type::CursorMoved, Type::MouseUp, Type::WindowFocused],
+                types: vec![
+                    Type::CursorMoved,
+                    Type::MouseUp,
+                    Type::WindowFocused,
+                    Type::PointerCaptureLost,
+                ],
                 between: Some((
                     Box::new(EventStreamConfig {
                         types: vec![Type::MouseDown],
@@ -75,10 +76,13 @@ pub fn registrations() -> Vec<Registration> {
                         ..Default::default()
                     }),
                     Box::new(EventStreamConfig {
-                        types: vec![Type::MouseUp, Type::WindowFocused],
+                        types: vec![Type::MouseUp, Type::WindowFocused, Type::PointerCaptureLost],
                         filter: Some(vec![EventStreamFilter::event(|event| {
                             matches!(event,Event::MouseUp(e) if e.button==MouseButton::Left)
-                                || matches!(event, Event::WindowFocused(false))
+                                || matches!(
+                                    event,
+                                    Event::WindowFocused(false) | Event::PointerCaptureLost
+                                )
                         })]),
                         ..Default::default()
                     }),
@@ -93,10 +97,14 @@ pub fn registrations() -> Vec<Registration> {
         EventStreamConfig {
             types: vec![
                 Type::MouseDown,
-                Type::DoubleClick,
+                Type::MouseUp,
+                Type::CursorMoved,
+                Type::MarkMouseLeave,
+                Type::KeyRelease,
+                Type::TextInput,
+                Type::FocusEntered,
+                Type::PointerCaptureLost,
                 Type::KeyPress,
-                Type::Ime,
-                Type::Clipboard,
                 Type::RuntimeWake,
                 Type::WindowFocused,
                 Type::WindowResize,
@@ -117,30 +125,6 @@ pub fn registrations() -> Vec<Registration> {
     registrations
 }
 
-pub fn ime_area(state: &mut State, status: &mut UpdateStatus) {
-    if !state.focused {
-        return;
-    }
-    state.keep_caret_visible();
-    let head = state.editor.selection().head;
-    if let Ok(line) = state.shaped_line() {
-        let r = cursor_rect_for_offset(&line, head.index, head.affinity);
-        let [x, y] = state.field_text_origin();
-        status.commands.push(Command::SetImeCursorArea {
-            rect: LogicalRect::new(x + r.x, y + r.y, 1.0, r.height),
-        });
-    }
-}
-fn blink(state: &mut State, time: Instant, status: &mut UpdateStatus) {
-    status.rerender |= !state.caret_visible;
-    state.caret_visible = true;
-    state.blink_generation += 1;
-    status.commands.push(Command::RequestWakeup {
-        key: state.key("blink"),
-        deadline: time + Duration::from_millis(500),
-        generation: state.blink_generation,
-    });
-}
 fn hide_hover(state: &mut State, status: &mut UpdateStatus) {
     status.commands.push(Command::CancelWakeup {
         key: state.key("hover"),
@@ -153,14 +137,6 @@ fn hide_hover(state: &mut State, status: &mut UpdateStatus) {
     state.hover_generation += 1;
     state.hover_point = None;
     state.hover_visible = false;
-}
-fn discard_composition(state: &mut State) {
-    if state.editor.compose_range().is_some() {
-        state.apply_action(Action::Commit(String::new()));
-        if let Some((text, selection)) = state.composition_snapshot.take() {
-            state.editor.restore_committed_state(text, selection);
-        }
-    }
 }
 // Keep incomplete source in the editor while the chart retains its last valid label.
 fn apply_annotation(state: &mut State, text: String, status: &mut UpdateStatus) -> bool {
@@ -188,65 +164,70 @@ fn apply_annotation(state: &mut State, text: String, status: &mut UpdateStatus) 
         }
     }
 }
-fn blur(state: &mut State, cancel: bool, status: &mut UpdateStatus) {
-    if !state.focused {
-        return;
+fn widget_events(
+    state: &mut State,
+    events: Vec<WidgetEvent>,
+    time: Instant,
+    status: &mut UpdateStatus,
+) {
+    for event in events {
+        match event.action {
+            WidgetAction::TextChanged { value } => {
+                state.draft = value;
+                state.annotation_error = None;
+            }
+            WidgetAction::TextCommitted { value, .. } => {
+                apply_annotation(state, value, status);
+            }
+            WidgetAction::TextSubmitted { value } => {
+                if apply_annotation(state, value, status) {
+                    blur(state, time, status);
+                }
+            }
+            WidgetAction::TextCancelled {
+                reason: TextCancelReason::Escape | TextCancelReason::Composition,
+                ..
+            } => {
+                // This demo's Escape restores the last accepted Typst label and leaves the field.
+                reset_source(
+                    state,
+                    state.points[state.selected].annotation.clone(),
+                    time,
+                    status,
+                );
+                state.annotation_error = None;
+                blur(state, time, status);
+            }
+            _ => {}
+        }
     }
-    discard_composition(state);
-    let key = state.key("apply");
-    status.commands.extend(state.debounce.cancel(&key).commands);
-    if cancel {
-        state.annotation_error = None;
-        state
-            .editor
-            .replace_committed_text(state.points[state.selected].annotation.clone());
-    } else {
-        let text = state.editor.committed_text().into_string();
-        apply_annotation(state, text, status);
-    }
-    status.commands.extend([
-        Command::CancelWakeup {
-            key: state.key("blink"),
-        },
-        Command::SetImeAllowed { allowed: false },
-        Command::SetImeCursorArea { rect: None },
-    ]);
-    state.focused = false;
-    state.drag = None;
-    state.caret_visible = false;
-    state.session += 1;
-    status.rerender = true;
 }
-fn edit(state: &mut State, action: Action, time: Instant, status: &mut UpdateStatus) {
-    let was_composing = state.editor.compose_range().is_some();
-    let before = state.editor.committed_text().into_string();
-    let changed = state.apply_action(action);
-    status.rerender |= changed;
-    let key = state.key("apply");
-    if state.editor.compose_range().is_some() {
-        status.commands.extend(state.debounce.cancel(&key).commands);
-    } else if before != state.editor.committed_text().into_string()
-        || (was_composing && state.pending())
-    {
-        status.commands.extend(
-            state
-                .debounce
-                .submit(state.editor.committed_text().into_string(), time, &key)
-                .commands,
-        );
+fn blur(state: &mut State, time: Instant, status: &mut UpdateStatus) {
+    if let Ok(update) = state.widgets.request_focus(None, time) {
+        *status = status.merge(&update.status);
+        widget_events(state, update.events, time, status);
     }
-    blink(state, time, status);
-    ime_area(state, status);
 }
-fn select(state: &mut State, selected: usize, status: &mut UpdateStatus) {
+fn reset_source(state: &mut State, value: String, time: Instant, status: &mut UpdateStatus) {
+    state.draft = value.clone();
+    match state.widgets.reset_text("source", value, time) {
+        Ok(update) => *status = status.merge(&update.status),
+        Err(error) => state.error = Some(error.to_string()),
+    }
+}
+fn select(state: &mut State, selected: usize, time: Instant, status: &mut UpdateStatus) {
     if selected >= state.points.len() {
         return;
     }
-    blur(state, false, status);
+    blur(state, time, status);
     state.selected = selected;
-    state.editor = SingleLineEditor::new(state.points[selected].annotation.clone());
+    reset_source(
+        state,
+        state.points[selected].annotation.clone(),
+        time,
+        status,
+    );
     state.annotation_error = None;
-    state.scroll = 0.0;
     status.rerender = true;
     status.rebuild_geometry = true;
 }
@@ -263,247 +244,78 @@ impl EventStreamHandler<State> for InputHandler {
         event: &Event,
         context: &EventStreamContext,
         state: &mut State,
-        _: &SceneGraphRTree,
+        rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let time = now(context);
-        let mut status = accepted(false, false);
+        let update = match state.widgets.handle(event, rtree, time) {
+            Ok(update) => update,
+            Err(error) => {
+                state.error = Some(error.to_string());
+                return accepted(true, false);
+            }
+        };
+        let mut status = update.status;
+        widget_events(state, update.events, time, &mut status);
+        if matches!(event, Event::MouseDown(_)) {
+            hide_hover(state, &mut status);
+        }
+        if status.consume {
+            return status;
+        }
         match event {
             Event::MouseDown(e) if e.button == MouseButton::Left => {
                 state.pointer = e.position;
-                hide_hover(state, &mut status);
                 let name = target(event);
-                if name == "field" {
-                    if !state.focused {
-                        state.session += 1;
-                        state.focused = true;
-                        status
-                            .commands
-                            .push(Command::SetImeAllowed { allowed: true });
-                    }
-                    state.drag = Some(Drag::Field);
-                    edit(
-                        state,
-                        Action::Click {
-                            x: e.position[0] - state.field_text_origin()[0],
-                        },
-                        time,
-                        &mut status,
-                    );
-                } else {
-                    blur(state, false, &mut status);
-                    if let Some(i) = index(name, "point-") {
-                        select(state, i, &mut status);
-                    } else if let Some(i) = index(name, "annotation-") {
-                        select(state, i, &mut status);
-                        state.drag = Some(Drag::Annotation);
-                        state.drag_origin = state.points[state.selected].offset;
-                    } else if name == "plot" {
-                        state.drag = Some(Drag::Plot);
-                        state.drag_origin = state.pan;
-                    } else if name == "sample-a" || name == "sample-b" {
-                        let sample = if name == "sample-a" {
-                            Sample::A
-                        } else {
-                            Sample::B
-                        };
-                        if let Some(reload) = state.reload.upgrade() {
-                            match reload.request(
-                                sample,
-                                state.size,
-                                state.engine.clone(),
-                                state.load_feedback.clone(),
-                            ) {
-                                Ok(()) => {
-                                    state.loading = Some(sample);
-                                    status.commands.push(Command::RequestWakeup {
-                                        key: state.key("load"),
-                                        deadline: time + Duration::from_millis(100),
-                                        generation: state.generation,
-                                    });
-                                }
-                                Err(error) => state.error = Some(error),
+                if let Some(i) = index(name, "point-") {
+                    select(state, i, time, &mut status);
+                } else if let Some(i) = index(name, "annotation-") {
+                    select(state, i, time, &mut status);
+                    state.drag = Some(Drag::Annotation);
+                    state.drag_origin = state.points[state.selected].offset;
+                } else if name == "plot" {
+                    state.drag = Some(Drag::Plot);
+                    state.drag_origin = state.pan;
+                } else if name == "sample-a" || name == "sample-b" {
+                    let sample = if name == "sample-a" {
+                        Sample::A
+                    } else {
+                        Sample::B
+                    };
+                    if let Some(reload) = state.reload.upgrade() {
+                        match reload.request(
+                            sample,
+                            state.size,
+                            state.engine.clone(),
+                            state.load_feedback.clone(),
+                        ) {
+                            Ok(()) => {
+                                state.loading = Some(sample);
+                                status.commands.push(Command::RequestWakeup {
+                                    key: state.key("load"),
+                                    deadline: time + Duration::from_millis(100),
+                                    generation: state.generation,
+                                });
                             }
+                            Err(error) => state.error = Some(error),
                         }
-                        status.rerender = true;
-                    }
-                }
-            }
-            Event::DoubleClick(e) if target(event) == "field" && state.focused => {
-                edit(
-                    state,
-                    Action::DoubleClick {
-                        x: e.position[0] - state.field_text_origin()[0],
-                    },
-                    time,
-                    &mut status,
-                );
-            }
-            Event::KeyPress(e) if state.focused => {
-                if e.key == Key::Named(NamedKey::Escape) {
-                    blur(state, true, &mut status);
-                    return status;
-                }
-                // Winit delivers composing text through IME events. Ignore key
-                // payloads during composition so they cannot be inserted twice.
-                if state.editor.compose_range().is_some() {
-                    return status;
-                }
-                let command = if state.mac_shortcuts {
-                    e.modifiers.meta
-                } else {
-                    e.modifiers.control
-                };
-                let word = if state.mac_shortcuts {
-                    e.modifiers.alt
-                } else {
-                    e.modifiers.control
-                };
-                let action = match e.key {
-                    Key::Named(NamedKey::Enter) => {
-                        let text = state.editor.committed_text().into_string();
-                        if !apply_annotation(state, text, &mut status) {
-                            return status;
-                        }
-                        blur(state, false, &mut status);
-                        return status;
-                    }
-                    Key::Named(NamedKey::Escape) => {
-                        blur(state, true, &mut status);
-                        return status;
-                    }
-                    Key::Named(NamedKey::Tab) => {
-                        blur(state, false, &mut status);
-                        return status;
-                    }
-                    Key::Character('a' | 'A') if command => Some(Action::SelectAll),
-                    Key::Named(NamedKey::ArrowLeft) => Some(Action::Motion {
-                        motion: if command && state.mac_shortcuts {
-                            Motion::Start
-                        } else if word {
-                            Motion::WordLeft
-                        } else {
-                            Motion::Left
-                        },
-                        extend: e.modifiers.shift,
-                    }),
-                    Key::Named(NamedKey::ArrowRight) => Some(Action::Motion {
-                        motion: if command && state.mac_shortcuts {
-                            Motion::End
-                        } else if word {
-                            Motion::WordRight
-                        } else {
-                            Motion::Right
-                        },
-                        extend: e.modifiers.shift,
-                    }),
-                    Key::Named(NamedKey::Home) => Some(Action::Motion {
-                        motion: Motion::Start,
-                        extend: e.modifiers.shift,
-                    }),
-                    Key::Named(NamedKey::End) => Some(Action::Motion {
-                        motion: Motion::End,
-                        extend: e.modifiers.shift,
-                    }),
-                    Key::Named(NamedKey::Backspace) => Some(if word {
-                        Action::DeleteWordBack
-                    } else {
-                        Action::Backspace
-                    }),
-                    Key::Named(NamedKey::Delete) => Some(if word {
-                        Action::DeleteWordForward
-                    } else {
-                        Action::Delete
-                    }),
-                    _ if !command => e
-                        .text
-                        .as_ref()
-                        .filter(|text| !text.chars().any(char::is_control))
-                        .map(|text| Action::InsertText(text.to_string())),
-                    _ => None,
-                };
-                if let Some(action) = action {
-                    edit(state, action, time, &mut status);
-                }
-            }
-            Event::Ime(ime) if state.focused => match ime {
-                ImeEvent::Preedit { text, cursor } => {
-                    if state.editor.compose_range().is_none() && !text.is_empty() {
-                        state.composition_snapshot =
-                            Some((state.editor.text().to_string(), state.editor.selection()));
-                    }
-                    edit(
-                        state,
-                        Action::Preedit {
-                            text: text.to_string(),
-                            cursor: *cursor,
-                        },
-                        time,
-                        &mut status,
-                    );
-                }
-                ImeEvent::Commit(text) => {
-                    edit(state, Action::Commit(text.to_string()), time, &mut status);
-                    state.composition_snapshot = None;
-                }
-                ImeEvent::Disabled => {
-                    discard_composition(state);
-                    if state.pending() {
-                        let key = state.key("apply");
-                        status.commands.extend(
-                            state
-                                .debounce
-                                .submit(state.editor.committed_text().into_string(), time, &key)
-                                .commands,
-                        );
                     }
                     status.rerender = true;
-                    ime_area(state, &mut status);
                 }
-                ImeEvent::Enabled => {}
-            },
-            Event::Clipboard(action) if state.focused && state.editor.compose_range().is_none() => {
-                match action {
-                    ClipboardEvent::Copy | ClipboardEvent::Cut => {
-                        let text = state.editor.selected_text().to_string();
-                        if !text.is_empty() {
-                            status.commands.push(Command::WriteClipboard { text });
-                            if matches!(action, ClipboardEvent::Cut) {
-                                edit(state, Action::Backspace, time, &mut status);
-                            }
-                        }
-                    }
-                    ClipboardEvent::Paste(text) => edit(
-                        state,
-                        Action::InsertText(text.to_string()),
-                        time,
-                        &mut status,
-                    ),
+                if state.drag.is_some() {
+                    status.consume = true;
+                    status.suppress_click = true;
+                    status
+                        .commands
+                        .push(Command::SetPointerCapture { captured: true });
                 }
             }
             Event::RuntimeWake(wake) => {
                 if wake.key.attachment_epoch != state.generation
                     || wake.key.namespace != "annotation-editor"
                 {
-                    return rejected();
+                    return status;
                 }
-                let update = state.debounce.handle_wakeup(wake, time);
-                status.commands.extend(update.commands);
-                if let Some(text) = update.commit {
-                    apply_annotation(state, text, &mut status);
-                }
-                if wake.key == state.key("blink")
-                    && wake.generation == state.blink_generation
-                    && state.focused
-                {
-                    state.caret_visible = !state.caret_visible;
-                    state.blink_generation += 1;
-                    status.rerender = true;
-                    status.commands.push(Command::RequestWakeup {
-                        key: wake.key.clone(),
-                        deadline: time + Duration::from_millis(500),
-                        generation: state.blink_generation,
-                    });
-                } else if wake.key == state.key("hover")
+                if wake.key == state.key("hover")
                     && wake.generation == state.hover_generation
                     && state.window_focused
                     && state.drag.is_none()
@@ -563,33 +375,31 @@ impl EventStreamHandler<State> for InputHandler {
                 state.window_focused = *focused;
                 if !focused {
                     hide_hover(state, &mut status);
-                    blur(state, false, &mut status);
                     state.drag = None;
                 }
-                // Focus lifecycle must reach all subscribers, including gesture cleanup.
                 status.consume = false;
+            }
+            Event::PointerCaptureLost => {
+                state.drag = None;
             }
             Event::WindowResize(e) => {
                 state.size = e.size;
                 status.rerender = true;
                 status.rebuild_geometry = true;
-                ime_area(state, &mut status);
             }
             Event::CanvasResize(e) => {
                 state.size = e.size;
                 status.rerender = true;
                 status.rebuild_geometry = true;
-                ime_area(state, &mut status);
             }
             Event::WindowCloseRequested => {
                 hide_hover(state, &mut status);
-                blur(state, false, &mut status);
                 if let Some(reload) = state.reload.upgrade() {
                     reload.close();
                 }
                 status.consume = false;
             }
-            _ => return rejected(),
+            _ => {}
         }
         status
     }
@@ -610,7 +420,10 @@ impl EventStreamHandler<State> for DragHandler {
         _: &SceneGraphRTree,
     ) -> UpdateStatus {
         if state.drag != Some(self.0) {
-            return if matches!(event, Event::MouseUp(_) | Event::WindowFocused(false)) {
+            return if matches!(
+                event,
+                Event::MouseUp(_) | Event::WindowFocused(false) | Event::PointerCaptureLost
+            ) {
                 UpdateStatus {
                     admission: Some(EventAdmission::Committed),
                     ..Default::default()
@@ -629,15 +442,8 @@ impl EventStreamHandler<State> for DragHandler {
         let position = event.position().unwrap_or(state.pointer);
         state.pointer = position;
         let delta = [position[0] - start[0], position[1] - start[1]];
-        let mut status = accepted(true, self.0 != Drag::Field);
+        let mut status = accepted(true, true);
         match self.0 {
-            Drag::Field => {
-                state.apply_action(Action::Drag {
-                    x: position[0] - state.field_text_origin()[0],
-                });
-                blink(state, now(context), &mut status);
-                ime_area(state, &mut status);
-            }
             Drag::Annotation => {
                 state.points[state.selected].offset = [
                     state.drag_origin[0] + delta[0],
@@ -651,16 +457,21 @@ impl EventStreamHandler<State> for DragHandler {
                 ]
             }
         }
-        status.cursor = Some(if self.0 == Drag::Field {
-            CursorStyle::Text
-        } else {
-            CursorStyle::Grabbing
-        });
-        if matches!(event, Event::MouseUp(_) | Event::WindowFocused(false)) {
+        status.cursor = Some(CursorStyle::Grabbing);
+        if matches!(
+            event,
+            Event::MouseUp(_) | Event::WindowFocused(false) | Event::PointerCaptureLost
+        ) {
             state.drag = None;
+            status
+                .commands
+                .push(Command::SetPointerCapture { captured: false });
             status.cursor = Some(CursorStyle::Default);
         }
-        if matches!(event, Event::WindowFocused(false)) {
+        if matches!(
+            event,
+            Event::WindowFocused(false) | Event::PointerCaptureLost
+        ) {
             status.consume = false;
         }
         status
@@ -695,15 +506,11 @@ impl EventStreamHandler<State> for HoverHandler {
         }
         let name = target(event);
         let point = index(name, "point-");
-        status.cursor = Some(if name == "field" {
-            CursorStyle::Text
-        } else if name.starts_with("sample-") || point.is_some() {
-            CursorStyle::Pointer
+        if name.starts_with("sample-") || point.is_some() {
+            status.cursor = Some(CursorStyle::Pointer);
         } else if name == "plot" || name.starts_with("annotation-") {
-            CursorStyle::Grab
-        } else {
-            CursorStyle::Default
-        });
+            status.cursor = Some(CursorStyle::Grab);
+        }
         if state.hover_point != point {
             hide_hover(state, &mut status);
             state.hover_point = point;

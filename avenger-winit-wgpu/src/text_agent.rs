@@ -359,7 +359,14 @@ mod wasm {
                     RuntimeHostCommand::SetImeAllowed { allowed } => {
                         let changed = self.active.replace(allowed) != allowed;
                         if allowed {
-                            let _ = self.input.focus();
+                            let canvas_focused = self
+                                .input
+                                .owner_document()
+                                .and_then(|doc| doc.active_element())
+                                .is_some_and(|element| element == self.canvas.clone().into());
+                            if changed || canvas_focused {
+                                let _ = self.input.focus();
+                            }
                         } else {
                             self.input_state.borrow_mut().begin_key_input();
                             // Do not steal focus back from another page control.

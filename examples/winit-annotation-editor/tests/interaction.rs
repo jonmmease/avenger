@@ -12,6 +12,7 @@ use winit_annotation_editor::{
 struct Harness {
     app: AvengerApp<State>,
     time: Instant,
+    clipboard: String,
 }
 impl Harness {
     fn new() -> Self {
@@ -23,13 +24,26 @@ impl Harness {
             )))
             .unwrap(),
             time: Instant::now(),
+            clipboard: String::new(),
         }
     }
     fn state(&mut self) -> &mut State {
         self.app.app_state_mut()
     }
     fn send(&mut self, event: WindowEvent) -> AppUpdate {
-        pollster::block_on(self.app.update_with_status(&event, self.time)).unwrap()
+        let event = event.with_input_session(self.state().widgets.active_input_session().cloned());
+        let update = pollster::block_on(self.app.update_with_status(&event, self.time)).unwrap();
+        for command in &update.status.commands {
+            if let Command::SetClipboardPayload { text } = command {
+                self.clipboard = text.clone();
+            }
+        }
+        update
+    }
+    fn selected(&mut self) -> String {
+        let state = self.state();
+        let s = state.widgets.text_selection("source").unwrap();
+        state.draft[s.anchor.index.min(s.head.index)..s.anchor.index.max(s.head.index)].to_string()
     }
     fn advance(&mut self, ms: u64) {
         self.time += Duration::from_millis(ms);
@@ -62,7 +76,7 @@ impl Harness {
         self.move_to([x + 16.0, y + 20.0]);
         self.down();
         self.up();
-        assert!(self.state().focused);
+        assert!(self.state().focused());
     }
     fn all(&mut self) {
         let command = Key::Named(if cfg!(target_os = "macos") {
@@ -116,15 +130,15 @@ fn clipboard_snapshot_tracks_selection_before_a_browser_copy_event() {
     let mut h = Harness::new();
     h.focus();
     h.all();
-    let clipboard = h.state().clipboard_text.clone();
-    assert_eq!(clipboard.lock().unwrap().1, h.state().editor.text());
+    let draft = h.state().draft.clone();
+    assert_eq!(h.clipboard, draft);
     h.key(Key::Named(NamedKey::ArrowLeft), None);
-    assert_eq!(clipboard.lock().unwrap().1, "");
+    assert_eq!(h.clipboard, "");
     h.replace("New source");
     h.all();
-    assert_eq!(clipboard.lock().unwrap().1, "New source");
+    assert_eq!(h.clipboard, "New source");
     h.send(WindowEvent::Clipboard(ClipboardEvent::Cut));
-    assert_eq!(clipboard.lock().unwrap().1, "");
+    assert_eq!(h.clipboard, "");
 }
 
 #[test]
@@ -132,19 +146,21 @@ fn preparing_a_sample_does_not_replace_the_installed_clipboard_selection() {
     let mut h = Harness::new();
     h.focus();
     h.all();
-    let clipboard = h.state().clipboard_text.clone();
-    let expected = clipboard.lock().unwrap().clone();
-    let mut next = State::new(Sample::B, 1, avenger_text::default_text_engine());
-    next.clipboard_text = clipboard.clone();
+    let expected = h.clipboard.clone();
+    let next = State::new(Sample::B, 1, avenger_text::default_text_engine());
     pollster::block_on(make_app(next)).unwrap();
-    assert_eq!(*clipboard.lock().unwrap(), expected);
+    assert_eq!(h.clipboard, expected);
 }
 
 #[test]
 fn select_all_uses_the_runtime_platform_shortcut() {
     for mac in [true, false] {
         let mut h = Harness::new();
-        h.state().mac_shortcuts = mac;
+        h.state().widgets = h.state().widgets.clone().with_text_shortcuts(if mac {
+            avenger_widgets::TextShortcuts::Mac
+        } else {
+            avenger_widgets::TextShortcuts::Control
+        });
         h.focus();
         h.key(
             Key::Named(if mac {
@@ -155,8 +171,8 @@ fn select_all_uses_the_runtime_platform_shortcut() {
             None,
         );
         h.key(Key::Character('a'), Some("a"));
-        let source = h.state().editor.text().to_string();
-        assert_eq!(h.state().editor.selected_text(), source);
+        let source = h.state().draft.clone();
+        assert_eq!(h.selected(), source);
     }
 }
 
@@ -166,8 +182,8 @@ fn draft_applies_after_silence_and_navigation_does_not_postpone_it() {
     h.focus();
     let old = h.state().points[7].annotation.clone();
     let update = h.replace("Changed label");
-    let apply = wake(&update, "apply");
-    assert_eq!(h.state().editor.text(), "Changed label");
+    let apply = wake(&update, "commit");
+    assert_eq!(h.state().draft, "Changed label");
     assert_eq!(h.state().points[7].annotation, old);
     h.advance(200);
     let nav = h.key(Key::Named(NamedKey::ArrowLeft), None);
@@ -175,7 +191,7 @@ fn draft_applies_after_silence_and_navigation_does_not_postpone_it() {
         .status
         .commands
         .iter()
-        .any(|c| matches!(c,Command::RequestWakeup{key,..} if key.purpose.ends_with("apply"))));
+        .any(|c| matches!(c,Command::RequestWakeup{key,..} if key.purpose.ends_with("commit"))));
     assert!(!h.wake(apply.clone()).status.rebuild_geometry);
     h.advance(150);
     assert!(h.wake(apply).status.rebuild_geometry);
@@ -188,21 +204,20 @@ fn enter_flushes_escape_restores_and_old_wakes_cannot_apply() {
     let mut h = Harness::new();
     h.focus();
     let update = h.replace("Applied with Enter");
-    let stale = wake(&update, "apply");
+    let stale = wake(&update, "commit");
     h.key(Key::Named(NamedKey::Enter), None);
-    assert!(!h.state().focused);
+    assert!(!h.state().focused());
     assert_eq!(h.state().points[7].annotation, "Applied with Enter");
     h.advance(600);
     h.focus();
     let update = h.replace("Discard me");
     let blink = wake(&update, "blink");
     h.key(Key::Named(NamedKey::Escape), None);
-    assert!(!h.state().focused);
-    assert_eq!(h.state().editor.text(), "Applied with Enter");
+    assert!(!h.state().focused());
+    assert_eq!(h.state().draft, "Applied with Enter");
     h.advance(1000);
     assert!(!h.wake(stale).status.rerender);
     assert!(!h.wake(blink).status.rerender);
-    assert!(!h.state().caret_visible);
 }
 
 #[test]
@@ -221,12 +236,13 @@ fn composition_keeps_keyboard_payloads_out_and_commits_once() {
         .iter()
         .any(|c| matches!(c, Command::SetImeCursorArea { rect: Some(_) })));
     h.key(Key::Character('e'), Some("e\u{301}"));
-    assert_eq!(h.state().editor.text(), "e\u{301}");
+    assert!(h.state().widgets.text_is_composing("source"));
+    assert_eq!(h.state().draft, old);
     assert_eq!(h.state().points[7].annotation, old);
     let commit = h.send(WindowEvent::Ime(ImeEvent::Commit("é".into())));
-    let apply = wake(&commit, "apply");
-    assert_eq!(h.state().editor.text(), "é");
-    assert!(h.state().editor.compose_range().is_none());
+    let apply = wake(&commit, "commit");
+    assert_eq!(h.state().draft, "é");
+    assert!(!h.state().widgets.text_is_composing("source"));
     h.advance(350);
     h.wake(apply);
     assert_eq!(h.state().points[7].annotation, "é");
@@ -243,8 +259,8 @@ fn focus_loss_restores_text_replaced_by_uncommitted_composition() {
         cursor: Some((10, 10)),
     }));
     let update = h.send(WindowEvent::WindowFocused(false));
-    assert!(!h.state().focused);
-    assert!(h.state().editor.compose_range().is_none());
+    assert!(!h.state().focused());
+    assert!(!h.state().widgets.text_is_composing("source"));
     assert_eq!(h.state().points[7].annotation, "Committed draft");
     assert!(update
         .status
@@ -259,7 +275,7 @@ fn clipboard_and_grapheme_deletion_use_the_editor() {
     h.replace("e\u{301} 👩‍💻");
     h.key(Key::Named(NamedKey::End), None);
     h.key(Key::Named(NamedKey::Backspace), None);
-    assert_eq!(h.state().editor.text(), "e\u{301} ");
+    assert_eq!(h.state().draft, "e\u{301} ");
     assert!(h.state().error.is_none());
     h.all();
     let copied = h.send(WindowEvent::Clipboard(ClipboardEvent::Copy));
@@ -267,11 +283,11 @@ fn clipboard_and_grapheme_deletion_use_the_editor() {
         text: "e\u{301} ".into()
     }));
     h.send(WindowEvent::Clipboard(ClipboardEvent::Cut));
-    assert_eq!(h.state().editor.text(), "");
+    assert_eq!(h.state().draft, "");
     h.send(WindowEvent::Clipboard(ClipboardEvent::Paste(
         "pasted\nline".into(),
     )));
-    assert_eq!(h.state().editor.text(), "pastedline");
+    assert_eq!(h.state().draft, "pastedline");
 }
 
 #[test]
@@ -305,7 +321,7 @@ fn field_selection_and_background_pan_have_separate_ownership() {
     h.down();
     h.move_to([x + 120.0, y + 20.0]);
     h.up();
-    assert!(!h.state().editor.selected_text().is_empty());
+    assert!(!h.selected().is_empty());
     assert_eq!(h.state().pan, [0.0; 2]);
     let [x, y, _, height] = h.state().plot();
     h.move_to([x + 5.0, y + height - 5.0]);
@@ -491,7 +507,7 @@ fn selection_changes_flush_the_old_point_and_reject_its_timer() {
     let mut h = Harness::new();
     h.focus();
     let update = h.replace("Label for point eight");
-    let old = wake(&update, "apply");
+    let old = wake(&update, "commit");
     let p = h.state().point_position(2).unwrap();
     h.move_to(p);
     h.down();
@@ -517,9 +533,9 @@ fn focus_loss_clears_modifier_keys_and_resize_keeps_ime_inside_the_field() {
     h.send(WindowEvent::WindowFocused(true));
     h.advance(600);
     h.focus();
-    let before = h.state().editor.text().to_string();
+    let before = h.state().draft.clone();
     h.key(Key::Character('z'), Some("z"));
-    assert_ne!(h.state().editor.text(), before);
+    assert_ne!(h.state().draft, before);
     let update = h.send(WindowEvent::WindowResize(WindowResizeEvent {
         size: [900.0, 600.0],
     }));
@@ -542,7 +558,7 @@ fn an_old_application_wake_cannot_change_a_replacement() {
     let mut h = Harness::new();
     h.focus();
     let update = h.replace("old generation");
-    let old = wake(&update, "apply");
+    let old = wake(&update, "commit");
     h.app = pollster::block_on(make_app(State::new(
         Sample::B,
         1,
@@ -552,7 +568,7 @@ fn an_old_application_wake_cannot_change_a_replacement() {
     h.advance(500);
     assert!(!h.wake(old).status.rerender);
     assert_eq!(h.state().sample, Sample::B);
-    assert!(!h.state().focused);
+    assert!(!h.state().focused());
     assert_ne!(h.state().points[7].annotation, "old generation");
 }
 
@@ -578,7 +594,7 @@ fn typst_source_stays_literal_in_the_field_and_typesets_in_the_annotation() {
     let source = "*Distance* $sqrt(x^2+y^2)$";
     h.replace(source);
     h.key(Key::Named(NamedKey::Enter), None);
-    assert_eq!(h.state().editor.text(), source);
+    assert_eq!(h.state().draft, source);
     assert!(h.state().annotation_error.is_none());
     let marks = text_marks(&h.app.scene_graph().marks);
     let annotation = marks
@@ -592,12 +608,18 @@ fn typst_source_stays_literal_in_the_field_and_typesets_in_the_annotation() {
         .any(|mark| mark.text == source.to_string().into()
             && mark.text_syntax == TextSyntaxMode::Plain));
     let state = h.state();
-    let plain = state.shaped_line().unwrap();
+    let plain = state
+        .engine
+        .measure_bounds(&avenger_text::measurement::TextMeasurementConfig {
+            text: source,
+            ..winit_annotation_editor::state::text_config()
+        })
+        .unwrap();
     let typeset = state
         .engine
         .measure_bounds(&winit_annotation_editor::state::annotation_config(source))
         .unwrap();
-    assert!(plain.bounds.width > typeset.width + 10.0);
+    assert!(plain.width > typeset.width + 10.0);
 }
 
 #[test]
@@ -606,22 +628,22 @@ fn invalid_markup_preserves_the_preview_and_enter_keeps_the_draft_editable() {
     h.focus();
     let previous = h.state().points[7].annotation.clone();
     let update = h.replace("$sqrt(x");
-    let stale = wake(&update, "apply");
+    let stale = wake(&update, "commit");
     h.advance(350);
     let update = h.wake(stale.clone());
     assert!(update.scene_graph.is_some());
     assert!(!update.status.rebuild_geometry);
     assert_eq!(h.state().points[7].annotation, previous);
-    assert_eq!(h.state().editor.text(), "$sqrt(x");
+    assert_eq!(h.state().draft, "$sqrt(x");
     assert!(h.state().annotation_error.is_some());
     h.key(Key::Named(NamedKey::ArrowLeft), None);
     assert!(h.state().annotation_error.is_some());
     h.key(Key::Named(NamedKey::Enter), None);
-    assert!(h.state().focused);
+    assert!(h.state().focused());
     assert_eq!(h.state().points[7].annotation, previous);
     h.replace("_Fixed_ $sqrt(x)$");
     h.key(Key::Named(NamedKey::Enter), None);
-    assert!(!h.state().focused);
+    assert!(!h.state().focused());
     assert!(h.state().annotation_error.is_none());
     assert_eq!(h.state().points[7].annotation, "_Fixed_ $sqrt(x)$");
     h.advance(500);
@@ -637,13 +659,13 @@ fn escape_and_point_changes_discard_invalid_markup_without_losing_the_valid_labe
     h.replace("$sqrt(x");
     h.key(Key::Named(NamedKey::Enter), None);
     h.key(Key::Named(NamedKey::Escape), None);
-    assert_eq!(h.state().editor.text(), previous);
+    assert_eq!(h.state().draft, previous);
     assert!(h.state().annotation_error.is_none());
     h.focus();
     h.replace("$sqrt(x");
     h.send(WindowEvent::WindowFocused(false));
-    assert!(!h.state().focused);
-    assert_eq!(h.state().editor.text(), "$sqrt(x");
+    assert!(!h.state().focused());
+    assert_eq!(h.state().draft, "$sqrt(x");
     assert_eq!(h.state().points[7].annotation, previous);
     let point = h.state().point_position(2).unwrap();
     h.send(WindowEvent::WindowFocused(true));
@@ -651,7 +673,7 @@ fn escape_and_point_changes_discard_invalid_markup_without_losing_the_valid_labe
     h.down();
     h.up();
     assert_eq!(h.state().selected, 2);
-    assert_eq!(h.state().editor.text(), "");
+    assert_eq!(h.state().draft, "");
     assert!(h.state().annotation_error.is_none());
     assert_eq!(h.state().points[7].annotation, previous);
 }
