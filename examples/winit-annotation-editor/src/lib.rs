@@ -10,7 +10,6 @@ pub mod reload;
 pub mod scene;
 pub mod state;
 mod tasks;
-pub mod text_edit;
 
 #[cfg(target_arch = "wasm32")]
 mod web;

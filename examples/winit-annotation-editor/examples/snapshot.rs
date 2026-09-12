@@ -1,11 +1,11 @@
 //! Render selection, composition, and panning at two raster scales.
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
+use avenger_widgets::text_edit::Action;
 use std::path::PathBuf;
 use winit_annotation_editor::{
     scene,
     state::{Sample, State},
-    text_edit::Action,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

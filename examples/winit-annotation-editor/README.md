@@ -47,7 +47,7 @@ cargo run --release -p winit-annotation-editor --example snapshot -- target/anno
 
 The snapshot example renders selection, composition, and panning at 1× and 2×. The window uses scale 2 on macOS and scale 1 elsewhere. Override the raster scale with `--scale NUMBER` when testing another display configuration.
 
-`state.rs` owns the editor and draft. `text_edit` is the single-line editor, which hit-tests the field's text as the label engine shapes it. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications, advances the request epoch before preparation, and observes installation results. `tasks.rs` uses Tokio on native targets and local futures with browser timers on WASM. `web.rs` starts the browser host and keeps the reload coordinator alive with it. `scene.rs` draws the UI with the same text engine used for editing and picking.
+`state.rs` owns the draft and its editor, the single-line editor from `avenger-widgets`. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications, advances the request epoch before preparation, and observes installation results. `tasks.rs` uses Tokio on native targets and local futures with browser timers on WASM. `web.rs` starts the browser host and keeps the reload coordinator alive with it. `scene.rs` draws the UI with the same text engine used for editing and picking.
 
 ![Native annotation editor](../../docs/images/annotation-editor.png)
 

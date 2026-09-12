@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         theme.radio.text.font = "Lato".into();
         theme.group.text.font = "Lato".into();
         theme.slider.text.font = "Lato".into();
+        theme.text_input.text.font = "Lato".into();
         let background = if dark {
             [0.06, 0.08, 0.11, 1.0]
         } else {
@@ -96,6 +97,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Slider::new("opacity", SliderDomain::continuous(0.0, 1.0)?, 0.72)
                 .value_label("72%")
                 .into(),
+            TextInput::new("source", "*Radius* $sqrt(x^2+y^2)$")
+                .semantic_name("Annotation source")
+                .into(),
+            TextInput::new("invalid", "$sqrt(x")
+                .semantic_name("Invalid source")
+                .invalid(true)
+                .into(),
         ];
         let mut runtime = WidgetRuntime::new();
         for pass in 0..2 {
@@ -116,7 +124,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             runtime.install(frame)?;
             if pass == 0 {
-                runtime.request_focus(Some(WidgetTarget::item("layers", "a")), Instant::now())?;
+                if dark {
+                    runtime.request_focus(Some(WidgetTarget::new("source")), Instant::now())?;
+                    runtime.set_text_selection(
+                        "source",
+                        avenger_text::text_edit::SelectionState {
+                            anchor: avenger_text::text_edit::Cursor::new(
+                                1,
+                                avenger_text::text_edit::Affinity::Downstream,
+                            ),
+                            head: avenger_text::text_edit::Cursor::new(
+                                7,
+                                avenger_text::text_edit::Affinity::Upstream,
+                            ),
+                            granularity: avenger_text::text_edit::Granularity::Char,
+                        },
+                        Instant::now(),
+                    )?;
+                } else {
+                    runtime
+                        .request_focus(Some(WidgetTarget::item("layers", "a")), Instant::now())?;
+                }
             }
         }
     }

@@ -3,8 +3,8 @@ use std::{borrow::Cow, ops::Range};
 use avenger_typst_label::{LabelEngine, LabelError, TextStyle};
 
 use super::shaped_line::{
-    byte_offset_for_x, next_grapheme, next_word_boundary, prev_grapheme, prev_word_boundary,
-    safe_grapheme_offset, shape_line, word_range_at, Affinity,
+    Affinity, byte_offset_for_x, next_grapheme, next_word_boundary, prev_grapheme,
+    prev_word_boundary, safe_grapheme_offset, shape_line, word_range_at,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -83,7 +83,7 @@ pub struct SingleLineEditor {
 
 impl SingleLineEditor {
     pub fn new(text: impl Into<String>) -> Self {
-        let buffer = sanitize_single_line(&text.into());
+        let buffer = normalize_single_line(&text.into());
         let cursor = Cursor::new(buffer.len(), Affinity::Upstream);
         Self {
             buffer,
@@ -146,7 +146,7 @@ impl SingleLineEditor {
         }
 
         match action {
-            Action::InsertText(text) => self.insert_text(&sanitize_single_line(&text)),
+            Action::InsertText(text) => self.insert_text(&normalize_single_line(&text)),
             Action::Delete(motion) => self.delete_with_motion(motion),
             Action::Motion { motion, extend } => self.move_cursor(motion, extend),
             Action::Click { x } => {
@@ -211,7 +211,7 @@ impl SingleLineEditor {
         if self.compose.is_some() {
             return false;
         }
-        self.buffer = sanitize_single_line(&text.into());
+        self.buffer = normalize_single_line(&text.into());
         self.selection = clamp_selection(&self.buffer, selection);
         self.word_drag_anchor = None;
         self.drag_enabled = true;
@@ -309,6 +309,18 @@ impl SingleLineEditor {
         if matches!(text.as_str(), "\n" | "\r") || text.is_empty() && self.compose.is_none() {
             return;
         }
+        let cursor = cursor.map(|(a, h)| {
+            let offset = |byte| {
+                text.char_indices()
+                    .take_while(|(i, _)| *i < byte)
+                    .map(|(_, c)| c)
+                    .filter(|ch| !ch.is_control() && !matches!(ch, '\u{2028}' | '\u{2029}'))
+                    .map(char::len_utf8)
+                    .sum()
+            };
+            (offset(a), offset(h))
+        });
+        let text = normalize_single_line(&text);
         let range = self
             .compose
             .take()
@@ -331,7 +343,7 @@ impl SingleLineEditor {
         if matches!(text.as_str(), "\n" | "\r") || text.is_empty() && self.compose.is_none() {
             return;
         }
-        let text = sanitize_single_line(&text);
+        let text = normalize_single_line(&text);
         let range = self
             .compose
             .take()
@@ -343,8 +355,11 @@ impl SingleLineEditor {
     }
 }
 
-fn sanitize_single_line(text: &str) -> String {
-    text.chars().filter(|ch| !ch.is_control()).collect()
+/// Remove control characters and Unicode line/paragraph separators for a single-line editor.
+pub fn normalize_single_line(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !ch.is_control() && !matches!(ch, '\u{2028}' | '\u{2029}'))
+        .collect()
 }
 
 fn clamp_selection(text: &str, mut selection: SelectionState) -> SelectionState {
@@ -431,6 +446,24 @@ mod tests {
         apply(&mut editor, Action::Commit("中".to_string()));
         assert_eq!(editor.text(), "ab中");
         assert_eq!(editor.compose_range(), None);
+    }
+
+    #[test]
+    fn unicode_separators_are_removed_from_values_and_preedit_offsets() {
+        assert_eq!(normalize_single_line("a\u{2028}b\u{2029}c\n\t"), "abc");
+        let mut editor = SingleLineEditor::new("a\u{2028}b");
+        apply(
+            &mut editor,
+            Action::Preedit {
+                text: "é\u{2028}x".into(),
+                cursor: Some((5, 6)),
+            },
+        );
+        assert_eq!(editor.text(), "abéx");
+        assert_eq!(editor.selection().anchor.index, 4);
+        assert_eq!(editor.selection().head.index, 5);
+        apply(&mut editor, Action::Commit("é\u{2029}x".into()));
+        assert_eq!(editor.text(), "abéx");
     }
 
     #[test]

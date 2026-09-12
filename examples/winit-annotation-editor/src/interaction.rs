@@ -18,11 +18,9 @@ use avenger_eventstream::{
     window::{ClipboardEvent, ImeEvent, Key, MouseButton, NamedKey},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_widgets::text_edit::{cursor_rect_for_offset, Action, Motion, SingleLineEditor};
 
-use crate::{
-    state::{annotation_bounds, Drag, Sample, State},
-    text_edit::{cursor_rect_for_offset, Action, Motion, SingleLineEditor},
-};
+use crate::state::{annotation_bounds, Drag, Sample, State};
 
 type Registration = (EventStreamConfig, Arc<dyn EventStreamHandler<State>>);
 

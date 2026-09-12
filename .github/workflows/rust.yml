@@ -52,7 +52,7 @@ jobs:
       - name: Check text path invariants in debug mode
         run: cargo test -p avenger-scenegraph --lib --locked
       - name: Check text editing invariants in debug mode
-        run: cargo test -p winit-annotation-editor --lib --locked
+        run: cargo test -p avenger-widgets --lib --locked
       - name: Verify Typst layout against upstream PNGs
         run: cargo test --release -p avenger-typst-label --features raster,bundled-fonts,upstream-png-parity --locked
       - name: Test all bundled formatter locales
