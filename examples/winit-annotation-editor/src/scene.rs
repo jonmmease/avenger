@@ -19,11 +19,9 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_typst_label::LabelWidth;
+use avenger_widgets::text_edit::{cursor_rect_for_offset, selection_rects};
 
-use crate::{
-    state::{annotation_mark, Sample, State},
-    text_edit::{cursor_rect_for_offset, selection_rects},
-};
+use crate::state::{annotation_mark, Sample, State};
 
 const INK: [f32; 4] = [0.12, 0.19, 0.26, 1.0];
 const BLUE: [f32; 4] = [0.12, 0.45, 0.67, 1.0];

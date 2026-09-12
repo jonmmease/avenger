@@ -9,7 +9,7 @@ use avenger_scales::{
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_typst_label::{LabelEngine, LabelError, TextBounds, TextStyle};
 
-use crate::text_edit::{
+use avenger_widgets::text_edit::{
     cursor_rect_for_offset, shape_line, Action, SelectionState, ShapedLine, SingleLineEditor,
 };
 

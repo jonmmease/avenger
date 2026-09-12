@@ -944,6 +944,7 @@ dependencies = [
  "avenger-wgpu",
  "pollster 0.4.0",
  "thiserror 2.0.12",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -7221,6 +7222,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-wgpu",
+ "avenger-widgets",
  "avenger-winit-wgpu",
  "console_error_panic_hook",
  "console_log",
@@ -7229,7 +7231,6 @@ dependencies = [
  "log",
  "pollster 0.4.0",
  "tokio",
- "unicode-segmentation",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

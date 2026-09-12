@@ -179,6 +179,24 @@ pub struct SliderStyle {
     pub thumb: PaintStates,
 }
 
+/// Single-line field typography, geometry, and editor paint in logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextInputStyle {
+    pub text: TextStyle,
+    pub width: f32,
+    pub height: f32,
+    pub padding: f32,
+    pub radius: f32,
+    pub border_width: f32,
+    pub focus: FocusStyle,
+    pub paint: PaintStates,
+    pub read_only: ControlPaint,
+    pub invalid_border: [f32; 4],
+    pub selection: [f32; 4],
+    pub caret: [f32; 4],
+    pub placeholder: [f32; 4],
+}
+
 /// Concrete widget styles. State changes alter paint without changing measurement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetTheme {
@@ -187,6 +205,7 @@ pub struct WidgetTheme {
     pub radio: CheckboxStyle,
     pub group: ChoiceGroupStyle,
     pub slider: SliderStyle,
+    pub text_input: TextInputStyle,
 }
 
 fn states(fill: [f32; 4], border: [f32; 4], foreground: [f32; 4], dark: bool) -> PaintStates {
@@ -261,6 +280,33 @@ impl WidgetTheme {
             focus.color = [0.35, 0.65, 1.0, 1.0];
         }
         Self {
+            text_input: TextInputStyle {
+                text: TextStyle::default(),
+                width: 240.0,
+                height: 36.0,
+                padding: 9.0,
+                radius: 4.0,
+                border_width: 1.0,
+                focus: focus.clone(),
+                paint: neutral.clone(),
+                read_only: ControlPaint {
+                    fill,
+                    border,
+                    foreground: ink,
+                },
+                invalid_border: if dark {
+                    [1.0, 0.36, 0.30, 1.0]
+                } else {
+                    [0.70, 0.10, 0.08, 1.0]
+                },
+                selection: if dark {
+                    [0.22, 0.45, 0.80, 0.65]
+                } else {
+                    [0.25, 0.53, 0.90, 0.30]
+                },
+                caret: ink,
+                placeholder: [ink[0], ink[1], ink[2], 0.5],
+            },
             button: ButtonStyle {
                 text: TextStyle::default(),
                 height: 36.0,
@@ -314,6 +360,29 @@ impl WidgetTheme {
         }
     }
     pub(crate) fn validate(&self) -> Result<(), WidgetError> {
+        let t = &self.text_input;
+        t.text.validate()?;
+        t.focus.validate()?;
+        t.paint.validate()?;
+        lengths(&[t.width, t.height, t.padding, t.radius, t.border_width])?;
+        for color in [
+            t.read_only.fill,
+            t.read_only.border,
+            t.read_only.foreground,
+            t.invalid_border,
+            t.selection,
+            t.caret,
+            t.placeholder,
+        ] {
+            if color
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+            {
+                return Err(WidgetError::Invalid(
+                    "text colors require finite RGBA components in 0..=1".into(),
+                ));
+            }
+        }
         let b = &self.button;
         b.text.validate()?;
         b.focus.validate()?;

@@ -143,6 +143,7 @@ impl PreparedWidgets {
         self.candidate.regions = regions;
         let mut update = self.update;
         self.candidate.reconcile_targets(&mut update);
+        self.candidate.layout_text(&mut update)?;
         let mut scene = SceneGroup {
             name: format!("__avenger_widgets_{}", self.candidate.namespace),
             interactive: false,
@@ -186,6 +187,7 @@ impl WidgetRuntime {
         theme.validate()?;
         let mut candidate = self.clone();
         candidate.theme = theme.clone();
+        candidate.engine = Some(engine.clone());
         let mut seen = BTreeSet::new();
         let mut update = WidgetUpdate::default();
         let mut measurements = BTreeMap::new();
@@ -198,6 +200,19 @@ impl WidgetRuntime {
             }
             candidate.reconcile_spec(spec, &mut update)?;
             measurements.insert(spec.id().clone(), measure(spec, theme, engine)?);
+        }
+        for id in candidate
+            .controls
+            .keys()
+            .filter(|id| !seen.contains(*id))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            candidate.deactivate_text(
+                &WidgetTarget::new(id),
+                Some(crate::TextCancelReason::Removed),
+                &mut update,
+            );
         }
         candidate.controls.retain(|id, _| seen.contains(id));
         candidate.order = specs.iter().map(|s| s.id().clone()).collect();
@@ -286,12 +301,23 @@ fn measure(
                 &s.focus,
             )
         }
+        WidgetSpec::TextInput(t) => {
+            let s = &theme.text_input;
+            (
+                t.text_style.as_ref().unwrap_or(&s.text),
+                s.height,
+                0.0,
+                0.0,
+                s.padding * 2.0,
+                &s.focus,
+            )
+        }
         WidgetSpec::Slider(_) => {
             let s = &theme.slider;
             (&s.text, s.height, 0.0, 0.0, s.thumb_size, &s.focus)
         }
     };
-    let label = engine.measure_bounds(&if spec.items().is_some() {
+    let mut label = engine.measure_bounds(&if spec.items().is_some() {
         theme.group.text.config(spec.label())
     } else {
         text.config(spec.label())
@@ -330,6 +356,20 @@ fn measure(
         }
         w = w.max(label.width);
         h += header_height;
+    }
+    if matches!(spec, WidgetSpec::TextInput(_)) {
+        let font = engine.font_metrics(&avenger_text::measurement::FontMetricsConfig {
+            font: &text.font,
+            font_size: text.size,
+            font_weight: text.weight,
+            font_style: text.style,
+        })?;
+        label.height = font.height;
+        label.ascent = font.ascent;
+        label.descent = font.descent;
+        label.line_height = font.line_height;
+        h = height.max(font.height + 2.0 * theme.text_input.padding);
+        w = theme.text_input.width.max(min_width);
     }
     if matches!(spec, WidgetSpec::Slider(_)) {
         w = theme.slider.width.max(min_width);

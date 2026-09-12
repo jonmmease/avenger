@@ -28,6 +28,20 @@ pub enum FocusBoundary {
 /// A user intention. Applications apply proposed values before the next frame.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WidgetAction {
+    TextChanged {
+        value: String,
+    },
+    TextCommitted {
+        value: String,
+        reason: crate::TextCommitReason,
+    },
+    TextSubmitted {
+        value: String,
+    },
+    TextCancelled {
+        value: String,
+        reason: crate::TextCancelReason,
+    },
     Activated,
     CheckedItemsChanged {
         item: ChoiceItemId,
@@ -83,6 +97,7 @@ pub enum WidgetRole {
     RadioGroup,
     Radio,
     Slider,
+    TextInput,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum SemanticValue {
@@ -91,6 +106,7 @@ pub enum SemanticValue {
     CheckedItems(BTreeSet<ChoiceItemId>),
     Selected(Option<ChoiceItemId>),
     Number(f64),
+    Text(String),
 }
 /// Installed identity, naming, state and geometry for external adapters.
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +127,7 @@ pub(crate) struct Control {
     pub spec: WidgetSpec,
     pub epoch: u64,
     pub item_epochs: BTreeMap<ChoiceItemId, u64>,
+    pub text: Option<Box<crate::text_input::TextState>>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Gesture {
@@ -124,6 +141,7 @@ pub(crate) struct Gesture {
 #[derive(Clone, Debug)]
 pub(crate) enum GestureKind {
     Button,
+    TextSelection,
     Slider {
         start: f64,
         last: f64,
@@ -149,6 +167,10 @@ pub struct WidgetRuntime {
     pub(crate) gesture: Option<Gesture>,
     remembered: Option<WidgetTarget>,
     boundary: FocusBoundary,
+    pub(crate) engine: Option<avenger_text::TextEngine>,
+    pub(crate) now: Instant,
+    pub(crate) next_session: u64,
+    pub(crate) shortcuts: crate::TextShortcuts,
 }
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
 impl Default for WidgetRuntime {
@@ -167,6 +189,14 @@ impl Default for WidgetRuntime {
             gesture: None,
             remembered: None,
             boundary: FocusBoundary::Handoff,
+            engine: None,
+            now: Instant::now(),
+            next_session: 0,
+            shortcuts: if cfg!(target_os = "macos") {
+                crate::TextShortcuts::Mac
+            } else {
+                crate::TextShortcuts::Control
+            },
         }
     }
 }
@@ -179,6 +209,10 @@ impl WidgetRuntime {
         self.boundary = boundary;
         self
     }
+    pub fn with_text_shortcuts(mut self, shortcuts: crate::TextShortcuts) -> Self {
+        self.shortcuts = shortcuts;
+        self
+    }
     pub fn focused(&self) -> Option<&WidgetTarget> {
         self.focused.as_ref()
     }
@@ -186,8 +220,9 @@ impl WidgetRuntime {
     pub fn request_focus(
         &mut self,
         target: Option<WidgetTarget>,
-        _now: Instant,
+        now: Instant,
     ) -> Result<WidgetUpdate, WidgetError> {
+        self.now = now;
         if target.as_ref().is_some_and(|t| !self.eligible(t)) {
             return Err(WidgetError::Invalid(
                 "focus target must be enabled, placed, and visible".into(),
@@ -247,6 +282,11 @@ impl WidgetRuntime {
                             )
                         }
                     }
+                    WidgetSpec::TextInput(t) => (
+                        WidgetRole::TextInput,
+                        SemanticValue::Text(t.value.clone()),
+                        None,
+                    ),
                     WidgetSpec::Slider(s) => (
                         WidgetRole::Slider,
                         SemanticValue::Number(s.value),
@@ -258,7 +298,7 @@ impl WidgetRuntime {
                     role,
                     value,
                     domain,
-                    read_only: false,
+                    read_only: matches!(&c.spec,WidgetSpec::TextInput(t) if t.read_only),
                     parent: item.map(|_| WidgetTarget::new(r.target.widget.clone())),
                     name: item.map(|i| i.label.clone()).unwrap_or_else(|| {
                         c.spec
@@ -333,6 +373,9 @@ impl WidgetRuntime {
     }
     pub(crate) fn cancel_gesture(&mut self, reason: SliderCancelReason, update: &mut WidgetUpdate) {
         if let Some(g) = self.gesture.take() {
+            if matches!(g.kind, GestureKind::TextSelection) {
+                self.stop_text_drag(&g.target, update);
+            }
             if let GestureKind::Slider { start, last, .. } = g.kind {
                 let mut value = if let Some(Control {
                     spec: WidgetSpec::Slider(s),
@@ -377,6 +420,17 @@ impl WidgetRuntime {
             self.cancel_gesture(reason, update);
         }
         if self.focused.as_ref().is_some_and(|t| !self.eligible(t)) {
+            if let Some(t) = self.focused.clone() {
+                self.deactivate_text(
+                    &t,
+                    Some(if self.controls.contains_key(&t.widget) {
+                        crate::TextCancelReason::Disabled
+                    } else {
+                        crate::TextCancelReason::Removed
+                    }),
+                    update,
+                );
+            }
             self.focus(None, false, update);
         }
         if self.remembered.as_ref().is_some_and(|t| !self.eligible(t)) {
@@ -386,7 +440,12 @@ impl WidgetRuntime {
             self.hovered = None;
         }
     }
-    fn focus(&mut self, target: Option<WidgetTarget>, visible: bool, update: &mut WidgetUpdate) {
+    pub(crate) fn focus(
+        &mut self,
+        target: Option<WidgetTarget>,
+        visible: bool,
+        update: &mut WidgetUpdate,
+    ) {
         if self.focused == target {
             if self.focus_visible != visible {
                 self.focus_visible = visible;
@@ -396,6 +455,7 @@ impl WidgetRuntime {
         }
         self.cancel_gesture(SliderCancelReason::FocusLost, update);
         if let Some(old) = self.focused.take() {
+            self.deactivate_text(&old, None, update);
             update.emit(
                 &old.widget,
                 WidgetAction::FocusChanged {
@@ -407,6 +467,9 @@ impl WidgetRuntime {
         self.focused = target;
         self.focus_visible = visible;
         self.remembered = None;
+        if let Some(new) = self.focused.clone() {
+            self.activate_text_session(&new, update);
+        }
         if let Some(new) = &self.focused {
             update.emit(
                 &new.widget,
@@ -445,6 +508,16 @@ impl WidgetRuntime {
                     NamedKey::ArrowUp,
                     NamedKey::ArrowDown,
                 ],
+                WidgetSpec::TextInput(_) => vec![
+                    NamedKey::Backspace,
+                    NamedKey::Delete,
+                    NamedKey::ArrowLeft,
+                    NamedKey::ArrowRight,
+                    NamedKey::Home,
+                    NamedKey::End,
+                    NamedKey::Enter,
+                    NamedKey::Escape,
+                ],
                 WidgetSpec::Slider(_) => vec![
                     NamedKey::Escape,
                     NamedKey::ArrowLeft,
@@ -458,9 +531,14 @@ impl WidgetRuntime {
                 ],
             };
         }
+        policy.text_shortcuts = self
+            .focused
+            .as_ref()
+            .is_some_and(|t| matches!(self.controls[&t.widget].spec, WidgetSpec::TextInput(_)));
         update.status.commands.push(Command::SetKeyboardPolicy {
             policy: Some(policy),
         });
+        self.publish_text_host(update);
     }
     fn activate(&mut self, target: &WidgetTarget, update: &mut WidgetUpdate) {
         if !self.eligible(target) {
@@ -493,7 +571,7 @@ impl WidgetRuntime {
                     );
                 }
             }
-            WidgetSpec::Slider(_) => {}
+            WidgetSpec::Slider(_) | WidgetSpec::TextInput(_) => {}
             WidgetSpec::Checkbox(c) => {
                 c.checked = !c.checked;
                 update.emit(
@@ -543,6 +621,9 @@ impl WidgetRuntime {
         let Some(target) = self.focused.clone() else {
             return;
         };
+        if matches!(self.controls[&target.widget].spec, WidgetSpec::TextInput(_)) {
+            return;
+        }
         if modifiers.control || modifiers.alt || modifiers.meta {
             return;
         }
@@ -559,10 +640,6 @@ impl WidgetRuntime {
             return;
         }
         match key {
-            Key::Named(NamedKey::Escape) if pressed && self.gesture.is_some() => {
-                self.cancel_gesture(SliderCancelReason::FocusLost, update);
-                update.status.consume = true;
-            }
             Key::Named(NamedKey::Enter)
                 if matches!(self.controls[&target.widget].spec, WidgetSpec::Button(_)) =>
             {
@@ -602,8 +679,9 @@ impl WidgetRuntime {
         &mut self,
         event: &Event,
         rtree: &SceneGraphRTree,
-        _now: Instant,
+        now: Instant,
     ) -> Result<WidgetUpdate, WidgetError> {
+        self.now = now;
         let mut update = WidgetUpdate::default();
         let hit = event
             .position()
@@ -614,6 +692,11 @@ impl WidgetRuntime {
                     .find(|r| !r.name.is_empty() && r.name == m.name)
             })
             .map(|r| r.target.clone());
+        if self.handle_text_event(event, &mut update)? {
+            self.revision += 1;
+            self.publish_policy(&mut update);
+            return Ok(update);
+        }
         match event {
             Event::MouseDown(e) if e.button == MouseButton::Left => {
                 if let Some(target) = hit {
@@ -631,6 +714,7 @@ impl WidgetRuntime {
                         if let Some(g) = &self.gesture {
                             let target = g.target.clone();
                             self.slider_press(&target, e.position[0], &mut update);
+                            self.text_press(&target, e.position, &mut update)?;
                         }
                         update
                             .status
@@ -646,11 +730,14 @@ impl WidgetRuntime {
                 if self.hovered != hit {
                     self.hovered = hit.clone();
                     update.status.rerender = true;
-                    update.status.cursor = Some(if hit.is_some() {
-                        CursorStyle::Pointer
-                    } else {
-                        CursorStyle::Default
-                    });
+                    update.status.cursor = Some(hit.as_ref().filter(|t| self.eligible(t)).map_or(
+                        CursorStyle::Default,
+                        |t| match self.controls[&t.widget].spec {
+                            WidgetSpec::TextInput(_) => CursorStyle::Text,
+                            WidgetSpec::Slider(_) => CursorStyle::ResizeHorizontal,
+                            _ => CursorStyle::Pointer,
+                        },
+                    ));
                 }
                 if let Some(g) = &mut self.gesture
                     && !g.keyboard
@@ -663,6 +750,7 @@ impl WidgetRuntime {
                 }
                 if let Event::CursorMoved(e) = event {
                     self.slider_move(e.position[0], &mut update);
+                    self.text_drag(e.position[0], &mut update)?;
                 }
             }
             Event::MouseUp(e) if e.button == MouseButton::Left => {
@@ -675,7 +763,9 @@ impl WidgetRuntime {
                         .status
                         .commands
                         .push(Command::SetPointerCapture { captured: false });
-                    if matches!(g.kind, GestureKind::Slider { .. }) {
+                    if matches!(g.kind, GestureKind::TextSelection) {
+                        self.stop_text_drag(&g.target, &mut update);
+                    } else if matches!(g.kind, GestureKind::Slider { .. }) {
                         self.finish_slider(g, &mut update);
                     } else if hit.as_ref() == Some(&g.target) {
                         self.activate(&g.target, &mut update);
@@ -685,7 +775,9 @@ impl WidgetRuntime {
             Event::KeyPress(e) => self.key(e.key, true, e.repeat, e.modifiers, &mut update),
             Event::KeyRelease(e) => self.key(e.key, false, false, e.modifiers, &mut update),
             Event::TextInput { input, modifiers } => {
-                if let TextInputEvent::Keyboard(k) = &input.event {
+                if self.active_input_session() == Some(&input.session)
+                    && let TextInputEvent::Keyboard(k) = &input.event
+                {
                     self.key(
                         k.key,
                         k.state == ElementState::Pressed,
@@ -749,6 +841,18 @@ impl WidgetRuntime {
                 crate::choice::validate(&g.items, g.selected.iter().cloned())?
             }
             WidgetSpec::Slider(s) => s.value = s.domain.normalize(s.value)?,
+            WidgetSpec::TextInput(t) => {
+                if let Some(style) = &t.text_style {
+                    style.validate()?;
+                }
+                if let crate::TextCommitPolicy::Debounced(d) = t.policy
+                    && (d.as_millis() >= u128::from(u64::MAX) || self.now.checked_add(d).is_none())
+                {
+                    return Err(WidgetError::Invalid(
+                        "text debounce exceeds the host time range".into(),
+                    ));
+                }
+            }
             _ => {}
         }
         let mut replaced_slider = false;
@@ -770,10 +874,16 @@ impl WidgetRuntime {
                     spec: spec.clone(),
                     epoch: self.next_epoch,
                     item_epochs: BTreeMap::new(),
+                    text: if let WidgetSpec::TextInput(t) = &spec {
+                        Some(Box::new(crate::text_input::TextState::new(t)))
+                    } else {
+                        None
+                    },
                 },
             );
         }
         let id = spec.id().clone();
+        self.reconcile_text(&spec, update);
         let c = self.controls.get_mut(&id).unwrap();
         if let Some(items) = spec.items() {
             c.item_epochs
@@ -786,6 +896,12 @@ impl WidgetRuntime {
             }
         }
         c.spec = spec;
+        if c.spec.options().enabled
+            && c.text.as_ref().is_some_and(|s| s.session.is_none())
+            && self.focused.as_ref().is_some_and(|t| t.widget == id)
+        {
+            self.activate_text_session(&WidgetTarget::new(id.clone()), update);
+        }
         if replaced_slider && self.gesture.as_ref().is_some_and(|g| g.target.widget == id) {
             self.cancel_gesture(SliderCancelReason::Replaced, update);
         }

@@ -86,6 +86,9 @@ pub(crate) fn control(
     measured: &Measured,
 ) -> SceneGroup {
     let c = &runtime.controls[id];
+    if matches!(c.spec, WidgetSpec::TextInput(_)) {
+        return crate::text_runtime::paint(runtime, id, r, outer);
+    }
     if c.spec.items().is_some() {
         return choice_group(runtime, id, r, outer, measured);
     }
@@ -106,7 +109,7 @@ pub(crate) fn control(
             &runtime.theme.slider.focus,
             runtime.theme.slider.thumb_size / 2.0,
         ),
-        _ => unreachable!("choice groups were handled above"),
+        _ => unreachable!("groups and text fields were handled above"),
     };
     if runtime.focus_visible && runtime.focused.as_ref() == Some(&target) {
         let d = focus.gap + focus.width / 2.0;
@@ -204,7 +207,7 @@ pub(crate) fn control(
                 ));
             }
         }
-        WidgetSpec::CheckboxGroup(_) | WidgetSpec::RadioGroup(_) => {
+        WidgetSpec::TextInput(_) | WidgetSpec::CheckboxGroup(_) | WidgetSpec::RadioGroup(_) => {
             unreachable!("choice groups were handled above")
         }
         WidgetSpec::Checkbox(c) => {

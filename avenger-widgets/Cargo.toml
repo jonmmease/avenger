@@ -14,6 +14,7 @@ avenger-layout = { path = "../avenger-layout" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }
 thiserror.workspace = true
+unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
