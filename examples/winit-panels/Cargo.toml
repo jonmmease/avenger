@@ -28,6 +28,7 @@ avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 async-trait.workspace = true
+serde_json.workspace = true
 winit.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
