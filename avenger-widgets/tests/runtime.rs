@@ -495,3 +495,22 @@ fn slider_drag_preserves_grab_offset_and_programmatic_values_cancel() {
         vec![&WidgetAction::SliderChanged { value: 21.0 }]
     );
 }
+
+#[test]
+fn paint_only_frames_keep_the_installed_picking_geometry() {
+    let mut runtime = WidgetRuntime::new();
+    let specs = vec![Checkbox::new("check", "Grid", false).into()];
+    let (scene, first) = group_frame(&mut runtime, &specs, 240.0);
+    assert!(first.status.rebuild_geometry);
+    handle(&mut runtime, &scene, key(NamedKey::Tab, false));
+    let (_, focused) = group_frame(&mut runtime, &specs, 240.0);
+    assert!(!focused.status.rebuild_geometry);
+    let (_, changed) = group_frame(
+        &mut runtime,
+        &[Checkbox::new("check", "Grid", true).into()],
+        240.0,
+    );
+    assert!(!changed.status.rebuild_geometry);
+    let (_, moved) = group_frame(&mut runtime, &specs, 260.0);
+    assert!(moved.status.rebuild_geometry);
+}

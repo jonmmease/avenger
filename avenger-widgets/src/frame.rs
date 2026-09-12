@@ -140,6 +140,7 @@ impl PreparedWidgets {
                 });
             }
         }
+        let geometry_changed = self.candidate.regions != regions;
         self.candidate.regions = regions;
         let mut update = self.update;
         self.candidate.reconcile_targets(&mut update);
@@ -157,7 +158,7 @@ impl PreparedWidgets {
             );
         }
         self.candidate.publish_policy(&mut update);
-        update.status.rebuild_geometry = true;
+        update.status.rebuild_geometry |= geometry_changed;
         Ok(WidgetFrame {
             scene,
             candidate: self.candidate,
