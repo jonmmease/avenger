@@ -119,6 +119,13 @@ impl WidgetRuntime {
             .as_ref()
             .map(|s| s.editor.selection())
     }
+    /// Whether a text field currently displays uncommitted IME preedit.
+    pub fn text_is_composing(&self, id: impl Into<WidgetId>) -> bool {
+        self.controls
+            .get(&id.into())
+            .and_then(|c| c.text.as_ref())
+            .is_some_and(|s| s.composition.is_some())
+    }
     /// Set a selection without changing the caller's draft value.
     pub fn set_text_selection(
         &mut self,

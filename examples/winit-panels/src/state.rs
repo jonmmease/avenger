@@ -1,11 +1,13 @@
 use avenger_panels::{Scope, Side};
 use avenger_text::TextEngine;
+use avenger_widgets::prelude::*;
 
 /// Controls shared by the native host, browser, and PNG exporter.
 #[derive(Clone)]
 pub struct State {
     pub size: [f32; 2],
     pub engine: TextEngine,
+    pub widgets: WidgetRuntime,
     pub y_scope: usize,
     pub title_scope: usize,
     pub legend_scope: usize,
@@ -20,6 +22,7 @@ impl State {
         Self {
             size: [1280.0, 900.0],
             engine,
+            widgets: WidgetRuntime::new(),
             y_scope: 1,
             title_scope: 2,
             legend_scope: 1,
@@ -96,6 +99,66 @@ impl State {
                     .into(),
             ),
         ]
+    }
+    pub fn widget_specs(&self) -> Vec<WidgetSpec> {
+        self.controls()
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_, value))| {
+                let id = format!("control-{index}");
+                match index {
+                    0 => RadioGroup::new(
+                        id,
+                        [
+                            ChoiceItem::new("panel", "Panel"),
+                            ChoiceItem::new("region", "Region"),
+                            ChoiceItem::new("figure", "Figure"),
+                        ],
+                        Some(["panel", "region", "figure"][self.y_scope].into()),
+                    )
+                    .semantic_name("Y domain sharing")
+                    .orientation(ChoiceOrientation::Horizontal)
+                    .into(),
+                    1 => Checkbox::new(id, "Outer compatible axes", self.outer).into(),
+                    4 => Checkbox::new(id, "Place at bottom", self.legend_bottom).into(),
+                    6 => Checkbox::new(id, "Show groups and owners", self.overlay).into(),
+                    _ => Button::new(id, value).into(),
+                }
+            })
+            .collect()
+    }
+    pub fn apply_widgets(&mut self, events: Vec<WidgetEvent>) -> bool {
+        let mut changed = false;
+        for event in events {
+            match event.action {
+                WidgetAction::SelectionChanged { item } if event.id.as_str() == "control-0" => {
+                    self.y_scope = match item.as_str() {
+                        "panel" => 0,
+                        "region" => 1,
+                        _ => 2,
+                    };
+                }
+                WidgetAction::CheckedChanged { value } => match event.id.as_str() {
+                    "control-1" => self.outer = value,
+                    "control-4" => self.legend_bottom = value,
+                    "control-6" => self.overlay = value,
+                    _ => continue,
+                },
+                WidgetAction::Activated => {
+                    if let Some(index) = event
+                        .id
+                        .as_str()
+                        .strip_prefix("control-")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        self.activate(index);
+                    }
+                }
+                _ => continue,
+            }
+            changed = true;
+        }
+        changed
     }
     pub fn activate(&mut self, index: usize) {
         match index {
