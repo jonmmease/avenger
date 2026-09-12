@@ -113,7 +113,7 @@ Selection queries expose byte offsets at grapheme boundaries.
 
 Allocate controls with `WidgetMetrics::preferred` or choose a smaller rectangle
 and let the content clip. `minimum` describes the control's compact geometry.
-`baseline` is the first text baseline relative to its allocation, and
+`baseline` is the first text baseline relative to its preferred rectangle, and
 `paint_overflow` reserves space for the focus outline. Hover, press, and focus
 change paint without changing intrinsic measurements. Place the fragment at the
 root origin because allocations and IME rectangles use root coordinates.

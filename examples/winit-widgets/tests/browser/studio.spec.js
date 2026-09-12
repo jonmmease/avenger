@@ -89,6 +89,9 @@ test('slider preview, outside capture, keyboard commit, and plot panning stay se
   await page.mouse.down();
   await expect.poll(() => snapshot(page).then(s => s.opacity)).toBeLessThan(.3);
   expect((await snapshot(page)).committedOpacity).toBe(.8);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.up({ button: 'right' });
+  expect((await snapshot(page)).committedOpacity).toBe(.8);
   await page.mouse.move(box.x + r.x + 150, box.y - 10, { steps: 6 });
   await page.mouse.up();
   await expect.poll(() => snapshot(page).then(s => s.committedOpacity === s.opacity)).toBe(true);
@@ -126,6 +129,11 @@ test('text editing, clipboard, Typst validation, history, and composition', asyn
   expect(await clipboard(page, 'cut')).toBe('Café');
   await clipboard(page, 'paste', 'A\nB');
   await expect.poll(() => snapshot(page).then(s => s.title)).toBe('AB');
+  const modifier = await page.evaluate(() => /^(Mac|iP)/.test(navigator.platform) ? 'Meta' : 'Control');
+  await page.keyboard.press(`${modifier}+z`);
+  await expect.poll(() => snapshot(page).then(s => s.title)).toBe('');
+  await page.keyboard.press(`${modifier}+Shift+z`);
+  await expect.poll(() => snapshot(page).then(s => s.title)).toBe('AB');
   await click(page, 'source');
   await selectAll(page);
   await page.keyboard.type('*Browser* $sqrt(x^2+y^2)$');
@@ -154,4 +162,22 @@ test('late composition does not cross focus targets and controls survive resizin
   await expect.poll(() => control(page, 'layers', 'grid').then(r => r.x)).toBe(604);
   await click(page, 'layers', 'grid');
   await expect.poll(() => snapshot(page).then(s => s.layers)).not.toContain('grid');
+});
+
+
+test.describe('high-density canvas', () => {
+  test.use({ deviceScaleFactor: 2, viewport: { width: 1180, height: 960 } });
+  test('initial layout and pointer coordinates agree at DPR 2', async ({ page }) => {
+    expect(await page.evaluate(() => devicePixelRatio)).toBe(2);
+    const canvas = page.locator('canvas');
+    const dimensions = await canvas.evaluate(e => ({ backing: [e.width, e.height], css: [e.clientWidth, e.clientHeight] }));
+    expect(dimensions.backing).toEqual(dimensions.css.map(v => v * 2));
+    await click(page, 'layers', 'grid');
+    await expect.poll(() => snapshot(page).then(s => s.layers)).not.toContain('grid');
+    await click(page, 'title');
+    await selectAll(page);
+    await page.keyboard.type('Retina title');
+    await expect.poll(() => snapshot(page).then(s => s.title)).toBe('Retina title');
+    await canvas.screenshot({ path: 'test-results/studio-dpr2.png' });
+  });
 });
