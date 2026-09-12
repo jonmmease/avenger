@@ -213,6 +213,7 @@ mod wasm {
         target: EventTarget,
         name: &'static str,
         callback: Closure<dyn FnMut(Event)>,
+        capture: bool,
     }
 
     pub struct TextAgentHost {
@@ -408,12 +409,14 @@ mod wasm {
             document: &web_sys::Document,
         ) -> Result<(), JsValue> {
             let entry = self.tab_entry.clone();
-            self.add_listener(document.as_ref(), "keydown", move |event| {
+            self.add_listener_mode(document.as_ref(), "keydown", true, move |event| {
                 let event = event.unchecked_into::<KeyboardEvent>();
                 entry.set((event.key() == "Tab").then_some(event.shift_key()));
             })?;
             let entry = self.tab_entry.clone();
-            self.add_listener(document.as_ref(), "pointerdown", move |_| entry.set(None))?;
+            self.add_listener_mode(document.as_ref(), "pointerdown", true, move |_| {
+                entry.set(None)
+            })?;
             let target: EventTarget = self.canvas.clone().into();
             // Winit dispatches the press from pointerdown. If that press opens
             // the text agent, the following mousedown must not refocus canvas.
@@ -424,7 +427,8 @@ mod wasm {
                 }
             })?;
             let policy = self.keyboard_policy.clone();
-            self.add_listener(&target, "keydown", move |event| {
+            // Capture the installed policy before winit can dispatch a focus-changing key.
+            self.add_listener_mode(&target, "keydown", true, move |event| {
                 let event = event.unchecked_into::<KeyboardEvent>();
                 let modifiers = avenger_eventstream::scene::ModifiersState {
                     shift: event.shift_key(),
@@ -441,7 +445,8 @@ mod wasm {
                 }
             })?;
             let pointer = self.pointer.clone();
-            self.add_listener(&target, "pointerdown", move |event| {
+            // Gesture commands can run synchronously inside winit's pointerdown listener.
+            self.add_listener_mode(&target, "pointerdown", true, move |event| {
                 let event = event.unchecked_into::<PointerEvent>();
                 if event.button() == 0 {
                     pointer.set(Some(event.pointer_id()));
@@ -469,12 +474,27 @@ mod wasm {
             name: &'static str,
             callback: impl FnMut(Event) + 'static,
         ) -> Result<(), JsValue> {
+            self.add_listener_mode(target, name, false, callback)
+        }
+
+        fn add_listener_mode(
+            &mut self,
+            target: &EventTarget,
+            name: &'static str,
+            capture: bool,
+            callback: impl FnMut(Event) + 'static,
+        ) -> Result<(), JsValue> {
             let callback = Closure::wrap(Box::new(callback) as Box<dyn FnMut(Event)>);
-            target.add_event_listener_with_callback(name, callback.as_ref().unchecked_ref())?;
+            target.add_event_listener_with_callback_and_bool(
+                name,
+                callback.as_ref().unchecked_ref(),
+                capture,
+            )?;
             self.listeners.push(Listener {
                 target: target.clone(),
                 name,
                 callback,
+                capture,
             });
             Ok(())
         }
@@ -755,10 +775,13 @@ mod wasm {
         fn drop(&mut self) {
             self.active_wakes.borrow_mut().clear();
             for listener in self.listeners.drain(..) {
-                let _ = listener.target.remove_event_listener_with_callback(
-                    listener.name,
-                    listener.callback.as_ref().unchecked_ref(),
-                );
+                let _ = listener
+                    .target
+                    .remove_event_listener_with_callback_and_bool(
+                        listener.name,
+                        listener.callback.as_ref().unchecked_ref(),
+                        listener.capture,
+                    );
             }
             self.input.remove();
         }

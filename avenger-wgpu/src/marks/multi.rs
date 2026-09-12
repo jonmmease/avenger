@@ -1414,7 +1414,7 @@ impl MultiMarkRenderer {
                     mark.fill_iter(),
                     mark.stroke_iter(),
                 ).map(|(path, fill, stroke)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&path, &fill, &stroke)
+                    build_verts_inds(&path, fill, stroke)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         }

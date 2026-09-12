@@ -74,3 +74,39 @@ gallery -- widgets-gallery.png`. The example uses the bundled Lato font and one
 shared text engine for layout and rendering.
 
 ![Light and dark widget states](docs/images/gallery.png)
+
+`TextInput` edits one plain-text draft. Its uniform font can be styled, and its
+contents can contain Typst source. The application validates and typesets that
+source elsewhere. Keep the last accepted annotation separately from the draft so
+invalid markup remains available for correction.
+
+Each edit emits `TextChanged` immediately. `TextCommitPolicy` controls only
+`TextCommitted`: immediate, after a debounce interval, or on Enter/blur. Enter
+flushes a pending commit, emits `TextSubmitted`, and retains focus. Ordinary blur
+flushes before the focus-loss notification. Removal and disabling cancel pending
+work. A commit expresses user intent, not successful application validation.
+
+Escape cancels composition first and restores its selection. A later Escape
+restores the last committed or programmatically supplied draft. Both retain field
+focus. Applications can use `reset_text` for an explicit reset that immediately
+cancels composition and retires queued input. During ordinary external replacement,
+a composing field defers the new draft until composition ends. The latest supplied
+value wins. Neither kind of programmatic replacement emits a user change event.
+
+Text input requires the host's input-session protocol. Forward tagged keyboard,
+IME, clipboard, and keyed wakeup events through the runtime. Publish every returned
+host effect, including initial-build and successful-rebuild effects. The winit
+host supplies this protocol on native and WASM targets. Use `with_text_shortcuts`
+to select Mac conventions in a browser running on macOS.
+
+History retains 100 groups. Typing or deletion coalesces within one second until
+navigation, focus, or edit class changes. Paste, cut, and IME commits are separate
+groups. External replacements clear history. Line feeds, carriage returns, tabs,
+other control characters, and Unicode line/paragraph separators are removed from
+single-line values and edits. For example, pasting `one\ntwo` produces `onetwo`.
+Debounce intervals use millisecond wakeups, rounding a positive fraction upward.
+
+Read-only fields allow caret navigation, selection, and copying. Caret blinking
+runs only for a focused editable field with a visible caret. Selection dragging
+can scroll horizontally, including while the pointer remains beyond a field edge.
+Selection queries expose byte offsets at grapheme boundaries.
