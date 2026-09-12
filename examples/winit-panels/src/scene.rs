@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::state::{CONTROL_LABELS, State};
 use avenger_color::ColorOrGradient;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::{
@@ -875,28 +875,34 @@ pub fn build_live(state: &mut State) -> Result<Output, String> {
     let specs = state.widget_specs();
     let mut theme = avenger_widgets::WidgetTheme::light();
     theme.radio.text.size = 12.0;
+    theme.radio.row_height = 26.0;
     theme.checkbox.text.size = 12.0;
-    theme.button.text.size = 12.0;
-    theme.group.gap = 8.0;
+    theme.checkbox.row_height = 26.0;
+    theme.group.gap = 6.0;
     let mut prepared = state
         .widgets
         .prepare(&specs, &theme, &state.engine)
         .map_err(|e| e.to_string())?;
-    for (index, (label, _)) in state.controls().into_iter().enumerate() {
-        let y = 145.0 + index as f32 * 65.0;
+    let mut y = 145.0;
+    for (label, spec) in CONTROL_LABELS.into_iter().zip(&specs) {
+        let height = prepared
+            .metrics(spec.id().clone())
+            .unwrap()
+            .preferred
+            .height;
         marks.push(text(label, sx, y, 11.0, MUTED).into());
         prepared
             .place(
-                format!("control-{index}"),
-                avenger_widgets::Rect::new(sx, y + 8.0, 222.0, 32.0),
+                spec.id().clone(),
+                avenger_widgets::Rect::new(sx, y + 8.0, 222.0, height),
                 None,
             )
             .map_err(|e| e.to_string())?;
+        y += 8.0 + height + 20.0;
     }
     let frame = prepared.finish().map_err(|e| e.to_string())?;
     marks.push(frame.scene.clone().into());
-    let y = 145.0 + 8.0 * 65.0;
-    marks.push(text("Click a control or press 1–8.", sx, y, 11.0, MUTED).into());
+    marks.push(text("Choose an option or press 1–8.", sx, y, 11.0, MUTED).into());
     marks.push(text("Resize to rewrap each region.", sx, y + 19.0, 11.0, MUTED).into());
     let label_count = settled
         .plan
@@ -966,6 +972,8 @@ pub fn build_live(state: &mut State) -> Result<Output, String> {
         ],
     };
     let widget_update = state.widgets.install(frame).map_err(|e| e.to_string())?;
+    #[cfg(target_arch = "wasm32")]
+    crate::web::record(state);
     Ok(Output {
         widget_update,
         scene,

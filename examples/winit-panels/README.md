@@ -12,7 +12,7 @@ Run from the repository root:
 cargo run --release -p winit-panels
 ```
 
-Choose a domain scope with the radio group, toggle the checkboxes, or press a button to cycle its setting. The 1–8 shortcuts still cycle the corresponding settings. Tab moves focus through the controls, and arrow keys change the radio selection. Domain, title, and legend scopes are independent. Tick marks and grid lines remain visible when labels are suppressed. The last product can contain data, show an empty panel, or leave a physical hole. Its logical domain contribution remains unchanged during that display toggle.
+Choose domain, title, and legend scopes, last-product state, and example presets directly from the radio groups. Checkboxes toggle outer labels, legend placement, and the coordination overlay. The 1–8 shortcuts still cycle the corresponding settings. Tab moves focus through the controls, and arrow keys change the radio selection. Domain, title, and legend scopes are independent. Tick marks and grid lines remain visible when labels are suppressed. The last product can contain data, show an empty panel, or leave a physical hole. Its logical domain contribution remains unchanged during that display toggle.
 
 If the measured guides do not fit, the chart asks for more room while keeping the controls available.
 

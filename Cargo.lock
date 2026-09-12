@@ -6671,6 +6671,7 @@ dependencies = [
  "console_log",
  "log",
  "pollster 0.4.0",
+ "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
