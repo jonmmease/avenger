@@ -423,11 +423,14 @@ fn measure(
                 .insert(instance.id().clone(), shared_content(instance, state)?);
         }
     }
-    // Equal top clearance aligns product headers even when only one y axis has labels.
+    // Preserve endpoint clearance when labels disappear so shared plot tracks
+    // retain the same gaps and remain eligible for outer-label suppression.
     let top = result.axes.values().map(|e| e.top).fold(0.0, f32::max);
+    let right = result.axes.values().map(|e| e.right).fold(0.0, f32::max);
     let left = result.axes.values().map(|e| e.left).fold(0.0, f32::max);
     for (panel, edges) in &mut result.axes {
         edges.top = top;
+        edges.right = right;
         if label_visible(plan, "y-labels", panel) {
             edges.left = left;
         }

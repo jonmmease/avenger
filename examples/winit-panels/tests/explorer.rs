@@ -2,6 +2,61 @@ use avenger_panels::{GuideKind, NodeId, PanelDisplay, PanelId};
 use winit_panels::{scene, state::State};
 
 #[test]
+fn outer_x_labels_remain_shared_with_independent_y_domains() {
+    let mut state = State::new(avenger_text::default_text_engine());
+    state.y_scope = 0;
+    state.title_scope = 1;
+    for preset in [1, 2] {
+        state.preset = preset;
+        for (size, columns) in [
+            ([1280.0, 900.0], 3),
+            ([940.0, 1100.0], 2),
+            ([720.0, 1600.0], 1),
+        ] {
+            state.size = size;
+            for outer in [false, true] {
+                state.outer = outer;
+                let out = scene::build(&state).unwrap();
+                assert!(
+                    !out.fallback,
+                    "preset {preset}, size {size:?}, outer {outer}"
+                );
+                for product in ["a", "b", "c"] {
+                    let north = out
+                        .frames
+                        .rect(&NodeId::Panel(format!("north-{product}").into()))
+                        .unwrap();
+                    let south = out
+                        .frames
+                        .rect(&NodeId::Panel(format!("south-{product}").into()))
+                        .unwrap();
+                    assert!(
+                        (north.x - south.x).abs() < 0.01
+                            && (north.width - south.width).abs() < 0.01,
+                        "unaligned product {product}: {north:?}, {south:?}, preset {preset}, outer {outer}"
+                    );
+                }
+                assert_eq!(
+                    out.plan
+                        .instances()
+                        .filter(|i| i.key().as_str() == "x-labels")
+                        .count(),
+                    if outer { columns } else { 6 },
+                    "preset {preset}, size {size:?}, outer {outer}"
+                );
+                assert_eq!(
+                    out.plan
+                        .instances()
+                        .filter(|i| i.key().as_str() == "y-labels")
+                        .count(),
+                    6
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn explorer_coordinates_domains_titles_legends_and_reflow_through_public_plans() {
     let mut state = State::new(avenger_text::default_text_engine());
     let base = scene::build(&state).unwrap();
