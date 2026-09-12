@@ -22,3 +22,6 @@ avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fo
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 avenger-wgpu = {path="../avenger-wgpu",default-features=false}
 pollster="0.4"
+
+avenger-svg = { path = "../avenger-svg" }
+avenger-pdf = { path = "../avenger-pdf" }
