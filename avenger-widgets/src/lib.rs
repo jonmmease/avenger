@@ -15,6 +15,8 @@ mod paint;
 mod runtime;
 mod slider;
 mod style;
+mod text_input;
+mod text_runtime;
 
 pub use avenger_layout::{Edges, Rect, Size};
 pub use button::{Button, ButtonVariant};
@@ -29,7 +31,10 @@ pub use runtime::{
 pub use slider::{Slider, SliderCancelReason, SliderDomain};
 pub use style::{
     ButtonStyle, CheckboxStyle, ChoiceGroupStyle, ControlPaint, FocusStyle, PaintStates,
-    SliderStyle, TextStyle, WidgetTheme,
+    SliderStyle, TextInputStyle, TextStyle, WidgetTheme,
+};
+pub use text_input::{
+    TextCancelReason, TextCommitPolicy, TextCommitReason, TextInput, TextShortcuts,
 };
 
 /// Invalid widget configuration, geometry, identity, or text layout.
@@ -51,6 +56,7 @@ pub enum WidgetSpec {
     CheckboxGroup(CheckboxGroup),
     RadioGroup(RadioGroup),
     Slider(Slider),
+    TextInput(TextInput),
 }
 
 impl WidgetSpec {
@@ -65,6 +71,7 @@ impl WidgetSpec {
             Self::CheckboxGroup(v) => &v.options,
             Self::RadioGroup(v) => &v.options,
             Self::Slider(v) => &v.options,
+            Self::TextInput(v) => &v.options,
         }
     }
     pub(crate) fn label(&self) -> &str {
@@ -74,6 +81,7 @@ impl WidgetSpec {
             Self::CheckboxGroup(v) => &v.label,
             Self::RadioGroup(v) => &v.label,
             Self::Slider(v) => v.value_label.as_deref().unwrap_or(""),
+            Self::TextInput(v) => &v.placeholder,
         }
     }
     pub(crate) fn items(&self) -> Option<&[ChoiceItem]> {
@@ -109,8 +117,9 @@ pub mod prelude {
     pub use crate::{
         Button, ButtonVariant, Checkbox, CheckboxGroup, ChoiceItem, ChoiceItemId,
         ChoiceOrientation, Edges, FocusBoundary, PreparedWidgets, RadioGroup, Rect, Size, Slider,
-        SliderCancelReason, SliderDomain, TextStyle, WidgetAction, WidgetError, WidgetEvent,
-        WidgetFrame, WidgetId, WidgetMetrics, WidgetRuntime, WidgetSpec, WidgetTarget, WidgetTheme,
+        SliderCancelReason, SliderDomain, TextCancelReason, TextCommitPolicy, TextCommitReason,
+        TextInput, TextShortcuts, TextStyle, WidgetAction, WidgetError, WidgetEvent, WidgetFrame,
+        WidgetId, WidgetMetrics, WidgetRuntime, WidgetSpec, WidgetTarget, WidgetTheme,
         WidgetUpdate,
     };
 }
