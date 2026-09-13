@@ -274,10 +274,15 @@ mod tests {
         let buffer = engine().extract_pdf(&pdf_config("$a / b$")).unwrap();
 
         assert!(buffer.glyph_runs.len() >= 2);
-        assert!(buffer
+        let rule = buffer
             .items
             .iter()
-            .any(|item| item.kind == TextPathKind::MathShape));
+            .find(|item| item.kind == TextPathKind::MathShape)
+            .unwrap();
+        assert!(matches!(
+            rule.path.iter().last(),
+            Some(lyon_path::Event::End { close: false, .. })
+        ));
         assert!(validate_glyph_run_text_ranges(&buffer.glyph_runs));
     }
 

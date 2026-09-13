@@ -559,31 +559,71 @@ mod tests {
     }
 
     #[test]
-    fn top_level_engine_raster_cache_key_separates_params() {
-        let engine = engine();
-        let font = "sans-serif".to_string();
-        let text = "#series_name".to_string();
-        let params_a = series_name_params("Revenue");
-        let params_b = series_name_params("Cost");
+    fn parameter_updates_invalidate_measurement_and_raster_caches() {
+        use crate::rasterization::CachedTextRasterization;
 
-        let mut config_a = raster(&text, &font);
-        config_a.params = &params_a;
-        let mut config_b = raster(&text, &font);
-        config_b.params = &params_b;
+        let font = "Lato".to_string();
+        let mut cases = vec![(
+            "#series_name",
+            series_name_params("Revenue"),
+            series_name_params("Cost"),
+        )];
+        for year in [1600, 2500] {
+            for utc in [false, true] {
+                let params = |month| {
+                    let value = chrono::NaiveDate::from_ymd_opt(year, month, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap();
+                    LabelParams::from([(
+                        "value".to_string(),
+                        if utc {
+                            LabelParamValue::UtcDateTime(value.and_utc())
+                        } else {
+                            LabelParamValue::DateTime(value)
+                        },
+                    )])
+                };
+                cases.push((r#"#datefmt(value, "%B")"#, params(1), params(9)));
+            }
+        }
+        for (source, params_a, params_b) in cases {
+            let engine = engine();
+            let text = source.to_string();
+            let mut measurement = measure(&text, &font);
+            measurement.params = &params_a;
+            let bounds_a = engine.measure_bounds(&measurement).unwrap();
+            measurement.params = &params_b;
+            let bounds_b = engine.measure_bounds(&measurement).unwrap();
+            assert_ne!(bounds_a.width, bounds_b.width);
+            assert_eq!(
+                bounds_b,
+                TextEngine::with_default_config()
+                    .unwrap()
+                    .measure_bounds(&measurement)
+                    .unwrap()
+            );
 
-        let buffer_a = engine
-            .rasterize(&config_a, 2.0, &std::collections::HashMap::<_, ()>::new())
-            .unwrap();
-        let buffer_b = engine
-            .rasterize(&config_b, 2.0, &std::collections::HashMap::<_, ()>::new())
-            .unwrap();
-
-        assert_eq!(buffer_a.entries.len(), 1);
-        assert_eq!(buffer_b.entries.len(), 1);
-        assert_ne!(
-            buffer_a.entries[0].0.cache_key.params,
-            buffer_b.entries[0].0.cache_key.params
-        );
+            let mut config = raster(&text, &font);
+            config.params = &params_a;
+            let buffer_a = engine
+                .rasterize(&config, 2.0, &HashMap::<_, ()>::new())
+                .unwrap();
+            let cache = HashMap::from([(
+                buffer_a.entries[0].0.cache_key.clone(),
+                CachedTextRasterization {
+                    entries: buffer_a.entries,
+                    text_bounds: buffer_a.text_bounds,
+                },
+            )]);
+            config.params = &params_b;
+            let cached = engine.rasterize(&config, 2.0, &cache).unwrap();
+            let fresh = engine
+                .rasterize(&config, 2.0, &HashMap::<_, ()>::new())
+                .unwrap();
+            assert_eq!(cached.text_bounds, fresh.text_bounds);
+            assert_eq!(cached.entries[0].0.image, fresh.entries[0].0.image);
+        }
     }
 
     #[test]

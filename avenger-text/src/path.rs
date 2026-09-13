@@ -445,11 +445,11 @@ fn math_path_data_to_lyon_path(
     x_offset: f32,
     y_offset: f32,
 ) -> Path {
-    let mut builder = Path::builder();
+    let mut builder = Path::builder().with_svg();
     for command in &path.commands {
         match *command {
             avenger_typst_label::PathCommand::MoveTo { x, y } => {
-                builder.begin(transform_math_point(transform, x, y, x_offset, y_offset));
+                builder.move_to(transform_math_point(transform, x, y, x_offset, y_offset));
             }
             avenger_typst_label::PathCommand::LineTo { x, y } => {
                 builder.line_to(transform_math_point(transform, x, y, x_offset, y_offset));
@@ -707,6 +707,10 @@ mod tests {
         assert_eq!(buffer.items.len(), 1);
         assert_eq!(buffer.items[0].kind, TextPathKind::MathShape);
         assert!(buffer.items[0].stroke.is_some());
+        assert!(matches!(
+            buffer.items[0].path.iter().last(),
+            Some(lyon_path::Event::End { close: false, .. })
+        ));
         assert!(matches!(
             buffer.draw_items.as_slice(),
             [TextPathDrawItem::PlainRun(0), TextPathDrawItem::PathItem(0)]
