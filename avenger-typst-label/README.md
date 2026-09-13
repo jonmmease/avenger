@@ -9,7 +9,7 @@ The implementation is owned by this crate, but the syntax and layout behavior
 should stay Typst-shaped. Parser and parser-support modules copied or mirrored
 from upstream Typst live in private `src/typst_syntax`, `src/typst_timing`, and
 `src/typst_utils` modules. Upstream-like implementation modules use `typst_*`
-names; the Avenger-owned public facade lives in `src/label`. Public callers see
+names. The Avenger-owned public facade lives in `src/label`. Public callers see
 only label frames and output artifacts, not Typst parser or document types.
 
 ## Kept Functionality
@@ -47,7 +47,7 @@ The crate intentionally excludes full Typst document features:
 - No public Typst `SyntaxNode`, content, element, style-chain, or frame tree.
 - No page layout, paragraphs, wrapping, justification, tables, matrices, or
   multiline math.
-- No block display equations; display-style math is supported only as an
+- No block display equations. Display-style math is supported only as an
   explicit single-line math call such as `$display(sum_(i=0)^n)$`.
 - No general Typst SVG/PDF/render backends.
 - No compatibility promise for unsupported Typst syntax beyond returning clear
@@ -132,8 +132,8 @@ content that escaped plain text would produce.
 ## Relationship To Upstream Typst
 
 `avenger-typst-label` should be treated as a behavioral subset of Typst, not as a
-source-level fork. See `UPSTREAM.md` for the detailed file-by-file provenance
-map. The closest upstream source areas are:
+source-level fork. See `UPSTREAM.md` for the source comparison map, reference
+revisions, and validation limits. The closest upstream source areas are:
 
 | Module | Typst source area | Relationship |
 | --- | --- | --- |
@@ -148,10 +148,10 @@ map. The closest upstream source areas are:
 | `src/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
 | `src/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors, warnings, and PDF metadata consumed by Avenger's direct PDF renderer |
 
-Every top-level implementation module other than `src/lib.rs` is either an
-upstream-shaped `typst_*` module or the Avenger-owned `label` facade. Remaining
-compact internal names such as `ParsedLine` and `MathAst` represent label-scale
-Typst-equivalent content/IR concepts, not public compatibility shims.
+The `typst_*` names group code by corresponding Typst responsibilities. They
+include both copied code and Avenger-owned implementations. Internal types such
+as `LabelContent` and `MathAst` are Avenger representations, not copies of
+Typst's content model or resolved math IR.
 
 ## Extraction Process
 
@@ -196,7 +196,7 @@ When adding or changing functionality:
 
 The crate includes a tiny release probe for the direct label engine path.
 The font-directory argument must contain uncompressed Lato and Lete Sans Math
-font files; the bundled `.br` assets must be decompressed before use:
+font files. Decompress the bundled `.br` assets before use:
 
 ```bash
 cargo build --profile release-size -p avenger-typst-label --bin typst-label-math-svg-probe
