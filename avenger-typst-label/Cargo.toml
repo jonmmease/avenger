@@ -47,6 +47,7 @@ unscanny = "0.1.0"
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
 
 [[example]]
