@@ -43,6 +43,43 @@ fn glyphs(label: &CompiledLabel) -> Vec<PdfGlyph> {
 }
 
 #[test]
+fn custom_operators_match_predefined_operators() {
+    let engine = engine();
+    for (predefined, custom) in [
+        ("$sin x$", "$op(\"sin\") x$"),
+        ("$script(sin x)$", "$script(op(\"sin\") x)$"),
+        (
+            "$display(lim_(n -> oo) x)$",
+            "$display(op(\"lim\", limits: #true)_(n -> oo) x)$",
+        ),
+        (
+            "$display(scripts(lim)_(n -> oo) x)$",
+            "$display(op(\"lim\")_(n -> oo) x)$",
+        ),
+    ] {
+        let expected = engine.compile(predefined, &options()).unwrap();
+        let actual = engine.compile(custom, &options()).unwrap();
+        assert_eq!(actual.metrics, expected.metrics, "{custom}");
+        assert_eq!(glyphs(&actual), glyphs(&expected), "{custom}");
+    }
+}
+
+#[test]
+fn custom_operators_preserve_body_layout() {
+    let engine = engine();
+    for body in ["EE", "integral", "stretch(|, size: #300%)", "frac(x, y)"] {
+        let expected = engine
+            .compile(&format!("$display({body})$"), &options())
+            .unwrap();
+        let actual = engine
+            .compile(&format!("$display(op({body}))$"), &options())
+            .unwrap();
+        assert_eq!(actual.metrics, expected.metrics, "{body}");
+        assert_eq!(glyphs(&actual), glyphs(&expected), "{body}");
+    }
+}
+
+#[test]
 fn absolute_math_sizes_are_idempotent_and_restore_text_size() {
     let engine = engine();
     for (a, b) in [

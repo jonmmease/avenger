@@ -155,3 +155,16 @@ not reshape them at default axis coordinates. PDF font resources retain the same
 coordinates and distinguish instances in the renderer's font cache. These tests
 cover the retained single-line subset; they do not establish full Typst document
 compatibility.
+
+## Operator compatibility follow-up
+
+Operator behavior also follows Typst's
+[`math.op` correction](https://github.com/typst/typst/commit/d07469fe8c9c643a18c119c2a35a8dfde00af884)
+in 0.15.1. Custom operators receive their spacing class after body layout, which
+preserves glyph baselines, large-operator variants, and explicit stretching.
+Predefined text operators use the same text shaping as quoted operator bodies.
+
+The `custom_operators_*` tests in `tests/upstream_audit.rs` compare predefined and
+custom operators, including script sizes and explicit attachment modes, and check
+that wrapping a body in `op` preserves its geometry. The PNG corpus continues to
+use the audit baseline recorded above.

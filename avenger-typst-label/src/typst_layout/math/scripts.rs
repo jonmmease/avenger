@@ -114,7 +114,6 @@ fn text_operator_uses_display_limits(text: &str) -> bool {
 fn layout_simple_attachment_mode_call(
     font: &MathFont,
     call: &ast::MathCall,
-    _mode: MathAttachmentMode,
     font_size: f32,
     script_level: u8,
     math_size: MathLayoutSize,
