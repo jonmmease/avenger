@@ -2,6 +2,7 @@
 members = [
     "avenger-typst-label",
     "avenger-color",
+    "avenger-fonts",
     "avenger-format-number",
     "avenger-format-datetime",
     "avenger-scenegraph",

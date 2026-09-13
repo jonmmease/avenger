@@ -114,13 +114,13 @@ fn prepare_fonts(
     include_system_emoji: bool,
 ) -> Result<(), Box<dyn Error>> {
     let fonts = [
-        "avenger-text/fonts/Lato/Lato-Light.ttf.br",
-        "avenger-text/fonts/Lato/Lato-Italic.ttf.br",
-        "avenger-text/fonts/Lato/Lato-Medium.ttf.br",
-        "avenger-text/fonts/Lato/Lato-Bold.ttf.br",
-        "avenger-text/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br",
-        "avenger-text/fonts/Lete_Sans_Math/LeteSansMath.otf.br",
-        "avenger-text/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br",
+        "avenger-fonts/fonts/Lato/Lato-Light.ttf.br",
+        "avenger-fonts/fonts/Lato/Lato-Italic.ttf.br",
+        "avenger-fonts/fonts/Lato/Lato-Medium.ttf.br",
+        "avenger-fonts/fonts/Lato/Lato-Bold.ttf.br",
+        "avenger-fonts/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br",
+        "avenger-fonts/fonts/Lete_Sans_Math/LeteSansMath.otf.br",
+        "avenger-fonts/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br",
     ];
 
     for relative_path in fonts {

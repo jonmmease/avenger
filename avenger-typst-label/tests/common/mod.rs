@@ -22,13 +22,13 @@ pub fn engine_options() -> EngineOptions {
 }
 
 const FONT_BYTES: &[&[u8]] = &[
-    include_bytes!("../../../avenger-text/fonts/Lato/Lato-Light.ttf.br"),
-    include_bytes!("../../../avenger-text/fonts/Lato/Lato-Italic.ttf.br"),
-    include_bytes!("../../../avenger-text/fonts/Lato/Lato-Medium.ttf.br"),
-    include_bytes!("../../../avenger-text/fonts/Lato/Lato-Bold.ttf.br"),
-    include_bytes!("../../../avenger-text/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
-    include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
-    include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
+    avenger_fonts::LATO_LIGHT,
+    avenger_fonts::LATO_ITALIC,
+    avenger_fonts::LATO_MEDIUM,
+    avenger_fonts::LATO_BOLD,
+    avenger_fonts::DEJAVU_SANS_MONO,
+    avenger_fonts::LETE_SANS_MATH,
+    avenger_fonts::LETE_SANS_MATH_BOLD,
     include_bytes!("../fixtures/fonts/NotoSansHebrew.ttf.br"),
     include_bytes!("../fixtures/fonts/NotoSansDevanagari.ttf.br"),
     include_bytes!("../fixtures/fonts/AuditNoScriptMetrics.ttf.br"),

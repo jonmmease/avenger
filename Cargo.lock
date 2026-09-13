@@ -446,6 +446,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-fonts"
+version = "0.1.0"
+
+[[package]]
 name = "avenger-format-datetime"
 version = "0.1.0"
 dependencies = [
@@ -593,6 +597,7 @@ dependencies = [
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "avenger-fonts",
  "avenger-format-datetime",
  "avenger-format-number",
  "brotli",
