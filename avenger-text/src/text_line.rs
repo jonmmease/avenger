@@ -641,8 +641,9 @@ mod tests {
         number_locale_specs.insert(
             "tick-test".to_string(),
             crate::NumberLocaleSpec {
-                decimal: Some("~".to_string()),
-                group: Some("_".to_string()),
+                decimal: "~".to_string(),
+                thousands: "_".to_string(),
+                grouping: vec![3],
                 ..Default::default()
             },
         );
@@ -679,10 +680,7 @@ mod tests {
         datetime_locale_specs.insert(
             "label-date-test".to_string(),
             crate::DateTimeLocaleSpec {
-                date_patterns: Some(avenger_format_datetime_d3::LengthsSpec {
-                    long: Some("y'~'MM'~'dd".to_string()),
-                    ..Default::default()
-                }),
+                date: "%Y~%m~%d".to_string(),
                 ..Default::default()
             },
         );
@@ -690,7 +688,7 @@ mod tests {
         let result = typeset_line(
             &typst,
             &TextMarkupConfig::default().with_syntax_mode(TextSyntaxMode::TypstMarkup),
-            "#datefmt(value, \"{date:long}\")",
+            "#datefmt(value, \"%x\")",
             "sans-serif",
             12.0,
             WEIGHT,

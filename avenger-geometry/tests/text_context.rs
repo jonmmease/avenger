@@ -36,8 +36,9 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
     mark.number_locale_specs.insert(
         "wide".into(),
         avenger_text::NumberLocaleSpec {
-            decimal: Some("decimal".into()),
-            group: Some("group".into()),
+            decimal: "decimal".into(),
+            thousands: "group".into(),
+            grouping: vec![3],
             ..Default::default()
         },
     );
