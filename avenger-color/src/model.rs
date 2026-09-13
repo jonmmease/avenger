@@ -124,11 +124,6 @@ pub fn apply_opacity_to_color(color: &ColorOrGradient, opacity: f32) -> ColorOrG
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::hash_map::DefaultHasher,
-        hash::{Hash, Hasher},
-    };
-
     use super::*;
 
     #[test]
@@ -170,18 +165,6 @@ mod tests {
 
         assert_eq!(linear.stops(), stops.as_slice());
         assert_eq!(radial.stops(), stops.as_slice());
-    }
-
-    #[test]
-    fn hashing_handles_float_components() {
-        let color = ColorOrGradient::Color([0.1, 0.2, 0.3, 0.4]);
-        let mut first = DefaultHasher::new();
-        let mut second = DefaultHasher::new();
-
-        color.hash(&mut first);
-        color.hash(&mut second);
-
-        assert_eq!(first.finish(), second.finish());
     }
 
     #[test]

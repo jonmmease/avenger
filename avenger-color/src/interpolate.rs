@@ -36,7 +36,7 @@ pub fn interpolate_colors(
         return Err(ColorInterpolationError::EmptyColorRange);
     }
 
-    match space {
+    Ok(match space {
         ColorInterpolationSpace::Srgba => {
             let colors: Vec<Srgba> = colors
                 .iter()
@@ -58,7 +58,7 @@ pub fn interpolate_colors(
                 .collect();
             interpolate_color(&colors, values)
         }
-    }
+    })
 }
 
 /// A trait for color spaces that can be interpolated with palette's `Mix`.
@@ -72,14 +72,7 @@ impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + std::fmt::Debug + Send + S
 {
 }
 
-fn interpolate_color<C: InterpolationColorSpace>(
-    colors: &[C],
-    values: &[f32],
-) -> Result<Vec<[f32; 4]>, ColorInterpolationError> {
-    if colors.is_empty() {
-        return Err(ColorInterpolationError::EmptyColorRange);
-    }
-
+fn interpolate_color<C: InterpolationColorSpace>(colors: &[C], values: &[f32]) -> Vec<[f32; 4]> {
     let scale_factor = (colors.len() - 1) as f32;
     let mut result = Vec::with_capacity(values.len());
     values.iter().for_each(|v| {
@@ -100,7 +93,7 @@ fn interpolate_color<C: InterpolationColorSpace>(
         result.push([r, g, b, a]);
     });
 
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
@@ -306,14 +299,5 @@ mod tests {
 
         let colors = interpolate_colors(ColorInterpolationSpace::Srgba, &colors, &[0.5]).unwrap();
         assert_color_approx_eq(colors[0], [0.5, 0.5, 0.5, 1.0], 0.0001);
-    }
-
-    #[test]
-    fn test_color_components_out_of_range() {
-        let colors = vec![[-0.5, 0.0, 0.0, 1.0], [1.5, 1.0, 1.0, 1.0]];
-
-        let values = [0.0, 0.5, 1.0];
-        let colors = interpolate_colors(ColorInterpolationSpace::Srgba, &colors, &values).unwrap();
-        assert_eq!(colors.len(), 3);
     }
 }

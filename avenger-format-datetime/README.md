@@ -26,6 +26,8 @@ Locale JSON uses D3's `dateTime`, `date`, `time`, `periods`, `days`, `shortDays`
 
 `PreparedTimeMultiFormat` implements Vega's automatic calendar-sensitive label selection and object-valued format overrides. Explicit scalar patterns remain separate from those defaults. The host resolves local time to a concrete IANA name before constructing the context.
 
+Resolved locale definitions are read-only. To customize a locale, clone `definition()`, edit the clone, and register it so its patterns are validated and compiled together. Existing prepared formatters retain their resolved locale.
+
 The supported grammar is the documented [D3 datetime directive set](https://d3js.org/d3-time-format). LDML patterns and style lengths are removed. For example, use `%Y-%m-%d` for an ISO date, `%b %-d` for an abbreviated month and day, `%x` for the locale date pattern, and `%Z` for an offset. A pattern without directives is literal text. The crate formats existing values and does not implement temporal data parsing.
 
 The [reference generator](../tools/format-reference/README.md) pins the upstream packages and generates the Rust test fixtures. The locale files include the upstream license.

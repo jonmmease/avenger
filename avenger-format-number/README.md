@@ -23,6 +23,8 @@ Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `curre
 
 `NumberLocaleExtensions` stores normalized compact tiers and currency patterns separately. `register_extensions` replaces that metadata for a named locale without changing standard D3 output. `C[JPY]` uses the currency's default fraction digits unless the format overrides them. Compact patterns contain one `{0}` placeholder. Values below the first tier retain their magnitude. Runtime LDML number-pattern ingestion is removed.
 
+Resolved locales expose borrowed definitions and extension metadata. To customize a locale, clone `definition()` or `extensions()`, edit the clone, and register it. Existing prepared formatters retain their resolved locale.
+
 `prepare_number_span_format` implements Vega's domain/count-based precision selection. `prepare_number_float_format` implements Vega's automatic floating-point labels. `prepare_number_prefix_format` fixes a D3 SI unit using a reference value. Existing native tick sets can use `prepare_number_tick_format`. These adapters preserve upstream behavior independently of Avenger's compact and currency metadata.
 
 `FormattedNumber` contains plain text and optional exponent parts for Typst. Those parts use the same locale, signs, precision, and trimming as the text. Formats with affixes, padding, or custom numerals retain their plain representation.

@@ -158,10 +158,13 @@ pub fn mix_colors(
         hue_method,
     );
 
-    // Round alpha to avoid precision issues (0.999995 -> 1.0)
-    let alpha = (result[3] * 1000.0).round() / 1000.0;
-
-    AbsoluteColor::new(interpolation_space, result[0], result[1], result[2], alpha)
+    AbsoluteColor::new(
+        interpolation_space,
+        result[0],
+        result[1],
+        result[2],
+        result[3],
+    )
 }
 
 /// Adjust hue angles for interpolation according to the specified method
@@ -309,6 +312,22 @@ fn interpolate_premultiplied(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixing_identical_colors_preserves_alpha() {
+        for alpha in [0.0004, 0.123456, 128.0 / 255.0, 0.999995] {
+            let color = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, alpha);
+            let mixed = mix_colors(
+                ColorSpace::Srgb,
+                &color,
+                0.5,
+                &color,
+                0.5,
+                HueInterpolationMethod::Shorter,
+            );
+            assert_eq!(mixed.alpha, alpha);
+        }
+    }
 
     #[test]
     fn test_oklab_mixer_pure_weight_reproduces_key_color() {

@@ -188,9 +188,9 @@ impl Default for NumberLocaleExtensions {
 /// A D3 definition and independent Avenger extension metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedNumberLocale {
-    pub id: LocaleId,
-    pub definition: Arc<NumberLocaleSpec>,
-    pub extensions: Arc<NumberLocaleExtensions>,
+    id: LocaleId,
+    definition: Arc<NumberLocaleSpec>,
+    pub(crate) extensions: Arc<NumberLocaleExtensions>,
 }
 impl std::ops::Deref for ResolvedNumberLocale {
     type Target = NumberLocaleSpec;
@@ -199,6 +199,21 @@ impl std::ops::Deref for ResolvedNumberLocale {
     }
 }
 impl ResolvedNumberLocale {
+    /// Return the name assigned when this locale was resolved.
+    pub fn id(&self) -> &LocaleId {
+        &self.id
+    }
+
+    /// Borrow the validated D3 number definition.
+    pub fn definition(&self) -> &NumberLocaleSpec {
+        &self.definition
+    }
+
+    /// Borrow the validated compact and currency metadata.
+    pub fn extensions(&self) -> &NumberLocaleExtensions {
+        &self.extensions
+    }
+
     /// Validate grouping at construction so formatting cannot loop on invalid sizes.
     pub fn new(id: impl Into<String>, definition: NumberLocaleSpec) -> Result<Self, FormatError> {
         if definition.grouping.contains(&0) {

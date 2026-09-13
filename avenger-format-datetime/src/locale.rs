@@ -48,11 +48,21 @@ impl Default for DateTimeLocaleSpec {
 /// A validated locale shared by prepared datetime formatters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDateTimeLocale {
-    pub id: LocaleId,
-    pub definition: Arc<DateTimeLocaleSpec>,
+    id: LocaleId,
+    definition: Arc<DateTimeLocaleSpec>,
     pub(crate) patterns: [Pattern; 3],
 }
 impl ResolvedDateTimeLocale {
+    /// Return the name assigned when this locale was resolved.
+    pub fn id(&self) -> &LocaleId {
+        &self.id
+    }
+
+    /// Borrow the validated D3 definition used by the compiled locale patterns.
+    pub fn definition(&self) -> &DateTimeLocaleSpec {
+        &self.definition
+    }
+
     /// Validate locale patterns and reject recursive `%c`, `%x`, or `%X` expansion.
     pub fn new(
         id: impl Into<String>,

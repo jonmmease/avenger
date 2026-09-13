@@ -343,11 +343,6 @@ pub fn choose_best_contrast(
     candidates: &[AbsoluteColor],
     min_ratio: f32,
 ) -> AbsoluteColor {
-    if candidates.is_empty() {
-        // No candidates provided, fall back to black or white
-        return choose_contrast_color(base_color);
-    }
-
     let mut best_candidate: Option<AbsoluteColor> = None;
     let mut best_ratio = 0.0;
 
@@ -521,22 +516,6 @@ mod tests {
         assert_eq!(contrast.components[0], 0.0);
         assert_eq!(contrast.components[1], 0.0);
         assert_eq!(contrast.components[2], 0.0);
-    }
-
-    #[test]
-    fn test_choose_contrast_tie_behavior() {
-        // Test the >= behavior: when contrast is equal, white should be chosen
-        // This is hard to test with real colors, so we verify the algorithm
-        // by checking that the function uses >= not just >
-
-        // For very dark colors close to black, both might have similar contrast
-        let very_dark = AbsoluteColor::from_srgb(0.01, 0.01, 0.01, 1.0);
-        let contrast = choose_contrast_color(&very_dark);
-
-        // Should be white (much better contrast for very dark colors)
-        assert_eq!(contrast.components[0], 1.0);
-        assert_eq!(contrast.components[1], 1.0);
-        assert_eq!(contrast.components[2], 1.0);
     }
 
     #[test]

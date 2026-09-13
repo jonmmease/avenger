@@ -119,7 +119,7 @@ impl PreparedDateTimeFormat {
         )
     }
     fn render(&self, date: NaiveDateTime, millis: i64, offset_minutes: i32) -> FormattedDateTime {
-        let locale = &self.locale.definition;
+        let locale = self.locale.definition();
         let mut text = String::new();
         for token in &self.pattern.0 {
             let PatternToken::Directive { code, padding } = token else {
