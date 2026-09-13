@@ -462,8 +462,8 @@ mod tests {
     #[test]
     fn extracts_datefmt_params() {
         let names =
-            referenced_params("Report #datefmt(report_date, date_format, date_style: style_name)")
+            referenced_params("Report #datefmt(report_date, date_format, locale: locale_name)")
                 .unwrap();
-        assert_eq!(names, vec!["report_date", "date_format", "style_name"]);
+        assert_eq!(names, vec!["report_date", "date_format", "locale_name"]);
     }
 }

@@ -1,8 +1,9 @@
-use std::ops::Range;
+use super::format_cache::FormattingCache;
+use std::{ops::Range, sync::OnceLock};
 
 use avenger_format_datetime::{
-    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleRegistry, DateTimeStyleLength,
-    NaiveDateTimeInput, format_naive_datetime, format_zoned_datetime, parse_datetime_timezone,
+    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleRegistry, NaiveDateTimeInput,
+    format_naive_datetime, format_zoned_datetime, parse_datetime_timezone,
 };
 use avenger_format_number::{
     Align, CurrencyDisplay, DigitSpec, FormatType, NumberFormatContext, NumberFormatOverrides,
@@ -42,6 +43,7 @@ pub(crate) fn parse_line_with_params(
 pub(crate) struct NumberFormatMarkupContext<'a> {
     pub(crate) locale_id: Option<&'a str>,
     pub(crate) registry: Option<&'a NumberLocaleRegistry>,
+    pub(crate) cache: Option<&'a FormattingCache>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -49,6 +51,7 @@ pub(crate) struct DateTimeFormatMarkupContext<'a> {
     pub(crate) locale_id: Option<&'a str>,
     pub(crate) timezone: Option<&'a str>,
     pub(crate) registry: Option<&'a DateTimeLocaleRegistry>,
+    pub(crate) cache: Option<&'a FormattingCache>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -339,23 +342,24 @@ fn lower_numfmt_call(
         return Err(unsupported(range.start, "numfmt expects a value argument"));
     };
     let spec = spec.unwrap_or_default();
-    let builtin_registry;
-    let registry = if let Some(registry) = number_format.registry {
-        registry
-    } else {
-        builtin_registry = NumberLocaleRegistry::with_builtins();
-        &builtin_registry
-    };
+    static BUILTINS: OnceLock<NumberLocaleRegistry> = OnceLock::new();
+    let registry = number_format
+        .registry
+        .unwrap_or_else(|| BUILTINS.get_or_init(NumberLocaleRegistry::with_builtins));
     let locale_id = number_format.locale_id.unwrap_or("en-US");
     let locale = registry
         .resolve(locale_id)
         .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
-    let formatted = format_number(
-        value,
-        Some(&spec),
-        overrides,
-        NumberFormatContext::new(&locale).with_registry(registry),
-    )
+    let formatted = if let Some(cache) = number_format.cache {
+        cache.number(value, &spec, overrides, NumberFormatContext::new(&locale))
+    } else {
+        format_number(
+            value,
+            Some(&spec),
+            overrides,
+            NumberFormatContext::new(&locale),
+        )
+    }
     .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
 
     match formatted.typesetting {
@@ -379,7 +383,7 @@ fn lower_numfmt_call(
     Ok(())
 }
 
-enum DatefmtValue {
+pub(super) enum DatefmtValue {
     Date(chrono::NaiveDate),
     DateTime(chrono::NaiveDateTime),
     UtcDateTime(chrono::DateTime<chrono::Utc>),
@@ -430,13 +434,10 @@ fn lower_datefmt_call(
         return Err(unsupported(range.start, "datefmt expects a format string"));
     };
 
-    let builtin_registry;
-    let registry = if let Some(registry) = datetime_format.registry {
-        registry
-    } else {
-        builtin_registry = DateTimeLocaleRegistry::with_builtins();
-        &builtin_registry
-    };
+    static BUILTINS: OnceLock<DateTimeLocaleRegistry> = OnceLock::new();
+    let registry = datetime_format
+        .registry
+        .unwrap_or_else(|| BUILTINS.get_or_init(DateTimeLocaleRegistry::with_builtins));
     let locale_id = locale_override
         .as_deref()
         .or(datetime_format.locale_id)
@@ -446,23 +447,27 @@ fn lower_datefmt_call(
         .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
     let timezone = parse_datetime_timezone(datetime_format.timezone.unwrap_or("UTC"))
         .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
-    let context = DateTimeFormatContext::new(&locale, timezone).with_registry(registry);
+    let context = DateTimeFormatContext::new(&locale, timezone);
 
-    let formatted = match value {
-        DatefmtValue::Date(value) => format_naive_datetime(
-            NaiveDateTimeInput::Date(value),
-            Some(&spec),
-            overrides,
-            context,
-        ),
-        DatefmtValue::DateTime(value) => format_naive_datetime(
-            NaiveDateTimeInput::DateTime(value),
-            Some(&spec),
-            overrides,
-            context,
-        ),
-        DatefmtValue::UtcDateTime(value) => {
-            format_zoned_datetime(value, Some(&spec), overrides, context)
+    let formatted = if let Some(cache) = datetime_format.cache {
+        cache.datetime(value, &spec, overrides, context)
+    } else {
+        match value {
+            DatefmtValue::Date(value) => format_naive_datetime(
+                NaiveDateTimeInput::Date(value),
+                Some(&spec),
+                overrides,
+                context,
+            ),
+            DatefmtValue::DateTime(value) => format_naive_datetime(
+                NaiveDateTimeInput::DateTime(value),
+                Some(&spec),
+                overrides,
+                context,
+            ),
+            DatefmtValue::UtcDateTime(value) => {
+                format_zoned_datetime(value, Some(&spec), overrides, context)
+            }
         }
     }
     .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
@@ -626,18 +631,6 @@ fn parse_datefmt_named_arg(
         "timezone" | "tz" => {
             overrides.timezone = Some(parse_datefmt_string(named.expr(), params, position)?);
         }
-        "date_style" => {
-            overrides.date_style =
-                Some(parse_datefmt_style_length(named.expr(), params, position)?);
-        }
-        "time_style" => {
-            overrides.time_style =
-                Some(parse_datefmt_style_length(named.expr(), params, position)?);
-        }
-        "datetime_style" => {
-            overrides.datetime_style =
-                Some(parse_datefmt_style_length(named.expr(), params, position)?);
-        }
         _ => return Err(unsupported(position, "unsupported datefmt option")),
     }
     Ok(())
@@ -674,16 +667,6 @@ fn parse_datefmt_string(
         typst_ast::Expr::Str(value) => Ok(value.get().to_string()),
         _ => Err(unsupported(position, "datefmt argument must be a string")),
     }
-}
-
-fn parse_datefmt_style_length(
-    expr: typst_ast::Expr<'_>,
-    params: &Scope,
-    position: usize,
-) -> Result<DateTimeStyleLength, LabelError> {
-    let value = parse_datefmt_string(expr, params, position)?;
-    DateTimeStyleLength::from_str(&value)
-        .ok_or_else(|| unsupported(position, "unsupported datefmt style length"))
 }
 
 fn parse_numfmt_number(
@@ -1470,7 +1453,7 @@ mod tests {
         registry
             .register_custom_locale_json(
                 "label-test",
-                r#"{ "base": "en-US", "decimal": "~", "group": "_" }"#,
+                r#"{ "decimal": "~", "thousands": "_", "grouping": [3] }"#,
             )
             .expect("custom locale");
         let params = scope([("value", Value::Float(1234.5))]);
@@ -1480,6 +1463,7 @@ mod tests {
             NumberFormatMarkupContext {
                 locale_id: Some("label-test"),
                 registry: Some(&registry),
+                ..Default::default()
             },
         )
         .expect("line");
@@ -1494,22 +1478,22 @@ mod tests {
             "value",
             Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
         )]);
-        let line = parse_with_params("#datefmt(value, \"MMM d, y\")", &params);
+        let line = parse_with_params("#datefmt(value, \"%b %-d, %Y\")", &params);
 
         assert_eq!(line.nodes.len(), 1);
         assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Jan 5, 2024"));
     }
 
     #[test]
-    fn parses_datefmt_style_override_params() {
+    fn parses_datefmt_format_params() {
         let params = scope([
             (
                 "value",
                 Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
             ),
-            ("style", Value::Str("long".to_string())),
+            ("pattern", Value::Str("%B %-d, %Y".to_string())),
         ]);
-        let line = parse_with_params("#datefmt(value, \"{date}\", date_style: style)", &params);
+        let line = parse_with_params("#datefmt(value, pattern)", &params);
 
         assert_eq!(line.nodes.len(), 1);
         assert!(
@@ -1526,7 +1510,7 @@ mod tests {
             ),
         )]);
         let line = parse_line_with_format_context(
-            "#datefmt(value, \"y-MM-dd HH:mm\")",
+            "#datefmt(value, \"%Y-%m-%d %H:%M\")",
             &params,
             MarkupFormatContext {
                 datetime: DateTimeFormatMarkupContext {
@@ -1548,9 +1532,12 @@ mod tests {
     fn parses_datefmt_with_call_locale_override() {
         let mut registry = DateTimeLocaleRegistry::with_builtins();
         registry
-            .register_custom_locale_json(
+            .register_custom_locale(
                 "label-date",
-                r#"{ "base": "en-US", "date_patterns": { "long": "y'~'MM'~'dd" } }"#,
+                avenger_format_datetime::DateTimeLocaleSpec {
+                    date: "%Y~%m~%d".into(),
+                    ..Default::default()
+                },
             )
             .expect("custom datetime locale");
         let params = scope([(
@@ -1558,7 +1545,7 @@ mod tests {
             Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
         )]);
         let line = parse_line_with_format_context(
-            "#datefmt(value, \"{date:long}\", locale: \"label-date\")",
+            "#datefmt(value, \"%x\", locale: \"label-date\")",
             &params,
             MarkupFormatContext {
                 datetime: DateTimeFormatMarkupContext {
@@ -1583,7 +1570,7 @@ mod tests {
             ),
         )]);
         let line = parse_with_params(
-            "#datefmt(value, \"y-MM-dd HH:mm\", tz: \"America/New_York\")",
+            "#datefmt(value, \"%Y-%m-%d %H:%M\", tz: \"America/New_York\")",
             &params,
         );
 
