@@ -73,17 +73,16 @@ pub fn label_params_fingerprint(params: &avenger_typst_label::LabelParams) -> St
             }
             avenger_typst_label::LabelParamValue::DateTime(value) => {
                 out.push_str("datetime:");
-                out.push_str(
-                    &value
-                        .and_utc()
-                        .timestamp_nanos_opt()
-                        .unwrap_or_default()
-                        .to_string(),
-                );
+                let value = value.and_utc();
+                out.push_str(&value.timestamp().to_string());
+                out.push(':');
+                out.push_str(&value.timestamp_subsec_nanos().to_string());
             }
             avenger_typst_label::LabelParamValue::UtcDateTime(value) => {
                 out.push_str("utc-datetime:");
-                out.push_str(&value.timestamp_nanos_opt().unwrap_or_default().to_string());
+                out.push_str(&value.timestamp().to_string());
+                out.push(':');
+                out.push_str(&value.timestamp_subsec_nanos().to_string());
             }
             avenger_typst_label::LabelParamValue::Array(values) => {
                 out.push_str("array:[");
@@ -172,4 +171,36 @@ pub fn datetime_locale_registry_from_specs(
             .map_err(|err| err.to_string())?;
     }
     Ok(Some(Arc::new(registry)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_typst_label::{LabelParamValue, LabelParams};
+    use std::collections::HashSet;
+
+    #[test]
+    fn datetime_fingerprints_preserve_range_precision_and_type() {
+        let mut fingerprints = HashSet::new();
+        for (year, month, nanos) in [
+            (1600, 1, 0),
+            (1600, 9, 0),
+            (1970, 1, 0),
+            (1970, 1, 1),
+            (2500, 1, 0),
+            (2500, 9, 0),
+        ] {
+            let value = chrono::NaiveDate::from_ymd_opt(year, month, 1)
+                .unwrap()
+                .and_hms_nano_opt(0, 0, 0, nanos)
+                .unwrap();
+            for value in [
+                LabelParamValue::DateTime(value),
+                LabelParamValue::UtcDateTime(value.and_utc()),
+            ] {
+                let params = LabelParams::from([("value".to_string(), value)]);
+                assert!(fingerprints.insert(label_params_fingerprint(&params)));
+            }
+        }
+    }
 }

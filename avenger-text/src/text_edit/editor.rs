@@ -394,7 +394,7 @@ impl SingleLineEditor {
 
     fn move_cursor(&mut self, motion: Motion, extend: bool) {
         let selection = self.normalized_selection();
-        if !extend && !selection.is_empty() {
+        if !extend && !selection.is_empty() && !matches!(motion, Motion::Start | Motion::End) {
             let index = match motion {
                 Motion::Left | Motion::WordLeft | Motion::Start => selection.start,
                 Motion::Right | Motion::WordRight | Motion::End => selection.end,
@@ -531,6 +531,32 @@ mod tests {
             datetime_locale: None,
             datetime_timezone: None,
             datetime_locale_specs: None,
+        }
+    }
+
+    #[test]
+    fn line_boundary_motions_reach_the_boundary_with_a_selection() {
+        let engine = TextEngine::with_default_config().unwrap();
+        let text = "éabcdé";
+        for (anchor, head) in [(2, 4), (4, 2)] {
+            for (motion, boundary) in [(Motion::Start, 0), (Motion::End, text.len())] {
+                for extend in [false, true] {
+                    let mut editor = SingleLineEditor::new(text);
+                    editor.set_selection(SelectionState {
+                        anchor: Cursor::new(anchor, Affinity::Downstream),
+                        head: Cursor::new(head, Affinity::Upstream),
+                        granularity: Granularity::Char,
+                    });
+                    editor
+                        .apply(Action::Motion { motion, extend }, &engine, &config(""))
+                        .unwrap();
+                    assert_eq!(editor.selection().head.index, boundary);
+                    assert_eq!(
+                        editor.selection().anchor.index,
+                        if extend { anchor } else { boundary }
+                    );
+                }
+            }
         }
     }
 
