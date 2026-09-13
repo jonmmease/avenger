@@ -125,5 +125,3 @@ rustybuzz = "0.20.1"
 ttf-parser = "0.25.1"
 
 brotli = "8.0.1"
-
-svgtypes = "0.16.1"

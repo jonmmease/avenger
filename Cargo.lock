@@ -550,7 +550,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.27.1",
- "svgtypes 0.15.3",
+ "svgtypes",
  "thiserror 2.0.12",
 ]
 
@@ -594,7 +594,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.27.1",
- "svgtypes 0.16.1",
  "thiserror 2.0.12",
  "tracing",
  "ttf-parser",
@@ -2475,18 +2474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kurbo"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
-dependencies = [
- "arrayvec",
- "euclid",
- "polycool",
- "smallvec",
-]
-
-[[package]]
 name = "lazy_static"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3552,15 +3539,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
-name = "polycool"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
-dependencies = [
- "arrayvec",
-]
-
-[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3931,7 +3909,7 @@ dependencies = [
  "log",
  "pico-args",
  "rgb",
- "svgtypes 0.15.3",
+ "svgtypes",
  "tiny-skia",
  "usvg",
  "zune-jpeg",
@@ -4485,17 +4463,7 @@ version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68c7541fff44b35860c1a7a47a7cadf3e4a304c457b58f9870d9706ece028afc"
 dependencies = [
- "kurbo 0.11.1",
- "siphasher 1.0.3",
-]
-
-[[package]]
-name = "svgtypes"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
-dependencies = [
- "kurbo 0.13.1",
+ "kurbo",
  "siphasher 1.0.3",
 ]
 
@@ -4978,7 +4946,7 @@ dependencies = [
  "flate2",
  "fontdb",
  "imagesize",
- "kurbo 0.11.1",
+ "kurbo",
  "log",
  "pico-args",
  "roxmltree",
@@ -4986,7 +4954,7 @@ dependencies = [
  "simplecss",
  "siphasher 1.0.3",
  "strict-num",
- "svgtypes 0.15.3",
+ "svgtypes",
  "tiny-skia-path",
  "unicode-bidi",
  "unicode-script",
