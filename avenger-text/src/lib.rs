@@ -11,10 +11,7 @@ pub mod text_edit;
 mod text_line;
 pub mod types;
 
-pub use avenger_format_datetime::{
-    DateTimeLocaleSpec, DayPeriodsSpec, LengthsSpec, Widths12Spec, Widths2Spec, Widths4Spec,
-    Widths7Spec,
-};
+pub use avenger_format_datetime::DateTimeLocaleSpec;
 pub use avenger_format_number::NumberLocaleSpec;
 pub use avenger_typst_label::{
     referenced_params, LabelParamValue, LabelParams, MathFontBytesId, RegisteredFont,
