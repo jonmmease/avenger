@@ -346,7 +346,7 @@ pub(crate) fn currency_display_text(
     code: &str,
     display: crate::locale::CurrencyDisplay,
 ) -> String {
-    let Some(names) = locale.currency_names.get(code) else {
+    let Some(names) = locale.extensions.currency_names.get(code) else {
         return code.to_string();
     };
 

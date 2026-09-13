@@ -23,9 +23,6 @@ pub enum DateTimeFormatError {
     #[error("invalid datetime format: {0}")]
     InvalidFormat(String),
 
-    #[error("unsupported datetime field `{0}`")]
-    UnsupportedField(String),
-
     #[error("locale `{0}` was not found")]
     LocaleNotFound(String),
 

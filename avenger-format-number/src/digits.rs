@@ -1,7 +1,7 @@
 use crate::locale::ResolvedNumberLocale;
 
 pub(crate) fn substitute_digits(input: &str, locale: &ResolvedNumberLocale) -> String {
-    let Some(digits) = &locale.digits else {
+    let Some(digits) = &locale.numerals else {
         return input.to_string();
     };
 

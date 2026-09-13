@@ -1,44 +1,77 @@
 use crate::{
     compact::CompactTier,
     currency::{currency_display_text, currency_metadata, validate_currency_code},
+    decimal,
     digits::substitute_digits,
     error::FormatError,
-    locale::{CurrencyDisplay, DecimalPattern, ResolvedNumberLocale},
+    locale::{CurrencyDisplay, ResolvedNumberLocale},
     parser::parse_number_spec,
-    registry::NumberLocaleRegistry,
     spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol},
     typesetting::{ExponentMarker, FormattedNumber, NumberTypesetting},
 };
 
 pub(crate) const SI_PREFIXES: [&str; 17] = [
-    "y", "z", "a", "f", "p", "n", "\u{00b5}", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
+    "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CompatibilityPolicy {
-    #[default]
-    D3,
-}
-
+/// A resolved number locale owned by the caller.
 #[derive(Debug, Clone, Copy)]
 pub struct NumberFormatContext<'a> {
     pub locale: &'a ResolvedNumberLocale,
-    pub registry: Option<&'a NumberLocaleRegistry>,
-    pub compatibility: CompatibilityPolicy,
+}
+impl<'a> NumberFormatContext<'a> {
+    /// Use a locale already resolved at context construction.
+    pub fn new(locale: &'a ResolvedNumberLocale) -> Self {
+        Self { locale }
+    }
 }
 
-impl<'a> NumberFormatContext<'a> {
-    pub fn new(locale: &'a ResolvedNumberLocale) -> Self {
-        Self {
-            locale,
-            registry: None,
-            compatibility: CompatibilityPolicy::D3,
-        }
+/// A parsed number format and locale reusable across values.
+#[derive(Debug, Clone)]
+pub struct PreparedNumberFormat {
+    pub(crate) resolved: ResolvedNumberFormat,
+    pub(crate) locale: ResolvedNumberLocale,
+    pub(crate) scale: f64,
+    pub(crate) prefix: String,
+    pub(crate) suffix: String,
+    pub(crate) trim_float: Option<u16>,
+}
+impl PreparedNumberFormat {
+    /// Parse and resolve a number format before formatting a batch.
+    pub fn new(
+        spec: Option<&str>,
+        overrides: NumberFormatOverrides,
+        context: NumberFormatContext<'_>,
+    ) -> Result<Self, FormatError> {
+        Ok(Self {
+            resolved: resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides)?,
+            locale: context.locale.clone(),
+            scale: 1.0,
+            prefix: String::new(),
+            suffix: String::new(),
+            trim_float: None,
+        })
     }
-
-    pub fn with_registry(mut self, registry: &'a NumberLocaleRegistry) -> Self {
-        self.registry = Some(registry);
-        self
+    /// Format a binary64 value with the prepared locale and specifier.
+    pub fn format(&self, value: f64) -> FormattedNumber {
+        let mut formatted = render_number(
+            value * self.scale,
+            &self.resolved,
+            &self.locale,
+            &self.prefix,
+            &self.suffix,
+        );
+        if let Some(decimal) = self.trim_float {
+            formatted.text = trim_float(&formatted.text, decimal);
+            if let NumberTypesetting::Exponent { mantissa, .. } = &mut formatted.typesetting {
+                if let Some((text, _)) = formatted.text.rsplit_once('e') {
+                    *mantissa = text.into();
+                } else {
+                    formatted.typesetting = NumberTypesetting::Plain;
+                }
+            }
+        }
+        formatted
     }
 }
 
@@ -101,9 +134,7 @@ pub fn format_number(
     overrides: NumberFormatOverrides,
     context: NumberFormatContext<'_>,
 ) -> Result<FormattedNumber, FormatError> {
-    let parsed = parse_number_spec(spec.unwrap_or(""))?;
-    let resolved = resolve_number_format(parsed, overrides)?;
-    format_resolved_number(value, &resolved, context)
+    Ok(PreparedNumberFormat::new(spec, overrides, context)?.format(value))
 }
 
 pub fn resolve_number_format(
@@ -125,7 +156,10 @@ pub fn resolve_number_format(
         overrides.format_type.or(spec.format_type),
         Some(FormatType::LocaleDefault)
     ));
-    let trim = overrides.trim.or(spec.trim).unwrap_or(false);
+    let trim = overrides
+        .trim
+        .or(spec.trim)
+        .unwrap_or(overrides.format_type.or(spec.format_type).is_none());
     let zero = overrides.zero.unwrap_or(spec.zero);
     let format_type = overrides.format_type.or(spec.format_type);
     let currency = overrides.currency.or(spec.currency);
@@ -201,1052 +235,415 @@ fn validate_resolved_format(format: &ResolvedNumberFormat) -> Result<(), FormatE
     Ok(())
 }
 
-pub(crate) fn format_resolved_number(
+fn render_number(
     value: f64,
-    format: &ResolvedNumberFormat,
-    context: NumberFormatContext<'_>,
-) -> Result<FormattedNumber, FormatError> {
-    if value.is_nan() {
-        return Ok(FormattedNumber::plain(context.locale.nan.clone()));
-    }
-    if value.is_infinite() {
-        let is_negative = value.is_sign_negative();
-        let body = context.locale.infinity.clone();
-        let text = apply_sign_and_padding(is_negative, &body, "", "", format, context.locale);
-        return Ok(FormattedNumber::plain(text));
-    }
-
-    let effective_type = effective_format_type(format);
-    if effective_type == FormatType::Currency {
-        return format_currency_number(value, format, context);
-    }
-
-    let mut scaled_value = value.abs();
-    let mut suffix = String::new();
-    let mut prefix = String::new();
-    let mut typesetting = NumberTypesetting::Plain;
-
-    if matches!(
-        effective_type,
-        FormatType::Percent | FormatType::PercentRounded
-    ) {
-        scaled_value *= 100.0;
-    }
-
-    let mut raw_body = match effective_type {
-        FormatType::Exponent => {
-            let precision = precision_or_default(format, 6);
-            let (mantissa, exponent) = format_exponent_parts(scaled_value, precision)?;
-            let text = format!("{mantissa}e{exponent:+}");
-            typesetting = NumberTypesetting::Exponent {
-                mantissa: mantissa.clone(),
-                exponent,
-                marker: ExponentMarker::LowerE,
-            };
-            text
-        }
-        FormatType::Fixed | FormatType::Percent => {
-            let precision = fraction_digits(format, 6);
-            format_fixed(scaled_value, precision)
-        }
-        FormatType::General | FormatType::LocaleDefault => {
-            let precision =
-                significant_digits(format, if format.format_type.is_none() { 12 } else { 6 });
-            let mut text = format_general(scaled_value, precision);
-            if format.trim || format.format_type.is_none() {
-                text = trim_number_text(&text);
-            }
-            if let Some((mantissa, exponent)) = split_exponent(&text) {
-                typesetting = NumberTypesetting::Exponent {
-                    mantissa,
-                    exponent,
-                    marker: ExponentMarker::LowerE,
-                };
-            }
-            text
-        }
-        FormatType::Rounded | FormatType::PercentRounded => {
-            let precision = significant_digits(format, 6);
-            let mut text = format_significant_fixed(scaled_value, precision);
-            if format.trim {
-                text = trim_number_text(&text);
-            }
-            text
-        }
-        FormatType::Si => {
-            let precision = significant_digits(format, 6);
-            let (text, si_prefix) = format_si(scaled_value, precision);
-            suffix.push_str(si_prefix);
-            text
-        }
-        FormatType::CompactShort | FormatType::CompactLong => {
-            let precision = significant_digits(format, 6);
-            let (text, compact_prefix, compact_suffix) = format_compact(
-                scaled_value,
-                effective_type,
-                precision,
-                format,
-                context.locale,
-            )?;
-            prefix.push_str(&compact_prefix);
-            suffix.push_str(&compact_suffix);
-            text
-        }
-        FormatType::Binary => format_integer_radix(scaled_value, 2, false),
-        FormatType::Octal => format_integer_radix(scaled_value, 8, false),
-        FormatType::DecimalInteger => format!("{:.0}", scaled_value),
-        FormatType::HexLower => format_integer_radix(scaled_value, 16, false),
-        FormatType::HexUpper => format_integer_radix(scaled_value, 16, true),
-        FormatType::Character => format_character(scaled_value)?,
-        FormatType::Currency => unreachable!("currency returns before scalar formatting"),
-    };
-
-    if format.trim
-        && !matches!(
-            effective_type,
-            FormatType::General | FormatType::LocaleDefault
-        )
-    {
-        raw_body = trim_number_text(&raw_body);
-    }
-
-    let body = localize_number_body(&raw_body, format, context.locale);
-
-    if let Some(symbol) = format.symbol {
-        match symbol {
-            Symbol::Alternate => match effective_type {
-                FormatType::Binary => prefix.push_str("0b"),
-                FormatType::Octal => prefix.push_str("0o"),
-                FormatType::HexLower | FormatType::HexUpper => prefix.push_str("0x"),
-                _ => {}
-            },
-            Symbol::CurrencyCompat => prefix.push('$'),
-        }
-    }
-
-    let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
-    let pattern = if matches!(
-        effective_type,
-        FormatType::Percent | FormatType::PercentRounded
-    ) {
-        &context.locale.percent_pattern
-    } else {
-        &context.locale.decimal_pattern
-    };
-    let text = apply_pattern_affixes_and_padding(
-        is_negative,
-        &body,
-        &prefix,
-        &suffix,
-        format,
-        context.locale,
-        pattern,
-    );
-    let text = substitute_digits(&text, context.locale);
-
-    if let NumberTypesetting::Exponent {
-        mantissa,
-        exponent,
-        marker,
-    } = &typesetting
-    {
-        let mantissa_text = if value.is_sign_negative() {
-            format!("{}{}", context.locale.minus, mantissa)
-        } else {
-            mantissa.clone()
-        };
-        typesetting = NumberTypesetting::Exponent {
-            mantissa: substitute_digits(&mantissa_text, context.locale),
-            exponent: *exponent,
-            marker: *marker,
-        };
-    }
-
-    Ok(FormattedNumber { text, typesetting })
-}
-
-fn format_currency_number(
-    value: f64,
-    format: &ResolvedNumberFormat,
-    context: NumberFormatContext<'_>,
-) -> Result<FormattedNumber, FormatError> {
-    let currency = format
-        .currency
-        .as_ref()
-        .ok_or(FormatError::MissingCurrencyCode)?;
-    let metadata = currency_metadata(currency)
-        .ok_or_else(|| FormatError::InvalidCurrencyCode(currency.clone()))?;
-    let precision = match format.digit_spec {
-        DigitSpec::Auto => metadata.default_fraction_digits as usize,
-        DigitSpec::Precision(value) | DigitSpec::Fraction(value) => value as usize,
-        DigitSpec::Significant(value) => value as usize,
-    };
-    let mut raw_body = format_fixed(value.abs(), precision);
-    if format.trim {
-        raw_body = trim_number_text(&raw_body);
-    }
-    let body = localize_number_body(&raw_body, format, context.locale);
-    let currency_display = currency_display_text(context.locale, currency, format.currency_display);
-    let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
-    let pattern = if is_negative && format.sign == SignPolicy::Parentheses {
-        &context.locale.currency.accounting
-    } else {
-        &context.locale.currency.standard
-    };
-    let (pattern_prefix, pattern_suffix) = if is_negative {
-        (&pattern.negative_prefix, &pattern.negative_suffix)
-    } else {
-        (&pattern.positive_prefix, &pattern.positive_suffix)
-    };
-    let mut prefix_template = pattern_prefix.clone();
-    if !is_negative {
-        match format.sign {
-            SignPolicy::Plus => {
-                prefix_template = format!("{}{}", context.locale.plus, prefix_template)
-            }
-            SignPolicy::Space => prefix_template = format!(" {prefix_template}"),
-            _ => {}
-        }
-    }
-
-    let prefix = localize_minus_affix(&prefix_template, context.locale)
-        .replace('\u{00a4}', &currency_display);
-    let suffix = pattern_suffix.replace('\u{00a4}', &currency_display);
-    let text = format!("{prefix}{body}{suffix}");
-    let text = apply_padding_to_content(text, format);
-    Ok(FormattedNumber::plain(substitute_digits(
-        &text,
-        context.locale,
-    )))
-}
-
-fn format_compact(
-    value: f64,
-    format_type: FormatType,
-    precision: usize,
     format: &ResolvedNumberFormat,
     locale: &ResolvedNumberLocale,
-) -> Result<(String, String, String), FormatError> {
-    if value == 0.0 {
-        let mut text = format_significant_fixed(value, precision);
-        if format.trim {
-            text = trim_number_text(&text);
+    extra_prefix: &str,
+    extra_suffix: &str,
+) -> FormattedNumber {
+    let kind = format.format_type.unwrap_or(FormatType::General);
+    let default_precision = if format.format_type.is_none() { 12 } else { 6 };
+    let precision = match format.digit_spec {
+        DigitSpec::Auto => default_precision,
+        DigitSpec::Precision(p) | DigitSpec::Fraction(p) | DigitSpec::Significant(p) => p as usize,
+    };
+    let significant = precision.clamp(1, 21);
+    let fraction = precision.min(20);
+    let mut prefix = extra_prefix.to_owned();
+    let mut suffix = String::new();
+    match format.symbol {
+        Some(Symbol::CurrencyCompat) => {
+            prefix.push_str(&locale.currency[0]);
+            suffix.push_str(&locale.currency[1]);
         }
-        return Ok((text, String::new(), String::new()));
+        Some(Symbol::Alternate) => match kind {
+            FormatType::Binary => prefix.push_str("0b"),
+            FormatType::Octal => prefix.push_str("0o"),
+            FormatType::HexLower | FormatType::HexUpper => prefix.push_str("0x"),
+            _ => {}
+        },
+        _ => {}
     }
-
-    let tiers = match format_type {
-        FormatType::CompactShort => &locale.compact_short,
-        FormatType::CompactLong => &locale.compact_long,
-        _ => unreachable!("compact formatter called with non-compact type"),
+    if format.symbol != Some(Symbol::CurrencyCompat)
+        && matches!(kind, FormatType::Percent | FormatType::PercentRounded)
+    {
+        suffix.push_str(&locale.percent);
+    }
+    suffix.push_str(extra_suffix);
+    if kind == FormatType::Character {
+        suffix.insert_str(0, &decimal::shortest(value));
+        return FormattedNumber::plain(assemble("", &prefix, &suffix, format, locale));
+    }
+    let magnitude = value.abs();
+    let mut raw = if value.is_nan() {
+        locale.nan.clone()
+    } else {
+        match kind {
+            FormatType::Exponent => decimal::exponential(magnitude, fraction),
+            FormatType::Fixed => decimal::fixed(magnitude, fraction),
+            FormatType::Percent => decimal::fixed(magnitude * 100.0, fraction),
+            FormatType::General | FormatType::LocaleDefault => {
+                decimal::precision(magnitude, significant)
+            }
+            FormatType::Rounded => decimal::rounded(magnitude, significant),
+            FormatType::PercentRounded => decimal::rounded(magnitude * 100.0, significant),
+            FormatType::Si => {
+                let (body, si) = format_si(magnitude, significant);
+                suffix.insert_str(0, si);
+                body
+            }
+            FormatType::Binary => decimal::integer(magnitude, 2, false),
+            FormatType::Octal => decimal::integer(magnitude, 8, false),
+            FormatType::DecimalInteger => decimal::integer(magnitude, 10, false),
+            FormatType::HexLower => decimal::integer(magnitude, 16, false),
+            FormatType::HexUpper => decimal::integer(magnitude, 16, true),
+            FormatType::CompactShort | FormatType::CompactLong => {
+                let tiers = if kind == FormatType::CompactShort {
+                    &locale.extensions.compact_short
+                } else {
+                    &locale.extensions.compact_long
+                };
+                let mut tier = select_compact_tier(magnitude, tiers);
+                let mut body = if let Some(selected) = tier {
+                    compact_body(
+                        magnitude / 10_f64.powi(selected.exponent),
+                        format,
+                        significant,
+                    )
+                } else {
+                    compact_body(magnitude, format, significant)
+                };
+                if let Some(selected) = tier {
+                    if let Some(next) = tiers.iter().find(|next| next.exponent > selected.exponent)
+                    {
+                        if body.parse::<f64>().unwrap_or(0.0)
+                            >= 10_f64.powi(next.exponent - selected.exponent)
+                        {
+                            tier = Some(next);
+                            body = compact_body(
+                                magnitude / 10_f64.powi(next.exponent),
+                                format,
+                                significant,
+                            );
+                        }
+                    }
+                }
+                if let Some(tier) = tier {
+                    let pattern = tier.pattern_for_value(&body);
+                    let (before, after) = pattern
+                        .split_once("{0}")
+                        .expect("validated compact pattern");
+                    prefix.push_str(before);
+                    suffix.insert_str(0, after);
+                }
+                body
+            }
+            FormatType::Currency => {
+                let code = format
+                    .currency
+                    .as_deref()
+                    .expect("validated currency format");
+                let metadata = currency_metadata(code).expect("validated currency code");
+                let precision = if format.digit_spec == DigitSpec::Auto {
+                    metadata.default_fraction_digits as usize
+                } else {
+                    fraction
+                };
+                decimal::fixed(magnitude, precision)
+            }
+            FormatType::Character => unreachable!(),
+        }
     };
-    let tier = select_compact_tier(value, tiers).ok_or_else(|| {
-        FormatError::UnsupportedExtension(format!(
-            "{} requires compact locale data",
-            format_type.as_char()
-        ))
-    })?;
-
-    let scaled = value / 10_f64.powi(tier.exponent);
-    let mut text = format_significant_fixed(scaled, precision);
     if format.trim {
-        text = trim_number_text(&text);
+        raw = trim_number_text(&raw);
     }
-    let pattern = tier.pattern_for_value(&text);
-    let (prefix, suffix) = split_compact_pattern(pattern)?;
-    Ok((text, prefix.to_string(), suffix.to_string()))
-}
-
-pub(crate) fn select_compact_tier(value: f64, tiers: &[CompactTier]) -> Option<&CompactTier> {
-    let exponent = value.abs().log10().floor() as i32;
-    tiers
-        .iter()
-        .filter(|tier| tier.exponent <= exponent)
-        .max_by_key(|tier| tier.exponent)
-}
-
-pub(crate) fn split_compact_pattern(pattern: &str) -> Result<(&str, &str), FormatError> {
-    let Some((prefix, suffix)) = pattern.split_once("{0}") else {
-        return Err(FormatError::InvalidLocaleData(format!(
-            "compact pattern `{pattern}` must contain `{{0}}`"
-        )));
+    let negative = value.is_sign_negative()
+        && !value.is_nan()
+        && (raw.parse::<f64>().ok() != Some(0.0) || format.sign == SignPolicy::Plus);
+    let mut parentheses = negative && format.sign == SignPolicy::Parentheses;
+    if kind == FormatType::Currency {
+        let currency = currency_display_text(
+            locale,
+            format
+                .currency
+                .as_deref()
+                .expect("validated currency format"),
+            format.currency_display,
+        );
+        let pattern = if parentheses {
+            &locale.extensions.currency.accounting
+        } else {
+            &locale.extensions.currency.standard
+        };
+        let (before, after) = if negative {
+            (&pattern.negative_prefix, &pattern.negative_suffix)
+        } else {
+            (&pattern.positive_prefix, &pattern.positive_suffix)
+        };
+        prefix.push_str(&before.replace('¤', &currency).replace('-', &locale.minus));
+        suffix.insert_str(0, &after.replace('¤', &currency));
+        if !negative {
+            match format.sign {
+                SignPolicy::Plus => prefix.insert(0, '+'),
+                SignPolicy::Space => prefix.insert(0, ' '),
+                _ => {}
+            }
+        }
+        parentheses = false;
+    } else {
+        prefix.insert_str(
+            0,
+            if negative {
+                if parentheses {
+                    "("
+                } else {
+                    &locale.minus
+                }
+            } else {
+                match format.sign {
+                    SignPolicy::Plus => "+",
+                    SignPolicy::Space => " ",
+                    _ => "",
+                }
+            },
+        );
+    }
+    if parentheses {
+        suffix.push(')');
+    }
+    let typesetting = if value.is_finite()
+        && locale.numerals.is_none()
+        && extra_prefix.is_empty()
+        && extra_suffix.is_empty()
+        && format.symbol.is_none()
+        && suffix.is_empty()
+        && kind != FormatType::Currency
+        && format.width.is_none()
+        && !parentheses
+    {
+        if let Some((mantissa, exponent)) = raw
+            .split_once('e')
+            .and_then(|(m, e)| e.parse::<i32>().ok().map(|e| (m, e)))
+        {
+            NumberTypesetting::Exponent {
+                mantissa: substitute_digits(
+                    &format!("{}{}", prefix, mantissa.replace('.', &locale.decimal)),
+                    locale,
+                ),
+                exponent,
+                marker: ExponentMarker::LowerE,
+            }
+        } else {
+            NumberTypesetting::Plain
+        }
+    } else {
+        NumberTypesetting::Plain
     };
-    Ok((prefix, suffix))
-}
-
-pub(crate) fn format_fixed_scaled_with_affixes(
-    value: f64,
-    scale_exponent: i32,
-    precision: usize,
-    unit_prefix: &str,
-    unit_suffix: &str,
-    format: &ResolvedNumberFormat,
-    context: NumberFormatContext<'_>,
-) -> Result<FormattedNumber, FormatError> {
-    if !value.is_finite() {
-        return format_resolved_number(value, format, context);
-    }
-
-    let scaled_value = value.abs() / 10_f64.powi(scale_exponent);
-    let mut raw_body = format_fixed(scaled_value, precision);
-    if format.trim {
-        raw_body = trim_number_text(&raw_body);
-    }
-    let body = localize_number_body(&raw_body, format, context.locale);
-
-    let mut prefix = unit_prefix.to_string();
-    if format.symbol == Some(Symbol::CurrencyCompat) {
-        prefix.push('$');
-    }
-
-    let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
-    let text = apply_sign_and_padding(
-        is_negative,
-        &body,
-        &prefix,
-        unit_suffix,
-        format,
-        context.locale,
+    let split_suffix = matches!(
+        kind,
+        FormatType::DecimalInteger
+            | FormatType::Exponent
+            | FormatType::Fixed
+            | FormatType::General
+            | FormatType::LocaleDefault
+            | FormatType::Rounded
+            | FormatType::Percent
+            | FormatType::PercentRounded
+            | FormatType::Si
+            | FormatType::Currency
+            | FormatType::CompactShort
+            | FormatType::CompactLong
     );
-    Ok(FormattedNumber::plain(substitute_digits(
-        &text,
-        context.locale,
-    )))
-}
-
-fn apply_padding_to_content(content: String, format: &ResolvedNumberFormat) -> String {
-    let Some(width) = format.width else {
-        return content;
-    };
-    let len = content.chars().count();
-    if len >= width {
-        return content;
-    }
-
-    let padding_len = width - len;
-    let padding: String = std::iter::repeat_n(format.fill, padding_len).collect();
-    match format.align {
-        Align::Left => format!("{content}{padding}"),
-        Align::Center => {
-            let left = padding_len / 2;
-            let right = padding_len - left;
-            let left_padding: String = std::iter::repeat_n(format.fill, left).collect();
-            let right_padding: String = std::iter::repeat_n(format.fill, right).collect();
-            format!("{left_padding}{content}{right_padding}")
+    let integer = if split_suffix {
+        let index = raw
+            .find(|ch: char| !ch.is_ascii_digit())
+            .unwrap_or(raw.len());
+        let tail = &raw[index..];
+        if let Some(fraction) = tail.strip_prefix('.') {
+            suffix.insert_str(0, &format!("{}{fraction}", locale.decimal));
+        } else {
+            suffix.insert_str(0, tail);
         }
-        Align::AfterSign | Align::Right => format!("{padding}{content}"),
+        &raw[..index]
+    } else {
+        &raw
+    };
+    FormattedNumber {
+        text: assemble(integer, &prefix, &suffix, format, locale),
+        typesetting,
     }
 }
 
-fn apply_pattern_affixes_and_padding(
-    is_negative: bool,
-    body: &str,
+fn compact_body(value: f64, format: &ResolvedNumberFormat, precision: usize) -> String {
+    let body = match format.digit_spec {
+        DigitSpec::Fraction(p) => decimal::fixed(value, p.min(20) as usize),
+        _ => decimal::rounded(value, precision),
+    };
+    if format.trim {
+        trim_number_text(&body)
+    } else {
+        body
+    }
+}
+
+fn assemble(
+    integer: &str,
     prefix: &str,
     suffix: &str,
     format: &ResolvedNumberFormat,
     locale: &ResolvedNumberLocale,
-    pattern: &DecimalPattern,
 ) -> String {
-    let (pattern_prefix, pattern_suffix) = if is_negative {
-        if format.sign == SignPolicy::Parentheses {
-            (
-                format!("({}", pattern.positive_prefix),
-                format!("{})", pattern.positive_suffix),
+    let zero = format.fill == '0' && format.align == Align::AfterSign;
+    let mut value = if format.group && !zero {
+        group(integer, None, locale)
+    } else {
+        integer.to_owned()
+    };
+    let width = format.width.unwrap_or(0);
+    let length = prefix.encode_utf16().count()
+        + value.encode_utf16().count()
+        + suffix.encode_utf16().count();
+    let mut padding = format.fill.to_string().repeat(width.saturating_sub(length));
+    if format.group && zero {
+        value = group(
+            &format!("{padding}{value}"),
+            (!padding.is_empty()).then_some(width.saturating_sub(suffix.encode_utf16().count())),
+            locale,
+        );
+        padding.clear();
+    }
+    let text = match format.align {
+        Align::Left => format!("{prefix}{value}{suffix}{padding}"),
+        Align::AfterSign => format!("{prefix}{padding}{value}{suffix}"),
+        Align::Center => {
+            let middle = padding
+                .char_indices()
+                .nth(padding.chars().count() / 2)
+                .map_or(padding.len(), |(index, _)| index);
+            format!(
+                "{}{prefix}{value}{suffix}{}",
+                &padding[..middle],
+                &padding[middle..]
             )
-        } else {
-            (
-                localize_minus_affix(&pattern.negative_prefix, locale),
-                pattern.negative_suffix.clone(),
-            )
         }
-    } else {
-        let mut positive_prefix = pattern.positive_prefix.clone();
-        match format.sign {
-            SignPolicy::Plus => positive_prefix = format!("{}{}", locale.plus, positive_prefix),
-            SignPolicy::Space => positive_prefix = format!(" {positive_prefix}"),
-            _ => {}
-        }
-        (positive_prefix, pattern.positive_suffix.clone())
+        Align::Right => format!("{padding}{prefix}{value}{suffix}"),
     };
-
-    apply_affixes_and_padding(
-        &pattern_prefix,
-        prefix,
-        body,
-        suffix,
-        &pattern_suffix,
-        format,
-    )
+    substitute_digits(&text, locale)
 }
 
-fn localize_minus_affix(affix: &str, locale: &ResolvedNumberLocale) -> String {
-    affix
-        .strip_prefix('-')
-        .map(|rest| format!("{}{}", locale.minus, rest))
-        .unwrap_or_else(|| affix.to_string())
-}
-
-fn effective_format_type(format: &ResolvedNumberFormat) -> FormatType {
-    if format.format_type == Some(FormatType::LocaleDefault) {
-        FormatType::General
-    } else {
-        format.format_type.unwrap_or(FormatType::General)
+fn group(value: &str, width: Option<usize>, locale: &ResolvedNumberLocale) -> String {
+    if locale.grouping.is_empty() {
+        return value.to_owned();
     }
-}
-
-fn precision_or_default(format: &ResolvedNumberFormat, default: u8) -> usize {
-    match format.digit_spec {
-        DigitSpec::Auto => default as usize,
-        DigitSpec::Precision(value)
-        | DigitSpec::Fraction(value)
-        | DigitSpec::Significant(value) => value as usize,
-    }
-}
-
-fn fraction_digits(format: &ResolvedNumberFormat, default: u8) -> usize {
-    match format.digit_spec {
-        DigitSpec::Fraction(value) | DigitSpec::Precision(value) => value as usize,
-        DigitSpec::Significant(value) => value as usize,
-        DigitSpec::Auto => default as usize,
-    }
-}
-
-fn significant_digits(format: &ResolvedNumberFormat, default: u8) -> usize {
-    match format.digit_spec {
-        DigitSpec::Significant(value) | DigitSpec::Precision(value) => value.max(1) as usize,
-        DigitSpec::Fraction(value) => value.max(1) as usize,
-        DigitSpec::Auto => default as usize,
-    }
-}
-
-fn format_fixed(value: f64, precision: usize) -> String {
-    format!("{value:.precision$}")
-}
-
-fn format_exponent_parts(value: f64, precision: usize) -> Result<(String, i32), FormatError> {
-    let text = format!("{value:.precision$e}");
-    let (mantissa, exponent) = split_exponent(&text).ok_or_else(|| {
-        FormatError::InvalidFormat(format!("could not split exponent output `{text}`"))
-    })?;
-    Ok((mantissa, exponent))
-}
-
-fn split_exponent(text: &str) -> Option<(String, i32)> {
-    let (mantissa, exponent) = text.split_once('e')?;
-    let exponent = exponent.parse::<i32>().ok()?;
-    Some((mantissa.to_string(), exponent))
-}
-
-fn format_general(value: f64, precision: usize) -> String {
-    if value == 0.0 {
-        return "0".to_string();
-    }
-
-    let abs = value.abs();
-    let exponent = abs.log10().floor() as i32;
-    if exponent < -4 || exponent >= precision as i32 {
-        let frac = precision.saturating_sub(1);
-        normalize_exponent_text(&format!("{value:.frac$e}"))
-    } else {
-        let frac = (precision as i32 - exponent - 1).max(0) as usize;
-        format!("{value:.frac$}")
-    }
-}
-
-fn format_significant_fixed(value: f64, precision: usize) -> String {
-    if value == 0.0 {
-        let frac = precision.saturating_sub(1);
-        return format!("{value:.frac$}");
-    }
-    let exponent = value.abs().log10().floor() as i32;
-    let frac = precision as i32 - exponent - 1;
-    if frac >= 0 {
-        let frac = frac as usize;
-        format!("{value:.frac$}")
-    } else {
-        let factor = 10_f64.powi(-frac);
-        let rounded = (value / factor).round() * factor;
-        format!("{rounded:.0}")
-    }
-}
-
-fn normalize_exponent_text(text: &str) -> String {
-    let Some((mantissa, exponent)) = text.split_once('e') else {
-        return text.to_string();
-    };
-    let sign = if exponent.starts_with('-') { '-' } else { '+' };
-    let exp_digits = exponent.trim_start_matches(['+', '-']);
-    let exp = exp_digits.parse::<i32>().unwrap_or(0);
-    format!("{mantissa}e{sign}{exp}")
-}
-
-fn trim_number_text(text: &str) -> String {
-    let Some((mantissa, exponent)) = text.split_once('e') else {
-        return trim_decimal(text);
-    };
-    format!("{}e{}", trim_decimal(mantissa), exponent)
-}
-
-fn trim_decimal(text: &str) -> String {
-    if let Some(dot) = text.find('.') {
-        let mut end = text.len();
-        while end > dot && text.as_bytes()[end - 1] == b'0' {
-            end -= 1;
+    let chars: Vec<_> = value.chars().collect();
+    let mut end = chars.len();
+    let mut groups = Vec::new();
+    let mut length = 0;
+    let mut index = 0;
+    while end > 0 {
+        let mut size = locale.grouping[index % locale.grouping.len()];
+        if let Some(width) = width {
+            if length + size + 1 > width {
+                size = width.saturating_sub(length).max(1);
+            }
         }
-        if end > dot && text.as_bytes()[end - 1] == b'.' {
-            end -= 1;
+        let start = end.saturating_sub(size);
+        groups.push(chars[start..end].iter().collect::<String>());
+        end = start;
+        length += size + 1;
+        if width.is_some_and(|width| length > width) {
+            break;
         }
-        text[..end].to_string()
-    } else {
-        text.to_string()
+        index += 1;
     }
-}
-
-fn format_integer_radix(value: f64, radix: u32, upper: bool) -> String {
-    let integer = value.round() as i64;
-    match (radix, upper) {
-        (2, _) => format!("{integer:b}"),
-        (8, _) => format!("{integer:o}"),
-        (16, false) => format!("{integer:x}"),
-        (16, true) => format!("{integer:X}"),
-        _ => integer.to_string(),
-    }
-}
-
-fn format_character(value: f64) -> Result<String, FormatError> {
-    let code_point = value.round();
-    if !(0.0..=char::MAX as u32 as f64).contains(&code_point) {
-        return Err(FormatError::InvalidFormat(format!(
-            "character format code point `{code_point}` is outside the Unicode scalar range",
-        )));
-    }
-    let code_point = code_point as u32;
-    let ch = char::from_u32(code_point).ok_or_else(|| {
-        FormatError::InvalidFormat(format!(
-            "character format code point `{code_point}` is not a Unicode scalar value",
-        ))
-    })?;
-    Ok(ch.to_string())
+    groups.reverse();
+    groups.join(&locale.thousands)
 }
 
 fn format_si(value: f64, precision: usize) -> (String, &'static str) {
-    if value == 0.0 {
-        let frac = precision.saturating_sub(1);
-        return (format!("{value:.frac$}"), "");
+    if value == 0.0 || !value.is_finite() {
+        return (decimal::precision(value, precision), "");
     }
-
-    let (coefficient, exponent) = decompose_to_coefficient_and_exponent(value, precision);
-    let prefix_exponent = (exponent.div_euclid(3)).clamp(-8, 8);
-    let decimal_index = exponent - prefix_exponent * 3 + 1;
-    let coefficient_len = coefficient.len() as i32;
-    let text = if decimal_index == coefficient_len {
-        coefficient
-    } else if decimal_index > coefficient_len {
-        format!(
-            "{}{}",
-            coefficient,
-            "0".repeat((decimal_index - coefficient_len) as usize)
-        )
-    } else if decimal_index > 0 {
-        let decimal_index = decimal_index as usize;
-        format!(
-            "{}.{}",
-            &coefficient[..decimal_index],
-            &coefficient[decimal_index..]
-        )
-    } else {
-        let zeros = "0".repeat((-decimal_index) as usize);
-        format!("0.{zeros}{coefficient}")
-    };
-    (text, SI_PREFIXES[(prefix_exponent + 8) as usize])
-}
-
-fn decompose_to_coefficient_and_exponent(value: f64, precision: usize) -> (String, i32) {
-    let frac = precision.saturating_sub(1);
-    let formatted = format!("{value:.frac$e}");
-    let Some((mantissa, exponent)) = split_exponent(&formatted) else {
-        return (formatted, 0);
-    };
-    (mantissa.replace('.', ""), exponent)
-}
-
-fn localize_number_body(
-    raw_body: &str,
-    format: &ResolvedNumberFormat,
-    locale: &ResolvedNumberLocale,
-) -> String {
-    let (mantissa, exponent) = raw_body
-        .split_once('e')
-        .map(|(m, e)| (m, Some(e)))
-        .unwrap_or((raw_body, None));
-    let (integer, fraction) = mantissa
-        .split_once('.')
-        .map(|(i, f)| (i, Some(f)))
-        .unwrap_or((mantissa, None));
-    let mut output = if format.group {
-        group_integer(integer, locale)
-    } else {
-        integer.to_string()
-    };
-    if let Some(fraction) = fraction {
-        output.push_str(&locale.decimal);
-        output.push_str(fraction);
-    }
-    if let Some(exponent) = exponent {
-        output.push('e');
-        output.push_str(exponent);
-    }
-    output
-}
-
-fn group_integer(integer: &str, locale: &ResolvedNumberLocale) -> String {
-    let chars: Vec<char> = integer.chars().collect();
-    if chars.len() < locale.grouping.min_grouping_digits + locale.grouping.primary {
-        return integer.to_string();
-    }
-
-    let mut groups = Vec::new();
-    let mut end = chars.len();
-    let mut group_size = locale.grouping.primary;
-    while end > 0 {
-        let start = end.saturating_sub(group_size);
-        groups.push(chars[start..end].iter().collect::<String>());
-        end = start;
-        group_size = locale.grouping.secondary.unwrap_or(locale.grouping.primary);
-    }
-    groups.reverse();
-    groups.join(&locale.group)
-}
-
-fn apply_sign_and_padding(
-    is_negative: bool,
-    body: &str,
-    prefix: &str,
-    suffix: &str,
-    format: &ResolvedNumberFormat,
-    locale: &ResolvedNumberLocale,
-) -> String {
-    let sign_prefix = if is_negative {
-        if format.sign == SignPolicy::Parentheses {
-            "("
+    let (digits, exponent) = decimal::parts(value, precision);
+    let prefix = exponent.div_euclid(3).clamp(-8, 8) * 3;
+    let index = exponent - prefix + 1;
+    let body = if index <= 0 {
+        let precision = (precision as i32 + index - 1).max(0) as usize;
+        let digits = if precision == 0 {
+            decimal::shortest_parts(value).0
         } else {
-            &locale.minus
-        }
+            decimal::parts(value, precision).0
+        };
+        format!("0.{}{}", "0".repeat((-index) as usize), digits)
     } else {
-        match format.sign {
-            SignPolicy::Plus => &locale.plus,
-            SignPolicy::Space => " ",
-            _ => "",
-        }
+        decimal::place_decimal(&digits, index)
     };
-    let sign_suffix = if is_negative && format.sign == SignPolicy::Parentheses {
-        ")"
+    (body, SI_PREFIXES[(prefix / 3 + 8) as usize])
+}
+
+pub(crate) fn select_compact_tier(value: f64, tiers: &[CompactTier]) -> Option<&CompactTier> {
+    if !value.is_finite() {
+        return None;
+    }
+    tiers
+        .iter()
+        .filter(|tier| value >= 10_f64.powi(tier.exponent))
+        .max_by_key(|tier| tier.exponent)
+}
+
+pub(crate) fn trim_number_text(text: &str) -> String {
+    let (body, exponent) = text
+        .split_once('e')
+        .map_or((text, None), |(body, exponent)| (body, Some(exponent)));
+    let body = if body.contains('.') {
+        body.trim_end_matches('0').trim_end_matches('.')
     } else {
-        ""
+        body
     };
-
-    apply_affixes_and_padding(sign_prefix, prefix, body, suffix, sign_suffix, format)
+    if let Some(exponent) = exponent {
+        format!("{body}e{exponent}")
+    } else {
+        body.to_owned()
+    }
 }
 
-fn apply_affixes_and_padding(
-    sign_prefix: &str,
-    prefix: &str,
-    body: &str,
-    suffix: &str,
-    sign_suffix: &str,
-    format: &ResolvedNumberFormat,
-) -> String {
-    let content = format!("{sign_prefix}{prefix}{body}{suffix}{sign_suffix}");
-    let Some(width) = format.width else {
-        return content;
+fn trim_float(text: &str, decimal: u16) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let Some(start) = units.iter().position(|ch| *ch == decimal) else {
+        return text.to_owned();
     };
-    let len = content.chars().count();
-    if len >= width {
-        return content;
-    }
-    let padding_len = width - len;
-    let padding: String = std::iter::repeat_n(format.fill, padding_len).collect();
-    match format.align {
-        Align::Left => format!("{content}{padding}"),
-        Align::AfterSign => format!("{sign_prefix}{prefix}{padding}{body}{suffix}{sign_suffix}"),
-        Align::Center => {
-            let left = padding_len / 2;
-            let right = padding_len - left;
-            let left_padding: String = std::iter::repeat_n(format.fill, left).collect();
-            let right_padding: String = std::iter::repeat_n(format.fill, right).collect();
-            format!("{left_padding}{content}{right_padding}")
+    let Some(end) = units
+        .iter()
+        .rposition(|ch| *ch == b'e' as u16)
+        .filter(|index| *index > 0)
+        .or_else(|| {
+            units
+                .iter()
+                .enumerate()
+                .rfind(|(index, ch)| *index > start && (48..=57).contains(*ch))
+                .map(|(index, _)| index + 1)
+        })
+    else {
+        return String::new();
+    };
+    let mut index = end as isize - 1;
+    while index > start as isize {
+        if units[index as usize] != b'0' as u16 {
+            index += 1;
+            break;
         }
-        Align::Right => format!("{padding}{content}"),
+        index -= 1;
     }
-}
-
-fn rounds_to_zero(body: &str, locale: &ResolvedNumberLocale) -> bool {
-    let ascii = body
-        .replace(&locale.group, "")
-        .replace(&locale.decimal, ".");
-    ascii
-        .parse::<f64>()
-        .map(|value| value == 0.0)
-        .unwrap_or(false)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{format_number, NumberFormatContext, NumberFormatOverrides};
-    use crate::{
-        registry::NumberLocaleRegistry,
-        spec::{Align, DigitSpec, FormatType},
-        typesetting::{ExponentMarker, NumberTypesetting},
+    let index = if index < 0 {
+        (units.len() as isize + index).max(0) as usize
+    } else {
+        index as usize
     };
-
-    fn en_us() -> crate::locale::ResolvedNumberLocale {
-        NumberLocaleRegistry::with_builtins()
-            .resolve("en-US")
-            .unwrap()
-    }
-
-    #[test]
-    fn formats_fixed_with_grouping() {
-        let locale = en_us();
-        let out = format_number(
-            1234.5,
-            Some(",.1f"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "1,234.5");
-        assert_eq!(out.typesetting, NumberTypesetting::Plain);
-    }
-
-    #[test]
-    fn returns_parse_errors() {
-        let locale = en_us();
-        assert!(format_number(
-            1.0,
-            Some("C[]"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn overrides_precision() {
-        let locale = en_us();
-        let out = format_number(
-            1.234,
-            Some(".1f"),
-            NumberFormatOverrides {
-                digit_spec: Some(DigitSpec::Precision(2)),
-                ..Default::default()
-            },
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "1.23");
-    }
-
-    #[test]
-    fn exponent_reports_typesetting() {
-        let locale = en_us();
-        let out = format_number(
-            1200.0,
-            Some(".1e"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "1.2e+3");
-        assert_eq!(
-            out.typesetting,
-            NumberTypesetting::Exponent {
-                mantissa: "1.2".to_string(),
-                exponent: 3,
-                marker: ExponentMarker::LowerE,
-            }
-        );
-    }
-
-    #[test]
-    fn applies_width_and_alignment() {
-        let locale = en_us();
-        let out = format_number(
-            42.0,
-            Some(".>6.0f"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "....42");
-
-        let out = format_number(
-            42.0,
-            Some(".<6.0f"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "42....");
-    }
-
-    #[test]
-    fn formats_basic_d3_types() {
-        let locale = en_us();
-        let context = NumberFormatContext::new(&locale);
-        let cases = [
-            ("d", 42.0, "42"),
-            ("b", 3.0, "11"),
-            ("#b", 3.0, "0b11"),
-            ("o", 8.0, "10"),
-            ("x", 255.0, "ff"),
-            ("X", 255.0, "FF"),
-            (".0%", 0.123, "12%"),
-            (".3s", 42e6, "42.0M"),
-            (".0s", 1e-6, "1\u{00b5}"),
-            (".3s", 999.5, "1.00k"),
-            ("n", 1234.5, "1,234.50"),
-            ("#.0f", 10.1, "10"),
-            ("c", 65.0, "A"),
-            (".2g", 1234.5, "1.2e+3"),
-            (".2r", 1234.5, "1200"),
-            ("p", 0.1234, "12.3400%"),
-            (".1p", 0.1234, "10%"),
-        ];
-        for (spec, value, expected) in cases {
-            let out = format_number(value, Some(spec), NumberFormatOverrides::default(), context)
-                .unwrap();
-            assert_eq!(out.text, expected, "{spec}");
-        }
-    }
-
-    #[test]
-    fn character_type_rejects_invalid_code_points() {
-        let locale = en_us();
-        let err = format_number(
-            0x11_0000 as f64,
-            Some("c"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap_err();
-        assert!(matches!(err, crate::error::FormatError::InvalidFormat(_)));
-    }
-
-    #[test]
-    fn custom_locale_changes_symbols() {
-        let mut registry = NumberLocaleRegistry::with_builtins();
-        registry
-            .register_custom_locale_json(
-                "test",
-                r#"{
-                    "base": "en-US",
-                    "decimal": ",",
-                    "group": ".",
-                    "minus": "\u2212",
-                    "digits": ["0","1","2","3","4","5","6","7","8","9"]
-                }"#,
-            )
-            .unwrap();
-        let locale = registry.resolve("test").unwrap();
-        let out = format_number(
-            -1234.5,
-            Some(",.1f"),
-            NumberFormatOverrides::default(),
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "\u{2212}1.234,5");
-    }
-
-    #[test]
-    fn applies_normalized_decimal_and_percent_patterns() {
-        let mut registry = NumberLocaleRegistry::with_builtins();
-        registry
-            .register_custom_locale_json(
-                "patterns",
-                r##"{
-                    "base": "en-US",
-                    "decimal_pattern": "'~'#,##0 'items';('~'#,##0 'items')",
-                    "percent_pattern": "#,##0 percent;minus #,##0 percent"
-                }"##,
-            )
-            .unwrap();
-        let locale = registry.resolve("patterns").unwrap();
-        let context = NumberFormatContext::new(&locale);
-
-        let out =
-            format_number(12.0, Some(".0f"), NumberFormatOverrides::default(), context).unwrap();
-        assert_eq!(out.text, "~12 items");
-
-        let out = format_number(
-            -12.0,
-            Some(".0f"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "(~12 items)");
-
-        let out =
-            format_number(0.12, Some(".0%"), NumberFormatOverrides::default(), context).unwrap();
-        assert_eq!(out.text, "12 percent");
-
-        let out = format_number(
-            -0.12,
-            Some(".0%"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "minus 12 percent");
-    }
-
-    #[test]
-    fn resolves_override_fields() {
-        let locale = en_us();
-        let out = format_number(
-            42.0,
-            Some(".1f"),
-            NumberFormatOverrides {
-                format_type: Some(FormatType::Fixed),
-                width: Some(Some(6)),
-                align: Some(Some(Align::Left)),
-                fill: Some(Some('.')),
-                ..Default::default()
-            },
-            NumberFormatContext::new(&locale),
-        )
-        .unwrap();
-        assert_eq!(out.text, "42.0..");
-    }
-
-    #[test]
-    fn formats_currency_extensions() {
-        let locale = en_us();
-        let context = NumberFormatContext::new(&locale);
-
-        let out = format_number(
-            1234.5,
-            Some(",C[USD]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "$1,234.50");
-
-        let out = format_number(
-            1234.5,
-            Some(",C[JPY]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "\u{00a5}1,234");
-
-        let out = format_number(
-            1234.5678,
-            Some(",C[BHD]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "BHD1,234.568");
-
-        let out = format_number(
-            -1234.5,
-            Some("(,.1C[USD]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "($1,234.5)");
-
-        let out = format_number(
-            1234.5,
-            Some(",.2C[EUR]"),
-            NumberFormatOverrides {
-                currency_display: Some(crate::locale::CurrencyDisplay::Code),
-                ..Default::default()
-            },
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "EUR1,234.50");
-
-        let out = format_number(
-            1234.5,
-            Some(",C"),
-            NumberFormatOverrides {
-                currency: Some("USD".to_string()),
-                ..Default::default()
-            },
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "$1,234.50");
-
-        let out = format_number(
-            1234.5,
-            Some(",C[EUR]"),
-            NumberFormatOverrides {
-                currency: Some("USD".to_string()),
-                ..Default::default()
-            },
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "$1,234.50");
-
-        let out = format_number(
-            1234.0,
-            Some(",.2~C[USD]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "$1,234");
-    }
-
-    #[test]
-    fn formats_compact_extensions() {
-        let locale = en_us();
-        let context = NumberFormatContext::new(&locale);
-
-        let out = format_number(
-            1_200_000.0,
-            Some(".2S"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "1.2M");
-
-        let out = format_number(
-            1_200_000.0,
-            Some(".2L"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .unwrap();
-        assert_eq!(out.text, "1.2 million");
-    }
-
-    #[test]
-    fn rejects_invalid_extension_combinations() {
-        let locale = en_us();
-        let context = NumberFormatContext::new(&locale);
-
-        assert!(format_number(1.0, Some("C"), NumberFormatOverrides::default(), context,).is_err());
-        assert!(format_number(
-            1.0,
-            Some("$C[USD]"),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .is_err());
-        assert!(
-            format_number(1.0, Some("#S"), NumberFormatOverrides::default(), context,).is_err()
-        );
-    }
+    let output: Vec<_> = units[..index]
+        .iter()
+        .chain(&units[end..])
+        .copied()
+        .collect();
+    String::from_utf16_lossy(&output)
 }

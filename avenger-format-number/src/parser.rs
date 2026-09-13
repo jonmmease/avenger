@@ -4,7 +4,7 @@ use crate::{
 };
 
 pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
-    let mut chars: Vec<(usize, char)> = spec.char_indices().collect();
+    let chars: Vec<(usize, char)> = spec.char_indices().collect();
     let mut i = 0;
     let mut parsed = NumberFormatSpec::default();
 
@@ -74,19 +74,9 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
         }
         let start = chars[precision_start].0;
         let end = byte_end(spec, &chars, i);
-        let precision = spec[start..end].parse::<u16>().map_err(|_| {
-            ParseError::invalid(
-                chars[precision_start].0,
-                "precision is too large to represent",
-            )
-        })?;
-        if precision > u8::MAX as u16 {
-            return Err(ParseError::invalid(
-                chars[precision_start].0,
-                "precision must be less than 256",
-            ));
-        }
-        parsed.precision = Some(precision as u8);
+        parsed.precision = Some(spec[start..end].bytes().fold(0_u8, |value, digit| {
+            value.saturating_mul(10).saturating_add(digit - b'0')
+        }));
     }
 
     if let Some((_, '~')) = chars.get(i) {
@@ -95,12 +85,6 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
     }
 
     if let Some((type_pos, ch)) = chars.get(i) {
-        if *ch == 'E' {
-            return Err(ParseError::invalid(
-                *type_pos,
-                "`E` is reserved and is not part of the v1 public grammar",
-            ));
-        }
         let format_type = FormatType::from_char(*ch).ok_or_else(|| {
             ParseError::invalid(*type_pos, format!("unknown number format type `{ch}`"))
         })?;
@@ -157,7 +141,6 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
         ));
     }
 
-    chars.clear();
     Ok(parsed)
 }
 
