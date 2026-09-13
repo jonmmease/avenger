@@ -113,34 +113,13 @@ fn collect_font_paths(dir: PathBuf, push: &mut impl FnMut(PathBuf), include_all_
 
 #[cfg(test)]
 const TEST_FONTS: &[(&str, &[u8])] = &[
-    (
-        "Lato-Light",
-        include_bytes!("../../../avenger-text/fonts/Lato/Lato-Light.ttf.br"),
-    ),
-    (
-        "Lato-Italic",
-        include_bytes!("../../../avenger-text/fonts/Lato/Lato-Italic.ttf.br"),
-    ),
-    (
-        "Lato-Medium",
-        include_bytes!("../../../avenger-text/fonts/Lato/Lato-Medium.ttf.br"),
-    ),
-    (
-        "Lato-Bold",
-        include_bytes!("../../../avenger-text/fonts/Lato/Lato-Bold.ttf.br"),
-    ),
-    (
-        "DejaVuSansMono",
-        include_bytes!("../../../avenger-text/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
-    ),
-    (
-        "LeteSansMath",
-        include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
-    ),
-    (
-        "LeteSansMath-Bold",
-        include_bytes!("../../../avenger-text/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
-    ),
+    ("Lato-Light", avenger_fonts::LATO_LIGHT),
+    ("Lato-Italic", avenger_fonts::LATO_ITALIC),
+    ("Lato-Medium", avenger_fonts::LATO_MEDIUM),
+    ("Lato-Bold", avenger_fonts::LATO_BOLD),
+    ("DejaVuSansMono", avenger_fonts::DEJAVU_SANS_MONO),
+    ("LeteSansMath", avenger_fonts::LETE_SANS_MATH),
+    ("LeteSansMath-Bold", avenger_fonts::LETE_SANS_MATH_BOLD),
 ];
 
 #[cfg(test)]

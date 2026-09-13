@@ -25,7 +25,7 @@ def write_font(font, name):
     (FIXTURES / (name + ".ttf.br")).write_bytes(brotli.compress(output.getvalue()))
 
 
-lato = ROOT / "avenger-text/fonts/Lato/Lato-Medium.ttf.br"
+lato = ROOT / "avenger-fonts/fonts/Lato/Lato-Medium.ttf.br"
 font = read_font(lato)
 del font["OS/2"]
 write_font(font, "AuditNoScriptMetrics")
