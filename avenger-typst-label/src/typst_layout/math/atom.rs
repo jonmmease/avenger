@@ -57,121 +57,15 @@ fn layout_operator_atom(
     font: &MathFont,
     text: &str,
     font_size: f32,
-    script_level: u8,
 ) -> Result<LaidOutMathAtom, LabelError> {
-    let face = font.parsed_face().map_err(|_| LabelError::Engine {
-        start: 0,
-        end: text.len(),
-        message: "failed to parse Typst math font".to_string(),
-    })?;
-    let Some(mut rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
-        return Err(LabelError::Engine {
-            start: 0,
-            end: text.len(),
-            message: "failed to shape Typst math font".to_string(),
-        });
-    };
-
-    let features = if let Some(script_style) = script_style_feature(script_level) {
-        vec![rustybuzz::Feature::new(
-            rustybuzz::ttf_parser::Tag::from_bytes(b"ssty"),
-            script_style,
-            ..,
-        )]
-    } else {
-        Vec::new()
-    };
-    let mut buffer = rustybuzz::UnicodeBuffer::new();
-    buffer.push_str(text);
-    buffer.set_direction(rustybuzz::Direction::LeftToRight);
-    buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
-
-    for (tag, value) in font.variation_coordinates() {
-        rusty.set_variation(ttf_parser::Tag::from_bytes(&tag), value);
-    }
-    let scale = font_size / face.units_per_em() as f32;
-    let shaped = rustybuzz::shape(&rusty, &features, buffer);
-    let mut cursor_x = 0i32;
-    let mut cursor_y = 0i32;
-    let mut width = 0i32;
-    let mut glyph_ascent = 0i16;
-    let mut glyph_descent = 0i16;
-    let mut glyphs = Vec::new();
-    for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
-        let glyph_id = ttf_parser::GlyphId(info.glyph_id as u16);
-        let x = cursor_x + position.x_offset;
-        let y = cursor_y + position.y_offset;
-        cursor_x += position.x_advance;
-        cursor_y += position.y_advance;
-        width += position.x_advance;
-        glyphs.push(LaidOutGlyph {
-            glyph_id,
-            unicode: text
-                .get(glyph_cluster_range(text, info.cluster))
-                .unwrap_or_default()
-                .to_string(),
-            x: x as f32 * scale,
-            y: -(y as f32) * scale,
-            x_advance: position.x_advance as f32 * scale,
-            font_size,
-            pdf_run_group: Some(0),
-            font: None,
-            text_range: None,
-        });
-        if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
-            glyph_ascent = glyph_ascent.max(bounds.y_max);
-            glyph_descent = glyph_descent.max(-bounds.y_min);
-        }
-    }
-
-    let ascent = face.capital_height().unwrap_or(glyph_ascent);
-    let ascent = ascent.max(0) as f32 * scale;
-    let descent = 0.0;
-    let mut atom = LaidOutMathAtom {
-        metrics: TypesetMetrics {
-            width: width as f32 * scale,
-            height: ascent + descent,
-            baseline: ascent,
-            ascent,
-            descent,
-        },
-        ink_ascent: glyph_ascent.max(0) as f32 * scale,
-        ink_descent: glyph_descent.max(0) as f32 * scale,
-        left_spacing: None,
-        right_spacing: None,
-        left_class: SimpleMathClass::Large,
-        right_class: SimpleMathClass::Large,
-        italic_correction: 0.0,
-        script_kernable: false,
-        base_metrics: None,
-        accent_attachment: None,
-        spaced: false,
-        glyphs,
-        shapes: Vec::new(),
-        draw_order: Vec::new(),
-    };
-    for glyph in &mut atom.glyphs {
-        glyph.y += atom.metrics.baseline;
-    }
-    atom.draw_order
-        .extend((0..atom.glyphs.len()).map(LaidOutDrawItem::Glyph));
+    let mut atom = layout_math_text(font, text, font_size)?;
+    atom.left_class = SimpleMathClass::Large;
+    atom.right_class = SimpleMathClass::Large;
     Ok(atom)
 }
 
 fn operator_identifier_text(name: &str) -> Option<&'static str> {
     predefined_operator_text(name)
-}
-
-fn glyph_cluster_range(text: &str, cluster: u32) -> std::ops::Range<usize> {
-    let cluster = cluster as usize;
-    let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
-        return 0..0;
-    };
-    let end = text[start..]
-        .char_indices()
-        .nth(1)
-        .map_or(text.len(), |(next, _)| start + next);
-    start..end
 }
 
 fn style_text_atom(text: &MathText) -> String {

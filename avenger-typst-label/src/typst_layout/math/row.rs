@@ -340,7 +340,7 @@ fn layout_simple_node_with_mid_target(
     }
     if let Some(atom) = simple_atom(node) {
         let mut layout = if atom.text_operator {
-            layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
+            layout_operator_atom(font, &atom.styled_text, font_size)?
         } else {
             layout_styled_atom_with_class(
                 font,
@@ -377,20 +377,19 @@ fn layout_simple_node_with_mid_target(
     }
 
     if let MathNode::Call(call) = node {
-        if let Some(mode) = MathAttachmentMode::from_call_name(&call.name) {
-            return layout_simple_attachment_mode_call(
-                font,
-                call,
-                mode,
-                font_size,
-                script_level,
-                math_size,
-            );
-        }
         if let Some(atom) =
             layout_simple_operator_call(font, call, font_size, script_level, math_size)?
         {
             return Ok(Some(atom));
+        }
+        if MathAttachmentMode::from_call_name(&call.name).is_some() {
+            return layout_simple_attachment_mode_call(
+                font,
+                call,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
         if call.name == "frac" {
             return layout_simple_fraction_call(font, call, font_size, script_level, math_size);
