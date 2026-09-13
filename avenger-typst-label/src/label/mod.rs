@@ -212,12 +212,14 @@ impl Hash for LabelParamValue {
 #[derive(Debug, Clone)]
 pub struct LabelEngine {
     inner: TypstEngineCore,
+    formatting_cache: std::sync::Arc<crate::typst_eval::format_cache::FormattingCache>,
 }
 
 impl LabelEngine {
     pub fn new(options: EngineOptions) -> Result<Self, LabelInitError> {
         Ok(Self {
             inner: TypstEngineCore::new(&options)?,
+            formatting_cache: Default::default(),
         })
     }
 
@@ -236,11 +238,13 @@ impl LabelEngine {
                 number: NumberFormatMarkupContext {
                     locale_id: options.number_locale.as_deref(),
                     registry: options.number_locale_registry.as_deref(),
+                    cache: Some(&self.formatting_cache),
                 },
                 datetime: DateTimeFormatMarkupContext {
                     locale_id: options.datetime_locale.as_deref(),
                     timezone: options.datetime_timezone.as_deref(),
                     registry: options.datetime_locale_registry.as_deref(),
+                    cache: Some(&self.formatting_cache),
                 },
             },
         )?;
