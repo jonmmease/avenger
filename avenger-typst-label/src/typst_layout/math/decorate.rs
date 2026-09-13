@@ -322,10 +322,21 @@ fn layout_simple_operator_call(
         let [arg] = &call.args[..] else {
             return Ok(None);
         };
-        let Some(text) = operator_arg_text(&arg.nodes) else {
+        let Some(mut atom) = layout_simple_nodes_as_atom_with_context(
+            font,
+            &arg.nodes,
+            font_size,
+            script_level,
+            None,
+            math_size,
+        )?
+        else {
             return Ok(None);
         };
-        return layout_operator_atom(font, &text, font_size, script_level).map(Some);
+        // Operator spacing does not change the body's glyph class or stretching.
+        atom.left_class = SimpleMathClass::Large;
+        atom.right_class = SimpleMathClass::Large;
+        return Ok(Some(atom));
     }
 
     let Some(text) = operator_identifier_text(&call.name) else {
@@ -348,21 +359,4 @@ fn layout_simple_operator_call(
         }),
     ];
     layout_simple_nodes_as_atom_with_context(font, &nodes, font_size, script_level, None, math_size)
-}
-
-fn operator_arg_text(nodes: &[MathNode]) -> Option<String> {
-    let mut text = String::new();
-    for node in nodes {
-        match node {
-            MathNode::StringLiteral(string) => text.push_str(&string.text),
-            MathNode::Identifier(identifier) => {
-                text.push_str(identifier.symbol.unwrap_or(&identifier.name));
-            }
-            MathNode::Operator(operator) => text.push_str(&operator.operator),
-            MathNode::Shorthand(shorthand) => text.push_str(shorthand.replacement),
-            MathNode::Text(text_node) => text.push_str(&text_node.text),
-            _ => return None,
-        }
-    }
-    (!text.is_empty()).then_some(text)
 }
