@@ -294,7 +294,7 @@ fn compile_datefmt_formats_temporal_param() {
     );
 
     let label = engine()
-        .compile("Report #datefmt(report_date, \"{date:long}\")", &options)
+        .compile("Report #datefmt(report_date, \"%B %-d, %Y\")", &options)
         .unwrap();
 
     assert_eq!(label.semantic_text(), "Report January 5, 2024");
@@ -585,4 +585,42 @@ fn raster_lowerer_consumes_compiled_label() {
     assert_eq!(raster.scale, 2.0);
     assert!(raster.image.width > 0);
     assert!(raster.image.height > 0);
+}
+
+#[test]
+fn repeated_labels_follow_pattern_locale_and_timezone_changes() {
+    let engine = engine();
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "value".into(),
+        LabelParamValue::UtcDateTime(
+            chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                .unwrap()
+                .to_utc(),
+        ),
+    );
+    for (pattern, locale, timezone, expected) in [
+        ("%B %d %H:%M", "en-US", "UTC", "January 01 00:00"),
+        ("%B %d %H:%M", "fr-FR", "UTC", "janvier 01 00:00"),
+        (
+            "%B %d %H:%M",
+            "fr-FR",
+            "America/New_York",
+            "décembre 31 19:00",
+        ),
+        ("%Y %Z", "fr-FR", "America/New_York", "2023 -0500"),
+    ] {
+        options
+            .params
+            .insert("pattern".into(), LabelParamValue::Str(pattern.into()));
+        options.datetime_locale = Some(locale.into());
+        options.datetime_timezone = Some(timezone.into());
+        assert_eq!(
+            engine
+                .compile("#datefmt(value, pattern)", &options)
+                .unwrap()
+                .semantic_text(),
+            expected
+        );
+    }
 }
