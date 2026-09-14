@@ -9,3 +9,5 @@ The readout uses an event-stream debounce and host wake-ups. It needs no text-in
 Resize the window after panning. The visible domains stay the same while the scales, axes, point positions, and hit geometry follow the new plot dimensions.
 
 In the browser, drag the lower-right frame corner to resize the chart. Native users can resize the window.
+
+Pause over a point for 400 ms to see its identity, species, and sepal measurements. The tooltip follows that point without rebuilding the chart. Leaving, panning, zooming, resizing, or changing focus dismisses it.
