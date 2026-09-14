@@ -764,52 +764,76 @@ mod test_image_baselines {
     }
 
     #[test]
-    fn warped_image_mark_renders_sheared_mesh() {
+    fn tile_array_and_atlas_render_warped_image_mesh() {
         use avenger_scenegraph::marks::warped_image::SceneWarpedImageMark;
 
         // 2x2 checker (red, green / blue, white) mapped onto a
         // parallelogram: quad vertices sheared +4px in x from top to bottom.
-        let scene_graph = SceneGraph {
-            width: 24.0,
-            height: 20.0,
-            origin: [0.0, 0.0],
-            marks: vec![SceneWarpedImageMark {
-                smooth: false,
-                image: SceneImageSource::inline(RgbaImage {
-                    width: 2,
-                    height: 2,
-                    data: vec![
-                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-                    ],
-                }),
-                positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
-                uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
-                indices: vec![0, 1, 2, 0, 2, 3],
-                ..Default::default()
+        for use_tiles in [false, true] {
+            let pixels = RgbaImage {
+                width: 2,
+                height: 2,
+                data: vec![
+                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                ],
+            };
+            let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Ready(Arc::new(
+                pixels.clone(),
+            ))));
+            let scene_graph = SceneGraph {
+                width: 24.0,
+                height: 20.0,
+                origin: [0.0, 0.0],
+                marks: vec![SceneWarpedImageMark {
+                    smooth: false,
+                    image: if use_tiles {
+                        tile_mark(0.0, SceneImageUnavailablePolicy::Error, None)
+                            .image
+                            .first()
+                            .unwrap()
+                            .clone()
+                    } else {
+                        SceneImageSource::inline(pixels)
+                    },
+                    tile_texture_size: use_tiles.then_some(2),
+                    positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                    uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    ..Default::default()
+                }
+                .into()],
+            };
+            let mut canvas = pollster::block_on(PngCanvas::new(
+                CanvasDimensions {
+                    size: [24.0, 20.0],
+                    scale: 1.0,
+                },
+                CanvasConfig {
+                    image_resource_config: WgpuImageResourceConfig {
+                        resolver: Some(resolver),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            ))
+            .unwrap();
+
+            canvas.set_scene(&scene_graph).unwrap();
+            let image = pollster::block_on(canvas.render()).unwrap();
+
+            // For a parallelogram the triangle interpolation is affine:
+            // p(u, v) = a + u * (b - a) + v * (d - a).
+            assert_eq!(image.get_pixel(7, 6).0, [255, 0, 0, 255]);
+            assert_eq!(image.get_pixel(15, 6).0, [0, 255, 0, 255]);
+            assert_eq!(image.get_pixel(9, 14).0, [0, 0, 255, 255]);
+            assert_eq!(image.get_pixel(17, 14).0, [255, 255, 255, 255]);
+            // Outside the sheared quad (upper-right corner region) shows the
+            // canvas background, not the nearest texture quadrant (green).
+            assert_ne!(image.get_pixel(21, 4).0, [0, 255, 0, 255]);
+            if use_tiles {
+                assert_eq!(canvas.tile_upload_stats().0.layers_uploaded, 1);
             }
-            .into()],
-        };
-        let mut canvas = pollster::block_on(PngCanvas::new(
-            CanvasDimensions {
-                size: [24.0, 20.0],
-                scale: 1.0,
-            },
-            CanvasConfig::default(),
-        ))
-        .unwrap();
-
-        canvas.set_scene(&scene_graph).unwrap();
-        let image = pollster::block_on(canvas.render()).unwrap();
-
-        // For a parallelogram the triangle interpolation is affine:
-        // p(u, v) = a + u * (b - a) + v * (d - a).
-        assert_eq!(image.get_pixel(7, 6).0, [255, 0, 0, 255]);
-        assert_eq!(image.get_pixel(15, 6).0, [0, 255, 0, 255]);
-        assert_eq!(image.get_pixel(9, 14).0, [0, 0, 255, 255]);
-        assert_eq!(image.get_pixel(17, 14).0, [255, 255, 255, 255]);
-        // Outside the sheared quad (upper-right corner region) shows the
-        // canvas background, not the nearest texture quadrant (green).
-        assert_ne!(image.get_pixel(21, 4).0, [0, 255, 0, 255]);
+        }
     }
 
     #[test]
@@ -1127,6 +1151,139 @@ mod test_image_baselines {
         }
     }
 
+    fn tile_mark(
+        x: f32,
+        policy: SceneImageUnavailablePolicy,
+        fallback: Option<&str>,
+    ) -> SceneImageMark {
+        SceneImageMark {
+            len: 1,
+            aspect: false,
+            smooth: false,
+            image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                key: ResourceKey::new("tile"),
+                intrinsic_width: 2,
+                intrinsic_height: 2,
+                fallback_key: fallback.map(ResourceKey::new),
+            })),
+            x: ScalarOrArray::new_scalar(x),
+            y: ScalarOrArray::new_scalar(0.0),
+            width: ScalarOrArray::new_scalar(4.0),
+            height: ScalarOrArray::new_scalar(8.0),
+            align: ScalarOrArray::new_scalar(ImageAlign::Left),
+            baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+            unavailable_policy: policy,
+            tile_texture_size: Some(2),
+            ..Default::default()
+        }
+    }
+
+    fn tile_scene(marks: Vec<SceneImageMark>) -> SceneGraph {
+        SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0; 2],
+            marks: marks.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    #[test]
+    fn tile_array_updates_pixels_and_reuses_uploads_across_scenes() {
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene = tile_scene(vec![tile_mark(
+            0.0,
+            SceneImageUnavailablePolicy::DrawPlaceholder,
+            None,
+        )]);
+        canvas.set_scene(&scene).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert_eq!(image.get_pixel(2, 4).0, [10, 20, 30, 255]);
+        assert_eq!(canvas.tile_upload_stats().0.layers_uploaded, 1);
+        assert_eq!(
+            canvas.image_resource_status().pending,
+            vec![ResourceKey::new("tile")]
+        );
+        for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+            resolver.set_state(ImageResourceState::Ready(Arc::new(solid_image(color))));
+            let image = pollster::block_on(canvas.render()).unwrap();
+            assert_eq!(image.get_pixel(2, 4).0, color);
+            assert_eq!(canvas.tile_upload_stats().0.layers_uploaded, 1);
+            assert!(canvas.image_resource_status().is_empty());
+            pollster::block_on(canvas.render()).unwrap();
+            assert_eq!(canvas.tile_upload_stats().0.bytes_uploaded, 0);
+            canvas.set_scene(&scene).unwrap();
+            let image = pollster::block_on(canvas.render()).unwrap();
+            assert_eq!(image.get_pixel(2, 4).0, color);
+            assert_eq!(canvas.tile_upload_stats().0.bytes_uploaded, 0);
+        }
+    }
+
+    #[test]
+    fn tile_array_preserves_each_marks_unavailable_policy() {
+        use SceneImageUnavailablePolicy::{DrawPlaceholder, Error, Skip};
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver);
+        for reverse in [false, true] {
+            let mut marks = vec![
+                tile_mark(0.0, Skip, None),
+                tile_mark(4.0, DrawPlaceholder, None),
+            ];
+            if reverse {
+                marks.reverse();
+            }
+            canvas.set_scene(&tile_scene(marks)).unwrap();
+            let image = pollster::block_on(canvas.render()).unwrap();
+            assert_ne!(image.get_pixel(2, 4).0, [10, 20, 30, 255]);
+            assert_eq!(image.get_pixel(6, 4).0, [10, 20, 30, 255]);
+            assert_eq!(
+                canvas.image_resource_status().pending,
+                vec![ResourceKey::new("tile")]
+            );
+            let mut marks = vec![tile_mark(0.0, Error, None), tile_mark(4.0, Skip, None)];
+            if reverse {
+                marks.reverse();
+            }
+            canvas.set_scene(&tile_scene(marks)).unwrap();
+            assert!(matches!(
+                pollster::block_on(canvas.render()),
+                Err(AvengerWgpuError::ImageResourceError(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn tile_array_preserves_each_marks_fallback() {
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        let resolver = Arc::new(FakeImageResolver {
+            fallbacks: [
+                (ResourceKey::new("red"), Arc::new(solid_image(red))),
+                (ResourceKey::new("blue"), Arc::new(solid_image(blue))),
+            ]
+            .into(),
+            ..FakeImageResolver::new(ImageResourceState::Missing)
+        });
+        let mut canvas = resource_image_canvas(resolver);
+        for reverse in [false, true] {
+            let mut marks = vec![
+                tile_mark(0.0, SceneImageUnavailablePolicy::Error, Some("red")),
+                tile_mark(4.0, SceneImageUnavailablePolicy::Error, Some("blue")),
+            ];
+            if reverse {
+                marks.reverse();
+            }
+            canvas.set_scene(&tile_scene(marks)).unwrap();
+            let image = pollster::block_on(canvas.render()).unwrap();
+            assert_eq!(image.get_pixel(2, 4).0, red);
+            assert_eq!(image.get_pixel(6, 4).0, blue);
+            assert_eq!(
+                canvas.image_resource_status().missing,
+                vec![ResourceKey::new("tile")]
+            );
+        }
+    }
+
     fn resource_image_canvas(resolver: Arc<FakeImageResolver>) -> PngCanvas {
         pollster::block_on(PngCanvas::new(
             CanvasDimensions {
@@ -1245,12 +1402,14 @@ mod test_image_baselines {
 
     struct FakeImageResolver {
         state: Mutex<ImageResourceState>,
+        fallbacks: std::collections::HashMap<ResourceKey, Arc<RgbaImage>>,
     }
 
     impl FakeImageResolver {
         fn new(state: ImageResourceState) -> Self {
             Self {
                 state: Mutex::new(state),
+                fallbacks: Default::default(),
             }
         }
 
@@ -1260,8 +1419,11 @@ mod test_image_baselines {
     }
 
     impl ImageResourceResolver for FakeImageResolver {
-        fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
-            self.state.lock().unwrap().clone()
+        fn image_state(&self, key: &ResourceKey) -> ImageResourceState {
+            self.fallbacks
+                .get(key)
+                .map(|image| ImageResourceState::Ready(image.clone()))
+                .unwrap_or_else(|| self.state.lock().unwrap().clone())
         }
     }
 }
