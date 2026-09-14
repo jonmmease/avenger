@@ -306,12 +306,14 @@ impl SceneGraphRTree {
                             && point[1] >= *y
                             && point[1] <= y + height
                     }
-                    Some(Clip::Path(path)) => lyon_algorithms::hit_test::hit_test_path(
-                        &lyon_path::math::point(point[0], point[1]),
-                        path.iter(),
-                        lyon_path::FillRule::NonZero,
-                        0.01,
-                    ),
+                    Some(Clip::Path { path, fill_rule }) => {
+                        lyon_algorithms::hit_test::hit_test_path(
+                            &lyon_path::math::point(point[0], point[1]),
+                            path.iter(),
+                            (*fill_rule).into(),
+                            0.01,
+                        )
+                    }
                 },
             )
             .max_by_key(|instance| {
@@ -816,29 +818,43 @@ mod tests {
             tree.pick_top_mark_at_point(&[10.0, 10.0]).unwrap().name,
             "under"
         );
+        use avenger_common::types::FillRule;
         let mut path = lyon_path::Path::builder();
-        path.begin(lyon_path::math::point(0.0, 0.0));
-        path.line_to(lyon_path::math::point(10.0, 0.0));
-        path.line_to(lyon_path::math::point(0.0, 10.0));
-        path.close();
-        let scene = hit_scene(vec![
-            hit_rect("under", None),
-            SceneGroup {
-                clip: Clip::Path(path.build()),
-                marks: vec![top],
-                ..Default::default()
-            }
-            .into(),
-        ]);
-        let tree = SceneGraphRTree::from_scene_graph(&scene);
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[2.0, 2.0]).unwrap().name,
-            "clipped"
-        );
-        assert_eq!(
-            tree.pick_top_mark_at_point(&[8.0, 8.0]).unwrap().name,
-            "under"
-        );
+        for [x, y, side] in [[0.0, 0.0, 10.0], [1.0, 1.0, 3.0]] {
+            path.begin(lyon_path::math::point(x, y));
+            path.line_to(lyon_path::math::point(x + side, y));
+            path.line_to(lyon_path::math::point(x, y + side));
+            path.close();
+        }
+        let path = path.build();
+        for (fill_rule, expected) in [(FillRule::NonZero, "clipped"), (FillRule::EvenOdd, "under")]
+        {
+            let scene = hit_scene(vec![
+                hit_rect("under", None),
+                SceneGroup {
+                    clip: Clip::Path {
+                        path: path.clone(),
+                        fill_rule,
+                    },
+                    marks: vec![top.clone()],
+                    ..Default::default()
+                }
+                .into(),
+            ]);
+            let tree = SceneGraphRTree::from_scene_graph(&scene);
+            assert_eq!(
+                tree.pick_top_mark_at_point(&[2.0, 2.0]).unwrap().name,
+                expected
+            );
+            assert_eq!(
+                tree.pick_top_mark_at_point(&[1.0, 6.0]).unwrap().name,
+                "clipped"
+            );
+            assert_eq!(
+                tree.pick_top_mark_at_point(&[8.0, 8.0]).unwrap().name,
+                "under"
+            );
+        }
     }
 
     #[test]
