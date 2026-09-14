@@ -2013,9 +2013,8 @@ mod tests {
             group::{Clip, SceneGroup},
             image::{SceneImageMark, SceneImageSource},
             pattern::{
-                PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
-                PatternReferenceFrame, PatternSymbol, StripePatternLayer, SymbolLattice2d,
-                SymbolPaint, SymbolPatternLayer,
+                PatternAnchor, PatternFill, PatternLayer, PatternReferenceFrame, PatternSymbol,
+                StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
             },
             rect::SceneRectMark,
             rule::SceneRuleMark,
