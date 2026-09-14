@@ -129,7 +129,7 @@ where
             (scene_graph, text_engine, dimensions)
         };
 
-        let canvas_future = WindowCanvas::new(window, dimensions);
+        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
 
         let setup_future = async move {
             match canvas_future.await {
