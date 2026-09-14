@@ -1,4 +1,3 @@
-use crate::marks::mark::default_interactive;
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
@@ -14,7 +13,7 @@ use avenger_text::types::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -51,6 +50,10 @@ pub struct SceneTextMark {
     pub baseline: ScalarOrArray<TextBaseline>,
     pub angle: ScalarOrArray<f32>,
     pub color: ScalarOrArray<ColorOrGradient>,
+    /// Logical text opacity retained for chart adjustment pipelines. Renderers
+    /// expect text opacity to already be baked into `color`.
+    #[serde(default = "default_one_f32_channel")]
+    pub opacity: ScalarOrArray<f32>,
     pub font: ScalarOrArray<String>,
     pub font_size: ScalarOrArray<f32>,
     pub font_weight: ScalarOrArray<FontWeight>,
@@ -109,6 +112,7 @@ impl Hash for SceneTextMark {
         self.baseline.hash(state);
         self.angle.hash(state);
         self.color.hash(state);
+        self.opacity.hash(state);
         self.font.hash(state);
         self.font_size.hash(state);
         self.font_weight.hash(state);
@@ -237,6 +241,10 @@ impl SceneTextMark {
     pub fn color_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.color.as_iter(self.len as usize, self.indices.as_ref())
     }
+    pub fn opacity_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.opacity
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
     pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.font.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -321,8 +329,8 @@ impl SceneTextMark {
 impl Default for SceneTextMark {
     fn default() -> Self {
         Self {
-            interactive: true,
             name: "text_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             text: ScalarOrArray::new_scalar(String::new()),
@@ -342,6 +350,7 @@ impl Default for SceneTextMark {
             baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
             angle: ScalarOrArray::new_scalar(0.0),
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+            opacity: ScalarOrArray::new_scalar(1.0),
             font: ScalarOrArray::new_scalar("sans-serif".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
             font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),

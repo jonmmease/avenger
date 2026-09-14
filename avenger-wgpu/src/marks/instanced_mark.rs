@@ -1,9 +1,11 @@
-use avenger_common::types::LinearScaleAdjustment;
-use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
 
-use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat, TextureView};
+use avenger_common::{time::Instant, types::LinearScaleAdjustment};
+use avenger_scenegraph::marks::group::Clip;
+use wgpu::{
+    util::DeviceExt, CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat,
+    TextureView,
+};
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {
@@ -53,8 +55,7 @@ pub struct InstancedMarkRenderer {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
-    pub instance_buffer: wgpu::Buffer,
-    pub batches: Vec<InstancedMarkBatch>,
+    instance_buffers: Vec<InstancedInstanceBuffer>,
     pub uniform_bind_group: wgpu::BindGroup,
     pub texture: wgpu::Texture,
     pub texture_size: wgpu::Extent3d,
@@ -62,6 +63,11 @@ pub struct InstancedMarkRenderer {
     pub clip: Clip,
     pub scale: f32,
     pub mark_uniform_buffer: wgpu::Buffer,
+}
+
+struct InstancedInstanceBuffer {
+    buffer: wgpu::Buffer,
+    batches: Vec<InstancedMarkBatch>,
 }
 
 impl InstancedMarkRenderer {
@@ -270,19 +276,15 @@ impl InstancedMarkRenderer {
         });
         let num_indices = mark_shader.indices().len() as u32;
 
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(mark_shader.instances()),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let instance_buffers =
+            make_instance_buffers(device, mark_shader.instances(), mark_shader.batches());
 
-        let renderer = Self {
+        Self {
             render_pipeline,
             vertex_buffer,
             index_buffer,
-            batches: Vec::from(mark_shader.batches()),
             num_indices,
-            instance_buffer,
+            instance_buffers,
             uniform_bind_group,
             texture,
             texture_size: mark_shader.texture_size(),
@@ -290,14 +292,13 @@ impl InstancedMarkRenderer {
             clip,
             scale,
             mark_uniform_buffer,
-        };
-
-        renderer
+        }
     }
 
     pub fn render(
         &self,
         device: &Device,
+        render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
         x_adjustment: Option<LinearScaleAdjustment>,
@@ -306,6 +307,33 @@ impl InstancedMarkRenderer {
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Mark Render Encoder"),
         });
+        self.encode_into(
+            device,
+            &mut mark_encoder,
+            render_target_extent,
+            texture_view,
+            resolve_target,
+            x_adjustment,
+            y_adjustment,
+        );
+        mark_encoder.finish()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_into(
+        &self,
+        device: &Device,
+        mark_encoder: &mut wgpu::CommandEncoder,
+        render_target_extent: Extent3d,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    ) {
+        let timing_enabled =
+            tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
+        let total_start = timing_enabled.then(Instant::now);
+        let mut checkpoint = total_start;
 
         // Update mark uniforms
         let adjustment_scale = [
@@ -326,6 +354,7 @@ impl InstancedMarkRenderer {
             contents: bytemuck::cast_slice(&[mark_uniform]),
             usage: wgpu::BufferUsages::COPY_SRC,
         });
+        let uniform_buffer_us = checkpoint_us(&mut checkpoint);
 
         mark_encoder.copy_buffer_to_buffer(
             &temp_buffer,
@@ -334,85 +363,188 @@ impl InstancedMarkRenderer {
             0,
             std::mem::size_of::<MarkUniform>() as u64,
         );
+        let uniform_copy_us = checkpoint_us(&mut checkpoint);
 
-        for batch in self.batches.iter() {
-            if let Some(img) = &batch.image {
-                let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Temp Buffer"),
-                    contents: img.to_rgba8().as_raw(),
-                    usage: wgpu::BufferUsages::COPY_SRC,
-                });
-                mark_encoder.copy_buffer_to_texture(
-                    wgpu::TexelCopyBufferInfo {
-                        buffer: &temp_buffer,
-                        layout: TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(4 * self.texture_size.width),
-                            rows_per_image: Some(self.texture_size.height),
+        for instance_buffer in &self.instance_buffers {
+            for batch in &instance_buffer.batches {
+                if let Some(img) = &batch.image {
+                    let temp_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Temp Buffer"),
+                            contents: img.to_rgba8().as_raw(),
+                            usage: wgpu::BufferUsages::COPY_SRC,
+                        });
+                    mark_encoder.copy_buffer_to_texture(
+                        wgpu::TexelCopyBufferInfo {
+                            buffer: &temp_buffer,
+                            layout: TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(4 * self.texture_size.width),
+                                rows_per_image: Some(self.texture_size.height),
+                            },
                         },
-                    },
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &self.texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    self.texture_size,
-                );
-            }
-
-            {
-                let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Mark Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: texture_view,
-                        resolve_target,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
                         },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-                if let Clip::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                } = self.clip
-                {
-                    render_pass.set_scissor_rect(
-                        (x * self.scale) as u32,
-                        (y * self.scale) as u32,
-                        (width * self.scale) as u32,
-                        (height * self.scale) as u32,
+                        self.texture_size,
                     );
                 }
 
-                render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
+                {
+                    let mut render_pass =
+                        mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Mark Render Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: texture_view,
+                                resolve_target,
+                                depth_slice: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
+
+                    render_pass.set_pipeline(&self.render_pipeline);
+                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                    if let Clip::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } = self.clip
+                    {
+                        let px = (x * self.scale) as u32;
+                        let py = (y * self.scale) as u32;
+                        let pw = (width * self.scale) as u32;
+                        let ph = (height * self.scale) as u32;
+                        let cx = px.min(render_target_extent.width);
+                        let cy = py.min(render_target_extent.height);
+                        render_pass.set_scissor_rect(
+                            cx,
+                            cy,
+                            pw.min(render_target_extent.width - cx),
+                            ph.min(render_target_extent.height - cy),
+                        );
+                    }
+
+                    render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
+                }
             }
         }
+        let encode_us = checkpoint_us(&mut checkpoint);
 
-        mark_encoder.finish()
+        if let Some(start) = total_start {
+            let instance_count: u32 = self
+                .instance_buffers
+                .iter()
+                .flat_map(|chunk| chunk.batches.iter())
+                .map(|batch| batch.instances_range.end - batch.instances_range.start)
+                .sum();
+            let image_batch_count = self
+                .instance_buffers
+                .iter()
+                .flat_map(|chunk| chunk.batches.iter())
+                .filter(|batch| batch.image.is_some())
+                .count();
+            tracing::debug!(
+                target: "avenger_wgpu::render_breakdown",
+                renderer = "instanced",
+                total_ms = start.elapsed().as_secs_f64() * 1000.0,
+                uniform_buffer_ms = us_to_ms(uniform_buffer_us),
+                uniform_copy_ms = us_to_ms(uniform_copy_us),
+                encode_ms = us_to_ms(encode_us),
+                buffer_count = self.instance_buffers.len(),
+                batch_count = self
+                    .instance_buffers
+                    .iter()
+                    .map(|chunk| chunk.batches.len())
+                    .sum::<usize>(),
+                image_batch_count,
+                instance_count,
+                index_count = self.num_indices,
+                "wgpu.render.renderer"
+            );
+        }
     }
 }
 
+fn make_instance_buffers<I>(
+    device: &Device,
+    instances: &[I],
+    batches: &[InstancedMarkBatch],
+) -> Vec<InstancedInstanceBuffer>
+where
+    I: bytemuck::Pod + bytemuck::Zeroable,
+{
+    let instance_size = std::mem::size_of::<I>().max(1);
+    let max_buffer_size = device.limits().max_buffer_size as usize;
+    let max_instances_per_buffer = (max_buffer_size / instance_size).max(1);
+    let mut chunks = Vec::new();
+
+    for chunk_start in (0..instances.len()).step_by(max_instances_per_buffer) {
+        let chunk_end = (chunk_start + max_instances_per_buffer).min(instances.len());
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instances[chunk_start..chunk_end]),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let mut chunk_batches = Vec::new();
+        for batch in batches {
+            let batch_start = batch.instances_range.start as usize;
+            let batch_end = batch.instances_range.end as usize;
+            let overlap_start = batch_start.max(chunk_start);
+            let overlap_end = batch_end.min(chunk_end);
+            if overlap_start < overlap_end {
+                chunk_batches.push(InstancedMarkBatch {
+                    instances_range: (overlap_start - chunk_start) as u32
+                        ..(overlap_end - chunk_start) as u32,
+                    image: batch.image.clone(),
+                });
+            }
+        }
+
+        chunks.push(InstancedInstanceBuffer {
+            buffer,
+            batches: chunk_batches,
+        });
+    }
+
+    chunks
+}
+
+fn checkpoint_us(checkpoint: &mut Option<Instant>) -> u64 {
+    if let Some(previous) = checkpoint {
+        let now = Instant::now();
+        let elapsed_us = now.duration_since(*previous).as_micros() as u64;
+        *previous = now;
+        elapsed_us
+    } else {
+        0
+    }
+}
+
+fn us_to_ms(us: u64) -> f64 {
+    us as f64 / 1000.0
+}
+
 pub trait InstancedMarkFingerprint {
-    /// Fingerprint that uniquely identifies the portions of the mark that are not
-    /// controlled by the instance renderer's uniform buffer.
+    /// Fingerprint that identifies the mark content used by an instance renderer.
     ///
-    /// An instance renderer may be reused across scene marks with the same fingerprint
-    /// if the mark's uniform buffer is updated to match the new mark.
+    /// A renderer cache must combine this fingerprint with any immutable render context
+    /// stored in uniforms, such as the mark origin, canvas dimensions, and effective clip.
     fn instanced_fingerprint(&self) -> u64;
 }
