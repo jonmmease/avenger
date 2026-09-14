@@ -701,6 +701,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-color",
  "avenger-common",
+ "avenger-eventstream",
  "avenger-image",
  "avenger-resource",
  "avenger-scenegraph",

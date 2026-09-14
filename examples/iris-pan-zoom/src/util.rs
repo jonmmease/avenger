@@ -1,16 +1,27 @@
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
+use arrow::array::{ArrayRef, Float32Array, Float32Builder, StringArray, StringBuilder};
 use avenger_app::{
     app::{AvengerApp, SceneGraphBuilder},
     error::AvengerAppError,
 };
 use avenger_color::ColorOrGradient;
-use avenger_common::{cursor::CursorStyle, types::SymbolShape, value::ScalarOrArray};
+use avenger_common::{
+    cursor::CursorStyle,
+    time::{Duration, Instant},
+    types::SymbolShape,
+    value::ScalarOrArray,
+};
 use avenger_eventstream::{
     manager::EventStreamHandler,
+    runtime::{
+        RuntimeHostCommand as Command, RuntimeTooltipPresentation, RuntimeTooltipRow,
+        RuntimeTooltipUpdate, RuntimeWakeKey,
+    },
     scene::{SceneGraphEvent, SceneGraphEventType},
-    stream::{DebounceConfig, EventStreamConfig, EventStreamFilter, UpdateStatus},
+    stream::{
+        DebounceConfig, EventStreamConfig, EventStreamContext, EventStreamFilter, UpdateStatus,
+    },
     window::{MouseButton, MouseScrollDelta},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -52,16 +63,16 @@ pub struct PanAnchor {
 
 #[derive(Clone)]
 pub struct ChartState {
-    #[allow(dead_code)]
     pub hover_index: Option<usize>,
+    hover_generation: u64,
+    hover_visible: bool,
+    pointer: [f32; 2],
     pub width: f32,
     pub height: f32,
     pub domain_sepal_length: (f32, f32),
     pub domain_sepal_width: (f32, f32),
     pub sepal_length: ArrayRef,
-    #[allow(dead_code)]
     pub sepal_width: ArrayRef,
-    #[allow(dead_code)]
     pub species: ArrayRef,
     pub plot_group_name: String,
 
@@ -207,6 +218,9 @@ impl ChartState {
 
         Self {
             hover_index: None,
+            hover_generation: 0,
+            hover_visible: false,
+            pointer: [0.0; 2],
             width,
             height,
             base_x_scale,
@@ -263,6 +277,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     let shape = SymbolShape::from_vega_str("circle").unwrap();
 
     let points = SceneSymbolMark {
+        name: "iris-points".into(),
         len: chart_state.sepal_length.len() as u32,
         x: chart_state.x.clone(),
         y: chart_state.y.clone(),
@@ -399,6 +414,21 @@ pub async fn run() {
         ChartState::new(),
         Arc::new(IrisSceneGraphBuilder),
         vec![
+            (
+                EventStreamConfig {
+                    types: vec![
+                        SceneGraphEventType::CursorMoved,
+                        SceneGraphEventType::MarkMouseLeave,
+                        SceneGraphEventType::MouseDown,
+                        SceneGraphEventType::MouseWheel,
+                        SceneGraphEventType::WindowFocused,
+                        SceneGraphEventType::WindowResize,
+                        SceneGraphEventType::RuntimeWake,
+                    ],
+                    ..Default::default()
+                },
+                Arc::new(PointTooltip),
+            ),
             (
                 EventStreamConfig {
                     types: vec![SceneGraphEventType::WindowResize],
@@ -729,5 +759,184 @@ impl EventStreamHandler<ChartState> for ResizeChart {
             cursor: Some(CursorStyle::Default),
             ..Default::default()
         }
+    }
+}
+
+fn hover_key() -> RuntimeWakeKey {
+    RuntimeWakeKey::new("iris", 0, "hover")
+}
+fn hide_tooltip(state: &mut ChartState) -> UpdateStatus {
+    state.hover_index = None;
+    state.hover_visible = false;
+    state.hover_generation += 1;
+    UpdateStatus {
+        commands: vec![
+            Command::CancelWakeup { key: hover_key() },
+            Command::UpdateTooltip(RuntimeTooltipUpdate::Hide {
+                owner: "iris".into(),
+            }),
+        ],
+        ..Default::default()
+    }
+}
+
+struct PointTooltip;
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl EventStreamHandler<ChartState> for PointTooltip {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        tooltip_event(event, Instant::now(), state)
+    }
+    async fn handle_with_context(
+        &self,
+        event: &SceneGraphEvent,
+        context: &EventStreamContext,
+        state: &mut ChartState,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        tooltip_event(
+            event,
+            context.current_event.as_ref().expect("event time").instant,
+            state,
+        )
+    }
+}
+
+fn tooltip_event(event: &SceneGraphEvent, time: Instant, state: &mut ChartState) -> UpdateStatus {
+    match event {
+        SceneGraphEvent::CursorMoved(event) if state.pan_anchor.is_none() => {
+            state.pointer = event.position;
+            let point = event
+                .mark_instance
+                .as_ref()
+                .filter(|mark| mark.name == "iris-points")
+                .and_then(|mark| mark.instance_index);
+            if point != state.hover_index {
+                let mut status = hide_tooltip(state);
+                state.hover_index = point;
+                if point.is_some() {
+                    status.commands.push(Command::RequestWakeup {
+                        key: hover_key(),
+                        deadline: time + Duration::from_millis(400),
+                        generation: state.hover_generation,
+                    });
+                }
+                status
+            } else if state.hover_visible {
+                UpdateStatus {
+                    commands: vec![Command::UpdateTooltip(RuntimeTooltipUpdate::Move {
+                        owner: "iris".into(),
+                        anchor: state.pointer,
+                    })],
+                    ..Default::default()
+                }
+            } else {
+                UpdateStatus::default()
+            }
+        }
+        SceneGraphEvent::RuntimeWake(wake)
+            if wake.key == hover_key() && wake.generation == state.hover_generation =>
+        {
+            let Some(index) = state.hover_index else {
+                return UpdateStatus::default();
+            };
+            let length = state
+                .sepal_length
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap()
+                .value(index);
+            let width = state
+                .sepal_width
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap()
+                .value(index);
+            let species = state
+                .species
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(index);
+            state.hover_visible = true;
+            UpdateStatus {
+                commands: vec![Command::UpdateTooltip(RuntimeTooltipUpdate::Show(
+                    RuntimeTooltipPresentation {
+                        owner: "iris".into(),
+                        anchor: state.pointer,
+                        offset: [12.0; 2],
+                        rows: vec![
+                            RuntimeTooltipRow {
+                                label: "Point".into(),
+                                value: format!("{} · {species}", index + 1),
+                            },
+                            RuntimeTooltipRow {
+                                label: "Sepal length".into(),
+                                value: format!("{length:.2}"),
+                            },
+                            RuntimeTooltipRow {
+                                label: "Sepal width".into(),
+                                value: format!("{width:.2}"),
+                            },
+                        ],
+                        style: Default::default(),
+                    },
+                ))],
+                ..Default::default()
+            }
+        }
+        SceneGraphEvent::MouseLeave(_)
+        | SceneGraphEvent::MouseDown(_)
+        | SceneGraphEvent::MouseWheel(_)
+        | SceneGraphEvent::WindowFocused(false)
+        | SceneGraphEvent::WindowResize(_) => hide_tooltip(state),
+        _ => UpdateStatus::default(),
+    }
+}
+
+#[cfg(test)]
+mod tooltip_tests {
+    use super::*;
+    use avenger_eventstream::{runtime::RuntimeWakeEvent, scene::SceneCursorMovedEvent};
+    use avenger_scenegraph::marks::mark::MarkInstance;
+    #[test]
+    fn tooltip_move_needs_no_scene_rebuild_and_leave_rejects_old_wake() {
+        let mut state = ChartState::new();
+        let time = Instant::now();
+        let event = SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+            position: [100.0, 100.0],
+            mark_instance: Some(MarkInstance {
+                name: "iris-points".into(),
+                mark_path: vec![],
+                instance_index: Some(0),
+            }),
+            modifiers: Default::default(),
+        });
+        let status = tooltip_event(&event, time, &mut state);
+        assert!(status
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::RequestWakeup { .. })));
+        let wake = SceneGraphEvent::RuntimeWake(RuntimeWakeEvent {
+            key: hover_key(),
+            generation: state.hover_generation,
+        });
+        let shown = tooltip_event(&wake, time + Duration::from_millis(400), &mut state);
+        assert!(!shown.rerender);
+        assert!(state.hover_visible);
+        let moved = tooltip_event(&event, time, &mut state);
+        assert!(!moved.rerender && !moved.rebuild_geometry);
+        assert!(matches!(
+            moved.commands.as_slice(),
+            [Command::UpdateTooltip(RuntimeTooltipUpdate::Move { .. })]
+        ));
+        tooltip_event(&SceneGraphEvent::WindowFocused(false), time, &mut state);
+        assert!(tooltip_event(&wake, time, &mut state).commands.is_empty());
+        assert!(!state.hover_visible);
     }
 }

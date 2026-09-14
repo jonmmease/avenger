@@ -123,3 +123,11 @@ cargo run --release -p avenger-wgpu --example image_resources -- docs/images/ima
 ```
 
 ![Pending and ready resources with a warped image](images/image-resources.png)
+
+## Coordinate input and host updates
+
+Use `AvengerApp::update_with_status` to receive cursor changes and `RuntimeHostCommand` values even when an update does not rebuild the scene. `EventAdmission` controls whether a handler advances its stream state. Between streams can deliver the end event with the original gesture context, and `DebouncedCommit` applies a draft after a keyed deadline.
+
+`WindowSceneSizing` controls whether the surface follows the window or selected scene dimensions. A render invalidation hub refreshes resources while the window is idle. Escape and close requests reach application handlers, and focus changes clear shortcut state.
+
+Tooltips use owner-scoped show, move, and hide commands. Move updates reuse their content geometry. Run the [Iris example](../examples/iris-pan-zoom/README.md) to try panning, delayed readouts, resizing, and point tooltips in a native window or browser.
