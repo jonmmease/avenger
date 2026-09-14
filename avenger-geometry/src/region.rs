@@ -1,8 +1,10 @@
 //! Query regions: a selection shape made valid, cut to what a clip leaves visible, and prepared
 //! for testing many instances.
 
-use avenger_common::types::FillRule;
-use avenger_scenegraph::marks::group::Clip;
+use avenger_scenegraph::{
+    marks::group::Clip,
+    path_geometry::{filled_contours, resolve_contours, FilledContours},
+};
 use geo::{
     BoundingRect, Centroid, CoordsIter, Distance, Euclidean, Intersects, MonotonicPolygons,
     PreparedGeometry, Relate,
@@ -12,7 +14,6 @@ use i_overlay::{
     core::{fill_rule::FillRule as OverlayFillRule, overlay_rule::OverlayRule},
     float::overlay::FloatOverlay,
 };
-use lyon_path::{iterator::PathIterator, Event};
 use rstar::{primitives::Line, Envelope, RTree, AABB};
 
 use crate::rtree::{GeometryInstance, GeometryQueryHitPolicy, GeometryQueryShape};
@@ -20,9 +21,6 @@ use crate::rtree::{GeometryInstance, GeometryQueryHitPolicy, GeometryQueryShape}
 /// The largest gap between a curve and the polygon edges that stand in for it: in clip paths,
 /// and in circles that a clip cuts.
 const TOLERANCE: f32 = 0.1;
-
-/// Polygons as i_overlay returns them: each an exterior contour followed by its holes.
-type Contours = Vec<Vec<Vec<[f32; 2]>>>;
 
 /// A query shape in scene coordinates, ready to test instances against.
 pub(crate) enum Region {
@@ -33,7 +31,7 @@ pub(crate) enum Region {
 
 /// Valid polygons, with the structures that make testing many instances fast.
 pub(crate) struct Polygons {
-    contours: Contours,
+    contours: FilledContours,
     /// The polygons, prepared for exact tests against an instance's geometry.
     prepared: PreparedGeometry<'static, f32>,
     /// The polygons, prepared for point tests.
@@ -59,7 +57,7 @@ impl Region {
                 if points.len() < 3 {
                     return None;
                 }
-                Polygons::new(fill(points, *fill_rule))
+                Polygons::new(resolve_contours(std::slice::from_ref(points), *fill_rule))
                     .map(|polygons| Region::Polygons(Box::new(polygons)))
             }
         }
@@ -111,7 +109,7 @@ impl Region {
                     _ => rect_contours(min, max),
                 }
             }
-            Clip::Path(path) => fill_paths(&flatten(path), FillRule::NonZero),
+            Clip::Path { path, fill_rule } => filled_contours(path, TOLERANCE, *fill_rule),
         };
         let cut = FloatOverlay::with_subj_and_clip(&self.contours(), &clip)
             .overlay(OverlayRule::Intersect, OverlayFillRule::NonZero);
@@ -216,7 +214,7 @@ impl Region {
     }
 
     /// The region as polygon contours, with a circle's edge within `TOLERANCE` of it.
-    fn contours(&self) -> Contours {
+    fn contours(&self) -> FilledContours {
         match self {
             Region::Rect { min, max } => rect_contours(*min, *max),
             Region::Circle { center, radius } => {
@@ -245,7 +243,7 @@ impl Region {
 
 impl Polygons {
     /// Prepares valid polygons, or returns `None` when they cover no area.
-    fn new(contours: Contours) -> Option<Self> {
+    fn new(contours: FilledContours) -> Option<Self> {
         let polygons = MultiPolygon::new(contours.iter().map(|shape| polygon(shape)).collect());
         let bounds = polygons.bounding_rect()?;
         let edges = contours
@@ -325,37 +323,8 @@ impl Polygons {
     }
 }
 
-/// The area that contours enclose under `fill_rule`, as valid polygons.
-fn fill_paths(contours: &[Vec<[f32; 2]>], fill_rule: FillRule) -> Contours {
-    let fill_rule = match fill_rule {
-        FillRule::NonZero => OverlayFillRule::NonZero,
-        FillRule::EvenOdd => OverlayFillRule::EvenOdd,
-    };
-    FloatOverlay::with_subj(contours).overlay(OverlayRule::Subject, fill_rule)
-}
-
-/// The area that one closed contour encloses under `fill_rule`, as valid polygons.
-fn fill(points: &[[f32; 2]], fill_rule: FillRule) -> Contours {
-    fill_paths(&[points.to_vec()], fill_rule)
-}
-
-fn rect_contours(min: [f32; 2], max: [f32; 2]) -> Contours {
+fn rect_contours(min: [f32; 2], max: [f32; 2]) -> FilledContours {
     vec![vec![vec![min, [max[0], min[1]], max, [min[0], max[1]]]]]
-}
-
-/// A path's subpaths as closed contours, with curves within `TOLERANCE`.
-fn flatten(path: &lyon_path::Path) -> Vec<Vec<[f32; 2]>> {
-    let mut contours = Vec::new();
-    let mut contour = Vec::new();
-    for event in path.iter().flattened(TOLERANCE) {
-        match event {
-            Event::Begin { at } => contour = vec![[at.x, at.y]],
-            Event::Line { to, .. } => contour.push([to.x, to.y]),
-            Event::End { .. } if contour.len() >= 3 => contours.push(std::mem::take(&mut contour)),
-            _ => {}
-        }
-    }
-    contours
 }
 
 /// A geo polygon from an exterior contour followed by its holes.
@@ -378,6 +347,7 @@ fn polygon(shape: &[Vec<[f32; 2]>]) -> Polygon<f32> {
 
 #[cfg(test)]
 mod tests {
+    use avenger_common::types::FillRule;
     use avenger_scenegraph::marks::mark::MarkInstance;
     use geo_types::MultiLineString;
 
@@ -466,7 +436,9 @@ mod tests {
                 })
                 .collect();
             for fill_rule in [FillRule::NonZero, FillRule::EvenOdd] {
-                let Some(polygons) = Polygons::new(fill(&points, fill_rule)) else {
+                let Some(polygons) =
+                    Polygons::new(resolve_contours(std::slice::from_ref(&points), fill_rule))
+                else {
                     continue;
                 };
                 let reference = reference(&polygons);

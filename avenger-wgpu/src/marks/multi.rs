@@ -1,3 +1,5 @@
+use avenger_common::types::{FillRule as SceneFillRule, LYON_SCENE_MITER_LIMIT};
+use avenger_scenegraph::path_geometry::GradientBounds;
 use std::ops::{Mul, Range};
 
 use avenger_color::ColorOrGradient;
@@ -38,7 +40,7 @@ use lyon::{
         LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{builder::BorderRadii, Path, Winding},
+    path::{builder::BorderRadii, geom::point, Path, Winding},
 };
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
@@ -711,7 +713,7 @@ impl MultiMarkRenderer {
             return Ok(None);
         }
 
-        if let Clip::Path(path) = &clip {
+        if let Clip::Path { path, fill_rule } = &clip {
             // Tesselate path
             let bbox = bounding_box(path);
 
@@ -729,7 +731,9 @@ impl MultiMarkRenderer {
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
+            let fill_options = FillOptions::default()
+                .with_fill_rule((*fill_rule).into())
+                .with_tolerance(0.05);
             fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
 
             let start_index = self.num_clip_indices() as u32;
@@ -796,8 +800,11 @@ impl MultiMarkRenderer {
         mark_clip: bool,
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
+        fill_rule: SceneFillRule,
+        gradient_bounds: Option<GradientBounds>,
     ) -> Result<(), AvengerWgpuError> {
-        let (fill_verts, fill_indices) = tessellate_fill_path(path, fill, grad_coords)?;
+        let (fill_verts, fill_indices) =
+            tessellate_fill_path(path, fill, grad_coords, fill_rule, gradient_bounds)?;
         if let Some(range) = self.push_verts_inds(fill_verts, fill_indices) {
             self.push_normal_batch(range, clip, mark_clip, gradient_atlas_index)?;
         }
@@ -812,6 +819,7 @@ impl MultiMarkRenderer {
                 mark_clip,
                 pattern_reference_frame,
                 chart_bounds,
+                fill_rule,
             )?;
         }
 
@@ -822,6 +830,7 @@ impl MultiMarkRenderer {
             stroke_width,
             stroke_cap,
             stroke_join,
+            gradient_bounds,
         )?;
         if let Some(range) = self.push_verts_inds(stroke_verts, stroke_indices) {
             self.push_normal_batch(range, clip, mark_clip, gradient_atlas_index)?;
@@ -841,6 +850,7 @@ impl MultiMarkRenderer {
         mark_clip: bool,
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
+        fill_rule: SceneFillRule,
     ) -> Result<(), AvengerWgpuError> {
         let bbox = bounding_box(host_path);
         let host_bounds = PatternRect::new(
@@ -868,7 +878,8 @@ impl MultiMarkRenderer {
         }
 
         let stencil_paint = ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]);
-        let (host_verts, host_indices) = tessellate_fill_path(host_path, &stencil_paint, &[])?;
+        let (host_verts, host_indices) =
+            tessellate_fill_path(host_path, &stencil_paint, &[], fill_rule, None)?;
         let Some(host_indices_range) = self.push_verts_inds(host_verts, host_indices) else {
             return Ok(());
         };
@@ -959,7 +970,7 @@ impl MultiMarkRenderer {
 
             // Tesselate stroke
             let mut stroke_tessellator = StrokeTessellator::new();
-            let stroke_options = StrokeOptions::default()
+            let stroke_options = StrokeOptions::default().with_miter_limit(LYON_SCENE_MITER_LIMIT)
                 .with_tolerance(0.05)
                 .with_line_join(LineJoin::Miter)
                 .with_line_cap(match cap {
@@ -1030,6 +1041,8 @@ impl MultiMarkRenderer {
                     mark.clip,
                     pattern_reference_frame,
                     chart_bounds,
+                    SceneFillRule::NonZero,
+                    None,
                 )?;
             }
 
@@ -1152,7 +1165,9 @@ impl MultiMarkRenderer {
 
                     // Tesselate fill
                     let mut fill_tessellator = FillTessellator::new();
-                    let fill_options = FillOptions::default().with_tolerance(0.05);
+                    let fill_options = FillOptions::default()
+                        .with_fill_rule(FillRule::NonZero)
+                        .with_tolerance(0.05);
 
                     fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
@@ -1160,6 +1175,7 @@ impl MultiMarkRenderer {
                     if *stroke_width > 0.0 {
                         let mut stroke_tessellator = StrokeTessellator::new();
                         let stroke_options = StrokeOptions::default()
+                            .with_miter_limit(LYON_SCENE_MITER_LIMIT)
                             .with_tolerance(0.05)
                             .with_line_width(*stroke_width);
                         stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
@@ -1256,6 +1272,8 @@ impl MultiMarkRenderer {
                     mark.clip,
                     pattern_reference_frame,
                     chart_bounds,
+                    mark.fill_rule,
+                    None,
                 )?;
             }
 
@@ -1282,7 +1300,9 @@ impl MultiMarkRenderer {
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
+            let fill_options = FillOptions::default()
+                .with_fill_rule(mark.fill_rule.into())
+                .with_tolerance(0.05);
 
             fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
 
@@ -1290,6 +1310,7 @@ impl MultiMarkRenderer {
             if let Some(stroke_width) = mark.stroke_width {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
+                    .with_miter_limit(LYON_SCENE_MITER_LIMIT)
                     .with_tolerance(0.05)
                     .with_line_join(match mark.stroke_join {
                         StrokeJoin::Miter => LineJoin::Miter,
@@ -1363,11 +1384,14 @@ impl MultiMarkRenderer {
                 .gradient_atlas_builder
                 .register_gradients(&mark.gradients);
 
-            for (path, fill, fill_pattern, stroke) in izip!(
+            for (path, fill, fill_pattern, stroke, x, y, size) in izip!(
                 mark.transformed_path_iter(origin),
                 mark.fill_iter(),
                 mark.fill_pattern_iter(),
-                mark.stroke_iter()
+                mark.stroke_iter(),
+                mark.x_iter(),
+                mark.y_iter(),
+                mark.size_iter()
             ) {
                 self.add_path_item_with_optional_pattern(
                     &path,
@@ -1385,6 +1409,11 @@ impl MultiMarkRenderer {
                     mark.clip,
                     pattern_reference_frame,
                     chart_bounds,
+                    mark.fill_rule,
+                    Some(GradientBounds::symbol(
+                        [x + origin[0], y + origin[1]],
+                        *size,
+                    )),
                 )?;
             }
 
@@ -1420,7 +1449,9 @@ impl MultiMarkRenderer {
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.1);
+            let fill_options = FillOptions::default()
+                .with_fill_rule(mark.fill_rule.into())
+                .with_tolerance(0.1);
 
             fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
@@ -1428,6 +1459,7 @@ impl MultiMarkRenderer {
             if stroke_width > 0.0 {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
+                    .with_miter_limit(LYON_SCENE_MITER_LIMIT)
                     .with_tolerance(0.1)
                     .with_line_join(LineJoin::Miter)
                     .with_line_cap(LineCap::Butt)
@@ -1549,6 +1581,7 @@ impl MultiMarkRenderer {
         // Tesselate path
         let mut stroke_tessellator = StrokeTessellator::new();
         let stroke_options = StrokeOptions::default()
+            .with_miter_limit(LYON_SCENE_MITER_LIMIT)
             .with_tolerance(0.05)
             .with_line_join(match mark.stroke_join {
                 StrokeJoin::Miter => LineJoin::Miter,
@@ -1620,6 +1653,8 @@ impl MultiMarkRenderer {
                 mark.clip,
                 pattern_reference_frame,
                 chart_bounds,
+                SceneFillRule::NonZero,
+                Some(GradientBounds::from_path(&fill_path)),
             )?;
 
             return Ok(());
@@ -1641,13 +1676,16 @@ impl MultiMarkRenderer {
 
         // Tessellate fill
         let mut fill_tessellator = FillTessellator::new();
-        let fill_options = FillOptions::default().with_tolerance(0.05);
+        let fill_options = FillOptions::default()
+            .with_fill_rule(FillRule::NonZero)
+            .with_tolerance(0.05);
         fill_tessellator.tessellate_path(&fill_path, &fill_options, &mut buffers_builder)?;
 
         // Tessellate path
         if mark.stroke_width > 0.0 {
             let mut stroke_tessellator = StrokeTessellator::new();
             let stroke_options = StrokeOptions::default()
+                .with_miter_limit(LYON_SCENE_MITER_LIMIT)
                 .with_tolerance(0.05)
                 .with_line_join(match mark.stroke_join {
                     StrokeJoin::Miter => LineJoin::Miter,
@@ -1698,45 +1736,25 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let path = mark.transformed_path(origin);
-        let bbox = bounding_box(&path);
-
-        // Create vertex/index buffer builder
+        let centerline = mark.transformed_path(origin);
+        let bbox = bounding_box(&centerline);
+        let outline = avenger_scenegraph::path_geometry::trail_outline(&centerline, 0.05, 0)?;
         let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-        let mut buffers_builder = BuffersBuilder::new(
-            &mut buffers,
-            VertexPositions {
-                fill: [0.0, 0.0, 0.0, 0.0],
-                stroke: to_color_or_gradient_coord(&mark.stroke, &grad_coords),
-                top_left: bbox.min.to_array(),
-                bottom_right: bbox.max.to_array(),
-            },
-        );
-
-        // Tesselate path
-        let mut stroke_tessellator = StrokeTessellator::new();
-        let stroke_options = StrokeOptions::default()
-            .with_tolerance(0.05)
-            .with_line_join(LineJoin::Round)
-            .with_line_cap(LineCap::Round)
-            .with_variable_line_width(0);
-        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
-
-        // Variable-width stroke joins can fold back on themselves. Keep the
-        // front-facing triangles that the original culled pipeline rendered;
-        // drawing the reversed folds applies translucent paint twice.
-        buffers.indices = buffers
-            .indices
-            .chunks_exact(3)
-            .filter(|triangle| {
-                let a = buffers.vertices[triangle[0] as usize].position;
-                let b = buffers.vertices[triangle[1] as usize].position;
-                let c = buffers.vertices[triangle[2] as usize].position;
-                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 0.0
-            })
-            .flatten()
-            .copied()
-            .collect();
+        FillTessellator::new().tessellate_path(
+            &outline,
+            &FillOptions::default()
+                .with_tolerance(0.05)
+                .with_fill_rule(FillRule::NonZero),
+            &mut BuffersBuilder::new(
+                &mut buffers,
+                VertexPositions {
+                    fill: to_color_or_gradient_coord(&mark.stroke, &grad_coords),
+                    stroke: [0.0; 4],
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
+                },
+            ),
+        )?;
 
         let start_ind = self.num_indices();
         let indices_range = (start_ind as u32)..((start_ind + buffers.indices.len()) as u32);
@@ -1795,6 +1813,8 @@ impl MultiMarkRenderer {
                     mark.clip,
                     pattern_reference_frame,
                     chart_bounds,
+                    SceneFillRule::NonZero,
+                    None,
                 )?;
             }
 
@@ -1832,13 +1852,13 @@ impl MultiMarkRenderer {
 
                 // Tesselate fill
                 let mut fill_tessellator = FillTessellator::new();
-                let fill_options = FillOptions::default().with_tolerance(0.05);
+                let fill_options = FillOptions::default().with_fill_rule(FillRule::NonZero).with_tolerance(0.05);
                 fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
                 // Tesselate stroke
                 if *stroke_width > 0.0 {
                     let mut stroke_tessellator = StrokeTessellator::new();
-                    let stroke_options = StrokeOptions::default()
+                    let stroke_options = StrokeOptions::default().with_miter_limit(LYON_SCENE_MITER_LIMIT)
                         .with_tolerance(0.05)
                         .with_line_join(LineJoin::Miter)
                         .with_line_cap(LineCap::Butt)
@@ -1885,7 +1905,7 @@ impl MultiMarkRenderer {
         // assignment failure (overflow, non-resource source, no allocator)
         // falls back to the atlas path below.
         if let Some(size) = mark.tile_texture_size {
-            if !(matches!(clip, Clip::Path(_)) && mark.clip)
+            if !(matches!(clip, Clip::Path { .. }) && mark.clip)
                 && self.try_add_tile_image_mark(mark, origin, clip, size)?
             {
                 return Ok(());
@@ -2098,7 +2118,7 @@ impl MultiMarkRenderer {
         }
         // Tile-array route (see `add_image_mark`).
         if let Some(size) = mark.tile_texture_size {
-            if !(matches!(clip, Clip::Path(_)) && mark.clip) {
+            if !(matches!(clip, Clip::Path { .. }) && mark.clip) {
                 if let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) =
                     &mark.image
                 {
@@ -3084,22 +3104,24 @@ fn tessellate_fill_path(
     path: &Path,
     fill: &ColorOrGradient,
     grad_coords: &[f32],
+    fill_rule: SceneFillRule,
+    gradient_bounds: Option<GradientBounds>,
 ) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-    let bbox = bounding_box(path);
+    let bbox = gradient_bounds.unwrap_or_else(|| GradientBounds::from_path(path));
     let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
     let mut builder = BuffersBuilder::new(
         &mut buffers,
         VertexPositions {
             fill: to_color_or_gradient_coord(fill, grad_coords),
             stroke: [0.0, 0.0, 0.0, 0.0],
-            top_left: bbox.min.to_array(),
-            bottom_right: bbox.max.to_array(),
+            top_left: bbox.min,
+            bottom_right: bbox.max,
         },
     );
 
     let fill_options = FillOptions::default()
         .with_tolerance(0.05)
-        .with_fill_rule(FillRule::EvenOdd);
+        .with_fill_rule(fill_rule.into());
     FillTessellator::new().tessellate_path(path, &fill_options, &mut builder)?;
     Ok((buffers.vertices, buffers.indices))
 }
@@ -3111,25 +3133,27 @@ fn tessellate_stroke_path(
     stroke_width: f32,
     stroke_cap: StrokeCap,
     stroke_join: StrokeJoin,
+    gradient_bounds: Option<GradientBounds>,
 ) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
     if stroke_width <= 0.0 {
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let bbox = bounding_box(path);
+    let bbox = gradient_bounds.unwrap_or_else(|| GradientBounds::from_path(path));
     let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
     let mut builder = BuffersBuilder::new(
         &mut buffers,
         VertexPositions {
             fill: [0.0, 0.0, 0.0, 0.0],
             stroke: to_color_or_gradient_coord(stroke, grad_coords),
-            top_left: bbox.min.to_array(),
-            bottom_right: bbox.max.to_array(),
+            top_left: bbox.min,
+            bottom_right: bbox.max,
         },
     );
 
     let mut stroke_tessellator = StrokeTessellator::new();
     let stroke_options = StrokeOptions::default()
+        .with_miter_limit(LYON_SCENE_MITER_LIMIT)
         .with_tolerance(0.05)
         .with_line_join(to_line_join(stroke_join))
         .with_line_cap(to_line_cap(stroke_cap))
@@ -3155,10 +3179,12 @@ fn tessellate_pattern_coverage(
     let mut stroke_tessellator = StrokeTessellator::new();
     for primitive in primitives {
         match primitive {
-            PatternCoveragePrimitive::Filled(path) => {
+            PatternCoveragePrimitive::Filled { path, fill_rule } => {
                 fill_tessellator.tessellate_path(
                     path,
-                    &FillOptions::default().with_tolerance(0.05),
+                    &FillOptions::default()
+                        .with_fill_rule((*fill_rule).into())
+                        .with_tolerance(0.05),
                     &mut builder,
                 )?;
             }
@@ -3166,6 +3192,7 @@ fn tessellate_pattern_coverage(
                 stroke_tessellator.tessellate_path(
                     path,
                     &StrokeOptions::default()
+                        .with_miter_limit(LYON_SCENE_MITER_LIMIT)
                         .with_tolerance(0.05)
                         .with_line_width(*stroke_width)
                         .with_line_join(LineJoin::Miter)

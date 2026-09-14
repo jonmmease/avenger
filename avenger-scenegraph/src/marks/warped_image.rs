@@ -196,12 +196,31 @@ fn sample_bilinear(image: &RgbaImage, u: f32, v: f32) -> [u8; 4] {
 
     let (p00, p10) = (pixel_at(image, x0, y0), pixel_at(image, x1, y0));
     let (p01, p11) = (pixel_at(image, x0, y1), pixel_at(image, x1, y1));
-    let mut rgba = [0u8; 4];
-    for (channel, value) in rgba.iter_mut().enumerate() {
-        let top = p00[channel] as f32 * (1.0 - tx) + p10[channel] as f32 * tx;
-        let bottom = p01[channel] as f32 * (1.0 - tx) + p11[channel] as f32 * tx;
-        *value = (top * (1.0 - ty) + bottom * ty).round().clamp(0.0, 255.0) as u8;
+    let weights = [
+        (1.0 - tx) * (1.0 - ty),
+        tx * (1.0 - ty),
+        (1.0 - tx) * ty,
+        tx * ty,
+    ];
+    let samples = [p00, p10, p01, p11];
+    let alpha: f32 = samples
+        .iter()
+        .zip(weights)
+        .map(|(p, w)| p[3] as f32 * w)
+        .sum();
+    let mut rgba = [0; 4];
+    if alpha > 0.0 {
+        for channel in 0..3 {
+            let premultiplied: f32 = samples
+                .iter()
+                .zip(weights)
+                .map(|(p, w)| p[channel] as f32 * p[3] as f32 * w)
+                .sum();
+            rgba[channel] = (premultiplied / alpha).round().clamp(0.0, 255.0) as u8;
+        }
+        rgba[3] = alpha.round().clamp(0.0, 255.0) as u8;
     }
+
     rgba
 }
 
@@ -283,6 +302,26 @@ mod tests {
             smooth: false,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn bilinear_sampling_ignores_hidden_rgb_and_returns_straight_alpha() {
+        for hidden in [[0, 0, 255], [0, 255, 0]] {
+            let image = RgbaImage {
+                width: 2,
+                height: 1,
+                data: vec![255, 0, 0, 255, hidden[0], hidden[1], hidden[2], 0],
+            };
+            assert_eq!(sample_bilinear(&image, 0.5, 0.5), [255, 0, 0, 128]);
+            assert_eq!(sample_bilinear(&image, 1.0, 0.5), [0; 4]);
+            assert_eq!(sample_nearest(&image, 0.0, 0.5), [255, 0, 0, 255]);
+        }
+        let image = RgbaImage {
+            width: 2,
+            height: 1,
+            data: vec![200, 40, 100, 128, 40, 200, 100, 64],
+        };
+        assert_eq!(sample_bilinear(&image, 0.5, 0.5), [147, 93, 100, 96]);
     }
 
     #[test]

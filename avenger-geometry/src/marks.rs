@@ -209,7 +209,7 @@ impl MarkGeometryUtils for ScenePathMark {
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
                 move |(id, path)| {
-                    let geometry = path.as_geo_type(0.1, true);
+                    let geometry = path.filled_geo_type(0.1, self.fill_rule);
                     GeometryInstance {
                         mark_instance: MarkInstance {
                             name: name.clone(),
@@ -337,7 +337,9 @@ impl MarkGeometryUtils for SceneSymbolMark {
             .shapes
             .iter()
             .map(|shape| match shape {
-                SymbolShape::Path(path) if !has_curves(path) => Some(path.as_geo_type(0.1, true)),
+                SymbolShape::Path(path) if !has_curves(path) => {
+                    Some(path.filled_geo_type(0.1, self.fill_rule))
+                }
                 _ => None,
             })
             .collect();
@@ -373,7 +375,9 @@ impl MarkGeometryUtils for SceneSymbolMark {
                             .then_rotate(Angle::degrees(*angle))
                             .then_translate(Vector::new(center[0], center[1]));
                         (
-                            path.clone().transformed(&transform).as_geo_type(0.1, true),
+                            path.clone()
+                                .transformed(&transform)
+                                .filled_geo_type(0.1, self.fill_rule),
                             half_stroke_width,
                         )
                     }

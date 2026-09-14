@@ -135,7 +135,10 @@ impl VegaMarkContainer<VegaGroupItem> {
                         },
                         Winding::Positive,
                     );
-                    Clip::Path(builder.build())
+                    Clip::Path {
+                        path: builder.build(),
+                        fill_rule: Default::default(),
+                    }
                 } else {
                     // Rect
                     Clip::Rect {
