@@ -814,22 +814,6 @@ mod tests {
         }
     }
 
-    fn wait_for_image_state(
-        cache: &ImageResourceCache,
-        key: &ResourceKey,
-        is_done: impl Fn(&ImageResourceState) -> bool,
-    ) -> ImageResourceState {
-        let start = Instant::now();
-        loop {
-            let state = cache.image_state(key);
-            if is_done(&state) {
-                return state;
-            }
-            assert!(start.elapsed() < Duration::from_secs(5));
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
     fn capacity(value: usize) -> NonZeroUsize {
         NonZeroUsize::new(value).expect("test cache capacity must be non-zero")
     }
@@ -1098,101 +1082,42 @@ mod tests {
     }
 
     #[test]
-    fn cache_requests_render_when_data_uri_becomes_ready() {
-        let hub = RenderInvalidationHub::default();
-        let invalidations = Arc::new(Mutex::new(Vec::new()));
-        let invalidations_callback = invalidations.clone();
-        let _subscription = hub.subscribe(Arc::new(move |invalidation| {
-            invalidations_callback
-                .lock()
-                .expect("invalidations lock poisoned")
-                .push(invalidation);
-        }));
-        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
-        let key = ResourceKey::new("tiny");
-
-        cache.request(image_request(
-            "tiny",
-            ResourceSource::DataUri {
-                data_uri: TINY_PNG_DATA_URI.to_string(),
-            },
-        ));
-
-        let state = wait_for_image_state(&cache, &key, |state| {
-            matches!(state, ImageResourceState::Ready(_))
-        });
-        assert!(matches!(state, ImageResourceState::Ready(_)));
-
-        let invalidations = invalidations.lock().expect("invalidations lock poisoned");
-        assert_eq!(invalidations.len(), 1);
-        assert!(matches!(
-            invalidations[0].reason,
-            RenderInvalidationReason::ResourceChanged { kind: "image" }
-        ));
-    }
-
-    #[test]
-    fn cache_requests_render_when_resource_fails() {
-        let hub = RenderInvalidationHub::default();
-        let invalidations = Arc::new(Mutex::new(Vec::new()));
-        let invalidations_callback = invalidations.clone();
-        let _subscription = hub.subscribe(Arc::new(move |invalidation| {
-            invalidations_callback
-                .lock()
-                .expect("invalidations lock poisoned")
-                .push(invalidation);
-        }));
-        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
-        let key = ResourceKey::new("bad");
-
-        cache.request(image_request(
-            "bad",
-            ResourceSource::Opaque {
-                provider: "test".to_string(),
-                id: "bad".to_string(),
-            },
-        ));
-
-        let state = wait_for_image_state(&cache, &key, |state| {
-            matches!(state, ImageResourceState::Failed(_))
-        });
-        assert!(matches!(state, ImageResourceState::Failed(_)));
-
-        let invalidations = invalidations.lock().expect("invalidations lock poisoned");
-        assert_eq!(invalidations.len(), 1);
-    }
-
-    #[test]
-    fn cache_render_invalidation_callback_can_query_image_state() {
-        let hub = RenderInvalidationHub::default();
-        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
-        let key = ResourceKey::new("tiny");
-        let cache_for_callback = cache.clone();
-        let key_for_callback = key.clone();
-        let callback_count = Arc::new(Mutex::new(0usize));
-        let callback_count_for_callback = callback_count.clone();
-        let _subscription = hub.subscribe(Arc::new(move |_| {
-            let _state = cache_for_callback.image_state(&key_for_callback);
-            *callback_count_for_callback
-                .lock()
-                .expect("callback count lock poisoned") += 1;
-        }));
-
-        cache.request(image_request(
-            "tiny",
-            ResourceSource::DataUri {
-                data_uri: TINY_PNG_DATA_URI.to_string(),
-            },
-        ));
-
-        let state = wait_for_image_state(&cache, &key, |state| {
-            matches!(state, ImageResourceState::Ready(_))
-        });
-        assert!(matches!(state, ImageResourceState::Ready(_)));
-        assert_eq!(
-            *callback_count.lock().expect("callback count lock poisoned"),
-            1
-        );
+    fn completed_loads_notify_rendering_outside_the_cache_lock() {
+        for succeeds in [true, false] {
+            let hub = RenderInvalidationHub::default();
+            let cache =
+                ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
+            let key = ResourceKey::new("image");
+            let (sent, received) = std::sync::mpsc::channel();
+            let callback_cache = cache.clone();
+            let callback_key = key.clone();
+            let _subscription = hub.subscribe(Arc::new(move |invalidation| {
+                let state = callback_cache.image_state(&callback_key);
+                sent.send((invalidation.reason, state)).unwrap();
+            }));
+            let source = if succeeds {
+                ResourceSource::DataUri {
+                    data_uri: TINY_PNG_DATA_URI.to_owned(),
+                }
+            } else {
+                ResourceSource::Opaque {
+                    provider: "test".into(),
+                    id: "bad".into(),
+                }
+            };
+            cache.request(image_request("image", source));
+            let (reason, state) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(
+                reason,
+                RenderInvalidationReason::ResourceChanged { kind: "image" }
+            );
+            if succeeds {
+                assert!(matches!(state, ImageResourceState::Ready(_)));
+            } else {
+                assert!(matches!(state, ImageResourceState::Failed(_)));
+            }
+            assert_eq!(hub.epoch(), 1);
+        }
     }
 
     #[test]

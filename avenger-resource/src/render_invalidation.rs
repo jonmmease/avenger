@@ -165,55 +165,29 @@ mod tests {
     }
 
     #[test]
-    fn subscribers_receive_monotonic_epochs() {
+    fn subscribers_and_latest_state_track_invalidation_epochs() {
         let hub = RenderInvalidationHub::default();
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let seen_callback = seen.clone();
-        let _subscription = hub.subscribe(Arc::new(move |invalidation| {
-            seen_callback
-                .lock()
-                .expect("seen lock poisoned")
-                .push(invalidation.epoch);
+        let callback_seen = seen.clone();
+        let _subscription = hub.subscribe(Arc::new(move |event| {
+            callback_seen.lock().unwrap().push(event.epoch);
         }));
-
-        hub.request_render(test_request());
-        hub.request_render(test_request());
-
-        assert_eq!(*seen.lock().expect("seen lock poisoned"), vec![1, 2]);
-        assert_eq!(hub.epoch(), 2);
-    }
-
-    #[test]
-    fn latest_invalidation_tracks_most_recent_request() {
-        let hub = RenderInvalidationHub::default();
-
         assert!(hub.latest_invalidation().is_none());
-
+        assert!(hub.latest_evaluation_invalidation().is_none());
         hub.request_render(test_request());
-        let first = hub
-            .latest_invalidation()
-            .expect("first latest invalidation");
-        assert_eq!(first.epoch, 1);
-        assert_eq!(
-            first.reason,
-            RenderInvalidationReason::ResourceChanged { kind: "test" }
-        );
-
-        hub.request_render(RenderInvalidationRequest::now(
-            RenderInvalidationReason::EvaluationChanged {
-                kind: "materialization:rasterize-2d".to_string(),
-            },
-        ));
-        let second = hub
-            .latest_invalidation()
-            .expect("second latest invalidation");
-        assert_eq!(second.epoch, 2);
-        assert_eq!(
-            second.reason,
-            RenderInvalidationReason::EvaluationChanged {
-                kind: "materialization:rasterize-2d".to_string(),
-            }
-        );
+        let reason = RenderInvalidationReason::EvaluationChanged {
+            kind: "rasterize".into(),
+        };
+        hub.request_render(RenderInvalidationRequest::now(reason.clone()));
+        hub.request_render(test_request());
+        assert_eq!(*seen.lock().unwrap(), vec![1, 2, 3]);
+        assert_eq!(hub.epoch(), 3);
+        let latest = hub.latest_invalidation().unwrap();
+        assert_eq!(latest.epoch, 3);
+        assert_eq!(latest.reason, test_request().reason);
+        let evaluation = hub.latest_evaluation_invalidation().unwrap();
+        assert_eq!(evaluation.epoch, 2);
+        assert_eq!(evaluation.reason, reason);
     }
 
     #[test]

@@ -145,6 +145,25 @@ pub trait ImageResourceResolver: Send + Sync {
     }
 }
 
+/// Required requests precede prefetch, then priority descends, then FIFO.
+pub(crate) fn image_request_precedes(
+    candidate: &avenger_resource::ResourceRequest,
+    candidate_seq: u64,
+    current: &avenger_resource::ResourceRequest,
+    current_seq: u64,
+) -> bool {
+    use avenger_resource::ResourceRequestPurpose;
+    let candidate_required = candidate.purpose == ResourceRequestPurpose::Required;
+    let current_required = current.purpose == ResourceRequestPurpose::Required;
+    if candidate_required != current_required {
+        return candidate_required;
+    }
+    if candidate.priority != current.priority {
+        return candidate.priority > current.priority;
+    }
+    candidate_seq < current_seq
+}
+
 #[cfg(test)]
 mod svg_feature_tests {
     use super::*;
@@ -171,23 +190,4 @@ mod svg_feature_tests {
             ));
         }
     }
-}
-
-/// Required requests precede prefetch, then priority descends, then FIFO.
-pub(crate) fn image_request_precedes(
-    candidate: &avenger_resource::ResourceRequest,
-    candidate_seq: u64,
-    current: &avenger_resource::ResourceRequest,
-    current_seq: u64,
-) -> bool {
-    use avenger_resource::ResourceRequestPurpose;
-    let candidate_required = candidate.purpose == ResourceRequestPurpose::Required;
-    let current_required = current.purpose == ResourceRequestPurpose::Required;
-    if candidate_required != current_required {
-        return candidate_required;
-    }
-    if candidate.priority != current.priority {
-        return candidate.priority > current.priority;
-    }
-    candidate_seq < current_seq
 }
