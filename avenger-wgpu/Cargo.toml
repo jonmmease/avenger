@@ -26,7 +26,6 @@ colorgrad = "0.8.0"
 ordered-float = { workspace = true }
 
 [dev-dependencies]
-avenger-image = { path = "../avenger-image" }
 dssim = "3.3.4"
 rstest = "0.25.0"
 

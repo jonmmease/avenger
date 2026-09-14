@@ -396,13 +396,6 @@ impl PatternReferenceFrame {
             height: self.height,
         }
     }
-
-    pub fn validate(&self) -> Result<(), PatternValidationError> {
-        validate_finite(self.x, "pattern_reference_frame.x")?;
-        validate_finite(self.y, "pattern_reference_frame.y")?;
-        validate_positive(self.width, "pattern_reference_frame.width")?;
-        validate_positive(self.height, "pattern_reference_frame.height")
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -481,15 +474,41 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
 
     #[test]
-    fn stripe_layer_serializes_with_internal_type_tag() {
-        let layer = PatternLayer::Stripe(StripePatternLayer::new(45.0, 16.0, 1.25));
-        let value = serde_json::to_value(layer).unwrap();
-
-        assert_eq!(value["type"], "stripe");
-        assert_eq!(value["angle"], 45.0);
-        assert_eq!(value["spacing"], 16.0);
-        assert_eq!(value["stroke-width"], 1.25);
-        assert!(value.get("operation").is_none());
+    fn mark_fill_pattern_serialization_compatibility() {
+        use crate::marks::{
+            arc::SceneArcMark, area::SceneAreaMark, mark::SceneMark, path::ScenePathMark,
+            rect::SceneRectMark, symbol::SceneSymbolMark,
+        };
+        let pattern = serde_json::to_value(ScalarOrArray::new_scalar(Some(PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                45.0, 8.0, 2.0,
+            ))],
+            ..Default::default()
+        })))
+        .unwrap();
+        for mark in [
+            SceneMark::Rect(SceneRectMark::default()),
+            SceneMark::Path(ScenePathMark::default()),
+            SceneMark::Symbol(SceneSymbolMark::default()),
+            SceneMark::Arc(SceneArcMark::default()),
+            SceneMark::Area(SceneAreaMark::default()),
+        ] {
+            let mut value = serde_json::to_value(&mark).unwrap();
+            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
+            assert!(fields.get("fill-pattern").is_none());
+            assert_eq!(
+                serde_json::from_value::<SceneMark>(value.clone()).unwrap(),
+                mark
+            );
+            let fields = value.as_object_mut().unwrap().values_mut().next().unwrap();
+            fields["fill-pattern"] = if matches!(mark, SceneMark::Area(_)) {
+                pattern["value"]["scalar"].clone()
+            } else {
+                pattern.clone()
+            };
+            let restored: SceneMark = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(restored).unwrap(), value);
+        }
     }
 
     #[test]
@@ -509,24 +528,17 @@ mod tests {
                 assert_eq!(value["operation"], expected);
             }
 
+            assert_eq!(value["type"], "stripe");
+            assert_eq!(value["angle"], 45.0);
+            assert_eq!(value["spacing"], 16.0);
+            assert_eq!(value["stroke-width"], 1.25);
+            let restored: PatternLayer = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(restored.operation(), operation);
             let mut value = value;
             value["operation"] = serde_json::Value::String(expected.to_string());
             let restored: PatternLayer = serde_json::from_value(value).unwrap();
             assert_eq!(restored.operation(), operation);
         }
-    }
-
-    #[test]
-    fn omitted_pattern_layer_operation_deserializes_to_add() {
-        let value = serde_json::json!({
-            "type": "stripe",
-            "angle": 45.0,
-            "spacing": 16.0,
-            "stroke-width": 1.25
-        });
-        let layer: PatternLayer = serde_json::from_value(value).unwrap();
-
-        assert_eq!(layer.operation(), PatternLayerOperation::Add);
     }
 
     #[test]

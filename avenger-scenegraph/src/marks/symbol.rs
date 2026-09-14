@@ -129,11 +129,6 @@ impl SceneSymbolMark {
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
-    pub fn fill_pattern_vec(&self) -> Vec<Option<PatternFill>> {
-        self.fill_pattern
-            .as_vec(self.len as usize, self.indices.as_ref())
-    }
-
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.size.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -247,27 +242,5 @@ impl Default for SceneSymbolMark {
 impl From<SceneSymbolMark> for SceneMark {
     fn from(mark: SceneSymbolMark) -> Self {
         SceneMark::Symbol(mark)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_fill_pattern_is_skipped_when_serializing() {
-        let value = serde_json::to_value(SceneSymbolMark::default()).unwrap();
-
-        assert!(value.get("fill-pattern").is_none());
-    }
-
-    #[test]
-    fn missing_fill_pattern_deserializes_as_no_overlay() {
-        let mut value = serde_json::to_value(SceneSymbolMark::default()).unwrap();
-        value.as_object_mut().unwrap().remove("fill-pattern");
-
-        let mark: SceneSymbolMark = serde_json::from_value(value).unwrap();
-
-        assert!(is_no_fill_pattern(&mark.fill_pattern));
     }
 }

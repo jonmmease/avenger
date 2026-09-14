@@ -300,9 +300,6 @@ impl AvengerRendererCore {
     }
 
     pub(crate) fn begin_scene(&mut self, scene: &SceneGraph) {
-        // Acquire the new working set before releasing the previous one: shared
-        // images must remain resident even when both sets exceed the LRU budget.
-
         self.clear_mark_renderer();
         self.scene = Some(Arc::new(scene.clone()));
         self.scene_dirty = true;

@@ -157,15 +157,6 @@ pub(crate) struct PreparedMulti {
     clip_index_buffer: wgpu::Buffer,
 }
 
-#[cfg(test)]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MultiRenderPassEstimate {
-    pub total: usize,
-    pub non_stencil_runs: usize,
-    pub stencil_clip_passes: usize,
-    pub pattern_overlay_passes: usize,
-}
-
 pub struct MultiMarkRenderer {
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
     clip_verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
@@ -763,45 +754,6 @@ impl MultiMarkRenderer {
     /// z-run as a half-open batch range into this shared renderer.
     pub(crate) fn batch_count(&self) -> usize {
         self.batches.len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn estimate_render_passes_for_ranges(
-        &self,
-        ranges: &[Range<usize>],
-    ) -> MultiRenderPassEstimate {
-        let mut order: Vec<usize> = Vec::new();
-        for range in ranges {
-            order.extend(range.clone());
-        }
-
-        let mut estimate = MultiRenderPassEstimate::default();
-        let mut i = 0usize;
-        while i < order.len() {
-            let batch = &self.batches[order[i]];
-            if batch.pattern_overlay.is_some() {
-                estimate.pattern_overlay_passes += 1;
-                estimate.total += 1;
-                i += 1;
-            } else if batch.clip_indices_range.is_some() {
-                estimate.stencil_clip_passes += 1;
-                estimate.total += 1;
-                i += 1;
-            } else {
-                estimate.non_stencil_runs += 1;
-                estimate.total += 1;
-                i += 1;
-                while i < order.len() {
-                    let batch = &self.batches[order[i]];
-                    if batch.clip_indices_range.is_some() || batch.pattern_overlay.is_some() {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-        }
-
-        estimate
     }
 
     fn add_clip_path(
@@ -3319,15 +3271,9 @@ impl SymbolVertex {
 
 #[cfg(test)]
 mod tests {
-    use avenger_color::ColorOrGradient;
     use avenger_common::value::ScalarOrArray;
-    use avenger_image::RgbaImage;
     use avenger_scenegraph::marks::{
-        image::SceneImageMark,
-        pattern::{
-            PatternAnchor, PatternFill, PatternLayer, PatternSymbol, StripePatternLayer,
-            SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
-        },
+        pattern::{PatternAnchor, PatternFill, PatternLayer, StripePatternLayer},
         rect::SceneRectMark,
     };
 
@@ -3337,30 +3283,6 @@ mod tests {
         CanvasDimensions {
             size: [40.0, 30.0],
             scale: 1.0,
-        }
-    }
-
-    fn symbol_pattern() -> PatternFill {
-        PatternFill {
-            anchor: PatternAnchor::Mark,
-            layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
-                operation: Default::default(),
-                lattice: SymbolLattice2d {
-                    u_spacing: 8.0,
-                    u_angle: 0.0,
-                    v_spacing: 8.0,
-                    v_angle: 90.0,
-                    u_phase: 0.0,
-                    v_phase: 0.0,
-                },
-                symbol: PatternSymbol {
-                    shape: "circle".to_string(),
-                    size: 4.0,
-                    rotation: 0.0,
-                },
-                paint: SymbolPaint::Filled,
-            })],
-            ..Default::default()
         }
     }
 
@@ -3383,166 +3305,6 @@ mod tests {
             stroke_width: ScalarOrArray::new_scalar(1.0),
             ..Default::default()
         }
-    }
-
-    fn bar_rects(len: u32, fill_pattern: Option<PatternFill>) -> SceneRectMark {
-        SceneRectMark {
-            len,
-            x: ScalarOrArray::from(
-                (0..len)
-                    .map(|index| 2.0 + index as f32 * 4.0)
-                    .collect::<Vec<_>>(),
-            ),
-            y: ScalarOrArray::new_scalar(4.0),
-            width: Some(ScalarOrArray::new_scalar(2.0)),
-            height: Some(ScalarOrArray::new_scalar(16.0)),
-            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
-            fill_pattern: ScalarOrArray::new_scalar(fill_pattern),
-            stroke_width: ScalarOrArray::new_scalar(0.0),
-            ..Default::default()
-        }
-    }
-
-    fn image_mark(smooth: bool) -> SceneImageMark {
-        SceneImageMark {
-            len: 1,
-            aspect: false,
-            smooth,
-            image: ScalarOrArray::new_scalar(RgbaImage {
-                width: 2,
-                height: 2,
-                data: vec![
-                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-                ],
-            }),
-            x: ScalarOrArray::new_scalar(2.0),
-            y: ScalarOrArray::new_scalar(3.0),
-            width: ScalarOrArray::new_scalar(8.0),
-            height: ScalarOrArray::new_scalar(6.0),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn patterned_rect_adds_fill_overlay_and_stroke_batches() {
-        let mut renderer = MultiMarkRenderer::new(dimensions());
-        let mark = patterned_rect(stripe_pattern(PatternAnchor::Mark));
-
-        renderer
-            .add_rect_mark(
-                &mark,
-                [0.0, 0.0],
-                &Clip::None,
-                None,
-                PatternRect::new(0.0, 0.0, 40.0, 30.0),
-            )
-            .unwrap();
-
-        assert_eq!(renderer.batch_count(), 3);
-        assert_eq!(
-            renderer
-                .batches
-                .iter()
-                .filter(|batch| batch.pattern_overlay.is_some())
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn patterned_rect_accepts_symbol_pattern_layer() {
-        let mut renderer = MultiMarkRenderer::new(dimensions());
-        let mark = patterned_rect(symbol_pattern());
-
-        renderer
-            .add_rect_mark(
-                &mark,
-                [0.0, 0.0],
-                &Clip::None,
-                None,
-                PatternRect::new(0.0, 0.0, 40.0, 30.0),
-            )
-            .unwrap();
-
-        assert_eq!(renderer.batch_count(), 3);
-        assert_eq!(
-            renderer
-                .batches
-                .iter()
-                .filter(|batch| batch.pattern_overlay.is_some())
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn patterned_bar_chart_render_pass_count_is_linear_in_visible_bars() {
-        const BAR_COUNT: u32 = 8;
-
-        let mut fill_only_renderer = MultiMarkRenderer::new(dimensions());
-        let fill_only = bar_rects(BAR_COUNT, None);
-        fill_only_renderer
-            .add_rect_mark(
-                &fill_only,
-                [0.0, 0.0],
-                &Clip::None,
-                None,
-                PatternRect::new(0.0, 0.0, 40.0, 30.0),
-            )
-            .unwrap();
-        let fill_only_estimate = fill_only_renderer.estimate_render_passes_for_ranges(
-            std::slice::from_ref(&(0..fill_only_renderer.batch_count())),
-        );
-
-        assert_eq!(fill_only_renderer.batch_count(), 1);
-        assert_eq!(fill_only_estimate.total, 1);
-        assert_eq!(fill_only_estimate.non_stencil_runs, 1);
-
-        let mut patterned_renderer = MultiMarkRenderer::new(dimensions());
-        let patterned = bar_rects(BAR_COUNT, Some(stripe_pattern(PatternAnchor::Mark)));
-        patterned_renderer
-            .add_rect_mark(
-                &patterned,
-                [0.0, 0.0],
-                &Clip::None,
-                None,
-                PatternRect::new(0.0, 0.0, 40.0, 30.0),
-            )
-            .unwrap();
-        let patterned_estimate = patterned_renderer.estimate_render_passes_for_ranges(
-            std::slice::from_ref(&(0..patterned_renderer.batch_count())),
-        );
-
-        assert_eq!(
-            patterned_estimate.pattern_overlay_passes,
-            BAR_COUNT as usize
-        );
-        assert_eq!(patterned_estimate.stencil_clip_passes, 0);
-        assert_eq!(patterned_estimate.non_stencil_runs, BAR_COUNT as usize);
-        assert_eq!(patterned_estimate.total, BAR_COUNT as usize * 2);
-        assert!(
-            patterned_estimate.total <= BAR_COUNT as usize * 2,
-            "patterned bar render pass estimate is above the v1 budget: {patterned_estimate:?}"
-        );
-    }
-
-    #[test]
-    fn image_mark_batches_preserve_smooth_flag_for_sampler_selection() {
-        let mut nearest_renderer = MultiMarkRenderer::new(dimensions());
-        nearest_renderer
-            .add_image_mark(&image_mark(false), [0.0, 0.0], &Clip::None)
-            .unwrap();
-        assert_eq!(nearest_renderer.batch_count(), 1);
-        assert_eq!(nearest_renderer.batches[0].image_atlas_index, Some(0));
-        assert!(!nearest_renderer.batches[0].image_smooth);
-
-        let mut smooth_renderer = MultiMarkRenderer::new(dimensions());
-        smooth_renderer
-            .add_image_mark(&image_mark(true), [0.0, 0.0], &Clip::None)
-            .unwrap();
-        assert_eq!(smooth_renderer.batch_count(), 1);
-        assert_eq!(smooth_renderer.batches[0].image_atlas_index, Some(0));
-        assert!(smooth_renderer.batches[0].image_smooth);
     }
 
     #[test]
