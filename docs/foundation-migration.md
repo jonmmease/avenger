@@ -72,7 +72,7 @@ Window, PNG, and browser canvases use the same renderer. A resize rebuilds dimen
 
 ## Configure scales
 
-`ConfiguredScale` validates options and normalizes domains with typed context. Numeric coercion and domain access preserve binary64 precision where supplied by the source data. Scale formatters use the shared number and datetime libraries with D3 formats and resolved locales. Arrow consumers use version 58.
+`ConfiguredScale` validates options and normalizes domains with typed context. Scale domain access and number formatting preserve binary64 precision where supplied by the source data. Scale formatters use the shared number and datetime libraries with D3 formats and resolved locales. Arrow consumers use version 58.
 
 ## Configure axes
 
@@ -81,3 +81,13 @@ Numeric and temporal axes accept explicit formats, locale/timezone context, and 
 ## Configure legends
 
 Discrete scales expose labels and representative values through `legend_entries`. Legend renderers accept styling and explicit text engines. Itemized output returns scene paths for discrete items and continuous surfaces so callers can attach interactions. Existing scene-only entry points return the rendered group.
+
+## Nested categorical bands
+
+`NestedBandScale` maps struct-valued category paths to bands. Free nesting allocates space for the children present in each parent. Shared nesting aligns child categories across parents. The matching axis places labels at each hierarchy level.
+
+```sh
+cargo run --release -p wgpu-scales --bin nested_bands -- docs/images/nested-bands.png
+```
+
+![Revenue by region and channel](images/nested-bands.png)
