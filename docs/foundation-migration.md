@@ -91,3 +91,9 @@ cargo run --release -p wgpu-scales --bin nested_bands -- docs/images/nested-band
 ```
 
 ![Revenue by region and channel](images/nested-bands.png)
+
+## Fit domains around marker extents
+
+`compute_domain_from_data_with_padding_linear` accepts data values, lower and upper extents in screen units, and a positive range width in the same units. It returns an increasing linear domain that fits the marker extents. Inputs must be finite, and extents must be nonnegative. Infeasible geometry and unrepresentable solutions return errors.
+
+The standalone solver does not run automatically during scale configuration. Call it when fitting a linear scale, then use the returned domain. Coincident values use a conventional positive span because no unique minimum width exists. Empty data returns `(0, 1)`.
