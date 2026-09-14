@@ -143,24 +143,6 @@ pub trait ImageResourceResolver: Send + Sync {
     fn generation(&self) -> u64 {
         0
     }
-
-    /// Hover cursor position hint in canvas px. Schedulers may use it to
-    /// re-order queued prefetch fetches and drive debounced prefetch
-    /// retargeting. Default: ignored.
-    fn update_focus(&self, _cursor_canvas_px: [f32; 2]) {}
-
-    /// While a pan/zoom gesture is active, evaluations own the prefetch
-    /// working set and hover retargeting should be suppressed. Default:
-    /// ignored.
-    fn set_gesture_active(&self, _active: bool) {}
-
-    /// Replace the installed prefetch retarget planners (published per
-    /// chart evaluation). Default: ignored.
-    fn install_retarget_planners(
-        &self,
-        _planners: Vec<Arc<dyn avenger_resource::PrefetchRetargetPlanner>>,
-    ) {
-    }
 }
 
 #[cfg(test)]
@@ -189,4 +171,23 @@ mod svg_feature_tests {
             ));
         }
     }
+}
+
+/// Required requests precede prefetch, then priority descends, then FIFO.
+pub(crate) fn image_request_precedes(
+    candidate: &avenger_resource::ResourceRequest,
+    candidate_seq: u64,
+    current: &avenger_resource::ResourceRequest,
+    current_seq: u64,
+) -> bool {
+    use avenger_resource::ResourceRequestPurpose;
+    let candidate_required = candidate.purpose == ResourceRequestPurpose::Required;
+    let current_required = current.purpose == ResourceRequestPurpose::Required;
+    if candidate_required != current_required {
+        return candidate_required;
+    }
+    if candidate.priority != current.priority {
+        return candidate.priority > current.priority;
+    }
+    candidate_seq < current_seq
 }
