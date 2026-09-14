@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
 
+use crate::runtime::RuntimeWakeEvent;
 use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
 
 /// Events that can be handled by event streams
@@ -14,6 +15,7 @@ pub enum SceneGraphEvent {
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
+    RuntimeWake(RuntimeWakeEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
@@ -66,6 +68,7 @@ impl SceneGraphEvent {
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
+            Self::RuntimeWake(..) => SceneGraphEventType::RuntimeWake,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
@@ -89,6 +92,7 @@ pub enum SceneGraphEventType {
     MouseWheel,
     KeyPress,
     KeyRelease,
+    RuntimeWake,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,
@@ -142,6 +146,7 @@ pub struct SceneMouseWheelEvent {
 pub struct SceneKeyPressEvent {
     pub position: [f32; 2],
     pub key: Key,
+
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
 }

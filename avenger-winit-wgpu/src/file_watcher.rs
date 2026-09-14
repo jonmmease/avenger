@@ -1,14 +1,14 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{collections::HashSet, fs, path::PathBuf, time::Duration};
 
 use avenger_app::error::AvengerAppError;
 use avenger_eventstream::window::{WindowEvent, WindowFileChangedEvent};
 use log::error;
-use notify::event::ModifyKind;
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    event::ModifyKind, Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use winit::event_loop::EventLoopProxy;
+
+use crate::WinitWgpuEvent;
 
 /// FileWatcher manages file system monitoring and sends events to the EventLoop when files change
 pub struct FileWatcher {
@@ -17,13 +17,13 @@ pub struct FileWatcher {
     /// The file watcher
     pub watcher: RecommendedWatcher,
     /// Event loop proxy for sending events
-    pub event_proxy: EventLoopProxy<WindowEvent>,
+    pub event_proxy: EventLoopProxy<WinitWgpuEvent>,
 }
 
 impl FileWatcher {
     /// Create a new FileWatcher that sends events to the provided event loop proxy
     pub fn new(
-        event_proxy: EventLoopProxy<WindowEvent>,
+        event_proxy: EventLoopProxy<WinitWgpuEvent>,
         watched_files: Vec<PathBuf>,
     ) -> Result<Self, AvengerAppError> {
         let event_proxy_clone = event_proxy.clone();
@@ -71,8 +71,9 @@ impl FileWatcher {
                                     };
 
                                     // Send event to the event loop
-                                    let _ = event_proxy_clone
-                                        .send_event(WindowEvent::FileChanged(file_event));
+                                    let _ = event_proxy_clone.send_event(WinitWgpuEvent::App(
+                                        WindowEvent::FileChanged(file_event),
+                                    ));
                                 }
                             } else {
                                 error!("Failed to canonicalize event path: {path:?}");
