@@ -77,3 +77,7 @@ Window, PNG, and browser canvases use the same renderer. A resize rebuilds dimen
 ## Configure axes
 
 Numeric and temporal axes accept explicit formats, locale/timezone context, and tick spacing. `AxisConfig` supplies optional styling and label-template fields; use `..Default::default()` when setting a subset. The text-engine entry points use the caller's fonts for measurement. Labels retain their clearance from tick ends when `tick_length` changes.
+
+## Configure legends
+
+Discrete scales expose labels and representative values through `legend_entries`. Legend renderers accept styling and explicit text engines. Itemized output returns scene paths for discrete items and continuous surfaces so callers can attach interactions. Existing scene-only entry points return the rendered group.

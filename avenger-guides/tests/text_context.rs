@@ -1,5 +1,8 @@
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_guides::axis::{numeric::make_numeric_axis_marks_with_text_engine, opts::AxisConfig};
+use avenger_guides::{
+    axis::{numeric::make_numeric_axis_marks_with_text_engine, opts::AxisConfig},
+    legend::symbol::{make_symbol_legend_with_text_engine, SymbolLegendConfig},
+};
 use avenger_scales::scales::linear::LinearScale;
 use avenger_text::{FontResolutionOptions, TextEngine};
 
@@ -29,4 +32,14 @@ fn guide_bounds_use_the_supplied_font_context() {
         .bounding_box_with_text_engine(engine)
     };
     assert_ne!(axis(&proportional), axis(&monospace));
+    let config = SymbolLegendConfig {
+        text: title.to_string().into(),
+        ..Default::default()
+    };
+    let legend = |engine: &TextEngine| {
+        make_symbol_legend_with_text_engine(&config, engine)
+            .unwrap()
+            .bounding_box_with_text_engine(engine)
+    };
+    assert_ne!(legend(&proportional), legend(&monospace));
 }
