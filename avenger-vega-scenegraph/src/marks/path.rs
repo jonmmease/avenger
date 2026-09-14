@@ -1,9 +1,10 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::lyon::parse_svg_path;
 use avenger_common::types::PathTransform;
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
