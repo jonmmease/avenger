@@ -8,6 +8,7 @@ pub mod ordinal;
 pub mod point;
 pub mod pow;
 pub use pow::PowNormalizationConfig;
+pub mod domain_solver;
 pub mod quantile;
 pub mod quantize;
 pub mod symlog;
@@ -853,6 +854,11 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Default implementation returns the original domain for scales that don't support normalization
         Ok(config.domain.clone())
+    }
+
+    /// Whether a linear domain can be fitted around marker extents for this scale.
+    fn supports_radius_expansion(&self) -> bool {
+        false
     }
 
     /// Get custom legend entries for this scale
