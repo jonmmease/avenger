@@ -81,10 +81,31 @@ impl SceneWarpedImageMark {
             return None;
         }
         let source = self.image.inline_image()?;
-        if source.width == 0 || source.height == 0 {
+        if source.width == 0
+            || source.height == 0
+            || (source.width as usize)
+                .checked_mul(source.height as usize)?
+                .checked_mul(4)?
+                != source.data.len()
+            || self
+                .positions
+                .iter()
+                .chain(self.uvs.iter())
+                .flatten()
+                .any(|value| !value.is_finite())
+            || origin.iter().any(|value| !value.is_finite())
+        {
             return None;
         }
         let [min_x, min_y, max_x, max_y] = self.bounds(origin)?;
+        if ![min_x, min_y, max_x, max_y]
+            .iter()
+            .all(|value| value.is_finite())
+            || max_x <= min_x
+            || max_y <= min_y
+        {
+            return None;
+        }
         let scale = if scale.is_finite() && scale > 0.0 {
             scale
         } else {
@@ -92,6 +113,9 @@ impl SceneWarpedImageMark {
         };
         let out_width = (((max_x - min_x) * scale).ceil() as usize).clamp(1, 8192);
         let out_height = (((max_y - min_y) * scale).ceil() as usize).clamp(1, 8192);
+        // Use the actual output dimensions when the allocation cap reduces resolution.
+        let scale_x = out_width as f32 / (max_x - min_x);
+        let scale_y = out_height as f32 / (max_y - min_y);
         let mut data = vec![0u8; out_width * out_height * 4];
 
         for triangle in self.indices.chunks_exact(3) {
@@ -102,8 +126,8 @@ impl SceneWarpedImageMark {
             ];
             let pos = |i: usize| -> [f32; 2] {
                 [
-                    (self.positions[i][0] + origin[0] - min_x) * scale,
-                    (self.positions[i][1] + origin[1] - min_y) * scale,
+                    (self.positions[i][0] + origin[0] - min_x) * scale_x,
+                    (self.positions[i][1] + origin[1] - min_y) * scale_y,
                 ]
             };
             let (pa, pb, pc) = (pos(a), pos(b), pos(c));
@@ -172,12 +196,31 @@ fn sample_bilinear(image: &RgbaImage, u: f32, v: f32) -> [u8; 4] {
 
     let (p00, p10) = (pixel_at(image, x0, y0), pixel_at(image, x1, y0));
     let (p01, p11) = (pixel_at(image, x0, y1), pixel_at(image, x1, y1));
-    let mut rgba = [0u8; 4];
-    for (channel, value) in rgba.iter_mut().enumerate() {
-        let top = p00[channel] as f32 * (1.0 - tx) + p10[channel] as f32 * tx;
-        let bottom = p01[channel] as f32 * (1.0 - tx) + p11[channel] as f32 * tx;
-        *value = (top * (1.0 - ty) + bottom * ty).round().clamp(0.0, 255.0) as u8;
+    let weights = [
+        (1.0 - tx) * (1.0 - ty),
+        tx * (1.0 - ty),
+        (1.0 - tx) * ty,
+        tx * ty,
+    ];
+    let samples = [p00, p10, p01, p11];
+    let alpha: f32 = samples
+        .iter()
+        .zip(weights)
+        .map(|(p, w)| p[3] as f32 * w)
+        .sum();
+    let mut rgba = [0; 4];
+    if alpha > 0.0 {
+        for channel in 0..3 {
+            let premultiplied: f32 = samples
+                .iter()
+                .zip(weights)
+                .map(|(p, w)| p[channel] as f32 * p[3] as f32 * w)
+                .sum();
+            rgba[channel] = (premultiplied / alpha).round().clamp(0.0, 255.0) as u8;
+        }
+        rgba[3] = alpha.round().clamp(0.0, 255.0) as u8;
     }
+
     rgba
 }
 
@@ -262,6 +305,26 @@ mod tests {
     }
 
     #[test]
+    fn bilinear_sampling_ignores_hidden_rgb_and_returns_straight_alpha() {
+        for hidden in [[0, 0, 255], [0, 255, 0]] {
+            let image = RgbaImage {
+                width: 2,
+                height: 1,
+                data: vec![255, 0, 0, 255, hidden[0], hidden[1], hidden[2], 0],
+            };
+            assert_eq!(sample_bilinear(&image, 0.5, 0.5), [255, 0, 0, 128]);
+            assert_eq!(sample_bilinear(&image, 1.0, 0.5), [0; 4]);
+            assert_eq!(sample_nearest(&image, 0.0, 0.5), [255, 0, 0, 255]);
+        }
+        let image = RgbaImage {
+            width: 2,
+            height: 1,
+            data: vec![200, 40, 100, 128, 40, 200, 100, 64],
+        };
+        assert_eq!(sample_bilinear(&image, 0.5, 0.5), [147, 93, 100, 96]);
+    }
+
+    #[test]
     fn bounds_cover_indexed_vertices_with_origin() {
         let mark = quad_mark();
         assert_eq!(mark.bounds([5.0, 1.0]), Some([15.0, 21.0, 35.0, 41.0]));
@@ -294,6 +357,30 @@ mod tests {
         let (image, _) = mark.rasterize([0.0, 0.0], 1.0).expect("raster");
         let offset = ((2 * image.width + 17) * 4) as usize; // top-right corner
         assert_eq!(image.data[offset + 3], 0);
+    }
+
+    #[test]
+    fn rasterize_capped_images_keep_the_complete_texture() {
+        let mut mark = quad_mark();
+        mark.positions = vec![[0.0, 0.0], [20_000.0, 0.0], [20_000.0, 2.0], [0.0, 2.0]];
+        let (image, _) = mark.rasterize([0.0, 0.0], 1.0).unwrap();
+        assert_eq!(image.width, 8192);
+        assert_eq!(pixel_at(&image, 1, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&image, 8190, 0), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn rasterize_rejects_invalid_image_data_and_nonfinite_meshes() {
+        let mut mark = quad_mark();
+        mark.image = SceneImageSource::inline(RgbaImage {
+            width: 2,
+            height: 2,
+            data: vec![0; 3],
+        });
+        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
+        let mut mark = quad_mark();
+        mark.positions[0][0] = f32::NAN;
+        assert!(mark.rasterize([0.0, 0.0], 1.0).is_none());
     }
 
     #[test]

@@ -51,5 +51,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dx = dpdx(texXy);
     let dy = dpdx(texXy);
     let sampled = textureSampleGrad(tile_texture, tile_sampler, uv, layer, dx, dy);
-    return sampled * vec4<f32>(1.0, 1.0, 1.0, in.color[3]);
+    return straight_image_sample(sampled) * vec4<f32>(1.0, 1.0, 1.0, in.color[3]);
+}
+
+fn straight_image_sample(sampled: vec4<f32>) -> vec4<f32> {
+    if (sampled.a == 0.0) { return vec4<f32>(0.0); }
+    return vec4<f32>(sampled.rgb / sampled.a, sampled.a);
 }
