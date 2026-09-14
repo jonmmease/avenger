@@ -314,6 +314,34 @@ pub fn cases() -> Vec<Case> {
             ));
         }
     }
+    // Reuse the bounds cases with a native radial paint, including an invisible pattern.
+    let radial = Gradient::RadialGradient(RadialGradient {
+        x0: 0.5,
+        y0: 0.5,
+        x1: 0.5,
+        y1: 0.5,
+        r0: 0.0,
+        r1: 0.5,
+        stops: stops(),
+    });
+    let mut radial_bounds = Vec::new();
+    for case in &cases {
+        if case.name == "trail-gradient" || case.name.starts_with("star-gradient-") {
+            let mut scene = case.scene.clone();
+            match &mut scene.marks[0] {
+                SceneMark::Trail(mark) => mark.gradients = vec![radial.clone()],
+                SceneMark::Group(group) => {
+                    let SceneMark::Symbol(mark) = &mut group.marks[0] else {
+                        unreachable!()
+                    };
+                    mark.gradients = vec![radial.clone()];
+                }
+                _ => unreachable!(),
+            }
+            radial_bounds.push(Case::new(format!("{}-radial", case.name), scene.marks));
+        }
+    }
+    cases.extend(radial_bounds);
     for (name, p0, p1, r0, r1) in [
         ("radial-offset-inner", [0.3, 0.5], [0.5, 0.5], 0.2, 0.5),
         ("radial-concentric", [0.5, 0.5], [0.5, 0.5], 0.2, 0.5),
@@ -343,15 +371,25 @@ pub fn cases() -> Vec<Case> {
         })];
         let mut case = Case::new(name, vec![mark.into()]);
         case.browser_only = true;
-        if name == "radial-offset-inner" {
-            case.samples = vec![
+        // Axis-aligned circle intersections give these parameters directly.
+        case.samples = match name {
+            "radial-offset-inner" => vec![
                 ([100, 120], [255, 0, 0, 255]),
+                ([210, 120], [255, 0, 0, 255]),
                 ([300, 120], [127, 0, 128, 255]),
-            ];
-        }
-        if name == "radial-identical" {
-            case.samples = vec![([210, 120], [255; 4])];
-        }
+                ([380, 35], [0, 0, 255, 255]),
+            ],
+            "radial-concentric" => vec![([318, 120], [170, 0, 85, 255])],
+            "radial-zero" => vec![([264, 120], [127, 0, 128, 255])],
+            "radial-tangent" | "radial-reversed" => vec![([300, 120], [127, 0, 128, 255])],
+            "radial-separated" => vec![([282, 120], [85, 0, 170, 255]), ([210, 200], [255; 4])],
+            "radial-identical" => vec![([210, 120], [255; 4])],
+            "radial-precision" => vec![
+                ([170, 120], [255, 0, 0, 255]),
+                ([175, 120], [0, 0, 255, 255]),
+            ],
+            _ => unreachable!(),
+        };
         cases.push(case);
     }
     for (name, xs) in [
