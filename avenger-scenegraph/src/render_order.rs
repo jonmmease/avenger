@@ -147,6 +147,46 @@ fn mark_clip_enabled(mark: &SceneMark) -> bool {
     }
 }
 
+/// Compute minimal z-index layers from a sequence of z-indices.
+///
+/// Given z-indices in document order, returns non-overlapping `(min, max)`
+/// ranges that preserve both z-index ordering and document order.
+pub fn compute_zindex_layers(z_indices: Vec<i32>) -> Vec<(i32, i32)> {
+    if z_indices.is_empty() {
+        return vec![];
+    }
+
+    let mut indices: Vec<usize> = (0..z_indices.len()).collect();
+    indices.sort_by_key(|&i| z_indices[i]);
+
+    let mut partitions = Vec::new();
+    let mut current_partition = vec![indices[0]];
+    let mut max_index_in_partition = indices[0];
+
+    for &idx in &indices[1..] {
+        if idx > max_index_in_partition {
+            current_partition.push(idx);
+            max_index_in_partition = idx;
+        } else {
+            partitions.push(current_partition);
+            current_partition = vec![idx];
+            max_index_in_partition = idx;
+        }
+    }
+
+    partitions.push(current_partition);
+
+    partitions
+        .into_iter()
+        .map(|partition| {
+            let z_values: Vec<i32> = partition.iter().map(|&i| z_indices[i]).collect();
+            let min_z = *z_values.iter().min().unwrap();
+            let max_z = *z_values.iter().max().unwrap();
+            (min_z, max_z)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +433,20 @@ mod tests {
             names,
             ["zneg1", "z0", "z0_last", "z1_first", "z1_second", "z2"]
         );
+    }
+
+    #[test]
+    fn partitions_preserve_zindex_and_document_order() {
+        for (input, expected) in [
+            (vec![], vec![]),
+            (vec![1, 2, 3], vec![(1, 3)]),
+            (vec![3, 2, 1], vec![(1, 1), (2, 2), (3, 3)]),
+            (vec![0, 2, -1, 3, 1, 4], vec![(-1, -1), (0, 1), (2, 4)]),
+            (vec![1, 2, 2, 3, 1, 4], vec![(1, 1), (2, 4)]),
+            (vec![5, 5, 5], vec![(5, 5)]),
+            (vec![2, 1, 2, 1, 2], vec![(1, 1), (2, 2)]),
+        ] {
+            assert_eq!(compute_zindex_layers(input.clone()), expected, "{input:?}");
+        }
     }
 }

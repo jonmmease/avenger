@@ -61,6 +61,11 @@ impl TextAtlasBuilder {
         }
     }
 
+    /// Empties the atlas for a new scene.
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
     pub fn register_text(
         &mut self,
         text: TextInstance,
