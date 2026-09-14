@@ -642,42 +642,19 @@ mod tests {
     }
 
     #[test]
-    fn auto_contrast_selects_dark_ink_for_light_fill() {
-        let ink = resolve_pattern_ink(
-            &PatternInk::AutoContrast { opacity: 0.18 },
-            &ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]),
-            &[],
-        );
-
-        assert_eq!(ink, [0.0, 0.0, 0.0, 0.18]);
-    }
-
-    #[test]
-    fn auto_contrast_selects_light_ink_for_dark_fill() {
-        let ink = resolve_pattern_ink(
-            &PatternInk::AutoContrast { opacity: 0.18 },
-            &ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-            &[],
-        );
-
-        assert_eq!(ink, [1.0, 1.0, 1.0, 0.18]);
-    }
-
-    #[test]
-    fn auto_contrast_uses_rgb_channels_for_transparent_fill() {
-        let light_transparent_ink = resolve_pattern_ink(
-            &PatternInk::AutoContrast { opacity: 0.18 },
-            &ColorOrGradient::Color([1.0, 1.0, 1.0, 0.0]),
-            &[],
-        );
-        let dark_transparent_ink = resolve_pattern_ink(
-            &PatternInk::AutoContrast { opacity: 0.18 },
-            &ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            &[],
-        );
-
-        assert_eq!(light_transparent_ink, [0.0, 0.0, 0.0, 0.18]);
-        assert_eq!(dark_transparent_ink, [1.0, 1.0, 1.0, 0.18]);
+    fn auto_contrast_uses_host_rgb_independently_of_alpha() {
+        for (rgb, expected) in [(0.0, 1.0), (1.0, 0.0)] {
+            for alpha in [0.0, 1.0] {
+                assert_eq!(
+                    resolve_pattern_ink(
+                        &PatternInk::AutoContrast { opacity: 0.18 },
+                        &ColorOrGradient::Color([rgb, rgb, rgb, alpha]),
+                        &[],
+                    ),
+                    [expected, expected, expected, 0.18]
+                );
+            }
+        }
     }
 
     #[test]

@@ -747,7 +747,6 @@ dependencies = [
  "avenger-annotation",
  "avenger-color",
  "avenger-common",
- "avenger-image",
  "avenger-scenegraph",
  "avenger-typst-label",
  "avenger-vega-scenegraph",

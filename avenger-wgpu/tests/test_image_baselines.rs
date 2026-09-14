@@ -413,7 +413,9 @@ mod test_image_baselines {
             },
         ))
         .unwrap();
-        canvas.set_scene(&scene).unwrap();
+        canvas
+            .set_scene(&scene, &avenger_typst_label::bundled_label_engine())
+            .unwrap();
         pollster::block_on(canvas.render()).unwrap()
     }
 

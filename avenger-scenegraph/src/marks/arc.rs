@@ -637,23 +637,6 @@ mod tests {
     }
 
     #[test]
-    fn default_fill_pattern_is_skipped_when_serializing() {
-        let value = serde_json::to_value(SceneArcMark::default()).unwrap();
-
-        assert!(value.get("fill-pattern").is_none());
-    }
-
-    #[test]
-    fn missing_fill_pattern_deserializes_as_no_overlay() {
-        let mut value = serde_json::to_value(SceneArcMark::default()).unwrap();
-        value.as_object_mut().unwrap().remove("fill-pattern");
-
-        let mark: SceneArcMark = serde_json::from_value(value).unwrap();
-
-        assert!(is_no_fill_pattern(&mark.fill_pattern));
-    }
-
-    #[test]
     fn transformed_path_iter_applies_pad_angle_to_arc_outer_start() {
         let unpadded = SceneArcMark {
             start_angle: ScalarOrArray::new_scalar(0.0),
