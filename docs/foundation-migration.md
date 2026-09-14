@@ -51,3 +51,15 @@ cargo run --release -p avenger-wgpu --example annotation_leaders -- docs/images/
 `AnchorInside` uses each instance's explicit placement point, including group translations and text label offsets. Whole line, area, and trail marks have no single anchor and do not match this policy. An arc center or a path origin can lie outside its geometry, so anchor queries inspect all instances.
 
 Rendering and picking use `SceneDisplayList` for root marks, inherited z-index, and document order. Set `interactive` to `false` to exclude a mark from scene picking while retaining its rendering and layout bounds. Query results use scene-path and instance-index order.
+
+## Additional symbol shapes
+
+`SymbolShape::from_vega_str` accepts `star`, `wye`, `pentagon`, and `cushion`. The name `concave-square` is an alias for `cushion`. These names use the existing path rendering and picking machinery.
+
+Star and wye use the area normalization from [D3 star](https://github.com/d3/d3-shape/blob/main/src/symbol/star.js) and [D3 wye](https://github.com/d3/d3-shape/blob/main/src/symbol/wye.js), so their filled area equals `size`. Pentagon has circumradius `sqrt(size) / 2`. Cushion fits a square of width `sqrt(size)` with quadratic sides curved inward.
+
+```sh
+cargo run --release -p avenger-wgpu --example extra_symbols -- docs/images/extra-symbols.png
+```
+
+![Additional symbols at sizes 64, 400, and 1600](images/extra-symbols.png)
