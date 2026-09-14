@@ -18,6 +18,8 @@ Positive finite text limits ellipsize plain text at grapheme boundaries. Typst l
 
 Resolve resource-backed images with `avenger_scenegraph::image_resources::resolve_ready_image_resources` before export. The helper reads ready resources from the caller's resolver and returns a scene with inline images. It does not wait for loading. Ordinary images preserve their `smooth` setting. Warped images rasterize at two pixels per scene unit, capped at 8192 pixels per dimension. The cap reduces resolution while preserving the complete mesh.
 
+Path marks, symbols, and path clips honor the scene fill rule, whose ordinary default is nonzero. Pattern symbols retain their even-odd default. Trails use the shared filled outline, so overlapping segments apply translucent paint once. Symbol gradients use the nominal square derived from `sqrt(size)`, trail gradients use centerline bounds, and radial gradients use the enclosing square and preserve both circles. Ordinary strokes use miter limit 8. Explicit Typst limits remain unchanged.
+
 ## Gallery and tests
 
 Run these commands from the repository root:
@@ -34,7 +36,7 @@ The setup helper downloads PDFium 7763 and verifies its archive checksum. It sup
 ```sh
 avenger-pdf/scripts/fetch_pdfium.sh
 export AVENGER_PDFIUM_LIBRARY_PATH="$PWD/target/pdfium/lib/libpdfium.dylib"
-cargo test --release -p avenger-pdf --test export -- --include-ignored
+cargo test --release -p avenger-pdf -- --include-ignored
 cargo run --release -p avenger-pdf --example pdf_gallery -- pdf-gallery.pdf
 ```
 
