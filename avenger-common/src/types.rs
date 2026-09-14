@@ -389,6 +389,102 @@ impl SymbolShape {
                 builder.close();
                 SymbolShape::Path(builder.build())
             }
+            "star" => {
+                // https://github.com/d3/d3-shape/blob/main/src/symbol/star.js, with the outer
+                // radius that makes the star one unit wide, as the other shapes are.
+                let kr =
+                    (std::f32::consts::PI / 10.0).sin() / (7.0 * std::f32::consts::PI / 10.0).sin();
+                let kx = (std::f32::consts::TAU / 10.0).sin() * kr;
+                let ky = -(std::f32::consts::TAU / 10.0).cos() * kr;
+
+                let r = 0.5 / (std::f32::consts::TAU / 5.0).sin();
+                let x = kx * r;
+                let y = ky * r;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -r));
+                builder.line_to(Point::new(x, y));
+
+                for i in 1..5 {
+                    let a = std::f32::consts::TAU * i as f32 / 5.0;
+                    let c = a.cos();
+                    let s = a.sin();
+                    builder.line_to(Point::new(s * r, -c * r));
+                    builder.line_to(Point::new(c * x - s * y, s * x + c * y));
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "wye" => {
+                // https://github.com/d3/d3-shape/blob/main/src/symbol/wye.js, with the arm length
+                // that makes the wye one unit wide, as the other shapes are.
+                let c = -0.5;
+                let s = sqrt3 / 2.0;
+                let k = 1.0 / 12.0f32.sqrt();
+
+                let r = 1.0 / (1.0 + sqrt3);
+                let x0 = r / 2.0;
+                let y0 = r * k;
+                let x1 = x0;
+                let y1 = r * k + r;
+                let x2 = -x1;
+                let y2 = y1;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(x0, y0));
+                builder.line_to(Point::new(x1, y1));
+                builder.line_to(Point::new(x2, y2));
+                builder.line_to(Point::new(c * x0 - s * y0, s * x0 + c * y0));
+                builder.line_to(Point::new(c * x1 - s * y1, s * x1 + c * y1));
+                builder.line_to(Point::new(c * x2 - s * y2, s * x2 + c * y2));
+                builder.line_to(Point::new(c * x0 + s * y0, c * y0 - s * x0));
+                builder.line_to(Point::new(c * x1 + s * y1, c * y1 - s * x1));
+                builder.line_to(Point::new(c * x2 + s * y2, c * y2 - s * x2));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "pentagon" => {
+                // The circumradius that makes the pentagon one unit wide, as the other shapes are.
+                let r = 0.5 / (std::f32::consts::TAU / 5.0).sin();
+                let n = 5;
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                for i in 0..n {
+                    let angle = (2.0 * std::f32::consts::PI * i as f32 / n as f32)
+                        - std::f32::consts::PI / 2.0;
+                    let x = r * angle.cos();
+                    let y = r * angle.sin();
+                    if i == 0 {
+                        builder.move_to(Point::new(x, y));
+                    } else {
+                        builder.line_to(Point::new(x, y));
+                    }
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "cushion" => {
+                let r = 0.5;
+                let curve_depth = 0.6;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                builder.move_to(Point::new(-r, -r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(0.0, -r + curve_depth * r), Point::new(r, -r));
+
+                builder.quadratic_bezier_to(Point::new(r - curve_depth * r, 0.0), Point::new(r, r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(0.0, r - curve_depth * r), Point::new(-r, r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(-r + curve_depth * r, 0.0), Point::new(-r, -r));
+
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
             _ => {
                 // General SVG string
                 let path = parse_svg_path(shape)?;
@@ -418,5 +514,63 @@ impl TryInto<SymbolShape> for &str {
 
     fn try_into(self) -> Result<SymbolShape, Self::Error> {
         SymbolShape::from_vega_str(self)
+    }
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::SymbolShape;
+    use lyon_path::{iterator::PathIterator, Event};
+
+    /// The width and height of a named shape at size 1.
+    fn extent(name: &str) -> [f32; 2] {
+        let shape = SymbolShape::from_vega_str(name).unwrap();
+        let points: Vec<_> = shape
+            .as_path()
+            .iter()
+            .flattened(1e-4)
+            .filter_map(|event| match event {
+                Event::Begin { at } => Some(at),
+                Event::Line { to, .. } => Some(to),
+                _ => None,
+            })
+            .collect();
+        let span = |coordinate: fn(&lyon_path::math::Point) -> f32| {
+            let values = points.iter().map(coordinate);
+            values.clone().fold(f32::MIN, f32::max) - values.fold(f32::MAX, f32::min)
+        };
+        [span(|p| p.x), span(|p| p.y)]
+    }
+
+    /// A named shape fits a box one unit on a side, so `size` sets the area of the box it fits.
+    #[test]
+    fn named_shapes_fit_a_unit_box() {
+        for name in [
+            "circle",
+            "square",
+            "cross",
+            "diamond",
+            "triangle-up",
+            "triangle-down",
+            "triangle-right",
+            "triangle-left",
+            "arrow",
+            "wedge",
+            "triangle",
+            "star",
+            "wye",
+            "pentagon",
+            "cushion",
+        ] {
+            let [width, height] = extent(name);
+            assert!(
+                width.max(height) <= 1.0 + 1e-4,
+                "{name}: {width} × {height}"
+            );
+        }
+        for name in ["star", "wye", "pentagon", "cushion"] {
+            let [width, _] = extent(name);
+            assert!((width - 1.0).abs() < 1e-4, "{name}: {width}");
+        }
     }
 }
