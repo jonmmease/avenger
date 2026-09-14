@@ -73,3 +73,7 @@ Window, PNG, and browser canvases use the same renderer. A resize rebuilds dimen
 ## Configure scales
 
 `ConfiguredScale` validates options and normalizes domains with typed context. Numeric coercion and domain access preserve binary64 precision where supplied by the source data. Scale formatters use the shared number and datetime libraries with D3 formats and resolved locales. Arrow consumers use version 58.
+
+## Configure axes
+
+Numeric and temporal axes accept explicit formats, locale/timezone context, and tick spacing. `AxisConfig` supplies optional styling and label-template fields; use `..Default::default()` when setting a subset. The text-engine entry points use the caller's fonts for measurement. Labels retain their clearance from tick ends when `tick_length` changes.
