@@ -23,8 +23,8 @@ use avenger_scenegraph::{
         trail::SceneTrailMark,
     },
     pattern_geometry::{
-        build_layered_pattern_geometry, LayeredPatternGeometry, PatternGeometryError, PatternRect,
-        PatternRenderContext,
+        build_layered_pattern_geometry, LayeredPatternGeometry, PatternCoverageLayer,
+        PatternCoveragePrimitive, PatternGeometryError, PatternRect, PatternRenderContext,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -1081,19 +1081,9 @@ impl PdfRenderer {
             let mut opaque_ink = geometry.ink;
             let opacity = opaque_ink[3].clamp(0.0, 1.0);
             opaque_ink[3] = 1.0;
-            let Some(fill) = color_fill(opaque_ink) else {
-                surface.pop();
-                return Ok(());
-            };
-
             surface.push_opacity(normalized(opacity));
-            surface.set_fill(Some(fill));
-            surface.set_stroke(None);
             for layer in &geometry.layers {
-                let Some(coverage_path) = lyon_path_to_krilla(&layer.coverage_path) else {
-                    continue;
-                };
-                surface.draw_path(&coverage_path);
+                draw_pattern_primitives(surface, layer, opaque_ink);
             }
             surface.pop();
         } else {
@@ -1130,62 +1120,36 @@ impl PdfRenderer {
         bounds: PatternRect,
     ) -> Result<Option<Stream>, AvengerPdfError> {
         let mut previous_mask: Option<Stream> = None;
-
         for layer in &geometry.layers {
-            let Some(layer_path) = lyon_path_to_krilla(&layer.coverage_path) else {
-                continue;
-            };
+            let mut layer_builder = surface.stream_builder();
+            let mut layer_surface = layer_builder.surface();
+            draw_luminosity_mask_rect(&mut layer_surface, bounds, false);
+            draw_pattern_primitives(&mut layer_surface, layer, [1.0; 4]);
+            layer_surface.finish();
+            let layer_mask = layer_builder.finish();
 
             let mut stream_builder = surface.stream_builder();
             let mut mask_surface = stream_builder.surface();
             draw_luminosity_mask_rect(&mut mask_surface, bounds, false);
-
-            match layer.operation {
-                PatternLayerOperation::Add => {
-                    if let Some(previous) = &previous_mask {
-                        draw_luminosity_previous_mask(
-                            &mut mask_surface,
-                            bounds,
-                            previous.clone(),
-                            true,
-                        );
-                    }
-                    draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
-                }
-                PatternLayerOperation::Subtract => {
-                    if let Some(previous) = &previous_mask {
-                        draw_luminosity_previous_mask(
-                            &mut mask_surface,
-                            bounds,
-                            previous.clone(),
-                            true,
-                        );
-                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, false);
-                    }
-                }
-                PatternLayerOperation::Xor => {
-                    if let Some(previous) = &previous_mask {
-                        mask_surface.push_mask(Mask::new(previous.clone(), MaskType::Luminosity));
-                        draw_luminosity_mask_rect(&mut mask_surface, bounds, true);
-                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, false);
-                        mask_surface.pop();
-
-                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
-                        mask_surface.push_clip_path(&layer_path, &FillRule::NonZero);
-                        mask_surface.push_mask(Mask::new(previous.clone(), MaskType::Luminosity));
-                        draw_luminosity_mask_rect(&mut mask_surface, bounds, false);
-                        mask_surface.pop();
-                        mask_surface.pop();
-                    } else {
-                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
-                    }
+            if let Some(previous) = &previous_mask {
+                draw_luminosity_previous_mask(&mut mask_surface, bounds, previous.clone(), true);
+            }
+            draw_luminosity_previous_mask(
+                &mut mask_surface,
+                bounds,
+                layer_mask.clone(),
+                layer.operation != PatternLayerOperation::Subtract,
+            );
+            if layer.operation == PatternLayerOperation::Xor {
+                if let Some(previous) = &previous_mask {
+                    mask_surface.push_mask(Mask::new(previous.clone(), MaskType::Luminosity));
+                    draw_luminosity_previous_mask(&mut mask_surface, bounds, layer_mask, false);
+                    mask_surface.pop();
                 }
             }
-
             mask_surface.finish();
             previous_mask = Some(stream_builder.finish());
         }
-
         Ok(previous_mask)
     }
 
@@ -1417,6 +1381,30 @@ fn lyon_path_to_krilla(path: &LyonPath) -> Option<krilla::geom::Path> {
     }
 
     has_segments.then(|| builder.finish()).flatten()
+}
+
+fn draw_pattern_primitives(surface: &mut Surface<'_>, layer: &PatternCoverageLayer, ink: [f32; 4]) {
+    for primitive in &layer.primitives {
+        let Some(path) = lyon_path_to_krilla(primitive.path()) else {
+            continue;
+        };
+        match primitive {
+            PatternCoveragePrimitive::Filled(_) => {
+                let mut fill = color_fill(ink).expect("pattern coverage uses opaque ink");
+                fill.rule = FillRule::EvenOdd;
+                surface.set_fill(Some(fill));
+                surface.set_stroke(None);
+            }
+            PatternCoveragePrimitive::Stroked { stroke_width, .. } => {
+                let mut stroke =
+                    color_stroke(ink, *stroke_width).expect("pattern stroke width is positive");
+                stroke.miter_limit = 4.0;
+                surface.set_fill(None);
+                surface.set_stroke(Some(stroke));
+            }
+        }
+        surface.draw_path(&path);
+    }
 }
 
 fn pattern_rect_to_krilla(bounds: PatternRect) -> Option<krilla::geom::Path> {
