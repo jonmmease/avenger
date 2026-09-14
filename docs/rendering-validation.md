@@ -20,7 +20,6 @@ The source branch initially failed 37 cases. The extraction repairs:
 
 The new direct pattern test checks additive, subtractive, and XOR coverage on
 rectangles, annular arcs, areas, paths, and symbols, including the annular hole.
-The standalone pattern-and-text example supplies an explicit plot reference frame.
 
 ## Reference tolerances
 
