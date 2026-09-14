@@ -259,6 +259,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
                             position,
                             key: e.key,
+                            text: e.text.clone(),
 
                             mark_instance,
                             modifiers: self.modifiers,
@@ -275,6 +276,8 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                     None
                 }
             }
+            WindowEvent::Ime(event) => Some(SceneGraphEvent::Ime(event.clone())),
+            WindowEvent::Clipboard(event) => Some(SceneGraphEvent::Clipboard(event.clone())),
             WindowEvent::RuntimeWake(event) => Some(SceneGraphEvent::RuntimeWake(event.clone())),
             WindowEvent::WindowResize(e) => Some(SceneGraphEvent::WindowResize(e.clone())),
             WindowEvent::WindowResizeSettled(e) => {
@@ -1717,6 +1720,89 @@ mod tests {
             &[SceneGraphEvent::CanvasResize(CanvasResizeEvent {
                 size: [720.0, 420.0],
             })]
+        );
+    }
+    #[tokio::test]
+    async fn key_press_preserves_full_text_separately_from_logical_key() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::KeyPress],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let now = Instant::now();
+        dispatch_cursor(&mut manager, [0.5, 0.5], now).await;
+        let text = "e\u{301}🙂";
+        manager
+            .dispatch_event(
+                &WindowEvent::KeyboardInput(WindowKeyboardInput {
+                    key: Key::Character('e'),
+                    text: Some(text.into()),
+                    state: ElementState::Pressed,
+                }),
+                &empty_rtree(),
+                now,
+            )
+            .await;
+
+        let events = events.lock().unwrap();
+        let [SceneGraphEvent::KeyPress(event)] = events.as_slice() else {
+            panic!("expected one key-press event");
+        };
+        assert_eq!(event.key, Key::Character('e'));
+        assert_eq!(event.text.as_deref(), Some(text));
+    }
+
+    #[tokio::test]
+    async fn ime_and_clipboard_events_dispatch_without_a_pointer_position() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::Ime, SceneGraphEventType::Clipboard],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let now = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::Ime(crate::window::ImeEvent::Preedit {
+                    text: "かな".into(),
+                    cursor: Some((3, 6)),
+                }),
+                &empty_rtree(),
+                now,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::Clipboard(crate::window::ClipboardEvent::Paste("pasted".into())),
+                &empty_rtree(),
+                now,
+            )
+            .await;
+
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            &[
+                SceneGraphEvent::Ime(crate::window::ImeEvent::Preedit {
+                    text: "かな".into(),
+                    cursor: Some((3, 6)),
+                }),
+                SceneGraphEvent::Clipboard(crate::window::ClipboardEvent::Paste("pasted".into())),
+            ]
+        );
+        assert!(!WindowEvent::Ime(crate::window::ImeEvent::Enabled).skip_if_render_pending());
+        assert!(
+            !WindowEvent::Clipboard(crate::window::ClipboardEvent::Copy).skip_if_render_pending()
         );
     }
 }

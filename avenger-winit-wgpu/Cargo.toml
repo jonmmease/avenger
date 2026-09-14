@@ -22,12 +22,33 @@ cfg-if = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window"] }
+web-sys = { version = "0.3", features = [
+    "Clipboard",
+    "ClipboardEvent",
+    "CompositionEvent",
+    "CssStyleDeclaration",
+    "DataTransfer",
+    "Document",
+    "DomRect",
+    "Element",
+    "Event",
+    "EventTarget",
+    "FocusEvent",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlInputElement",
+    "InputEvent",
+    "KeyboardEvent",
+    "Navigator",
+    "Node",
+    "Window",
+] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt"] }
 avenger-wgpu = { path = "../avenger-wgpu", default-features = false, features = [ "rayon"] }
 notify = "8.0.0"
+arboard = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 async-trait = { workspace = true }

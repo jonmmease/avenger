@@ -131,3 +131,7 @@ Use `AvengerApp::update_with_status` to receive cursor changes and `RuntimeHostC
 `WindowSceneSizing` controls whether the surface follows the window or selected scene dimensions. A render invalidation hub refreshes resources while the window is idle. Escape and close requests reach application handlers, and focus changes clear shortcut state.
 
 Tooltips use owner-scoped show, move, and hide commands. Move updates reuse their content geometry. Run the [Iris example](../examples/iris-pan-zoom/README.md) to try panning, delayed readouts, resizing, and point tooltips in a native window or browser.
+
+IME and clipboard actions use `RuntimeHostCommand` alongside timed updates. Keyboard text payloads preserve inserted text separately from logical shortcut keys. Browser clipboard providers return the current selection synchronously during copy and cut events.
+
+Run `cargo run --release -p winit-annotation-editor` or follow the [browser instructions](../examples/winit-annotation-editor/README.md). The editor combines literal Typst source, validated previews, text selection, composition, clipboard actions, panning, and draggable labels.
