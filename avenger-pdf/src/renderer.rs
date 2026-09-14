@@ -1,7 +1,8 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{StrokeCap, StrokeJoin};
+use avenger_common::types::{FillRule as SceneFillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
+use avenger_scenegraph::path_geometry::{trail_outline, GradientBounds};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark,
@@ -188,7 +189,11 @@ impl PdfRenderer {
                 continue;
             }
             if let Some(path) = clip_path.as_ref() {
-                surface.push_clip_path(path, &FillRule::NonZero);
+                let rule = match &item.clip {
+                    Clip::Path { fill_rule, .. } => pdf_fill_rule(*fill_rule),
+                    _ => FillRule::NonZero,
+                };
+                surface.push_clip_path(path, &rule);
             }
 
             let result = match &item.mark {
@@ -281,6 +286,8 @@ impl PdfRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    fill_rule: SceneFillRule::NonZero,
+                    gradient_bounds: None,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
@@ -319,6 +326,8 @@ impl PdfRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    fill_rule: mark.fill_rule,
+                    gradient_bounds: None,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
@@ -345,11 +354,14 @@ impl PdfRenderer {
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        for (path, fill, fill_pattern, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke, x, y, size) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
             mark.fill_pattern_iter(),
-            mark.stroke_iter()
+            mark.stroke_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.size_iter()
         ) {
             self.draw_filled_path_with_optional_pattern(
                 surface,
@@ -357,6 +369,11 @@ impl PdfRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    fill_rule: mark.fill_rule,
+                    gradient_bounds: Some(GradientBounds::symbol(
+                        [x + origin[0], y + origin[1]],
+                        *size,
+                    )),
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
@@ -396,6 +413,8 @@ impl PdfRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    fill_rule: SceneFillRule::NonZero,
+                    gradient_bounds: None,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
@@ -428,6 +447,8 @@ impl PdfRenderer {
             &mark.fill,
             mark.fill_pattern.as_ref(),
             PathStyle {
+                fill_rule: SceneFillRule::NonZero,
+                gradient_bounds: None,
                 fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
@@ -453,6 +474,8 @@ impl PdfRenderer {
             surface,
             &line_mark_path(mark, origin),
             PathStyle {
+                fill_rule: SceneFillRule::NonZero,
+                gradient_bounds: Some(GradientBounds::from_path(&mark.transformed_path(origin))),
                 fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
@@ -477,6 +500,7 @@ impl PdfRenderer {
             .map(|iter| iter.collect::<Vec<_>>())
             .unwrap_or_default();
 
+        let mut paths = mark.transformed_path_iter(origin);
         for (index, (x1, y1, x2, y2, stroke, stroke_width, stroke_cap)) in izip!(
             mark.x_iter(),
             mark.y_iter(),
@@ -497,6 +521,8 @@ impl PdfRenderer {
                 surface,
                 &path,
                 PathStyle {
+                    fill_rule: SceneFillRule::NonZero,
+                    gradient_bounds: paths.next().map(|path| GradientBounds::from_path(&path)),
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
@@ -519,10 +545,15 @@ impl PdfRenderer {
         mark: &SceneTrailMark,
         origin: [f32; 2],
     ) -> Result<(), AvengerPdfError> {
+        let centerline = mark.transformed_path(origin);
+        let outline = trail_outline(&centerline, 0.05, 0)
+            .map_err(|error| AvengerPdfError::InvalidGeometry(error.to_string()))?;
         self.draw_path_with_style(
             surface,
-            &trail_outline_path(mark, origin),
+            &outline,
             PathStyle {
+                fill_rule: SceneFillRule::NonZero,
+                gradient_bounds: Some(GradientBounds::from_path(&centerline)),
                 fill: Some(&mark.stroke),
                 stroke: None,
                 stroke_width: None,
@@ -817,6 +848,8 @@ impl PdfRenderer {
             surface,
             &item.path,
             PathStyle {
+                fill_rule: SceneFillRule::NonZero,
+                gradient_bounds: None,
                 fill: fill.as_ref(),
                 stroke: stroke.as_ref(),
                 stroke_width: item.stroke.as_ref().map(|stroke| stroke.width),
@@ -856,6 +889,8 @@ impl PdfRenderer {
             surface,
             &spine,
             PathStyle {
+                fill_rule: SceneFillRule::NonZero,
+                gradient_bounds: None,
                 fill: None,
                 stroke: Some(style.paint),
                 stroke_width: Some(style.width.max(0.0)),
@@ -875,6 +910,8 @@ impl PdfRenderer {
                     surface,
                     &path,
                     PathStyle {
+                        fill_rule: SceneFillRule::NonZero,
+                        gradient_bounds: None,
                         fill: None,
                         stroke: Some(style.paint),
                         stroke_width: Some(style.width.max(0.0)),
@@ -890,6 +927,8 @@ impl PdfRenderer {
                     surface,
                     &path,
                     PathStyle {
+                        fill_rule: SceneFillRule::NonZero,
+                        gradient_bounds: None,
                         fill: Some(style.paint),
                         stroke: None,
                         stroke_width: None,
@@ -999,6 +1038,8 @@ impl PdfRenderer {
             surface,
             path,
             PathStyle {
+                fill_rule: stroke_style.fill_rule,
+                gradient_bounds: stroke_style.gradient_bounds,
                 fill: Some(fill),
                 stroke: None,
                 stroke_width: None,
@@ -1019,6 +1060,7 @@ impl PdfRenderer {
             stroke_style.gradients,
             pattern_reference_frame,
             chart_bounds,
+            stroke_style.fill_rule,
         )?;
 
         self.draw_path_with_style(
@@ -1041,6 +1083,7 @@ impl PdfRenderer {
         gradients: &[Gradient],
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
+        fill_rule: SceneFillRule,
     ) -> Result<(), AvengerPdfError> {
         let Some(host_clip_path) = lyon_path_to_krilla(host_path) else {
             return Ok(());
@@ -1072,7 +1115,7 @@ impl PdfRenderer {
             return Ok(());
         }
 
-        surface.push_clip_path(&host_clip_path, &FillRule::NonZero);
+        surface.push_clip_path(&host_clip_path, &pdf_fill_rule(fill_rule));
         if geometry
             .layers
             .iter()
@@ -1162,10 +1205,12 @@ impl PdfRenderer {
         let Some(krilla_path) = lyon_path_to_krilla(path) else {
             return Ok(());
         };
-        let bbox = bounding_box(path);
+        let bbox = style
+            .gradient_bounds
+            .unwrap_or_else(|| GradientBounds::from_path(path));
         let fill = style
             .fill
-            .map(|fill| fill_from_paint(fill, style.gradients, &bbox))
+            .map(|fill| fill_from_paint(fill, style.gradients, &bbox, style.fill_rule))
             .transpose()?
             .flatten();
         let stroke = stroke_from_style(&style, &bbox)?;
@@ -1213,6 +1258,8 @@ fn pattern_geometry_error_to_pdf_error(error: PatternGeometryError) -> AvengerPd
 
 #[derive(Clone, Copy)]
 struct PathStyle<'a> {
+    fill_rule: SceneFillRule,
+    gradient_bounds: Option<GradientBounds>,
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
     stroke_width: Option<f32>,
@@ -1389,16 +1436,15 @@ fn draw_pattern_primitives(surface: &mut Surface<'_>, layer: &PatternCoverageLay
             continue;
         };
         match primitive {
-            PatternCoveragePrimitive::Filled(_) => {
+            PatternCoveragePrimitive::Filled { fill_rule, .. } => {
                 let mut fill = color_fill(ink).expect("pattern coverage uses opaque ink");
-                fill.rule = FillRule::EvenOdd;
+                fill.rule = pdf_fill_rule(*fill_rule);
                 surface.set_fill(Some(fill));
                 surface.set_stroke(None);
             }
             PatternCoveragePrimitive::Stroked { stroke_width, .. } => {
-                let mut stroke =
+                let stroke =
                     color_stroke(ink, *stroke_width).expect("pattern stroke width is positive");
-                stroke.miter_limit = 4.0;
                 surface.set_fill(None);
                 surface.set_stroke(Some(stroke));
             }
@@ -1450,6 +1496,13 @@ fn luminosity_mask_fill(white: bool) -> Fill {
     color_fill([value, value, value, 1.0]).expect("opaque grayscale fill is valid")
 }
 
+fn pdf_fill_rule(rule: SceneFillRule) -> FillRule {
+    match rule {
+        SceneFillRule::NonZero => FillRule::NonZero,
+        SceneFillRule::EvenOdd => FillRule::EvenOdd,
+    }
+}
+
 fn clip_to_krilla_path(clip: &Clip) -> Result<Option<krilla::geom::Path>, AvengerPdfError> {
     let path = match clip {
         Clip::None => return Ok(None),
@@ -1466,7 +1519,7 @@ fn clip_to_krilla_path(clip: &Clip) -> Result<Option<krilla::geom::Path>, Avenge
             builder.push_rect(rect);
             builder.finish()
         }
-        Clip::Path(path) => lyon_path_to_krilla(path),
+        Clip::Path { path, .. } => lyon_path_to_krilla(path),
     };
 
     Ok(path)
@@ -1475,7 +1528,8 @@ fn clip_to_krilla_path(clip: &Clip) -> Result<Option<krilla::geom::Path>, Avenge
 fn fill_from_paint(
     paint: &ColorOrGradient,
     gradients: &[Gradient],
-    bbox: &lyon_path::geom::Box2D<f32>,
+    bbox: &GradientBounds,
+    rule: SceneFillRule,
 ) -> Result<Option<Fill>, AvengerPdfError> {
     let Some((paint, opacity)) = paint_and_opacity(paint, gradients, bbox)? else {
         return Ok(None);
@@ -1483,7 +1537,7 @@ fn fill_from_paint(
     Ok(Some(Fill {
         paint,
         opacity,
-        rule: FillRule::NonZero,
+        rule: pdf_fill_rule(rule),
     }))
 }
 
@@ -1510,7 +1564,7 @@ fn color_stroke(color: [f32; 4], width: f32) -> Option<Stroke> {
     Some(Stroke {
         paint: rgb::Color::new(color_channel(r), color_channel(g), color_channel(b)).into(),
         width,
-        miter_limit: 10.0,
+        miter_limit: SCENE_MITER_LIMIT,
         line_cap: LineCap::Butt,
         line_join: LineJoin::Miter,
         opacity: normalized(a),
@@ -1520,7 +1574,7 @@ fn color_stroke(color: [f32; 4], width: f32) -> Option<Stroke> {
 
 fn stroke_from_style(
     style: &PathStyle<'_>,
-    bbox: &lyon_path::geom::Box2D<f32>,
+    bbox: &GradientBounds,
 ) -> Result<Option<Stroke>, AvengerPdfError> {
     let width = style.stroke_width.unwrap_or(0.0);
     if width <= 0.0 {
@@ -1536,7 +1590,7 @@ fn stroke_from_style(
     Ok(Some(Stroke {
         paint,
         width,
-        miter_limit: style.stroke_miter_limit.unwrap_or(10.0),
+        miter_limit: style.stroke_miter_limit.unwrap_or(SCENE_MITER_LIMIT),
         line_cap: style.stroke_cap.map(line_cap).unwrap_or_default(),
         line_join: style.stroke_join.map(line_join).unwrap_or_default(),
         opacity,
@@ -1553,7 +1607,7 @@ fn stroke_from_style(
 fn paint_and_opacity(
     paint: &ColorOrGradient,
     gradients: &[Gradient],
-    bbox: &lyon_path::geom::Box2D<f32>,
+    bbox: &GradientBounds,
 ) -> Result<Option<(Paint, NormalizedF32)>, AvengerPdfError> {
     match paint {
         ColorOrGradient::Color(color) => {
@@ -1580,17 +1634,26 @@ fn paint_and_opacity(
 
 fn gradient_paint(
     gradient: &Gradient,
-    bbox: &lyon_path::geom::Box2D<f32>,
+    bbox: &GradientBounds,
 ) -> Result<Option<Paint>, AvengerPdfError> {
     let stops = gradient_stops(gradient.stops());
     if stops.is_empty() {
         return Ok(None);
     }
 
-    let left = bbox.min.x;
-    let top = bbox.min.y;
-    let width = (bbox.max.x - bbox.min.x).max(0.0);
-    let height = (bbox.max.y - bbox.min.y).max(0.0);
+    let bbox = match gradient {
+        Gradient::RadialGradient(g) => {
+            if g.x0 == g.x1 && g.y0 == g.y1 && g.r0 == g.r1 {
+                return Ok(None);
+            }
+            bbox.radial()
+        }
+        Gradient::LinearGradient(_) => *bbox,
+    };
+    let left = bbox.min[0];
+    let top = bbox.min[1];
+    let width = (bbox.max[0] - bbox.min[0]).max(0.0);
+    let height = (bbox.max[1] - bbox.min[1]).max(0.0);
 
     // Object-bounding-box paint is undefined on zero-area geometry, as in SVG.
     // Avoid passing a singular gradient transform to the PDF writer.
@@ -1600,10 +1663,10 @@ fn gradient_paint(
 
     Ok(Some(match gradient {
         Gradient::LinearGradient(gradient) => LinearGradient {
-            x1: gradient.x0.clamp(0.0, 1.0),
-            y1: gradient.y0.clamp(0.0, 1.0),
-            x2: gradient.x1.clamp(0.0, 1.0),
-            y2: gradient.y1.clamp(0.0, 1.0),
+            x1: gradient.x0,
+            y1: gradient.y0,
+            x2: gradient.x1,
+            y2: gradient.y1,
             // Gradient geometry is defined in the unit bounding box, including its normals.
             transform: Transform::from_row(width, 0.0, 0.0, height, left, top),
             spread_method: SpreadMethod::Pad,
@@ -1612,21 +1675,13 @@ fn gradient_paint(
         }
         .into(),
         Gradient::RadialGradient(gradient) => RadialGradient {
-            fx: gradient.x0.clamp(0.0, 1.0),
-            fy: gradient.y0.clamp(0.0, 1.0),
-            fr: gradient.r0.clamp(0.0, 1.0),
-            cx: gradient.x1.clamp(0.0, 1.0),
-            cy: gradient.y1.clamp(0.0, 1.0),
-            cr: gradient.r1.clamp(0.0, 1.0),
-            // Core radial gradients use a centered square enclosing the mark bounds.
-            transform: Transform::from_row(
-                width.max(height),
-                0.0,
-                0.0,
-                width.max(height),
-                left - (height - width).max(0.0) / 2.0,
-                top - (width - height).max(0.0) / 2.0,
-            ),
+            fx: gradient.x0,
+            fy: gradient.y0,
+            fr: gradient.r0,
+            cx: gradient.x1,
+            cy: gradient.y1,
+            cr: gradient.r1,
+            transform: Transform::from_row(width, 0.0, 0.0, height, left, top),
             spread_method: SpreadMethod::Pad,
             stops,
             anti_alias: false,
@@ -1707,167 +1762,6 @@ fn close_single_point_subpath(
             builder.end(false);
         }
         _ => builder.end(false),
-    }
-}
-
-fn trail_outline_path(mark: &SceneTrailMark, origin: [f32; 2]) -> LyonPath {
-    let mut builder = LyonPath::builder();
-    let mut prev = None;
-    let mut run_len = 0usize;
-
-    for (x, y, size, defined) in izip!(
-        mark.x_iter(),
-        mark.y_iter(),
-        mark.size_iter(),
-        mark.defined_iter()
-    ) {
-        if *defined {
-            let point = [*x + origin[0], *y + origin[1]];
-            let radius = (*size).max(0.0) / 2.0;
-            if let Some((prev_point, prev_radius)) = prev {
-                push_trail_segment_path(&mut builder, prev_point, prev_radius, point, radius);
-            }
-            prev = Some((point, radius));
-            run_len += 1;
-        } else {
-            if run_len == 1 {
-                if let Some((point, radius)) = prev {
-                    push_trail_circle_path(&mut builder, point, radius);
-                }
-            }
-            prev = None;
-            run_len = 0;
-        }
-    }
-
-    if run_len == 1 {
-        if let Some((point, radius)) = prev {
-            push_trail_circle_path(&mut builder, point, radius);
-        }
-    }
-
-    builder.build()
-}
-
-fn push_trail_segment_path(
-    builder: &mut lyon_path::path::Builder,
-    p0: [f32; 2],
-    r0: f32,
-    p1: [f32; 2],
-    r1: f32,
-) {
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let len = (dx * dx + dy * dy).sqrt();
-
-    if len <= f32::EPSILON {
-        push_trail_circle_path(builder, p0, r0.max(r1));
-        return;
-    }
-
-    if r0 <= 0.0 && r1 <= 0.0 {
-        return;
-    }
-
-    let nx = -dy / len;
-    let ny = dx / len;
-    let normal_angle = ny.atan2(nx);
-    let p0_left = [p0[0] + nx * r0, p0[1] + ny * r0];
-    let p1_left = [p1[0] + nx * r1, p1[1] + ny * r1];
-    let p0_right = [p0[0] - nx * r0, p0[1] - ny * r0];
-
-    builder.begin(lyon_path::math::point(p0_left[0], p0_left[1]));
-    builder.line_to(lyon_path::math::point(p1_left[0], p1_left[1]));
-    push_circular_arc_path(
-        builder,
-        p1,
-        r1,
-        normal_angle,
-        normal_angle - std::f32::consts::PI,
-    );
-    builder.line_to(lyon_path::math::point(p0_right[0], p0_right[1]));
-    push_circular_arc_path(
-        builder,
-        p0,
-        r0,
-        normal_angle - std::f32::consts::PI,
-        normal_angle - 2.0 * std::f32::consts::PI,
-    );
-    builder.end(true);
-}
-
-fn push_trail_circle_path(builder: &mut lyon_path::path::Builder, point: [f32; 2], radius: f32) {
-    if radius <= 0.0 {
-        return;
-    }
-
-    builder.begin(lyon_path::math::point(point[0] + radius, point[1]));
-    push_circular_arc_path(builder, point, radius, 0.0, -std::f32::consts::FRAC_PI_2);
-    push_circular_arc_path(
-        builder,
-        point,
-        radius,
-        -std::f32::consts::FRAC_PI_2,
-        -std::f32::consts::PI,
-    );
-    push_circular_arc_path(
-        builder,
-        point,
-        radius,
-        -std::f32::consts::PI,
-        -3.0 * std::f32::consts::FRAC_PI_2,
-    );
-    push_circular_arc_path(
-        builder,
-        point,
-        radius,
-        -3.0 * std::f32::consts::FRAC_PI_2,
-        -2.0 * std::f32::consts::PI,
-    );
-    builder.end(true);
-}
-
-fn push_circular_arc_path(
-    builder: &mut lyon_path::path::Builder,
-    center: [f32; 2],
-    radius: f32,
-    start_angle: f32,
-    end_angle: f32,
-) {
-    if radius <= 0.0 {
-        return;
-    }
-
-    let sweep = end_angle - start_angle;
-    let segments = (sweep.abs() / std::f32::consts::FRAC_PI_2).ceil().max(1.0) as usize;
-    let step = sweep / segments as f32;
-    let mut angle0 = start_angle;
-
-    for _ in 0..segments {
-        let angle1 = angle0 + step;
-        let k = 4.0 / 3.0 * (step / 4.0).tan();
-        let p0 = [
-            center[0] + radius * angle0.cos(),
-            center[1] + radius * angle0.sin(),
-        ];
-        let p1 = [
-            center[0] + radius * angle1.cos(),
-            center[1] + radius * angle1.sin(),
-        ];
-        let c0 = [
-            p0[0] - k * radius * angle0.sin(),
-            p0[1] + k * radius * angle0.cos(),
-        ];
-        let c1 = [
-            p1[0] + k * radius * angle1.sin(),
-            p1[1] - k * radius * angle1.cos(),
-        ];
-        builder.cubic_bezier_to(
-            lyon_path::math::point(c0[0], c0[1]),
-            lyon_path::math::point(c1[0], c1[1]),
-            lyon_path::math::point(p1[0], p1[1]),
-        );
-        angle0 = angle1;
     }
 }
 
@@ -2005,7 +1899,6 @@ mod tests {
         },
         rect::SceneRectMark,
         text::SceneTextMark,
-        trail::SceneTrailMark,
     };
     use avenger_text::types::{TextAlign, TextBaseline};
     use avenger_text::{FontResolutionOptions, MissingFontPolicy};
@@ -2110,6 +2003,8 @@ mod tests {
         let paint = ColorOrGradient::Color([0.1, 0.2, 0.3, 1.0]);
         let dash = [2.0, 1.0];
         let style = PathStyle {
+            fill_rule: SceneFillRule::NonZero,
+            gradient_bounds: None,
             fill: None,
             stroke: Some(&paint),
             stroke_width: Some(1.5),
@@ -2120,10 +2015,10 @@ mod tests {
             stroke_miter_limit: Some(2.0),
             gradients: &[],
         };
-        let bbox = lyon_path::geom::Box2D::new(
-            lyon_path::geom::point(0.0, 0.0),
-            lyon_path::geom::point(10.0, 10.0),
-        );
+        let bbox = GradientBounds {
+            min: [0.0, 0.0],
+            max: [10.0, 10.0],
+        };
 
         let stroke = stroke_from_style(&style, &bbox)
             .unwrap()
@@ -2223,6 +2118,7 @@ mod tests {
                 v_phase: 0.0,
             },
             symbol: PatternSymbol {
+                fill_rule: avenger_common::types::FillRule::EvenOdd,
                 shape: "circle".to_string(),
                 size: 16.0,
                 rotation: 0.0,
@@ -2347,6 +2243,7 @@ mod tests {
                     v_phase: 0.0,
                 },
                 symbol: PatternSymbol {
+                    fill_rule: avenger_common::types::FillRule::EvenOdd,
                     shape: "circle".to_string(),
                     size: 4.0,
                     rotation: 0.0,
@@ -2459,26 +2356,6 @@ mod tests {
 
         assert!(pdf.starts_with(b"%PDF-"));
         assert!(pdf.len() > 1000);
-    }
-
-    #[test]
-    fn trail_outline_path_uses_size_as_geometry() {
-        let path = trail_outline_path(
-            &SceneTrailMark {
-                len: 2,
-                x: ScalarOrArray::new_array(vec![10.0, 30.0]),
-                y: ScalarOrArray::new_array(vec![20.0, 20.0]),
-                size: ScalarOrArray::new_array(vec![10.0, 20.0]),
-                ..Default::default()
-            },
-            [0.0, 0.0],
-        );
-        let bbox = bounding_box(&path);
-
-        assert!((bbox.min.x - 5.0).abs() < 0.001, "{bbox:?}");
-        assert!((bbox.min.y - 10.0).abs() < 0.001, "{bbox:?}");
-        assert!((bbox.max.x - 40.0).abs() < 0.001, "{bbox:?}");
-        assert!((bbox.max.y - 30.0).abs() < 0.001, "{bbox:?}");
     }
 
     #[test]
