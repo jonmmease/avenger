@@ -354,6 +354,159 @@ mod test_image_baselines {
         );
     }
 
+    fn render_pattern_mark(
+        mark: avenger_scenegraph::marks::mark::SceneMark,
+        samples: u32,
+    ) -> image::RgbaImage {
+        let scene = SceneGraph {
+            width: 200.0,
+            height: 100.0,
+            origin: [0.0; 2],
+            marks: vec![mark],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [200.0, 100.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                sample_count: Some(samples),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+        canvas.set_scene(&scene).unwrap();
+        pollster::block_on(canvas.render()).unwrap()
+    }
+
+    #[test]
+    fn pattern_does_not_change_compound_host_fill() {
+        use avenger_common::types::PathTransform;
+        let mut builder = LyonPath::builder();
+        for (min, max) in [(10.0, 90.0), (30.0, 70.0)] {
+            builder.begin(point(min, min));
+            builder.line_to(point(max, min));
+            builder.line_to(point(max, max));
+            builder.line_to(point(min, max));
+            builder.close();
+        }
+        let mark = ScenePathMark {
+            len: 2,
+            path: builder.build().into(),
+            transform: vec![
+                PathTransform::identity(),
+                PathTransform::translation(100.0, 0.0),
+            ]
+            .into(),
+            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            ..Default::default()
+        };
+        let reference = render_pattern_mark(mark.clone().into(), 1);
+        assert_eq!(reference.get_pixel(50, 50).0, [255; 4]);
+        assert_eq!(reference.get_pixel(20, 50).0, [0, 0, 0, 255]);
+        let empty = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ..Default::default()
+        };
+        let transparent = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.0,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+        };
+        for fill_pattern in [
+            Some(empty.clone()).into(),
+            Some(transparent).into(),
+            vec![None, Some(empty)].into(),
+        ] {
+            let patterned = ScenePathMark {
+                fill_pattern,
+                ..mark.clone()
+            };
+            assert_eq!(
+                render_pattern_mark(patterned.into(), 1).as_raw(),
+                reference.as_raw()
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_symbols_preserve_holes_and_union_instances_before_operations() {
+        use avenger_scenegraph::marks::pattern::{
+            PatternLayerOperation, PatternSymbol, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+        };
+        const SQUARE: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z";
+        const RING: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z M-0.5,-0.5 L-0.5,0.5 L0.5,0.5 L0.5,-0.5 Z";
+        for samples in [1, 4] {
+            for (shape, paint, spacing, ink_pixel, gap_pixel) in [
+                (RING, SymbolPaint::Filled, 100.0, [65, 50], [50, 50]),
+                (SQUARE, SymbolPaint::Filled, 30.0, [65, 50], [50, 20]),
+                (
+                    SQUARE,
+                    SymbolPaint::Open { stroke_width: 8.0 },
+                    38.0,
+                    [69, 50],
+                    [50, 50],
+                ),
+            ] {
+                for operation in [
+                    PatternLayerOperation::Add,
+                    PatternLayerOperation::Subtract,
+                    PatternLayerOperation::Xor,
+                ] {
+                    let mut layers = Vec::new();
+                    if operation != PatternLayerOperation::Add {
+                        layers.push(PatternLayer::Stripe(StripePatternLayer::new(
+                            0.0, 1000.0, 1000.0,
+                        )));
+                    }
+                    layers.push(PatternLayer::Symbol(SymbolPatternLayer {
+                        operation,
+                        lattice: SymbolLattice2d {
+                            u_spacing: spacing,
+                            v_spacing: 100.0,
+                            u_angle: 0.0,
+                            v_angle: 90.0,
+                            u_phase: 50.0,
+                            v_phase: 50.0,
+                        },
+                        symbol: PatternSymbol {
+                            shape: shape.into(),
+                            size: 1600.0,
+                            rotation: 0.0,
+                        },
+                        paint: paint.clone(),
+                    }));
+                    let mark = SceneRectMark {
+                        width: Some(100.0.into()),
+                        height: Some(100.0.into()),
+                        fill: ColorOrGradient::Color([1.0; 4]).into(),
+                        fill_pattern: Some(PatternFill {
+                            anchor: PatternAnchor::Mark,
+                            ink: PatternInk::Solid {
+                                color: [0.0, 0.0, 0.0, 1.0],
+                                opacity: 0.5,
+                            },
+                            layers,
+                        })
+                        .into(),
+                        ..Default::default()
+                    };
+                    let image = render_pattern_mark(mark.into(), samples);
+                    for (pixel, covered) in [(ink_pixel, true), (gap_pixel, false)] {
+                        let covered = covered == (operation == PatternLayerOperation::Add);
+                        let value = image.get_pixel(pixel[0], pixel[1]).0[0];
+                        let expected = if covered { 127 } else { 255 };
+                        assert!(value.abs_diff(expected) <= 1,
+                            "{operation:?}, {paint:?}, spacing={spacing}, samples={samples}, pixel={pixel:?}: {value} != {expected}");
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn pattern_layer_operations_render_on_every_host_mark() {
         use avenger_scenegraph::marks::{

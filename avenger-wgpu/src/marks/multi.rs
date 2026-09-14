@@ -22,7 +22,8 @@ use avenger_scenegraph::marks::{
     trail::SceneTrailMark,
 };
 use avenger_scenegraph::pattern_geometry::{
-    build_layered_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
+    build_layered_pattern_geometry, PatternCoveragePrimitive, PatternGeometryError, PatternRect,
+    PatternRenderContext,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -38,7 +39,7 @@ use lyon::{
         LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{builder::BorderRadii, geom::point, Event, Path, Winding},
+    path::{builder::BorderRadii, geom::point, Path, Winding},
 };
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
@@ -66,9 +67,7 @@ const STENCIL_ATTACHMENT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Sten
 const PATTERN_CLIP_BIT: u32 = 0x01;
 const PATTERN_HOST_BIT: u32 = 0x02;
 const PATTERN_MASK_BIT: u32 = 0x04;
-const PATTERN_PAINTED_BIT: u32 = 0x08;
-const PATTERN_LAYER_BIT: u32 = 0x10;
-const PATTERN_LAYER_PAINTED_BIT: u32 = 0x20;
+const PATTERN_LAYER_BIT: u32 = 0x08;
 
 pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
     let normalized = angle.rem_euclid(360.0);
@@ -197,8 +196,7 @@ pub struct MultiMarkRenderResources {
     pattern_clip_pipeline: RenderPipeline,
     pattern_host_pipeline: RenderPipeline,
     pattern_host_clip_pipeline: RenderPipeline,
-    pattern_add_pipeline: RenderPipeline,
-    pattern_subtract_pipeline: RenderPipeline,
+    pattern_mask_pipeline: RenderPipeline,
     pattern_clear_layer_pipeline: RenderPipeline,
     pattern_layer_pipeline: RenderPipeline,
     pattern_xor_apply_pipeline: RenderPipeline,
@@ -363,20 +361,7 @@ impl MultiMarkRenderResources {
             None,
             wgpu::ColorWrites::empty(),
         );
-        let pattern_add_pipeline = Self::make_stencil_pipeline(
-            device,
-            texture_format,
-            sample_count,
-            &render_pipeline_layout,
-            &shader,
-            wgpu::CompareFunction::Equal,
-            wgpu::StencilOperation::Replace,
-            PATTERN_HOST_BIT,
-            PATTERN_MASK_BIT,
-            None,
-            wgpu::ColorWrites::empty(),
-        );
-        let pattern_subtract_pipeline = Self::make_stencil_pipeline(
+        let pattern_mask_pipeline = Self::make_stencil_pipeline(
             device,
             texture_format,
             sample_count,
@@ -398,7 +383,7 @@ impl MultiMarkRenderResources {
             wgpu::CompareFunction::Equal,
             wgpu::StencilOperation::Replace,
             PATTERN_HOST_BIT,
-            PATTERN_LAYER_BIT | PATTERN_LAYER_PAINTED_BIT,
+            PATTERN_LAYER_BIT,
             None,
             wgpu::ColorWrites::empty(),
         );
@@ -423,8 +408,8 @@ impl MultiMarkRenderResources {
             &shader,
             wgpu::CompareFunction::Equal,
             wgpu::StencilOperation::Invert,
-            PATTERN_LAYER_BIT | PATTERN_LAYER_PAINTED_BIT,
-            PATTERN_MASK_BIT | PATTERN_LAYER_PAINTED_BIT,
+            PATTERN_LAYER_BIT,
+            PATTERN_MASK_BIT,
             None,
             wgpu::ColorWrites::empty(),
         );
@@ -435,9 +420,9 @@ impl MultiMarkRenderResources {
             &render_pipeline_layout,
             &shader,
             wgpu::CompareFunction::Equal,
-            wgpu::StencilOperation::Invert,
-            PATTERN_MASK_BIT | PATTERN_PAINTED_BIT,
-            PATTERN_PAINTED_BIT,
+            wgpu::StencilOperation::Keep,
+            PATTERN_MASK_BIT,
+            0,
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
         );
@@ -451,8 +436,7 @@ impl MultiMarkRenderResources {
             pattern_clip_pipeline,
             pattern_host_pipeline,
             pattern_host_clip_pipeline,
-            pattern_add_pipeline,
-            pattern_subtract_pipeline,
+            pattern_mask_pipeline,
             pattern_clear_layer_pipeline,
             pattern_layer_pipeline,
             pattern_xor_apply_pipeline,
@@ -993,7 +977,7 @@ impl MultiMarkRenderer {
         let mut operations = Vec::with_capacity(geometry.layers.len());
         for layer in &geometry.layers {
             let (coverage_verts, coverage_indices) =
-                tessellate_pattern_coverage_path(&layer.coverage_path, [0.0, 0.0, 0.0, 1.0])?;
+                tessellate_pattern_coverage(&layer.primitives)?;
             if let Some(indices_range) = self.push_verts_inds(coverage_verts, coverage_indices) {
                 operations.push(PatternOverlayOperationBatch {
                     indices_range,
@@ -1006,11 +990,22 @@ impl MultiMarkRenderer {
             return Ok(());
         }
 
-        let (paint_verts, paint_indices) =
-            tessellate_pattern_coverage_path(&geometry.merged_coverage_path, geometry.ink)?;
-        let Some(paint_indices_range) = self.push_verts_inds(paint_verts, paint_indices) else {
-            return Ok(());
-        };
+        let paint_verts = [
+            [host_bounds.min_x(), host_bounds.min_y()],
+            [host_bounds.max_x(), host_bounds.min_y()],
+            [host_bounds.max_x(), host_bounds.max_y()],
+            [host_bounds.min_x(), host_bounds.max_y()],
+        ]
+        .map(|position| MultiVertex {
+            position,
+            color: geometry.ink,
+            top_left: [0.0; 2],
+            bottom_right: [0.0; 2],
+        })
+        .to_vec();
+        let paint_indices_range = self
+            .push_verts_inds(paint_verts, vec![0, 1, 2, 0, 2, 3])
+            .unwrap();
 
         let clip_indices_range = self.add_clip_path(clip, mark_clip)?;
         self.batches.push(MultiMarkBatch {
@@ -2360,11 +2355,11 @@ impl MultiMarkRenderer {
                 for operation in &pattern_overlay.operations {
                     match operation.operation {
                         PatternLayerOperation::Add => {
-                            rp.set_pipeline(&resources.pattern_add_pipeline);
+                            rp.set_pipeline(&resources.pattern_mask_pipeline);
                             rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_MASK_BIT);
                         }
                         PatternLayerOperation::Subtract => {
-                            rp.set_pipeline(&resources.pattern_subtract_pipeline);
+                            rp.set_pipeline(&resources.pattern_mask_pipeline);
                             rp.set_stencil_reference(PATTERN_HOST_BIT);
                         }
                         PatternLayerOperation::Xor => {
@@ -2378,6 +2373,8 @@ impl MultiMarkRenderer {
 
                             rp.set_pipeline(&resources.pattern_xor_apply_pipeline);
                             rp.set_stencil_reference(PATTERN_LAYER_BIT);
+                            rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
+                            continue;
                         }
                     }
                     rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
@@ -2996,8 +2993,7 @@ fn tessellate_fill_path(
 
     let fill_options = FillOptions::default()
         .with_tolerance(0.05)
-        .with_fill_rule(FillRule::NonZero);
-    // Tessellate the compound path together so reversed contours retain holes.
+        .with_fill_rule(FillRule::EvenOdd);
     FillTessellator::new().tessellate_path(path, &fill_options, &mut builder)?;
     Ok((buffers.vertices, buffers.indices))
 }
@@ -3036,60 +3032,40 @@ fn tessellate_stroke_path(
     Ok((buffers.vertices, buffers.indices))
 }
 
-fn tessellate_pattern_coverage_path(
-    path: &Path,
-    fill: [f32; 4],
+fn tessellate_pattern_coverage(
+    primitives: &[PatternCoveragePrimitive],
 ) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-    let bbox = bounding_box(path);
-    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+    let mut buffers = VertexBuffers::new();
     let mut builder = BuffersBuilder::new(
         &mut buffers,
         VertexPositions {
-            fill,
-            stroke: [0.0, 0.0, 0.0, 0.0],
-            top_left: bbox.min.to_array(),
-            bottom_right: bbox.max.to_array(),
+            fill: [0.0, 0.0, 0.0, 1.0],
+            stroke: [0.0, 0.0, 0.0, 1.0],
+            top_left: [0.0; 2],
+            bottom_right: [0.0; 2],
         },
     );
-
-    let fill_options = FillOptions::default()
-        .with_tolerance(0.05)
-        .with_fill_rule(FillRule::NonZero);
-    let mut subpath_builder = Path::builder();
-    let mut in_subpath = false;
-    for event in path.iter() {
-        match event {
-            Event::Begin { at } => {
-                subpath_builder = Path::builder();
-                subpath_builder.begin(at);
-                in_subpath = true;
+    let mut fill_tessellator = FillTessellator::new();
+    let mut stroke_tessellator = StrokeTessellator::new();
+    for primitive in primitives {
+        match primitive {
+            PatternCoveragePrimitive::Filled(path) => {
+                fill_tessellator.tessellate_path(
+                    path,
+                    &FillOptions::default().with_tolerance(0.05),
+                    &mut builder,
+                )?;
             }
-            Event::Line { to, .. } => {
-                if in_subpath {
-                    subpath_builder.line_to(to);
-                }
-            }
-            Event::Quadratic { ctrl, to, .. } => {
-                if in_subpath {
-                    subpath_builder.quadratic_bezier_to(ctrl, to);
-                }
-            }
-            Event::Cubic {
-                ctrl1, ctrl2, to, ..
-            } => {
-                if in_subpath {
-                    subpath_builder.cubic_bezier_to(ctrl1, ctrl2, to);
-                }
-            }
-            Event::End { close, .. } => {
-                if in_subpath {
-                    subpath_builder.end(close);
-                    let subpath = subpath_builder.build();
-                    let mut fill_tessellator = FillTessellator::new();
-                    fill_tessellator.tessellate_path(&subpath, &fill_options, &mut builder)?;
-                    subpath_builder = Path::builder();
-                    in_subpath = false;
-                }
+            PatternCoveragePrimitive::Stroked { path, stroke_width } => {
+                stroke_tessellator.tessellate_path(
+                    path,
+                    &StrokeOptions::default()
+                        .with_tolerance(0.05)
+                        .with_line_width(*stroke_width)
+                        .with_line_join(LineJoin::Miter)
+                        .with_line_cap(LineCap::Butt),
+                    &mut builder,
+                )?;
             }
         }
     }
