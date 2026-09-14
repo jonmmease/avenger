@@ -109,3 +109,17 @@ cargo run --release -p avenger-wgpu --example patterns_and_text -- docs/images/p
 ```
 
 ![Bars with aligned stripe fills and a math label](images/patterns-and-text.png)
+
+## Supply images through a resolver
+
+`SceneImageMark::image` now contains `SceneImageSource` values. Wrap owned pixels or a shared `Arc<RgbaImage>` in `SceneImageSource::inline`, or use `SceneImageSource::Resource` with a stable key and intrinsic dimensions. Set the image resolver in `CanvasConfig::image_resource_config`.
+
+`ImageResourceCache` handles requests, freshness, eviction, and render invalidation. Required requests precede prefetch requests, then higher priorities load first. The cache bounds concurrent loads on native and browser targets. Applications compute request priorities from their own viewport and interaction state. Installed scenes retain their image keys until replacement or renderer destruction. Pending resources can use a placeholder or skip drawing. A ready resource appears on a later render without another `set_scene` call.
+
+`SceneWarpedImageMark` accepts a textured triangle mesh. Tile hints route eligible resources through persistent texture arrays. Tiles must match the declared tile size. Ordinary atlas images can resize to their declared intrinsic dimensions. Fallback images must match the required dimensions in either path. Tile slots distinguish each mark’s fallback and unavailable-image policy, so sharing a resource key preserves each mark’s behavior. Local data URI decoding works without the HTTP feature. Opt into `avenger-image`'s `reqwest` feature for native URL fetching.
+
+```sh
+cargo run --release -p avenger-wgpu --example image_resources -- docs/images/image-resources.png
+```
+
+![Pending and ready resources with a warped image](images/image-resources.png)

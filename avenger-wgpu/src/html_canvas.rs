@@ -13,6 +13,7 @@ use crate::{
         request_wgpu_device, select_sample_count, Canvas, CanvasConfig, CanvasDimensionUtils,
     },
     error::AvengerWgpuError,
+    image_resources::WgpuImageResourceStatus,
     marks::{
         instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer,
         text::TextAtlasBuilderTrait,
@@ -100,6 +101,10 @@ impl<'window> HtmlCanvasCanvas<'window> {
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.renderer.dimensions().to_physical_size()
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
     }
 
     pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
