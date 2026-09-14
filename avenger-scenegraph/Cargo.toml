@@ -22,6 +22,9 @@ features = [ "serialization",]
 [dependencies.lyon_algorithms]
 workspace = true
 
+[dependencies.lyon_tessellation]
+workspace = true
+
 [dependencies.pyo3]
 workspace = true
 optional = true
@@ -37,6 +40,9 @@ workspace = true
 
 [dependencies.avenger-common]
 path = "../avenger-common"
+
+[dependencies.avenger-color]
+path = "../avenger-color"
 
 [dependencies.avenger-image]
 path = "../avenger-image"
@@ -55,10 +61,7 @@ geo-svg = { workspace = true }
 [dev-dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
-features = []
+features = ["serde"]
 
 [dev-dependencies.avenger-geometry]
 path = "../avenger-geometry"
-
-[dependencies.avenger-color]
-path = "../avenger-color"

@@ -63,3 +63,9 @@ cargo run --release -p avenger-wgpu --example extra_symbols -- docs/images/extra
 ```
 
 ![Additional symbols at sizes 64, 400, and 1600](images/extra-symbols.png)
+
+## Render into an application-owned target
+
+`AvengerWgpuRenderer` accepts an existing WGPU device and queue. `AvengerRenderTarget` describes the destination texture view, load operation, and optional multisample resolve target. `OffscreenTarget` allocates a texture for ordinary offscreen rendering. Applications own presentation and scheduling. The workspace uses WGPU 27.
+
+Window, PNG, and browser canvases use the same renderer. A resize rebuilds dimension-dependent scene state while preserving logical coordinates, clipping, and the configured text engine. The window canvas retains its supported multisampling default.
