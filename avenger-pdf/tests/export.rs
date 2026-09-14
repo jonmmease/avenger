@@ -430,7 +430,7 @@ fn image_scene(images: Vec<avenger_image::RgbaImage>) -> SceneGraph {
             .enumerate()
             .map(|(i, image)| {
                 SceneImageMark {
-                    image: ScalarOrArray::new_scalar(SceneImageSource::Inline(image)),
+                    image: ScalarOrArray::new_scalar(SceneImageSource::inline(image)),
                     x: ScalarOrArray::new_scalar(10.0 + i as f32 * 110.0),
                     y: ScalarOrArray::new_scalar(10.0),
                     width: ScalarOrArray::new_scalar(100.0),
