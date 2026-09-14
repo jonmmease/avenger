@@ -1,5 +1,10 @@
 use avenger_app::app::AvengerApp;
+mod host_update;
 mod render_invalidation;
+pub use host_update::{
+    HostUpdateInstallOutcome, HostUpdateSender, HostUpdateSubmitError, HostUpdateSubmitOutcome,
+    PreparedHostUpdate,
+};
 mod wake_scheduler;
 use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
 use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent};
@@ -25,10 +30,11 @@ use avenger_wgpu::{
 };
 use render_invalidation::send_render_invalidation_event;
 use std::{
+    collections::VecDeque,
     fmt,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 use wake_scheduler::{send_event_after, RuntimeWakeScheduler};
@@ -66,7 +72,16 @@ pub struct FileWatcher;
 pub enum WinitWgpuEvent {
     App(AvengerWindowEvent),
     RenderInvalidated {
+        host_generation: u64,
         invalidation: RenderInvalidation,
+    },
+    HostUpdateReady,
+    SetWindowTitle(String),
+    ExitRequested,
+    CanvasFrameResize {
+        host_generation: u64,
+        size: [f32; 2],
+        settled: bool,
     },
     ResizeSettled {
         size: [f32; 2],
@@ -259,6 +274,9 @@ where
     text_agent: std::rc::Rc<std::cell::RefCell<Option<TextAgentHost>>>,
     #[cfg(target_arch = "wasm32")]
     clipboard_payload_provider: Option<ClipboardPayloadProvider>,
+    prepared_host_updates: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+    latest_host_request_epoch: Arc<AtomicU64>,
+    installed_host_generation: u64,
     wake_scheduler: std::rc::Rc<RuntimeWakeScheduler>,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
@@ -329,11 +347,12 @@ where
                 let subscription = hub.subscribe(Arc::new(move |invalidation| {
                     send_render_invalidation_event(
                         event_proxy_for_subscription.clone(),
+                        0,
                         invalidation,
                     );
                 }));
                 if let Some(invalidation) = hub.latest_invalidation() {
-                    send_render_invalidation_event(event_proxy.clone(), invalidation);
+                    send_render_invalidation_event(event_proxy.clone(), 0, invalidation);
                 }
                 subscription
             });
@@ -384,6 +403,9 @@ where
             pending_canvas_resize: None,
             fatal_error: None,
             wake_scheduler,
+            prepared_host_updates: Default::default(),
+            latest_host_request_epoch: Default::default(),
+            installed_host_generation: 0,
             #[cfg(not(target_arch = "wasm32"))]
             clipboard: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -701,11 +723,13 @@ where
             self.refresh_canvas_frame_overlay();
         }
         if let Some(size) = outcome.resize {
-            let _ =
-                self.event_proxy
-                    .send_event(WinitWgpuEvent::App(AvengerWindowEvent::CanvasResize(
-                        CanvasResizeEvent { size },
-                    )));
+            let _ = self
+                .event_proxy
+                .send_event(WinitWgpuEvent::CanvasFrameResize {
+                    host_generation: self.installed_host_generation,
+                    size,
+                    settled: false,
+                });
             tracing::trace!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -715,9 +739,13 @@ where
             );
         }
         if let Some(size) = outcome.resize_settled {
-            let _ = self.event_proxy.send_event(WinitWgpuEvent::App(
-                AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent { size }),
-            ));
+            let _ = self
+                .event_proxy
+                .send_event(WinitWgpuEvent::CanvasFrameResize {
+                    host_generation: self.installed_host_generation,
+                    size,
+                    settled: true,
+                });
             tracing::debug!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -942,6 +970,7 @@ where
 
                 let event_proxy = self.event_proxy.clone();
                 let render_invalidation_hub = self.render_invalidation_hub.clone();
+                let render_generation = self.installed_host_generation;
                 let setup_future = async move {
                     match canvas_future.await {
                         Ok(mut canvas) => {
@@ -961,6 +990,7 @@ where
                             {
                                 send_render_invalidation_event(
                                     event_proxy,
+                                    render_generation,
                                     invalidation,
                                 );
                             }
@@ -1054,8 +1084,44 @@ where
                 };
                 self.dispatch_avenger_event(event, force);
             }
-            WinitWgpuEvent::RenderInvalidated { invalidation } => {
-                self.handle_render_invalidation(invalidation)
+            WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            } => {
+                if host_generation == self.installed_host_generation {
+                    self.handle_render_invalidation(invalidation);
+                }
+            }
+            WinitWgpuEvent::HostUpdateReady => {
+                self.install_latest_prepared_host_update();
+            }
+            WinitWgpuEvent::SetWindowTitle(title) => {
+                if let Some(canvas) = self.canvas.borrow().as_ref() {
+                    canvas.window().set_title(&title);
+                } else {
+                    self.window_attributes = self.window_attributes.clone().with_title(title);
+                }
+            }
+            WinitWgpuEvent::ExitRequested => {
+                self.dispatch_avenger_event(AvengerWindowEvent::WindowCloseRequested, true);
+                *self.canvas.borrow_mut() = None;
+                _event_loop.exit();
+            }
+            WinitWgpuEvent::CanvasFrameResize {
+                host_generation,
+                size,
+                settled,
+            } => {
+                if host_generation == self.installed_host_generation {
+                    let event = if settled {
+                        AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent { size })
+                    } else {
+                        AvengerWindowEvent::CanvasResize(CanvasResizeEvent { size })
+                    };
+                    if let Some(force) = self.user_event_force(&event) {
+                        self.dispatch_avenger_event(event, force);
+                    }
+                }
             }
             WinitWgpuEvent::ResizeSettled { size, generation } => {
                 if generation == self.resize_settle_generation.get() {
