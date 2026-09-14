@@ -7,11 +7,11 @@ use arrow::{
 };
 use lazy_static::lazy_static;
 
-use crate::error::AvengerScaleError;
+use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Threshold scale that maps continuous numeric input values to discrete range values
@@ -125,6 +125,57 @@ impl ScaleImpl for ThresholdScale {
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Ticks are the same as the domain values
         Ok(config.domain.clone())
+    }
+
+    fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        // Extract threshold values from domain
+        let thresholds = match validate_extract_thresholds(&config.domain) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        // Use the formatter to format threshold values
+        let formatter = &config.context.formatters.number;
+
+        let mut entries = Vec::new();
+
+        // Create n+1 intervals for n thresholds
+        for i in 0..=thresholds.len() {
+            let (label, repr_value) = if i == 0 {
+                // First interval: < first_threshold
+                if let Some(&first) = thresholds.first() {
+                    let formatted = formatter.format(&[Some(first as f64)], None);
+                    (format!("< {}", formatted[0]), first - 1.0)
+                } else {
+                    continue;
+                }
+            } else if i == thresholds.len() {
+                // Last interval: >= last_threshold
+                if let Some(&last) = thresholds.last() {
+                    let formatted = formatter.format(&[Some(last as f64)], None);
+                    (format!("≥ {}", formatted[0]), last + 1.0)
+                } else {
+                    continue;
+                }
+            } else {
+                // Middle intervals: between consecutive thresholds
+                let prev = thresholds[i - 1];
+                let next = thresholds[i];
+                let formatted_prev = formatter.format(&[Some(prev as f64)], None);
+                let formatted_next = formatter.format(&[Some(next as f64)], None);
+                (
+                    format!("{} - {}", formatted_prev[0], formatted_next[0]),
+                    (prev + next) / 2.0,
+                )
+            };
+
+            entries.push(LegendEntry {
+                label,
+                representative_value: Scalar::from(repr_value),
+            });
+        }
+
+        Some(entries)
     }
 }
 
