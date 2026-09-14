@@ -220,11 +220,6 @@ impl ImageAtlasBuilder {
                     "Failed to convert raw image to rgba image".to_string(),
                 )
             }),
-            SceneImageSource::SharedInline(image) => image.to_image().map(Some).ok_or_else(|| {
-                AvengerWgpuError::ConversionError(
-                    "Failed to convert raw image to rgba image".to_string(),
-                )
-            }),
             SceneImageSource::Resource(resource) => {
                 self.resolve_resource_image(entry, resource, config, status)
             }
@@ -558,7 +553,7 @@ mod tests {
     const YELLOW: [u8; 4] = [255, 255, 0, 255];
 
     fn inline_source(image: &image::RgbaImage) -> SceneImageSource {
-        SceneImageSource::Inline(AvengerRgbaImage::from_image(image))
+        SceneImageSource::inline(AvengerRgbaImage::from_image(image))
     }
 
     fn test_image_2x2() -> image::RgbaImage {
