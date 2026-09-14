@@ -174,7 +174,7 @@ impl LinearScale {
     }
 
     /// Internal nice calculation (kept for backward compatibility and internal use)
-    fn apply_nice_internal(
+    pub(crate) fn apply_nice_internal(
         domain: (f64, f64),
         count: f64,
     ) -> Result<(f64, f64), AvengerScaleError> {

@@ -10,6 +10,7 @@ Avenger Scales provides a comprehensive set of scale types commonly used in data
 - **Categorical Scales**: Band, Point, Ordinal
 - **Nested Categorical Scales**: Nested band, for struct-valued paths with one field per level. Levels nest freely, with space for the children each parent has, or share their slots across parents. Padding is set per level in leaf steps, and the options the band scale also has mean the same thing
 - **Quantization Scales**: Quantile, Quantize, Threshold
+- **Marker-aware domains**: `domain_support::IntervalSupport` fits the narrowest linear domain that keeps markers' pixel extents inside the plot. It prepares the markers once and fits them at any width, `union` combines markers for a shared domain, and `including(0.0)` and `fit_nice` fit a domain that includes zero and ends on round values
 - **Color Interpolation**: Multi-color gradients with various color spaces (SRGBA, HSLA, LABA)
 
 ## Quick Start
