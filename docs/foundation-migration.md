@@ -135,3 +135,5 @@ Tooltips use owner-scoped show, move, and hide commands. Move updates reuse thei
 IME and clipboard actions use `RuntimeHostCommand` alongside timed updates. Keyboard text payloads preserve inserted text separately from logical shortcut keys. Browser clipboard providers return the current selection synchronously during copy and cut events.
 
 Run `cargo run --release -p winit-annotation-editor` or follow the [browser instructions](../examples/winit-annotation-editor/README.md). The editor combines literal Typst source, validated previews, text selection, composition, clipboard actions, panning, and draggable labels.
+
+Use `HostUpdateSender::mark_request_epoch` when a replacement request starts, then submit a `PreparedHostUpdate` after preparation completes. The host rejects stale results and resets timers, overlays, and input state when it installs a replacement in the same window. Run the annotation editor with `--slow-loads` or its browser delayed-loading link to try out-of-order preparation.

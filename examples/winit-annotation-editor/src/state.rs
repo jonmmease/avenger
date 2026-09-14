@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use avenger_eventstream::runtime::{DebounceConfig, DebouncedCommit, RuntimeWakeKey};
 use avenger_scales::{
@@ -11,6 +11,23 @@ use avenger_text::{
     types::{FontStyle, FontWeight, TextSyntaxMode},
     LabelParams, TextEngine,
 };
+
+use crate::reload::ReloadCoordinator;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sample {
+    A,
+    B,
+}
+
+impl Sample {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::A => "A",
+            Self::B => "B",
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Point {
@@ -43,6 +60,8 @@ pub enum Drag {
 
 #[derive(Clone)]
 pub struct State {
+    pub sample: Sample,
+    pub generation: u64,
     pub points: Vec<Point>,
     pub selected: usize,
     pub size: [f32; 2],
@@ -62,30 +81,49 @@ pub struct State {
     pub pointer: [f32; 2],
     pub drag: Option<Drag>,
     pub drag_origin: [f32; 2],
+    pub load_feedback: Arc<Mutex<Option<Result<(), String>>>>,
     pub debounce: DebouncedCommit<String>,
     pub error: Option<String>,
     pub annotation_error: Option<String>,
+    pub loading: Option<Sample>,
+    pub reload: Weak<ReloadCoordinator>,
     pub clipboard_text: Arc<Mutex<String>>,
     pub mac_shortcuts: bool,
     pub scene_builds: usize,
 }
 
 impl State {
-    pub fn new(engine: TextEngine) -> Self {
-        let positions = [
-            [12., 20.],
-            [20., 32.],
-            [28., 27.],
-            [34., 49.],
-            [43., 43.],
-            [51., 58.],
-            [58., 51.],
-            [64., 71.],
-            [71., 64.],
-            [78., 83.],
-            [85., 73.],
-            [91., 88.],
-        ];
+    pub fn new(sample: Sample, generation: u64, engine: TextEngine) -> Self {
+        let positions = match sample {
+            Sample::A => [
+                [12., 20.],
+                [20., 32.],
+                [28., 27.],
+                [34., 49.],
+                [43., 43.],
+                [51., 58.],
+                [58., 51.],
+                [64., 71.],
+                [71., 64.],
+                [78., 83.],
+                [85., 73.],
+                [91., 88.],
+            ],
+            Sample::B => [
+                [10., 72.],
+                [18., 63.],
+                [25., 80.],
+                [33., 57.],
+                [40., 65.],
+                [47., 43.],
+                [54., 55.],
+                [61., 38.],
+                [69., 47.],
+                [76., 26.],
+                [83., 35.],
+                [91., 21.],
+            ],
+        };
         let points: Vec<_> = positions
             .into_iter()
             .enumerate()
@@ -105,6 +143,8 @@ impl State {
             composition_snapshot: None,
             points,
             selected: 7,
+            sample,
+            generation,
             engine,
             size: [1000.0, 680.0],
             pan: [0.0; 2],
@@ -120,9 +160,12 @@ impl State {
             pointer: [0.0; 2],
             drag: None,
             drag_origin: [0.0; 2],
+            load_feedback: Arc::new(Mutex::new(None)),
             debounce: DebouncedCommit::new(DebounceConfig::new(350)),
             error: None,
             annotation_error: None,
+            loading: None,
+            reload: Weak::new(),
             clipboard_text: Default::default(),
             mac_shortcuts: uses_mac_shortcuts(),
             scene_builds: 0,
@@ -153,15 +196,22 @@ impl State {
     pub fn key(&self, purpose: &str) -> RuntimeWakeKey {
         RuntimeWakeKey::new(
             "annotation-editor",
-            0,
+            self.generation,
             format!(
                 "{}-{purpose}",
-                if purpose == "hover" { 0 } else { self.session }
+                if matches!(purpose, "hover" | "load") {
+                    0
+                } else {
+                    self.session
+                }
             ),
         )
     }
     pub fn tooltip_owner(&self) -> String {
-        format!("annotation-editor-{}", self.hover_generation)
+        format!(
+            "annotation-editor-{}-{}",
+            self.generation, self.hover_generation
+        )
     }
     pub fn pending(&self) -> bool {
         self.editor.committed_text().into_string() != self.points[self.selected].annotation
