@@ -69,3 +69,7 @@ cargo run --release -p avenger-wgpu --example extra_symbols -- docs/images/extra
 `AvengerWgpuRenderer` accepts an existing WGPU device and queue. `AvengerRenderTarget` describes the destination texture view, load operation, and optional multisample resolve target. `OffscreenTarget` allocates a texture for ordinary offscreen rendering. Applications own presentation and scheduling. The workspace uses WGPU 27.
 
 Window, PNG, and browser canvases use the same renderer. A resize rebuilds dimension-dependent scene state while preserving logical coordinates, clipping, and the configured text engine. The window canvas retains its supported multisampling default.
+
+## Configure scales
+
+`ConfiguredScale` validates options and normalizes domains with typed context. Numeric coercion and domain access preserve binary64 precision where supplied by the source data. Scale formatters use the shared number and datetime libraries with D3 formats and resolved locales. Arrow consumers use version 58.

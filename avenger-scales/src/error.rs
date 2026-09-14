@@ -1,9 +1,13 @@
-use crate::scalar::Scalar;
 use arrow::error::ArrowError;
+use avenger_format_datetime::DateTimeFormatError;
 use avenger_image::error::AvengerImageError;
+
+use crate::scalar::Scalar;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
+    #[error(transparent)]
+    NumberFormatError(#[from] avenger_format_number::FormatError),
     #[error("Internal error: {0}")]
     InternalError(String),
 
@@ -74,6 +78,9 @@ pub enum AvengerScaleError {
         format_str: String,
         data_type: String,
     },
+
+    #[error("Datetime format error: {0}")]
+    DateTimeFormatError(#[from] DateTimeFormatError),
 
     #[error("Avenger image error: {0}")]
     AvengerImageError(#[from] AvengerImageError),
