@@ -391,8 +391,8 @@ impl AvengerRendererCore {
     pub(crate) fn tile_upload_stats(
         &self,
     ) -> (
-        crate::marks::tile_array::TileUploadStats,
-        crate::marks::tile_array::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
     ) {
         (
             self.tile_arrays.frame_stats(),
@@ -508,9 +508,7 @@ impl AvengerRendererCore {
             &multi_render_resources,
             &self.config.image_resource_config,
         )?;
-        image_resource_status.pending.extend(tile_status.pending);
-        image_resource_status.missing.extend(tile_status.missing);
-        image_resource_status.failed.extend(tile_status.failed);
+        image_resource_status.merge(tile_status);
         self.image_resource_status = image_resource_status;
 
         let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {

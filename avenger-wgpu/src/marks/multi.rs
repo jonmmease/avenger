@@ -2039,24 +2039,27 @@ impl MultiMarkRenderer {
         let Some(tile_slots) = self.tile_slots.clone() else {
             return Ok(false);
         };
-        let mut allocator = tile_slots.lock().expect("tile slot allocator poisoned");
+        let Some(resources) = mark
+            .image_source_iter()
+            .map(|source| match source {
+                avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) => {
+                    Some(resource)
+                }
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(false);
+        };
+        let Some(layers) = tile_slots
+            .lock()
+            .expect("tile slot allocator poisoned")
+            .assign_many(size, &resources, mark.unavailable_policy)
+        else {
+            return Ok(false);
+        };
         let mut pending_verts: Vec<(Vec<MultiVertex>, Vec<u32>)> = Vec::new();
-        for (image_source, path) in
-            izip!(mark.image_source_iter(), mark.transformed_path_iter(origin))
-        {
-            let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) =
-                image_source
-            else {
-                return Ok(false);
-            };
-            let Some(layer) = allocator.assign(
-                size,
-                &resource.key,
-                resource.fallback_key.as_ref(),
-                mark.unavailable_policy,
-            ) else {
-                return Ok(false);
-            };
+        for (layer, path) in layers.into_iter().zip(mark.transformed_path_iter(origin)) {
             let bbox = bounding_box(&path);
             let left = bbox.min.x;
             let top = bbox.min.y;
@@ -2093,7 +2096,6 @@ impl MultiMarkRenderer {
             ];
             pending_verts.push((verts, vec![0, 1, 2, 0, 2, 3]));
         }
-        drop(allocator);
 
         let start_ind = self.num_indices() as u32;
         let index_count: u32 = pending_verts
@@ -2134,8 +2136,7 @@ impl MultiMarkRenderer {
                     let layer = self.tile_slots.clone().and_then(|slots| {
                         slots.lock().expect("tile slot allocator poisoned").assign(
                             size,
-                            &resource.key,
-                            resource.fallback_key.as_ref(),
+                            resource,
                             mark.unavailable_policy,
                         )
                     });
