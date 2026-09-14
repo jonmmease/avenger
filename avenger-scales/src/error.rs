@@ -1,4 +1,5 @@
 use crate::scalar::Scalar;
+use crate::scales::domain_fit::DomainFitError;
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
 
@@ -15,6 +16,9 @@ pub enum AvengerScaleError {
 
     #[error("Empty range")]
     EmptyRange,
+
+    #[error(transparent)]
+    DomainFit(#[from] DomainFitError),
 
     #[error("Bins must be in ascending order: {0:?}")]
     BinsNotAscending(Vec<f64>),
