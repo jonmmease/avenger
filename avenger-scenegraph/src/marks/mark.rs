@@ -1,17 +1,16 @@
 use std::sync::Arc;
 
-use crate::marks::arc::SceneArcMark;
-use crate::marks::area::SceneAreaMark;
-use crate::marks::group::SceneGroup;
-use crate::marks::image::SceneImageMark;
-use crate::marks::line::SceneLineMark;
-use crate::marks::path::ScenePathMark;
-use crate::marks::rect::SceneRectMark;
-use crate::marks::rule::SceneRuleMark;
-use crate::marks::symbol::SceneSymbolMark;
-use crate::marks::text::SceneTextMark;
-use crate::marks::trail::SceneTrailMark;
 use serde::{Deserialize, Serialize};
+
+use crate::marks::{
+    arc::SceneArcMark, area::SceneAreaMark, group::SceneGroup, image::SceneImageMark,
+    line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
+    symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+};
+
+pub fn default_interactive() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SceneMark {
@@ -43,6 +42,43 @@ impl SceneMark {
             Self::Image(mark) => mark.zindex,
             Self::Group(mark) => mark.zindex,
         }
+    }
+
+    pub fn interactive(&self) -> bool {
+        match self {
+            Self::Arc(mark) => mark.interactive,
+            Self::Area(mark) => mark.interactive,
+            Self::Path(mark) => mark.interactive,
+            Self::Symbol(mark) => mark.interactive,
+            Self::Line(mark) => mark.interactive,
+            Self::Trail(mark) => mark.interactive,
+            Self::Rect(mark) => mark.interactive,
+            Self::Rule(mark) => mark.interactive,
+            Self::Text(mark) => mark.interactive,
+            Self::Image(mark) => mark.interactive,
+            Self::Group(mark) => mark.interactive,
+        }
+    }
+
+    pub fn set_interactive(&mut self, interactive: bool) {
+        match self {
+            Self::Arc(mark) => mark.interactive = interactive,
+            Self::Area(mark) => mark.interactive = interactive,
+            Self::Path(mark) => mark.interactive = interactive,
+            Self::Symbol(mark) => mark.interactive = interactive,
+            Self::Line(mark) => mark.interactive = interactive,
+            Self::Trail(mark) => mark.interactive = interactive,
+            Self::Rect(mark) => mark.interactive = interactive,
+            Self::Rule(mark) => mark.interactive = interactive,
+            Self::Text(mark) => Arc::make_mut(mark).interactive = interactive,
+            Self::Image(mark) => Arc::make_mut(mark).interactive = interactive,
+            Self::Group(mark) => mark.interactive = interactive,
+        }
+    }
+
+    pub fn with_interactive(mut self, interactive: bool) -> Self {
+        self.set_interactive(interactive);
+        self
     }
 
     pub fn children(&self) -> &[SceneMark] {
