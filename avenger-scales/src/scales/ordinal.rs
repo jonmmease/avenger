@@ -16,8 +16,8 @@ use serde::de::DeserializeOwned;
 use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
@@ -48,7 +48,7 @@ macro_rules! impl_ordinal_enum_scale_method {
 ///
 /// # Config Options
 ///
-/// This scale does not currently support any configuration options.
+/// `include_null` treats null as a distinct domain member when enabled.
 #[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
@@ -89,6 +89,7 @@ impl ScaleImpl for OrdinalScale {
                 // Ordinal scale supports no custom options currently
                 // But default option is allowed for consistency
                 OptionDefinition::optional("default", super::OptionConstraint::String),
+                OptionDefinition::optional("include_null", super::OptionConstraint::Boolean),
             ];
         }
 
@@ -100,6 +101,34 @@ impl ScaleImpl for OrdinalScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        if config.option_boolean("include_null", false) {
+            if config.range.is_empty() {
+                return Ok(arrow::array::new_null_array(
+                    config.range.data_type(),
+                    values.len(),
+                ));
+            }
+            // Arrow's row encoding keeps null distinct from every typed value.
+            let converter = arrow::row::RowConverter::new(vec![arrow::row::SortField::new(
+                config.domain.data_type().clone(),
+            )])?;
+            let domain = converter.convert_columns(std::slice::from_ref(&config.domain))?;
+            let values = converter.convert_columns(&[cast(values, config.domain.data_type())?])?;
+            let mapping: HashMap<_, _> = domain
+                .iter()
+                .enumerate()
+                .map(|(i, row)| (row, (i % config.range.len()) as u32))
+                .collect();
+            let indices = values
+                .iter()
+                .map(|row| mapping.get(&row).copied())
+                .collect::<Vec<_>>();
+            return Ok(take::take(
+                &config.range,
+                &UInt32Array::from(indices),
+                None,
+            )?);
+        }
         // Get dictionary array with range indices
         let range_dict_array =
             range_dict_array_for_values(&config.domain, config.range.len(), values)?;
@@ -115,6 +144,96 @@ impl ScaleImpl for OrdinalScale {
         let range_dict_with_values = dict_array.with_values(range_values);
 
         Ok(range_dict_with_values)
+    }
+
+    fn legend_entries(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<Option<Vec<LegendEntry>>, AvengerScaleError> {
+        use arrow::array::{Array, AsArray};
+        use arrow::datatypes::{Float32Type, Int32Type, Int64Type};
+
+        // For ordinal scales, create one legend entry for each domain value
+        // The legend renderers will handle mapping to colors via modulo/wrapping
+
+        let mut entries = Vec::new();
+        let domain = &config.domain;
+
+        // Handle different domain types - create entries for ALL domain values
+        match domain.data_type() {
+            arrow::datatypes::DataType::Utf8 => {
+                let array = domain.as_string::<i32>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_string(value),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Int32 => {
+                let array = domain.as_primitive::<Int32Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_i32(value),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Int64 => {
+                let array = domain.as_primitive::<Int64Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_i32(value as i32),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Float32 => {
+                let array = domain.as_primitive::<Float32Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        let formatted = config.context.formatters.number()?.format(value as f64);
+                        entries.push(LegendEntry {
+                            label: formatted.text.clone(),
+                            representative_value: Scalar::from_f32(value),
+                        });
+                    }
+                }
+            }
+            _ => {
+                // For other types, try to convert to string
+                if let Ok(string_array) =
+                    arrow::compute::kernels::cast::cast(domain, &arrow::datatypes::DataType::Utf8)
+                {
+                    let array = string_array.as_string::<i32>();
+                    for i in 0..array.len() {
+                        if !array.is_null(i) {
+                            let value = array.value(i);
+                            entries.push(LegendEntry {
+                                label: value.to_string(),
+                                representative_value: Scalar::from_string(value),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if entries.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(entries))
+        }
     }
 
     // Enums

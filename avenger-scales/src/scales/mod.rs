@@ -545,6 +545,17 @@ pub enum InferDomainFromDataMethod {
     Explicit,
 }
 
+/// A legend entry provided by a scale for custom legend generation
+#[derive(Debug, Clone)]
+pub struct LegendEntry {
+    /// Display label for this entry
+    pub label: String,
+
+    /// Value to pass through the scale for color/shape/etc
+    /// Used for mapping the legend entry to its visual representation
+    pub representative_value: Scalar,
+}
+
 /// The kind of data a scale expects in its domain
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainKind {
@@ -838,6 +849,18 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Default implementation returns the original domain for scales that don't support normalization
         Ok(config.domain.clone())
+    }
+
+    /// Get custom legend entries for this scale
+    ///
+    /// Returns None to use default behavior (extract values directly from domain).
+    /// Scales like threshold, quantize, and quantile that create intervals
+    /// should return Some with their interval descriptions.
+    fn legend_entries(
+        &self,
+        _config: &ScaleConfig,
+    ) -> Result<Option<Vec<LegendEntry>>, AvengerScaleError> {
+        Ok(None) // Let the caller extract entries from the domain.
     }
 
     // Scale to enums
