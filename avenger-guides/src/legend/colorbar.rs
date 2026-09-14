@@ -30,6 +30,7 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
+                ..Default::default()
             };
 
             // Create a new scale with desired range for the axis
