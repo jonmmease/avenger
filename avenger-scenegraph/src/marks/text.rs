@@ -1,3 +1,4 @@
+use crate::marks::mark::default_interactive;
 use std::{
     hash::{Hash, Hasher},
     num::NonZeroUsize,
@@ -21,6 +22,9 @@ use serde::{Deserialize, Serialize};
 pub struct SceneTextMark {
     /// The mark's name, which events report.
     pub name: String,
+    /// Whether hit tests can find the mark's labels.
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     /// Whether the enclosing group's clip applies.
     pub clip: bool,
     /// The number of labels.
@@ -73,6 +77,7 @@ pub struct SceneTextMark {
 impl Hash for SceneTextMark {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.text.hash(state);
@@ -245,6 +250,7 @@ impl SceneTextMark {
 impl Default for SceneTextMark {
     fn default() -> Self {
         Self {
+            interactive: true,
             name: "text_mark".to_string(),
             clip: true,
             len: 1,

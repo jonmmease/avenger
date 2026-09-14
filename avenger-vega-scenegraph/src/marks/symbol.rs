@@ -61,6 +61,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 let y = item.y.unwrap_or(0.0);
                 let mark = SceneLineMark {
                     name: "".to_string(),
+                    interactive: self.interactive,
                     clip: false,
                     zindex: self.zindex,
                     len: 2,
@@ -81,6 +82,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 line_marks.push(SceneMark::Line(mark));
             }
             return Ok(SceneMark::Group(SceneGroup {
+                interactive: self.interactive,
                 name: "symbol_line_legend".to_string(),
                 origin: [0.0, 0.0],
                 clip: Clip::None,
@@ -106,6 +108,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init mark with scalar defaults
         let mut mark = SceneSymbolMark {
             stroke_width,
+            interactive: self.interactive,
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()

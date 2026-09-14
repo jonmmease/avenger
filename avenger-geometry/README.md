@@ -11,9 +11,10 @@ This crate provides geometric operations and spatial data structures needed for 
 ### GeometryInstance
 Associates scene graph marks with their geometric representation:
 - `mark_instance`: Reference to the original scene mark
-- `z_index`: Rendering order
+- `interactive`: Whether picking and queries can find the instance
 - `geometry`: Standard geo-types geometry (Point, LineString, Polygon, etc.)
-- `half_stroke_width`: Stroke expansion for accurate bounds
+- `reach`: How far the drawn instance extends beyond `geometry`: half its stroke width, plus a
+  circle symbol's radius, so a circle symbol is exact at any size
 
 ### MarkGeometryUtils Trait
 Converts scene marks into geometry instances:
@@ -31,10 +32,19 @@ The `IntoGeoType` trait converts Lyon paths to geo-types:
 
 ### Spatial Indexing
 Uses R-tree data structures for efficient spatial queries:
-- Point-in-geometry testing for hit detection
+- Point-in-geometry testing for hit detection, where clips leave marks visible
+- Top-mark picking by draw order, which the tree records for each instance
 - Bounding box intersection queries
 - Nearest neighbor searches
 - Distance-based lookups
+
+### Region Queries
+`SceneGraphRTree::query_shape` selects the interactive instances in a rectangle, a circle, or a
+polygon such as a lasso, in scene coordinates:
+- A hit policy picks what must lie in the region: the centroid, any part of the drawn
+  instance, or all of it
+- A polygon's fill rule, nonzero or even-odd, decides which areas a self-crossing lasso encloses
+- An instance in a clipped group matches only where the clip leaves it visible
 
 ## Integration
 

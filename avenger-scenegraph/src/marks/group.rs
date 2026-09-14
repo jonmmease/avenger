@@ -1,3 +1,4 @@
+use crate::marks::mark::default_interactive;
 use std::hash::{DefaultHasher, Hasher};
 
 use crate::marks::mark::SceneMark;
@@ -114,6 +115,8 @@ impl Clip {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub origin: [f32; 2],
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
@@ -128,6 +131,7 @@ pub struct SceneGroup {
 impl std::hash::Hash for SceneGroup {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         vec![
             OrderedFloat::from(self.origin[0]),
             OrderedFloat::from(self.origin[1]),
@@ -194,6 +198,7 @@ impl SceneGroup {
 
         Some(ScenePathMark {
             name: format!("path_{}", self.name),
+            interactive: self.interactive,
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
@@ -237,6 +242,7 @@ impl SceneGroup {
 impl Default for SceneGroup {
     fn default() -> Self {
         Self {
+            interactive: true,
             name: "".to_string(),
             origin: [0.0, 0.0],
             clip: Default::default(),

@@ -1,5 +1,6 @@
 use crate::lyon_utils::IntoGeoType;
 use crate::GeometryInstance;
+use avenger_common::types::SymbolShape;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::image::SceneImageMark;
@@ -17,7 +18,11 @@ use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
-use rstar::{Envelope, RTreeObject, AABB};
+use lyon_path::{
+    math::{Angle, Transform, Vector},
+    Event,
+};
+use rstar::{Envelope, AABB};
 use std::iter::once;
 
 /// Geometry of marks that draw no text.
@@ -71,8 +76,7 @@ impl MarkGeometryUtils for SceneArcMark {
                 self.transformed_path_iter(origin),
                 self.stroke_width_iter()
             )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
+            .map(move |(id, path, stroke_width)| {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
@@ -81,9 +85,9 @@ impl MarkGeometryUtils for SceneArcMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    z_index,
+                    interactive: self.interactive,
                     geometry,
-                    half_stroke_width,
+                    reach: half_stroke_width,
                 }
             }),
         )
@@ -105,9 +109,9 @@ impl MarkGeometryUtils for SceneAreaMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
             geometry: path.as_geo_type(half_stroke_width, true),
-            half_stroke_width,
+            reach: half_stroke_width,
         }))
     }
 }
@@ -120,9 +124,8 @@ impl MarkGeometryUtils for SceneImageMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter(origin))
-                .enumerate()
-                .map(move |(z_index, (id, path))| {
+            izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
+                move |(id, path)| {
                     let half_stroke_width = 0.0;
 
                     let bbox = bounding_box(&path);
@@ -137,11 +140,12 @@ impl MarkGeometryUtils for SceneImageMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
                         geometry,
-                        half_stroke_width,
+                        reach: half_stroke_width,
                     }
-                }),
+                },
+            ),
         )
     }
 }
@@ -161,9 +165,9 @@ impl MarkGeometryUtils for SceneLineMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
             geometry: path.as_geo_type(half_stroke_width, false),
-            half_stroke_width,
+            reach: half_stroke_width,
         }))
     }
 }
@@ -177,9 +181,8 @@ impl MarkGeometryUtils for ScenePathMark {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         let name = self.name.clone();
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter(origin))
-                .enumerate()
-                .map(move |(z_index, (id, path))| {
+            izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
+                move |(id, path)| {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_instance: MarkInstance {
@@ -187,11 +190,12 @@ impl MarkGeometryUtils for ScenePathMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
                         geometry,
-                        half_stroke_width,
+                        reach: half_stroke_width,
                     }
-                }),
+                },
+            ),
         )
     }
 }
@@ -214,8 +218,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     self.y2_iter(),
                     self.stroke_width_iter()
                 )
-                .enumerate()
-                .map(move |(z_index, (id, x, y, x2, y2, stroke_width))| {
+                .map(move |(id, x, y, x2, y2, stroke_width)| {
                     // Create rect geometry
                     let x0 = f32::min(*x, x2) + origin[0];
                     let x1 = f32::max(*x, x2) + origin[0];
@@ -232,9 +235,9 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
                         geometry,
-                        half_stroke_width: *stroke_width / 2.0,
+                        reach: *stroke_width / 2.0,
                     }
                 }),
             )
@@ -246,8 +249,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     self.transformed_path_iter(origin),
                     self.stroke_width_iter()
                 )
-                .enumerate()
-                .map(move |(z_index, (id, path, stroke_width))| {
+                .map(move |(id, path, stroke_width)| {
                     let half_stroke_width = stroke_width / 2.0;
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
@@ -256,9 +258,9 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
                         geometry,
-                        half_stroke_width,
+                        reach: half_stroke_width,
                     }
                 }),
             )
@@ -279,8 +281,7 @@ impl MarkGeometryUtils for SceneRuleMark {
                 self.transformed_path_iter(origin),
                 self.stroke_width_iter(),
             )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
+            .map(move |(id, path, stroke_width)| {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(0.1, false);
                 GeometryInstance {
@@ -289,9 +290,9 @@ impl MarkGeometryUtils for SceneRuleMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    z_index,
+                    interactive: self.interactive,
                     geometry,
-                    half_stroke_width,
+                    reach: half_stroke_width,
                 }
             }),
         )
@@ -305,10 +306,14 @@ impl MarkGeometryUtils for SceneSymbolMark {
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
-        let symbol_geometries: Vec<_> = self
+        // Straight-edged shapes are exact as polygons at any size, so each is flattened once.
+        let unit_polygons: Vec<Option<Geometry<f32>>> = self
             .shapes
             .iter()
-            .map(|symbol| symbol.as_path().as_geo_type(0.1, true))
+            .map(|shape| match shape {
+                SymbolShape::Path(path) if !has_curves(path) => Some(path.as_geo_type(0.1, true)),
+                _ => None,
+            })
             .collect();
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
@@ -320,29 +325,53 @@ impl MarkGeometryUtils for SceneSymbolMark {
                 self.angle_iter(),
                 self.shape_index_iter()
             )
-            .enumerate()
-            .map(
-                move |(z_index, (instance_idx, x, y, size, angle, shape_idx))| {
-                    let geometry = symbol_geometries[*shape_idx]
-                        .clone()
-                        .scale(size.sqrt())
-                        .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
-                        .translate(x + origin[0], y + origin[1]);
-
-                    GeometryInstance {
-                        mark_instance: MarkInstance {
-                            name: name.clone(),
-                            mark_path: mark_path.clone(),
-                            instance_index: Some(instance_idx),
-                        },
-                        z_index,
-                        geometry,
+            .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
+                let center = [x + origin[0], y + origin[1]];
+                let scale = size.sqrt();
+                let (geometry, reach) = match (&self.shapes[*shape_idx], &unit_polygons[*shape_idx])
+                {
+                    // A circle is exact as its center, reaching as far as its radius.
+                    (SymbolShape::Circle, _) => (
+                        Geometry::Point(geo::Point::new(center[0], center[1])),
+                        scale / 2.0 + half_stroke_width,
+                    ),
+                    (SymbolShape::Path(_), Some(unit)) => (
+                        unit.scale_around_point(scale, scale, geo::Point::new(0.0, 0.0))
+                            .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
+                            .translate(center[0], center[1]),
                         half_stroke_width,
+                    ),
+                    // A curved shape is flattened at the size it draws at.
+                    (SymbolShape::Path(path), None) => {
+                        let transform = Transform::scale(scale, scale)
+                            .then_rotate(Angle::degrees(*angle))
+                            .then_translate(Vector::new(center[0], center[1]));
+                        (
+                            path.clone().transformed(&transform).as_geo_type(0.1, true),
+                            half_stroke_width,
+                        )
                     }
-                },
-            ),
+                };
+
+                GeometryInstance {
+                    mark_instance: MarkInstance {
+                        name: name.clone(),
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(instance_idx),
+                    },
+                    interactive: self.interactive,
+                    geometry,
+                    reach,
+                }
+            }),
         )
     }
+}
+
+/// Whether a path has curves, which flattening approximates.
+fn has_curves(path: &lyon_path::Path) -> bool {
+    path.iter()
+        .any(|event| matches!(event, Event::Quadratic { .. } | Event::Cubic { .. }))
 }
 
 impl MarkGeometryUtils for SceneTrailMark {
@@ -359,9 +388,9 @@ impl MarkGeometryUtils for SceneTrailMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
             geometry,
-            half_stroke_width: 0.0,
+            reach: 0.0,
         }))
     }
 }
@@ -374,8 +403,7 @@ impl TextGeometryUtils for SceneTextMark {
         text_engine: &LabelEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let instances: Vec<_> = izip!(self.indices_iter(), self.labels())
-            .enumerate()
-            .filter_map(|(z_index, (id, label))| {
+            .filter_map(|(id, label)| {
                 // A label that doesn't lay out draws nothing, so it has no geometry.
                 let bounds = text_engine.bounds(&label.label).ok()?;
                 let anchor = [label.position[0] + origin[0], label.position[1] + origin[1]];
@@ -390,10 +418,10 @@ impl TextGeometryUtils for SceneTextMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    z_index,
+                    interactive: self.interactive,
                     geometry: Geometry::Rect(rect)
                         .rotate_around_point(label.angle, geo::Point::new(anchor[0], anchor[1])),
-                    half_stroke_width: 1.0,
+                    reach: 1.0,
                 })
             })
             .collect();

@@ -160,9 +160,9 @@ pub fn leader(label: &PlacedLabel, target: LeaderTarget, style: &LeaderStyle) ->
 /// Draws `leaders`, `leaders[i]` for label `i` of `labels`, with the style they were built with.
 ///
 /// The group holds a path mark of leader lines, with the style's dashes and open arrowheads,
-/// and, for triangle arrowheads, a path mark of arrowheads. Both take the labels' name, and
-/// instance `i` of each belongs to label `i`, so a pick on a leader reports its label. A label
-/// without a leader has an empty path.
+/// and, for triangle arrowheads, a path mark of arrowheads. Both take the labels' name and
+/// `interactive` flag, and instance `i` of each belongs to label `i`, so a pick on a leader
+/// reports its label. A label without a leader has an empty path.
 pub fn make_leader_marks(
     labels: &SceneTextMark,
     leaders: &[Option<Leader>],
@@ -209,6 +209,7 @@ pub fn make_leader_marks(
     let color = |rgba: [f32; 4]| ScalarOrArray::new_scalar(ColorOrGradient::Color(rgba));
     let mut marks = vec![ScenePathMark {
         name: labels.name.clone(),
+        interactive: labels.interactive,
         clip: labels.clip,
         len: labels.len,
         stroke_cap: style.stroke_cap,
@@ -224,6 +225,7 @@ pub fn make_leader_marks(
         marks.push(
             ScenePathMark {
                 name: labels.name.clone(),
+                interactive: labels.interactive,
                 clip: labels.clip,
                 len: labels.len,
                 stroke_width: None,
@@ -1048,6 +1050,26 @@ mod tests {
         assert_eq!(open.marks.len(), 1);
         let paths = path_mark(&open.marks[0]).path.as_vec(3, None);
         assert!(paths.iter().all(|path| subpaths(path) == 3));
+    }
+
+    /// Leaders take part in hit tests when their labels do.
+    #[test]
+    fn leaders_take_their_labels_interactivity() {
+        let labels = SceneTextMark {
+            text: "a".to_string().into(),
+            interactive: false,
+            ..Default::default()
+        };
+        let style = style(LeaderShape::Straight, LeaderArrow::Triangle);
+        let group = make_text_leaders(
+            &labels,
+            &[at([100.0, 100.0])],
+            &style,
+            &avenger_typst_label::bundled_label_engine(),
+        )
+        .unwrap();
+        assert_eq!(group.marks.len(), 2);
+        assert!(group.marks.iter().all(|mark| !path_mark(mark).interactive));
     }
 
     /// A leader's line stays solid until `make_leader_marks` dashes it.

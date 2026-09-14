@@ -39,6 +39,7 @@ impl VegaMarkContainer<VegaTrailItem> {
         }
 
         let mut mark = SceneTrailMark {
+            interactive: self.interactive,
             clip: self.clip || force_clip,
             zindex: self.zindex,
             gradients,
