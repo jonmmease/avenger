@@ -777,15 +777,21 @@ dependencies = [
 name = "avenger-winit-wgpu"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-app",
  "avenger-common",
  "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-image",
+ "avenger-resource",
  "avenger-scenegraph",
  "avenger-wgpu",
  "cfg-if",
+ "image",
  "log",
  "notify",
  "tokio",
+ "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
