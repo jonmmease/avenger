@@ -385,6 +385,11 @@ where
                                 match command {
                                     RuntimeHostCommand::RequestWakeup { key, deadline, generation } => wake_scheduler.request(key, deadline, generation),
                                     RuntimeHostCommand::CancelWakeup { key } => wake_scheduler.cancel(&key),
+                                    RuntimeHostCommand::UpdateTooltip(update) => {
+                                        if let Some(canvas) = canvas_shared.borrow_mut().as_mut() {
+                                            if let Err(error) = canvas.set_tooltip_update(update) { log::error!("failed to update tooltip: {error}"); }
+                                        }
+                                    }
                                 }
                             }
                             if let Some(scene_graph) = update.scene_graph {
@@ -669,6 +674,13 @@ where
                     generation,
                 } => self.wake_scheduler.request(key, deadline, generation),
                 RuntimeHostCommand::CancelWakeup { key } => self.wake_scheduler.cancel(&key),
+                RuntimeHostCommand::UpdateTooltip(update) => {
+                    if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                        if let Err(error) = canvas.set_tooltip_update(update) {
+                            log::error!("failed to update tooltip: {error}");
+                        }
+                    }
+                }
             }
         }
     }
@@ -907,6 +919,7 @@ where
                 }
                 WindowEvent::Resized(physical_size) => {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                        canvas.clear_tooltip();
                         canvas.resize(physical_size);
                     }
                     let logical_size = [
@@ -986,6 +999,14 @@ where
                     }
                 }
                 event => {
+                    if matches!(
+                        event,
+                        WindowEvent::CursorLeft { .. } | WindowEvent::Focused(false)
+                    ) {
+                        if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                            canvas.clear_tooltip();
+                        }
+                    }
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
                         if event_schedules_interaction_settle(&event) {
                             self.schedule_interaction_settle();
