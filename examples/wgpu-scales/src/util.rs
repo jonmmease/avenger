@@ -259,6 +259,7 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -272,6 +273,7 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
+            ..Default::default()
         },
     )
     .unwrap();
