@@ -1,15 +1,18 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::MissingNullOrValue;
-use avenger_color::ColorOrGradient;
+use std::{f32::consts::PI, sync::Arc};
 
+use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::MissingNullOrValue,
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +80,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut align = Vec::<TextAlign>::new();
         let mut angle = Vec::<f32>::new();
         let mut color = Vec::<ColorOrGradient>::new();
+        let mut dx = Vec::<f32>::new();
+        let mut dy = Vec::<f32>::new();
         let mut font = Vec::<String>::new();
         let mut font_size = Vec::<f32>::new();
         let mut font_weight = Vec::<FontWeight>::new();
@@ -93,11 +98,9 @@ impl VegaMarkContainer<VegaTextItem> {
             }
             if let Some(v) = item.fill.as_option() {
                 let c = csscolorparser::parse(v)?;
-                let opacity =
-                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push(ColorOrGradient::Color([
-                    c.r as f32, c.g as f32, c.b as f32, opacity,
-                ]))
+                let [r, g, b, a] = [c.r as f32, c.g as f32, c.b as f32, c.a as f32];
+                let opacity = a * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                color.push(ColorOrGradient::Color([r, g, b, opacity]))
             }
 
             // Compute x and y
@@ -107,15 +110,14 @@ impl VegaMarkContainer<VegaTextItem> {
                 item_x += radius * f32::cos(theta - PI / 2.0);
                 item_y += radius * f32::sin(theta - PI / 2.0);
             }
-            // Convert Vega's baseline and local offsets to an alphabetic anchor.
-            // Rotate the offset too, preserving the original rotation pivot.
-            let dx = item.dx.unwrap_or(0.0);
-            let dy = item.dy.unwrap_or(0.0) + item.baseline_offset();
-            let (sin, cos) = item.angle.unwrap_or(0.0).to_radians().sin_cos();
-            item_x += cos * dx - sin * dy;
-            item_y += sin * dx + cos * dy;
             x.push(item_x);
             y.push(item_y);
+            // Vega offsets rotate with the label; scene-mark offsets use canvas coordinates.
+            let item_dx = item.dx.unwrap_or(0.0);
+            let item_dy = item.dy.unwrap_or(0.0) + item.baseline_offset();
+            let (sin, cos) = item.angle.unwrap_or(0.0).to_radians().sin_cos();
+            dx.push(item_dx * cos - item_dy * sin);
+            dy.push(item_dx * sin + item_dy * cos);
             text.push(match item.text.clone() {
                 Some(serde_json::Value::String(s)) => s,
                 Some(serde_json::Value::Null) | None => "".to_string(),
@@ -164,6 +166,12 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if y.len() == len {
             mark.y = ScalarOrArray::new_array(y);
+        }
+        if dx.len() == len {
+            mark.dx = ScalarOrArray::new_array(dx);
+        }
+        if dy.len() == len {
+            mark.dy = ScalarOrArray::new_array(dy);
         }
         if text.len() == len {
             mark.text = ScalarOrArray::new_array(text);
@@ -235,7 +243,8 @@ mod tests {
             let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
                 panic!("expected text mark");
             };
-            assert_eq!(*mark.y_iter().next().unwrap(), 20.0 + offset);
+            assert_eq!(*mark.y_iter().next().unwrap(), 20.0);
+            assert_eq!(*mark.dy_iter().next().unwrap(), offset);
             assert_eq!(
                 *mark.baseline_iter().next().unwrap(),
                 TextBaseline::Alphabetic
@@ -265,8 +274,10 @@ mod tests {
         let SceneMark::Text(mark) = container.to_scene_graph(false).unwrap() else {
             panic!("expected text mark");
         };
-        assert!((*mark.x_iter().next().unwrap() - 98.0).abs() < 1e-5);
-        assert!((*mark.y_iter().next().unwrap() - 203.0).abs() < 1e-5);
+        assert_eq!(*mark.x_iter().next().unwrap(), 110.0);
+        assert_eq!(*mark.y_iter().next().unwrap(), 200.0);
+        assert!((*mark.dx_iter().next().unwrap() + 12.0).abs() < 1e-5);
+        assert!((*mark.dy_iter().next().unwrap() - 3.0).abs() < 1e-5);
         assert_eq!(*mark.angle_iter().next().unwrap(), 90.0);
     }
 }

@@ -10,3 +10,6 @@ pub mod rule;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+
+pub mod stroke_dash;
+pub mod text_leader;

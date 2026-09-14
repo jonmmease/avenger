@@ -31,3 +31,15 @@ cargo run --release -p avenger-wgpu --example rich_text -- docs/images/rich-text
 ```
 
 ![Rich labels and width limits](images/rich-text.png)
+
+## Text leaders
+
+Text marks keep their target in `x` and `y`. The `dx` and `dy` channels move the label in canvas coordinates. Leader channels control the connecting path, stroke, and arrowhead. Rendering and picking use the same leader geometry and configured text engine.
+
+A leader stops at the target radius and the padded label boundary. When these boundaries overlap, the leader is omitted.
+
+```sh
+cargo run --release -p avenger-wgpu --example annotation_leaders -- docs/images/annotation-leaders.png
+```
+
+![Curved annotation leader](images/annotation-leaders.png)
