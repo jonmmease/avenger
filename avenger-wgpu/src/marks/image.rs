@@ -1,8 +1,5 @@
-use avenger_image::{ImageResourceState, RgbaImage as AvengerRgbaImage};
-use avenger_resource::ResourceKey;
-use avenger_scenegraph::marks::image::{
-    SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy,
-};
+use avenger_image::RgbaImage as AvengerRgbaImage;
+use avenger_scenegraph::marks::image::{SceneImageSource, SceneImageUnavailablePolicy};
 use etagere::Size;
 use image::{DynamicImage, Rgba};
 use wgpu::Extent3d;
@@ -10,8 +7,8 @@ use wgpu::Extent3d;
 use crate::{
     error::AvengerWgpuError,
     image_resources::{
-        WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuImageResourceStatus,
-        WgpuMissingImagePolicy,
+        resolve_image_resource, ImageSizeRequirement, ResolvedImageContent, WgpuImagePlaceholder,
+        WgpuImageResourceConfig, WgpuImageResourceStatus,
     },
 };
 
@@ -221,121 +218,23 @@ impl ImageAtlasBuilder {
                 )
             }),
             SceneImageSource::Resource(resource) => {
-                self.resolve_resource_image(entry, resource, config, status)
-            }
-        }
-    }
-
-    fn resolve_resource_image(
-        &self,
-        entry: &ImageAtlasEntry,
-        resource: &SceneImageResource,
-        config: &WgpuImageResourceConfig,
-        status: &mut WgpuImageResourceStatus,
-    ) -> Result<Option<image::RgbaImage>, AvengerWgpuError> {
-        let Some(resolver) = config.resolver.as_ref() else {
-            push_unique(&mut status.missing, resource.key.clone());
-            return unavailable_image(entry, config, "No WGPU image resource resolver configured");
-        };
-
-        match resolver.image_state(&resource.key) {
-            ImageResourceState::Ready(image) => {
-                let image = image.to_image().ok_or_else(|| {
-                    AvengerWgpuError::ConversionError(format!(
-                        "Failed to convert ready resource image {:?} to rgba image",
-                        resource.key
-                    ))
-                })?;
-                if image.width() == entry.width && image.height() == entry.height {
-                    Ok(Some(image))
-                } else {
-                    Ok(Some(image::imageops::resize(
-                        &image,
-                        entry.width,
-                        entry.height,
-                        image::imageops::FilterType::CatmullRom,
-                    )))
-                }
-            }
-            ImageResourceState::Pending => {
-                push_unique(&mut status.pending, resource.key.clone());
-                self.resolve_fallback_or_unavailable(entry, resource, config, status, "pending")
-            }
-            ImageResourceState::Missing => {
-                push_unique(&mut status.missing, resource.key.clone());
-                self.resolve_fallback_or_unavailable(entry, resource, config, status, "missing")
-            }
-            ImageResourceState::Failed(error) => {
-                push_unique_failed(status, resource.key.clone(), error.to_string());
-                self.resolve_fallback_or_unavailable(
-                    entry,
-                    resource,
+                match resolve_image_resource(
+                    &resource.key,
+                    resource.fallback_key.as_ref(),
+                    ImageSizeRequirement::Atlas([entry.width, entry.height]),
+                    entry.unavailable_policy,
                     config,
                     status,
-                    error.as_ref(),
-                )
-            }
-        }
-    }
-
-    fn resolve_fallback_or_unavailable(
-        &self,
-        entry: &ImageAtlasEntry,
-        resource: &SceneImageResource,
-        config: &WgpuImageResourceConfig,
-        status: &mut WgpuImageResourceStatus,
-        reason: &str,
-    ) -> Result<Option<image::RgbaImage>, AvengerWgpuError> {
-        if let (Some(resolver), Some(fallback_key)) =
-            (config.resolver.as_ref(), resource.fallback_key.as_ref())
-        {
-            if let ImageResourceState::Ready(image) = resolver.image_state(fallback_key) {
-                let image = image.to_image().ok_or_else(|| {
-                    AvengerWgpuError::ConversionError(format!(
-                        "Failed to convert fallback resource image {fallback_key:?} to rgba image"
-                    ))
-                })?;
-                if image.width() == entry.width && image.height() == entry.height {
-                    return Ok(Some(image));
-                }
-                push_unique_failed(
-                    status,
-                    fallback_key.clone(),
-                    format!(
-                        "Fallback resource image {fallback_key:?} has dimensions ({}, {}), expected ({}, {})",
-                        image.width(),
-                        image.height(),
+                )? {
+                    ResolvedImageContent::Image(image) => Ok(image.to_image()),
+                    ResolvedImageContent::Placeholder => Ok(Some(make_placeholder(
                         entry.width,
-                        entry.height
-                    ),
-                );
+                        entry.height,
+                        &config.placeholder,
+                    )?)),
+                    ResolvedImageContent::Empty => Ok(None),
+                }
             }
-        }
-
-        unavailable_image(entry, config, reason)
-    }
-}
-
-fn unavailable_image(
-    entry: &ImageAtlasEntry,
-    config: &WgpuImageResourceConfig,
-    reason: &str,
-) -> Result<Option<image::RgbaImage>, AvengerWgpuError> {
-    let missing_policy = match entry.unavailable_policy {
-        SceneImageUnavailablePolicy::RendererDefault => config.missing_policy,
-        SceneImageUnavailablePolicy::Skip => WgpuMissingImagePolicy::Skip,
-        SceneImageUnavailablePolicy::DrawPlaceholder => WgpuMissingImagePolicy::DrawPlaceholder,
-        SceneImageUnavailablePolicy::Error => WgpuMissingImagePolicy::Error,
-    };
-    match missing_policy {
-        WgpuMissingImagePolicy::DrawPlaceholder => Ok(Some(make_placeholder(
-            entry.width,
-            entry.height,
-            &config.placeholder,
-        )?)),
-        WgpuMissingImagePolicy::Skip => Ok(None),
-        WgpuMissingImagePolicy::Error => {
-            Err(AvengerWgpuError::ImageResourceError(reason.to_string()))
         }
     }
 }
@@ -438,22 +337,6 @@ fn copy_image_to_atlas(
         bottom_y,
         *image.get_pixel(copy_width - 1, copy_height - 1),
     );
-}
-
-pub(crate) fn push_unique(values: &mut Vec<ResourceKey>, key: ResourceKey) {
-    if !values.contains(&key) {
-        values.push(key);
-    }
-}
-
-pub(crate) fn push_unique_failed(
-    status: &mut WgpuImageResourceStatus,
-    key: ResourceKey,
-    message: String,
-) {
-    if !status.failed.iter().any(|(existing, _)| existing == &key) {
-        status.failed.push((key, message));
-    }
 }
 
 #[cfg(test)]

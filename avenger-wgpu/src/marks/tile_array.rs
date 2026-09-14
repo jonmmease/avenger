@@ -1,40 +1,26 @@
-//! Persistent `texture_2d_array` tile cache.
-//!
-//! Uniform-sized resource images (map tiles) bypass the per-frame image
-//! atlas: each tile-size group owns one texture array whose layers are
-//! assigned per resource key by a CPU-side slot allocator at scene-build
-//! time, and whose pixels are synchronized once per prepared frame —
-//! uploading only layers whose desired content changed (a tile arrived,
-//! a placeholder became pixels, a slot was reassigned). Steady-state
-//! pan/zoom frames upload nothing.
-//!
-//! Layer 0 of every group is reserved for the placeholder pattern.
-//! Content policy mirrors the atlas path (`image.rs::unavailable_image`):
-//! `Skip` → transparent layer, `DrawPlaceholder` → placeholder pixels,
-//! `Error` → the frame errors; pending/missing/failed keys are reported
-//! through [`WgpuImageResourceStatus`] exactly like atlas-resolved images.
+//! Persistent texture arrays retain tile pixels across scene changes.
+//! Resource availability uses the same resolution helper as image atlases.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 
-use avenger_image::{ImageResourceState, RgbaImage as AvengerRgbaImage};
+use avenger_image::RgbaImage as AvengerRgbaImage;
 use avenger_resource::ResourceKey;
-use avenger_scenegraph::marks::image::SceneImageUnavailablePolicy;
+use avenger_scenegraph::marks::image::{SceneImageResource, SceneImageUnavailablePolicy};
 use wgpu::{BindGroup, BindGroupLayout, Device, Extent3d, Queue};
 
 use crate::error::AvengerWgpuError;
 use crate::image_resources::{
-    WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuImageResourceStatus, WgpuMissingImagePolicy,
+    resolve_image_resource, ImageSizeRequirement, ResolvedImageContent, WgpuImageResourceConfig,
+    WgpuImageResourceStatus,
 };
-use crate::marks::image::{push_unique, push_unique_failed};
+use crate::marks::image::make_placeholder;
 
 /// WebGL2 downlevel `max_texture_array_layers`.
 const MAX_TILE_ARRAY_LAYERS: u32 = 256;
 /// GPU budget per tile-size group (48 MiB → 192 layers of 256px RGBA,
 /// 48 layers of 512px).
 const GROUP_BUDGET_BYTES: u64 = 48 * 1024 * 1024;
-/// Layer 0 of every group holds the placeholder pattern.
-const PLACEHOLDER_LAYER: u32 = 0;
 
 pub(crate) fn tile_group_capacity(size: u32) -> u32 {
     let per_layer = 4 * u64::from(size) * u64::from(size);
@@ -64,10 +50,25 @@ impl SlotContent {
     }
 }
 
-struct Slot {
-    key: Option<ResourceKey>,
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct SlotKey {
+    key: ResourceKey,
     fallback_key: Option<ResourceKey>,
     policy: SceneImageUnavailablePolicy,
+}
+
+impl SlotKey {
+    fn new(resource: &SceneImageResource, policy: SceneImageUnavailablePolicy) -> Self {
+        Self {
+            key: resource.key.clone(),
+            fallback_key: resource.fallback_key.clone(),
+            policy,
+        }
+    }
+}
+
+struct Slot {
+    key: SlotKey,
     last_used_epoch: u64,
     content: SlotContent,
 }
@@ -75,104 +76,107 @@ struct Slot {
 struct SlotGroup {
     capacity: u32,
     slots: Vec<Slot>,
-    by_key: HashMap<ResourceKey, u32>,
+    by_key: HashMap<SlotKey, u32>,
 }
 
 impl SlotGroup {
     fn new(capacity: u32) -> Self {
         Self {
             capacity,
-            // Layer 0: reserved placeholder layer, always "in use".
-            slots: vec![Slot {
-                key: None,
-                fallback_key: None,
-                policy: SceneImageUnavailablePolicy::DrawPlaceholder,
-                last_used_epoch: u64::MAX,
-                content: SlotContent::Empty,
-            }],
+            slots: Vec::new(),
             by_key: HashMap::new(),
         }
     }
 }
 
-/// CPU-side layer assignment, shared between the scene builder (which
-/// assigns layers while adding marks) and the renderer core (which syncs
-/// pixels at prepare time). Slot assignments are stable for the lifetime
-/// of a scene: eviction only reuses layers not referenced by the current
-/// epoch, so vertex data referencing a layer never dangles.
+/// Layers used by the current scene stay assigned until the next scene begins.
 #[derive(Default)]
-pub struct TileSlotAllocator {
+pub(crate) struct TileSlotAllocator {
     groups: HashMap<u32, SlotGroup>,
     epoch: u64,
 }
 
 impl TileSlotAllocator {
-    /// Start a new scene: layers assigned in earlier scenes become
-    /// evictable (but stay resident, so returning viewports re-use them
-    /// for free).
-    pub fn begin_scene(&mut self) {
+    pub(crate) fn begin_scene(&mut self) {
         self.epoch += 1;
     }
 
-    /// Assign (or re-use) a layer for `key` in the `size` group. Returns
-    /// `None` when the group is saturated with current-scene tiles — the
-    /// caller falls back to the per-frame atlas path.
-    pub fn assign(
+    pub(crate) fn assign(
         &mut self,
         size: u32,
-        key: &ResourceKey,
-        fallback_key: Option<&ResourceKey>,
+        resource: &SceneImageResource,
         policy: SceneImageUnavailablePolicy,
     ) -> Option<u32> {
-        let epoch = self.epoch;
+        self.assign_many(size, &[resource], policy)
+            .map(|layers| layers[0])
+    }
+
+    /// Reserve the complete mark before changing slots, so atlas fallback leaves no partial assignments.
+    pub(crate) fn assign_many(
+        &mut self,
+        size: u32,
+        resources: &[&SceneImageResource],
+        policy: SceneImageUnavailablePolicy,
+    ) -> Option<Vec<u32>> {
         let group = self
             .groups
             .entry(size)
             .or_insert_with(|| SlotGroup::new(tile_group_capacity(size)));
-
-        if let Some(&layer) = group.by_key.get(key) {
-            let slot = &mut group.slots[layer as usize];
-            slot.last_used_epoch = epoch;
-            slot.policy = policy;
-            slot.fallback_key = fallback_key.cloned();
-            return Some(layer);
+        let keys: Vec<_> = resources
+            .iter()
+            .map(|resource| SlotKey::new(resource, policy))
+            .collect();
+        let protected: HashSet<_> = keys
+            .iter()
+            .chain(
+                group
+                    .slots
+                    .iter()
+                    .filter(|slot| slot.last_used_epoch == self.epoch)
+                    .map(|slot| &slot.key),
+            )
+            .collect();
+        if protected.len() > group.capacity as usize {
+            return None;
         }
 
-        let layer = if (group.slots.len() as u32) < group.capacity {
-            group.slots.push(Slot {
-                key: None,
-                fallback_key: None,
-                policy,
-                last_used_epoch: 0,
-                content: SlotContent::Empty,
-            });
-            (group.slots.len() - 1) as u32
-        } else {
-            // Evict the least-recently-used layer not referenced by the
-            // current scene (never layer 0).
-            let victim = group
-                .slots
-                .iter()
-                .enumerate()
-                .skip(1)
-                .filter(|(_, slot)| slot.last_used_epoch < epoch)
-                .min_by_key(|(_, slot)| slot.last_used_epoch)
-                .map(|(index, _)| index as u32)?;
-            if let Some(old_key) = group.slots[victim as usize].key.take() {
-                group.by_key.remove(&old_key);
+        // Protect residents requested later in this mark before selecting any eviction victims.
+        for key in &keys {
+            if let Some(&layer) = group.by_key.get(key) {
+                group.slots[layer as usize].last_used_epoch = self.epoch;
             }
-            victim
-        };
-
-        let slot = &mut group.slots[layer as usize];
-        slot.key = Some(key.clone());
-        slot.fallback_key = fallback_key.cloned();
-        slot.policy = policy;
-        slot.last_used_epoch = epoch;
-        // Content is intentionally left as-is: the sync pass compares it
-        // against the new key's desired content and re-uploads.
-        group.by_key.insert(key.clone(), layer);
-        Some(layer)
+        }
+        let mut layers = Vec::with_capacity(keys.len());
+        for key in keys {
+            if let Some(&layer) = group.by_key.get(&key) {
+                layers.push(layer);
+                continue;
+            }
+            let layer = if group.slots.len() < group.capacity as usize {
+                let layer = group.slots.len();
+                group.slots.push(Slot {
+                    key: key.clone(),
+                    last_used_epoch: self.epoch,
+                    content: SlotContent::Empty,
+                });
+                layer
+            } else {
+                let (layer, slot) = group
+                    .slots
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(_, slot)| slot.last_used_epoch < self.epoch)
+                    .min_by_key(|(_, slot)| slot.last_used_epoch)
+                    .expect("reservation leaves an evictable slot");
+                group.by_key.remove(&slot.key);
+                slot.key = key.clone();
+                slot.last_used_epoch = self.epoch;
+                layer
+            };
+            group.by_key.insert(key, layer as u32);
+            layers.push(layer as u32);
+        }
+        Some(layers)
     }
 }
 
@@ -192,7 +196,7 @@ struct GpuGroup {
 /// The GPU half: one `texture_2d_array` per tile-size group, kept alive
 /// across scene rebuilds by the renderer core, synchronized to the
 /// allocator + resolver state once per prepared frame.
-pub struct TileTextureArrays {
+pub(crate) struct TileTextureArrays {
     allocator: Arc<Mutex<TileSlotAllocator>>,
     gpu: HashMap<u32, GpuGroup>,
     stats: TileUploadStats,
@@ -200,7 +204,7 @@ pub struct TileTextureArrays {
 }
 
 impl TileTextureArrays {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             allocator: Arc::new(Mutex::new(TileSlotAllocator::default())),
             gpu: HashMap::new(),
@@ -210,11 +214,11 @@ impl TileTextureArrays {
     }
 
     /// Shared handle for the scene builder (`MultiMarkRenderer`).
-    pub fn allocator(&self) -> Arc<Mutex<TileSlotAllocator>> {
+    pub(crate) fn allocator(&self) -> Arc<Mutex<TileSlotAllocator>> {
         self.allocator.clone()
     }
 
-    pub fn begin_scene(&mut self) {
+    pub(crate) fn begin_scene(&mut self) {
         self.allocator
             .lock()
             .expect("tile slot allocator poisoned")
@@ -222,12 +226,12 @@ impl TileTextureArrays {
     }
 
     /// Uploads performed by the most recent [`Self::sync`].
-    pub fn frame_stats(&self) -> TileUploadStats {
+    pub(crate) fn frame_stats(&self) -> TileUploadStats {
         self.stats
     }
 
     /// Cumulative uploads since creation.
-    pub fn total_stats(&self) -> TileUploadStats {
+    pub(crate) fn total_stats(&self) -> TileUploadStats {
         self.total
     }
 
@@ -262,6 +266,9 @@ impl TileTextureArrays {
         let epoch = allocator.epoch;
 
         for (&size, group) in allocator.groups.iter_mut() {
+            if !group.slots.iter().any(|slot| slot.last_used_epoch == epoch) {
+                continue;
+            }
             let gpu = match self.gpu.entry(size) {
                 std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::hash_map::Entry::Vacant(entry) => {
@@ -269,60 +276,38 @@ impl TileTextureArrays {
                 }
             };
 
-            // Placeholder layer 0: upload once (and again only if the
-            // placeholder config produces different pixels — not tracked;
-            // the config is fixed per canvas).
-            if !matches!(
-                group.slots[PLACEHOLDER_LAYER as usize].content,
-                SlotContent::Placeholder
-            ) {
-                let placeholder = placeholder_pixels(size, &config.placeholder)?;
-                upload_layer(
-                    queue,
-                    &gpu.texture,
-                    size,
-                    PLACEHOLDER_LAYER,
-                    placeholder.as_raw(),
-                    &mut self.stats,
-                    &mut self.total,
-                );
-                group.slots[PLACEHOLDER_LAYER as usize].content = SlotContent::Placeholder;
-            }
-
             for (layer_index, slot) in group
                 .slots
                 .iter_mut()
                 .enumerate()
-                .skip(1)
                 .filter(|(_, slot)| slot.last_used_epoch == epoch)
             {
                 let layer = layer_index as u32;
-                let Some(key) = slot.key.clone() else {
-                    continue;
-                };
-                match desired_slot_content(&key, slot, size, config, &mut status)? {
-                    DesiredContent::Image(image) => {
+                match resolve_image_resource(
+                    &slot.key.key,
+                    slot.key.fallback_key.as_ref(),
+                    ImageSizeRequirement::Tile(size),
+                    slot.key.policy,
+                    config,
+                    &mut status,
+                )? {
+                    ResolvedImageContent::Image(image) => {
                         if !slot.content.matches_image(&image) {
-                            let pixels = image.to_image().ok_or_else(|| {
-                                AvengerWgpuError::ConversionError(format!(
-                                    "Failed to convert ready resource image {key:?} to rgba image"
-                                ))
-                            })?;
                             upload_layer(
                                 queue,
                                 &gpu.texture,
                                 size,
                                 layer,
-                                pixels.as_raw(),
+                                &image.data,
                                 &mut self.stats,
                                 &mut self.total,
                             );
                             slot.content = SlotContent::Image(Arc::downgrade(&image));
                         }
                     }
-                    DesiredContent::Placeholder => {
+                    ResolvedImageContent::Placeholder => {
                         if !matches!(slot.content, SlotContent::Placeholder) {
-                            let placeholder = placeholder_pixels(size, &config.placeholder)?;
+                            let placeholder = make_placeholder(size, size, &config.placeholder)?;
                             upload_layer(
                                 queue,
                                 &gpu.texture,
@@ -335,7 +320,7 @@ impl TileTextureArrays {
                             slot.content = SlotContent::Placeholder;
                         }
                     }
-                    DesiredContent::Empty => {
+                    ResolvedImageContent::Empty => {
                         if !matches!(slot.content, SlotContent::Empty) {
                             let zeros = vec![0u8; (4 * size * size) as usize];
                             upload_layer(
@@ -362,109 +347,6 @@ impl Default for TileTextureArrays {
     fn default() -> Self {
         Self::new()
     }
-}
-
-enum DesiredContent {
-    Image(Arc<AvengerRgbaImage>),
-    Placeholder,
-    Empty,
-}
-
-/// Mirror of `image.rs::resolve_resource_image` + `unavailable_image` for
-/// array layers: same status recording, same policy mapping, same
-/// dimension checks, same fallback-key handling, same `Error` behavior.
-fn desired_slot_content(
-    key: &ResourceKey,
-    slot: &Slot,
-    size: u32,
-    config: &WgpuImageResourceConfig,
-    status: &mut WgpuImageResourceStatus,
-) -> Result<DesiredContent, AvengerWgpuError> {
-    let Some(resolver) = config.resolver.as_ref() else {
-        push_unique(&mut status.missing, key.clone());
-        return unavailable_content(slot, config, "No WGPU image resource resolver configured");
-    };
-
-    match resolver.image_state(key) {
-        ImageResourceState::Ready(image) => {
-            if image.width == size && image.height == size {
-                Ok(DesiredContent::Image(image))
-            } else {
-                let message = format!(
-                    "Ready resource image {key:?} has dimensions ({}, {}), expected ({size}, {size})",
-                    image.width, image.height
-                );
-                push_unique_failed(status, key.clone(), message.clone());
-                unavailable_content(slot, config, &message)
-            }
-        }
-        ImageResourceState::Pending => {
-            push_unique(&mut status.pending, key.clone());
-            fallback_or_unavailable(slot, size, config, status, "pending")
-        }
-        ImageResourceState::Missing => {
-            push_unique(&mut status.missing, key.clone());
-            fallback_or_unavailable(slot, size, config, status, "missing")
-        }
-        ImageResourceState::Failed(error) => {
-            push_unique_failed(status, key.clone(), error.to_string());
-            fallback_or_unavailable(slot, size, config, status, error.as_ref())
-        }
-    }
-}
-
-fn fallback_or_unavailable(
-    slot: &Slot,
-    size: u32,
-    config: &WgpuImageResourceConfig,
-    status: &mut WgpuImageResourceStatus,
-    reason: &str,
-) -> Result<DesiredContent, AvengerWgpuError> {
-    if let (Some(resolver), Some(fallback_key)) =
-        (config.resolver.as_ref(), slot.fallback_key.as_ref())
-    {
-        if let ImageResourceState::Ready(image) = resolver.image_state(fallback_key) {
-            if image.width == size && image.height == size {
-                return Ok(DesiredContent::Image(image));
-            }
-            push_unique_failed(
-                status,
-                fallback_key.clone(),
-                format!(
-                    "Fallback resource image {fallback_key:?} has dimensions ({}, {}), expected ({size}, {size})",
-                    image.width, image.height
-                ),
-            );
-        }
-    }
-    unavailable_content(slot, config, reason)
-}
-
-fn unavailable_content(
-    slot: &Slot,
-    config: &WgpuImageResourceConfig,
-    reason: &str,
-) -> Result<DesiredContent, AvengerWgpuError> {
-    let missing_policy = match slot.policy {
-        SceneImageUnavailablePolicy::RendererDefault => config.missing_policy,
-        SceneImageUnavailablePolicy::Skip => WgpuMissingImagePolicy::Skip,
-        SceneImageUnavailablePolicy::DrawPlaceholder => WgpuMissingImagePolicy::DrawPlaceholder,
-        SceneImageUnavailablePolicy::Error => WgpuMissingImagePolicy::Error,
-    };
-    match missing_policy {
-        WgpuMissingImagePolicy::DrawPlaceholder => Ok(DesiredContent::Placeholder),
-        WgpuMissingImagePolicy::Skip => Ok(DesiredContent::Empty),
-        WgpuMissingImagePolicy::Error => {
-            Err(AvengerWgpuError::ImageResourceError(reason.to_string()))
-        }
-    }
-}
-
-fn placeholder_pixels(
-    size: u32,
-    placeholder: &WgpuImagePlaceholder,
-) -> Result<image::RgbaImage, AvengerWgpuError> {
-    crate::marks::image::make_placeholder(size, size, placeholder)
 }
 
 fn make_gpu_group(
@@ -569,49 +451,34 @@ fn upload_layer(
 mod tests {
     use super::*;
 
-    fn key(name: &str) -> ResourceKey {
-        ResourceKey::new(name)
+    fn resource(key: &str) -> SceneImageResource {
+        SceneImageResource {
+            key: ResourceKey::new(key),
+            intrinsic_width: 2,
+            intrinsic_height: 2,
+            fallback_key: None,
+        }
     }
 
     #[test]
-    fn capacity_scales_with_tile_size() {
-        assert_eq!(tile_group_capacity(256), 192);
-        assert_eq!(tile_group_capacity(512), 48);
-        assert_eq!(tile_group_capacity(64), 256); // clamped to WebGL2 max
-    }
-
-    #[test]
-    fn assign_reuses_layers_across_scenes_and_never_evicts_current_epoch() {
+    fn tile_array_reservations_preserve_residents_and_are_atomic() {
         let mut allocator = TileSlotAllocator::default();
+        allocator.groups.insert(2, SlotGroup::new(2));
         allocator.begin_scene();
         let policy = SceneImageUnavailablePolicy::Skip;
-
-        let a = allocator.assign(256, &key("a"), None, policy).expect("a");
-        let b = allocator.assign(256, &key("b"), None, policy).expect("b");
-        assert_ne!(a, b);
-        assert!(a >= 1 && b >= 1, "layer 0 is reserved");
-        // Same scene, same key → same layer.
-        assert_eq!(allocator.assign(256, &key("a"), None, policy), Some(a));
-
-        // Next scene: residents are reused for free.
+        let (a, b, c) = (resource("a"), resource("b"), resource("c"));
+        let first = allocator.assign_many(2, &[&a, &b], policy).unwrap();
+        assert_eq!(allocator.assign(2, &a, policy), Some(first[0]));
+        assert!(allocator.assign(2, &c, policy).is_none());
         allocator.begin_scene();
-        assert_eq!(allocator.assign(256, &key("a"), None, policy), Some(a));
-
-        // Saturate a tiny group to exercise eviction.
-        let mut allocator = TileSlotAllocator::default();
-        allocator.begin_scene();
-        allocator.groups.insert(256, SlotGroup::new(3)); // layer 0 + 2 slots
-        let a = allocator.assign(256, &key("a"), None, policy).expect("a");
-        let b = allocator.assign(256, &key("b"), None, policy).expect("b");
-        // Group full of current-epoch slots → overflow (atlas fallback).
-        assert_eq!(allocator.assign(256, &key("c"), None, policy), None);
-
-        // New scene referencing only "b": "a" is evictable.
-        allocator.begin_scene();
-        assert_eq!(allocator.assign(256, &key("b"), None, policy), Some(b));
-        let c = allocator.assign(256, &key("c"), None, policy).expect("c");
-        assert_eq!(c, a, "LRU slot reused");
-        // "a" was evicted; re-assigning it now must fail (group full again).
-        assert_eq!(allocator.assign(256, &key("a"), None, policy), None);
+        assert!(allocator.assign_many(2, &[&a, &b, &c], policy).is_none());
+        assert!(allocator.groups[&2]
+            .slots
+            .iter()
+            .all(|slot| slot.last_used_epoch < allocator.epoch));
+        // The new key cannot evict a resident requested later in the same mark.
+        let next = allocator.assign_many(2, &[&c, &a], policy).unwrap();
+        assert_eq!(next, vec![first[1], first[0]]);
+        assert!(allocator.assign(2, &b, policy).is_none());
     }
 }
