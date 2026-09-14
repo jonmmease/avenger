@@ -40,6 +40,8 @@ jobs:
         run: |
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
+      - name: Verify Typst layout against upstream PNGs
+        run: cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --locked
       - name: Run doc tests
         run: cargo test --release --workspace --locked --doc --verbose
 
