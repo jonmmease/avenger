@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
-    canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
+    canvas::CanvasDimensions,
+    types::{LinearScaleAdjustment, TextAlign, TextBaseline},
+    value::ScalarOrArray,
 };
 use avenger_scenegraph::{
     marks::{group::Clip, mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark},
@@ -23,10 +25,11 @@ use crate::{
     marks::{
         instanced_mark::{InstancedMarkPipeline, InstancedMarkRenderer},
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
-        text::TextAtlasBuilder,
+        text::{TextAtlasBuilder, TextInstance},
     },
     offscreen::OffscreenTarget,
     target::{AvengerRenderTarget, PassTarget, WHITE_CLEAR},
+    tooltip::{tooltip_label, TooltipOverlayLayout},
 };
 
 #[derive(Clone)]
@@ -133,7 +136,8 @@ impl AvengerWgpuRenderer {
         encoder: &mut CommandEncoder,
         target: AvengerRenderTarget<'_>,
     ) -> Result<(), AvengerWgpuError> {
-        self.core.encode_frame(device, queue, encoder, target, None)
+        self.core
+            .encode_frame(device, queue, encoder, target, None, None)
     }
 
     /// A frame of the installed scene, as command buffers for the caller to submit.
@@ -145,7 +149,7 @@ impl AvengerWgpuRenderer {
         overlay: Option<CanvasFrameOverlay>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         self.core
-            .build_frame_commands(device, queue, target, overlay)
+            .build_frame_commands(device, queue, target, overlay, None)
     }
 
     pub fn encode_to_offscreen_commands(
@@ -235,6 +239,11 @@ impl Canvas for RendererCanvasAdapter<'_> {
     }
 }
 
+struct CachedTooltipRenderer {
+    layout: TooltipOverlayLayout,
+    renderer: MultiMarkRenderer,
+}
+
 /// Surface-independent renderer state shared by host canvases.
 pub(crate) struct AvengerRendererCore {
     dimensions: CanvasDimensions,
@@ -263,6 +272,11 @@ pub(crate) struct AvengerRendererCore {
     image_resource_lease: avenger_image::ImageResourceLease,
     // Text atlas shared by all multi-renderers; built + uploaded once per frame.
     text_atlas_builder: TextAtlasBuilder,
+    // Tooltip content is transient and changes independently from the chart.
+    // Keep its atlas and local renderer separate so pointer movement does not
+    // rebuild or grow the main chart text atlas.
+    tooltip_text_atlas_builder: TextAtlasBuilder,
+    tooltip_renderer: Option<CachedTooltipRenderer>,
     // Persistent tile texture arrays: survive clear_mark_renderer (like
     // instanced_renderers) so tiles upload once and pan/zoom frames
     // re-upload nothing.
@@ -279,6 +293,7 @@ impl AvengerRendererCore {
     ) -> Self {
         let pipelines = context.pipelines(texture_format, sample_count);
         let text_atlas_builder = TextAtlasBuilder::new();
+        let tooltip_text_atlas_builder = TextAtlasBuilder::new();
 
         let tile_arrays = crate::marks::tile_array::TileTextureArrays::new();
         let mut shared_multi = MultiMarkRenderer::new(dimensions);
@@ -300,6 +315,8 @@ impl AvengerRendererCore {
             scene_dirty: false,
             image_resource_lease: Default::default(),
             text_atlas_builder,
+            tooltip_text_atlas_builder,
+            tooltip_renderer: None,
             tile_arrays,
         }
     }
@@ -327,6 +344,11 @@ impl AvengerRendererCore {
         self.previous_instanced_renderers.clear();
     }
 
+    /// The engine of the installed scene.
+    pub(crate) fn text_engine(&self) -> Option<&LabelEngine> {
+        self.scene.as_ref().map(|(_, text_engine)| text_engine)
+    }
+
     pub(crate) fn dimensions(&self) -> CanvasDimensions {
         self.dimensions
     }
@@ -336,6 +358,7 @@ impl AvengerRendererCore {
             self.dimensions = dimensions;
             self.scene_dirty = self.scene.is_some();
             self.shared_multi.set_dimensions(dimensions);
+            self.tooltip_renderer = None;
         }
     }
 
@@ -468,11 +491,12 @@ impl AvengerRendererCore {
         queue: &Queue,
         target: AvengerRenderTarget<'_>,
         overlay: Option<CanvasFrameOverlay>,
+        tooltip: Option<&TooltipOverlayLayout>,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Avenger Frame Encoder"),
         });
-        self.encode_frame(device, queue, &mut encoder, target, overlay)?;
+        self.encode_frame(device, queue, &mut encoder, target, overlay, tooltip)?;
         Ok(vec![encoder.finish()])
     }
 
@@ -483,6 +507,7 @@ impl AvengerRendererCore {
         encoder: &mut CommandEncoder,
         target: AvengerRenderTarget<'_>,
         overlay: Option<CanvasFrameOverlay>,
+        tooltip: Option<&TooltipOverlayLayout>,
     ) -> Result<(), AvengerWgpuError> {
         let pass_target = self.pass_target(&target)?;
         if let Some((scene, text_engine)) =
@@ -502,9 +527,20 @@ impl AvengerRendererCore {
             Self::encode_background(encoder, &target);
         }
 
+        self.sync_tooltip_renderer(tooltip)?;
         let multi_render_resources = self.multi_render_resources.clone();
         let text_bind_groups = self.build_text_bind_groups(device, queue);
-
+        let tooltip_text_bind_groups = self.tooltip_renderer.as_ref().map(|_| {
+            let (size, images) = self.tooltip_text_atlas_builder.build();
+            MultiMarkRenderer::make_texture_bind_groups(
+                device,
+                queue,
+                self.multi_render_resources.text_layout(),
+                size,
+                &images,
+                &[wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest],
+            )
+        });
         // Upload changed tile layers (usually none) and collect their
         // pending/missing/failed keys alongside the atlas-resolved ones.
         let tile_status = self.tile_arrays.sync(
@@ -569,7 +605,21 @@ impl AvengerRendererCore {
             overlay,
             pass_target,
             &text_bind_groups,
-        )
+        )?;
+
+        if let (Some(cached), Some(text_bind_groups)) =
+            (&self.tooltip_renderer, tooltip_text_bind_groups.as_ref())
+        {
+            cached.renderer.encode_with_resources(
+                device,
+                queue,
+                encoder,
+                pass_target,
+                &self.multi_render_resources,
+                text_bind_groups,
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn encode_to_offscreen_commands(
@@ -579,7 +629,7 @@ impl AvengerRendererCore {
         target: &OffscreenTarget,
     ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
         let render_target = target.render_target(WHITE_CLEAR);
-        self.build_frame_commands(device, queue, render_target, None)
+        self.build_frame_commands(device, queue, render_target, None, None)
     }
 
     pub(crate) fn render_to_offscreen(
@@ -738,6 +788,102 @@ impl AvengerRendererCore {
             &self.multi_render_resources,
             text_bind_groups,
         )
+    }
+
+    fn sync_tooltip_renderer(
+        &mut self,
+        overlay: Option<&TooltipOverlayLayout>,
+    ) -> Result<(), AvengerWgpuError> {
+        let Some(overlay) = overlay else {
+            if self.tooltip_renderer.take().is_some() {
+                self.tooltip_text_atlas_builder.reset();
+            }
+            return Ok(());
+        };
+
+        let rebuild = self
+            .tooltip_renderer
+            .as_ref()
+            .is_none_or(|cached| !cached.layout.same_rendered_content(overlay));
+        if rebuild {
+            self.tooltip_text_atlas_builder.reset();
+            let renderer = Self::make_tooltip_overlay_renderer(
+                self.dimensions,
+                &mut self.tooltip_text_atlas_builder,
+                overlay,
+            )?;
+            self.tooltip_renderer = Some(CachedTooltipRenderer {
+                layout: overlay.clone(),
+                renderer,
+            });
+        }
+
+        let origin = overlay.origin(self.dimensions.size);
+        let cached = self
+            .tooltip_renderer
+            .as_mut()
+            .expect("tooltip cache exists after synchronization");
+        cached.renderer.set_dimensions(self.dimensions);
+        cached.renderer.set_translation(origin);
+        cached.layout.presentation.anchor = overlay.presentation.anchor;
+        cached.layout.presentation.offset = overlay.presentation.offset;
+        cached.layout.presentation.owner = overlay.presentation.owner.clone();
+        Ok(())
+    }
+
+    fn make_tooltip_overlay_renderer(
+        dimensions: CanvasDimensions,
+        text_atlas_builder: &mut TextAtlasBuilder,
+        overlay: &TooltipOverlayLayout,
+    ) -> Result<MultiMarkRenderer, AvengerWgpuError> {
+        let style = &overlay.presentation.style;
+        let mark = SceneRectMark {
+            name: "tooltip_overlay_background".to_string(),
+            clip: false,
+            len: 1,
+            gradients: Vec::new(),
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            width: Some(ScalarOrArray::new_scalar(overlay.size[0])),
+            height: Some(ScalarOrArray::new_scalar(overlay.size[1])),
+            x2: None,
+            y2: None,
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color(style.background)),
+            fill_pattern: default_no_fill_pattern(),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color(style.border)),
+            stroke_width: ScalarOrArray::new_scalar(style.border_width),
+            corner_radius: ScalarOrArray::new_scalar(style.corner_radius),
+            indices: None,
+            zindex: None,
+            interactive: Some(false),
+        };
+        let mut renderer = MultiMarkRenderer::new(dimensions);
+        renderer.add_rect_mark(
+            &mark,
+            [0.0, 0.0],
+            &Clip::None,
+            None,
+            PatternRect::new(0.0, 0.0, dimensions.size[0], dimensions.size[1]),
+        )?;
+
+        let mut registrations = Vec::new();
+        for line in &overlay.lines {
+            let instance = TextInstance {
+                label: tooltip_label(&line.text, style, line.color),
+                position: line.position,
+                align: TextAlign::Left,
+                baseline: TextBaseline::Top,
+                angle: 0.0,
+                use_nearest_filter: true,
+            };
+            registrations.extend(text_atlas_builder.register_text(
+                instance,
+                dimensions,
+                &overlay.text_engine,
+            )?);
+        }
+        renderer.add_text_registrations(registrations, &Clip::None, false)?;
+        Ok(renderer)
     }
 }
 
