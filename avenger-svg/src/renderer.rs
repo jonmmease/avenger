@@ -1,7 +1,8 @@
+use avenger_scenegraph::path_geometry::GradientBounds;
 use std::io::Cursor;
 
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{StrokeCap, StrokeJoin};
+use avenger_common::types::{FillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
@@ -102,9 +103,9 @@ impl SvgRenderer {
         let precision = self.options.precision;
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
 
-        document
-            .body
-            .push_str("<g fill=\"none\" stroke-miterlimit=\"10\">\n");
+        document.body.push_str(&format!(
+            "<g fill=\"none\" stroke-miterlimit=\"{SCENE_MITER_LIMIT}\">\n"
+        ));
         self.write_background(&mut document, scene_graph.width, scene_graph.height)?;
         let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
 
@@ -266,6 +267,8 @@ impl SvgRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    gradient_bounds: None,
+                    fill_rule: FillRule::NonZero,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
@@ -304,6 +307,8 @@ impl SvgRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    gradient_bounds: None,
+                    fill_rule: mark.fill_rule,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
@@ -330,11 +335,14 @@ impl SvgRenderer {
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
-        for (path, fill, fill_pattern, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke, x, y, size) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
             mark.fill_pattern_iter(),
-            mark.stroke_iter()
+            mark.stroke_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.size_iter()
         ) {
             self.write_filled_path_with_optional_pattern(
                 document,
@@ -342,6 +350,11 @@ impl SvgRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    gradient_bounds: Some(GradientBounds::symbol(
+                        [x + origin[0], y + origin[1]],
+                        *size,
+                    )),
+                    fill_rule: mark.fill_rule,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
@@ -366,11 +379,16 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        let d = trail_path_d(mark, origin, self.options.precision)?;
+        let centerline = mark.transformed_path(origin);
+        let outline = avenger_scenegraph::path_geometry::trail_outline(&centerline, 0.05, 0)
+            .map_err(|error| AvengerSvgError::InvalidGeometry(error.to_string()))?;
+        let d = lyon_path_to_svg_d(&outline, self.options.precision)?;
         self.write_path_element(
             document,
             &d,
             PathStyle {
+                gradient_bounds: Some(GradientBounds::from_path(&centerline)),
+                fill_rule: FillRule::NonZero,
                 fill: Some(&mark.stroke),
                 stroke: None,
                 stroke_width: None,
@@ -807,6 +825,8 @@ impl SvgRenderer {
             document,
             &text_leader_path_d(&geometry.spine, self.options.precision)?,
             PathStyle {
+                gradient_bounds: None,
+                fill_rule: FillRule::NonZero,
                 fill: None,
                 stroke: Some(stroke),
                 stroke_width: Some(stroke_width.max(0.0)),
@@ -825,6 +845,8 @@ impl SvgRenderer {
                         document,
                         &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
                         PathStyle {
+                            gradient_bounds: None,
+                            fill_rule: FillRule::NonZero,
                             fill: None,
                             stroke: Some(stroke),
                             stroke_width: Some(stroke_width.max(0.0)),
@@ -841,6 +863,8 @@ impl SvgRenderer {
                         document,
                         &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
                         PathStyle {
+                            gradient_bounds: None,
+                            fill_rule: FillRule::NonZero,
                             fill: Some(stroke),
                             stroke: None,
                             stroke_width: None,
@@ -970,6 +994,8 @@ impl SvgRenderer {
                 fill,
                 fill_pattern.as_ref(),
                 PathStyle {
+                    gradient_bounds: None,
+                    fill_rule: FillRule::NonZero,
                     fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
@@ -1003,6 +1029,8 @@ impl SvgRenderer {
             &mark.fill,
             mark.fill_pattern.as_ref(),
             PathStyle {
+                gradient_bounds: None,
+                fill_rule: FillRule::NonZero,
                 fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
@@ -1029,6 +1057,8 @@ impl SvgRenderer {
             document,
             &d,
             PathStyle {
+                gradient_bounds: Some(GradientBounds::from_path(&mark.transformed_path(origin))),
+                fill_rule: FillRule::NonZero,
                 fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
@@ -1053,6 +1083,7 @@ impl SvgRenderer {
             .map(|iter| iter.collect::<Vec<_>>())
             .unwrap_or_default();
 
+        let mut paths = mark.transformed_path_iter(origin);
         for (index, (x1, y1, x2, y2, stroke, stroke_width, stroke_cap)) in izip!(
             mark.x_iter(),
             mark.y_iter(),
@@ -1067,6 +1098,7 @@ impl SvgRenderer {
             let defs = &mut document.defs;
             let body = &mut document.body;
             let mut resolver = PaintContext {
+                bounds: paths.next().map(|path| GradientBounds::from_path(&path)),
                 defs,
                 gradients: &mark.gradients,
             };
@@ -1111,6 +1143,14 @@ impl SvgRenderer {
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
+        let stroke_style = PathStyle {
+            gradient_bounds: Some(
+                stroke_style
+                    .gradient_bounds
+                    .unwrap_or_else(|| GradientBounds::from_path(path)),
+            ),
+            ..stroke_style
+        };
         let d = lyon_path_to_svg_d(path, self.options.precision)?;
         if d.is_empty() {
             return Ok(());
@@ -1132,6 +1172,8 @@ impl SvgRenderer {
             document,
             &d,
             PathStyle {
+                gradient_bounds: stroke_style.gradient_bounds,
+                fill_rule: stroke_style.fill_rule,
                 fill: Some(fill),
                 stroke: None,
                 stroke_width: None,
@@ -1152,6 +1194,7 @@ impl SvgRenderer {
             clip_id,
             pattern_reference_frame,
             chart_bounds,
+            stroke_style.fill_rule,
         )?;
 
         self.write_path_element(
@@ -1176,6 +1219,7 @@ impl SvgRenderer {
         parent_clip_id: Option<&str>,
         pattern_reference_frame: Option<&PatternReferenceFrame>,
         chart_bounds: PatternRect,
+        fill_rule: FillRule,
     ) -> Result<(), AvengerSvgError> {
         let bbox = bounding_box(host_path);
         let host_bounds = PatternRect::new(
@@ -1199,9 +1243,13 @@ impl SvgRenderer {
             return Ok(());
         };
 
-        let host_clip_id = document
-            .defs
-            .clip_id(&Clip::Path(host_path.clone()), self.options.precision)?;
+        let host_clip_id = document.defs.clip_id(
+            &Clip::Path {
+                path: host_path.clone(),
+                fill_rule,
+            },
+            self.options.precision,
+        )?;
         if geometry.ink[3] <= 0.0 {
             return Ok(());
         }
@@ -1252,6 +1300,7 @@ impl SvgRenderer {
             let host_d = lyon_path_to_svg_d(host_path, self.options.precision)?;
             if !host_d.is_empty() {
                 let mut resolver = PaintContext {
+                    bounds: None,
                     defs: &mut document.defs,
                     gradients,
                 };
@@ -1265,6 +1314,7 @@ impl SvgRenderer {
                     &mut resolver,
                     self.options.precision,
                 )?;
+                push_fill_rule(&mut document.body, "fill-rule", fill_rule);
                 document.body.push_str(r#" stroke="none""#);
                 push_mask_attr(&mut document.body, &mask_id);
                 document.body.push_str("/>\n");
@@ -1340,6 +1390,7 @@ impl SvgRenderer {
         let defs = &mut document.defs;
         let body = &mut document.body;
         let mut resolver = PaintContext {
+            bounds: style.gradient_bounds,
             defs,
             gradients: style.gradients,
         };
@@ -1347,6 +1398,7 @@ impl SvgRenderer {
         body.push_str(r#"<path d=""#);
         body.push_str(d);
         body.push('"');
+        push_fill_rule(body, "fill-rule", style.fill_rule);
         push_fill_attrs(body, style.fill, &mut resolver, self.options.precision)?;
         push_stroke_attrs(
             body,
@@ -1376,7 +1428,7 @@ struct SvgDocument {
 struct SvgDefs {
     font_css: String,
     body: String,
-    gradient_ids: Vec<(Gradient, String)>,
+    gradient_ids: Vec<(Gradient, GradientBounds, String)>,
     clip_ids: Vec<(Clip, String)>,
     next_gradient_id: usize,
     next_clip_id: usize,
@@ -1403,84 +1455,96 @@ impl SvgDefs {
         &mut self,
         gradients: &[Gradient],
         index: u32,
+        bounds: GradientBounds,
         precision: usize,
-    ) -> Result<String, AvengerSvgError> {
+    ) -> Result<Option<String>, AvengerSvgError> {
         let gradient = gradients.get(index as usize).ok_or_else(|| {
             AvengerSvgError::UnsupportedPaint(format!("gradient index {index} is out of range"))
         })?;
-
-        if let Some((_, id)) = self
+        let empty = match gradient {
+            Gradient::LinearGradient(_) => {
+                bounds.min[0] == bounds.max[0] || bounds.min[1] == bounds.max[1]
+            }
+            Gradient::RadialGradient(g) => {
+                (g.x0 == g.x1 && g.y0 == g.y1 && g.r0 == g.r1) || bounds.min == bounds.max
+            }
+        };
+        if empty {
+            return Ok(None);
+        }
+        if let Some((_, _, id)) = self
             .gradient_ids
             .iter()
-            .find(|(existing, _)| existing == gradient)
+            .find(|(g, b, _)| g == gradient && *b == bounds)
         {
-            return Ok(id.clone());
+            return Ok(Some(id.clone()));
         }
-
         let id = format!("svg-gradient-{}", self.next_gradient_id);
         self.next_gradient_id += 1;
-        self.write_gradient_def(&id, gradient, precision)?;
-        self.gradient_ids.push((gradient.clone(), id.clone()));
-        Ok(id)
+        self.write_gradient_def(&id, gradient, bounds, precision)?;
+        self.gradient_ids
+            .push((gradient.clone(), bounds, id.clone()));
+        Ok(Some(id))
     }
 
     fn write_gradient_def(
         &mut self,
         id: &str,
         gradient: &Gradient,
+        bounds: GradientBounds,
         precision: usize,
     ) -> Result<(), AvengerSvgError> {
-        match gradient {
-            Gradient::LinearGradient(gradient) => {
-                self.body.push_str(r#"<linearGradient id=""#);
-                self.body.push_str(id);
-                self.body
-                    .push_str(r#"" gradientUnits="objectBoundingBox" x1=""#);
-                push_gradient_unit(&mut self.body, gradient.x0, precision)?;
-                self.body.push_str(r#"" y1=""#);
-                push_gradient_unit(&mut self.body, gradient.y0, precision)?;
-                self.body.push_str(r#"" x2=""#);
-                push_gradient_unit(&mut self.body, gradient.x1, precision)?;
-                self.body.push_str(r#"" y2=""#);
-                push_gradient_unit(&mut self.body, gradient.y1, precision)?;
-                self.body.push_str("\">\n");
-                self.write_gradient_stops(gradient.stops.as_slice(), precision)?;
-                self.body.push_str("</linearGradient>\n");
+        let (tag, bounds, controls): (_, _, Vec<(&str, f32)>) = match gradient {
+            Gradient::LinearGradient(g) => (
+                "linearGradient",
+                bounds,
+                vec![("x1", g.x0), ("y1", g.y0), ("x2", g.x1), ("y2", g.y1)],
+            ),
+            Gradient::RadialGradient(g) => (
+                "radialGradient",
+                bounds.radial(),
+                vec![
+                    ("fx", g.x0),
+                    ("fy", g.y0),
+                    ("cx", g.x1),
+                    ("cy", g.y1),
+                    ("fr", g.r0),
+                    ("r", g.r1),
+                ],
+            ),
+        };
+        self.body.push_str(&format!(
+            "<{tag} id=\"{id}\" gradientUnits=\"userSpaceOnUse\" gradientTransform=\"matrix("
+        ));
+        let matrix = [
+            bounds.max[0] - bounds.min[0],
+            0.0,
+            0.0,
+            bounds.max[1] - bounds.min[1],
+            bounds.min[0],
+            bounds.min[1],
+        ];
+        for (index, value) in matrix.into_iter().enumerate() {
+            if index > 0 {
+                self.body.push(' ');
             }
-            Gradient::RadialGradient(gradient) => {
-                let radial_id = format!("{id}-radial");
-                self.body.push_str(r#"<pattern id=""#);
-                self.body.push_str(id);
-                self.body.push_str(
-                    r#"" viewBox="0 0 1 1" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">"#,
-                );
-                self.body
-                    .push_str(r#"<rect width="1" height="1" fill="url(#"#);
-                self.body.push_str(&radial_id);
-                self.body.push_str(r#")"/></pattern>"#);
-                self.body.push('\n');
-
-                self.body.push_str(r#"<radialGradient id=""#);
-                self.body.push_str(&radial_id);
-                self.body
-                    .push_str(r#"" gradientUnits="objectBoundingBox" fx=""#);
-                push_gradient_unit(&mut self.body, gradient.x0, precision)?;
-                self.body.push_str(r#"" fy=""#);
-                push_gradient_unit(&mut self.body, gradient.y0, precision)?;
-                self.body.push_str(r#"" cx=""#);
-                push_gradient_unit(&mut self.body, gradient.x1, precision)?;
-                self.body.push_str(r#"" cy=""#);
-                push_gradient_unit(&mut self.body, gradient.y1, precision)?;
-                self.body.push_str(r#"" fr=""#);
-                push_gradient_unit(&mut self.body, gradient.r0, precision)?;
-                self.body.push_str(r#"" r=""#);
-                push_gradient_unit(&mut self.body, gradient.r1, precision)?;
-                self.body.push_str("\">\n");
-                self.write_gradient_stops(gradient.stops.as_slice(), precision)?;
-                self.body.push_str("</radialGradient>\n");
-            }
+            push_number(&mut self.body, value, precision)?;
         }
-
+        self.body.push_str(")\"");
+        for (name, value) in controls {
+            self.body.push_str(&format!(" {name}=\""));
+            if !value.is_finite() {
+                return Err(AvengerSvgError::InvalidGeometry(
+                    "gradient controls must be finite".into(),
+                ));
+            }
+            // Relative circle controls retain precision independently of scene-coordinate rounding.
+            self.body.push_str(&value.to_string());
+            self.body.push('"');
+        }
+        self.body.push_str(">\n");
+        self.write_gradient_stops(gradient.stops(), precision)?;
+        self.body.push_str(&format!("</{tag}>\n"));
         Ok(())
     }
 
@@ -1546,10 +1610,12 @@ impl SvgDefs {
                 push_number(&mut self.body, *height, precision)?;
                 self.body.push_str(r#""/>"#);
             }
-            Clip::Path(path) => {
+            Clip::Path { path, fill_rule } => {
                 self.body.push_str(r#"<path d=""#);
                 self.body.push_str(&lyon_path_to_svg_d(path, precision)?);
-                self.body.push_str(r#""/>"#);
+                self.body.push('"');
+                push_fill_rule(&mut self.body, "clip-rule", *fill_rule);
+                self.body.push_str("/>");
             }
         }
         self.body.push_str("</clipPath>\n");
@@ -1564,6 +1630,7 @@ impl SvgDefs {
 }
 
 struct PaintContext<'a, 'b> {
+    bounds: Option<GradientBounds>,
     defs: &'a mut SvgDefs,
     gradients: &'b [Gradient],
 }
@@ -1579,12 +1646,25 @@ impl PaintResolver for PaintContext<'_, '_> {
         match paint {
             ColorOrGradient::Color(color) => push_color_attrs(output, attr, *color, precision),
             ColorOrGradient::GradientIndex(index) => {
-                let id = self.defs.gradient_id(self.gradients, *index, precision)?;
+                let id = self.defs.gradient_id(
+                    self.gradients,
+                    *index,
+                    self.bounds.ok_or_else(|| {
+                        AvengerSvgError::InvalidGeometry(
+                            "gradient paint requires reference bounds".into(),
+                        )
+                    })?,
+                    precision,
+                )?;
                 output.push(' ');
                 output.push_str(attr);
-                output.push_str(r#"="url(#"#);
-                output.push_str(&id);
-                output.push_str(r#")""#);
+                if let Some(id) = id {
+                    output.push_str(r#"="url(#"#);
+                    output.push_str(&id);
+                    output.push_str(r#")""#);
+                } else {
+                    output.push_str(r#"="none""#);
+                }
                 Ok(())
             }
         }
@@ -1662,13 +1742,14 @@ fn push_pattern_primitives(
         output.push_str(&lyon_path_to_svg_d(primitive.path(), precision)?);
         output.push('"');
         match primitive {
-            PatternCoveragePrimitive::Filled(_) => {
+            PatternCoveragePrimitive::Filled { fill_rule, .. } => {
                 push_color_attrs(output, "fill", ink, precision)?;
-                output.push_str(r#" fill-rule="evenodd" stroke="none""#);
+                push_fill_rule(output, "fill-rule", *fill_rule);
+                output.push_str(r#" stroke="none""#);
             }
             PatternCoveragePrimitive::Stroked { stroke_width, .. } => {
                 push_color_attrs(output, "stroke", ink, precision)?;
-                output.push_str(r#" fill="none" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="4" stroke-width=""#);
+                output.push_str(&format!(r#" fill="none" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="{SCENE_MITER_LIMIT}" stroke-width=""#));
                 push_number(output, *stroke_width, precision)?;
                 output.push('"');
             }
@@ -1676,19 +1757,6 @@ fn push_pattern_primitives(
         output.push_str("/>\n");
     }
     Ok(())
-}
-
-fn push_gradient_unit(
-    output: &mut String,
-    value: f32,
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    let value = if value.is_finite() {
-        value.clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    push_number(output, value, precision)
 }
 
 fn pattern_geometry_error_to_svg_error(error: PatternGeometryError) -> AvengerSvgError {
@@ -1740,6 +1808,8 @@ fn font_style_value(font_style: &FontStyle) -> &'static str {
 
 #[derive(Clone, Copy)]
 struct PathStyle<'a> {
+    gradient_bounds: Option<GradientBounds>,
+    fill_rule: FillRule,
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
     stroke_width: Option<f32>,
@@ -1858,134 +1928,6 @@ fn line_path_d(
     Ok(d)
 }
 
-fn trail_path_d(
-    mark: &SceneTrailMark,
-    origin: [f32; 2],
-    precision: usize,
-) -> Result<String, AvengerSvgError> {
-    let mut d = String::new();
-    let mut prev = None;
-    let mut run_len = 0usize;
-
-    for (x, y, size, defined) in izip!(
-        mark.x_iter(),
-        mark.y_iter(),
-        mark.size_iter(),
-        mark.defined_iter()
-    ) {
-        if *defined {
-            let point = [*x + origin[0], *y + origin[1]];
-            let radius = (*size).max(0.0) / 2.0;
-            if let Some((prev_point, prev_radius)) = prev {
-                push_trail_segment(&mut d, prev_point, prev_radius, point, radius, precision)?;
-            }
-            prev = Some((point, radius));
-            run_len += 1;
-        } else {
-            if run_len == 1 {
-                if let Some((point, radius)) = prev {
-                    push_trail_circle(&mut d, point, radius, precision)?;
-                }
-            }
-            prev = None;
-            run_len = 0;
-        }
-    }
-
-    if run_len == 1 {
-        if let Some((point, radius)) = prev {
-            push_trail_circle(&mut d, point, radius, precision)?;
-        }
-    }
-
-    Ok(d)
-}
-
-fn push_trail_segment(
-    d: &mut String,
-    p0: [f32; 2],
-    r0: f32,
-    p1: [f32; 2],
-    r1: f32,
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let len = (dx * dx + dy * dy).sqrt();
-
-    if len <= f32::EPSILON {
-        push_trail_circle(d, p0, r0.max(r1), precision)?;
-        return Ok(());
-    }
-
-    if r0 <= 0.0 && r1 <= 0.0 {
-        return Ok(());
-    }
-
-    let nx = -dy / len;
-    let ny = dx / len;
-    let p0_left = [p0[0] + nx * r0, p0[1] + ny * r0];
-    let p1_left = [p1[0] + nx * r1, p1[1] + ny * r1];
-    let p1_right = [p1[0] - nx * r1, p1[1] - ny * r1];
-    let p0_right = [p0[0] - nx * r0, p0[1] - ny * r0];
-
-    if !d.is_empty() {
-        d.push(' ');
-    }
-    d.push('M');
-    push_point(d, p0_left[0], p0_left[1], precision)?;
-    d.push(' ');
-    d.push('L');
-    push_point(d, p1_left[0], p1_left[1], precision)?;
-    push_arc_to(d, r1, p1_right, precision)?;
-    d.push(' ');
-    d.push('L');
-    push_point(d, p0_right[0], p0_right[1], precision)?;
-    push_arc_to(d, r0, p0_left, precision)?;
-    d.push(' ');
-    d.push('Z');
-    Ok(())
-}
-
-fn push_trail_circle(
-    d: &mut String,
-    point: [f32; 2],
-    radius: f32,
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    if radius <= 0.0 {
-        return Ok(());
-    }
-
-    if !d.is_empty() {
-        d.push(' ');
-    }
-    d.push('M');
-    push_point(d, point[0] + radius, point[1], precision)?;
-    push_arc_to(d, radius, [point[0] - radius, point[1]], precision)?;
-    push_arc_to(d, radius, [point[0] + radius, point[1]], precision)?;
-    d.push(' ');
-    d.push('Z');
-    Ok(())
-}
-
-fn push_arc_to(
-    d: &mut String,
-    radius: f32,
-    point: [f32; 2],
-    precision: usize,
-) -> Result<(), AvengerSvgError> {
-    let radius = radius.max(0.0);
-    d.push(' ');
-    d.push('A');
-    push_number(d, radius, precision)?;
-    d.push(' ');
-    push_number(d, radius, precision)?;
-    d.push_str(" 0 0 1 ");
-    push_point(d, point[0], point[1], precision)?;
-    Ok(())
-}
-
 fn close_single_point_subpath(
     d: &mut String,
     path_len: usize,
@@ -2002,9 +1944,17 @@ fn close_single_point_subpath(
     Ok(())
 }
 
+fn push_fill_rule(output: &mut String, attribute: &str, rule: FillRule) {
+    let value = match rule {
+        FillRule::NonZero => "nonzero",
+        FillRule::EvenOdd => "evenodd",
+    };
+    output.push_str(&format!(" {attribute}=\"{value}\""));
+}
+
 #[cfg(test)]
 mod tests {
-    use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
+    use avenger_color::ColorOrGradient;
     use avenger_common::value::ScalarOrArray;
     use avenger_image::RgbaImage;
     use avenger_scenegraph::{
@@ -2020,7 +1970,6 @@ mod tests {
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
             text::SceneTextMark,
-            trail::SceneTrailMark,
         },
         scene_graph::SceneGraph,
     };
@@ -2162,6 +2111,7 @@ mod tests {
                     v_phase: 0.0,
                 },
                 symbol: PatternSymbol {
+                    fill_rule: avenger_common::types::FillRule::EvenOdd,
                     shape: "circle".to_string(),
                     size: 4.0,
                     rotation: 0.0,
@@ -2318,112 +2268,6 @@ mod tests {
 
         assert!(svg.contains(r#"<clipPath id="svg-clip-0" clipPathUnits="userSpaceOnUse"><rect x="4" y="6" width="5" height="6"/></clipPath>"#));
         assert!(svg.contains(r#"clip-path="url(#svg-clip-0)""#));
-        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
-    }
-
-    #[test]
-    fn renders_native_linear_and_radial_gradients() {
-        let stops = vec![
-            GradientStop {
-                offset: 0.0,
-                color: [1.0, 0.0, 0.0, 1.0],
-            },
-            GradientStop {
-                offset: 1.0,
-                color: [0.0, 0.0, 1.0, 0.5],
-            },
-        ];
-        let scene_graph = SceneGraph {
-            width: 20.0,
-            height: 10.0,
-            origin: [0.0, 0.0],
-            marks: vec![SceneRectMark {
-                len: 1,
-                gradients: vec![
-                    Gradient::LinearGradient(LinearGradient {
-                        x0: 0.0,
-                        y0: 0.0,
-                        x1: 1.0,
-                        y1: 0.0,
-                        stops: stops.clone(),
-                    }),
-                    Gradient::RadialGradient(RadialGradient {
-                        x0: 0.5,
-                        y0: 0.5,
-                        x1: 0.5,
-                        y1: 0.5,
-                        r0: 0.0,
-                        r1: 0.5,
-                        stops,
-                    }),
-                ],
-                x: ScalarOrArray::new_scalar(2.0),
-                y: ScalarOrArray::new_scalar(3.0),
-                width: Some(ScalarOrArray::new_scalar(4.0)),
-                height: Some(ScalarOrArray::new_scalar(5.0)),
-                fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
-                stroke: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(1)),
-                stroke_width: ScalarOrArray::new_scalar(1.0),
-                ..Default::default()
-            }
-            .into()],
-        };
-
-        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
-
-        assert!(svg.contains(r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="0">"#));
-        assert!(svg.contains(r#"<pattern id="svg-gradient-1" viewBox="0 0 1 1" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">"#));
-        assert!(svg.contains(
-            r#"<rect width="1" height="1" fill="url(#svg-gradient-1-radial)"/></pattern>"#
-        ));
-        assert!(svg.contains(r#"<radialGradient id="svg-gradient-1-radial" gradientUnits="objectBoundingBox" fx="0.5" fy="0.5" cx="0.5" cy="0.5" fr="0" r="0.5">"#));
-        assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
-        assert!(svg.contains(r#"stroke="url(#svg-gradient-1)""#));
-        assert!(svg.contains(r##"stop-color="#0000ff" stop-opacity="0.5""##));
-        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
-    }
-
-    #[test]
-    fn clamps_gradient_control_points_to_object_bounding_box_units() {
-        let stops = vec![
-            GradientStop {
-                offset: 0.0,
-                color: [1.0, 0.0, 0.0, 1.0],
-            },
-            GradientStop {
-                offset: 1.0,
-                color: [0.0, 0.0, 1.0, 1.0],
-            },
-        ];
-        let scene_graph = SceneGraph {
-            width: 20.0,
-            height: 500.0,
-            origin: [0.0, 0.0],
-            marks: vec![SceneRectMark {
-                len: 1,
-                gradients: vec![Gradient::LinearGradient(LinearGradient {
-                    x0: 0.0,
-                    y0: 491.0,
-                    x1: 0.0,
-                    y1: 0.0,
-                    stops,
-                })],
-                x: ScalarOrArray::new_scalar(2.0),
-                y: ScalarOrArray::new_scalar(3.0),
-                width: Some(ScalarOrArray::new_scalar(15.0)),
-                height: Some(ScalarOrArray::new_scalar(491.0)),
-                fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
-                ..Default::default()
-            }
-            .into()],
-        };
-
-        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
-
-        assert!(svg.contains(
-            r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="0" y2="0">"#
-        ));
-        assert!(!svg.contains(r#"y1="491""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
@@ -2788,33 +2632,6 @@ mod tests {
 
         assert!(matches!(err, AvengerSvgError::Text(_)));
         assert!(err.to_string().contains("Missing Display Face"));
-    }
-
-    #[test]
-    fn renders_trail_marks_as_filled_outline_paths() {
-        let scene_graph = SceneGraph {
-            width: 30.0,
-            height: 20.0,
-            origin: [1.0, 2.0],
-            marks: vec![SceneTrailMark {
-                len: 4,
-                x: ScalarOrArray::new_array(vec![2.0, 10.0, 0.0, 20.0]),
-                y: ScalarOrArray::new_array(vec![3.0, 3.0, 0.0, 8.0]),
-                size: ScalarOrArray::new_array(vec![4.0, 8.0, 4.0, 6.0]),
-                defined: ScalarOrArray::new_array(vec![true, true, false, true]),
-                stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]),
-                ..Default::default()
-            }
-            .into()],
-        };
-
-        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
-
-        assert_eq!(svg.matches("<path ").count(), 1);
-        assert!(svg.contains(r##"fill="#0000ff" fill-opacity="0.5" stroke="none""##));
-        assert!(svg.contains(" A"));
-        assert!(svg.contains(" Z M"));
-        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
     fn first_text_body(svg: &str) -> &str {

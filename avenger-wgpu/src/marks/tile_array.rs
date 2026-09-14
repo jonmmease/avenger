@@ -420,6 +420,7 @@ fn upload_layer(
     stats: &mut TileUploadStats,
     total: &mut TileUploadStats,
 ) {
+    let premultiplied = crate::image_resources::premultiplied_pixels(pixels);
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -431,7 +432,7 @@ fn upload_layer(
             },
             aspect: wgpu::TextureAspect::All,
         },
-        pixels,
+        &premultiplied,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4 * size),

@@ -314,6 +314,8 @@ impl SymbolLattice2d {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternSymbol {
+    #[serde(default = "default_pattern_fill_rule")]
+    pub fill_rule: avenger_common::types::FillRule,
     pub shape: SymbolShapeSpec,
     pub size: Px,
 
@@ -321,8 +323,13 @@ pub struct PatternSymbol {
     pub rotation: Deg,
 }
 
+fn default_pattern_fill_rule() -> avenger_common::types::FillRule {
+    avenger_common::types::FillRule::EvenOdd
+}
+
 impl Hash for PatternSymbol {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.fill_rule.hash(state);
         self.shape.hash(state);
         hash_f32(self.size, state);
         hash_f32(self.rotation, state);

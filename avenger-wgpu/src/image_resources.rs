@@ -117,12 +117,37 @@ pub(crate) fn resolve_image_resource(
             }
             if matches!(size, ImageSizeRequirement::Atlas(_)) {
                 let pixels = image.to_image().expect("validated image pixels");
+                let premultiplied =
+                    image::Rgba32FImage::from_fn(pixels.width(), pixels.height(), |x, y| {
+                        let pixel = pixels.get_pixel(x, y).0;
+                        let alpha = pixel[3] as f32 / 255.0;
+                        image::Rgba([
+                            pixel[0] as f32 / 255.0 * alpha,
+                            pixel[1] as f32 / 255.0 * alpha,
+                            pixel[2] as f32 / 255.0 * alpha,
+                            alpha,
+                        ])
+                    });
                 let resized = image::imageops::resize(
-                    &pixels,
+                    &premultiplied,
                     width,
                     height,
                     image::imageops::FilterType::CatmullRom,
                 );
+                let resized = image::RgbaImage::from_fn(width, height, |x, y| {
+                    let pixel = resized.get_pixel(x, y).0;
+                    let mut result = [0; 4];
+                    if pixel[3] > 0.0 {
+                        for channel in 0..3 {
+                            result[channel] = (pixel[channel] / pixel[3] * 255.0)
+                                .round()
+                                .clamp(0.0, 255.0)
+                                as u8;
+                        }
+                        result[3] = (pixel[3] * 255.0).round().clamp(0.0, 255.0) as u8;
+                    }
+                    image::Rgba(result)
+                });
                 return Ok(ResolvedImageContent::Image(Arc::new(
                     RgbaImage::from_image(&resized),
                 )));
@@ -197,6 +222,18 @@ impl WgpuImageResourceStatus {
             push_unique_failed(self, key, error);
         }
     }
+}
+
+/// Prepare straight RGBA bytes for hardware filtering in premultiplied space.
+pub(crate) fn premultiplied_pixels(pixels: &[u8]) -> Vec<u8> {
+    let mut output = pixels.to_vec();
+    for pixel in output.chunks_exact_mut(4) {
+        let alpha = u16::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
+        }
+    }
+    output
 }
 
 #[cfg(test)]
