@@ -5,3 +5,7 @@ Run `cargo run --release -p iris` from the workspace root. Drag the plot to pan 
 For a browser, run `wasm-pack build examples/iris-pan-zoom --target web --release --no-opt`, then serve that directory with `python3 -m http.server 8768 --directory examples/iris-pan-zoom`. Open http://localhost:8768 in a browser with WebGPU support.
 
 The readout uses an event-stream debounce and host wake-ups. It needs no text-input element or clipboard integration.
+
+Resize the window after panning. The visible domains stay the same while the scales, axes, point positions, and hit geometry follow the new plot dimensions.
+
+In the browser, drag the lower-right frame corner to resize the chart. Native users can resize the window.

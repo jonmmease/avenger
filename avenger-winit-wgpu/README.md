@@ -1,23 +1,7 @@
-# avenger-winit-wgpu
+# Window and browser host
 
-Native window application runner for interactive Avenger visualizations.
+The host drives an Avenger application, applies interaction commands, and presents its scene. `WinitWgpuAvengerAppOptions` configures window attributes, canvas sizing, resource invalidation, and optional canvas resize handles.
 
-## Purpose
+Run `cargo run --release -p avenger-winit-wgpu --example image_resources` to see a placeholder become a generated local image after 1.5 seconds. Keep the pointer still while it loads: resource invalidation requests the redraw. Drag the right or bottom canvas edge to resize the image area independently of the window. This example makes no network request.
 
-This crate provides a complete native application framework that combines all Avenger components into a runnable desktop application. It handles window management, event processing, and the main application loop for interactive visualizations.
-
-## Architecture
-
-The main component is `WinitWgpuAvengerApp`, which integrates:
-- **winit**: Cross-platform window creation and event handling
-- **avenger-wgpu**: GPU rendering to window surfaces
-- **avenger-app**: Application state management and scene graph coordination
-- **avenger-eventstream**: Event processing and interaction handling
-
-The crate also includes `FileWatcher` events for development workflows, supporting live reloading when specification files change.
-
-## Integration
-
-This crate serves as the "main" entry point for native Avenger applications. It orchestrates the entire stack from window events through GPU rendering, providing a complete solution for desktop interactive visualizations.
-
-Typical usage involves creating an `AvengerApp` with custom state and scene graph builder, then running it through the winit event loop.
+The Iris example in `examples/iris-pan-zoom` demonstrates window resizing, panning, and timed interaction updates in native and browser execution.
