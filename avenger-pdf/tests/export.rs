@@ -649,3 +649,91 @@ fn audited_typst_layout_matches_svg_with_variable_fonts_and_decorations() {
         assert!(mean < 12.0, "{source}: mean ink difference {mean}");
     }
 }
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn pattern_symbols_preserve_holes_and_union_instances_before_operations() {
+    use avenger_color::ColorOrGradient;
+    use avenger_scenegraph::marks::pattern::{
+        PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternSymbol,
+        StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+    };
+    use avenger_scenegraph::marks::rect::SceneRectMark;
+    const SQUARE: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z";
+    const RING: &str = "M-1,-1 L1,-1 L1,1 L-1,1 Z M-0.5,-0.5 L-0.5,0.5 L0.5,0.5 L0.5,-0.5 Z";
+
+    for (shape, paint, spacing, ink_pixel, gap_pixel) in [
+        (RING, SymbolPaint::Filled, 100.0, [65, 50], [50, 50]),
+        (SQUARE, SymbolPaint::Filled, 30.0, [65, 50], [50, 20]),
+        (
+            SQUARE,
+            SymbolPaint::Open { stroke_width: 8.0 },
+            38.0,
+            [69, 50],
+            [50, 50],
+        ),
+    ] {
+        for operation in [
+            PatternLayerOperation::Add,
+            PatternLayerOperation::Subtract,
+            PatternLayerOperation::Xor,
+        ] {
+            let mut layers = Vec::new();
+            if operation != PatternLayerOperation::Add {
+                layers.push(PatternLayer::Stripe(StripePatternLayer::new(
+                    0.0, 1000.0, 1000.0,
+                )));
+            }
+            layers.push(PatternLayer::Symbol(SymbolPatternLayer {
+                operation,
+                lattice: SymbolLattice2d {
+                    u_spacing: spacing,
+                    v_spacing: 100.0,
+                    u_angle: 0.0,
+                    v_angle: 90.0,
+                    u_phase: 50.0,
+                    v_phase: 50.0,
+                },
+                symbol: PatternSymbol {
+                    shape: shape.into(),
+                    size: 1600.0,
+                    rotation: 0.0,
+                },
+                paint: paint.clone(),
+            }));
+            let mark = SceneRectMark {
+                width: Some(100.0.into()),
+                height: Some(100.0.into()),
+                fill: ColorOrGradient::Color([1.0; 4]).into(),
+                fill_pattern: Some(PatternFill {
+                    anchor: PatternAnchor::Mark,
+                    ink: PatternInk::Solid {
+                        color: [0.0, 0.0, 0.0, 1.0],
+                        opacity: 0.5,
+                    },
+                    layers,
+                })
+                .into(),
+                ..Default::default()
+            };
+            let graph = SceneGraph {
+                width: 100.0,
+                height: 100.0,
+                origin: [0.0; 2],
+                marks: vec![mark.into()],
+            };
+            let image = pdf_raster::pdf_to_png(
+                &renderer().render_scene_graph(&graph).unwrap(),
+                100.0,
+                100.0,
+            );
+            for (pixel, covered) in [(ink_pixel, true), (gap_pixel, false)] {
+                let covered = covered == (operation == PatternLayerOperation::Add);
+                let value = image.get_pixel(pixel[0] * 2, pixel[1] * 2).0[0];
+                let expected = if covered { 127 } else { 255 };
+                assert!(value.abs_diff(expected) <= 1,
+                            "{operation:?}, {paint:?}, spacing={spacing}, pixel={pixel:?}: {value} != {expected}");
+            }
+        }
+    }
+}
