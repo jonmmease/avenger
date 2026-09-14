@@ -1,9 +1,9 @@
-use crate::marks::multi::GRADIENT_TEXTURE_CODE;
 use avenger_color::{ColorOrGradient, Gradient};
-
 use colorgrad::{Color, Gradient as ColorGradGradient, GradientBuilder};
 use image::{DynamicImage, Rgba};
 use wgpu::Extent3d;
+
+use crate::marks::multi::GRADIENT_TEXTURE_CODE;
 
 const GRADIENT_WIDTH: u32 = 256;
 const GRADIENT_HEIGH: u32 = 32;
