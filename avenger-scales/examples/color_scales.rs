@@ -1,9 +1,9 @@
+use std::sync::Arc;
+
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_color::ColorOrGradient;
-
 use avenger_scales::scalar::Scalar;
 use avenger_scales::scales::{linear::LinearScale, log::LogScale};
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Color Scale Examples ===\n");
