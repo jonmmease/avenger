@@ -220,15 +220,23 @@ let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 
 ## Number Formatting
 
-Built-in number formatting with D3-style format strings:
-```rust
-use avenger_scales::format_num::NumberFormat;
+Number labels use prepared D3 formatters and preserve binary64 values through formatting.
 
-let formatter = NumberFormat::new();
-assert_eq!(formatter.format(".2f", 3.14159), "3.14");
-assert_eq!(formatter.format(".0%", 0.123), "12%");
-assert_eq!(formatter.format(".2s", 42000000), "42M");
+```rust
+use avenger_scales::formatter::{DefaultFormatter, NumberFormatter};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let formatter = DefaultFormatter {
+        format_str: Some(".2f".into()),
+        ..Default::default()
+    }.prepare_number()?;
+    assert_eq!(NumberFormatter::format(&formatter, &[Some(3.14159)], None), ["3.14"]);
+    Ok(())
+}
 ```
+
+See [avenger-format-number-d3](../avenger-format-number-d3/README.md) for locale JSON,
+scalar formatters, and Vega's automatic number-label adapters.
 
 ## Examples
 
@@ -243,8 +251,8 @@ The `examples/` directory contains comprehensive examples:
 
 Run examples with:
 ```bash
-cargo run --example linear_scale
-cargo run --example color_scales
+cargo run --release --example linear_scale
+cargo run --release --example color_scales
 ```
 
 ## Contributing
