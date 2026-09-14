@@ -33,8 +33,181 @@ pub struct RuntimeWakeEvent {
     pub generation: u64,
 }
 
+/// Host-neutral styling for one transient tooltip overlay.
+///
+/// Every length is expressed in root-canvas logical pixels. Colors are
+/// straight-alpha linear RGBA values. The eventstream layer deliberately owns
+/// only concrete presentation primitives so it does not depend on chart theme
+/// or rendering crates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeTooltipStyle {
+    pub background: [f32; 4],
+    pub foreground: [f32; 4],
+    pub label_foreground: [f32; 4],
+    pub border: [f32; 4],
+    pub border_width: f32,
+    pub corner_radius: f32,
+    pub padding: [f32; 2],
+    pub row_gap: f32,
+    pub column_gap: f32,
+    pub max_width: f32,
+    pub font_family: SmolStr,
+    pub font_size: f32,
+    pub font_weight: f32,
+}
+
+impl Default for RuntimeTooltipStyle {
+    fn default() -> Self {
+        Self {
+            background: [0.08, 0.09, 0.11, 0.96],
+            foreground: [0.98, 0.98, 0.98, 1.0],
+            label_foreground: [0.76, 0.78, 0.82, 1.0],
+            border: [1.0, 1.0, 1.0, 0.18],
+            border_width: 1.0,
+            corner_radius: 4.0,
+            padding: [10.0, 8.0],
+            row_gap: 4.0,
+            column_gap: 12.0,
+            max_width: 360.0,
+            font_family: SmolStr::new("sans-serif"),
+            font_size: 12.0,
+            font_weight: 400.0,
+        }
+    }
+}
+
+/// One already-formatted label/value row in a transient tooltip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeTooltipRow {
+    pub label: SmolStr,
+    pub value: String,
+}
+
+/// Semantic tooltip content ready for a host presenter.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeTooltipPresentation {
+    /// Stable tool-instance owner used to reject stale move/hide updates.
+    pub owner: SmolStr,
+    /// Root-canvas logical pointer position.
+    pub anchor: [f32; 2],
+    /// Preferred logical-pixel displacement from the pointer.
+    pub offset: [f32; 2],
+    pub rows: Vec<RuntimeTooltipRow>,
+    pub style: RuntimeTooltipStyle,
+}
+
+/// Incremental update for the one visible tooltip associated with a canvas.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeTooltipUpdate {
+    Show(RuntimeTooltipPresentation),
+    Move {
+        owner: SmolStr,
+        anchor: [f32; 2],
+    },
+    Hide {
+        owner: SmolStr,
+    },
+    /// Host lifecycle reset that is not tied to a particular tool owner.
+    Clear,
+}
+
+/// Small host-side state machine shared by native and web presenters.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RuntimeTooltipState {
+    current: Option<RuntimeTooltipPresentation>,
+}
+
+impl RuntimeTooltipState {
+    pub fn current(&self) -> Option<&RuntimeTooltipPresentation> {
+        self.current.as_ref()
+    }
+
+    /// Apply an update, returning whether visible presentation state changed.
+    pub fn apply(&mut self, update: RuntimeTooltipUpdate) -> bool {
+        let next = match update {
+            RuntimeTooltipUpdate::Show(presentation) => Some(presentation),
+            RuntimeTooltipUpdate::Move { owner, anchor } => {
+                let mut current = self.current.clone();
+                if let Some(presentation) = current.as_mut() {
+                    if presentation.owner == owner {
+                        presentation.anchor = anchor;
+                    }
+                }
+                current
+            }
+            RuntimeTooltipUpdate::Hide { owner } => self
+                .current
+                .clone()
+                .filter(|presentation| presentation.owner != owner),
+            RuntimeTooltipUpdate::Clear => None,
+        };
+        if next == self.current {
+            false
+        } else {
+            self.current = next;
+            true
+        }
+    }
+}
+
+#[cfg(test)]
+mod tooltip_tests {
+    use super::*;
+
+    fn presentation(owner: &str, anchor: [f32; 2]) -> RuntimeTooltipPresentation {
+        RuntimeTooltipPresentation {
+            owner: owner.into(),
+            anchor,
+            offset: [12.0, 12.0],
+            rows: vec![RuntimeTooltipRow {
+                label: "Name".into(),
+                value: "Falcon".to_string(),
+            }],
+            style: RuntimeTooltipStyle::default(),
+        }
+    }
+
+    #[test]
+    fn tooltip_state_rejects_stale_owner_updates() {
+        let mut state = RuntimeTooltipState::default();
+        assert!(state.apply(RuntimeTooltipUpdate::Show(presentation("new", [1.0, 2.0]))));
+        assert!(!state.apply(RuntimeTooltipUpdate::Move {
+            owner: "old".into(),
+            anchor: [9.0, 9.0],
+        }));
+        assert!(!state.apply(RuntimeTooltipUpdate::Hide {
+            owner: "old".into(),
+        }));
+        assert_eq!(state.current().unwrap().anchor, [1.0, 2.0]);
+
+        assert!(state.apply(RuntimeTooltipUpdate::Move {
+            owner: "new".into(),
+            anchor: [3.0, 4.0],
+        }));
+        assert_eq!(state.current().unwrap().anchor, [3.0, 4.0]);
+        assert!(state.apply(RuntimeTooltipUpdate::Hide {
+            owner: "new".into(),
+        }));
+        assert!(state.current().is_none());
+
+        assert!(state.apply(RuntimeTooltipUpdate::Show(presentation(
+            "first",
+            [5.0, 6.0]
+        ))));
+        assert!(state.apply(RuntimeTooltipUpdate::Show(presentation(
+            "replacement",
+            [7.0, 8.0],
+        ))));
+        assert_eq!(state.current().unwrap().owner, "replacement");
+        assert!(state.apply(RuntimeTooltipUpdate::Clear));
+        assert!(state.current().is_none());
+        assert!(!state.apply(RuntimeTooltipUpdate::Clear));
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum RuntimeHostCommand {
+    UpdateTooltip(RuntimeTooltipUpdate),
     RequestWakeup {
         key: RuntimeWakeKey,
         deadline: Instant,
