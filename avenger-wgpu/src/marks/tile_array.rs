@@ -22,7 +22,7 @@ const MAX_TILE_ARRAY_LAYERS: u32 = 256;
 /// 48 layers of 512px).
 const GROUP_BUDGET_BYTES: u64 = 48 * 1024 * 1024;
 
-pub(crate) fn tile_group_capacity(size: u32) -> u32 {
+fn tile_group_capacity(size: u32) -> u32 {
     let per_layer = 4 * u64::from(size) * u64::from(size);
     u32::try_from(GROUP_BUDGET_BYTES / per_layer.max(1))
         .unwrap_or(MAX_TILE_ARRAY_LAYERS)
@@ -87,6 +87,34 @@ impl SlotGroup {
             by_key: HashMap::new(),
         }
     }
+    fn assign(&mut self, key: SlotKey, epoch: u64) -> Option<u32> {
+        if let Some(&layer) = self.by_key.get(&key) {
+            self.slots[layer as usize].last_used_epoch = epoch;
+            return Some(layer);
+        }
+        let layer = if self.slots.len() < self.capacity as usize {
+            let layer = self.slots.len();
+            self.slots.push(Slot {
+                key: key.clone(),
+                last_used_epoch: epoch,
+                content: SlotContent::Empty,
+            });
+            layer
+        } else {
+            let (layer, slot) = self
+                .slots
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, slot)| slot.last_used_epoch < epoch)
+                .min_by_key(|(_, slot)| slot.last_used_epoch)?;
+            self.by_key.remove(&slot.key);
+            slot.key = key.clone();
+            slot.last_used_epoch = epoch;
+            layer
+        };
+        self.by_key.insert(key, layer as u32);
+        Some(layer as u32)
+    }
 }
 
 /// Layers used by the current scene stay assigned until the next scene begins.
@@ -107,8 +135,10 @@ impl TileSlotAllocator {
         resource: &SceneImageResource,
         policy: SceneImageUnavailablePolicy,
     ) -> Option<u32> {
-        self.assign_many(size, &[resource], policy)
-            .map(|layers| layers[0])
+        self.groups
+            .entry(size)
+            .or_insert_with(|| SlotGroup::new(tile_group_capacity(size)))
+            .assign(SlotKey::new(resource, policy), self.epoch)
     }
 
     /// Reserve the complete mark before changing slots, so atlas fallback leaves no partial assignments.
@@ -146,36 +176,14 @@ impl TileSlotAllocator {
                 group.slots[layer as usize].last_used_epoch = self.epoch;
             }
         }
-        let mut layers = Vec::with_capacity(keys.len());
-        for key in keys {
-            if let Some(&layer) = group.by_key.get(&key) {
-                layers.push(layer);
-                continue;
-            }
-            let layer = if group.slots.len() < group.capacity as usize {
-                let layer = group.slots.len();
-                group.slots.push(Slot {
-                    key: key.clone(),
-                    last_used_epoch: self.epoch,
-                    content: SlotContent::Empty,
-                });
-                layer
-            } else {
-                let (layer, slot) = group
-                    .slots
-                    .iter_mut()
-                    .enumerate()
-                    .filter(|(_, slot)| slot.last_used_epoch < self.epoch)
-                    .min_by_key(|(_, slot)| slot.last_used_epoch)
-                    .expect("reservation leaves an evictable slot");
-                group.by_key.remove(&slot.key);
-                slot.key = key.clone();
-                slot.last_used_epoch = self.epoch;
-                layer
-            };
-            group.by_key.insert(key, layer as u32);
-            layers.push(layer as u32);
-        }
+        let layers = keys
+            .into_iter()
+            .map(|key| {
+                group
+                    .assign(key, self.epoch)
+                    .expect("reservation leaves capacity for every key")
+            })
+            .collect();
         Some(layers)
     }
 }
@@ -340,12 +348,6 @@ impl TileTextureArrays {
         }
 
         Ok(status)
-    }
-}
-
-impl Default for TileTextureArrays {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
