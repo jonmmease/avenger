@@ -12,3 +12,4 @@ avenger-geometry = { path = "../avenger-geometry" }
 async-trait = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
