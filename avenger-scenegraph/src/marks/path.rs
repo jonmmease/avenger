@@ -35,6 +35,8 @@ pub struct ScenePathMark {
     pub stroke_join: StrokeJoin,
     pub stroke_width: Option<f32>,
     pub path: ScalarOrArray<lyon_path::Path>,
+    #[serde(default)]
+    pub fill_rule: avenger_common::types::FillRule,
     pub fill: ScalarOrArray<ColorOrGradient>,
     #[serde(
         default = "default_no_fill_pattern",
@@ -62,6 +64,7 @@ impl std::hash::Hash for ScenePathMark {
             OrderedFloat(0.0).hash(state);
         }
         self.path.hash(state);
+        self.fill_rule.hash(state);
         self.fill.hash(state);
         hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
         self.stroke.hash(state);
@@ -81,6 +84,7 @@ impl PartialEq for ScenePathMark {
             || self.stroke_cap != other.stroke_cap
             || self.stroke_join != other.stroke_join
             || self.stroke_width != other.stroke_width
+            || self.fill_rule != other.fill_rule
             || self.fill != other.fill
             || self.fill_pattern != other.fill_pattern
             || self.stroke != other.stroke
@@ -191,6 +195,7 @@ impl Default for ScenePathMark {
             stroke_join: StrokeJoin::Miter,
             stroke_width: Some(0.0),
             path: ScalarOrArray::new_scalar(lyon_path::Path::default()),
+            fill_rule: Default::default(),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),

@@ -344,7 +344,7 @@ mod test_image_baselines {
 
     #[test]
     fn pattern_does_not_change_compound_host_fill() {
-        use avenger_common::types::PathTransform;
+        use avenger_common::types::{FillRule, PathTransform};
         let mut builder = LyonPath::builder();
         for (min, max) in [(10.0, 90.0), (30.0, 70.0)] {
             builder.begin(point(min, min));
@@ -354,6 +354,7 @@ mod test_image_baselines {
             builder.close();
         }
         let mark = ScenePathMark {
+            fill_rule: FillRule::EvenOdd,
             len: 2,
             path: builder.build().into(),
             transform: vec![
@@ -436,6 +437,7 @@ mod test_image_baselines {
                             v_phase: 50.0,
                         },
                         symbol: PatternSymbol {
+                            fill_rule: avenger_common::types::FillRule::EvenOdd,
                             shape: shape.into(),
                             size: 1600.0,
                             rotation: 0.0,
@@ -719,6 +721,89 @@ mod test_image_baselines {
     }
 
     #[test]
+    fn transparent_images_filter_before_compositing_and_survive_resource_replacement() {
+        use avenger_scenegraph::marks::warped_image::SceneWarpedImageMark;
+        for (tiles, warped, resize) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+        ] {
+            let pixels = |hidden: [u8; 3]| RgbaImage {
+                width: 2,
+                height: 2,
+                data: vec![
+                    255, 0, 0, 255, hidden[0], hidden[1], hidden[2], 0, 255, 0, 0, 255, hidden[0],
+                    hidden[1], hidden[2], 0,
+                ],
+            };
+            let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Ready(Arc::new(
+                pixels([0, 0, 255]),
+            ))));
+            let source = SceneImageSource::Resource(SceneImageResource {
+                key: "alpha-image".into(),
+                intrinsic_width: if resize { 4 } else { 2 },
+                intrinsic_height: if resize { 4 } else { 2 },
+                fallback_key: None,
+            });
+            let mark = if warped {
+                SceneWarpedImageMark {
+                    smooth: true,
+                    image: source,
+                    tile_texture_size: tiles.then_some(2),
+                    positions: vec![[0., 0.], [8., 0.], [8., 8.], [0., 8.]],
+                    uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                SceneImageMark {
+                    smooth: true,
+                    aspect: false,
+                    image: source.into(),
+                    width: 8.0.into(),
+                    height: 8.0.into(),
+                    tile_texture_size: tiles.then_some(2),
+                    ..Default::default()
+                }
+                .into()
+            };
+            let scene = SceneGraph {
+                width: 8.,
+                height: 8.,
+                origin: [0.; 2],
+                marks: vec![mark],
+            };
+            let mut canvas = resource_image_canvas(resolver.clone());
+            canvas.set_scene(&scene).unwrap();
+            let first = pollster::block_on(canvas.render()).unwrap();
+            let sample = first.get_pixel(4, 4).0;
+            assert_eq!(
+                sample[0], 255,
+                "tiles={tiles}, warped={warped}, resize={resize}: {sample:?}"
+            );
+            if !resize {
+                assert!(sample[1].abs_diff(159) <= 1 && sample[2].abs_diff(159) <= 1);
+            }
+            pollster::block_on(canvas.render()).unwrap();
+            if tiles {
+                assert_eq!(canvas.tile_upload_stats().0.layers_uploaded, 0);
+            }
+            resolver.set_state(ImageResourceState::Ready(Arc::new(pixels([0, 255, 0]))));
+            let second = pollster::block_on(canvas.render()).unwrap();
+            assert_eq!(
+                first, second,
+                "hidden transparent RGB must not change visible output"
+            );
+            if tiles {
+                assert_eq!(canvas.tile_upload_stats().0.layers_uploaded, 1);
+            }
+        }
+    }
+
+    #[test]
     fn image_smooth_false_uses_nearest_sampling() {
         let scene_graph = SceneGraph {
             width: 20.0,
@@ -913,7 +998,10 @@ mod test_image_baselines {
             height: 32.0,
             origin: [0.0, 0.0],
             marks: vec![SceneGroup {
-                clip: Clip::Path(rect_path(0.0, 0.0, 24.0, 24.0)),
+                clip: Clip::Path {
+                    path: rect_path(0.0, 0.0, 24.0, 24.0),
+                    fill_rule: Default::default(),
+                },
                 marks: vec![ScenePathMark {
                     path: ScalarOrArray::new_scalar(notched_host_path()),
                     fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),

@@ -294,6 +294,7 @@ fn pattern_symbols_preserve_holes_and_union_instances_before_operations() {
                     v_phase: 50.0,
                 },
                 symbol: PatternSymbol {
+                    fill_rule: avenger_common::types::FillRule::EvenOdd,
                     shape: shape.into(),
                     size: 1600.0,
                     rotation: 0.0,

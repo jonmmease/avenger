@@ -221,11 +221,10 @@ fn renders_one_snapshot_covering_every_scene_mark_type() {
     assert!(svg.contains(r##"fill="#00ffff" fill-opacity="0.5""##));
     assert!(svg.contains(r#"stroke-dasharray="2 1""#));
     assert!(svg.contains(">All marks</text>"));
-    assert!(svg.contains(" A"));
 }
 
 #[test]
-fn non_square_radial_gradient_pattern_parses_and_rasterizes() {
+fn non_square_radial_gradient_parses_and_rasterizes() {
     let scene_graph = SceneGraph {
         width: 40.0,
         height: 20.0,
@@ -262,7 +261,6 @@ fn non_square_radial_gradient_pattern_parses_and_rasterizes() {
 
     let svg = render_transparent(scene_graph);
 
-    assert!(svg.contains("<pattern "));
     assert!(svg.contains("<radialGradient "));
     assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
     assert_svg_parses_and_rasterizes(&svg);

@@ -1,7 +1,11 @@
 use std::hash::{DefaultHasher, Hasher};
 
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::{lyon::hash_lyon_path, types::PathTransform, value::ScalarOrArray};
+use avenger_common::{
+    lyon::hash_lyon_path,
+    types::{FillRule, PathTransform},
+    value::ScalarOrArray,
+};
 use lyon_path::{
     geom::{euclid::Point2D, Box2D},
     Winding,
@@ -25,7 +29,11 @@ pub enum Clip {
         width: f32,
         height: f32,
     },
-    Path(lyon_path::Path),
+    Path {
+        path: lyon_path::Path,
+        #[serde(default)]
+        fill_rule: FillRule,
+    },
 }
 
 impl std::hash::Hash for Clip {
@@ -46,7 +54,8 @@ impl std::hash::Hash for Clip {
                 ]
                 .hash(state);
             }
-            Clip::Path(path) => {
+            Clip::Path { path, fill_rule } => {
+                fill_rule.hash(state);
                 hash_lyon_path(path, state);
             }
         }
@@ -71,12 +80,21 @@ impl PartialEq for Clip {
                     height: h2,
                 },
             ) => x1 == x2 && y1 == y2 && w1 == w2 && h1 == h2,
-            (Self::Path(path1), Self::Path(path2)) => {
+            (
+                Self::Path {
+                    path: path1,
+                    fill_rule: rule1,
+                },
+                Self::Path {
+                    path: path2,
+                    fill_rule: rule2,
+                },
+            ) => {
                 let mut hasher_a = DefaultHasher::new();
                 let mut hasher_b = DefaultHasher::new();
                 hash_lyon_path(path1, &mut hasher_a);
                 hash_lyon_path(path2, &mut hasher_b);
-                hasher_a.finish() == hasher_b.finish()
+                rule1 == rule2 && hasher_a.finish() == hasher_b.finish()
             }
             _ => false,
         }
@@ -106,10 +124,12 @@ impl Clip {
                 width: *width,
                 height: *height,
             },
-            Clip::Path(path) => Clip::Path(
-                path.clone()
+            Clip::Path { path, fill_rule } => Clip::Path {
+                path: path
+                    .clone()
                     .transformed(&PathTransform::translation(translate_x, translate_y)),
-            ),
+                fill_rule: *fill_rule,
+            },
         }
     }
 }
@@ -195,13 +215,17 @@ impl SceneGroup {
                 );
                 builder.build()
             }
-            Clip::Path(path) => path.clone().transformed(&PathTransform::translation(
+            Clip::Path { path, .. } => path.clone().transformed(&PathTransform::translation(
                 self.origin[0] + stroke_offset,
                 self.origin[1] + stroke_offset,
             )),
         };
 
         Some(ScenePathMark {
+            fill_rule: match &self.clip {
+                Clip::Path { fill_rule, .. } => *fill_rule,
+                _ => FillRule::NonZero,
+            },
             name: format!("path_{}", self.name),
             interactive: self.interactive,
             clip: false,
