@@ -480,7 +480,7 @@ fn renders_warped_image_mark_as_embedded_raster() {
         origin: [0.0, 0.0],
         marks: vec![SceneWarpedImageMark {
             smooth: false,
-            image: SceneImageSource::Inline(RgbaImage {
+            image: SceneImageSource::inline(RgbaImage {
                 width: 2,
                 height: 2,
                 data: vec![
@@ -518,7 +518,7 @@ fn image_mark(image: RgbaImage, x: f32, smooth: bool) -> SceneImageMark {
         len: 1,
         aspect: false,
         smooth,
-        image: ScalarOrArray::new_scalar(SceneImageSource::Inline(image)),
+        image: ScalarOrArray::new_scalar(SceneImageSource::inline(image)),
         x: ScalarOrArray::new_scalar(x),
         y: ScalarOrArray::new_scalar(2.0),
         width: ScalarOrArray::new_scalar(10.0),
