@@ -115,7 +115,7 @@ impl VegaMarkContainer<VegaImageItem> {
             align: ScalarOrArray::new_array(align),
             baseline: ScalarOrArray::new_array(baseline),
             image: ScalarOrArray::new_array(
-                images.into_iter().map(SceneImageSource::Inline).collect(),
+                images.into_iter().map(SceneImageSource::inline).collect(),
             ),
             x: ScalarOrArray::new_array(x),
             y: ScalarOrArray::new_array(y),

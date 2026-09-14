@@ -95,7 +95,7 @@ fn resolve_image_source(
     };
 
     match resolver.image_state(&resource.key) {
-        ImageResourceState::Ready(image) => Ok(SceneImageSource::SharedInline(image)),
+        ImageResourceState::Ready(image) => Ok(SceneImageSource::inline(image)),
         ImageResourceState::Pending => Err(AvengerSceneGraphError::ImageResourcePending(
             resource.key.clone(),
         )),

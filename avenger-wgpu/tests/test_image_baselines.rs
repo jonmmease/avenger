@@ -728,7 +728,7 @@ mod test_image_baselines {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
+                image: ScalarOrArray::new_scalar(SceneImageSource::inline(RgbaImage {
                     width: 2,
                     height: 2,
                     data: vec![
@@ -775,7 +775,7 @@ mod test_image_baselines {
             origin: [0.0, 0.0],
             marks: vec![SceneWarpedImageMark {
                 smooth: false,
-                image: SceneImageSource::Inline(RgbaImage {
+                image: SceneImageSource::inline(RgbaImage {
                     width: 2,
                     height: 2,
                     data: vec![
@@ -1220,7 +1220,7 @@ mod test_image_baselines {
             len: 1,
             aspect: false,
             smooth: true,
-            image: ScalarOrArray::new_scalar(SceneImageSource::Inline(solid_image_with_size(
+            image: ScalarOrArray::new_scalar(SceneImageSource::inline(solid_image_with_size(
                 [220, 20, 20, 255],
                 4,
                 4,

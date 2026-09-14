@@ -18,31 +18,26 @@ use super::mark::{default_interactive, SceneMark};
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SceneImageSource {
-    Inline(RgbaImage),
-    SharedInline(Arc<RgbaImage>),
+    Inline(Arc<RgbaImage>),
     Resource(SceneImageResource),
 }
 
 impl SceneImageSource {
-    pub fn inline(image: RgbaImage) -> Self {
-        Self::Inline(image)
-    }
-
-    pub fn shared_inline(image: Arc<RgbaImage>) -> Self {
-        Self::SharedInline(image)
+    /// Store owned pixels or reuse an existing shared image.
+    pub fn inline(image: impl Into<Arc<RgbaImage>>) -> Self {
+        Self::Inline(image.into())
     }
 
     pub fn intrinsic_size(&self) -> [u32; 2] {
         match self {
             Self::Inline(image) => [image.width, image.height],
-            Self::SharedInline(image) => [image.width, image.height],
             Self::Resource(resource) => [resource.intrinsic_width, resource.intrinsic_height],
         }
     }
 
     pub fn resource_key(&self) -> Option<&ResourceKey> {
         match self {
-            Self::Inline(_) | Self::SharedInline(_) => None,
+            Self::Inline(_) => None,
             Self::Resource(resource) => Some(&resource.key),
         }
     }
@@ -50,7 +45,6 @@ impl SceneImageSource {
     pub fn inline_image(&self) -> Option<&RgbaImage> {
         match self {
             Self::Inline(image) => Some(image),
-            Self::SharedInline(image) => Some(image.as_ref()),
             Self::Resource(_) => None,
         }
     }
@@ -58,7 +52,7 @@ impl SceneImageSource {
 
 impl Default for SceneImageSource {
     fn default() -> Self {
-        Self::Inline(RgbaImage::default())
+        Self::inline(RgbaImage::default())
     }
 }
 
@@ -315,19 +309,17 @@ mod tests {
         let source = mark.image_source_iter().next().unwrap();
         assert!(matches!(source, SceneImageSource::Inline(_)));
         assert_eq!(source.intrinsic_size(), [1, 1]);
-    }
-
-    #[test]
-    fn old_inline_image_json_without_source_tag_deserializes_as_inline_source() {
-        let source: SceneImageSource = serde_json::from_value(json!({
-                    "width": 1,
-                    "height": 1,
-                    "data": [255, 0, 0, 255]
-        }))
-        .unwrap();
-
-        assert!(matches!(source, SceneImageSource::Inline(_)));
-        assert_eq!(source.intrinsic_size(), [1, 1]);
+        let json = serde_json::to_value(&mark).unwrap();
+        assert_eq!(
+            json["image"]["value"]["scalar"],
+            json!({
+                "width": 1, "height": 1, "data": [255, 0, 0, 255]
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<SceneImageMark>(json).unwrap(),
+            mark
+        );
     }
 
     #[test]
