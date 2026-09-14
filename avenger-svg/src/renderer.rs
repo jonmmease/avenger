@@ -2464,7 +2464,7 @@ mod tests {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
+                image: ScalarOrArray::new_scalar(SceneImageSource::inline(RgbaImage {
                     width: 1,
                     height: 1,
                     data: vec![255, 0, 0, 255],
