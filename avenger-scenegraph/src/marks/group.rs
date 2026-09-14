@@ -9,11 +9,7 @@ use lyon_path::{
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use crate::marks::{
-    mark::SceneMark,
-    path::ScenePathMark,
-    pattern::PatternReferenceFrame,
-};
+use crate::marks::{mark::SceneMark, path::ScenePathMark, pattern::PatternReferenceFrame};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
