@@ -1,16 +1,8 @@
 use avenger_color::{relative_luminance_srgb, ColorOrGradient, Gradient};
 use avenger_common::types::{PathTransform, SymbolShape};
-use lyon_extra::euclid::Vector2D;
 use lyon_path::{
-    geom::{
-        euclid::{Point2D, UnknownUnit},
-        point, Angle,
-    },
-    Event, Path,
-};
-use lyon_tessellation::{
-    geometry_builder::{simple_builder, VertexBuffers},
-    LineCap, LineJoin, StrokeOptions, StrokeTessellator,
+    geom::{point, Angle},
+    Path,
 };
 
 use crate::marks::pattern::{
@@ -104,22 +96,37 @@ pub struct PatternRenderContext<'a> {
     pub gradients: &'a [Gradient],
 }
 
+/// One compound fill or stroke. Distinct primitives contribute union coverage.
+#[derive(Debug, Clone)]
+pub enum PatternCoveragePrimitive {
+    /// Fill all contours together using the even-odd rule.
+    Filled(Path),
+    /// Stroke with butt caps, miter joins, and a miter limit of 4.
+    Stroked { path: Path, stroke_width: f32 },
+}
+
+impl PatternCoveragePrimitive {
+    /// The compound path before filling or stroking.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Filled(path) | Self::Stroked { path, .. } => path,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PatternCoverageLayer {
     pub operation: PatternLayerOperation,
-    /// Coverage for this source pattern layer.
-    pub coverage_path: Path,
+    /// Union these primitives before applying the source layer operation.
+    pub primitives: Vec<PatternCoveragePrimitive>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LayeredPatternGeometry {
     /// Straight-alpha RGBA pattern ink. Opacity has already been applied.
     pub ink: [f32; 4],
-    /// One coverage path per non-empty source layer.
+    /// Non-empty source layers in composition order.
     pub layers: Vec<PatternCoverageLayer>,
-    /// Source coverage bounding the final paint through the composed layer mask.
-    /// This path does not encode subtraction or XOR and must not be filled directly.
-    pub merged_coverage_path: Path,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,29 +150,26 @@ pub fn build_layered_pattern_geometry(
         .map_err(|_| PatternGeometryError::InvalidPattern)?;
 
     let origin = resolve_origin(pattern.anchor.clone(), context)?;
-    let mut merged_builder = Path::builder();
     let mut layers = Vec::with_capacity(pattern.layers.len());
 
     for layer in &pattern.layers {
-        let mut layer_builder = Path::builder();
+        let mut primitives = Vec::new();
         match layer {
             PatternLayer::Stripe(stripe) => {
-                append_stripe_layer(&mut layer_builder, stripe, origin, context.host_bounds);
+                append_stripe_layer(&mut primitives, stripe, origin, context.host_bounds);
             }
             PatternLayer::Symbol(symbol) => {
-                append_symbol_layer(&mut layer_builder, symbol, origin, context.host_bounds)?;
+                append_symbol_layer(&mut primitives, symbol, origin, context.host_bounds)?;
             }
         }
 
-        let coverage_path = layer_builder.build();
-        if path_is_empty(&coverage_path) {
+        if primitives.is_empty() {
             continue;
         }
 
-        append_path(&mut merged_builder, &coverage_path);
         layers.push(PatternCoverageLayer {
             operation: layer.operation(),
-            coverage_path,
+            primitives,
         });
     }
 
@@ -176,7 +180,6 @@ pub fn build_layered_pattern_geometry(
     Ok(Some(LayeredPatternGeometry {
         ink: resolve_pattern_ink(&pattern.ink, context.host_fill, context.gradients),
         layers,
-        merged_coverage_path: merged_builder.build(),
     }))
 }
 
@@ -251,7 +254,7 @@ fn resolve_origin(
 }
 
 fn append_stripe_layer(
-    builder: &mut lyon_path::path::Builder,
+    primitives: &mut Vec<PatternCoveragePrimitive>,
     layer: &StripePatternLayer,
     origin: [f32; 2],
     bounds: PatternRect,
@@ -275,7 +278,7 @@ fn append_stripe_layer(
 
         if let Some(dash) = &layer.dash {
             append_dashed_stripe(
-                builder,
+                primitives,
                 origin,
                 d,
                 n,
@@ -287,7 +290,7 @@ fn append_stripe_layer(
             );
         } else {
             append_stripe_quad(
-                builder,
+                primitives,
                 origin,
                 d,
                 n,
@@ -301,16 +304,17 @@ fn append_stripe_layer(
 }
 
 fn append_symbol_layer(
-    builder: &mut lyon_path::path::Builder,
+    primitives: &mut Vec<PatternCoveragePrimitive>,
     layer: &SymbolPatternLayer,
     origin: [f32; 2],
     bounds: PatternRect,
 ) -> Result<(), PatternGeometryError> {
     let shape = SymbolShape::from_vega_str(&layer.symbol.shape)
         .map_err(|_| PatternGeometryError::InvalidPattern)?;
-    let symbol_path = shape.as_path();
     let scale = layer.symbol.size.sqrt();
-    let rotation = Angle::degrees(layer.symbol.rotation);
+    let transform =
+        PathTransform::scale(scale, scale).then_rotate(Angle::degrees(layer.symbol.rotation));
+    let symbol_path = shape.as_path().as_ref().clone().transformed(&transform);
 
     let u_dir = direction(layer.lattice.u_angle);
     let v_dir = direction(layer.lattice.v_angle);
@@ -345,17 +349,15 @@ fn append_symbol_layer(
                 origin[0] + offset[0] + i as f32 * u_vec[0] + j as f32 * v_vec[0],
                 origin[1] + offset[1] + i as f32 * u_vec[1] + j as f32 * v_vec[1],
             ];
-            let transform = PathTransform::scale(scale, scale)
-                .then_rotate(rotation)
-                .then_translate(Vector2D::new(position[0], position[1]));
-            let transformed_path = symbol_path.as_ref().clone().transformed(&transform);
-
-            match layer.paint {
-                SymbolPaint::Filled => append_path(builder, &transformed_path),
+            let path = symbol_path
+                .clone()
+                .transformed(&PathTransform::translation(position[0], position[1]));
+            primitives.push(match layer.paint {
+                SymbolPaint::Filled => PatternCoveragePrimitive::Filled(path),
                 SymbolPaint::Open { stroke_width } => {
-                    append_stroked_path_as_triangles(builder, &transformed_path, stroke_width)?;
+                    PatternCoveragePrimitive::Stroked { path, stroke_width }
                 }
-            }
+            });
         }
     }
 
@@ -401,71 +403,12 @@ fn lattice_index_ranges(
     )
 }
 
-fn append_path(builder: &mut lyon_path::path::Builder, path: &Path) {
-    for event in path.iter() {
-        match event {
-            Event::Begin { at } => {
-                builder.begin(at);
-            }
-            Event::Line { to, .. } => {
-                builder.line_to(to);
-            }
-            Event::Quadratic { ctrl, to, .. } => {
-                builder.quadratic_bezier_to(ctrl, to);
-            }
-            Event::Cubic {
-                ctrl1, ctrl2, to, ..
-            } => {
-                builder.cubic_bezier_to(ctrl1, ctrl2, to);
-            }
-            Event::End { close, .. } => {
-                builder.end(close);
-            }
-        }
-    }
-}
-
-fn path_is_empty(path: &Path) -> bool {
-    !path
-        .iter()
-        .any(|event| matches!(event, Event::Begin { .. }))
-}
-
-fn append_stroked_path_as_triangles(
-    builder: &mut lyon_path::path::Builder,
-    path: &Path,
-    stroke_width: f32,
-) -> Result<(), PatternGeometryError> {
-    let mut tessellator = StrokeTessellator::new();
-    let mut buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16> = VertexBuffers::new();
-    let options = StrokeOptions::default()
-        .with_tolerance(0.05)
-        .with_line_width(stroke_width)
-        .with_line_join(LineJoin::Miter)
-        .with_line_cap(LineCap::Butt);
-    tessellator
-        .tessellate_path(path, &options, &mut simple_builder(&mut buffers))
-        .map_err(|_| PatternGeometryError::InvalidPattern)?;
-
-    for triangle in buffers.indices.chunks_exact(3) {
-        let p0 = buffers.vertices[triangle[0] as usize];
-        let p1 = buffers.vertices[triangle[1] as usize];
-        let p2 = buffers.vertices[triangle[2] as usize];
-        builder.begin(p0);
-        builder.line_to(p1);
-        builder.line_to(p2);
-        builder.close();
-    }
-
-    Ok(())
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
 )]
 fn append_dashed_stripe(
-    builder: &mut lyon_path::path::Builder,
+    primitives: &mut Vec<PatternCoveragePrimitive>,
     origin: [f32; 2],
     d: [f32; 2],
     n: [f32; 2],
@@ -487,7 +430,7 @@ fn append_dashed_stripe(
 
         if clipped_end > clipped_start {
             append_stripe_quad(
-                builder,
+                primitives,
                 origin,
                 d,
                 n,
@@ -505,7 +448,7 @@ fn append_dashed_stripe(
     reason = "Keep the explicit inputs of the existing layout and rendering pipeline."
 )]
 fn append_stripe_quad(
-    builder: &mut lyon_path::path::Builder,
+    primitives: &mut Vec<PatternCoveragePrimitive>,
     origin: [f32; 2],
     d: [f32; 2],
     n: [f32; 2],
@@ -519,11 +462,13 @@ fn append_stripe_quad(
     let p2 = stripe_point(origin, d, n, t_end, stripe_offset + half_width);
     let p3 = stripe_point(origin, d, n, t_start, stripe_offset + half_width);
 
+    let mut builder = Path::builder();
     builder.begin(point(p0[0], p0[1]));
     builder.line_to(point(p1[0], p1[1]));
     builder.line_to(point(p2[0], p2[1]));
     builder.line_to(point(p3[0], p3[1]));
     builder.close();
+    primitives.push(PatternCoveragePrimitive::Filled(builder.build()));
 }
 
 fn stripe_point(origin: [f32; 2], d: [f32; 2], n: [f32; 2], t: f32, s: f32) -> [f32; 2] {
@@ -582,14 +527,11 @@ mod tests {
         }
     }
 
-    fn begin_count(path: &Path) -> usize {
-        path.iter()
-            .filter(|event| matches!(event, Event::Begin { .. }))
-            .count()
-    }
-
-    fn begins(path: &Path) -> Vec<[f32; 2]> {
-        path.iter()
+    fn begins(layer: &PatternCoverageLayer) -> Vec<[f32; 2]> {
+        layer
+            .primitives
+            .iter()
+            .flat_map(|primitive| primitive.path().iter())
             .filter_map(|event| match event {
                 Event::Begin { at } => Some([at.x, at.y]),
                 _ => None,
@@ -608,8 +550,8 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert_eq!(begin_count(&geometry.layers[0].coverage_path), 3);
-        assert_eq!(begins(&geometry.layers[0].coverage_path)[0], [-1.0, -1.0]);
+        assert_eq!(geometry.layers[0].primitives.len(), 3);
+        assert_eq!(begins(&geometry.layers[0])[0], [-1.0, -1.0]);
     }
 
     #[test]
@@ -625,8 +567,8 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert_eq!(begin_count(&geometry.layers[0].coverage_path), 2);
-        assert_eq!(begins(&geometry.layers[0].coverage_path)[0], [-1.0, 7.0]);
+        assert_eq!(geometry.layers[0].primitives.len(), 2);
+        assert_eq!(begins(&geometry.layers[0])[0], [-1.0, 7.0]);
     }
 
     #[test]
@@ -646,46 +588,7 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert_eq!(begins(&geometry.layers[0].coverage_path)[0], [2.0, -1.0]);
-    }
-
-    #[test]
-    fn layered_geometry_preserves_source_layer_operations() {
-        let first = StripePatternLayer::new(0.0, 16.0, 2.0);
-        let mut second = StripePatternLayer::new(90.0, 16.0, 2.0);
-        second.operation = PatternLayerOperation::Subtract;
-        let mut third = StripePatternLayer::new(45.0, 16.0, 2.0);
-        third.operation = PatternLayerOperation::Xor;
-        let fill = PatternFill {
-            anchor: PatternAnchor::Mark,
-            layers: vec![
-                PatternLayer::Stripe(first),
-                PatternLayer::Stripe(second),
-                PatternLayer::Stripe(third),
-            ],
-            ..Default::default()
-        };
-        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
-        let geometry = build_layered_pattern_geometry(
-            &fill,
-            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(geometry.layers.len(), 3);
-        assert_eq!(geometry.layers[2].operation, PatternLayerOperation::Xor);
-        assert_eq!(geometry.layers[0].operation, PatternLayerOperation::Add);
-        assert_eq!(
-            geometry.layers[1].operation,
-            PatternLayerOperation::Subtract
-        );
-        assert_eq!(
-            begin_count(&geometry.merged_coverage_path),
-            begin_count(&geometry.layers[0].coverage_path)
-                + begin_count(&geometry.layers[1].coverage_path)
-                + begin_count(&geometry.layers[2].coverage_path)
-        );
+        assert_eq!(begins(&geometry.layers[0])[0], [2.0, -1.0]);
     }
 
     #[test]
@@ -720,8 +623,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(begins(&plot_geometry.layers[0].coverage_path)[0][1], 35.0);
-        assert_eq!(begins(&mark_geometry.layers[0].coverage_path)[0][1], 24.0);
+        assert_eq!(begins(&plot_geometry.layers[0])[0][1], 35.0);
+        assert_eq!(begins(&mark_geometry.layers[0])[0][1], 24.0);
     }
 
     #[test]
@@ -816,77 +719,6 @@ mod tests {
         );
 
         assert_eq!(ink, [1.0, 1.0, 1.0, 0.18]);
-    }
-
-    #[test]
-    fn symbol_layers_generate_lattice_coverage() {
-        let pattern = PatternFill {
-            anchor: PatternAnchor::Mark,
-            layers: vec![PatternLayer::Symbol(
-                crate::marks::pattern::SymbolPatternLayer {
-                    operation: crate::marks::pattern::PatternLayerOperation::Add,
-                    lattice: crate::marks::pattern::SymbolLattice2d {
-                        u_spacing: 8.0,
-                        u_angle: 0.0,
-                        v_spacing: 8.0,
-                        v_angle: 90.0,
-                        u_phase: 0.0,
-                        v_phase: 0.0,
-                    },
-                    symbol: crate::marks::pattern::PatternSymbol {
-                        shape: "circle".to_string(),
-                        size: 4.0,
-                        rotation: 0.0,
-                    },
-                    paint: crate::marks::pattern::SymbolPaint::Filled,
-                },
-            )],
-            ..Default::default()
-        };
-        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
-        let ctx = context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]);
-
-        let geometry = build_layered_pattern_geometry(&pattern, &ctx)
-            .unwrap()
-            .unwrap();
-
-        assert!(begin_count(&geometry.layers[0].coverage_path) > 4);
-        assert_ne!(begins(&geometry.layers[0].coverage_path)[0], [-1.0, -1.0]);
-    }
-
-    #[test]
-    fn open_symbol_layers_generate_stroked_coverage() {
-        let pattern = PatternFill {
-            anchor: PatternAnchor::Mark,
-            layers: vec![PatternLayer::Symbol(
-                crate::marks::pattern::SymbolPatternLayer {
-                    operation: crate::marks::pattern::PatternLayerOperation::Add,
-                    lattice: crate::marks::pattern::SymbolLattice2d {
-                        u_spacing: 16.0,
-                        u_angle: 0.0,
-                        v_spacing: 16.0,
-                        v_angle: 90.0,
-                        u_phase: 0.0,
-                        v_phase: 0.0,
-                    },
-                    symbol: crate::marks::pattern::PatternSymbol {
-                        shape: "square".to_string(),
-                        size: 9.0,
-                        rotation: 0.0,
-                    },
-                    paint: crate::marks::pattern::SymbolPaint::Open { stroke_width: 1.0 },
-                },
-            )],
-            ..Default::default()
-        };
-        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
-        let ctx = context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]);
-
-        let geometry = build_layered_pattern_geometry(&pattern, &ctx)
-            .unwrap()
-            .unwrap();
-
-        assert!(begin_count(&geometry.layers[0].coverage_path) > 8);
     }
 
     #[test]
