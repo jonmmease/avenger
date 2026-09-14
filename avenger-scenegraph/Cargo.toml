@@ -54,6 +54,7 @@ default-features = false
 features = ["serde"]
 
 [dev-dependencies]
+serde_json = { workspace = true }
 float-cmp = "0.10.0"
 geo = { workspace = true }
 geo-svg = { workspace = true }
