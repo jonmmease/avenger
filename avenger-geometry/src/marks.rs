@@ -1,5 +1,6 @@
 use crate::lyon_utils::IntoGeoType;
 use crate::GeometryInstance;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::image::SceneImageMark;
@@ -69,8 +70,7 @@ impl MarkGeometryUtils for SceneArcMark {
                 self.transformed_path_iter(origin),
                 self.stroke_width_iter()
             )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
+            .map(move |(id, path, stroke_width)| {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
@@ -79,7 +79,8 @@ impl MarkGeometryUtils for SceneArcMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    z_index,
+                    interactive: self.interactive,
+                    anchor: Some(mark_position(&self.x, &self.y, id, origin)),
                     geometry,
                     half_stroke_width,
                 }
@@ -103,7 +104,8 @@ impl MarkGeometryUtils for SceneAreaMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
+            anchor: None,
             geometry: path.as_geo_type(half_stroke_width, true),
             half_stroke_width,
         }))
@@ -118,9 +120,8 @@ impl MarkGeometryUtils for SceneImageMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter(origin))
-                .enumerate()
-                .map(move |(z_index, (id, path))| {
+            izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
+                move |(id, path)| {
                     let half_stroke_width = 0.0;
 
                     let bbox = bounding_box(&path);
@@ -135,11 +136,13 @@ impl MarkGeometryUtils for SceneImageMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
+                        anchor: Some(mark_position(&self.x, &self.y, id, origin)),
                         geometry,
                         half_stroke_width,
                     }
-                }),
+                },
+            ),
         )
     }
 }
@@ -159,7 +162,8 @@ impl MarkGeometryUtils for SceneLineMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
+            anchor: None,
             geometry: path.as_geo_type(half_stroke_width, false),
             half_stroke_width,
         }))
@@ -175,9 +179,8 @@ impl MarkGeometryUtils for ScenePathMark {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         let name = self.name.clone();
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter(origin))
-                .enumerate()
-                .map(move |(z_index, (id, path))| {
+            izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
+                move |(id, path)| {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_instance: MarkInstance {
@@ -185,11 +188,16 @@ impl MarkGeometryUtils for ScenePathMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
+                        anchor: Some([
+                            channel_value(&self.transform, id).m31 + origin[0],
+                            channel_value(&self.transform, id).m32 + origin[1],
+                        ]),
                         geometry,
                         half_stroke_width,
                     }
-                }),
+                },
+            ),
         )
     }
 }
@@ -212,8 +220,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     self.y2_iter(),
                     self.stroke_width_iter()
                 )
-                .enumerate()
-                .map(move |(z_index, (id, x, y, x2, y2, stroke_width))| {
+                .map(move |(id, x, y, x2, y2, stroke_width)| {
                     // Create rect geometry
                     let x0 = f32::min(*x, x2) + origin[0];
                     let x1 = f32::max(*x, x2) + origin[0];
@@ -230,7 +237,8 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
+                        anchor: Some(mark_position(&self.x, &self.y, id, origin)),
                         geometry,
                         half_stroke_width: *stroke_width / 2.0,
                     }
@@ -244,8 +252,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     self.transformed_path_iter(origin),
                     self.stroke_width_iter()
                 )
-                .enumerate()
-                .map(move |(z_index, (id, path, stroke_width))| {
+                .map(move |(id, path, stroke_width)| {
                     let half_stroke_width = stroke_width / 2.0;
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
@@ -254,7 +261,8 @@ impl MarkGeometryUtils for SceneRectMark {
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
-                        z_index,
+                        interactive: self.interactive,
+                        anchor: Some(mark_position(&self.x, &self.y, id, origin)),
                         geometry,
                         half_stroke_width,
                     }
@@ -277,8 +285,7 @@ impl MarkGeometryUtils for SceneRuleMark {
                 self.transformed_path_iter(origin),
                 self.stroke_width_iter(),
             )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
+            .map(move |(id, path, stroke_width)| {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(0.1, false);
                 GeometryInstance {
@@ -287,7 +294,8 @@ impl MarkGeometryUtils for SceneRuleMark {
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
-                    z_index,
+                    interactive: self.interactive,
+                    anchor: Some(mark_position(&self.x, &self.y, id, origin)),
                     geometry,
                     half_stroke_width,
                 }
@@ -318,27 +326,25 @@ impl MarkGeometryUtils for SceneSymbolMark {
                 self.angle_iter(),
                 self.shape_index_iter()
             )
-            .enumerate()
-            .map(
-                move |(z_index, (instance_idx, x, y, size, angle, shape_idx))| {
-                    let geometry = symbol_geometries[*shape_idx]
-                        .clone()
-                        .scale(size.sqrt())
-                        .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
-                        .translate(x + origin[0], y + origin[1]);
+            .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
+                let geometry = symbol_geometries[*shape_idx]
+                    .clone()
+                    .scale(size.sqrt())
+                    .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
+                    .translate(x + origin[0], y + origin[1]);
 
-                    GeometryInstance {
-                        mark_instance: MarkInstance {
-                            name: name.clone(),
-                            mark_path: mark_path.clone(),
-                            instance_index: Some(instance_idx),
-                        },
-                        z_index,
-                        geometry,
-                        half_stroke_width,
-                    }
-                },
-            ),
+                GeometryInstance {
+                    mark_instance: MarkInstance {
+                        name: name.clone(),
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(instance_idx),
+                    },
+                    interactive: self.interactive,
+                    anchor: Some([x + origin[0], y + origin[1]]),
+                    geometry,
+                    half_stroke_width,
+                }
+            }),
         )
     }
 }
@@ -357,7 +363,8 @@ impl MarkGeometryUtils for SceneTrailMark {
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
-            z_index: 0,
+            interactive: self.interactive,
+            anchor: None,
             geometry,
             half_stroke_width: 0.0,
         }))
@@ -384,31 +391,28 @@ impl MarkGeometryUtils for SceneTextMark {
         let name = self.name.clone();
         let mut instances = Vec::new();
         for (
-            z_index,
-            (
-                id,
-                text,
-                target,
-                label,
-                defined,
-                angle,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                align,
-                baseline,
-                limit,
-                leader,
-                leader_stroke_width,
-                leader_label_padding,
-                leader_target_radius,
-                leader_min_length,
-                leader_shape,
-                leader_arrow,
-                leader_arrow_length,
-                leader_arrow_width,
-            ),
+            id,
+            text,
+            target,
+            label,
+            defined,
+            angle,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+            align,
+            baseline,
+            limit,
+            leader,
+            leader_stroke_width,
+            leader_label_padding,
+            leader_target_radius,
+            leader_min_length,
+            leader_shape,
+            leader_arrow,
+            leader_arrow_length,
+            leader_arrow_width,
         ) in izip!(
             self.indices_iter(),
             self.text_iter(),
@@ -432,9 +436,7 @@ impl MarkGeometryUtils for SceneTextMark {
             self.leader_arrow_iter(),
             self.leader_arrow_length_iter(),
             self.leader_arrow_width_iter()
-        )
-        .enumerate()
-        {
+        ) {
             if !*defined {
                 continue;
             }
@@ -500,7 +502,8 @@ impl MarkGeometryUtils for SceneTextMark {
                     mark_path: mark_path.clone(),
                     instance_index: Some(id),
                 },
-                z_index,
+                interactive: self.interactive,
+                anchor: Some(label),
                 geometry,
                 half_stroke_width,
             });
@@ -695,4 +698,23 @@ impl MarkGeometryUtils for SceneMark {
             }
         }
     }
+}
+
+fn channel_value<T: Sync + Clone>(channel: &ScalarOrArray<T>, index: usize) -> &T {
+    match channel.value() {
+        ScalarOrArrayValue::Scalar(value) => value,
+        ScalarOrArrayValue::Array(values) => &values[index],
+    }
+}
+
+fn mark_position(
+    x: &ScalarOrArray<f32>,
+    y: &ScalarOrArray<f32>,
+    index: usize,
+    origin: [f32; 2],
+) -> [f32; 2] {
+    [
+        channel_value(x, index) + origin[0],
+        channel_value(y, index) + origin[1],
+    ]
 }

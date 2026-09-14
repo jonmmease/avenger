@@ -1,3 +1,4 @@
+use crate::marks::mark::default_interactive;
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
@@ -12,6 +13,8 @@ use super::mark::SceneMark;
 #[serde(rename_all = "kebab-case")]
 pub struct SceneAreaMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub orientation: AreaOrientation,
@@ -33,6 +36,7 @@ pub struct SceneAreaMark {
 impl std::hash::Hash for SceneAreaMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.orientation.hash(state);
@@ -146,6 +150,7 @@ impl SceneAreaMark {
 impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
+            interactive: true,
             name: "area_mark".to_string(),
             clip: true,
             len: 1,
