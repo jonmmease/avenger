@@ -7,4 +7,3 @@ license = "BSD-3-Clause"
 
 [dependencies]
 serde = { workspace = true }
-thiserror = { workspace = true }

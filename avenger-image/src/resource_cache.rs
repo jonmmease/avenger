@@ -11,8 +11,6 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-#[cfg(not(target_arch = "wasm32"))]
-use avenger_resource::PrefetchRetargetPlanner;
 use avenger_resource::{
     RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSink, ResourceKey,
     ResourceRequest, ResourceRequestPurpose, ResourceSource,
@@ -228,25 +226,15 @@ impl ImageResourceCache {
             .get_or_init(|| {
                 let execute_inner = self.inner.clone();
                 let execute_fetcher = self.fetcher.clone();
-                let cancel_inner = self.inner.clone();
-                let begin_inner = self.inner.clone();
-                crate::scheduler::FetchScheduler::new(crate::scheduler::SchedulerHooks {
-                    execute: Box::new(move |request, request_id| {
-                        let key = request.key.clone();
-                        let fetcher = execute_fetcher.clone().or_else(shared_default_fetcher);
-                        let state = match load_resource_image(&request, fetcher) {
-                            Ok(image) => CachedImageState::Ready(Arc::new(image)),
-                            Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
-                        };
-                        finish_image_load(execute_inner.clone(), key, request_id, state);
-                    }),
-                    cancel_pending: Box::new(move |key, request_id| {
-                        cancel_pending_entry(&cancel_inner, key, request_id);
-                    }),
-                    begin_request: Box::new(move |request| {
-                        try_begin_request(&begin_inner, request)
-                    }),
-                })
+                crate::scheduler::FetchScheduler::new(Box::new(move |request, request_id| {
+                    let key = request.key.clone();
+                    let fetcher = execute_fetcher.clone().or_else(shared_default_fetcher);
+                    let state = match load_resource_image(&request, fetcher) {
+                        Ok(image) => CachedImageState::Ready(Arc::new(image)),
+                        Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
+                    };
+                    finish_image_load(execute_inner.clone(), key, request_id, state);
+                }))
             })
             .clone()
     }
@@ -466,7 +454,7 @@ impl ImageResourceResolver for ImageResourceCache {
                         .pending
                         .contains_key(&request.key);
                     if is_pending {
-                        self.scheduler().promote_to_required(&request.key);
+                        self.scheduler().promote_to_required(request);
                     }
                 }
                 #[cfg(target_arch = "wasm32")]
@@ -484,21 +472,6 @@ impl ImageResourceResolver for ImageResourceCache {
             .lock()
             .expect("image resource cache lock poisoned")
             .generation
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn update_focus(&self, cursor_canvas_px: [f32; 2]) {
-        self.scheduler().update_focus(cursor_canvas_px);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn set_gesture_active(&self, active: bool) {
-        self.scheduler().set_gesture_active(active);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn install_retarget_planners(&self, planners: Vec<Arc<dyn PrefetchRetargetPlanner>>) {
-        self.scheduler().install_retarget_planners(planners);
     }
 }
 
@@ -586,32 +559,6 @@ fn try_begin_request(
         request_image_render_invalidation(sink);
     }
     Some(id)
-}
-
-/// Cancel only the matching speculative request. Restore its previous image
-/// and notify rendering if cancellation makes hidden stale pixels visible again.
-#[cfg(not(target_arch = "wasm32"))]
-fn cancel_pending_entry(
-    inner: &Arc<Mutex<ImageResourceCacheInner>>,
-    key: &ResourceKey,
-    request_id: u64,
-) {
-    let mut inner = inner.lock().expect("image resource cache lock poisoned");
-    if inner.pending.get(key).is_some_and(|pending| {
-        pending.id == request_id && pending.purpose == ResourceRequestPurpose::Prefetch
-    }) {
-        let pending = inner.pending.remove(key).expect("pending entry exists");
-        let restores_visible_image = !pending.allow_stale && pending.stale.is_some();
-        if let Some(stale) = pending.stale {
-            inner.put_completed(key.clone(), stale);
-        }
-        inner.generation = inner.generation.wrapping_add(1);
-        let sink = inner.render_invalidation_sink.clone();
-        drop(inner);
-        if restores_visible_image {
-            request_image_render_invalidation(sink);
-        }
-    }
 }
 
 /// One process-wide default fetcher so concurrent tile fetches share a
@@ -731,15 +678,12 @@ fn next_wasm_image_load(
 
 #[cfg(target_arch = "wasm32")]
 fn wasm_image_load_beats(candidate: &WasmQueuedImageLoad, current: &WasmQueuedImageLoad) -> bool {
-    let candidate_required = candidate.request.purpose == ResourceRequestPurpose::Required;
-    let current_required = current.request.purpose == ResourceRequestPurpose::Required;
-    if candidate_required != current_required {
-        return candidate_required;
-    }
-    if candidate.request.priority != current.request.priority {
-        return candidate.request.priority > current.request.priority;
-    }
-    candidate.request_id < current.request_id
+    crate::image_request_precedes(
+        &candidate.request,
+        candidate.request_id,
+        &current.request,
+        current.request_id,
+    )
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -867,8 +811,6 @@ mod tests {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
-            screen_center: None,
-            prefetch_scope: None,
         }
     }
 
@@ -1111,41 +1053,6 @@ mod tests {
         );
         request.cache_policy.max_age_seconds = Some(3600);
         assert!(try_begin_request(&cache.inner, &request).is_none());
-    }
-
-    #[test]
-    fn cancelled_strict_refresh_restores_the_retained_image() {
-        let hub = RenderInvalidationHub::default();
-        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
-        let mut request = data_request("image");
-        request.purpose = ResourceRequestPurpose::Prefetch;
-        let _lease = cache.retain_images(std::slice::from_ref(&request.key));
-        let id = try_begin_request(&cache.inner, &request).unwrap();
-        finish_image_load(cache.inner.clone(), request.key.clone(), id, ready_state(1));
-        request.cache_policy.max_age_seconds = Some(0);
-        request.cache_policy.allow_stale = false;
-        let refresh = try_begin_request(&cache.inner, &request).unwrap();
-        assert!(matches!(
-            cache.image_state(&request.key),
-            ImageResourceState::Pending
-        ));
-        let generation = cache.generation();
-        let before = hub.epoch();
-        cancel_pending_entry(&cache.inner, &request.key, refresh);
-        assert!(cache.generation() > generation);
-        assert!(hub.epoch() > before);
-        assert!(
-            matches!(cache.image_state(&request.key), ImageResourceState::Ready(image) if image.data[0] == 1)
-        );
-        finish_image_load(
-            cache.inner.clone(),
-            request.key.clone(),
-            refresh,
-            ready_state(2),
-        );
-        assert!(
-            matches!(cache.image_state(&request.key), ImageResourceState::Ready(image) if image.data[0] == 1)
-        );
     }
 
     #[test]
@@ -1409,8 +1316,6 @@ mod tests {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
-            screen_center: None,
-            prefetch_scope: None,
         };
 
         let _loaded = load_image_resource_requests_blocking(
@@ -1435,8 +1340,6 @@ mod tests {
             priority: -1.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Prefetch,
-            screen_center: None,
-            prefetch_scope: None,
         };
 
         let _loaded = load_image_resource_requests_blocking(

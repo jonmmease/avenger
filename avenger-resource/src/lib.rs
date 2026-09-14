@@ -88,19 +88,6 @@ pub enum ResourceRequestPurpose {
     Prefetch,
 }
 
-/// Identifies a retargetable prefetch working set (e.g. one tile layer in
-/// one geo viewport: `"geo/{viewport_id}/{layer_id}"`). Prefetch requests
-/// carrying the same scope form one atomically-replaceable set.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PrefetchScope(pub String);
-
-impl PrefetchScope {
-    pub fn new(scope: impl Into<String>) -> Self {
-        Self(scope.into())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ResourceRequest {
@@ -113,20 +100,10 @@ pub struct ResourceRequest {
     pub cache_policy: ResourceCachePolicy,
     #[serde(default)]
     pub purpose: ResourceRequestPurpose,
-    /// Projected pixel center of the resource at plan time, in CANVAS
-    /// coordinates (the same frame as pointer events), when known. Lets
-    /// schedulers order fetches by distance to a focus point.
-    #[serde(default)]
-    pub screen_center: Option<[f32; 2]>,
-    /// The retargetable prefetch set this request belongs to, if any.
-    /// Only meaningful for `Prefetch`-purpose requests.
-    #[serde(default)]
-    pub prefetch_scope: Option<PrefetchScope>,
 }
 
 impl ResourceRequest {
-    /// A `Required`-purpose request with default priority, cache policy,
-    /// and no scheduling metadata.
+    /// A required request with default priority and cache policy.
     pub fn new(key: ResourceKey, kind: ResourceKind, source: ResourceSource) -> Self {
         Self {
             key,
@@ -135,29 +112,6 @@ impl ResourceRequest {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
-            screen_center: None,
-            prefetch_scope: None,
         }
     }
-}
-
-/// Recomputes a prefetch working set for a cursor position, published per
-/// evaluation by coordinate-system guides and consumed by fetch schedulers
-/// when the hover cursor comes to rest.
-pub trait PrefetchRetargetPlanner: Send + Sync {
-    /// The scope whose queued prefetch entries this planner replaces.
-    fn scope(&self) -> &PrefetchScope;
-
-    /// Recompute the prefetch working set for a cursor position in canvas
-    /// pixels. Returns `None` when the cursor is outside this planner's
-    /// plot rect, meaning: leave the current set alone.
-    fn plan(&self, cursor_canvas_px: [f32; 2]) -> Option<Vec<ResourceRequest>>;
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ResourceError {
-    #[error("resource not found: {0:?}")]
-    NotFound(ResourceKey),
-    #[error("resource failed: {0}")]
-    Failed(String),
 }
