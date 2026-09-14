@@ -1,4 +1,5 @@
 use super::mark::SceneMark;
+use crate::marks::mark::default_interactive;
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::lyon::hash_lyon_path;
 use avenger_common::types::{PathTransform, StrokeCap, StrokeJoin};
@@ -15,6 +16,8 @@ use std::sync::Arc;
 #[serde(rename_all = "kebab-case")]
 pub struct ScenePathMark {
     pub name: String,
+    #[serde(default = "default_interactive")]
+    pub interactive: bool,
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
@@ -32,6 +35,7 @@ pub struct ScenePathMark {
 impl std::hash::Hash for ScenePathMark {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+        self.interactive.hash(state);
         self.clip.hash(state);
         self.len.hash(state);
         self.gradients.hash(state);
@@ -54,6 +58,7 @@ impl std::hash::Hash for ScenePathMark {
 impl PartialEq for ScenePathMark {
     fn eq(&self, other: &Self) -> bool {
         if self.name != other.name
+            || self.interactive != other.interactive
             || self.clip != other.clip
             || self.len != other.len
             || self.gradients != other.gradients
@@ -155,6 +160,7 @@ impl ScenePathMark {
 impl Default for ScenePathMark {
     fn default() -> Self {
         Self {
+            interactive: true,
             name: "rule_mark".to_string(),
             clip: true,
             len: 1,

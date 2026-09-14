@@ -43,3 +43,11 @@ cargo run --release -p avenger-wgpu --example annotation_leaders -- docs/images/
 ```
 
 ![Curved annotation leader](images/annotation-leaders.png)
+
+## Geometric selections
+
+`SceneGraphRTree::query_shape` accepts rectangle, circle, and polygon regions. Policies test envelopes, geometry intersection, complete geometry containment, mark anchors, or geometric centroids. Intersection and containment account for stroke width using the same distance model as point picking. Region boundaries are included.
+
+`AnchorInside` uses each instance's explicit placement point, including group translations and text label offsets. Whole line, area, and trail marks have no single anchor and do not match this policy. An arc center or a path origin can lie outside its geometry, so anchor queries inspect all instances.
+
+Rendering and picking use `SceneDisplayList` for root marks, inherited z-index, and document order. Set `interactive` to `false` to exclude a mark from scene picking while retaining its rendering and layout bounds. Query results use scene-path and instance-index order.
