@@ -37,7 +37,7 @@ pub fn make_colorbar_marks(
             // Create a new scale with desired range for the axis
             let axis_scale = scale
                 .clone()
-                .with_range_interval((config.dimensions[1], 0.0));
+                .with_range_interval((f64::from(config.dimensions[1]), 0.0));
             let axis = make_continuous_axis_marks(&axis_scale, title, origin, &axis_config)?;
 
             // Create a gradient for the colorbar rect

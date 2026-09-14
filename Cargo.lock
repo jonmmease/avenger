@@ -640,7 +640,6 @@ dependencies = [
  "avenger-image",
  "chrono",
  "chrono-tz",
- "css-color-parser",
  "float-cmp 0.10.0",
  "indexmap",
  "lazy_static 1.5.0",

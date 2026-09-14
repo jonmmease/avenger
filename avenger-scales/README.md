@@ -24,14 +24,14 @@ avenger-scales = "0.1.0"
 
 ```rust
 use avenger_scales::scales::linear::LinearScale;
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, Float64Array};
 use std::sync::Arc;
 
 // Create a linear scale mapping [0, 100] → [0, 500]
 let scale = LinearScale::new((0.0, 100.0), (0.0, 500.0));
 
 // Scale some values
-let input = Arc::new(Float32Array::from(vec![0.0, 25.0, 50.0, 75.0, 100.0])) as ArrayRef;
+let input = Arc::new(Float64Array::from(vec![0.0, 25.0, 50.0, 75.0, 100.0])) as ArrayRef;
 let output = scale.scale_to_numeric(&input).unwrap();
 
 // Results: [0.0, 125.0, 250.0, 375.0, 500.0]
@@ -42,7 +42,7 @@ let output = scale.scale_to_numeric(&input).unwrap();
 ```rust
 use avenger_scales::scales::log::LogScale;
 use avenger_scales::scalar::Scalar;
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, Float32Array, Float64Array};
 use std::sync::Arc;
 
 // Create color range: Red → Yellow → Blue
@@ -61,7 +61,7 @@ let color_range = Scalar::arrays_into_list_array(color_arrays).unwrap();
 let scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(color_range);
 
 // Scale values to colors
-let values = Arc::new(Float32Array::from(vec![1.0, 10.0, 100.0])) as ArrayRef;
+let values = Arc::new(Float64Array::from(vec![1.0, 10.0, 100.0])) as ArrayRef;
 let colors = scale.scale_to_color(&values).unwrap();
 
 // Generate CSS gradient stops
@@ -128,7 +128,8 @@ For bar charts and other visualizations where categories need bandwidth.
 ```rust
 let scale = BandScale::new(domain)
     .with_range_interval((0.0, 300.0))
-    .with_option("padding", 0.1)
+    .with_option("padding_inner", 0.1)
+    .with_option("padding_outer", 0.1)
     .with_option("round", true);
 ```
 
@@ -235,8 +236,8 @@ The `examples/` directory contains comprehensive examples:
 
 Run examples with:
 ```bash
-cargo run --example linear_scale
-cargo run --example color_scales
+cargo run --release --example linear_scale
+cargo run --release --example color_scales
 ```
 
 ## Contributing

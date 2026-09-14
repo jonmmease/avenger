@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayRef, Date32Array, Date64Array, Float32Array, StringArray,
+    Array, ArrayRef, Date32Array, Date64Array, Float32Array, Float64Array, StringArray,
     TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray,
 };
@@ -15,8 +15,8 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+    pad_interval, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Time scale for temporal data visualization.
@@ -36,7 +36,7 @@ use super::{
 ///   "America/New_York"), "local" (currently UTC), or "UTC". Dates and timestamps without a
 ///   timezone keep their calendar fields and ignore it.
 ///
-/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice
+/// - **nice** (boolean or f64, default: false): When true or a number, extends the domain to nice
 ///   calendar boundaries. If true, uses a default count of 10. If a number, uses that as the target
 ///   tick count for determining nice boundaries.
 ///
@@ -45,12 +45,21 @@ use super::{
 ///
 /// - **week_start** (string, default: "sunday"): Configures which day is considered the start of a
 ///   week for week-based operations. Options: "sunday", "monday", etc.
+///
+/// - **clip_padding_lower** (f64, default: 0.0): Pixels left between the range start and the
+///   position of the domain start, so that marks at the domain boundary are not clipped. The scale
+///   widens its domain in milliseconds to make room, rounding outward to whole days or seconds for
+///   Date32 and second-resolution domains. The range must be in pixels, and the two paddings must
+///   leave part of it. Padding is applied before the nice adjustment.
+///
+/// - **clip_padding_upper** (f64, default: 0.0): Pixels left between the position of the domain
+///   end and the range end, as for `clip_padding_lower`.
 #[derive(Debug)]
 pub struct TimeScale;
 
 impl TimeScale {
     /// Create a new time scale with the specified domain and range.
-    pub fn configured(domain: (ArrayRef, ArrayRef), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (ArrayRef, ArrayRef), range: (f64, f64)) -> ConfiguredScale {
         // Create domain array from the two bounds
         let domain_array = create_temporal_domain_array(&domain.0, &domain.1)
             .expect("Failed to create temporal domain array");
@@ -59,7 +68,7 @@ impl TimeScale {
             scale_impl: Arc::new(TimeScale),
             config: ScaleConfig {
                 domain: domain_array,
-                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("timezone".to_string(), "UTC".into()),
                     ("nice".to_string(), false.into()),
@@ -407,6 +416,10 @@ impl ScaleImpl for TimeScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Temporal
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -428,6 +441,14 @@ impl ScaleImpl for TimeScale {
                     }
                 ),
                 OptionDefinition::optional("default", OptionConstraint::String),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
             ];
         }
 
@@ -439,13 +460,16 @@ impl ScaleImpl for TimeScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Get temporal handler based on domain type
+        // The configured domain and runtime values can use different Arrow
+        // temporal types. Domain inference normalizes shared temporal domains
+        // to Date64 milliseconds, while mark expressions retain their source
+        // type (for example Date32). Decode each side with its own handler.
         let domain_type = config.domain.data_type();
-        let handler = TemporalHandler::from_data_type(domain_type)?;
+        let domain_handler = TemporalHandler::from_data_type(domain_type)?;
 
         // Get domain bounds
-        let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
-        let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+        let domain_start = get_temporal_value(&config.domain, 0, &domain_handler)?;
+        let domain_end = get_temporal_value(&config.domain, 1, &domain_handler)?;
 
         // Get range bounds
         let (range_start, range_end) = config.numeric_interval_range()?;
@@ -461,23 +485,26 @@ impl ScaleImpl for TimeScale {
         let result = match values.data_type() {
             DataType::Date32 => {
                 let values = values.as_any().downcast_ref::<Date32Array>().unwrap();
+                let value_handler = TemporalHandler::Date32;
                 let mut output = Vec::with_capacity(values.len());
 
                 for i in 0..values.len() {
                     if values.is_null(i) {
                         output.push(None);
                     } else {
-                        let value = handler.to_timestamp_millis(values.value(i) as i64);
+                        let value = value_handler.to_timestamp_millis(values.value(i) as i64);
                         let normalized = if use_actual_duration {
                             // Use actual duration for DST-aware scaling
                             let value_duration =
                                 compute_actual_duration_millis(domain_start, value, &tz)?;
-                            value_duration as f32 / actual_duration as f32
+                            value_duration as f64 / actual_duration as f64
                         } else {
                             // Use nominal duration for performance when no DST
-                            (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                            (value - domain_start) as f64 / (domain_end - domain_start) as f64
                         };
-                        output.push(Some(range_start + normalized * (range_end - range_start)));
+                        output.push(Some(
+                            (range_start + normalized * (range_end - range_start)) as f32,
+                        ));
                     }
                 }
 
@@ -485,23 +512,26 @@ impl ScaleImpl for TimeScale {
             }
             DataType::Date64 => {
                 let values = values.as_any().downcast_ref::<Date64Array>().unwrap();
+                let value_handler = TemporalHandler::Date64;
                 let mut output = Vec::with_capacity(values.len());
 
                 for i in 0..values.len() {
                     if values.is_null(i) {
                         output.push(None);
                     } else {
-                        let value = handler.to_timestamp_millis(values.value(i));
+                        let value = value_handler.to_timestamp_millis(values.value(i));
                         let normalized = if use_actual_duration {
                             // Use actual duration for DST-aware scaling
                             let value_duration =
                                 compute_actual_duration_millis(domain_start, value, &tz)?;
-                            value_duration as f32 / actual_duration as f32
+                            value_duration as f64 / actual_duration as f64
                         } else {
                             // Use nominal duration for performance when no DST
-                            (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                            (value - domain_start) as f64 / (domain_end - domain_start) as f64
                         };
-                        output.push(Some(range_start + normalized * (range_end - range_start)));
+                        output.push(Some(
+                            (range_start + normalized * (range_end - range_start)) as f32,
+                        ));
                     }
                 }
 
@@ -510,7 +540,7 @@ impl ScaleImpl for TimeScale {
             DataType::Timestamp(unit, _) => scale_timestamp_values(
                 values,
                 unit,
-                &handler,
+                &TemporalHandler::Timestamp(*unit),
                 domain_start,
                 domain_end,
                 range_start,
@@ -553,13 +583,13 @@ impl ScaleImpl for TimeScale {
 
         // Ensure values are numeric
         let numeric_values = match values.data_type() {
-            DataType::Float32 => values.clone(),
-            _ => Arc::new(cast::cast(values, &DataType::Float32)?),
+            DataType::Float64 => values.clone(),
+            _ => Arc::new(cast::cast(values, &DataType::Float64)?),
         };
 
         let float_array = numeric_values
             .as_any()
-            .downcast_ref::<Float32Array>()
+            .downcast_ref::<Float64Array>()
             .unwrap();
         let mut result_millis = Vec::with_capacity(float_array.len());
 
@@ -575,7 +605,7 @@ impl ScaleImpl for TimeScale {
                 let millis = if use_actual_duration {
                     // For DST-aware inversion, we need to find the timestamp
                     // whose actual duration from domain_start equals the target
-                    let target_duration = (actual_duration as f32 * normalized) as i64;
+                    let target_duration = (actual_duration as f64 * normalized).round() as i64;
 
                     // Start with a nominal estimate
                     let mut estimate = domain_start + target_duration;
@@ -595,7 +625,7 @@ impl ScaleImpl for TimeScale {
                     estimate
                 } else {
                     // No DST transitions, use simple linear interpolation
-                    domain_start + ((domain_end - domain_start) as f32 * normalized) as i64
+                    domain_start + ((domain_end - domain_start) as f64 * normalized).round() as i64
                 };
 
                 result_millis.push(Some(millis));
@@ -609,7 +639,7 @@ impl ScaleImpl for TimeScale {
     fn ticks(
         &self,
         config: &ScaleConfig,
-        count: Option<f32>,
+        count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // Get domain bounds
         let domain_type = config.domain.data_type();
@@ -631,13 +661,25 @@ impl ScaleImpl for TimeScale {
         create_temporal_array_from_millis_vec(&tick_millis, domain_type)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         // Get domain bounds
         let domain_type = config.domain.data_type();
         let handler = TemporalHandler::from_data_type(domain_type)?;
 
         let start_millis = get_temporal_value(&config.domain, 0, &handler)?;
         let end_millis = get_temporal_value(&config.domain, 1, &handler)?;
+        let (start_millis, end_millis, padded) =
+            pad_temporal_domain(config, start_millis, end_millis, domain_type)?;
+        let unchanged = || {
+            if padded {
+                create_temporal_domain_from_millis(start_millis, end_millis, domain_type)
+            } else {
+                Ok(config.domain.clone())
+            }
+        };
 
         // Get timezone for nice calculations
         let tz = timezone(config)?;
@@ -648,13 +690,13 @@ impl ScaleImpl for TimeScale {
             Some(scalar) => {
                 if let Ok(true) = scalar.as_boolean() {
                     10.0
-                } else if let Ok(count) = scalar.as_f32() {
+                } else if let Ok(count) = scalar.as_f64() {
                     count
                 } else {
-                    return Ok(config.domain.clone());
+                    return unchanged();
                 }
             }
-            None => return Ok(config.domain.clone()),
+            None => return unchanged(),
         };
 
         // Calculate nice bounds
@@ -677,6 +719,43 @@ impl ScaleImpl for TimeScale {
 }
 
 // Helper functions
+
+/// Widen the domain for the clip padding options, in milliseconds, and report whether it changed.
+/// Date32 and second-resolution domains round outward to whole units, so the padding is never
+/// smaller than requested.
+fn pad_temporal_domain(
+    config: &ScaleConfig,
+    start_millis: i64,
+    end_millis: i64,
+    domain_type: &DataType,
+) -> Result<(i64, i64, bool), AvengerScaleError> {
+    let padding_lower = config.option_f64("clip_padding_lower", 0.0);
+    let padding_upper = config.option_f64("clip_padding_upper", 0.0);
+    let range = config.numeric_interval_range()?;
+    if (padding_lower <= 0.0 && padding_upper <= 0.0)
+        || start_millis == end_millis
+        || range.0 == range.1
+    {
+        return Ok((start_millis, end_millis, false));
+    }
+    let (start, end) = pad_interval(
+        (start_millis as f64, end_millis as f64),
+        range,
+        padding_lower,
+        padding_upper,
+    )?;
+    let unit = match domain_type {
+        DataType::Date32 => 24.0 * 60.0 * 60.0 * 1000.0,
+        DataType::Timestamp(TimeUnit::Second, _) => 1000.0,
+        _ => 1.0,
+    };
+    let (start, end) = if start_millis <= end_millis {
+        ((start / unit).floor() * unit, (end / unit).ceil() * unit)
+    } else {
+        ((start / unit).ceil() * unit, (end / unit).floor() * unit)
+    };
+    Ok((start as i64, end as i64, true))
+}
 
 fn create_temporal_domain_array(
     start: &ArrayRef,
@@ -830,8 +909,8 @@ fn scale_timestamp_values(
     handler: &TemporalHandler,
     domain_start: i64,
     domain_end: i64,
-    range_start: f32,
-    range_end: f32,
+    range_start: f64,
+    range_end: f64,
     tz: &Tz,
     use_actual_duration: bool,
     actual_duration: i64,
@@ -853,12 +932,14 @@ fn scale_timestamp_values(
                         // Use actual duration for DST-aware scaling
                         let value_duration =
                             compute_actual_duration_millis(domain_start, value, tz)?;
-                        value_duration as f32 / actual_duration as f32
+                        value_duration as f64 / actual_duration as f64
                     } else {
                         // Use nominal duration for performance when no DST
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        (value - domain_start) as f64 / (domain_end - domain_start) as f64
                     };
-                    output.push(Some(range_start + normalized * (range_end - range_start)));
+                    output.push(Some(
+                        (range_start + normalized * (range_end - range_start)) as f32,
+                    ));
                 }
             }
         }
@@ -876,12 +957,14 @@ fn scale_timestamp_values(
                         // Use actual duration for DST-aware scaling
                         let value_duration =
                             compute_actual_duration_millis(domain_start, value, tz)?;
-                        value_duration as f32 / actual_duration as f32
+                        value_duration as f64 / actual_duration as f64
                     } else {
                         // Use nominal duration for performance when no DST
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        (value - domain_start) as f64 / (domain_end - domain_start) as f64
                     };
-                    output.push(Some(range_start + normalized * (range_end - range_start)));
+                    output.push(Some(
+                        (range_start + normalized * (range_end - range_start)) as f32,
+                    ));
                 }
             }
         }
@@ -899,12 +982,14 @@ fn scale_timestamp_values(
                         // Use actual duration for DST-aware scaling
                         let value_duration =
                             compute_actual_duration_millis(domain_start, value, tz)?;
-                        value_duration as f32 / actual_duration as f32
+                        value_duration as f64 / actual_duration as f64
                     } else {
                         // Use nominal duration for performance when no DST
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        (value - domain_start) as f64 / (domain_end - domain_start) as f64
                     };
-                    output.push(Some(range_start + normalized * (range_end - range_start)));
+                    output.push(Some(
+                        (range_start + normalized * (range_end - range_start)) as f32,
+                    ));
                 }
             }
         }
@@ -922,12 +1007,14 @@ fn scale_timestamp_values(
                         // Use actual duration for DST-aware scaling
                         let value_duration =
                             compute_actual_duration_millis(domain_start, value, tz)?;
-                        value_duration as f32 / actual_duration as f32
+                        value_duration as f64 / actual_duration as f64
                     } else {
                         // Use nominal duration for performance when no DST
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        (value - domain_start) as f64 / (domain_end - domain_start) as f64
                     };
-                    output.push(Some(range_start + normalized * (range_end - range_start)));
+                    output.push(Some(
+                        (range_start + normalized * (range_end - range_start)) as f32,
+                    ));
                 }
             }
         }
@@ -1208,7 +1295,7 @@ const INTERVAL_HIERARCHY: &[TimeInterval] = &[
 ];
 
 /// Select appropriate interval based on domain span and target tick count
-fn select_time_interval(span_millis: i64, target_count: f32) -> TimeInterval {
+fn select_time_interval(span_millis: i64, target_count: f64) -> TimeInterval {
     // Find the interval that produces closest to target tick count
     let mut best_interval = INTERVAL_HIERARCHY[0];
     let mut best_diff = f64::INFINITY;
@@ -1216,7 +1303,7 @@ fn select_time_interval(span_millis: i64, target_count: f32) -> TimeInterval {
     for &interval in INTERVAL_HIERARCHY {
         let interval_millis = interval.approx_millis() as f64;
         let tick_count = span_millis as f64 / interval_millis;
-        let diff = (tick_count - target_count as f64).abs();
+        let diff = (tick_count - target_count).abs();
 
         if diff < best_diff {
             best_diff = diff;
@@ -1231,7 +1318,7 @@ fn select_time_interval(span_millis: i64, target_count: f32) -> TimeInterval {
 fn compute_nice_temporal_bounds(
     start_millis: i64,
     end_millis: i64,
-    target_count: f32,
+    target_count: f64,
     tz: &Tz,
 ) -> Result<(i64, i64), AvengerScaleError> {
     let span = end_millis - start_millis;
@@ -1256,7 +1343,7 @@ fn compute_nice_temporal_bounds(
 fn generate_temporal_ticks(
     start_millis: i64,
     end_millis: i64,
-    target_count: f32,
+    target_count: f64,
     tz: &Tz,
 ) -> Result<Vec<i64>, AvengerScaleError> {
     let span = end_millis - start_millis;
@@ -1429,6 +1516,55 @@ mod tests {
     }
 
     #[test]
+    fn test_time_scale_date64_domain_with_date32_values() -> Result<(), AvengerScaleError> {
+        let day_millis = 86_400_000_i64;
+        let start_date = 19_723;
+        let mid_date = 19_905;
+        let end_date = 20_088;
+
+        let domain_start =
+            Arc::new(Date64Array::from(vec![start_date as i64 * day_millis])) as ArrayRef;
+        let domain_end =
+            Arc::new(Date64Array::from(vec![end_date as i64 * day_millis])) as ArrayRef;
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+
+        let values = Arc::new(Date32Array::from(vec![start_date, mid_date, end_date])) as ArrayRef;
+        let result = scale.scale(&values)?;
+        let result = result.as_any().downcast_ref::<Float32Array>().unwrap();
+
+        assert_eq!(result.value(0), 0.0);
+        assert!((result.value(1) - 50.0).abs() < 1.0);
+        assert_eq!(result.value(2), 100.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_time_scale_date64_domain_with_timestamp_second_values() -> Result<(), AvengerScaleError>
+    {
+        let start_seconds = 1_704_067_200_i64;
+        let end_seconds = 1_704_153_600_i64;
+
+        let domain_start = Arc::new(Date64Array::from(vec![start_seconds * 1_000])) as ArrayRef;
+        let domain_end = Arc::new(Date64Array::from(vec![end_seconds * 1_000])) as ArrayRef;
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+
+        let values = Arc::new(TimestampSecondArray::from(vec![
+            start_seconds,
+            start_seconds + 43_200,
+            end_seconds,
+        ])) as ArrayRef;
+        let result = scale.scale(&values)?;
+        let result = result.as_any().downcast_ref::<Float32Array>().unwrap();
+
+        assert_eq!(result.value(0), 0.0);
+        assert!((result.value(1) - 50.0).abs() < 0.1);
+        assert_eq!(result.value(2), 100.0);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_time_scale_timestamp() -> Result<(), AvengerScaleError> {
         // Create domain from 2024-01-01 00:00:00 to 2024-01-02 00:00:00 (one day)
         let start_ts = 1704067200; // 2024-01-01 00:00:00 UTC
@@ -1452,6 +1588,83 @@ mod tests {
         Ok(())
     }
 
+    /// Exact positions in a ten-year domain invert to the millisecond.
+    #[test]
+    fn test_time_scale_inverts_a_decade_to_the_millisecond() -> Result<(), AvengerScaleError> {
+        use arrow::{
+            array::{AsArray, TimestampMillisecondArray},
+            datatypes::Int64Type,
+        };
+        let start = 1_577_836_800_000_i64; // 2020-01-01 00:00:00 UTC
+        let end = 1_893_456_000_000_i64; // 2030-01-01 00:00:00 UTC
+        let scale = TimeScale::configured(
+            (
+                Arc::new(TimestampMillisecondArray::from(vec![start])) as ArrayRef,
+                Arc::new(TimestampMillisecondArray::from(vec![end])) as ArrayRef,
+            ),
+            (0.0, 1000.0),
+        );
+        let times = vec![start + 1, start + 123_456_789, end - 7];
+        let positions =
+            Arc::new(Float64Array::from_iter_values(times.iter().map(|time| {
+                (time - start) as f64 / (end - start) as f64 * 1000.0
+            }))) as ArrayRef;
+        let inverted = scale.invert(&positions)?;
+        let inverted = cast::cast(&inverted, &DataType::Int64)?;
+        assert_eq!(
+            inverted.as_primitive::<Int64Type>().values().to_vec(),
+            times
+        );
+        Ok(())
+    }
+
+    /// Clip padding widens a time domain so that its ends sit the requested pixels inside the
+    /// range. Date32 domains round outward to whole days.
+    #[test]
+    fn test_time_scale_clip_padding() -> Result<(), AvengerScaleError> {
+        use arrow::{
+            array::{AsArray, TimestampMillisecondArray},
+            datatypes::Float32Type,
+        };
+        let scale = TimeScale::configured(
+            (
+                Arc::new(TimestampMillisecondArray::from(vec![0])) as ArrayRef,
+                Arc::new(TimestampMillisecondArray::from(vec![1000])) as ArrayRef,
+            ),
+            (0.0, 100.0),
+        )
+        .with_option("clip_padding_lower", 10.0)
+        .with_option("clip_padding_upper", 10.0);
+        // The domain fills the 80 pixels left after padding, so a pixel covers 12.5 ms
+        let domain = scale.normalized_domain()?;
+        let domain = domain
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        assert_eq!(domain.values().to_vec(), vec![-125, 1125]);
+        let values = Arc::new(TimestampMillisecondArray::from(vec![0, 1000])) as ArrayRef;
+        let positions = scale.scale(&values)?;
+        assert_eq!(
+            positions.as_primitive::<Float32Type>().values().to_vec(),
+            vec![10.0, 90.0]
+        );
+
+        // A pixel covers 1/9 day, so the domain widens by 5/9 day at each end, then to whole days
+        let scale = TimeScale::configured(
+            (
+                Arc::new(Date32Array::from(vec![0])) as ArrayRef,
+                Arc::new(Date32Array::from(vec![10])) as ArrayRef,
+            ),
+            (0.0, 100.0),
+        )
+        .with_option("clip_padding_lower", 5.0)
+        .with_option("clip_padding_upper", 5.0);
+        let domain = scale.normalized_domain()?;
+        let domain = domain.as_any().downcast_ref::<Date32Array>().unwrap();
+        assert_eq!(domain.values().to_vec(), vec![-1, 11]);
+        Ok(())
+    }
+
     #[test]
     fn test_nice_domain() -> Result<(), AvengerScaleError> {
         // Create domain from 2024-01-15 10:30:00 to 2024-02-20 15:45:00
@@ -1465,7 +1678,7 @@ mod tests {
 
         // Apply nice with default count
         scale = scale.with_option("nice", true);
-        let nice_domain = scale.scale_impl.compute_nice_domain(&scale.config)?;
+        let nice_domain = scale.scale_impl.compute_normalized_domain(&scale.config)?;
 
         // Should round to nice month boundaries
         let nice_array = nice_domain
@@ -1556,7 +1769,7 @@ mod tests {
         let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
 
         // Test inverting some range values
-        let range_values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0, 25.0])) as ArrayRef;
+        let range_values = Arc::new(Float64Array::from(vec![0.0, 50.0, 100.0, 25.0])) as ArrayRef;
         let inverted = scale.invert(&range_values)?;
         let inverted_array = inverted.as_any().downcast_ref::<Date32Array>().unwrap();
 
@@ -1747,7 +1960,7 @@ mod tests {
         assert_eq!(scaled_array.value(3), 100.0); // End
 
         // Test inversion
-        let range_values = Arc::new(Float32Array::from(vec![0.0, 33.33, 66.67, 100.0])) as ArrayRef;
+        let range_values = Arc::new(Float64Array::from(vec![0.0, 33.33, 66.67, 100.0])) as ArrayRef;
         let inverted = scale.invert(&range_values)?;
         let inverted_array = inverted
             .as_any()

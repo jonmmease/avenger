@@ -1,20 +1,20 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
+    array::{ArrayRef, AsArray, Float64Array, UInt32Array},
     compute::{
         kernels::{cast, sort, take},
         SortOptions,
     },
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float64Type},
 };
 use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
@@ -32,11 +32,11 @@ use super::{
 pub struct QuantileScale;
 
 impl QuantileScale {
-    pub fn configured(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: Vec<f64>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
-                domain: Arc::new(Float32Array::from(domain)),
+                domain: Arc::new(Float64Array::from(domain)),
                 range,
                 options: HashMap::new(),
                 context: ScaleContext::default(),
@@ -52,6 +52,10 @@ impl ScaleImpl for QuantileScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -79,8 +83,8 @@ impl ScaleImpl for QuantileScale {
         }
 
         let thresholds = quantile_thresholds(&config.domain, n)?;
-        let values = cast(values, &DataType::Float32)?;
-        let values = values.as_primitive::<Float32Type>();
+        let values = cast(values, &DataType::Float64)?;
+        let values = values.as_primitive::<Float64Type>();
 
         // Compute range indices
         let indices = UInt32Array::from(
@@ -109,7 +113,7 @@ impl ScaleImpl for QuantileScale {
     fn ticks(
         &self,
         config: &ScaleConfig,
-        _count: Option<f32>,
+        _count: Option<f64>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // The quantile boundaries are the ticks
         Ok(crate::array::tick_array(quantile_thresholds(
@@ -119,8 +123,8 @@ impl ScaleImpl for QuantileScale {
     }
 }
 
-fn quantile_thresholds(domain: &ArrayRef, n: usize) -> Result<Vec<f32>, AvengerScaleError> {
-    // Sort domain and cast to f32 array
+fn quantile_thresholds(domain: &ArrayRef, n: usize) -> Result<Vec<f64>, AvengerScaleError> {
+    // Sort domain and cast to f64 array
     let domain = sort::sort(
         domain,
         Some(SortOptions {
@@ -128,8 +132,8 @@ fn quantile_thresholds(domain: &ArrayRef, n: usize) -> Result<Vec<f32>, AvengerS
             nulls_first: false,
         }),
     )?;
-    let domain = cast(&domain, &DataType::Float32)?;
-    let domain = domain.as_primitive::<Float32Type>();
+    let domain = cast(&domain, &DataType::Float64)?;
+    let domain = domain.as_primitive::<Float64Type>();
 
     // Compute n-1 quantile thresholds
     let domain_len = domain.len();
@@ -153,7 +157,7 @@ mod tests {
     #[test]
     fn test_quantile_scale_basic() -> Result<(), AvengerScaleError> {
         // Create sample population with skewed distribution
-        let domain = Arc::new(Float32Array::from(vec![
+        let domain = Arc::new(Float64Array::from(vec![
             1.0, 1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 5.0,
         ]));
         let config = ScaleConfig {
@@ -175,7 +179,7 @@ mod tests {
                                               // Last third: [4,4,5]
 
         // Test mapping values
-        let values = Arc::new(Float32Array::from(vec![1.5, 3.0, 4.5, f32::NAN])) as ArrayRef;
+        let values = Arc::new(Float64Array::from(vec![1.5, 3.0, 4.5, f64::NAN])) as ArrayRef;
         let result = scale.scale_to_string(&config, &values)?;
         let result_vec = result.as_vec(values.len(), None);
 

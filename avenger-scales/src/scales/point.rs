@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, Float64Array};
 use avenger_common::value::ScalarOrArray;
 use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
 use super::{
-    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    band::BandScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
     OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
@@ -19,28 +19,35 @@ use super::{
 ///
 /// # Config Options
 ///
-/// - **align** (f32, default: 0.5): Alignment of the point layout within the range [0, 1].
+/// - **align** (f64, default: 0.5): Alignment of the point layout within the range [0, 1].
 ///   0 aligns points to the start, 0.5 centers them, and 1 aligns to the end.
 ///
-/// - **padding** (f32, default: 0.0): Padding before the first and after the last point
+/// - **padding** (f64, default: 0.0): Padding before the first and after the last point
 ///   as a fraction of the spacing between points. A value of 0.5 adds half the step
 ///   distance as padding on each end.
 ///
 /// - **round** (boolean, default: false): When true, point positions are rounded to
 ///   integer pixel values for crisp rendering.
 ///
-/// - **range_offset** (f32, default: 0.0): Additional offset applied to all point positions
+/// - **range_offset** (f64, default: 0.0): Additional offset applied to all point positions
 ///   after computing their base positions. Useful for fine-tuning placement.
+///
+/// - **clip_padding_lower** (f64, default: 0.0): Pixels left empty at the range start, where the
+///   first point sits, so that marks at the outer points are not clipped. The points and their outer
+///   padding fill the rest of the range. The two paddings must leave part of the range.
+///
+/// - **clip_padding_upper** (f64, default: 0.0): Pixels left empty at the range end, as for
+///   `clip_padding_lower`.
 #[derive(Debug, Clone)]
 pub struct PointScale;
 
 impl PointScale {
-    pub fn configured(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: ArrayRef, range: (f64, f64)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
                 domain,
-                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                range: Arc::new(Float64Array::from(vec![range.0, range.1])),
                 options: vec![
                     ("align".to_string(), 0.5.into()),
                     ("padding".to_string(), 0.0.into()),
@@ -64,6 +71,10 @@ impl ScaleImpl for PointScale {
         InferDomainFromDataMethod::Unique
     }
 
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
@@ -74,6 +85,14 @@ impl ScaleImpl for PointScale {
                 OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
             ];
         }
 
@@ -105,7 +124,7 @@ impl ScaleImpl for PointScale {
     fn invert_range_interval(
         &self,
         config: &ScaleConfig,
-        range: (f32, f32),
+        range: (f64, f64),
     ) -> Result<ArrayRef, AvengerScaleError> {
         let band_config = make_band_config(config);
         let band_scale = BandScale;
@@ -114,10 +133,12 @@ impl ScaleImpl for PointScale {
 }
 
 pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
-    let padding = point_config.option_f32("padding", 0.0);
-    let align = point_config.option_f32("align", 0.5);
-    let range_offset = point_config.option_f32("range_offset", 0.0);
+    let padding = point_config.option_f64("padding", 0.0);
+    let align = point_config.option_f64("align", 0.5);
+    let range_offset = point_config.option_f64("range_offset", 0.0);
     let round = point_config.option_boolean("round", false);
+    let clip_padding_lower = point_config.option_f64("clip_padding_lower", 0.0);
+    let clip_padding_upper = point_config.option_f64("clip_padding_upper", 0.0);
 
     ScaleConfig {
         domain: point_config.domain.clone(),
@@ -129,6 +150,8 @@ pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
             ("align".to_string(), align.into()),
             ("range_offset".to_string(), range_offset.into()),
             ("round".to_string(), round.into()),
+            ("clip_padding_lower".to_string(), clip_padding_lower.into()),
+            ("clip_padding_upper".to_string(), clip_padding_upper.into()),
         ]
         .into_iter()
         .collect(),
@@ -148,7 +171,7 @@ mod tests {
     fn test_point_scale_basic() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };
@@ -174,7 +197,7 @@ mod tests {
     fn test_point_scale_custom_range() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };
@@ -197,7 +220,7 @@ mod tests {
     fn test_point_scale_with_padding() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: HashMap::from([("padding".to_string(), 0.5.into())]),
             context: ScaleContext::default(),
         };
@@ -222,7 +245,7 @@ mod tests {
     fn test_point_scale_round() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c", "d"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![("round".to_string(), true.into())]
                 .into_iter()
                 .collect(),
@@ -251,7 +274,7 @@ mod tests {
     fn test_point_scale_range_offset() -> Result<(), AvengerScaleError> {
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c", "d"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: vec![
                 ("range_offset".to_string(), 1.0.into()),
                 ("round".to_string(), true.into()),
@@ -283,7 +306,7 @@ mod tests {
         let scale = PointScale;
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };
@@ -328,7 +351,7 @@ mod tests {
         let scale = PointScale;
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
-            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            range: Arc::new(Float64Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
             context: ScaleContext::default(),
         };

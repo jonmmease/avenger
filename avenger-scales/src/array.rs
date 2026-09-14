@@ -1,18 +1,13 @@
 use arrow::array::{ArrayRef, Float64Array};
 use std::sync::Arc;
 
-/// Tick values as f64, each widened through its shortest decimal, so 0.1f32 becomes 0.1
-/// rather than 0.10000000149011612. Casting a value back to f32 returns the original tick.
-pub fn tick_array(ticks: impl IntoIterator<Item = f32>) -> ArrayRef {
-    Arc::new(Float64Array::from_iter_values(
-        ticks
-            .into_iter()
-            .map(|tick| tick.to_string().parse().unwrap_or(f64::from(tick))),
-    ))
+/// Tick values as a Float64 array.
+pub fn tick_array(ticks: impl IntoIterator<Item = f64>) -> ArrayRef {
+    Arc::new(Float64Array::from_iter_values(ticks))
 }
 
 /// Generate approximately count ticks within the given range
-pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
+pub fn ticks(start: f64, stop: f64, count: f64) -> Vec<f64> {
     // JS: if (!(count > 0)) return [];
     if count <= 0.0 || count.is_nan() {
         return vec![];
@@ -52,23 +47,23 @@ pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
     if reverse {
         if inc < 0.0 {
             for i in 0..n {
-                let val = (i2 - i as f32) / -inc;
+                let val = (i2 - i as f64) / -inc;
                 ticks.push(val);
             }
         } else {
             for i in 0..n {
-                let val = (i2 - i as f32) * inc;
+                let val = (i2 - i as f64) * inc;
                 ticks.push(val);
             }
         }
     } else if inc < 0.0 {
         for i in 0..n {
-            let val = (i1 + i as f32) / -inc;
+            let val = (i1 + i as f64) / -inc;
             ticks.push(val);
         }
     } else {
         for i in 0..n {
-            let val = (i1 + i as f32) * inc;
+            let val = (i1 + i as f64) * inc;
             ticks.push(val);
         }
     }
@@ -78,7 +73,7 @@ pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
 
 /// Helper function to calculate tick specifications
 /// JS: function tickSpec(start, stop, count)
-fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
+fn tick_spec(start: f64, stop: f64, count: f64) -> (f64, f64, f64) {
     // JS: const step = (stop - start) / Math.max(0, count)
     let step = (stop - start) / count.max(0.0);
 
@@ -86,16 +81,16 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
     let power = step.log10().floor();
 
     // JS: const error = step / Math.pow(10, power)
-    let error = step / 10.0_f32.powf(power);
+    let error = step / 10.0_f64.powf(power);
 
     // JS: const factor = error >= e10 ? 10 : error >= e5 ? 5 : error >= e2 ? 2 : 1
-    let factor = if error >= 7.071_068 {
+    let factor = if error >= 7.071_067_811_865_476 {
         // e10 = Math.sqrt(50)
         10.0
-    } else if error >= 3.162_277_7 {
+    } else if error >= 3.162_277_660_168_379_5 {
         // e5 = Math.sqrt(10)
         5.0
-    } else if error >= std::f32::consts::SQRT_2 {
+    } else if error >= std::f64::consts::SQRT_2 {
         // e2 = Math.sqrt(2)
         2.0
     } else {
@@ -106,7 +101,7 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
 
     // JS: if (power < 0) { ... } else { ... }
     if power < 0.0 {
-        let temp_inc = 10.0_f32.powf(-power) / factor;
+        let temp_inc = 10.0_f64.powf(-power) / factor;
         i1 = (start * temp_inc).round();
         i2 = (stop * temp_inc).round();
         if i1 / temp_inc < start {
@@ -117,7 +112,7 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
         }
         inc = -temp_inc;
     } else {
-        inc = 10.0_f32.powf(power) * factor;
+        inc = 10.0_f64.powf(power) * factor;
         i1 = (start / inc).round();
         i2 = (stop / inc).round();
         if i1 * inc < start {
@@ -137,35 +132,35 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
 }
 
 /// Calculate the tick increment for the given range and count
-pub fn tick_increment(start: f32, stop: f32, count: f32) -> f32 {
+pub fn tick_increment(start: f64, stop: f64, count: f64) -> f64 {
     // JS: if (!(count > 0)) return NaN;
     if count <= 0.0 || count.is_nan() {
-        return f32::NAN;
+        return f64::NAN;
     }
 
     // JS: if (stop === start) return -Infinity;
     if start == stop {
-        return f32::NEG_INFINITY;
+        return f64::NEG_INFINITY;
     }
 
     let step = (stop - start) / count.max(0.0);
     // Handle step = 0 case (which happens with infinite count)
     if step == 0.0 {
-        return f32::NAN;
+        return f64::NAN;
     }
 
     let power = step.log10().floor();
-    let error = step / 10.0_f32.powf(power);
-    let factor = if error >= 7.071_068 {
+    let error = step / 10.0_f64.powf(power);
+    let factor = if error >= 7.071_067_811_865_476 {
         10.0
-    } else if error >= 3.162_277_7 {
+    } else if error >= 3.162_277_660_168_379_5 {
         5.0
-    } else if error >= std::f32::consts::SQRT_2 {
+    } else if error >= std::f64::consts::SQRT_2 {
         2.0
     } else {
         1.0
     };
-    10.0_f32.powf(power) * factor
+    10.0_f64.powf(power) * factor
 }
 
 #[cfg(test)]
@@ -197,20 +192,20 @@ mod tests {
 
     #[test]
     fn test_ticks_edge_cases() {
-        assert_eq!(ticks(f32::NAN, 1.0, 1.0), Vec::<f32>::new());
-        assert_eq!(ticks(0.0, f32::NAN, 1.0), Vec::<f32>::new());
-        assert_eq!(ticks(0.0, 1.0, f32::NAN), Vec::<f32>::new());
-        assert_eq!(ticks(0.0, 1.0, 0.0), Vec::<f32>::new());
-        assert_eq!(ticks(0.0, 1.0, -1.0), Vec::<f32>::new());
+        assert_eq!(ticks(f64::NAN, 1.0, 1.0), Vec::<f64>::new());
+        assert_eq!(ticks(0.0, f64::NAN, 1.0), Vec::<f64>::new());
+        assert_eq!(ticks(0.0, 1.0, f64::NAN), Vec::<f64>::new());
+        assert_eq!(ticks(0.0, 1.0, 0.0), Vec::<f64>::new());
+        assert_eq!(ticks(0.0, 1.0, -1.0), Vec::<f64>::new());
         assert_eq!(ticks(1.0, 1.0, 1.0), vec![1.0]);
         assert_eq!(ticks(1.0, 1.0, 10.0), vec![1.0]);
-        assert_eq!(ticks(0.0, 1.0, f32::INFINITY), Vec::<f32>::new());
+        assert_eq!(ticks(0.0, 1.0, f64::INFINITY), Vec::<f64>::new());
     }
 
     #[test]
     fn test_ticks_fractional_count() {
-        assert_eq!(ticks(1.0, 364.0, 0.1), Vec::<f32>::new());
-        assert_eq!(ticks(1.0, 364.0, 0.499), Vec::<f32>::new());
+        assert_eq!(ticks(1.0, 364.0, 0.1), Vec::<f64>::new());
+        assert_eq!(ticks(1.0, 364.0, 0.499), Vec::<f64>::new());
         assert_eq!(ticks(1.0, 364.0, 0.5), vec![200.0]);
         assert_eq!(ticks(1.0, 364.0, 1.0), vec![200.0]);
         assert_eq!(ticks(1.0, 364.0, 1.5), vec![200.0]);
@@ -232,9 +227,9 @@ mod tests {
 
     #[test]
     fn test_tick_increment_edge_cases() {
-        assert!(tick_increment(f32::NAN, 1.0, 1.0).is_nan());
-        assert!(tick_increment(0.0, f32::NAN, 1.0).is_nan());
-        assert!(tick_increment(0.0, 1.0, f32::NAN).is_nan());
+        assert!(tick_increment(f64::NAN, 1.0, 1.0).is_nan());
+        assert!(tick_increment(0.0, f64::NAN, 1.0).is_nan());
+        assert!(tick_increment(0.0, 1.0, f64::NAN).is_nan());
         assert!(
             tick_increment(1.0, 1.0, 1.0).is_infinite()
                 && tick_increment(1.0, 1.0, 1.0).is_sign_negative()
@@ -245,6 +240,6 @@ mod tests {
         );
         assert!(tick_increment(0.0, 1.0, 0.0).is_nan());
         assert!(tick_increment(0.0, 1.0, -1.0).is_nan());
-        assert!(tick_increment(0.0, 1.0, f32::INFINITY).is_nan());
+        assert!(tick_increment(0.0, 1.0, f64::INFINITY).is_nan());
     }
 }

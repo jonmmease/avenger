@@ -12,7 +12,7 @@ use crate::error::AvengerGuidesError;
 
 use super::{
     opts::{AxisConfig, AxisOrientation},
-    tick_labels,
+    pixel_range, tick_labels,
 };
 
 const TICK_LENGTH: f32 = 5.0;
@@ -52,7 +52,7 @@ pub fn make_continuous_axis_marks(
     let ticks = scale.ticks(None)?;
 
     // Get range bounds considering orientation
-    let range = scale.numeric_interval_range()?;
+    let range = pixel_range(&scale)?;
 
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
@@ -317,7 +317,7 @@ fn make_title(
     envelope: &AABB<[f32; 2]>,
     orientation: &AxisOrientation,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let range = scale.numeric_interval_range()?;
+    let range = pixel_range(scale)?;
     let mid = (range.0 + range.1) / 2.0;
 
     let (x, y, align, baseline, angle) = match orientation {
