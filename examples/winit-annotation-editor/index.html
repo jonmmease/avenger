@@ -20,14 +20,20 @@
     <div id="status" role="status">Loading annotation editor…</div>
     <div id="wasm-example"></div>
     <p class="help">Select a point, edit its Typst source, and drag its label. Drag the plot to pan.</p>
-    <p class="help"><a id="documentation" href="./README.md">Editor documentation</a></p>
+    <p class="help"><a id="slow-loads" href="?slow-loads">Try delayed sample loading</a></p>
   </main>
   <script type="module">
     const status = document.getElementById("status");
+    const slow = new URLSearchParams(location.search).has("slow-loads");
+    const link = document.getElementById("slow-loads");
+    if (slow) {
+      link.href = location.pathname;
+      link.textContent = "Delayed loads enabled. Switch to normal loading.";
+    }
     try {
       const { default: init, run } = await import("./pkg/winit_annotation_editor.js");
       await init();
-      await run();
+      await run(slow);
       status.hidden = true;
     } catch (error) {
       status.textContent = `The annotation editor could not start: ${error}`;
