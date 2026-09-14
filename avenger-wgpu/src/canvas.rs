@@ -599,8 +599,8 @@ impl WindowCanvas<'_> {
     pub fn tile_upload_stats(
         &self,
     ) -> (
-        crate::marks::tile_array::TileUploadStats,
-        crate::marks::tile_array::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
     ) {
         self.renderer.tile_upload_stats()
     }
@@ -837,8 +837,8 @@ impl PngCanvas {
     pub fn tile_upload_stats(
         &self,
     ) -> (
-        crate::marks::tile_array::TileUploadStats,
-        crate::marks::tile_array::TileUploadStats,
+        crate::image_resources::TileUploadStats,
+        crate::image_resources::TileUploadStats,
     ) {
         self.renderer.tile_upload_stats()
     }

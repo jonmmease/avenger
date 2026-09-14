@@ -8,4 +8,4 @@ pub mod multi;
 pub(crate) mod pattern;
 pub mod symbol;
 pub mod text;
-pub mod tile_array;
+pub(crate) mod tile_array;
