@@ -1,16 +1,19 @@
+use std::{cell::RefCell, rc::Rc};
+
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, WindowCanvas};
-use avenger_wgpu::error::AvengerWgpuError;
-use std::cell::RefCell;
-use std::rc::Rc;
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
-use winit::window::{WindowAttributes, WindowId};
+use avenger_wgpu::{
+    canvas::{Canvas, WindowCanvas},
+    error::AvengerWgpuError,
+};
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{self, NamedKey},
+    window::{WindowAttributes, WindowId},
+};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
