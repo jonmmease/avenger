@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use avenger_scenegraph::marks::mark::MarkInstance;
 
 use crate::runtime::RuntimeWakeEvent;
-use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
+use crate::window::{
+    CanvasResizeEvent, Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent,
+};
 
 /// Events that can be handled by event streams
 #[derive(Debug, Clone, PartialEq)]
@@ -20,9 +22,13 @@ pub enum SceneGraphEvent {
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
     WindowResize(WindowResizeEvent),
+    WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(SceneFileChangedEvent),
 }
 
@@ -73,9 +79,13 @@ impl SceneGraphEvent {
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
             Self::WindowResize(..) => SceneGraphEventType::WindowResize,
+            Self::WindowResizeSettled(..) => SceneGraphEventType::WindowResizeSettled,
+            Self::CanvasResize(..) => SceneGraphEventType::CanvasResize,
+            Self::CanvasResizeSettled(..) => SceneGraphEventType::CanvasResizeSettled,
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
+            Self::InteractionSettled => SceneGraphEventType::InteractionSettled,
             Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
                 SceneGraphEventType::FileChanged(file_path.clone())
             }
@@ -97,9 +107,13 @@ pub enum SceneGraphEventType {
     MarkMouseEnter,
     MarkMouseLeave,
     WindowResize,
+    WindowResizeSettled,
+    CanvasResize,
+    CanvasResizeSettled,
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(PathBuf),
 }
 
