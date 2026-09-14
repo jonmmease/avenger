@@ -57,8 +57,15 @@ impl<'a> SceneDisplayList<'a> {
             items: Vec::new(),
         };
 
+        let root = Inherited {
+            origin: scene_graph.origin,
+            clip: &Clip::None,
+            pattern_reference_frame: None,
+            zindex: 0,
+            interactive: true,
+        };
         for (index, mark) in scene_graph.children().iter().enumerate() {
-            list.push_mark(mark, scene_graph.origin, &Clip::None, None, 0, true, vec![index]);
+            list.push_mark(mark, root, vec![index]);
         }
 
         list
@@ -72,96 +79,77 @@ impl<'a> SceneDisplayList<'a> {
         ordered
     }
 
-    fn push_mark(
-        &mut self,
-        mark: &'a SceneMark,
-        parent_origin: [f32; 2],
-        parent_clip: &Clip,
-        parent_pattern_reference_frame: Option<&PatternReferenceFrame>,
-        parent_zindex: i32,
-        parent_interactive: bool,
-        mark_path: Vec<usize>,
-    ) {
+    fn push_mark(&mut self, mark: &'a SceneMark, parent: Inherited, mark_path: Vec<usize>) {
         match mark {
-            SceneMark::Group(group) => {
-                self.push_group(
-                    group,
-                    parent_origin,
-                    parent_clip,
-                    parent_pattern_reference_frame,
-                    parent_zindex,
-                    parent_interactive,
-                    mark_path,
-                );
-            }
+            SceneMark::Group(group) => self.push_group(group, parent, mark_path),
             _ => {
                 self.items.push(SceneDisplayItem {
                     mark: SceneDisplayMark::Borrowed(mark),
-                    zindex: mark.zindex().unwrap_or(parent_zindex),
-                    origin: parent_origin,
-                    clip: parent_clip.maybe_clip(mark_clip_enabled(mark)),
-                    pattern_reference_frame: parent_pattern_reference_frame.cloned(),
+                    zindex: mark.zindex().unwrap_or(parent.zindex),
+                    origin: parent.origin,
+                    clip: parent.clip.maybe_clip(mark_clip_enabled(mark)),
+                    pattern_reference_frame: parent.pattern_reference_frame.cloned(),
                     mark_path,
-                    interactive: mark.interactive().unwrap_or(parent_interactive),
+                    interactive: mark.interactive().unwrap_or(parent.interactive),
                 });
             }
         }
     }
 
-    fn push_group(
-        &mut self,
-        group: &'a SceneGroup,
-        parent_origin: [f32; 2],
-        parent_clip: &Clip,
-        parent_pattern_reference_frame: Option<&PatternReferenceFrame>,
-        parent_zindex: i32,
-        parent_interactive: bool,
-        mark_path: Vec<usize>,
-    ) {
-        let group_zindex = group.zindex.unwrap_or(parent_zindex);
-        let group_interactive = group.interactive.unwrap_or(parent_interactive);
+    fn push_group(&mut self, group: &'a SceneGroup, parent: Inherited, mark_path: Vec<usize>) {
+        let zindex = group.zindex.unwrap_or(parent.zindex);
+        let interactive = group.interactive.unwrap_or(parent.interactive);
         let origin = [
-            parent_origin[0] + group.origin[0],
-            parent_origin[1] + group.origin[1],
+            parent.origin[0] + group.origin[0],
+            parent.origin[1] + group.origin[1],
         ];
         let pattern_reference_frame = group
             .pattern_reference_frame
             .as_ref()
             .map(|frame| frame.translated(origin[0], origin[1]))
-            .or_else(|| parent_pattern_reference_frame.cloned());
+            .or_else(|| parent.pattern_reference_frame.cloned());
 
         if let Some(path_mark) = group.make_path_mark() {
             self.items.push(SceneDisplayItem {
                 mark: SceneDisplayMark::OwnedGroupPath(path_mark),
-                zindex: group_zindex,
-                origin: parent_origin,
+                zindex,
+                origin: parent.origin,
                 clip: Clip::None,
                 pattern_reference_frame: pattern_reference_frame.clone(),
                 mark_path: mark_path.clone(),
-                interactive: group_interactive,
+                interactive,
             });
         }
 
         let clip = if matches!(&group.clip, Clip::None) {
-            parent_clip.clone()
+            parent.clip.clone()
         } else {
             group.clip.translate(origin[0], origin[1])
+        };
+        let inherited = Inherited {
+            origin,
+            clip: &clip,
+            pattern_reference_frame: pattern_reference_frame.as_ref(),
+            zindex,
+            interactive,
         };
 
         for (index, mark) in group.marks.iter().enumerate() {
             let mut child_path = mark_path.clone();
             child_path.push(index);
-            self.push_mark(
-                mark,
-                origin,
-                &clip,
-                pattern_reference_frame.as_ref(),
-                group_zindex,
-                group_interactive,
-                child_path,
-            );
+            self.push_mark(mark, inherited, child_path);
         }
     }
+}
+
+/// What a mark takes from its enclosing groups, in scene coordinates.
+#[derive(Clone, Copy)]
+struct Inherited<'c> {
+    origin: [f32; 2],
+    clip: &'c Clip,
+    pattern_reference_frame: Option<&'c PatternReferenceFrame>,
+    zindex: i32,
+    interactive: bool,
 }
 
 fn mark_clip_enabled(mark: &SceneMark) -> bool {

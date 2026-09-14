@@ -278,9 +278,6 @@ impl AvengerRendererCore {
     }
 
     pub(crate) fn begin_scene(&mut self, scene: &SceneGraph, text_engine: &LabelEngine) {
-        // Acquire the new working set before releasing the previous one: shared
-        // images must remain resident even when both sets exceed the LRU budget.
-
         self.clear_mark_renderer();
         self.previous_instanced_renderers = std::mem::take(&mut self.instanced_renderers);
         self.scene = Some((Arc::new(scene.clone()), text_engine.clone()));
