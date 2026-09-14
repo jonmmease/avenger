@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 pub use avenger_image::ImageResourceResolver;
 use avenger_image::{ImageResourceState, RgbaImage};
+use avenger_resource::ResourceKey;
 use avenger_scenegraph::marks::image::SceneImageUnavailablePolicy;
 
 use crate::error::AvengerWgpuError;
 pub use crate::marks::tile_array::TileUploadStats;
-use avenger_resource::ResourceKey;
 
 #[derive(Clone)]
 pub struct WgpuImageResourceConfig {
