@@ -1,11 +1,12 @@
 //! Shared inputs for SVG, WGPU, and browser parity checks.
 use avenger_color::{ColorOrGradient as C, Gradient, GradientStop, LinearGradient, RadialGradient};
 use avenger_common::{
-    types::{FillRule, StrokeJoin, SymbolShape},
+    types::{FillRule, StrokeCap, StrokeJoin, SymbolShape},
     value::ScalarOrArray as S,
 };
 use avenger_scenegraph::{
     marks::{
+        area::SceneAreaMark,
         group::{Clip, SceneGroup},
         image::{SceneImageMark, SceneImageSource},
         line::SceneLineMark,
@@ -13,7 +14,9 @@ use avenger_scenegraph::{
         path::ScenePathMark,
         pattern::*,
         rect::SceneRectMark,
+        rule::SceneRuleMark,
         symbol::SceneSymbolMark,
+        text::SceneTextMark,
         trail::SceneTrailMark,
     },
     scene_graph::SceneGraph,
@@ -603,6 +606,170 @@ pub fn cases() -> Vec<Case> {
             }
         }
     }
+    let ink = [140, 153, 229, 255];
+    for cap in [StrokeCap::Butt, StrokeCap::Round, StrokeCap::Square] {
+        for dashed in [false, true] {
+            let mut case = Case::new(
+                format!("isolated-{cap:?}-{dashed}"),
+                vec![SceneLineMark {
+                    len: 6,
+                    x: S::new_array(vec![30., 80., 140., 210., 310., 350.]),
+                    y: S::new_array(vec![30., 140., 80., 180., 60., 140.]),
+                    defined: S::new_array(vec![true, false, true, true, false, true]),
+                    stroke: C::Color([0.1, 0.2, 0.8, 0.5]),
+                    stroke_width: 24.,
+                    stroke_cap: cap,
+                    stroke_join: StrokeJoin::Round,
+                    stroke_dash: dashed.then(|| vec![14., 7., 3.]),
+                    ..Default::default()
+                }
+                .into()],
+            );
+            let expected = if cap == StrokeCap::Butt {
+                [255; 4]
+            } else {
+                ink
+            };
+            case.samples = vec![([30, 30], expected), ([350, 140], expected)];
+            cases.push(case);
+        }
+        let mut case = Case::new(
+            format!("zero-dash-{cap:?}"),
+            vec![SceneRuleMark {
+                x: 60.0.into(),
+                y: 60.0.into(),
+                x2: 200.0.into(),
+                y2: 200.0.into(),
+                stroke: C::Color([0.1, 0.2, 0.8, 0.5]).into(),
+                stroke_width: 24.0.into(),
+                stroke_cap: cap.into(),
+                stroke_dash: Some(S::new_scalar(vec![0., 30.])),
+                ..Default::default()
+            }
+            .into()],
+        );
+        case.samples = vec![
+            (
+                [60, 60],
+                if cap == StrokeCap::Butt {
+                    [255; 4]
+                } else {
+                    ink
+                },
+            ),
+            (
+                [74, 60],
+                if cap == StrokeCap::Square {
+                    ink
+                } else {
+                    [255; 4]
+                },
+            ),
+        ];
+        cases.push(case);
+    }
+    for gradient in [false, true] {
+        let mark = SceneLineMark {
+            len: 4,
+            x: S::new_array(vec![60., 340., 60., 340.]),
+            y: S::new_array(vec![40., 200., 200., 40.]),
+            stroke: if gradient {
+                C::GradientIndex(0)
+            } else {
+                C::Color([0.1, 0.2, 0.8, 0.5])
+            },
+            gradients: vec![Gradient::LinearGradient(LinearGradient {
+                x0: 0.,
+                y0: 0.,
+                x1: 1.,
+                y1: 0.,
+                stops: vec![
+                    GradientStop {
+                        offset: 0.,
+                        color: [1., 0., 0., 0.5],
+                    },
+                    GradientStop {
+                        offset: 1.,
+                        color: [0., 0., 1., 0.5],
+                    },
+                ],
+            })],
+            stroke_width: 24.,
+            stroke_cap: StrokeCap::Square,
+            stroke_dash: Some(vec![1000., 1.]),
+            ..Default::default()
+        };
+        let mut case = Case::new(format!("dash-crossing-{gradient}"), vec![mark.into()]);
+        case.samples.push((
+            [200, 120],
+            if gradient { [191, 128, 191, 255] } else { ink },
+        ));
+        cases.push(case);
+    }
+    let rule = SceneRuleMark {
+        x: 60.0.into(),
+        y: 40.0.into(),
+        x2: 340.0.into(),
+        y2: 200.0.into(),
+        stroke: C::Color([0.1, 0.2, 0.8, 0.5]).into(),
+        stroke_width: 24.0.into(),
+        stroke_cap: StrokeCap::Square.into(),
+        stroke_dash: Some(S::new_scalar(vec![14., 7.])),
+        ..Default::default()
+    };
+    for separate in [false, true] {
+        let mut case = Case::new(
+            format!("dash-overlap-{separate}"),
+            if separate {
+                vec![rule.clone().into(), rule.clone().into()]
+            } else {
+                vec![rule.clone().into()]
+            },
+        );
+        case.samples
+            .push(([75, 49], if separate { [83, 102, 217, 255] } else { ink }));
+        cases.push(case);
+    }
+    for patterned in [false, true] {
+        let mut case = Case::new(
+            format!("dash-area-{patterned}"),
+            vec![SceneAreaMark {
+                len: 2,
+                x: S::new_array(vec![60., 340.]),
+                y: 40.0.into(),
+                y2: 200.0.into(),
+                fill: C::Color([0.0; 4]),
+                fill_pattern: patterned.then(|| pattern(0.0)),
+                stroke: C::Color([0.1, 0.2, 0.8, 0.5]),
+                stroke_width: 24.,
+                stroke_cap: StrokeCap::Square,
+                stroke_dash: Some(vec![0., 7., 14., 7.]),
+                ..Default::default()
+            }
+            .into()],
+        );
+        case.samples.push(([75, 40], ink));
+        cases.push(case);
+    }
+    let mut leader = Case::new(
+        "dash-leader",
+        vec![SceneTextMark {
+            text: "label".to_string().into(),
+            x: 60.0.into(),
+            y: 120.0.into(),
+            dx: 280.0.into(),
+            color: C::Color([0.0; 4]).into(),
+            leader: true.into(),
+            leader_stroke: C::Color([0.1, 0.2, 0.8, 0.5]).into(),
+            leader_stroke_width: 24.0.into(),
+            leader_stroke_cap: StrokeCap::Square.into(),
+            leader_stroke_dash: Some(S::new_scalar(vec![0., 7., 14., 7.])),
+            ..Default::default()
+        }
+        .into()],
+    );
+    leader.samples.push(([200, 120], ink));
+    cases.push(leader);
     for (label, left, top, side) in [("small", 20., 20., 80.), ("large", 500., 400., 720.)] {
         let g = RadialGradient {
             x0: 0.501,
