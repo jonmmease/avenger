@@ -2,7 +2,9 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{FillRule as SceneFillRule, StrokeCap, StrokeJoin, SCENE_MITER_LIMIT};
-use avenger_scenegraph::path_geometry::{trail_outline, GradientBounds};
+use avenger_scenegraph::path_geometry::{
+    needs_explicit_caps, stroke_outline, trail_outline, GradientBounds,
+};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark,
@@ -19,7 +21,7 @@ use avenger_scenegraph::{
         text::SceneTextMark,
         text_leader::{
             compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
-            TextLeaderGeometryInput, TextLeaderPath,
+            TextLeaderGeometryInput,
         },
         trail::SceneTrailMark,
     },
@@ -472,7 +474,7 @@ impl PdfRenderer {
     ) -> Result<(), AvengerPdfError> {
         self.draw_path_with_style(
             surface,
-            &line_mark_path(mark, origin),
+            &mark.undashed_path(origin),
             PathStyle {
                 fill_rule: SceneFillRule::NonZero,
                 gradient_bounds: Some(GradientBounds::from_path(&mark.transformed_path(origin))),
@@ -884,7 +886,7 @@ impl PdfRenderer {
         geometry: &TextLeaderGeometry,
         style: LeaderStrokeStyle<'_>,
     ) -> Result<(), AvengerPdfError> {
-        let spine = text_leader_path(&geometry.spine);
+        let spine = geometry.spine.to_lyon();
         self.draw_path_with_style(
             surface,
             &spine,
@@ -1202,6 +1204,44 @@ impl PdfRenderer {
         path: &LyonPath,
         style: PathStyle<'_>,
     ) -> Result<(), AvengerPdfError> {
+        if style.stroke.is_some()
+            && style.stroke_width.is_some_and(|width| width > 0.0)
+            && style.stroke_miter_limit.is_none()
+            && style.stroke_dash_offset == 0.0
+            && needs_explicit_caps(path, style.stroke_dash)
+        {
+            let bounds = style
+                .gradient_bounds
+                .unwrap_or_else(|| GradientBounds::from_path(path));
+            self.draw_path_with_style(
+                surface,
+                path,
+                PathStyle {
+                    stroke: None,
+                    ..style
+                },
+            )?;
+            let outline = stroke_outline(
+                path,
+                style.stroke_dash,
+                style.stroke_width.unwrap(),
+                style.stroke_cap.unwrap_or_default(),
+                style.stroke_join.unwrap_or_default(),
+            )
+            .map_err(|error| AvengerPdfError::InvalidGeometry(error.to_string()))?;
+            return self.draw_path_with_style(
+                surface,
+                &outline,
+                PathStyle {
+                    gradient_bounds: Some(bounds),
+                    fill_rule: SceneFillRule::NonZero,
+                    fill: style.stroke,
+                    stroke: None,
+                    stroke_dash: None,
+                    ..style
+                },
+            );
+        }
         let Some(krilla_path) = lyon_path_to_krilla(path) else {
             return Ok(());
         };
@@ -1761,47 +1801,6 @@ fn line_join(join: StrokeJoin) -> LineJoin {
     }
 }
 
-fn line_mark_path(mark: &SceneLineMark, origin: [f32; 2]) -> LyonPath {
-    let mut builder = LyonPath::builder();
-    let mut path_len = 0usize;
-    let mut last = None;
-
-    for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter()) {
-        if *defined {
-            let point = lyon_path::math::point(*x + origin[0], *y + origin[1]);
-            if path_len == 0 {
-                builder.begin(point);
-            } else {
-                builder.line_to(point);
-            }
-            path_len += 1;
-            last = Some(point);
-        } else {
-            close_single_point_subpath(&mut builder, path_len, last);
-            path_len = 0;
-            last = None;
-        }
-    }
-
-    close_single_point_subpath(&mut builder, path_len, last);
-    builder.build()
-}
-
-fn close_single_point_subpath(
-    builder: &mut lyon_path::path::Builder,
-    path_len: usize,
-    last: Option<lyon_path::math::Point>,
-) {
-    match (path_len, last) {
-        (0, _) => {}
-        (1, Some(point)) => {
-            builder.line_to(point);
-            builder.end(false);
-        }
-        _ => builder.end(false),
-    }
-}
-
 fn font_resource(
     buffer: &TextPdfBuffer,
     id: FontResourceId,
@@ -1856,41 +1855,6 @@ fn is_translation_only(transform: avenger_typst_label::Transform) -> bool {
         && transform.ky.abs() < EPSILON
         && transform.kx.abs() < EPSILON
         && (transform.sy - 1.0).abs() < EPSILON
-}
-
-fn text_leader_path(path: &TextLeaderPath) -> LyonPath {
-    let mut builder = LyonPath::builder();
-    match path {
-        TextLeaderPath::Line { start, end } => {
-            builder.begin(lyon_path::math::point(start[0], start[1]));
-            builder.line_to(lyon_path::math::point(end[0], end[1]));
-            builder.end(false);
-        }
-        TextLeaderPath::Polyline { points } => {
-            if let Some(first) = points.first() {
-                builder.begin(lyon_path::math::point(first[0], first[1]));
-                for point in points.iter().skip(1) {
-                    builder.line_to(lyon_path::math::point(point[0], point[1]));
-                }
-                builder.end(false);
-            }
-        }
-        TextLeaderPath::Cubic {
-            start,
-            ctrl1,
-            ctrl2,
-            end,
-        } => {
-            builder.begin(lyon_path::math::point(start[0], start[1]));
-            builder.cubic_bezier_to(
-                lyon_path::math::point(ctrl1[0], ctrl1[1]),
-                lyon_path::math::point(ctrl2[0], ctrl2[1]),
-                lyon_path::math::point(end[0], end[1]),
-            );
-            builder.end(false);
-        }
-    }
-    builder.build()
 }
 
 fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
