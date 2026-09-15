@@ -528,6 +528,8 @@ impl LabelRun<'_> {
         }
         let lo = a.2.min(b.2);
         let hi = a.3.max(b.3);
+        let start = a.0.min(b.0);
+        let end = a.1.max(b.1);
         for other in self
             .frames
             .tree
@@ -535,7 +537,7 @@ impl LabelRun<'_> {
             .filter(|p| *p != panel && *p != owner && self.frames.visible(p))
         {
             let c = axes(plot(self.frames, other), self.side);
-            if !overlaps(a.0, a.1, c.0, c.1) || !overlaps(lo, hi, c.2, c.3) {
+            if !overlaps(start, end, c.0, c.1) || !overlaps(lo, hi, c.2, c.3) {
                 continue;
             }
             if !self.members.contains(other)

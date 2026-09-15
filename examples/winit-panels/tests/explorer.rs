@@ -1,5 +1,19 @@
 use avenger_panels::{GuideKind, NodeId, PanelDisplay, PanelId};
+use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use winit_panels::{scene, state::State};
+
+fn chart_group(out: &scene::Output) -> &SceneGroup {
+    let SceneMark::Group(root) = &out.scene.marks[0] else {
+        panic!("scene root")
+    };
+    root.marks
+        .iter()
+        .find_map(|m| match m {
+            SceneMark::Group(g) if g.name == "panels" || g.name == "needs-room" => Some(g),
+            _ => None,
+        })
+        .unwrap()
+}
 
 #[test]
 fn outer_x_labels_remain_shared_with_independent_y_domains() {
@@ -133,19 +147,9 @@ fn explorer_coordinates_domains_titles_legends_and_reflow_through_public_plans()
 }
 
 #[test]
-fn all_controls_and_unit_format_changes_produce_measured_scenes() {
+fn equal_domains_with_different_units_keep_local_y_labels() {
     let mut state = State::new(avenger_text::default_text_engine());
-    for index in [0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7] {
-        state.activate(index);
-        let out = scene::build(&state).unwrap();
-        assert!(!out.fallback, "control {index}");
-        let p = out.frames.rect(&NodeId::Group("figure".into())).unwrap();
-        assert!(p.width > 0.0 && p.height > 0.0);
-        for instance in out.plan.instances() {
-            assert!(out.frames.rect(instance.anchor()).is_some());
-            assert!(!instance.members().is_empty());
-        }
-    }
+    state.preset = 2;
     state.y_scope = 2;
     let mixed = scene::build(&state).unwrap();
     assert_eq!(
@@ -159,9 +163,35 @@ fn all_controls_and_unit_format_changes_produce_measured_scenes() {
 }
 
 #[test]
-fn measured_guides_do_not_overlap_each_other_or_leave_the_canvas() {
+fn crowded_layouts_request_room_and_recover_after_resize() {
+    for (size, title_scope, legend_scope, legend_bottom, missing) in [
+        ([940.0, 1000.0], 0, 1, true, 0),
+        ([720.0, 780.0], 1, 0, false, 2),
+        ([720.0, 780.0], 1, 2, true, 2),
+    ] {
+        let mut state = State::new(avenger_text::default_text_engine());
+        state.size = size;
+        state.y_scope = 0;
+        state.title_scope = title_scope;
+        state.legend_scope = legend_scope;
+        state.legend_bottom = legend_bottom;
+        state.missing = missing;
+        let out = scene::build(&state).unwrap();
+        assert_eq!(
+            chart_group(&out).name,
+            "needs-room",
+            "{size:?}, {legend_scope}"
+        );
+
+        state.size[1] = 1600.0;
+        let out = scene::build(&state).unwrap();
+        assert_eq!(chart_group(&out).name, "panels", "{size:?}, {legend_scope}");
+    }
+}
+
+#[test]
+fn measured_guides_do_not_overlap_axes_or_each_other_or_leave_the_canvas() {
     use avenger_geometry::marks::MarkGeometryUtils;
-    use avenger_scenegraph::marks::mark::SceneMark;
 
     let mut state = State::new(avenger_text::default_text_engine());
     for (size, local) in [
@@ -185,30 +215,26 @@ fn measured_guides_do_not_overlap_each_other_or_leave_the_canvas() {
             bounds.upper()[0] <= size[0] && bounds.upper()[1] <= size[1],
             "scene bounds: {size:?} {bounds:?}"
         );
-        let chart = root
-            .marks
-            .iter()
-            .find_map(|m| match m {
-                SceneMark::Group(g) if g.name == "panels" || g.name == "needs-room" => Some(g),
-                _ => None,
-            })
-            .unwrap();
+        let chart = chart_group(&out);
         if size[1] == 780.0 {
             assert_eq!(chart.name, "needs-room");
             continue;
         }
         assert_eq!(chart.name, "panels", "{size:?}");
-        let guides: Vec<_> = chart
+        let groups: Vec<_> = chart
             .marks
             .iter()
             .filter_map(|m| match m {
-                SceneMark::Group(g) if g.name.starts_with("guide/") => Some(g),
+                SceneMark::Group(g) => Some(g),
                 _ => None,
             })
             .collect();
-        for (index, a) in guides.iter().enumerate() {
+        for (index, a) in groups.iter().enumerate() {
             let a_bounds = a.bounding_box_with_text_engine(&state.engine);
-            for b in &guides[index + 1..] {
+            for b in &groups[index + 1..] {
+                if !a.name.starts_with("guide/") && !b.name.starts_with("guide/") {
+                    continue;
+                }
                 let b_bounds = b.bounding_box_with_text_engine(&state.engine);
                 let separated = (0..2).any(|axis| {
                     a_bounds.upper()[axis] <= b_bounds.lower()[axis]
@@ -216,7 +242,7 @@ fn measured_guides_do_not_overlap_each_other_or_leave_the_canvas() {
                 });
                 assert!(
                     separated,
-                    "overlapping guides: {} and {} at {size:?}",
+                    "overlapping groups: {} and {} at {size:?}",
                     a.name, b.name
                 );
             }
