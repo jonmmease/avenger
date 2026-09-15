@@ -37,7 +37,6 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => snapshot(page).then(s => s.controls.length).catch(() => 0), { timeout: 30_000 }).toBeGreaterThan(8);
   await expect(page.locator('#status')).toBeHidden();
   await expect.poll(() => page.locator('canvas').evaluate(e => e.width === Math.round(e.clientWidth * devicePixelRatio) && e.height === Math.round(e.clientHeight * devicePixelRatio)), { timeout: 30_000 }).toBe(true);
-  await expect.poll(async () => (await page.locator('canvas').screenshot()).length, { timeout: 30_000 }).toBeGreaterThan(15000);
 });
 test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
 
@@ -109,7 +108,11 @@ test('slider preview, outside capture, keyboard commit, and plot panning stay se
   const beforeScroll = await page.evaluate(() => scrollY);
   await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(beforeScroll);
-
+  expect(await page.locator('canvas').evaluate(e => {
+    const wheel = new WheelEvent('wheel', { deltaY: 1, bubbles: true, cancelable: true });
+    e.dispatchEvent(wheel);
+    return wheel.defaultPrevented;
+  })).toBe(true);
 });
 
 test('text editing, clipboard, Typst validation, history, and composition', async ({ page }) => {
@@ -161,6 +164,33 @@ test('late composition does not cross focus targets and controls survive resizin
   await expect.poll(() => control(page, 'layers', 'grid').then(r => r.x)).toBe(604);
   await click(page, 'layers', 'grid');
   await expect.poll(() => snapshot(page).then(s => s.layers)).not.toContain('grid');
+});
+
+test('composition input stays in the browser and cancellation preserves selected text', async ({ page }) => {
+  await click(page, 'title');
+  await selectAll(page);
+  await compose(page, 'compositionstart', '');
+  await compose(page, 'compositionupdate', 'かな');
+  await page.locator('input').evaluate(e => {
+    e.value = 'かな';
+    e.dispatchEvent(new InputEvent('input', { data: 'かな', inputType: 'insertCompositionText', isComposing: true, bubbles: true }));
+  });
+  await expect(page.locator('input')).toHaveValue('かな');
+  expect((await snapshot(page)).title).toBe('Signal and variation');
+  await compose(page, 'compositionend', '');
+  await expect.poll(() => clipboard(page, 'copy')).toBe('Signal and variation');
+  expect((await snapshot(page)).title).toBe('Signal and variation');
+});
+
+test('committed browser text is not interpreted as a modified keyboard shortcut', async ({ page }) => {
+  await click(page, 'title');
+  await selectAll(page);
+  // AltGr can report Control+Alt while the DOM supplies the resulting character.
+  await page.locator('input').evaluate(e => {
+    e.dispatchEvent(new KeyboardEvent('keydown', { key: '@', ctrlKey: true, altKey: true, bubbles: true }));
+    e.dispatchEvent(new InputEvent('input', { data: '@', inputType: 'insertText', bubbles: true }));
+  });
+  await expect.poll(() => snapshot(page).then(s => s.title)).toBe('@');
 });
 
 

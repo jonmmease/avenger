@@ -940,7 +940,7 @@ where
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn setup_wasm_canvas(&self, window: &winit::window::Window) {
+    fn setup_wasm_canvas(&self, window: &Arc<winit::window::Window>) {
         use winit::platform::web::WindowExtWebSys;
 
         let canvas = web_sys::window()
@@ -952,12 +952,14 @@ where
                 Some(canvas)
             })
             .expect("Couldn't append canvas to document body.");
-        let host = TextAgentHost::new_with_clipboard_payload_provider(
+        let mut host = TextAgentHost::new_with_clipboard_payload_provider(
             canvas,
             self.event_proxy.clone(),
             self.clipboard_payload_provider.clone(),
         )
         .expect("failed to install wasm text agent");
+        host.install_winit_keyboard_policy(window.clone())
+            .expect("failed to install wasm keyboard policy");
         *self.text_agent.borrow_mut() = Some(host);
     }
 }
@@ -967,13 +969,8 @@ where
     State: Clone + Send + Sync + 'static,
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            use winit::platform::web::WindowAttributesExtWebSys;
-            self.window_attributes = self.window_attributes.clone().with_prevent_default(false);
-        }
         let window = match event_loop.create_window(self.window_attributes.clone()) {
-            Ok(window) => window,
+            Ok(window) => Arc::new(window),
             Err(error) => {
                 self.fatal_error = Some(format!("failed to create native window: {error}"));
                 event_loop.exit();
@@ -1033,6 +1030,7 @@ where
                                 None,
                             ) {
                                 log::error!("Failed to set initial scene: {err:?}");
+                                return;
                             }
                             *canvas_shared.borrow_mut() = Some(canvas);
                             apply_browser_host_commands(initial_commands, &wake_scheduler, &canvas_shared, &text_agent);
