@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 270 124" font-family="monospace" font-size="10">
+  <defs>
+    <pattern id="hatch-g1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#e98080" stroke-width="1.6"/></pattern>
+  </defs>
+  <rect x="-10" y="-10" width="270" height="124" fill="#ffffff"/>
+  <rect x="5" y="0" width="245" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="71" y="0" width="8" height="80" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="71" y="0" width="8" height="80" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="6" y="0" width="5" height="80" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="6" y="0" width="5" height="80" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="11" y="0" width="60" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="14" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a</text>
+  <rect x="183" y="0" width="2" height="80" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="183" y="0" width="2" height="80" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="79" y="0" width="14" height="80" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="79" y="0" width="14" height="80" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="93" y="0" width="90" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="96" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b</text>
+  <rect x="194" y="0" width="1" height="80" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <rect x="194" y="0" width="1" height="80" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="195" y="0" width="45" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="198" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c</text>
+  <rect x="0" y="90" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="99" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="90" width="5" height="10" fill="#e98080" stroke="#e98080" stroke-width="1"/>
+  <rect x="74" y="90" width="5" height="10" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <text x="82" y="99" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d1</text>
+  <rect x="0" y="0" width="250" height="80" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>

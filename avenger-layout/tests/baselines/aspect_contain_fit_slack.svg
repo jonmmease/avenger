@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 280 164" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="280" height="164" fill="#ffffff"/>
+  <rect x="0" y="0" width="260" height="120" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">grid</text>
+  <rect x="0" y="0" width="260" height="120" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="70" y="0" width="120" height="120" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="73" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">square</text>
+  <rect x="0" y="130" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="139" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="130" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="82" y="139" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <rect x="0" y="0" width="260" height="120" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>
