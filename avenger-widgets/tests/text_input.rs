@@ -344,6 +344,21 @@ fn composition_cancellation_restores_selection_and_rejects_old_session() {
     assert_eq!(r.fields[0].value, "start");
 }
 #[test]
+fn empty_composition_commit_restores_selected_text() {
+    let mut r = Rig::new(TextCommitPolicy::Immediate);
+    r.select_all();
+    let selection = r.runtime.text_selection("a");
+    r.input(TextInputEvent::Ime(ImeEvent::Preedit {
+        text: "é".into(),
+        cursor: Some((2, 2)),
+    }));
+    let cancelled = r.input(TextInputEvent::Ime(ImeEvent::Commit("".into())));
+    assert!(actions(&cancelled).is_empty());
+    assert_eq!(r.fields[0].value, "start");
+    assert_eq!(r.runtime.text_selection("a"), selection);
+    assert!(!r.runtime.text_is_composing("a"));
+}
+#[test]
 fn external_updates_during_composition_wait_and_latest_wins() {
     let mut r = Rig::new(TextCommitPolicy::Immediate);
     r.select_all();

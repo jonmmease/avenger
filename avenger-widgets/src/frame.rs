@@ -101,11 +101,6 @@ impl PreparedWidgets {
                         if horizontal { size.width } else { rect.width },
                         size.height,
                     );
-                    let epoch = control
-                        .item_epochs
-                        .get(&item.id)
-                        .copied()
-                        .unwrap_or(control.epoch);
                     regions.push(Region {
                         target: WidgetTarget::item(id.clone(), item.id.clone()),
                         rect: row,
@@ -113,12 +108,12 @@ impl PreparedWidgets {
                         name: if item.enabled {
                             format!(
                                 "__avenger_widget_{}_{}_item",
-                                self.candidate.namespace, epoch
+                                self.candidate.namespace, control.item_epochs[&item.id]
                             )
                         } else {
                             format!(
                                 "__avenger_widget_{}_{}_disabled_{}",
-                                self.candidate.namespace, epoch, i
+                                self.candidate.namespace, control.epoch, i
                             )
                         },
                     });
@@ -144,7 +139,7 @@ impl PreparedWidgets {
         self.candidate.regions = regions;
         let mut update = self.update;
         self.candidate.reconcile_targets(&mut update);
-        self.candidate.layout_text(&mut update)?;
+        self.candidate.layout_text()?;
         let mut scene = SceneGroup {
             name: format!("__avenger_widgets_{}", self.candidate.namespace),
             interactive: false,

@@ -86,6 +86,7 @@ flushes a pending commit, emits `TextSubmitted`, and retains focus. Ordinary blu
 flushes before the focus-loss notification. Removal and disabling cancel pending
 work. A commit expresses user intent, not successful application validation.
 
+IME cancellation restores the text and selection that preceded composition.
 Escape cancels composition first and restores its selection. A later Escape
 restores the last committed or programmatically supplied draft. Both retain field
 focus. Applications can use `reset_text` for an explicit reset that immediately
@@ -98,6 +99,8 @@ IME, clipboard, and keyed wakeup events through the runtime. Publish every retur
 host effect, including initial-build and successful-rebuild effects. The winit
 host supplies this protocol on native and WASM targets. Use `with_text_shortcuts`
 to select Mac conventions in a browser running on macOS.
+Browser key ownership applies only to keyboard events. The host preserves the
+window's configured default prevention for wheel, pointer, and touch events.
 
 History retains 100 groups. Typing or deletion coalesces within one second until
 navigation, focus, or edit class changes. Paste, cut, and IME commits are separate

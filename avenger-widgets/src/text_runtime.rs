@@ -150,7 +150,7 @@ impl WidgetRuntime {
         let mut update = WidgetUpdate::default();
         update.status.rerender = true;
         self.reset_text_blink(&id, &mut update);
-        self.layout_text(&mut update)?;
+        self.layout_text()?;
         self.publish_policy(&mut update);
         self.revision += 1;
         Ok(update)
@@ -193,7 +193,7 @@ impl WidgetRuntime {
             self.activate_text_session(&target, &mut update);
         }
         update.status.rerender = true;
-        self.layout_text(&mut update)?;
+        self.layout_text()?;
         self.publish_policy(&mut update);
         self.revision += 1;
         Ok(update)
@@ -369,7 +369,7 @@ impl WidgetRuntime {
             rect: if editable { caret } else { None },
         });
     }
-    pub(crate) fn layout_text(&mut self, _update: &mut WidgetUpdate) -> Result<(), WidgetError> {
+    pub(crate) fn layout_text(&mut self) -> Result<(), WidgetError> {
         let Some(engine) = &self.engine else {
             return Ok(());
         };
@@ -636,7 +636,7 @@ impl WidgetRuntime {
             changed(s, spec, c.epoch, self.namespace, self.now, update);
         }
         self.reset_text_blink(id, update);
-        self.layout_text(update)?;
+        self.layout_text()?;
         Ok(())
     }
     fn finish_composition(
@@ -647,7 +647,7 @@ impl WidgetRuntime {
     ) -> Result<(), WidgetError> {
         let c = self.controls.get_mut(id).unwrap();
         let s = c.text.as_mut().unwrap();
-        if s.deferred.is_some() {
+        if s.deferred.is_some() || (text.is_empty() && s.composition.is_some()) {
             return self.cancel_composing_text(id, update);
         }
         let class = if s.composition.is_some() {
@@ -710,7 +710,7 @@ impl WidgetRuntime {
             self.resume_text_commit(id, update);
         }
         self.reset_text_blink(id, update);
-        self.layout_text(update)?;
+        self.layout_text()?;
         Ok(())
     }
     fn submit_text(&mut self, id: &WidgetId, update: &mut WidgetUpdate) {
@@ -752,7 +752,7 @@ impl WidgetRuntime {
             update.status.rerender = true;
         }
         self.reset_text_blink(id, update);
-        self.layout_text(update)?;
+        self.layout_text()?;
         Ok(())
     }
     fn text_key(
@@ -1225,6 +1225,6 @@ impl WidgetRuntime {
         self.resume_text_commit(id, update);
         self.reset_text_blink(id, update);
         update.status.rerender = true;
-        self.layout_text(update)
+        self.layout_text()
     }
 }

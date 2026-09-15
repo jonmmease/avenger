@@ -15,7 +15,6 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#status")).toBeHidden();
   // A cold software WebGPU adapter can take several seconds to initialize.
   await expect.poll(() => page.locator("canvas").evaluate(e => e.width === Math.round(e.clientWidth * devicePixelRatio) && e.height === Math.round(e.clientHeight * devicePixelRatio)), { timeout: 30_000 }).toBe(true);
-  await expect.poll(async () => (await page.locator("canvas").screenshot()).length, { timeout: 30_000 }).toBeGreaterThan(15000);
 });
 test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
 

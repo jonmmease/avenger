@@ -132,16 +132,7 @@ impl FocusStyle {
     }
     pub(crate) fn validate(&self) -> Result<(), WidgetError> {
         lengths(&[self.width, self.gap])?;
-        if self
-            .color
-            .iter()
-            .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-        {
-            return Err(WidgetError::Invalid(
-                "focus color requires finite RGBA components in 0..=1".into(),
-            ));
-        }
-        Ok(())
+        colors(&[self.color])
     }
 }
 
@@ -429,7 +420,7 @@ impl WidgetTheme {
         t.focus.validate()?;
         t.paint.validate()?;
         lengths(&[t.width, t.height, t.padding, t.radius, t.border_width])?;
-        for color in [
+        colors(&[
             t.read_only.fill,
             t.read_only.border,
             t.read_only.foreground,
@@ -437,16 +428,7 @@ impl WidgetTheme {
             t.selection,
             t.caret,
             t.placeholder,
-        ] {
-            if color
-                .iter()
-                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-            {
-                return Err(WidgetError::Invalid(
-                    "text colors require finite RGBA components in 0..=1".into(),
-                ));
-            }
-        }
+        ])?;
         let b = &self.button;
         b.text.validate()?;
         b.focus.validate()?;
