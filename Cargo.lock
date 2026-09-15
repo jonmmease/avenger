@@ -607,7 +607,7 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.21",
  "wkb",
 ]
 
@@ -2325,7 +2325,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.21",
  "tinyvec",
 ]
 
