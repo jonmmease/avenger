@@ -4,7 +4,9 @@
 //! closing (duplicate) point omitted; clip stages re-close rings.
 
 use crate::stream::GeoStream;
-use geo_types::{Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
+use geo_types::{
+    Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+};
 
 pub trait Streamable {
     fn stream(&self, sink: &mut dyn GeoStream);
@@ -21,7 +23,7 @@ impl Streamable for Sphere {
     }
 }
 
-fn stream_line(points: &[(f64, f64)], sink: &mut dyn GeoStream, closed: bool) {
+fn stream_line(points: &[Coord<f64>], sink: &mut dyn GeoStream, closed: bool) {
     let n = if closed {
         points.len().saturating_sub(1)
     } else {
@@ -29,20 +31,16 @@ fn stream_line(points: &[(f64, f64)], sink: &mut dyn GeoStream, closed: bool) {
     };
     sink.line_start();
     for p in &points[..n] {
-        sink.point(p.0, p.1, None);
+        sink.point(p.x, p.y, None);
     }
     sink.line_end();
 }
 
-fn coords(ls: &LineString<f64>) -> Vec<(f64, f64)> {
-    ls.0.iter().map(|c| (c.x, c.y)).collect()
-}
-
 fn stream_polygon(poly: &Polygon<f64>, sink: &mut dyn GeoStream) {
     sink.polygon_start();
-    stream_line(&coords(poly.exterior()), sink, true);
+    stream_line(&poly.exterior().0, sink, true);
     for interior in poly.interiors() {
-        stream_line(&coords(interior), sink, true);
+        stream_line(&interior.0, sink, true);
     }
     sink.polygon_end();
 }
@@ -63,14 +61,14 @@ impl Streamable for MultiPoint<f64> {
 
 impl Streamable for LineString<f64> {
     fn stream(&self, sink: &mut dyn GeoStream) {
-        stream_line(&coords(self), sink, false);
+        stream_line(&self.0, sink, false);
     }
 }
 
 impl Streamable for MultiLineString<f64> {
     fn stream(&self, sink: &mut dyn GeoStream) {
         for ls in &self.0 {
-            stream_line(&coords(ls), sink, false);
+            stream_line(&ls.0, sink, false);
         }
     }
 }
@@ -94,9 +92,7 @@ impl Streamable for Geometry<f64> {
         match self {
             Geometry::Point(g) => g.stream(sink),
             Geometry::MultiPoint(g) => g.stream(sink),
-            Geometry::Line(g) => {
-                stream_line(&[(g.start.x, g.start.y), (g.end.x, g.end.y)], sink, false)
-            }
+            Geometry::Line(g) => stream_line(&[g.start, g.end], sink, false),
             Geometry::LineString(g) => g.stream(sink),
             Geometry::MultiLineString(g) => g.stream(sink),
             Geometry::Polygon(g) => g.stream(sink),

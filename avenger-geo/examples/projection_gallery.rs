@@ -25,12 +25,8 @@ fn path_data(path: &Path) -> String {
     data
 }
 
-fn project_path(projector: &Projector, object: &dyn Streamable, fill: bool) -> String {
-    let mut sink = if fill {
-        LyonPathSink::fill()
-    } else {
-        LyonPathSink::stroke()
-    };
+fn project_path(projector: &Projector, object: &dyn Streamable) -> String {
+    let mut sink = LyonPathSink::new();
     projector.stream(object, &mut sink);
     path_data(&sink.finish())
 }
@@ -111,17 +107,17 @@ fn gallery() -> Result<String, Box<dyn Error>> {
             .with_precision(0.2);
         config.fit_extent([[18.0, 69.0], [330.0, 248.0]], &Sphere)?;
         let projector = config.build();
-        let outline = project_path(&projector, &Sphere, true);
+        let outline = project_path(&projector, &Sphere);
         write!(
             svg,
             r##"<path d="{outline}" fill="#edf4fa" stroke="#7292ad" stroke-width="1"/>"##
         )?;
-        let grid = project_path(&projector, &graticule, false);
+        let grid = project_path(&projector, &graticule);
         write!(
             svg,
             r##"<path d="{grid}" fill="none" stroke="#b5c9dc" stroke-width="0.65"/>"##
         )?;
-        let mut polygon = LyonPathSink::fill();
+        let mut polygon = LyonPathSink::new();
         stream_wkb_through(&projector, wkb, &mut polygon)?;
         write!(
             svg,
@@ -132,7 +128,7 @@ fn gallery() -> Result<String, Box<dyn Error>> {
             write!(
                 svg,
                 r##"<path d="{}" fill="none" stroke="{color}" stroke-width="2.3" stroke-linecap="round"/>"##,
-                project_path(&projector, line, false)
+                project_path(&projector, line)
             )?;
             for point in line.points() {
                 if let Some((x, y)) = projector.project(point.x(), point.y()) {
