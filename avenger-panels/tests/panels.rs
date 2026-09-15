@@ -486,6 +486,45 @@ fn alignment_tolerance_is_direct_not_transitive() {
 }
 
 #[test]
+fn alignment_tolerance_preserves_blockers_at_either_span_edge() {
+    let t = simple(&["a", "b", "blocker"]);
+    for side in [Side::Left, Side::Right, Side::Top, Side::Bottom] {
+        let rects = [
+            ("a", Rect::new(30.0, 0.0, 10.0, 100.0)),
+            ("b", Rect::new(0.0, 1.0, 10.0, 100.0)),
+            ("blocker", Rect::new(15.0, 100.0, 5.0, 1.0)),
+        ]
+        .map(|(id, r)| {
+            let r = if matches!(side, Side::Top | Side::Bottom) {
+                Rect::new(r.y, r.x, r.height, r.width)
+            } else {
+                r
+            };
+            (id, r)
+        });
+        for holes in [&[][..], &["blocker"][..]] {
+            let p = t
+                .plan_guides(
+                    &frames(&t, &rects, holes),
+                    [labels(
+                        side,
+                        contributions(&[("a", Some("same")), ("b", Some("same"))]),
+                    )],
+                    GuideOptions {
+                        alignment_tolerance: 1.0,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                p.instances().count(),
+                if holes.is_empty() { 2 } else { 1 },
+                "{side:?}, holes={holes:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn shared_guide_anchor_and_source_are_independent_and_stable() {
     let t = tree();
     let rects: Vec<_> = t
