@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+supports_wasm32() {
+    "$1" --print-targets 2>/dev/null | grep -Eq '^[[:space:]]*wasm32[[:space:]]'
+}
+
+for candidate in \
+    "${AVENGER_WASM_CC:-}" \
+    "/opt/homebrew/opt/llvm/bin/clang" \
+    "/usr/local/opt/llvm/bin/clang" \
+    "clang" \
+    "cc"
+do
+    [ -n "$candidate" ] || continue
+    if command -v "$candidate" >/dev/null 2>&1 && supports_wasm32 "$candidate"; then
+        exec "$candidate" "$@"
+    fi
+done
+
+cat >&2 <<'EOF'
+error: no wasm-capable C compiler found for wasm32-unknown-unknown.
+
+DataFusion 54 builds Arrow IPC zstd support for wasm, which requires a clang
+with a wasm32 target. On macOS, install Homebrew LLVM:
+
+  brew install llvm
+
+Or set AVENGER_WASM_CC to a wasm-capable clang.
+EOF
+exit 127
