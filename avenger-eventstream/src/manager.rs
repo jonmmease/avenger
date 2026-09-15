@@ -52,6 +52,7 @@ pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     // Track current mousedown mark, used for click determination
     mousedown_mark: Option<MarkInstance>,
     mousedown_button: Option<MouseButton>,
+    suppressed_click_buttons: Vec<MouseButton>,
     modifiers: ModifiersState,
 }
 
@@ -67,6 +68,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             current_cursor_position: None,
             mousedown_mark: None,
             mousedown_button: None,
+            suppressed_click_buttons: Vec::new(),
             modifiers: ModifiersState::default(),
         }
     }
@@ -135,7 +137,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         instant: Instant,
     ) -> UpdateStatus {
         // Update modifier state based on keyboard events
-        if let WindowEvent::KeyboardInput(input) = event {
+        if let Some(input) = event.keyboard_input() {
             self.update_modifiers(input);
         }
         if let WindowEvent::ModifiersChanged(modifiers) = event {
@@ -184,7 +186,8 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         }))
                     } else if input.state == ElementState::Released {
                         // Check if both mark and button match
-                        if self.mousedown_mark.as_ref() == mark_instance.as_ref()
+                        if !self.suppressed_click_buttons.contains(&input.button)
+                            && self.mousedown_mark.as_ref() == mark_instance.as_ref()
                             && self.mousedown_button.as_ref() == Some(&input.button)
                         {
                             if input.button == MouseButton::Left {
@@ -216,6 +219,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                                 );
                             }
                         }
+
                         self.mousedown_mark = None;
                         self.mousedown_button = None;
                         Some(SceneGraphEvent::MouseUp(SceneMouseUpEvent {
@@ -253,28 +257,35 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 }
             }
             WindowEvent::KeyboardInput(e) => {
-                if let Some(position) = self.current_cursor_position {
-                    let mark_instance = self.get_mark_path_for_event_at_position(&position, rtree);
-                    if e.state == ElementState::Pressed {
-                        Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
-                            position,
-                            key: e.key,
-                            text: e.text.clone(),
+                let position = self.current_cursor_position;
+                let mark_instance =
+                    position.and_then(|p| self.get_mark_path_for_event_at_position(&p, rtree));
+                if e.state == ElementState::Pressed {
+                    Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
+                        position,
+                        key: e.key,
+                        text: e.text.clone(),
+                        repeat: e.repeat,
 
-                            mark_instance,
-                            modifiers: self.modifiers,
-                        }))
-                    } else {
-                        Some(SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
-                            position,
-                            key: e.key,
-                            mark_instance,
-                            modifiers: self.modifiers,
-                        }))
-                    }
+                        mark_instance,
+                        modifiers: self.modifiers,
+                    }))
                 } else {
-                    None
+                    Some(SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
+                        position,
+                        key: e.key,
+                        mark_instance,
+                        modifiers: self.modifiers,
+                    }))
                 }
+            }
+            WindowEvent::TextInput(input) => Some(SceneGraphEvent::TextInput {
+                input: input.clone(),
+                modifiers: self.modifiers,
+            }),
+            WindowEvent::PointerCaptureLost => Some(SceneGraphEvent::PointerCaptureLost),
+            WindowEvent::FocusEntered { reverse } => {
+                Some(SceneGraphEvent::FocusEntered { reverse: *reverse })
             }
             WindowEvent::Ime(event) => Some(SceneGraphEvent::Ime(event.clone())),
             WindowEvent::Clipboard(event) => Some(SceneGraphEvent::Clipboard(event.clone())),
@@ -318,6 +329,15 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             );
         }
 
+        if let WindowEvent::MouseInput(input) = event {
+            // Each press starts a new gesture, even if an earlier release went to another window.
+            self.suppressed_click_buttons
+                .retain(|button| button != &input.button);
+            if input.state == ElementState::Pressed && update_status.suppress_click {
+                self.suppressed_click_buttons.push(input.button);
+                self.last_click = None;
+            }
+        }
         update_status
     }
 
@@ -1691,6 +1711,7 @@ mod tests {
             0
         );
     }
+
     #[tokio::test]
     async fn canvas_resize_maps_to_scene_graph_event() {
         let state = TestState::default();
@@ -1722,6 +1743,7 @@ mod tests {
             })]
         );
     }
+
     #[tokio::test]
     async fn key_press_preserves_full_text_separately_from_logical_key() {
         let state = TestState::default();
@@ -1741,6 +1763,7 @@ mod tests {
         manager
             .dispatch_event(
                 &WindowEvent::KeyboardInput(WindowKeyboardInput {
+                    repeat: false,
                     key: Key::Character('e'),
                     text: Some(text.into()),
                     state: ElementState::Pressed,
@@ -1803,6 +1826,190 @@ mod tests {
         assert!(!WindowEvent::Ime(crate::window::ImeEvent::Enabled).skip_if_render_pending());
         assert!(
             !WindowEvent::Clipboard(crate::window::ClipboardEvent::Copy).skip_if_render_pending()
+        );
+    }
+
+    #[tokio::test]
+    async fn keyboard_without_pointer_preserves_repeat_and_optional_position() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![
+                    SceneGraphEventType::KeyPress,
+                    SceneGraphEventType::KeyRelease,
+                ],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+        for state in [ElementState::Pressed, ElementState::Released] {
+            manager
+                .dispatch_event(
+                    &WindowEvent::KeyboardInput(WindowKeyboardInput {
+                        key: Key::Named(NamedKey::Tab),
+                        text: None,
+                        repeat: true,
+                        state,
+                    }),
+                    &empty_rtree(),
+                    Instant::now(),
+                )
+                .await;
+        }
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(
+            matches!(&events[0], SceneGraphEvent::KeyPress(e) if e.position.is_none() && e.mark_instance.is_none() && e.repeat)
+        );
+        assert!(matches!(&events[1], SceneGraphEvent::KeyRelease(e) if e.position.is_none()));
+    }
+
+    struct GestureOwner;
+
+    #[async_trait]
+    impl EventStreamHandler<TestState> for GestureOwner {
+        async fn handle(
+            &self,
+            event: &SceneGraphEvent,
+            state: &mut TestState,
+            _: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.events.lock().unwrap().push(event.clone());
+            UpdateStatus {
+                suppress_click: matches!(event, SceneGraphEvent::MouseDown(e) if e.position[0] < 5.0),
+                consume: true,
+                ..Default::default()
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn owned_press_does_not_synthesize_clicks_or_double_clicks() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![
+                    SceneGraphEventType::MouseDown,
+                    SceneGraphEventType::MouseUp,
+                    SceneGraphEventType::Click,
+                    SceneGraphEventType::DoubleClick,
+                ],
+                ..Default::default()
+            },
+            Arc::new(GestureOwner),
+        );
+        let tree = empty_rtree();
+        let now = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: [1.0; 2] }),
+                &tree,
+                now,
+            )
+            .await;
+        for _ in 0..2 {
+            for state in [ElementState::Pressed, ElementState::Released] {
+                manager
+                    .dispatch_event(
+                        &WindowEvent::MouseInput(WindowMouseInput {
+                            state,
+                            button: MouseButton::Left,
+                        }),
+                        &tree,
+                        now,
+                    )
+                    .await;
+            }
+        }
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Right,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        assert_eq!(manager.suppressed_click_buttons, vec![MouseButton::Left]);
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &tree,
+                now,
+            )
+            .await;
+        assert!(manager.suppressed_click_buttons.is_empty());
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 7);
+        assert!(events.iter().all(|e| matches!(
+            e,
+            SceneGraphEvent::MouseDown(_) | SceneGraphEvent::MouseUp(_)
+        )));
+    }
+
+    #[tokio::test]
+    async fn missed_release_does_not_suppress_the_next_gesture() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown, SceneGraphEventType::Click],
+                ..Default::default()
+            },
+            Arc::new(GestureOwner),
+        );
+        let tree = empty_rtree();
+        let now = Instant::now();
+        // The suppressed press loses focus, and its release goes to another window.
+        for event in [
+            WindowEvent::CursorMoved(WindowCursorMoved { position: [1.0; 2] }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::WindowFocused(false),
+            WindowEvent::WindowFocused(true),
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [10.0; 2],
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+            }),
+        ] {
+            manager.dispatch_event(&event, &tree, now).await;
+        }
+        assert_eq!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, SceneGraphEvent::Click(_)))
+                .count(),
+            1
         );
     }
 }

@@ -300,6 +300,22 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
             // than retaining `grabbing`/resize feedback from the old app.
             canvas.window().set_cursor(CursorIcon::Default);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.input_session = None;
+            self.keyboard_policy = None;
+            self.pointer_captured = false;
+        }
+        let commands = self.avenger_app.borrow_mut().take_host_commands();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.apply_runtime_host_commands(commands);
+        #[cfg(target_arch = "wasm32")]
+        apply_browser_host_commands(
+            commands,
+            &self.wake_scheduler,
+            &self.canvas,
+            &self.text_agent,
+        );
         self.installed_host_generation = update.generation;
         let installed_generation = update.generation;
 
