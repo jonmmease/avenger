@@ -1626,6 +1626,28 @@ fn paint_and_opacity(
                     "gradient index {index} is out of range"
                 ))
             })?;
+            if let Gradient::RadialGradient(g) = gradient {
+                if g.x0 == g.x1 && g.y0 == g.y1 && g.r0 == g.r1 {
+                    return Ok(None);
+                }
+            }
+            if gradient.stops().len() == 1 {
+                return paint_and_opacity(
+                    &ColorOrGradient::Color(gradient.stops()[0].color),
+                    gradients,
+                    bbox,
+                );
+            }
+            if let Gradient::LinearGradient(g) = gradient {
+                if g.x0 == g.x1 && g.y0 == g.y1 {
+                    return match g.stops.last() {
+                        Some(stop) => {
+                            paint_and_opacity(&ColorOrGradient::Color(stop.color), gradients, bbox)
+                        }
+                        None => Ok(None),
+                    };
+                }
+            }
             gradient_paint(gradient, bbox)
                 .map(|paint| paint.map(|paint| (paint, NormalizedF32::ONE)))
         }
@@ -1674,19 +1696,34 @@ fn gradient_paint(
             anti_alias: false,
         }
         .into(),
-        Gradient::RadialGradient(gradient) => RadialGradient {
-            fx: gradient.x0,
-            fy: gradient.y0,
-            fr: gradient.r0,
-            cx: gradient.x1,
-            cy: gradient.y1,
-            cr: gradient.r1,
-            transform: Transform::from_row(width, 0.0, 0.0, height, left, top),
-            spread_method: SpreadMethod::Pad,
-            stops,
-            anti_alias: false,
+        Gradient::RadialGradient(gradient) => {
+            let dx = gradient.x1 as f64 - gradient.x0 as f64;
+            let dy = gradient.y1 as f64 - gradient.y0 as f64;
+            let dr = gradient.r1 as f64 - gradient.r0 as f64;
+            // PDF viewers use absolute zero thresholds in the radial solver.
+            // Keep circle deltas at least one unit, with an equivalent paint transform.
+            let scale = (width as f64).max(1.0 / dx.abs().max(dy.abs()).max(dr.abs()));
+            RadialGradient {
+                fx: 0.0,
+                fy: 0.0,
+                fr: (gradient.r0 as f64 * scale) as f32,
+                cx: (dx * scale) as f32,
+                cy: (dy * scale) as f32,
+                cr: (gradient.r1 as f64 * scale) as f32,
+                transform: Transform::from_row(
+                    (width as f64 / scale) as f32,
+                    0.0,
+                    0.0,
+                    (height as f64 / scale) as f32,
+                    (left as f64 + gradient.x0 as f64 * width as f64) as f32,
+                    (top as f64 + gradient.y0 as f64 * height as f64) as f32,
+                ),
+                spread_method: SpreadMethod::Pad,
+                stops,
+                anti_alias: false,
+            }
+            .into()
         }
-        .into(),
     }))
 }
 

@@ -390,6 +390,26 @@ pub fn cases() -> Vec<Case> {
             ],
             _ => unreachable!(),
         };
+        let SceneMark::Rect(mark) = &case.scene.marks[0] else {
+            unreachable!()
+        };
+        let Gradient::RadialGradient(g) = &mark.gradients[0] else {
+            unreachable!()
+        };
+        for point in [
+            [80, 60],
+            [210, 60],
+            [340, 60],
+            [80, 180],
+            [210, 180],
+            [340, 180],
+        ] {
+            let xy = [
+                (point[0] as f64 + 0.25 - 30.0) / 360.0,
+                (point[1] as f64 + 0.25 + 60.0) / 360.0,
+            ];
+            case.samples.push((point, radial_sample(g, xy)));
+        }
         cases.push(case);
     }
     for (name, xs) in [
@@ -511,7 +531,161 @@ pub fn cases() -> Vec<Case> {
         }
         cases.push(case);
     }
+    for radial in [false, true] {
+        for count in [0, 1, 2] {
+            let stops = if count == 0 {
+                vec![]
+            } else if count == 1 {
+                vec![GradientStop {
+                    offset: 0.4,
+                    color: [0.0, 0.0, 1.0, 0.5],
+                }]
+            } else {
+                vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: [1.0, 0.0, 0.0, 1.0],
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: [0.0, 0.0, 1.0, 0.5],
+                    },
+                ]
+            };
+            if radial && count == 2 {
+                continue;
+            }
+            let gradient = if radial {
+                Gradient::RadialGradient(RadialGradient {
+                    x0: 0.5,
+                    y0: 0.5,
+                    x1: 0.5,
+                    y1: 0.5,
+                    r0: 0.0,
+                    r1: 0.5,
+                    stops,
+                })
+            } else {
+                Gradient::LinearGradient(LinearGradient {
+                    x0: 0.5,
+                    y0: 0.5,
+                    x1: if count == 2 { 0.5 } else { 1.0 },
+                    y1: 0.5,
+                    stops,
+                })
+            };
+            for stroke in [false, true] {
+                let mut mark = rect();
+                mark.gradients = vec![gradient.clone()];
+                mark.fill = if stroke {
+                    C::Color([0.0; 4])
+                } else {
+                    C::GradientIndex(0)
+                }
+                .into();
+                if stroke {
+                    mark.stroke = C::GradientIndex(0).into();
+                    mark.stroke_width = 20.0.into();
+                }
+                let mut case = Case::new(
+                    format!("gradient-{radial}-{count}-{stroke}"),
+                    vec![mark.into()],
+                );
+                case.samples.push((
+                    [210, if stroke { 30 } else { 120 }],
+                    if count == 0 {
+                        [255; 4]
+                    } else {
+                        [128, 128, 255, 255]
+                    },
+                ));
+                cases.push(case);
+            }
+        }
+    }
+    for (label, left, top, side) in [("small", 20., 20., 80.), ("large", 500., 400., 720.)] {
+        let g = RadialGradient {
+            x0: 0.501,
+            y0: 0.5,
+            x1: 0.502,
+            y1: 0.5,
+            r0: 0.1001,
+            r1: 0.1008,
+            stops: stops(),
+        };
+        let mut case = Case::new(
+            format!("radial-precision-{label}"),
+            vec![SceneRectMark {
+                x: left.into(),
+                y: top.into(),
+                width: Some(side.into()),
+                height: Some(side.into()),
+                fill: C::GradientIndex(0).into(),
+                gradients: vec![Gradient::RadialGradient(g.clone())],
+                ..Default::default()
+            }
+            .into()],
+        );
+        case.scene.width = left + side + 20.;
+        case.scene.height = top + side + 20.;
+        case.browser_only = true;
+        for [u, v] in [
+            [0.15, 0.2],
+            [0.5, 0.2],
+            [0.85, 0.2],
+            [0.5, 0.5],
+            [0.85, 0.8],
+        ] {
+            let point = [(left + side * u) as u32, (top + side * v) as u32];
+            let xy = [
+                (point[0] as f64 + 0.25 - left as f64) / side as f64,
+                (point[1] as f64 + 0.25 - top as f64) / side as f64,
+            ];
+            case.samples.push((point, radial_sample(&g, xy)));
+        }
+        cases.push(case);
+    }
     // Adjacent rule variants reinstall identical symbol geometry through the renderer cache.
     cases.sort_by(|a, b| a.name.cmp(&b.name));
     cases
+}
+
+// Solve |p - (c0 + t*dc)|² = (r0 + t*dr)² in f64 for independent interior probes.
+fn radial_sample(g: &RadialGradient, p: [f64; 2]) -> [u8; 4] {
+    let dx = g.x1 as f64 - g.x0 as f64;
+    let dy = g.y1 as f64 - g.y0 as f64;
+    let dr = g.r1 as f64 - g.r0 as f64;
+    let px = p[0] - g.x0 as f64;
+    let py = p[1] - g.y0 as f64;
+    let a = dx * dx + dy * dy - dr * dr;
+    let b = -2.0 * (px * dx + py * dy + g.r0 as f64 * dr);
+    let c = px * px + py * py - (g.r0 as f64).powi(2);
+    let roots = if a == 0.0 {
+        vec![-c / b]
+    } else {
+        let disc = b * b - 4.0 * a * c;
+        if disc < 0.0 {
+            return [255; 4];
+        }
+        vec![
+            (-b - disc.sqrt()) / (2.0 * a),
+            (-b + disc.sqrt()) / (2.0 * a),
+        ]
+    };
+    match roots
+        .into_iter()
+        .filter(|t| t.is_finite() && g.r0 as f64 + t * dr >= 0.0)
+        .max_by(f64::total_cmp)
+    {
+        Some(t) => {
+            let t = t.clamp(0.0, 1.0);
+            [
+                ((1.0 - t) * 255.0).round() as u8,
+                0,
+                (t * 255.0).round() as u8,
+                255,
+            ]
+        }
+        None => [255; 4],
+    }
 }
