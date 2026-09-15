@@ -2,7 +2,7 @@ use avenger_geo::{
     BoundsSink, GeoStream, Graticule, LyonPathSink, PolylineSink, Projection, ProjectionKind,
     RecordingSink, Sphere, Streamable,
 };
-use geo_types::{Geometry, GeometryCollection, LineString, Point};
+use geo_types::{Geometry, GeometryCollection, LineString, Point, Polygon};
 use lyon_path::Event;
 
 #[test]
@@ -101,11 +101,12 @@ fn mercator_view_outside_world_emits_no_geometry() {
 }
 
 #[test]
-fn line_sinks_ignore_isolated_points_and_break_at_invalid_vertices() {
-    let mut path = LyonPathSink::stroke();
+fn line_sinks_ignore_isolated_points_and_keep_broken_rings_open() {
+    let mut path = LyonPathSink::new();
     let mut lines = PolylineSink::default();
     for sink in [&mut path as &mut dyn GeoStream, &mut lines] {
         sink.point(99.0, 99.0, None);
+        sink.polygon_start();
         sink.line_start();
         sink.point(0.0, 0.0, None);
         sink.point(1.0, 1.0, None);
@@ -113,12 +114,16 @@ fn line_sinks_ignore_isolated_points_and_break_at_invalid_vertices() {
         sink.point(3.0, 3.0, None);
         sink.point(4.0, 4.0, None);
         sink.line_end();
+        sink.polygon_end();
         sink.point(99.0, 99.0, None);
         sink.line_start();
         sink.point(5.0, 5.0, None);
         sink.line_end();
     }
     let path = path.finish();
+    assert!(!path
+        .iter()
+        .any(|e| matches!(e, Event::End { close: true, .. })));
     assert_eq!(
         path.iter()
             .filter(|e| matches!(e, Event::Begin { .. }))
@@ -136,6 +141,51 @@ fn line_sinks_ignore_isolated_points_and_break_at_invalid_vertices() {
         lines.defined,
         vec![true, true, false, true, true, false, true]
     );
+}
+
+#[test]
+fn sinks_preserve_polygon_closure_in_mixed_geometry() {
+    let open = vec![(20., 20.), (30., 30.)];
+    let outer = vec![(0., 0.), (0., 10.), (10., 10.), (10., 0.), (0., 0.)];
+    let hole = vec![(2., 2.), (4., 2.), (4., 4.), (2., 4.), (2., 2.)];
+    let geometry = Geometry::GeometryCollection(GeometryCollection(vec![
+        LineString::from(open.clone()).into(),
+        Polygon::new(
+            LineString::from(outer.clone()),
+            vec![LineString::from(hole.clone())],
+        )
+        .into(),
+        LineString::from(open.clone()).into(),
+    ]));
+    let projector = Projection::new(ProjectionKind::Identity { reflect_y: false })
+        .with_scale(1.)
+        .with_translate([0., 0.])
+        .build();
+    let mut path = LyonPathSink::new();
+    let mut lines = PolylineSink::default();
+    projector.stream(&geometry, &mut path);
+    projector.stream(&geometry, &mut lines);
+    let closures: Vec<_> = path
+        .finish()
+        .iter()
+        .filter_map(|event| match event {
+            Event::End { close, .. } => Some(close),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closures, [false, true, true, false]);
+    let points: Vec<_> = lines
+        .x
+        .iter()
+        .zip(&lines.y)
+        .zip(&lines.defined)
+        .map(|((&x, &y), &defined)| defined.then_some((x as f64, y as f64)))
+        .collect();
+    let parts: Vec<Vec<_>> = points
+        .split(Option::is_none)
+        .map(|part| part.iter().flatten().copied().collect())
+        .collect();
+    assert_eq!(parts, [open.clone(), outer, hole, open]);
 }
 
 #[test]
