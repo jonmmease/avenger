@@ -603,12 +603,11 @@ dependencies = [
  "geo-traits",
  "geo-types",
  "geojson",
- "itertools 0.14.0",
  "lyon_path",
  "resvg",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
+ "thiserror 2.0.12",
  "wkb",
 ]
 
@@ -2326,7 +2325,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
+ "thiserror 2.0.12",
  "tinyvec",
 ]
 

@@ -5,10 +5,8 @@
 //!
 //! Comparison strategy:
 //! - point projection/inversion: near-exact (the math is a direct port)
-//! - streamed geometry: event sequences compared pointwise when shapes
-//!   match; otherwise polyline point clouds compared by symmetric
-//!   nearest-vertex distance (recursion order may differ) with vertex
-//!   counts within ±10%
+//! - streamed geometry: identical event order and boundaries, with each
+//!   projected point compared in sequence
 //! - bounds and fit: near-exact
 
 use avenger_geo::graticule::Graticule;
@@ -106,51 +104,6 @@ fn parse_events(v: &Value) -> Vec<StreamEvent> {
         .collect()
 }
 
-fn event_shape(events: &[StreamEvent]) -> Vec<u8> {
-    events
-        .iter()
-        .map(|e| match e {
-            StreamEvent::Point(..) => 0,
-            StreamEvent::LineStart => 1,
-            StreamEvent::LineEnd => 2,
-            StreamEvent::PolygonStart => 3,
-            StreamEvent::PolygonEnd => 4,
-            StreamEvent::Sphere => 5,
-        })
-        .collect()
-}
-
-fn points_of(events: &[StreamEvent]) -> Vec<[f64; 2]> {
-    events
-        .iter()
-        .filter_map(|e| match e {
-            StreamEvent::Point(x, y) => Some([*x, *y]),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Symmetric max nearest-vertex distance between two point clouds.
-fn cloud_distance(a: &[[f64; 2]], b: &[[f64; 2]]) -> f64 {
-    fn one_way(a: &[[f64; 2]], b: &[[f64; 2]]) -> f64 {
-        let mut worst = 0.0_f64;
-        for p in a {
-            let mut best = f64::INFINITY;
-            for q in b {
-                let d = (p[0] - q[0]).hypot(p[1] - q[1]);
-                if d < best {
-                    best = d;
-                }
-            }
-            if best > worst {
-                worst = best;
-            }
-        }
-        worst
-    }
-    one_way(a, b).max(one_way(b, a))
-}
-
 fn run_fixture(path: &PathBuf) {
     let text = std::fs::read_to_string(path).expect("read fixture");
     let fixture: Value = serde_json::from_str(&text).expect("parse fixture");
@@ -218,50 +171,20 @@ fn run_fixture(path: &PathBuf) {
         projector.stream(object.as_ref(), &mut sink);
         let actual = sink.events;
 
-        // Fast path: identical shape -> compare pointwise.
-        if event_shape(&expected) == event_shape(&actual) {
-            let mut max_d = 0.0_f64;
-            for (e, a) in expected.iter().zip(actual.iter()) {
-                if let (StreamEvent::Point(ex, ey), StreamEvent::Point(ax, ay)) = (e, a) {
-                    let d = (ex - ax).hypot(ey - ay);
-                    if d > max_d {
-                        max_d = d;
-                    }
-                }
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "{label}/{obj_name}: stream event count"
+        );
+        for (index, (expected, actual)) in expected.iter().zip(&actual).enumerate() {
+            match (expected, actual) {
+                (StreamEvent::Point(ex, ey), StreamEvent::Point(ax, ay)) => assert!(
+                    (ex - ax).hypot(ey - ay) < 1e-3,
+                    "{label}/{obj_name} event {index}: {actual:?} != {expected:?}"
+                ),
+                _ => assert_eq!(actual, expected, "{label}/{obj_name} event {index}"),
             }
-            assert!(
-                max_d < 1e-3,
-                "{label}/{obj_name}: pointwise deviation {max_d}"
-            );
-            continue;
         }
-
-        // Tolerant path: recursion/ring order may differ.
-        let ep = points_of(&expected);
-        let ap = points_of(&actual);
-        assert!(
-            ep.is_empty() == ap.is_empty(),
-            "{label}/{obj_name}: emptiness mismatch (d3 {} pts, ours {} pts)",
-            ep.len(),
-            ap.len()
-        );
-        if ep.is_empty() {
-            continue;
-        }
-        let ratio = ap.len() as f64 / ep.len() as f64;
-        assert!(
-            (0.9..=1.1).contains(&ratio),
-            "{label}/{obj_name}: vertex count ratio {ratio} (d3 {}, ours {})",
-            ep.len(),
-            ap.len()
-        );
-        let d = cloud_distance(&ep, &ap);
-        assert!(
-            d < 0.5,
-            "{label}/{obj_name}: cloud distance {d} (d3 {}, ours {} pts)",
-            ep.len(),
-            ap.len()
-        );
     }
 
     // --- Bounds ---

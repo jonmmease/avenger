@@ -1,14 +1,15 @@
 //! Parse GeoJSON into ISO WKB geometry, recomputed longitude/latitude bounds,
-//! and JSON properties. Ring winding is normalized to the d3 spherical
-//! convention: clockwise exteriors and counter-clockwise holes, measured
+//! feature IDs, and JSON properties. Ring winding is normalized to the d3
+//! spherical convention: clockwise exteriors and counter-clockwise holes, measured
 //! by planar signed area. Already spherical or polar geometry should use
 //! [`crate::Streamable`] directly to preserve its authored winding.
 //!
-//! Reading back is zero-copy: [`wkb_streamer`] walks WKB bytes straight
-//! into a [`GeoStream`] via geo-traits without materializing geo-types.
+//! [`WkbStreamable`] validates WKB once and streams coordinates from its
+//! borrowed buffer via geo-traits without materializing geo-types.
 
 use crate::error::AvengerGeoError;
 use crate::stream::GeoStream;
+use crate::streamable::Streamable;
 use geo::algorithm::winding_order::Winding;
 use geo_traits::{
     GeometryCollectionTrait, GeometryTrait, GeometryType, LineStringTrait, LineTrait,
@@ -21,6 +22,8 @@ use serde_json::Value as JsonValue;
 /// One ingested GeoJSON feature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GeoFeature {
+    /// Top-level GeoJSON identifier, separate from any property named `id`.
+    pub id: Option<geojson::feature::Id>,
     /// ISO WKB bytes (None for null geometry).
     pub wkb: Option<Vec<u8>>,
     /// Lon/lat bounds recomputed from coordinates (None for null/empty
@@ -42,24 +45,28 @@ pub fn geojson_to_features(json: &str) -> Result<Vec<GeoFeature>, AvengerGeoErro
             }
         }
         geojson::GeoJson::Feature(feature) => features.push(ingest_feature(feature)?),
-        geojson::GeoJson::Geometry(geometry) => {
-            features.push(ingest_geometry(Some(geometry), serde_json::Map::new())?)
-        }
+        geojson::GeoJson::Geometry(geometry) => features.push(ingest_geometry(
+            Some(geometry),
+            None,
+            serde_json::Map::new(),
+        )?),
     }
     Ok(features)
 }
 
 fn ingest_feature(feature: geojson::Feature) -> Result<GeoFeature, AvengerGeoError> {
     let properties = feature.properties.unwrap_or_default();
-    ingest_geometry(feature.geometry, properties)
+    ingest_geometry(feature.geometry, feature.id, properties)
 }
 
 fn ingest_geometry(
     geometry: Option<geojson::Geometry>,
+    id: Option<geojson::feature::Id>,
     properties: serde_json::Map<String, JsonValue>,
 ) -> Result<GeoFeature, AvengerGeoError> {
     let Some(geometry) = geometry else {
         return Ok(GeoFeature {
+            id,
             wkb: None,
             bbox: None,
             properties,
@@ -75,34 +82,40 @@ fn ingest_geometry(
     wkb::writer::write_geometry(&mut wkb_bytes, &geometry, &Default::default())
         .map_err(|err| AvengerGeoError::Wkb(err.to_string()))?;
     Ok(GeoFeature {
+        id,
         wkb: Some(wkb_bytes),
         bbox,
         properties,
     })
 }
 
-/// Remove degenerate polygon rings (zero planar area, e.g. collinear
-/// zigzags — real-world GeoJSON contains them, and a zero-area ring makes
-/// spherical containment ill-defined, flooding the clip stage with the
-/// ring's complement).
+/// Remove rings with too few vertices or zero planar area. Such rings can
+/// make spherical clipping emit the ring's complement. Nonzero rings are
+/// retained regardless of their size.
 pub fn drop_degenerate_rings(geometry: &mut Geometry<f64>) {
-    const MIN_RING_AREA: f64 = 1e-10;
-    fn ring_area(ring: &geo_types::LineString<f64>) -> f64 {
+    fn has_area(ring: &geo_types::LineString<f64>) -> bool {
         let coords = &ring.0;
+        if coords.len() < 4 {
+            return false;
+        }
+        // Shifting to the first vertex avoids cancellation for small, distant rings.
+        let origin = coords[0];
         let mut area = 0.0;
         for pair in coords.windows(2) {
-            area += pair[0].x * pair[1].y - pair[1].x * pair[0].y;
+            let a = pair[0] - origin;
+            let b = pair[1] - origin;
+            area += a.x * b.y - b.x * a.y;
         }
-        (area / 2.0).abs()
+        area != 0.0
     }
     fn sanitize_polygon(polygon: &geo_types::Polygon<f64>) -> Option<geo_types::Polygon<f64>> {
-        if polygon.exterior().0.len() < 4 || ring_area(polygon.exterior()) < MIN_RING_AREA {
+        if !has_area(polygon.exterior()) {
             return None;
         }
         let interiors: Vec<_> = polygon
             .interiors()
             .iter()
-            .filter(|ring| ring.0.len() >= 4 && ring_area(ring) >= MIN_RING_AREA)
+            .filter(|ring| has_area(ring))
             .cloned()
             .collect();
         Some(geo_types::Polygon::new(
@@ -166,24 +179,30 @@ pub fn lonlat_bbox(geometry: &Geometry<f64>) -> Option<[f64; 4]> {
         .map(|rect| [rect.min().x, rect.min().y, rect.max().x, rect.max().y])
 }
 
-/// Stream WKB bytes into a [`GeoStream`] zero-copy via geo-traits.
+/// Validate WKB bytes and stream their coordinates into a [`GeoStream`].
 /// Polygon rings are streamed with the closing point omitted, matching
 /// [`crate::streamable`] semantics.
 pub fn wkb_streamer(wkb_bytes: &[u8], sink: &mut dyn GeoStream) -> Result<(), AvengerGeoError> {
-    let geometry =
-        wkb::reader::read_wkb(wkb_bytes).map_err(|err| AvengerGeoError::Wkb(err.to_string()))?;
-    stream_geometry_trait(&geometry, sink);
+    WkbStreamable::new(wkb_bytes)?.stream(sink);
     Ok(())
 }
 
-/// A WKB byte slice as a [`crate::streamable::Streamable`] geometry source
-/// (parse errors stream nothing; validate first via
-/// [`stream_wkb_through`]).
-pub struct WkbStreamable<'a>(pub &'a [u8]);
+/// A validated WKB geometry that borrows its coordinate buffer.
+/// Reuse this source for fitting and projection without parsing it again.
+pub struct WkbStreamable<'a>(wkb::reader::Wkb<'a>);
 
-impl crate::streamable::Streamable for WkbStreamable<'_> {
+impl<'a> WkbStreamable<'a> {
+    /// Parse and validate WKB, returning an error before any geometry is streamed.
+    pub fn new(bytes: &'a [u8]) -> Result<Self, AvengerGeoError> {
+        wkb::reader::read_wkb(bytes)
+            .map(Self)
+            .map_err(|err| AvengerGeoError::Wkb(err.to_string()))
+    }
+}
+
+impl Streamable for WkbStreamable<'_> {
     fn stream(&self, sink: &mut dyn GeoStream) {
-        let _ = wkb_streamer(self.0, sink);
+        stream_geometry_trait(&self.0, sink);
     }
 }
 
@@ -194,8 +213,7 @@ pub fn stream_wkb_through(
     wkb_bytes: &[u8],
     sink: &mut dyn GeoStream,
 ) -> Result<(), AvengerGeoError> {
-    wkb::reader::read_wkb(wkb_bytes).map_err(|err| AvengerGeoError::Wkb(err.to_string()))?;
-    projector.stream(&WkbStreamable(wkb_bytes), sink);
+    projector.stream(&WkbStreamable::new(wkb_bytes)?, sink);
     Ok(())
 }
 
@@ -303,7 +321,8 @@ mod tests {
             "features": [
                 {
                     "type": "Feature",
-                    "properties": {"name": "box", "value": 3.5},
+                    "id": "region-a",
+                    "properties": {"id": "property-id", "name": "box", "value": 3.5},
                     "geometry": {
                         "type": "Polygon",
                         "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]]
@@ -311,6 +330,7 @@ mod tests {
                 },
                 {
                     "type": "Feature",
+                    "id": 7,
                     "properties": {"name": "empty"},
                     "geometry": null
                 }
@@ -318,6 +338,12 @@ mod tests {
         }"#;
         let features = geojson_to_features(json).expect("parse");
         assert_eq!(features.len(), 2);
+        assert_eq!(
+            features[0].id,
+            Some(geojson::feature::Id::String("region-a".into()))
+        );
+        assert_eq!(features[1].id, Some(geojson::feature::Id::Number(7.into())));
+        assert_eq!(features[0].properties["id"], "property-id");
         assert_eq!(features[0].bbox, Some([0.0, 0.0, 10.0, 10.0]));
         assert_eq!(
             features[0].properties.get("name"),
@@ -325,6 +351,69 @@ mod tests {
         );
         assert!(features[0].wkb.is_some());
         assert!(features[1].wkb.is_none() && features[1].bbox.is_none());
+    }
+
+    #[test]
+    fn retains_small_rings_and_removes_degenerate_rings() {
+        for (x, y) in [(0.0, 0.0), (120.0, 45.0)] {
+            let outer = vec![
+                [x, y],
+                [x + 5e-6, y],
+                [x + 5e-6, y + 5e-6],
+                [x, y + 5e-6],
+                [x, y],
+            ];
+            let hole = vec![
+                [x + 1e-6, y + 1e-6],
+                [x + 1e-6, y + 2e-6],
+                [x + 2e-6, y + 2e-6],
+                [x + 2e-6, y + 1e-6],
+                [x + 1e-6, y + 1e-6],
+            ];
+            let degenerate = vec![[x, y], [x + 1e-6, y], [x + 2e-6, y], [x, y]];
+            let json = serde_json::json!({
+                "type": "GeometryCollection",
+                "geometries": [
+                    {"type": "Polygon", "coordinates": [outer, hole, degenerate]},
+                    {"type": "MultiPolygon", "coordinates": [[degenerate]]}
+                ]
+            });
+            let features = geojson_to_features(&json.to_string()).unwrap();
+            assert_eq!(features[0].id, None);
+            assert_eq!(features[0].bbox, Some([x, y, x + 5e-6, y + 5e-6]));
+            let mut sink = RecordingSink::default();
+            wkb_streamer(features[0].wkb.as_ref().unwrap(), &mut sink).unwrap();
+            let rings = sink.polylines();
+            assert_eq!(rings.len(), 2);
+            for (ring, source) in rings.iter().zip([&outer, &hole]) {
+                assert_eq!(ring.len(), 4);
+                for point in &source[..4] {
+                    assert!(ring.contains(point), "missing {point:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wkb_sources_are_reusable_and_reject_invalid_bytes_before_streaming() {
+        let features =
+            geojson_to_features(r#"{"type":"LineString","coordinates":[[0,0],[10,20]]}"#).unwrap();
+        let bytes = features[0].wkb.as_ref().unwrap();
+        let source = WkbStreamable::new(bytes).unwrap();
+        let projector = crate::Projection::new(crate::ProjectionKind::Equirectangular).build();
+        let mut direct = RecordingSink::default();
+        stream_wkb_through(&projector, bytes, &mut direct).unwrap();
+        for _ in 0..2 {
+            let mut reused = RecordingSink::default();
+            projector.stream(&source, &mut reused);
+            assert_eq!(reused, direct);
+        }
+        let before = direct.clone();
+        let truncated = &bytes[..bytes.len() - 1];
+        assert!(WkbStreamable::new(truncated).is_err());
+        assert!(wkb_streamer(truncated, &mut direct).is_err());
+        assert!(stream_wkb_through(&projector, truncated, &mut direct).is_err());
+        assert_eq!(direct, before);
     }
 
     #[test]
