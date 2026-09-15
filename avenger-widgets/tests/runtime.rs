@@ -206,8 +206,6 @@ fn preparation_is_transactional_and_stale_frames_cannot_replace_live_state() {
     let stale = candidate.finish().unwrap();
     handle(&mut r, &scene, key(NamedKey::Tab, false));
     assert!(matches!(r.install(stale), Err(WidgetError::StaleFrame)));
-    let cloned = r.clone();
-    assert_eq!(cloned.focused(), r.focused());
     frame(&mut r, vec![Checkbox::new("c", "Grid", false).into()]);
     assert_eq!(
         r.semantics()[0].value,

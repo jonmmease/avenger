@@ -9,14 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let engine = avenger_text::default_text_engine();
     let mut state = winit_widgets::state::State::new(engine.clone());
-    state.widgets = state
-        .widgets
-        .with_focus_boundary(FocusBoundary::Cycle)
-        .with_text_shortcuts(if cfg!(target_os = "macos") {
-            avenger_widgets::TextShortcuts::Mac
-        } else {
-            avenger_widgets::TextShortcuts::Control
-        });
+    state.widgets = state.widgets.with_focus_boundary(FocusBoundary::Cycle);
     let args: Vec<_> = std::env::args().collect();
     if args.get(1).is_some_and(|v| v == "--screenshot") {
         winit_widgets::scene::build(&mut state)?;

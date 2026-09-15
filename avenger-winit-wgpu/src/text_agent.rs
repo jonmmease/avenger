@@ -40,16 +40,10 @@ impl TextAgentInputState {
         if self.suppress_input_once.take().as_ref() == Some(&text) {
             return None;
         }
-        let key = text.chars().next().map(Key::Character)?;
-        Some(
-            WindowEvent::KeyboardInput(WindowKeyboardInput {
-                repeat: false,
-                key,
-                text: Some(text.into()),
-                state: ElementState::Pressed,
-            })
-            .with_input_session(self.session.clone()),
-        )
+        // DOM input is already committed text, including dead keys and AltGr.
+        (!text.is_empty()).then(|| {
+            WindowEvent::Ime(ImeEvent::Commit(text.into())).with_input_session(self.session.clone())
+        })
     }
 
     fn begin_key_input(&mut self) {
@@ -296,6 +290,30 @@ mod wasm {
             }
         }
 
+        pub(crate) fn install_winit_keyboard_policy(
+            &mut self,
+            window: std::sync::Arc<winit::window::Window>,
+        ) -> Result<(), JsValue> {
+            use winit::platform::web::WindowExtWebSys;
+            let prevent_default = window.prevent_default();
+            let target: EventTarget = self.canvas.clone().into();
+            for name in ["keydown", "keyup"] {
+                let capture_window = window.clone();
+                let policy = self.keyboard_policy.clone();
+                // Our capture listener handles owned keys. Disable winit's blanket
+                // prevention only for this key event, preserving wheel/touch behavior.
+                self.add_listener_mode(&target, name, true, move |_| {
+                    capture_window
+                        .set_prevent_default(prevent_default && policy.borrow().is_none());
+                })?;
+                let window = window.clone();
+                self.add_listener(&target, name, move |_| {
+                    window.set_prevent_default(prevent_default);
+                })?;
+            }
+            Ok(())
+        }
+
         pub fn set_clipboard_payload(&self, payload: impl Into<String>) {
             *self.clipboard_payload.borrow_mut() = payload.into();
         }
@@ -540,6 +558,11 @@ mod wasm {
             let state = self.input_state.clone();
             self.add_listener(&target, "input", move |event| {
                 let event = event.unchecked_into::<InputEvent>();
+                // The browser owns the in-progress composition. Clearing its value
+                // here interrupts IME, and forwarding it would duplicate the commit.
+                if event.is_composing() {
+                    return;
+                }
                 if let Some(data) = event.data() {
                     if let Some(output) = state.borrow_mut().input(data) {
                         let _ = proxy.send_event(App(output));
@@ -804,12 +827,10 @@ mod tests {
     fn ordinary_and_dead_key_input_preserve_full_text_once() {
         let mut state = TextAgentInputState::default();
         assert_eq!(browser_key_event("Dead", ElementState::Pressed), None);
-        let event = state.input("e\u{301}🙂").unwrap();
-        let WindowEvent::KeyboardInput(input) = event else {
-            panic!("expected keyboard input")
-        };
-        assert_eq!(input.key, Key::Character('e'));
-        assert_eq!(input.text.as_deref(), Some("e\u{301}🙂"));
+        assert_eq!(
+            state.input("e\u{301}🙂"),
+            Some(WindowEvent::Ime(ImeEvent::Commit("e\u{301}🙂".into())))
+        );
     }
 
     #[test]
