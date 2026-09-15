@@ -1,5 +1,5 @@
 use avenger_common::types::{FillRule as SceneFillRule, LYON_SCENE_MITER_LIMIT};
-use avenger_scenegraph::path_geometry::{stroke_outline, zero_length_subpaths, GradientBounds};
+use avenger_scenegraph::path_geometry::{needs_explicit_caps, stroke_outline, GradientBounds};
 use std::ops::{Mul, Range};
 
 use avenger_color::ColorOrGradient;
@@ -18,6 +18,7 @@ use avenger_scenegraph::marks::{
     pattern::{is_no_fill_pattern, PatternFill, PatternLayerOperation, PatternReferenceFrame},
     rect::SceneRectMark,
     rule::SceneRuleMark,
+    stroke_dash::dash_paths,
     symbol::SceneSymbolMark,
     text_leader::{TextLeaderArrowhead, TextLeaderGeometry},
     trail::SceneTrailMark,
@@ -3238,7 +3239,9 @@ fn tessellate_stroke_path(
     }
 
     let bbox = gradient_bounds.unwrap_or_else(|| GradientBounds::from_path(path));
-    if stroke_dash.is_some() || !zero_length_subpaths(path).is_empty() {
+    // Overlapping triangles with the same opaque color do not accumulate opacity.
+    let opaque = matches!(stroke, ColorOrGradient::Color(color) if color[3] == 1.0);
+    if needs_explicit_caps(path, stroke_dash) || (stroke_dash.is_some() && !opaque) {
         let outline = stroke_outline(path, stroke_dash, stroke_width, stroke_cap, stroke_join)?;
         return tessellate_fill_path(
             &outline,
@@ -3248,6 +3251,8 @@ fn tessellate_stroke_path(
             Some(bbox),
         );
     }
+    let dashed_path = stroke_dash.map(|dash| dash_paths([path], dash));
+    let path = dashed_path.as_ref().unwrap_or(path);
     let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
     let mut builder = BuffersBuilder::new(
         &mut buffers,

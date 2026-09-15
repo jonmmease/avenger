@@ -668,16 +668,16 @@ pub fn cases() -> Vec<Case> {
         ];
         cases.push(case);
     }
-    for gradient in [false, true] {
+    for (name, stroke, expected) in [
+        ("false", C::Color([0.1, 0.2, 0.8, 0.5]), ink),
+        ("true", C::GradientIndex(0), [191, 128, 191, 255]),
+        ("opaque", C::Color([0.1, 0.2, 0.8, 1.0]), [26, 51, 204, 255]),
+    ] {
         let mark = SceneLineMark {
             len: 4,
             x: S::new_array(vec![60., 340., 60., 340.]),
             y: S::new_array(vec![40., 200., 200., 40.]),
-            stroke: if gradient {
-                C::GradientIndex(0)
-            } else {
-                C::Color([0.1, 0.2, 0.8, 0.5])
-            },
+            stroke,
             gradients: vec![Gradient::LinearGradient(LinearGradient {
                 x0: 0.,
                 y0: 0.,
@@ -699,11 +699,8 @@ pub fn cases() -> Vec<Case> {
             stroke_dash: Some(vec![1000., 1.]),
             ..Default::default()
         };
-        let mut case = Case::new(format!("dash-crossing-{gradient}"), vec![mark.into()]);
-        case.samples.push((
-            [200, 120],
-            if gradient { [191, 128, 191, 255] } else { ink },
-        ));
+        let mut case = Case::new(format!("dash-crossing-{name}"), vec![mark.into()]);
+        case.samples.push(([200, 120], expected));
         cases.push(case);
     }
     let rule = SceneRuleMark {
@@ -730,6 +727,30 @@ pub fn cases() -> Vec<Case> {
             .push(([75, 49], if separate { [83, 102, 217, 255] } else { ink }));
         cases.push(case);
     }
+    let opaque_rule = SceneRuleMark {
+        stroke: C::Color([0.1, 0.2, 0.8, 1.0]).into(),
+        ..rule
+    };
+    let mut opaque_overlap = Case::new(
+        "dash-overlap-opaque",
+        vec![
+            opaque_rule.clone().into(),
+            SceneRuleMark {
+                y: 220.0.into(),
+                y2: 220.0.into(),
+                stroke_width: 6.0.into(),
+                stroke_dash: Some(S::new_scalar(vec![20., 20.])),
+                ..opaque_rule
+            }
+            .into(),
+        ],
+    );
+    opaque_overlap.samples = vec![
+        ([75, 49], [26, 51, 204, 255]),
+        ([70, 220], [26, 51, 204, 255]),
+        ([90, 220], [255; 4]),
+    ];
+    cases.push(opaque_overlap);
     for patterned in [false, true] {
         let mut case = Case::new(
             format!("dash-area-{patterned}"),
