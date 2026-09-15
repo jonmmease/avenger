@@ -1,0 +1,31 @@
+[package]
+name = "avenger-datafusion-cache"
+version = "0.1.0"
+edition = "2024"
+description = "Result and reusable-plan caching for DataFusion execution"
+
+[dependencies]
+arrow = { workspace = true }
+async-trait = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-proto = { version = "54.0.0", default-features = false }
+futures = { workspace = true }
+tracing = { workspace = true }
+
+# Native builds can fingerprint Parquet scans without enabling Parquet on WASM.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+datafusion-proto = { version = "54.0.0", default-features = false, features = [
+    "parquet",
+] }
+
+# Browser clock and randomness backends for DataFusion's dependencies.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1.0"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+datafusion = { workspace = true, features = ["sql", "parquet", "math_expressions", "datetime_expressions"] }
