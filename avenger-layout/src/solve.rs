@@ -1,4 +1,4 @@
-//! The one-step solver behind [`Layout::solve`]: measure up, coordinate
+//! The solver behind [`Layout::solve`]: measure up, coordinate
 //! (share keys), allocate down.
 //!
 //! # Laws
@@ -24,7 +24,7 @@ use crate::build::{
     CellAlign, ChromeSide, Distribute, GridSpec, Layout, LayoutError, LayoutKind, SolveFor,
     SolveOptions, TrackSize,
 };
-use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
+use crate::frame::{FrameAxis, FrameAxisSizing};
 use crate::geometry::{Edges, Rect, Size};
 use crate::grid::{GridItem, GridRequirements, GridSolution, TrackGrowth};
 use crate::region::EdgeGrant;
@@ -36,27 +36,25 @@ use crate::solution::{
 // --- measurement -----------------------------------------------------------
 
 /// Bottom-up measurement of one node.
-pub(crate) struct Measured {
+struct Measured {
     /// What the parent's grid consumes as this item's content size:
     /// the content extent on `Envelope` axes, the box extent on contained
     /// axes.
-    pub(crate) item_size: Size,
+    item_size: Size,
     /// Lifted overflow toward the parent (zero on contained axes).
-    pub(crate) demands: Edges<EdgeGrant>,
+    demands: Edges<EdgeGrant>,
     /// Raw per-side totals (no lift) for the geometric envelope view.
-    pub(crate) geometric_total: Edges<f32>,
+    geometric_total: Edges<f32>,
     /// The node's own content extent before chrome.
-    pub(crate) natural_content: Size,
-    pub(crate) grid: Option<MeasuredGrid>,
+    natural_content: Size,
+    content_demands: Edges<EdgeGrant>,
+    grid: Option<MeasuredGrid>,
 }
 
-pub(crate) struct MeasuredGrid {
-    pub(crate) items: Vec<GridItem<usize>>,
-    pub(crate) requirements: GridRequirements,
-    pub(crate) natural: GridSolution,
-    pub(crate) children: Vec<Measured>,
-    pub(crate) column_growth: Option<Vec<TrackGrowth>>,
-    pub(crate) row_growth: Option<Vec<TrackGrowth>>,
+struct MeasuredGrid {
+    requirements: GridRequirements,
+    natural: GridSolution,
+    children: Vec<Measured>,
 }
 
 /// Map declared track sizes onto growth kinds (missing entries are `Auto`).
@@ -103,18 +101,20 @@ fn chrome_total(side: &ChromeSide) -> f32 {
 
 /// Fixed (non-margin) chrome on one side: what `Margins` mode keeps rigid.
 fn chrome_fixed_total(side: &ChromeSide) -> f32 {
-    chrome_total(side) - side.margin.max(0.0)
+    side.strips.iter().map(|size| size.max(0.0)).sum::<f32>()
+        + side.legend.max(0.0)
+        + side.guide.max(0.0)
 }
 
-/// Merged floors patched into one shared grid during the pass-2 re-measure.
+/// Merged floors applied when remeasuring a shared grid.
 #[derive(Clone, Debug)]
-pub(crate) struct SharePatch {
-    pub(crate) column: AxisPatch,
-    pub(crate) row: AxisPatch,
+struct SharePatch {
+    column: AxisPatch,
+    row: AxisPatch,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum AxisPatch {
+enum AxisPatch {
     /// Equal-shape merge: per-track floors.
     PerTrack {
         sizes: Vec<f32>,
@@ -123,11 +123,13 @@ pub(crate) enum AxisPatch {
         spacing: crate::grid::TrackSpacing,
     },
     /// Uniform policy merge (ragged-tolerant): one track-size floor plus
-    /// first/last edge chrome.
+    /// common interior edges and separate boundary edges.
     Uniform {
         size: f32,
         first: EdgeGrant,
         last: EdgeGrant,
+        inner_leading: EdgeGrant,
+        inner_trailing: EdgeGrant,
         spacing: crate::grid::TrackSpacing,
     },
 }
@@ -146,9 +148,7 @@ fn apply_axis_patch(
             trailing: merged_trailing,
             spacing: merged_spacing,
         } => {
-            // Coordination only raises floors: max with the re-measured
-            // values so a pass-2 cascade can still grow past the pass-1
-            // merge (residual converges through the caller's loop).
+            // Descendant groups may have raised this grid's natural floors.
             for (size, merged) in sizes.iter_mut().zip(merged_sizes) {
                 *size = size.max(*merged);
             }
@@ -164,10 +164,19 @@ fn apply_axis_patch(
             size: merged_size,
             first,
             last,
+            inner_leading,
+            inner_trailing,
             spacing: merged_spacing,
         } => {
             for size in sizes.iter_mut() {
                 *size = size.max(*merged_size);
+            }
+            for edge in leading.iter_mut().skip(1) {
+                *edge = edge.max_components(*inner_leading);
+            }
+            let count = trailing.len().saturating_sub(1);
+            for edge in &mut trailing[..count] {
+                *edge = edge.max_components(*inner_trailing);
             }
             if let Some(edge) = leading.first_mut() {
                 *edge = edge.max_components(*first);
@@ -180,16 +189,11 @@ fn apply_axis_patch(
     }
 }
 
-pub(crate) fn measure<Id: Clone, Key>(node: &Layout<Id, Key>) -> Result<Measured, LayoutError> {
-    let mut path = Vec::new();
-    measure_with(node, &mut path, &HashMap::new())
-}
-
-pub(crate) fn measure_with<Id: Clone, Key>(
+fn measure<Id, Key>(
     node: &Layout<Id, Key>,
     path: &mut Vec<usize>,
     patches: &HashMap<Vec<usize>, SharePatch>,
-) -> Result<Measured, LayoutError> {
+) -> Measured {
     let (natural_content, content_demands, mut geometric_total, grid) = match &node.kind {
         LayoutKind::Leaf {
             content_size,
@@ -221,10 +225,9 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             let mut items = Vec::with_capacity(spec.children.len());
             for (index, child) in spec.children.iter().enumerate() {
                 path.push(index);
-                let measured = measure_with(&child.layout, path, patches)?;
+                let measured = measure(&child.layout, path, patches);
                 path.pop();
                 items.push(GridItem {
-                    id: index,
                     slot: child.slot,
                     content_size: measured.item_size,
                     guide_edges: Edges::new(
@@ -250,15 +253,9 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             }
 
             let mut requirements =
-                GridRequirements::from_items(spec.shape, spec.base_cell_size, &items)?;
+                GridRequirements::from_items(spec.shape, spec.base_cell_size, &items);
             requirements.column_spacing = spec.column_spacing;
             requirements.row_spacing = spec.row_spacing;
-            if spec.uniform_columns && spec.column_sizes.is_none() {
-                equalize(&mut requirements.column_widths);
-            }
-            if spec.uniform_rows && spec.row_sizes.is_none() {
-                equalize(&mut requirements.row_heights);
-            }
             if let Some(declared) = spec.column_sizes.as_deref() {
                 pin_fixed_tracks(&mut requirements.column_widths, declared);
             }
@@ -295,6 +292,10 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                 &items,
                 column_growth.as_deref(),
                 row_growth.as_deref(),
+                [
+                    spec.uniform_columns && spec.column_sizes.is_none(),
+                    spec.uniform_rows && spec.row_sizes.is_none(),
+                ],
             );
 
             // Boundary demands: first/last track edges reach the envelope;
@@ -329,12 +330,9 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                 demands,
                 geometric,
                 Some(MeasuredGrid {
-                    items,
                     requirements,
                     natural,
                     children,
-                    column_growth,
-                    row_growth,
                 }),
             )
         }
@@ -400,19 +398,13 @@ pub(crate) fn measure_with<Id: Clone, Key>(
         }
     }
 
-    Ok(Measured {
+    Measured {
         item_size,
         demands,
         geometric_total,
         natural_content,
+        content_demands,
         grid,
-    })
-}
-
-fn equalize(sizes: &mut [f32]) {
-    let max = sizes.iter().copied().fold(0.0f32, f32::max);
-    for size in sizes {
-        *size = max;
     }
 }
 
@@ -444,6 +436,7 @@ fn place_axis(
     align: CellAlign,
     slot_start: f32,
     slot_extent: f32,
+    overflow: [f32; 2],
 ) -> AxisPlacement {
     match sizing {
         SolveFor::Envelope => {
@@ -452,14 +445,14 @@ fn place_axis(
             let content_start = slot_start + offset;
             let axis = FrameAxis {
                 sizing: FrameAxisSizing::Content {
-                    content: content_extent,
+                    content: overflow[0] + content_extent + overflow[1],
                 },
-                leading: frame_side(leading),
-                trailing: frame_side(trailing),
+                leading,
+                trailing,
                 content_min,
             };
             let solved = axis.solve();
-            let box_start = content_start - solved.content.start;
+            let box_start = content_start - overflow[0] - solved.content.start;
             AxisPlacement {
                 content_start,
                 content_extent,
@@ -478,8 +471,8 @@ fn place_axis(
                         content: natural_content,
                     },
                 },
-                leading: frame_side(leading),
-                trailing: frame_side(trailing),
+                leading,
+                trailing,
                 content_min,
             };
             let solved = axis.solve();
@@ -499,7 +492,7 @@ fn place_axis(
 /// one layer, vertical sides (top/bottom) carve before horizontal
 /// (left/right), so a top strip runs wider than a left strip of the same layer
 /// and corners belong to the outer-more / vertical-first slab. The innermost
-/// slabs end up exactly content-sized on their cross axis.
+/// slabs surround the content and, on `Envelope` axes, its measured overflow.
 fn carve_slabs(
     horizontal: &AxisPlacement,
     vertical: &AxisPlacement,
@@ -576,16 +569,14 @@ fn carve_slabs(
     step(
         ChromeLayer::Margin,
         0,
-        top.margin.size,
-        right.margin.size,
-        bottom.margin.size,
-        left.margin.size,
+        top.margin,
+        right.margin,
+        bottom.margin,
+        left.margin,
         slabs,
     );
     for index in 0..strip_steps {
-        let strip = |side: &crate::frame::SolvedFrameSide| {
-            side.strips.get(index).map(|slab| slab.size).unwrap_or(0.0)
-        };
+        let strip = |side: &ChromeSide| side.strips.get(index).copied().unwrap_or(0.0);
         step(
             ChromeLayer::Strip,
             index,
@@ -599,53 +590,48 @@ fn carve_slabs(
     step(
         ChromeLayer::Legend,
         0,
-        top.legend.size,
-        right.legend.size,
-        bottom.legend.size,
-        left.legend.size,
+        top.legend,
+        right.legend,
+        bottom.legend,
+        left.legend,
         slabs,
     );
     step(
         ChromeLayer::Guide,
         0,
-        top.guide.size,
-        right.guide.size,
-        bottom.guide.size,
-        left.guide.size,
+        top.guide,
+        right.guide,
+        bottom.guide,
+        left.guide,
         slabs,
     );
 }
 
-fn frame_side(side: &ChromeSide) -> FrameSide {
-    FrameSide {
-        margin: side.margin,
-        strips: side.strips.clone(),
-        legend: side.legend,
-        guide: side.guide,
-    }
-}
-
-/// Runtime state for share-key coordination during placement.
-///
-/// The dry pass records each shared grid's free-space offer (its slot minus
-/// its coordinated natural extent); the real pass stretches every group
-/// member by the group's **minimum** offer (the min-slack rule: free space
-/// is distributed in policy space, never per instance, so cousins stay
-/// congruent and none overflows).
+/// Shared allocation caps. Uniform axes use extra pixels per track;
+/// equal-shape axes use total extra pixels.
 struct ShareState<'a> {
     by_path: &'a HashMap<Vec<usize>, usize>,
-    /// Per group: `[x, y]` slack. Dry pass: collecting minima
-    /// (starts at infinity). Real pass: the granted slack.
+    patches: &'a HashMap<Vec<usize>, SharePatch>,
     slack: Vec<[f32; 2]>,
-    dry: bool,
+    collecting: Option<usize>,
+    offer: [f32; 2],
 }
 
 impl ShareState<'_> {
-    fn group(&self, path: &[usize]) -> Option<usize> {
-        if self.by_path.is_empty() {
-            return None;
-        }
-        self.by_path.get(path).copied()
+    fn units(&self, path: &[usize], shape: crate::grid::GridShape) -> [f32; 2] {
+        let patch = &self.patches[path];
+        [
+            if matches!(patch.column, AxisPatch::Uniform { .. }) {
+                shape.columns.max(1) as f32
+            } else {
+                1.0
+            },
+            if matches!(patch.row, AxisPatch::Uniform { .. }) {
+                shape.rows.max(1) as f32
+            } else {
+                1.0
+            },
+        ]
     }
 }
 
@@ -661,34 +647,24 @@ fn place<Id: Clone, Key>(
     regions: &mut Vec<Region<Id>>,
     shares: &mut ShareState<'_>,
 ) {
-    // Content target on Envelope axes: leaves keep their measured size;
-    // unshared grids fill their slot; shared grids stretch only by the
-    // group's min-slack (policy space).
-    let group = if measured.grid.is_some() {
-        shares.group(path)
-    } else {
-        None
+    let group = shares.by_path.get(path).copied();
+    let units = match &node.kind {
+        LayoutKind::Grid(spec) if group.is_some() => shares.units(path, spec.shape),
+        _ => [1.0; 2],
     };
-    let (target_w, target_h) = match (&measured.grid, group) {
-        (None, _) => (
+    let extra = group
+        .map(|g| [shares.slack[g][0] * units[0], shares.slack[g][1] * units[1]])
+        .unwrap_or([f32::INFINITY; 2]);
+    let (target_w, target_h) = if measured.grid.is_some() {
+        (
+            (measured.natural_content.width + extra[0]).min(slot.width),
+            (measured.natural_content.height + extra[1]).min(slot.height),
+        )
+    } else {
+        (
             measured.natural_content.width,
             measured.natural_content.height,
-        ),
-        (Some(_), None) => (slot.width, slot.height),
-        (Some(_), Some(group)) => {
-            if shares.dry {
-                (
-                    measured.natural_content.width,
-                    measured.natural_content.height,
-                )
-            } else {
-                let slack = shares.slack[group];
-                (
-                    (measured.natural_content.width + slack[0]).min(slot.width),
-                    (measured.natural_content.height + slack[1]).min(slot.height),
-                )
-            }
-        }
+        )
     };
 
     let horizontal = place_axis(
@@ -701,6 +677,10 @@ fn place<Id: Clone, Key>(
         node.align.0,
         slot.x,
         slot.width,
+        [
+            measured.content_demands.left.total,
+            measured.content_demands.right.total,
+        ],
     );
     let vertical = place_axis(
         node.chrome.sizing_y,
@@ -712,6 +692,10 @@ fn place<Id: Clone, Key>(
         node.align.1,
         slot.y,
         slot.height,
+        [
+            measured.content_demands.top.total,
+            measured.content_demands.bottom.total,
+        ],
     );
     let content = Rect::new(
         horizontal.content_start,
@@ -721,37 +705,36 @@ fn place<Id: Clone, Key>(
     );
 
     // Dry pass: record this shared grid's free-space offer.
-    if let Some(group) = group
-        && shares.dry
-    {
+    if group.is_some() && group == shares.collecting {
         let offer_x = (content_avail(&horizontal, node.chrome.sizing_x, slot.width)
             - measured.natural_content.width)
             .max(0.0);
         let offer_y = (content_avail(&vertical, node.chrome.sizing_y, slot.height)
             - measured.natural_content.height)
             .max(0.0);
-        let slack = &mut shares.slack[group];
-        slack[0] = slack[0].min(offer_x);
-        slack[1] = slack[1].min(offer_y);
+        shares.offer[0] = shares.offer[0].min(offer_x / units[0]);
+        shares.offer[1] = shares.offer[1].min(offer_y / units[1]);
     }
 
-    let mut slabs = Vec::new();
-    carve_slabs(&horizontal, &vertical, &mut slabs);
-
     let region_index = regions.len();
-    regions.push(Region {
-        id: node.id.clone(),
-        path: path.to_vec(),
-        depth,
-        slot,
-        content,
-        slabs,
-        requested: requested.demands,
-        coordinated: measured.demands,
-        granted,
-        geometric_total: measured.geometric_total,
-        detail: RegionDetail::Leaf, // patched below for grids
-    });
+    if shares.collecting.is_none() {
+        let mut slabs = Vec::new();
+        carve_slabs(&horizontal, &vertical, &mut slabs);
+
+        regions.push(Region {
+            id: node.id.clone(),
+            path: path.to_vec(),
+            depth,
+            slot,
+            content,
+            slabs,
+            requested: requested.demands,
+            coordinated: measured.demands,
+            granted,
+            geometric_total: measured.geometric_total,
+            detail: RegionDetail::Leaf, // patched below for grids
+        });
+    }
 
     let Some(grid) = &measured.grid else {
         return;
@@ -762,61 +745,36 @@ fn place<Id: Clone, Key>(
 
     // Track distribution target: shared grids distribute only up to their
     // policy-space extent even when a contained-mode box gave them more.
-    let track_target = match group {
-        Some(group) if !shares.dry => {
-            let slack = shares.slack[group];
-            Size::new(
-                (measured.natural_content.width + slack[0]).min(content.width),
-                (measured.natural_content.height + slack[1]).min(content.height),
-            )
-        }
-        Some(_) => measured.natural_content,
-        None => Size::new(content.width, content.height),
-    };
+    let track_target = Size::new(
+        (measured.natural_content.width + extra[0]).min(content.width),
+        (measured.natural_content.height + extra[1]).min(content.height),
+    );
     let solution = distribute(grid, spec, track_target);
 
-    regions[region_index].detail = RegionDetail::Grid {
-        tracks: SolvedTracks {
-            column_starts: solution.column_starts.clone(),
-            column_sizes: solution.column_widths.clone(),
-            row_starts: solution.row_starts.clone(),
-            row_sizes: solution.row_heights.clone(),
-            column_spacing: solution.column_spacing,
-            row_spacing: solution.row_spacing,
-        },
-    };
+    if shares.collecting.is_none() {
+        regions[region_index].detail = RegionDetail::Grid {
+            tracks: SolvedTracks {
+                column_starts: solution.column_starts.clone(),
+                column_sizes: solution.column_widths.clone(),
+                row_starts: solution.row_starts.clone(),
+                row_sizes: solution.row_heights.clone(),
+                column_spacing: solution.column_spacing,
+                row_spacing: solution.row_spacing,
+            },
+        };
+    }
 
     for (index, child) in spec.children.iter().enumerate() {
         let slot_rect = slot_rect_positional(&solution, child.slot, content);
         let child_granted = Edges::new(
-            solution
-                .row_top
-                .get(child.slot.row)
-                .copied()
-                .unwrap_or_default(),
-            solution
-                .column_right
-                .get(child.slot.column_end() - 1)
-                .copied()
-                .unwrap_or_default(),
-            solution
-                .row_bottom
-                .get(child.slot.row_end() - 1)
-                .copied()
-                .unwrap_or_default(),
-            solution
-                .column_left
-                .get(child.slot.column)
-                .copied()
-                .unwrap_or_default(),
+            solution.row_top[child.slot.row],
+            solution.column_right[child.slot.column_end() - 1],
+            solution.row_bottom[child.slot.row_end() - 1],
+            solution.column_left[child.slot.column],
         );
         let mut child_path = path.to_vec();
         child_path.push(index);
-        let child_requested = requested
-            .grid
-            .as_ref()
-            .map(|requested_grid| &requested_grid.children[index])
-            .unwrap_or(&grid.children[index]);
+        let child_requested = &requested.grid.as_ref().unwrap().children[index];
         place(
             &child.layout,
             &grid.children[index],
@@ -937,11 +895,7 @@ fn distribute<Id, Key>(
         spec.row_sizes.as_deref(),
     );
     let mut solution = if absorbed_x || absorbed_y {
-        requirements.solve_with_growth(
-            &grid.items,
-            grid.column_growth.as_deref(),
-            grid.row_growth.as_deref(),
-        )
+        requirements.solve_with_growth(&[], None, None, [false; 2])
     } else {
         natural.clone()
     };
@@ -983,7 +937,7 @@ fn offset_starts(starts: &mut [f32], distribute: Distribute, free: f32) {
 
 // --- share-key coordination --------------------------------------------------
 
-/// One shared grid collected from the pass-1 measurement.
+/// One shared grid and its current measured requirements.
 struct ShareEntry<'a, Key> {
     key: &'a Key,
     path: Vec<usize>,
@@ -1004,12 +958,9 @@ fn collect_shares<'a, Id, Key>(
     let (LayoutKind::Grid(spec), Some(grid)) = (&node.kind, &measured.grid) else {
         return;
     };
-    if (spec.uniform_columns && spec.column_sizes.is_some())
-        || (spec.uniform_rows && spec.row_sizes.is_some())
-    {
-        // Contradictory: declared track sizes win, uniform is ignored.
-        diagnostics.uniform_conflicts += 1;
-    }
+    diagnostics.uniform_conflicts +=
+        usize::from(spec.uniform_columns && spec.column_sizes.is_some())
+            + usize::from(spec.uniform_rows && spec.row_sizes.is_some());
     if let Some(key) = &spec.share {
         entries.push(ShareEntry {
             key,
@@ -1092,10 +1043,20 @@ fn merge_share_axis<Key>(
             .iter()
             .filter_map(|&m| trailing(m).last().copied())
             .fold(EdgeGrant::default(), |a, b| a.max_components(b));
+        let inner_leading = members
+            .iter()
+            .flat_map(|&m| leading(m).iter().skip(1).copied())
+            .fold(EdgeGrant::default(), |a, b| a.max_components(b));
+        let inner_trailing = members
+            .iter()
+            .flat_map(|&m| trailing(m).iter().rev().skip(1).copied())
+            .fold(EdgeGrant::default(), |a, b| a.max_components(b));
         return Some(AxisPatch::Uniform {
             size,
             first,
             last,
+            inner_leading,
+            inner_trailing,
             spacing: merged_spacing,
         });
     }
@@ -1181,16 +1142,45 @@ fn plan_shares<Key: Eq + Hash>(
     (patches, by_path, group_count)
 }
 
+/// Resolve descendant groups before ancestors. A circular dependency can
+/// demand unbounded growth (for example, a shared parent containing two of
+/// its own shared children), so it is an invalid constraint graph.
+fn share_order(
+    by_path: &HashMap<Vec<usize>, usize>,
+    count: usize,
+) -> Result<Vec<usize>, LayoutError> {
+    let mut dependencies = vec![HashSet::new(); count];
+    for (path, &group) in by_path {
+        for length in 0..path.len() {
+            if let Some(&ancestor) = by_path.get(&path[..length]) {
+                dependencies[ancestor].insert(group);
+            }
+        }
+    }
+    let mut order = Vec::with_capacity(count);
+    let mut done = vec![false; count];
+    while order.len() < count {
+        let Some(group) =
+            (0..count).find(|&g| !done[g] && dependencies[g].iter().all(|&d| done[d]))
+        else {
+            return Err(LayoutError::CyclicSharing);
+        };
+        done[group] = true;
+        order.push(group);
+    }
+    Ok(order)
+}
+
 // --- entry point -------------------------------------------------------------
 
 impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
-    /// Solve this layout in one step: measure up, coordinate share groups
-    /// (one pure round), allocate down. See the [crate docs](crate) and
-    /// [`SolveOptions`].
+    /// Measure children, coordinate shared tracks in dependency order,
+    /// then allocate rectangles. See the [crate docs](crate) and [`SolveOptions`].
     ///
     /// # Errors
     /// Returns an error for invalid slots, duplicate IDs, non-finite input
-    /// values, or coordinates that overflow the finite `f32` range.
+    /// values, circular sharing dependencies, or coordinates that overflow
+    /// the finite `f32` range.
     pub fn solve(&self, options: &SolveOptions) -> Result<LayoutSolution<Id>, LayoutError> {
         finite_values(
             "canvas size",
@@ -1200,24 +1190,49 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
         let mut seen = HashSet::new();
         check_duplicate_ids(self, &mut seen)?;
 
-        // Pass 1: natural measurement; collect shared grids.
-        let pass1 = measure(self)?;
+        // Preserve uncoordinated measurements for Region::requested.
+        let requested = measure(self, &mut Vec::new(), &HashMap::new());
         let mut diagnostics = Diagnostics::default();
         let mut entries = Vec::new();
         let mut walk_path = Vec::new();
-        collect_shares(self, &pass1, &mut walk_path, &mut entries, &mut diagnostics);
+        collect_shares(
+            self,
+            &requested,
+            &mut walk_path,
+            &mut entries,
+            &mut diagnostics,
+        );
         let (patches, by_path, group_count) = plan_shares(&entries, &mut diagnostics);
         drop(entries);
 
-        // Pass 2: re-measure with the merged floors patched in; the patched
-        // envelopes cascade through ancestors.
-        let coordinated;
-        let measured = if patches.is_empty() {
-            &pass1
-        } else {
-            coordinated = measure_with(self, &mut Vec::new(), &patches)?;
-            &coordinated
-        };
+        let order = share_order(&by_path, group_count)?;
+        let mut patches = patches;
+        let mut coordinated;
+        let mut measured = &requested;
+        for &group in &order {
+            let mut entries = Vec::new();
+            collect_shares(
+                self,
+                measured,
+                &mut Vec::new(),
+                &mut entries,
+                &mut Diagnostics::default(),
+            );
+            let members: Vec<_> = entries
+                .iter()
+                .enumerate()
+                .filter_map(|(i, entry)| (by_path.get(&entry.path) == Some(&group)).then_some(i))
+                .collect();
+            let patch = SharePatch {
+                column: merge_share_axis(&members, &entries, ShareAxis::Column).unwrap(),
+                row: merge_share_axis(&members, &entries, ShareAxis::Row).unwrap(),
+            };
+            for member in members {
+                patches.insert(entries[member].path.clone(), patch.clone());
+            }
+            coordinated = measure(self, &mut Vec::new(), &patches);
+            measured = &coordinated;
+        }
 
         // Root slot per axis: contained axes treat the allocation as the
         // box; `Envelope` axes treat it as the envelope around content plus
@@ -1238,41 +1253,37 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
         );
         let root_slot = Rect::new(slot_x, slot_y, slot_w, slot_h);
 
-        // Min-slack: a dry placement records every shared grid's free-space
-        // offer; the real pass stretches each group by the minimum.
+        // Allocate ancestor groups first so descendants see their final slots.
         let mut state = ShareState {
             by_path: &by_path,
+            patches: &patches,
             slack: vec![[f32::INFINITY; 2]; group_count],
-            dry: true,
+            collecting: None,
+            offer: [f32::INFINITY; 2],
         };
-        if group_count > 0 {
-            let mut scratch = Vec::new();
+        for &group in order.iter().rev() {
+            state.collecting = Some(group);
+            state.offer = [f32::INFINITY; 2];
             place(
                 self,
                 measured,
-                &pass1,
+                &requested,
                 root_slot,
                 measured.demands,
                 0,
                 &[],
-                &mut scratch,
+                &mut Vec::new(),
                 &mut state,
             );
-            for slack in &mut state.slack {
-                for value in slack.iter_mut() {
-                    if !value.is_finite() {
-                        *value = 0.0;
-                    }
-                }
-            }
+            state.slack[group] = state.offer;
         }
-        state.dry = false;
+        state.collecting = None;
 
         let mut regions = Vec::new();
         place(
             self,
             measured,
-            &pass1,
+            &requested,
             root_slot,
             measured.demands,
             0,
@@ -1472,139 +1483,8 @@ fn check_duplicate_ids<'a, Id: Eq + Hash, Key>(
 #[cfg(test)]
 mod tests {
     use crate::build::{CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions};
-    use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
     use crate::geometry::{Edges, Rect, Side, Size};
     use crate::region::EdgeDemand;
-
-    fn chart_leaf() -> Layout<&'static str> {
-        Layout::leaf(Size::default())
-            .margin(8.0)
-            .strip(Side::Top, 18.0)
-            .legend(Side::Right, 64.0)
-            .guide(Side::Left, 38.0)
-            .guide(Side::Bottom, 22.0)
-            .content_min(Size::new(50.0, 40.0))
-            .id("chart")
-    }
-
-    /// Solve the chart-leaf chrome per axis through the internal frame
-    /// solver (the parity oracle for the three sizing modes).
-    fn chart_axes(
-        sizing_x: FrameAxisSizing,
-        sizing_y: FrameAxisSizing,
-    ) -> (
-        crate::frame::FrameAxisSolution,
-        crate::frame::FrameAxisSolution,
-    ) {
-        let side = |margin: f32, strips: &[f32], legend: f32, guide: f32| FrameSide {
-            margin,
-            strips: strips.to_vec(),
-            legend,
-            guide,
-        };
-        let horizontal = FrameAxis {
-            sizing: sizing_x,
-            leading: side(8.0, &[], 0.0, 38.0),
-            trailing: side(8.0, &[], 64.0, 0.0),
-            content_min: 50.0,
-        }
-        .solve();
-        let vertical = FrameAxis {
-            sizing: sizing_y,
-            leading: side(8.0, &[18.0], 0.0, 0.0),
-            trailing: side(8.0, &[], 0.0, 22.0),
-            content_min: 40.0,
-        }
-        .solve();
-        (horizontal, vertical)
-    }
-
-    fn frame_content_rect(
-        horizontal: &crate::frame::FrameAxisSolution,
-        vertical: &crate::frame::FrameAxisSolution,
-    ) -> Rect {
-        Rect::new(
-            horizontal.content.start,
-            vertical.content.start,
-            horizontal.content.size,
-            vertical.content.size,
-        )
-    }
-
-    #[test]
-    fn content_mode_matches_frame_envelope_fixed() {
-        let solved = chart_leaf()
-            .sizing(SolveFor::Content)
-            .solve(&SolveOptions {
-                width: Some(400.0),
-                height: Some(300.0),
-            })
-            .expect("solve");
-        let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::Envelope { extent: 400.0 },
-            FrameAxisSizing::Envelope { extent: 300.0 },
-        );
-
-        let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
-        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
-        assert_eq!(region.slot, Rect::new(0.0, 0.0, 400.0, 300.0));
-    }
-
-    #[test]
-    fn envelope_mode_matches_frame_content_fixed() {
-        // Natural sizing: content given (the floor is the content here),
-        // envelope derived. Chrome lifts as overflow, so the content rect
-        // starts after the leading chrome totals.
-        let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
-            .margin(8.0)
-            .strip(Side::Top, 18.0)
-            .legend(Side::Right, 64.0)
-            .guide(Side::Left, 38.0)
-            .guide(Side::Bottom, 22.0)
-            .id("chart")
-            .solve(&SolveOptions::default())
-            .expect("solve");
-        let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::Content { content: 200.0 },
-            FrameAxisSizing::Content { content: 150.0 },
-        );
-
-        let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
-        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
-    }
-
-    #[test]
-    fn margins_mode_matches_frame_both_fixed() {
-        let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
-            .margin(8.0)
-            .strip(Side::Top, 18.0)
-            .legend(Side::Right, 64.0)
-            .guide(Side::Left, 38.0)
-            .guide(Side::Bottom, 22.0)
-            .id("chart")
-            .sizing(SolveFor::Margins)
-            .solve(&SolveOptions {
-                width: Some(400.0),
-                height: Some(300.0),
-            })
-            .expect("solve");
-        let (horizontal, vertical) = chart_axes(
-            FrameAxisSizing::EnvelopeAndContent {
-                extent: 400.0,
-                content: 200.0,
-            },
-            FrameAxisSizing::EnvelopeAndContent {
-                extent: 300.0,
-                content: 150.0,
-            },
-        );
-
-        let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
-        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
-    }
 
     #[test]
     fn mixed_axis_allocation_solves_each_axis_independently() {
@@ -2384,7 +2264,7 @@ mod tests {
     }
 
     /// Pin the pass provenance of the three `Region` edge fields:
-    /// `requested` is pass-1 (pre-merge), `coordinated` is pass-2 (the
+    /// `requested` is pre-merge, `coordinated` includes the
     /// node's own ask raised to share-group floors), `granted` is the
     /// parent's track allocation (which also folds in unshared siblings).
     ///

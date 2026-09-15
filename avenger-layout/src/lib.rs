@@ -36,13 +36,16 @@
 //!   within its [`slot`](Region::slot) (the allotment); the solver never
 //!   falsifies a measurement to fill space.
 //!
-//! # One solve, no loop
+//! # Measurement and allocation
 //!
-//! [`Layout::solve`] runs measure-up → coordinate (one pure round over all
-//! share groups) → allocate-down, once. Demands are constant inputs; if a
-//! caller's measurements depend on allocated sizes (chart tick labels), the
-//! caller re-measures at the granted allotments and solves again —
-//! [`LayoutSolution::content_delta`] drives that loop.
+//! [`Layout::solve`] measures children, coordinates shared groups from
+//! descendants to ancestors, then allocates from ancestors to descendants.
+//! Nested sharing settles within this call. Circular dependencies between
+//! shared groups return [`LayoutError::CyclicSharing`].
+//!
+//! Measurements are constant inputs. If they depend on allocated sizes
+//! (for example, chart tick labels), the caller remeasures at the solved
+//! slots and solves again; [`LayoutSolution::content_delta`] drives that loop.
 //!
 //! # Reading a solution
 //!
@@ -67,7 +70,7 @@ pub use build::{
     CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions, Spacing, TrackSize,
 };
 pub use geometry::{Edges, Rect, Side, Size};
-pub use grid::{GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution};
+pub use grid::{GridShape, GridSlot};
 pub use region::{EdgeDemand, EdgeGrant};
 pub use solution::{
     ChromeLayer, ChromeSlab, Diagnostics, Envelope, LayoutSolution, Region, RegionDetail,
