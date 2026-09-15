@@ -410,12 +410,11 @@ pub fn rejoin<C, I>(
         }
 
         let mut is_subject = true;
-        let mut side_subject = true; // current index refers to subject list
         sink.line_start();
 
         loop {
             // Mark current and its pair visited.
-            if side_subject {
+            if is_subject {
                 let o = subject[current].o;
                 subject[current].v = true;
                 clip[o].v = true;
@@ -425,7 +424,7 @@ pub fn rejoin<C, I>(
                 subject[o].v = true;
             }
 
-            let (entry, next_idx, prev_idx) = if side_subject {
+            let (entry, next_idx, prev_idx) = if is_subject {
                 (subject[current].e, subject[current].n, subject[current].p)
             } else {
                 (clip[current].e, clip[current].n, clip[current].p)
@@ -441,8 +440,8 @@ pub fn rejoin<C, I>(
                         sink.point(p.x, p.y, p.m);
                     }
                 } else {
-                    let from = node_x(&subject, &clip, side_subject, current);
-                    let to = node_x(&subject, &clip, side_subject, next_idx);
+                    let from = node_x(&subject, &clip, is_subject, current);
+                    let to = node_x(&subject, &clip, is_subject, next_idx);
                     interpolate(Some(from), Some(to), 1, sink);
                 }
                 current = next_idx;
@@ -456,24 +455,23 @@ pub fn rejoin<C, I>(
                         sink.point(p.x, p.y, p.m);
                     }
                 } else {
-                    let from = node_x(&subject, &clip, side_subject, current);
-                    let to = node_x(&subject, &clip, side_subject, prev_idx);
+                    let from = node_x(&subject, &clip, is_subject, current);
+                    let to = node_x(&subject, &clip, is_subject, prev_idx);
                     interpolate(Some(from), Some(to), -1, sink);
                 }
                 current = prev_idx;
             }
 
             // Jump to the paired node in the other list.
-            let o = if side_subject {
+            let o = if is_subject {
                 subject[current].o
             } else {
                 clip[current].o
             };
-            side_subject = !side_subject;
-            current = o;
             is_subject = !is_subject;
+            current = o;
 
-            let visited = if side_subject {
+            let visited = if is_subject {
                 subject[current].v
             } else {
                 clip[current].v
@@ -486,8 +484,8 @@ pub fn rejoin<C, I>(
     }
 }
 
-fn node_x(subject: &[Node], clip: &[Node], side_subject: bool, idx: usize) -> [f64; 2] {
-    let node = if side_subject {
+fn node_x(subject: &[Node], clip: &[Node], is_subject: bool, idx: usize) -> [f64; 2] {
+    let node = if is_subject {
         &subject[idx]
     } else {
         &clip[idx]

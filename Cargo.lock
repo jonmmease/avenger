@@ -531,7 +531,6 @@ dependencies = [
  "geo-traits",
  "geo-types",
  "geojson",
- "itertools 0.14.0",
  "lyon_path",
  "resvg",
  "serde",
