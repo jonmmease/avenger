@@ -202,20 +202,15 @@ pub struct Region<Id = usize> {
     pub content: Rect,
     /// Declared chrome, positioned. Empty when the node declares none.
     pub slabs: Vec<ChromeSlab>,
-    /// The overflow this node asked for (measured demands plus lifted
-    /// chrome), from the natural pass-1 measurement — pre-merge.
+    /// The node's overflow before coordination: measured demands plus
+    /// declared chrome on `Envelope` axes.
     pub requested: Edges<EdgeGrant>,
-    /// This node's own ask after share coordination: the pass-2 demands,
-    /// with share-group floors patched in. Equals `requested` when no
-    /// share group touches this node (an unpatched node re-measures
-    /// identically; with no share patches at all, pass 2 is skipped and
-    /// the two fields are copies of the same measurement). Distinct from
-    /// `granted`: a share-group member's `coordinated` edge holds the
-    /// group's merged layers, while `granted` also folds in unrelated
-    /// siblings sharing the parent's tracks.
+    /// The node's overflow after coordinating its shared tracks and any
+    /// shared descendants. This can differ from `requested` even when the
+    /// node has no share key of its own.
     pub coordinated: Edges<EdgeGrant>,
-    /// The overflow space granted around this node's slot (per-track merged
-    /// demand within its parent; equals `requested` at the root).
+    /// Overflow granted around this node's slot by its parent's tracks,
+    /// including demands from siblings. Equals `coordinated` at the root.
     pub granted: Edges<EdgeGrant>,
     /// Geometric view of this node's own measured overflow: raw per-side
     /// maxima without the `guide + legend` lift (the node-level

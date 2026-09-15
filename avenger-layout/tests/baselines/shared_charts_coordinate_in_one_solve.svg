@@ -5,11 +5,11 @@
   </defs>
   <rect x="-10" y="-10" width="572" height="186" fill="#ffffff"/>
   <rect x="34" y="24" width="508" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
-  <rect x="24" y="0" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="24" y="114" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="24" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="266" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="34" y="10" width="232" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="0" width="276" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="132" width="276" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="10" width="10" height="122" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="266" y="10" width="10" height="122" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="10" y="10" width="256" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
   <rect x="34" y="114" width="232" height="18" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
   <rect x="34" y="114" width="232" height="18" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="10" y="24" width="24" height="90" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
@@ -28,11 +28,11 @@
   <rect x="156" y="114" width="80" height="18" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="156" y="24" width="80" height="90" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="159" y="60" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c01</text>
-  <rect x="300" y="0" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="300" y="114" width="252" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="300" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="542" y="10" width="10" height="104" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="310" y="10" width="232" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="276" y="0" width="276" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="276" y="132" width="276" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="276" y="10" width="10" height="122" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="542" y="10" width="10" height="122" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="286" y="10" width="256" height="14" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
   <rect x="310" y="114" width="232" height="18" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
   <rect x="310" y="114" width="232" height="4" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="286" y="24" width="24" height="90" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
