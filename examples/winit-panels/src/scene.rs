@@ -31,6 +31,7 @@ const IDS: [&str; 6] = [
 const SIDES: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
 const CHART_ORIGIN: [f32; 2] = [24.0, 126.0];
 const GAP: f32 = 10.0;
+const LAYOUT_TOLERANCE: f32 = 0.01;
 
 /// Rendered scene and the public plans used to construct it.
 pub struct Output {
@@ -567,14 +568,36 @@ fn solve(
     m: &Measurement,
     p: Option<&GuidePlan>,
 ) -> Result<LayoutSolution<NodeId>, String> {
-    layout_node(&NodeId::Group(a.tree().root().clone()), a, m, p)
-        .margin(12.0)
+    let root = NodeId::Group(a.tree().root().clone());
+    let layout = layout_node(&root, a, m, p).margin(12.0);
+    // Keep minimum plot sizes inside their groups before placing exterior guides.
+    // The canvas bounds check handles layouts that still need more room.
+    let natural = layout
+        .solve(&SolveOptions::default())
+        .map_err(|e| e.to_string())?;
+    let minimum = natural.region(&root).unwrap().slot;
+    layout
         .solve(&SolveOptions {
-            width: Some((state.size[0] - 320.0).max(360.0)),
-            height: Some((state.size[1] - 176.0).max(590.0)),
+            width: Some((state.size[0] - 320.0).max(360.0).max(minimum.width)),
+            height: Some((state.size[1] - 176.0).max(590.0).max(minimum.height)),
         })
         .map_err(|e| e.to_string())
 }
+
+fn content_is_stable(
+    tree: &PanelTree,
+    current: &LayoutSolution<NodeId>,
+    next: &LayoutSolution<NodeId>,
+) -> bool {
+    tree.nodes().all(|id| {
+        let a = current.region(id).unwrap().content;
+        let b = next.region(id).unwrap().content;
+        [a.x - b.x, a.y - b.y, a.width - b.width, a.height - b.height]
+            .iter()
+            .all(|delta| delta.abs() < LAYOUT_TOLERANCE)
+    })
+}
+
 struct Settled {
     solution: LayoutSolution<NodeId>,
     frames: PanelFrames,
@@ -593,7 +616,6 @@ fn settle(
         let mut measurement = measure(state, tree, domains, None, None, a)?;
         let mut solution = solve(state, a, &measurement, None)?;
         let mut previous: Option<GuidePlan> = None;
-        let mut history = Vec::new();
         for iteration in 1..=12 {
             let frames = PanelFrames::from_layout(a, &solution).map_err(|e| e.to_string())?;
             let plan = tree
@@ -601,13 +623,13 @@ fn settle(
                     &frames,
                     requests(tree, state, domains, fallback),
                     GuideOptions {
-                        alignment_tolerance: 0.01,
+                        alignment_tolerance: LAYOUT_TOLERANCE,
                     },
                 )
                 .map_err(|e| e.to_string())?;
             measurement = measure(state, tree, domains, Some(&frames), Some(&plan), a)?;
             let next = solve(state, a, &measurement, Some(&plan))?;
-            if previous.as_ref() == Some(&plan) && next.content_delta(&solution) < 0.01 {
+            if previous.as_ref() == Some(&plan) && content_is_stable(tree, &solution, &next) {
                 return Ok(Settled {
                     solution,
                     frames,
@@ -617,16 +639,6 @@ fn settle(
                     fallback,
                 });
             }
-            let signature = format!(
-                "{plan:?}/{:?}",
-                tree.panels()
-                    .map(|p| next.region(&NodeId::Panel(p.clone())).unwrap().content)
-                    .collect::<Vec<_>>()
-            );
-            if history.contains(&signature) {
-                break;
-            }
-            history.push(signature);
             previous = Some(plan);
             solution = next;
         }
@@ -970,4 +982,41 @@ pub fn build(state: &State) -> Result<Output, String> {
         fallback: settled.fallback,
         columns: state.columns(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convergence_checks_grid_content_positions_and_sizes() {
+        let tree = PanelTree::new("figure".into(), [PanelNode::panel("plot")]).unwrap();
+        let solve = |side, clearance| {
+            Layout::<NodeId, String>::grid(1, 1)
+                .sizing(SolveFor::Content)
+                .id(GroupId::from("figure").into())
+                .guide(side, clearance)
+                .cell(
+                    0,
+                    0,
+                    Layout::grid(1, 1)
+                        .base_cell_size(Size::new(70.0, 55.0))
+                        .id(PanelId::from("plot").into()),
+                )
+                .solve(&SolveOptions {
+                    width: Some(200.0),
+                    height: Some(100.0),
+                })
+                .unwrap()
+        };
+        let current = solve(Side::Right, 20.0);
+        for (side, clearance, stable) in [
+            (Side::Right, 20.0, true),
+            (Side::Left, 20.0, false),
+            (Side::Right, 40.0, false),
+        ] {
+            let next = solve(side, clearance);
+            assert_eq!(content_is_stable(&tree, &current, &next), stable);
+        }
+    }
 }

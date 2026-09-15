@@ -14,7 +14,7 @@ cargo run --release -p winit-panels
 
 Click a control or press its number to cycle the setting. Domain, title, and legend scopes are independent. Tick marks and grid lines remain visible when labels are suppressed. The last product can contain data, show an empty panel, or leave a physical hole. Its logical domain contribution remains unchanged during that display toggle.
 
-If the measured guides do not fit, the chart asks for more room while keeping the controls available.
+The layout honors minimum panel sizes before placing group guides. If the result does not fit the canvas, the chart asks for more room while keeping the controls available.
 
 The coordination overlay outlines region anchors and labels each visible axis with the number of panels it represents. The example presets include independent domains with a shared title and equal numeric bounds with different dollar and percentage formatting.
 
