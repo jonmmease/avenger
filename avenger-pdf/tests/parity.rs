@@ -11,10 +11,10 @@ mod raster;
 fn shared_scene_rules_survive_pdf_export() {
     let renderer = avenger_pdf::PdfRenderer::new();
     let output = std::env::var_os("AVENGER_PARITY_OUTPUT").map(std::path::PathBuf::from);
-    // PDF viewers control image interpolation; this check covers shared geometry and paints.
+    // Smooth transparent images have a separate expected failure below.
     for case in parity::cases()
         .into_iter()
-        .filter(|case| !case.name.starts_with("image-"))
+        .filter(|case| case.name != "image-true")
     {
         let pdf = renderer.render_scene_graph(&case.scene).unwrap();
         let image = pdf_raster::pdf_to_png(&pdf, case.scene.width, case.scene.height);
@@ -53,4 +53,30 @@ fn shared_scene_rules_survive_pdf_export() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+#[should_panic(expected = "smooth transparent image needs Krilla /Matte support")]
+fn smooth_transparent_images_match_premultiplied_alpha() {
+    // Krilla 0.8.2 cannot set /Matte on image soft masks. PDFium interpolates
+    // straight RGB and alpha separately, exposing colors from transparent pixels.
+    // Remove should_panic when the image path supports premultiplied interpolation.
+    let case = parity::cases()
+        .into_iter()
+        .find(|case| case.name == "image-true")
+        .unwrap();
+    let pdf = avenger_pdf::PdfRenderer::new()
+        .render_scene_graph(&case.scene)
+        .unwrap();
+    let image = pdf_raster::pdf_to_png(&pdf, case.scene.width, case.scene.height);
+    let (point, expected) = case.samples[0];
+    let actual = image.get_pixel(point[0] * 2, point[1] * 2).0;
+    assert!(
+        actual
+            .into_iter()
+            .zip(expected)
+            .all(|(a, b)| a.abs_diff(b) <= 3),
+        "smooth transparent image needs Krilla /Matte support: {actual:?} != {expected:?}"
+    );
 }
