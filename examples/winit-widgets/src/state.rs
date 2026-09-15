@@ -238,7 +238,32 @@ impl State {
     }
     /// Read-only demo diagnostics for tests and browser inspection.
     pub fn inspection(&self) -> serde_json::Value {
-        serde_json::json!({"layers":self.layers.iter().map(ChoiceItemId::as_str).collect::<Vec<_>>(),"palette":self.palette.as_str(),"size":self.marker_size,"opacity":self.opacity,"committedOpacity":self.committed_opacity,"title":self.title,"source":self.source,"acceptedSource":self.accepted_source,"invalid":self.annotation_error.is_some(),"locked":self.locked,"pan":self.pan,"lastAction":self.last_action,"focus":self.widgets.focused().map(|t|serde_json::json!({"id":t.widget.as_str(),"item":t.item.as_ref().map(ChoiceItemId::as_str)})),"controls":self.widgets.semantics().iter().map(|s|serde_json::json!({"id":s.target.widget.as_str(),"item":s.target.item.as_ref().map(ChoiceItemId::as_str),"x":s.bounds.x,"y":s.bounds.y,"width":s.bounds.width,"height":s.bounds.height})).collect::<Vec<_>>()})
+        serde_json::json!({
+            "layers": self.layers.iter().map(ChoiceItemId::as_str).collect::<Vec<_>>(),
+            "palette": self.palette.as_str(),
+            "size": self.marker_size,
+            "opacity": self.opacity,
+            "committedOpacity": self.committed_opacity,
+            "title": self.title,
+            "source": self.source,
+            "acceptedSource": self.accepted_source,
+            "invalid": self.annotation_error.is_some(),
+            "locked": self.locked,
+            "pan": self.pan,
+            "lastAction": self.last_action,
+            "focus": self.widgets.focused().map(|target| serde_json::json!({
+                "id": target.widget.as_str(),
+                "item": target.item.as_ref().map(ChoiceItemId::as_str),
+            })),
+            "controls": self.widgets.semantics().iter().map(|control| serde_json::json!({
+                "id": control.target.widget.as_str(),
+                "item": control.target.item.as_ref().map(ChoiceItemId::as_str),
+                "x": control.bounds.x,
+                "y": control.bounds.y,
+                "width": control.bounds.width,
+                "height": control.bounds.height,
+            })).collect::<Vec<_>>(),
+        })
     }
 }
 pub fn annotation_config(text: &str) -> TextMeasurementConfig<'_> {

@@ -330,14 +330,12 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
 
         if let WindowEvent::MouseInput(input) = event {
+            // Each press starts a new gesture, even if an earlier release went to another window.
+            self.suppressed_click_buttons
+                .retain(|button| button != &input.button);
             if input.state == ElementState::Pressed && update_status.suppress_click {
-                if !self.suppressed_click_buttons.contains(&input.button) {
-                    self.suppressed_click_buttons.push(input.button);
-                }
+                self.suppressed_click_buttons.push(input.button);
                 self.last_click = None;
-            } else if input.state == ElementState::Released {
-                self.suppressed_click_buttons
-                    .retain(|button| button != &input.button);
             }
         }
         update_status
@@ -1931,7 +1929,7 @@ mod tests {
         ) -> UpdateStatus {
             state.events.lock().unwrap().push(event.clone());
             UpdateStatus {
-                suppress_click: matches!(event, SceneGraphEvent::MouseDown(_)),
+                suppress_click: matches!(event, SceneGraphEvent::MouseDown(e) if e.position[0] < 5.0),
                 consume: true,
                 ..Default::default()
             }
@@ -2016,5 +2014,53 @@ mod tests {
             e,
             SceneGraphEvent::MouseDown(_) | SceneGraphEvent::MouseUp(_)
         )));
+    }
+
+    #[tokio::test]
+    async fn missed_release_does_not_suppress_the_next_gesture() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown, SceneGraphEventType::Click],
+                ..Default::default()
+            },
+            Arc::new(GestureOwner),
+        );
+        let tree = empty_rtree();
+        let now = Instant::now();
+        // The suppressed press loses focus, and its release goes to another window.
+        for event in [
+            WindowEvent::CursorMoved(WindowCursorMoved { position: [1.0; 2] }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::WindowFocused(false),
+            WindowEvent::WindowFocused(true),
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [10.0; 2],
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+            }),
+        ] {
+            manager.dispatch_event(&event, &tree, now).await;
+        }
+        assert_eq!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, SceneGraphEvent::Click(_)))
+                .count(),
+            1
+        );
     }
 }

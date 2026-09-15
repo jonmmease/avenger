@@ -809,10 +809,11 @@ pub struct WindowCanvas<'window> {
 
 impl WindowCanvas<'_> {
     pub async fn new(
-        window: Window,
+        window: impl Into<Arc<Window>>,
         dimensions: CanvasDimensions,
         config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
+        let window = window.into();
         let requested_size = dimensions.to_physical_size();
         let accepted_size = window
             .request_inner_size(Size::Physical(requested_size))
@@ -828,7 +829,6 @@ impl WindowCanvas<'_> {
             scale: dimensions.scale,
         };
         let instance = make_wgpu_instance();
-        let window = Arc::new(window);
         let surface = instance.create_surface(window.clone())?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
