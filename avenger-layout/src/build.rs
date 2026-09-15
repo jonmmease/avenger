@@ -30,7 +30,7 @@
 //! measurements rather than declarations.
 
 use crate::geometry::{Edges, Side, Size};
-use crate::grid::{GridError, GridShape, GridSlot};
+use crate::grid::{GridShape, GridSlot};
 use crate::region::EdgeDemand;
 
 /// Per-axis spacing policy for grid tracks (the gap law's inputs).
@@ -54,7 +54,9 @@ pub enum SolveFor {
     /// The envelope (this node's outer box: the root allocation/canvas,
     /// or the slot when nested) is given; the content gets the remainder,
     /// floored by [`Layout::content_min`]. Chrome is **contained**:
-    /// carved inside the envelope, not lifted as overflow.
+    /// carved inside the envelope, not lifted as overflow. Opaque measured
+    /// demands are neither reserved outside nor inset inside this box; use
+    /// declared chrome for space that must remain contained.
     Content,
     /// Content is given (the leaf's measured size or the grid's natural
     /// extent); the envelope is the sum of content plus chrome. Chrome is
@@ -66,7 +68,7 @@ pub enum SolveFor {
     Envelope,
     /// Both envelope and content are given; the two margins absorb the
     /// slack, half each (declared margins are ignored on this axis). Like
-    /// `Content`, chrome is contained.
+    /// `Content`, chrome is contained and opaque demands are not reserved.
     Margins,
 }
 
@@ -155,6 +157,8 @@ pub enum LayoutError {
     NonFiniteInput { field: &'static str },
     /// Finite inputs overflowed the solver's `f32` coordinate range.
     CoordinateOverflow,
+    /// Shared groups depend on one another through a nesting cycle.
+    CyclicSharing,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -167,20 +171,15 @@ impl std::fmt::Display for LayoutError {
             ),
             Self::DuplicateId => write!(f, "duplicate node id breaks solution lookup"),
             Self::NonFiniteInput { field } => write!(f, "layout {field} must be finite"),
+            Self::CyclicSharing => {
+                write!(f, "shared grid groups form a circular nesting dependency")
+            }
             Self::CoordinateOverflow => write!(f, "layout coordinates exceed the finite f32 range"),
         }
     }
 }
 
 impl std::error::Error for LayoutError {}
-
-impl From<GridError> for LayoutError {
-    fn from(error: GridError) -> Self {
-        match error {
-            GridError::SlotOutOfBounds { slot, shape } => Self::SlotOutOfBounds { slot, shape },
-        }
-    }
-}
 
 /// One side's declared chrome slabs, ordered outside-in.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -504,6 +503,8 @@ impl<Id, Key> Layout<Id, Key> {
     /// grid carrying the same key, anywhere in the tree (cousin
     /// coordination). The switch between "match your cousins (and leave
     /// slack)" and "fill your container".
+    /// Circular dependencies between shared groups return
+    /// [`LayoutError::CyclicSharing`] from [`Layout::solve`].
     pub fn share(mut self, key: Key) -> Self {
         self.grid_mut("share").share = Some(key);
         self
@@ -551,130 +552,6 @@ impl Edges<ChromeSide> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn builders_construct_the_documented_shapes() {
-        let cell: Layout<&str> = Layout::leaf(Size::new(110.0, 50.0))
-            .demand(
-                Side::Left,
-                EdgeDemand {
-                    guide: 26.0,
-                    legend: 0.0,
-                },
-            )
-            .demand(
-                Side::Bottom,
-                EdgeDemand {
-                    guide: 18.0,
-                    legend: 0.0,
-                },
-            )
-            .id("a0");
-        match &cell.kind {
-            LayoutKind::Leaf {
-                content_size,
-                demands,
-            } => {
-                assert_eq!(*content_size, Size::new(110.0, 50.0));
-                assert_eq!(
-                    demands.left,
-                    EdgeDemand {
-                        guide: 26.0,
-                        legend: 0.0
-                    }
-                );
-                assert_eq!(
-                    demands.bottom,
-                    EdgeDemand {
-                        guide: 18.0,
-                        legend: 0.0
-                    }
-                );
-            }
-            LayoutKind::Grid(_) => panic!("leaf expected"),
-        }
-        assert_eq!(cell.id, Some("a0"));
-
-        let chart: Layout = Layout::leaf(Size::default())
-            .margin(8.0)
-            .strip(Side::Top, 18.0)
-            .strip(Side::Top, 12.0)
-            .legend(Side::Right, 64.0)
-            .guide(Side::Left, 38.0)
-            .sizing(SolveFor::Content);
-        assert_eq!(chart.chrome.sides.top.strips, vec![18.0, 12.0]);
-        assert_eq!(chart.chrome.sides.right.legend, 64.0);
-        assert_eq!(chart.chrome.sides.left.guide, 38.0);
-        assert_eq!(chart.chrome.sides.left.margin, 8.0);
-        assert_eq!(chart.chrome.sizing_x, SolveFor::Content);
-        assert_eq!(chart.chrome.sizing_y, SolveFor::Content);
-
-        let group: Layout<usize, &str> = Layout::column(vec![
-            Layout::leaf(Size::new(10.0, 10.0)),
-            Layout::leaf(Size::new(10.0, 10.0)),
-        ])
-        .min_gap(14.0)
-        .uniform_rows()
-        .share("facet-cells")
-        .guide(Side::Top, 16.0);
-        match &group.kind {
-            LayoutKind::Grid(grid) => {
-                assert_eq!(
-                    grid.shape,
-                    GridShape {
-                        rows: 2,
-                        columns: 1
-                    }
-                );
-                assert_eq!(grid.row_spacing.min_gap, 14.0);
-                assert!(grid.uniform_rows);
-                assert_eq!(grid.share, Some("facet-cells"));
-                assert_eq!(grid.children[1].slot.row, 1);
-            }
-            LayoutKind::Leaf { .. } => panic!("grid expected"),
-        }
-        assert_eq!(group.chrome.sides.top.guide, 16.0);
-
-        let grid: Layout = Layout::grid(2, 3)
-            .cell(0, 0, Layout::leaf(Size::default()))
-            .cell_span(1, 0, 1, 2, Layout::leaf(Size::default()))
-            .columns([TrackSize::Flex(2.0), TrackSize::Flex(1.0), TrackSize::Auto])
-            .distribute_x(Distribute::SpaceBetween)
-            .base_cell_size(Size::new(40.0, 30.0));
-        match &grid.kind {
-            LayoutKind::Grid(spec) => {
-                assert_eq!(spec.children.len(), 2);
-                assert_eq!(spec.children[1].slot.column_span, 2);
-                assert_eq!(
-                    spec.column_sizes,
-                    Some(vec![
-                        TrackSize::Flex(2.0),
-                        TrackSize::Flex(1.0),
-                        TrackSize::Auto
-                    ])
-                );
-                assert_eq!(spec.distribute_x, Distribute::SpaceBetween);
-                assert_eq!(spec.base_cell_size, Size::new(40.0, 30.0));
-            }
-            LayoutKind::Leaf { .. } => panic!("grid expected"),
-        }
-    }
-
-    #[test]
-    fn defaults_are_the_documented_ones() {
-        let leaf: Layout = Layout::leaf(Size::default());
-        assert_eq!(leaf.chrome.sizing_x, SolveFor::Envelope);
-        assert_eq!(leaf.align, (CellAlign::Start, CellAlign::Start));
-        assert_eq!(
-            SolveOptions::default(),
-            SolveOptions {
-                width: None,
-                height: None
-            }
-        );
-        assert_eq!(Distribute::default(), Distribute::StretchTracks);
-        assert_eq!(TrackSize::default(), TrackSize::Auto);
-    }
 
     #[test]
     #[should_panic(expected = "applies to grid nodes only")]

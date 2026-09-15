@@ -5,16 +5,16 @@
     <pattern id="hatch-l1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#6cc795" stroke-width="1.6"/></pattern>
   </defs>
   <rect x="-10" y="-10" width="540" height="204" fill="#ffffff"/>
-  <rect x="0" y="16" width="196" height="12" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="0" y="148" width="196" height="12" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="0" y="28" width="12" height="120" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
-  <rect x="184" y="28" width="12" height="120" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="0" width="233" height="12" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="148" width="233" height="12" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="0" y="12" width="12" height="136" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
+  <rect x="221" y="12" width="12" height="136" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
   <rect x="12" y="28" width="172" height="120" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="12" y="12" width="70" height="16" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
   <rect x="12" y="28" width="70" height="120" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="15" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">solo</text>
-  <rect x="184" y="12" width="22" height="136" fill="#14602f" stroke="#14602f" stroke-width="0.5"/>
-  <rect x="94" y="12" width="90" height="16" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
+  <rect x="199" y="12" width="22" height="136" fill="#14602f" stroke="#14602f" stroke-width="0.5"/>
+  <rect x="94" y="12" width="105" height="16" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
   <rect x="94" y="12" width="90" height="16" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
   <rect x="94" y="12" width="90" height="16" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="184" y="28" width="15" height="120" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
