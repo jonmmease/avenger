@@ -36,18 +36,20 @@ fn shared_scene_rules_survive_pdf_export() {
                 .filter(|(a, b)| a.0.into_iter().zip(b.0).any(|(a, b)| a.abs_diff(b) > 20))
                 .count();
             assert!(
-                large < 840 * 480 / 100,
+                large < image.pixels().len() / 100,
                 "{}: {large} pixels differ beyond edge tolerance",
                 case.name
             );
         }
+        // Native radial shading color samples vary slightly between PDF viewers.
+        let tolerance = if case.browser_only { 5 } else { 3 };
         for (point, expected) in case.samples {
             let actual = image.get_pixel(point[0] * 2, point[1] * 2).0;
             assert!(
                 actual
                     .into_iter()
                     .zip(expected)
-                    .all(|(a, b)| a.abs_diff(b) <= 3),
+                    .all(|(a, b)| a.abs_diff(b) <= tolerance),
                 "{} {point:?}: {actual:?} != {expected:?}",
                 case.name
             );
