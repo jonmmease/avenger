@@ -18,7 +18,13 @@ Positive finite text limits ellipsize plain text at grapheme boundaries. Typst l
 
 Resolve resource-backed images with `avenger_scenegraph::image_resources::resolve_ready_image_resources` before export. The helper reads ready resources from the caller's resolver and returns a scene with inline images. It does not wait for loading. Ordinary images preserve their `smooth` setting. Warped images rasterize at two pixels per scene unit, capped at 8192 pixels per dimension. The cap reduces resolution while preserving the complete mesh.
 
+Smooth filtering of transparent images can expose hidden RGB as colored fringes. Krilla 0.8.2 does not expose soft-mask `/Matte` metadata through its custom-image API, so premultiplied-alpha interpolation remains deferred for ordinary and warped images. The PDFium suite records this mismatch as an expected failure. Nearest-filtered images remain in the normal parity checks.
+
 Path marks, symbols, and path clips honor the scene fill rule, whose ordinary default is nonzero. Pattern symbols retain their even-odd default. Trails use the shared filled outline, so overlapping segments apply translucent paint once. Symbol gradients use the nominal square derived from `sqrt(size)`, trail gradients use centerline bounds, and radial gradients use the enclosing square and preserve both circles. Ordinary strokes use miter limit 8. Explicit Typst limits remain unchanged.
+
+Coincident linear-gradient endpoints use the final stop's color and opacity. Single-stop gradients use a solid color. Identical radial circles paint nothing. Other radial gradients remain native PDF shadings, with translated and uniformly scaled coordinates to reduce numerical instability for nearly coincident circles.
+
+Isolated line samples and zero-length on-dashes retain round or square caps. Butt caps paint nothing. The shared stroke outline makes these cases independent of PDF viewer behavior and applies opacity once across overlapping dashes. Separate strokes still composite independently. Gradient bounds remain separate from stroke expansion.
 
 ## Gallery and tests
 
