@@ -1,5 +1,5 @@
 use avenger_common::types::{FillRule as SceneFillRule, LYON_SCENE_MITER_LIMIT};
-use avenger_scenegraph::path_geometry::GradientBounds;
+use avenger_scenegraph::path_geometry::{stroke_outline, zero_length_subpaths, GradientBounds};
 use std::ops::{Mul, Range};
 
 use avenger_color::ColorOrGradient;
@@ -786,7 +786,6 @@ impl MultiMarkRenderer {
     fn add_path_item_with_optional_pattern(
         &mut self,
         path: &Path,
-        stroke_path: &Path,
         fill: &ColorOrGradient,
         fill_pattern: Option<&PatternFill>,
         stroke: &ColorOrGradient,
@@ -802,6 +801,7 @@ impl MultiMarkRenderer {
         chart_bounds: PatternRect,
         fill_rule: SceneFillRule,
         gradient_bounds: Option<GradientBounds>,
+        stroke_dash: Option<&[f32]>,
     ) -> Result<(), AvengerWgpuError> {
         let (fill_verts, fill_indices) =
             tessellate_fill_path(path, fill, grad_coords, fill_rule, gradient_bounds)?;
@@ -824,13 +824,14 @@ impl MultiMarkRenderer {
         }
 
         let (stroke_verts, stroke_indices) = tessellate_stroke_path(
-            stroke_path,
+            path,
             stroke,
             grad_coords,
             stroke_width,
             stroke_cap,
             stroke_join,
             gradient_bounds,
+            stroke_dash,
         )?;
         if let Some(range) = self.push_verts_inds(stroke_verts, stroke_indices) {
             self.push_normal_batch(range, clip, mark_clip, gradient_atlas_index)?;
@@ -948,40 +949,31 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
+        let dashes = mark
+            .stroke_dash_iter()
+            .map(|iter| iter.map(|dash| Some(dash.as_slice())).collect::<Vec<_>>())
+            .unwrap_or_else(|| vec![None; mark.len as usize]);
         let verts_inds = izip!(
+            mark.undashed_path_iter(origin),
             mark.transformed_path_iter(origin),
             mark.stroke_iter(),
             mark.stroke_width_iter(),
-            mark.stroke_cap_iter()
-        ).map(|(path, stroke, stroke_width, cap)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            let bbox = bounding_box(&path);
-
-            // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-            let mut builder = BuffersBuilder::new(
-                &mut buffers,
-                VertexPositions {
-                    fill: [0.0, 0.0, 0.0, 0.0],
-                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                    top_left: bbox.min.to_array(),
-                    bottom_right: bbox.max.to_array(),
-                },
-            );
-
-            // Tesselate stroke
-            let mut stroke_tessellator = StrokeTessellator::new();
-            let stroke_options = StrokeOptions::default().with_miter_limit(LYON_SCENE_MITER_LIMIT)
-                .with_tolerance(0.05)
-                .with_line_join(LineJoin::Miter)
-                .with_line_cap(match cap {
-                    StrokeCap::Butt => LineCap::Butt,
-                    StrokeCap::Round => LineCap::Round,
-                    StrokeCap::Square => LineCap::Square,
-                })
-                .with_line_width(*stroke_width);
-            stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-            Ok((buffers.vertices, buffers.indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            mark.stroke_cap_iter(),
+            dashes
+        )
+        .map(|(path, painted, stroke, width, cap, dash)| {
+            tessellate_stroke_path(
+                &path,
+                stroke,
+                &grad_coords,
+                *width,
+                *cap,
+                StrokeJoin::Miter,
+                Some(GradientBounds::from_path(&painted)),
+                dash,
+            )
+        })
+        .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -1027,7 +1019,6 @@ impl MultiMarkRenderer {
             ) {
                 self.add_path_item_with_optional_pattern(
                     &path,
-                    &path,
                     fill,
                     fill_pattern.as_ref(),
                     stroke,
@@ -1042,6 +1033,7 @@ impl MultiMarkRenderer {
                     pattern_reference_frame,
                     chart_bounds,
                     SceneFillRule::NonZero,
+                    None,
                     None,
                 )?;
             }
@@ -1258,7 +1250,6 @@ impl MultiMarkRenderer {
             ) {
                 self.add_path_item_with_optional_pattern(
                     &path,
-                    &path,
                     fill,
                     fill_pattern.as_ref(),
                     stroke,
@@ -1273,6 +1264,7 @@ impl MultiMarkRenderer {
                     pattern_reference_frame,
                     chart_bounds,
                     mark.fill_rule,
+                    None,
                     None,
                 )?;
             }
@@ -1306,24 +1298,24 @@ impl MultiMarkRenderer {
 
             fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
 
-            // Tesselate stroke
+            // Strokes share other marks' tessellation, which draws caps on zero-length subpaths,
+            // such as a leader's zero-length dashes.
             if let Some(stroke_width) = mark.stroke_width {
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_miter_limit(LYON_SCENE_MITER_LIMIT)
-                    .with_tolerance(0.05)
-                    .with_line_join(match mark.stroke_join {
-                        StrokeJoin::Miter => LineJoin::Miter,
-                        StrokeJoin::Round => LineJoin::Round,
-                        StrokeJoin::Bevel => LineJoin::Bevel,
-                    })
-                    .with_line_cap(match mark.stroke_cap {
-                        StrokeCap::Butt => LineCap::Butt,
-                        StrokeCap::Round => LineCap::Round,
-                        StrokeCap::Square => LineCap::Square,
-                    })
-                    .with_line_width(stroke_width);
-                stroke_tessellator.tessellate_path(path, &stroke_options, &mut builder)?;
+                let (stroke_verts, stroke_indices) = tessellate_stroke_path(
+                    path,
+                    stroke,
+                    &grad_coords,
+                    stroke_width,
+                    mark.stroke_cap,
+                    mark.stroke_join,
+                    None,
+                    None,
+                )?;
+                let offset = buffers.vertices.len() as u32;
+                buffers.vertices.extend(stroke_verts);
+                buffers
+                    .indices
+                    .extend(stroke_indices.into_iter().map(|index| index + offset));
             }
 
             Ok((buffers.vertices, buffers.indices))
@@ -1395,7 +1387,6 @@ impl MultiMarkRenderer {
             ) {
                 self.add_path_item_with_optional_pattern(
                     &path,
-                    &path,
                     fill,
                     fill_pattern.as_ref(),
                     stroke,
@@ -1414,6 +1405,7 @@ impl MultiMarkRenderer {
                         [x + origin[0], y + origin[1]],
                         *size,
                     )),
+                    None,
                 )?;
             }
 
@@ -1560,45 +1552,17 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let path = mark.transformed_path(origin);
-
-        let mut verts: Vec<MultiVertex> = Vec::new();
-        let mut indices: Vec<u32> = Vec::new();
-
-        let bbox = bounding_box(&path);
-        // Create vertex/index buffer builder
-        let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-        let mut buffers_builder = BuffersBuilder::new(
-            &mut buffers,
-            VertexPositions {
-                fill: [0.0, 0.0, 0.0, 0.0],
-                stroke: to_color_or_gradient_coord(&mark.stroke, &grad_coords),
-                top_left: bbox.min.to_array(),
-                bottom_right: bbox.max.to_array(),
-            },
-        );
-
-        // Tesselate path
-        let mut stroke_tessellator = StrokeTessellator::new();
-        let stroke_options = StrokeOptions::default()
-            .with_miter_limit(LYON_SCENE_MITER_LIMIT)
-            .with_tolerance(0.05)
-            .with_line_join(match mark.stroke_join {
-                StrokeJoin::Miter => LineJoin::Miter,
-                StrokeJoin::Round => LineJoin::Round,
-                StrokeJoin::Bevel => LineJoin::Bevel,
-            })
-            .with_line_cap(match mark.stroke_cap {
-                StrokeCap::Butt => LineCap::Butt,
-                StrokeCap::Round => LineCap::Round,
-                StrokeCap::Square => LineCap::Square,
-            })
-            .with_line_width(mark.stroke_width);
-        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
-
-        let index_offset = verts.len() as u32;
-        verts.extend(buffers.vertices);
-        indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
+        let path = mark.undashed_path(origin);
+        let (verts, indices) = tessellate_stroke_path(
+            &path,
+            &mark.stroke,
+            &grad_coords,
+            mark.stroke_width,
+            mark.stroke_cap,
+            mark.stroke_join,
+            Some(GradientBounds::from_path(&mark.transformed_path(origin))),
+            mark.stroke_dash.as_deref(),
+        )?;
 
         let start_ind = self.num_indices();
         let indices_range = (start_ind as u32)..((start_ind + indices.len()) as u32);
@@ -1633,96 +1597,26 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let fill_path = mark.transformed_path(origin);
-        let stroke_path = mark.transformed_stroke_path(origin);
-
-        if let Some(fill_pattern) = mark.fill_pattern.as_ref() {
-            self.add_path_item_with_optional_pattern(
-                &fill_path,
-                &stroke_path,
-                &mark.fill,
-                Some(fill_pattern),
-                &mark.stroke,
-                mark.stroke_width,
-                mark.stroke_cap,
-                mark.stroke_join,
-                &mark.gradients,
-                gradient_atlas_index,
-                &grad_coords,
-                clip,
-                mark.clip,
-                pattern_reference_frame,
-                chart_bounds,
-                SceneFillRule::NonZero,
-                Some(GradientBounds::from_path(&fill_path)),
-            )?;
-
-            return Ok(());
-        }
-
-        let bbox = bounding_box(&fill_path);
-
-        // Create vertex/index buffer builder
-        let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-        let mut buffers_builder = BuffersBuilder::new(
-            &mut buffers,
-            VertexPositions {
-                fill: to_color_or_gradient_coord(&mark.fill, &grad_coords),
-                stroke: to_color_or_gradient_coord(&mark.stroke, &grad_coords),
-                top_left: bbox.min.to_array(),
-                bottom_right: bbox.max.to_array(),
-            },
-        );
-
-        // Tessellate fill
-        let mut fill_tessellator = FillTessellator::new();
-        let fill_options = FillOptions::default()
-            .with_fill_rule(FillRule::NonZero)
-            .with_tolerance(0.05);
-        fill_tessellator.tessellate_path(&fill_path, &fill_options, &mut buffers_builder)?;
-
-        // Tessellate path
-        if mark.stroke_width > 0.0 {
-            let mut stroke_tessellator = StrokeTessellator::new();
-            let stroke_options = StrokeOptions::default()
-                .with_miter_limit(LYON_SCENE_MITER_LIMIT)
-                .with_tolerance(0.05)
-                .with_line_join(match mark.stroke_join {
-                    StrokeJoin::Miter => LineJoin::Miter,
-                    StrokeJoin::Round => LineJoin::Round,
-                    StrokeJoin::Bevel => LineJoin::Bevel,
-                })
-                .with_line_cap(match mark.stroke_cap {
-                    StrokeCap::Butt => LineCap::Butt,
-                    StrokeCap::Round => LineCap::Round,
-                    StrokeCap::Square => LineCap::Square,
-                })
-                .with_line_width(mark.stroke_width);
-            stroke_tessellator.tessellate_path(
-                &stroke_path,
-                &stroke_options,
-                &mut buffers_builder,
-            )?;
-        }
-
-        let start_ind = self.num_indices();
-        let indices_range = (start_ind as u32)..((start_ind + buffers.indices.len()) as u32);
-
-        let batch = MultiMarkBatch {
-            indices_range,
-            clip: clip.maybe_clip(mark.clip),
-            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
-            pattern_overlay: None,
-            image_atlas_index: None,
-            image_smooth: true,
+        let path = mark.transformed_path(origin);
+        self.add_path_item_with_optional_pattern(
+            &path,
+            &mark.fill,
+            mark.fill_pattern.as_ref(),
+            &mark.stroke,
+            mark.stroke_width,
+            mark.stroke_cap,
+            mark.stroke_join,
+            &mark.gradients,
             gradient_atlas_index,
-            text_atlas_index: None,
-            tile_array_size: None,
-        };
-
-        self.verts_inds.push((buffers.vertices, buffers.indices));
-        self.batches.push(batch);
-        Ok(())
+            &grad_coords,
+            clip,
+            mark.clip,
+            pattern_reference_frame,
+            chart_bounds,
+            SceneFillRule::NonZero,
+            Some(GradientBounds::from_path(&path)),
+            mark.stroke_dash.as_deref(),
+        )
     }
 
     #[tracing::instrument(skip_all)]
@@ -1799,7 +1693,6 @@ impl MultiMarkRenderer {
             ) {
                 self.add_path_item_with_optional_pattern(
                     &path,
-                    &path,
                     fill,
                     fill_pattern.as_ref(),
                     stroke,
@@ -1814,6 +1707,7 @@ impl MultiMarkRenderer {
                     pattern_reference_frame,
                     chart_bounds,
                     SceneFillRule::NonZero,
+                    None,
                     None,
                 )?;
             }
@@ -3126,6 +3020,8 @@ fn tessellate_fill_path(
     Ok((buffers.vertices, buffers.indices))
 }
 
+// Keep the stroke geometry, paint, and gradient bounds together.
+#[allow(clippy::too_many_arguments)]
 fn tessellate_stroke_path(
     path: &Path,
     stroke: &ColorOrGradient,
@@ -3134,12 +3030,23 @@ fn tessellate_stroke_path(
     stroke_cap: StrokeCap,
     stroke_join: StrokeJoin,
     gradient_bounds: Option<GradientBounds>,
+    stroke_dash: Option<&[f32]>,
 ) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
     if stroke_width <= 0.0 {
         return Ok((Vec::new(), Vec::new()));
     }
 
     let bbox = gradient_bounds.unwrap_or_else(|| GradientBounds::from_path(path));
+    if stroke_dash.is_some() || !zero_length_subpaths(path).is_empty() {
+        let outline = stroke_outline(path, stroke_dash, stroke_width, stroke_cap, stroke_join)?;
+        return tessellate_fill_path(
+            &outline,
+            stroke,
+            grad_coords,
+            SceneFillRule::NonZero,
+            Some(bbox),
+        );
+    }
     let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
     let mut builder = BuffersBuilder::new(
         &mut buffers,

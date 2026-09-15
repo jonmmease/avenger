@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mark::{default_interactive, SceneMark},
-    stroke_dash::{combine_paths, dash_paths},
+    stroke_dash::dash_paths,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,39 +70,42 @@ impl SceneLineMark {
         self.defined.as_iter(self.len as usize, None)
     }
 
-    pub fn transformed_path(&self, origin: [f32; 2]) -> Path {
-        let mut defined_paths: Vec<Path> = Vec::new();
-
-        // Build path for each defined line segment
-        let mut path_builder = Path::builder().with_svg();
-        let mut path_len = 0;
+    pub fn undashed_path(&self, origin: [f32; 2]) -> Path {
+        let mut builder = Path::builder();
+        let mut last = None;
+        let mut count = 0;
         for (x, y, defined) in itertools::izip!(self.x_iter(), self.y_iter(), self.defined_iter()) {
             if *defined {
-                if path_len > 0 {
-                    // Continue path
-                    path_builder.line_to(point(*x + origin[0], *y + origin[1]));
+                let at = point(*x + origin[0], *y + origin[1]);
+                if count == 0 {
+                    builder.begin(at);
                 } else {
-                    // New path
-                    path_builder.move_to(point(*x + origin[0], *y + origin[1]));
+                    builder.line_to(at);
                 }
-                path_len += 1;
-            } else {
-                if path_len == 1 {
-                    // Finishing single point line. Add extra point at the same location
-                    // so that stroke caps are drawn
-                    path_builder.close();
+                last = Some(at);
+                count += 1;
+            } else if count > 0 {
+                if count == 1 {
+                    builder.line_to(last.unwrap());
                 }
-                defined_paths.push(path_builder.build());
-                path_builder = Path::builder().with_svg();
-                path_len = 0;
+                builder.end(false);
+                count = 0;
             }
         }
-        defined_paths.push(path_builder.build());
+        if count > 0 {
+            if count == 1 {
+                builder.line_to(last.unwrap());
+            }
+            builder.end(false);
+        }
+        builder.build()
+    }
 
-        if let Some(stroke_dash) = &self.stroke_dash {
-            dash_paths(&defined_paths, stroke_dash)
-        } else {
-            combine_paths(&defined_paths)
+    pub fn transformed_path(&self, origin: [f32; 2]) -> Path {
+        let path = self.undashed_path(origin);
+        match &self.stroke_dash {
+            Some(dash) => dash_paths(std::iter::once(&path), dash),
+            None => path,
         }
     }
 }
