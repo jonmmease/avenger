@@ -5,7 +5,7 @@
 //! - [`EdgeDemand`] is what callers *declare* on a leaf: a layered pair
 //!   (the `guide` stratum adjacent to content plus the `legend` stratum
 //!   stacking beyond it). There is no lift and no stored total — the
-//!   granted total is always the layer sum, and node-attached space is
+//!   initial total is the clamped layer sum, and node-attached space is
 //!   declared as chrome instead.
 //! - [`EdgeGrant`] is what the solver *produces*: requested/granted region
 //!   edges, envelope sides, grid track edge vectors. Grants carry
@@ -28,11 +28,10 @@ use crate::geometry::Edges;
 /// (requested/granted edges, envelopes) are [`EdgeGrant`]. A demand is
 /// always layered: the guide stratum (interior chrome adjacent to the
 /// content, e.g. axes and facet guides) plus the legend stratum (content
-/// stacking beyond it); the granted total is `guide + legend`.
-/// Extent-only clearance asks put their value in one stratum and zero in
-/// the other. Total-only space exists only as
-/// [`EdgeGrant`] values constructed directly (e.g. exported requirement
-/// folds) — a solve never produces a total beyond the layer sum.
+/// stacking beyond it). The initial total is the clamped layer sum.
+/// Extent-only clearance can use one stratum with the other set to zero.
+/// Declared margins and strips increase the solved [`EdgeGrant::total`]
+/// without increasing its guide or legend layers.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EdgeDemand {
     pub guide: f32,
@@ -62,7 +61,7 @@ impl EdgeDemand {
 ///
 /// `new` LIFTS the total to `max(total, guide + legend, 0)`. This is an
 /// intentional law, not input validation: when layered grants merge by
-/// component-wise max, the lift makes a merged side's total equal
+/// component-wise max, the lift makes a merged side's total at least
 /// `max(guide) + max(legend)` — the space a region occupies once each layer
 /// has been coordinated independently. Callers that need raw, unlifted
 /// totals should compute envelopes with the geometric tree-envelope kind

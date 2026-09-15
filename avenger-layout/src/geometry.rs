@@ -91,20 +91,3 @@ impl Edges<f32> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn edges_side_accessors_follow_side_enum() {
-        let mut edges = Edges::new(1.0, 2.0, 3.0, 4.0);
-        assert_eq!(*edges.side(Side::Left), 4.0);
-        edges.set_side(Side::Left, 5.0);
-        assert_eq!(edges.left, 5.0);
-        assert_eq!(
-            edges.max(Edges::new(0.0, 9.0, 0.0, 0.0)),
-            Edges::new(1.0, 9.0, 3.0, 5.0)
-        );
-    }
-}

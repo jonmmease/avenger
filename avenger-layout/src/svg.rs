@@ -77,20 +77,10 @@ pub struct DebugRegion {
     /// rectangle's top-left corner; frame scenes anchor strip labels inside
     /// the content span so they stay clear of the perpendicular strips.
     pub label_anchor: Option<[f32; 2]>,
-    /// Draw the label rotated 90 degrees (reads downward), for labels that
-    /// run along a tall narrow strip.
-    pub label_rotated: bool,
     /// Nesting depth of the region (0 = top level). Selects the shade of
     /// its demand strips so layers of nested arrangements are tellable
     /// apart.
     pub depth: usize,
-}
-
-/// One labeled point marker (e.g. a placement origin).
-#[derive(Clone, Debug, PartialEq)]
-pub struct DebugMarker {
-    pub label: String,
-    pub position: [f32; 2],
 }
 
 /// A solved layout captured for inspection.
@@ -103,7 +93,6 @@ pub struct DebugScene {
     /// its own [`DebugRegionKind::Bounds`] region instead.
     pub draw_bounds: bool,
     pub regions: Vec<DebugRegion>,
-    pub markers: Vec<DebugMarker>,
     /// Horizontal separator lines spanning the full image width at these y
     /// positions (for composed galleries of independent scenes).
     pub dividers: Vec<f32>,
@@ -131,7 +120,6 @@ impl DebugScene {
                     requested: None,
                     target: None,
                     label_anchor: None,
-                    label_rotated: false,
                     depth: region.depth,
                 });
             }
@@ -150,7 +138,6 @@ impl DebugScene {
                     requested: None,
                     target: None,
                     label_anchor: None,
-                    label_rotated: false,
                     depth: region.depth,
                 });
             }
@@ -183,7 +170,6 @@ impl DebugScene {
                     region.content.x + 3.0,
                     region.content.y + 12.0 + 12.0 * region.depth as f32,
                 ]),
-                label_rotated: false,
                 depth: region.depth,
             });
         }
@@ -191,13 +177,11 @@ impl DebugScene {
             content_size: solution.size,
             draw_bounds: true,
             regions,
-            markers: Vec::new(),
             dividers: Vec::new(),
         }
     }
 
-    /// Embed another scene at an origin: regions, label anchors, and
-    /// markers translate; the embedded scene's own bounds/dividers are
+    /// Embed another scene at an origin: regions and label anchors translate; the embedded scene's own bounds/dividers are
     /// dropped (the host scene owns the canvas). This is how composed
     /// solves render as one image — e.g. a tree solved inside a frame's
     /// content rectangle embeds at that rectangle's origin.
@@ -211,12 +195,6 @@ impl DebugScene {
                     anchor[1] += origin[1];
                 }
                 region
-            }));
-        self.markers
-            .extend(scene.markers.into_iter().map(|mut marker| {
-                marker.position[0] += origin[0];
-                marker.position[1] += origin[1];
-                marker
             }));
     }
 
@@ -274,13 +252,6 @@ impl DebugScene {
                 );
             }
         }
-        for marker in &self.markers {
-            bounds = union(
-                bounds,
-                Rect::new(marker.position[0] - 4.0, marker.position[1] - 4.0, 8.0, 8.0),
-            );
-        }
-
         // A color key row is shown whenever chrome strips are present
         // (frame scenes); content-only scenes stay minimal.
         let has_chrome_kinds = self.regions.iter().any(|region| {
@@ -448,53 +419,13 @@ impl DebugScene {
             let [x, y] = region
                 .label_anchor
                 .unwrap_or([region.content.x + 3.0, region.content.y + 12.0]);
-            if region.label_rotated {
-                let _ = writeln!(
-                    svg,
-                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\" {}>{}</text>",
-                    x,
-                    y,
-                    x,
-                    y,
-                    TEXT_STYLE,
-                    escape_text(&region.label),
-                );
-            } else {
-                let _ = writeln!(
-                    svg,
-                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>",
-                    x,
-                    y,
-                    TEXT_STYLE,
-                    escape_text(&region.label),
-                );
-            }
-        }
-
-        for marker in &self.markers {
-            let [x, y] = marker.position;
-            let _ = write!(
-                svg,
-                concat!(
-                    "  <path d=\"M {} {} L {} {} M {} {} L {} {}\" ",
-                    "stroke=\"#111827\" stroke-width=\"1.5\"/>\n"
-                ),
-                x - 4.0,
-                y,
-                x + 4.0,
-                y,
-                x,
-                y - 4.0,
-                x,
-                y + 4.0,
-            );
             let _ = writeln!(
                 svg,
                 "  <text x=\"{}\" y=\"{}\" {}>{}</text>",
-                x + 6.0,
-                y - 3.0,
+                x,
+                y,
                 TEXT_STYLE,
-                escape_text(&marker.label),
+                escape_text(&region.label),
             );
         }
 
@@ -605,7 +536,6 @@ pub fn svg_panels<Id: Display>(panels: &[(&str, &LayoutSolution<Id>)]) -> String
         content_size: Size::default(),
         draw_bounds: false,
         regions: Vec::new(),
-        markers: Vec::new(),
         dividers: Vec::new(),
     };
     let mut y = 0.0f32;
@@ -621,7 +551,6 @@ pub fn svg_panels<Id: Display>(panels: &[(&str, &LayoutSolution<Id>)]) -> String
             requested: None,
             target: None,
             label_anchor: Some([0.0, y + 11.0]),
-            label_rotated: false,
             depth: 0,
         });
         y += CAPTION;
@@ -640,7 +569,6 @@ pub fn svg_panels<Id: Display>(panels: &[(&str, &LayoutSolution<Id>)]) -> String
             requested: None,
             target: None,
             label_anchor: None,
-            label_rotated: false,
             depth: 0,
         });
         let panel_size = scene.content_size;

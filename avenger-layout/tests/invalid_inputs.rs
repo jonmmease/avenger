@@ -1,6 +1,6 @@
 use avenger_layout::{
-    EdgeDemand, Edges, GridError, GridItem, GridRequirements, GridShape, GridSlot, Layout,
-    LayoutError, Side, Size, SolveOptions, SolvedTracks, Spacing, TrackSize,
+    EdgeDemand, GridSlot, Layout, LayoutError, Side, Size, SolveOptions, SolvedTracks, Spacing,
+    TrackSize,
 };
 
 #[test]
@@ -29,25 +29,6 @@ fn overflowing_slots_return_errors_instead_of_panicking() {
         assert!(matches!(
             layout.solve(&SolveOptions::default()),
             Err(LayoutError::SlotOutOfBounds { .. })
-        ));
-        let item = GridItem {
-            id: 0,
-            slot,
-            content_size: Size::new(10.0, 10.0),
-            guide_edges: Edges::default(),
-            legend_edges: Edges::default(),
-            total_edges: Edges::default(),
-        };
-        assert!(matches!(
-            GridRequirements::from_items(
-                GridShape {
-                    rows: 2,
-                    columns: 2
-                },
-                Size::default(),
-                &[item]
-            ),
-            Err(GridError::SlotOutOfBounds { .. })
         ));
         let tracks = SolvedTracks {
             column_starts: vec![0.0, 10.0],

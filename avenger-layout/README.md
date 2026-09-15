@@ -22,7 +22,14 @@ A leaf supplies a measured content size and optional edge demands. A grid
 arranges children in slots, including spans and empty cells. Grids accept
 fixed, automatic, and weighted tracks, plus alignment and spacing policies.
 A share key coordinates compatible grids in different parts of the tree.
-Incompatible share groups are reported in solution diagnostics.
+Incompatible shapes or track declarations are reported in solution diagnostics.
+Nested sharing resolves within one solve; circular nesting dependencies between
+share groups return an error. Uniform groups can have different track counts:
+they share a track size, interior edge reserves, and extra space per track.
+
+`SolveFor::Content` and `SolveFor::Margins` contain declared chrome. They do not
+reserve or inset opaque measured demands; use chrome when that space must stay
+inside the box.
 
 Each node can also declare edge reservations: margins, repeated strips,
 guides, and legends. The solution includes their positioned rectangles.
