@@ -12,6 +12,22 @@ pub enum Error {
     },
     #[error("handle belongs to another graph")]
     ForeignHandle,
+    #[error("reference is outside its defining scope: {0}")]
+    OutOfScope(String),
+    #[error("invalid partition key: {0}")]
+    InvalidKey(String),
+    #[error("unsupported partition key type: {0}")]
+    UnsupportedKeyType(String),
+    #[error("invalid scope address: {0}")]
+    InvalidScopeAddress(String),
+    #[error("scope was not requested")]
+    UnrequestedScope,
+    #[error("at {instance}: {source}")]
+    Scoped {
+        instance: crate::ScopeInstance,
+        #[source]
+        source: Box<Error>,
+    },
     #[error("invalid graph reference: {0}")]
     InvalidReference(String),
     #[error("unregistered scalar placeholder: {0}")]
