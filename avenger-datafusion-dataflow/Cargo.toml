@@ -1,0 +1,15 @@
+[package]
+name = "avenger-datafusion-dataflow"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Parameterized graphs of DataFusion plans and scalar expressions"
+
+[dependencies]
+datafusion = { version = "=54.1.0", default-features = false, features = ["nested_expressions", "math_expressions", "datetime_expressions", "string_expressions", "regex_expressions", "unicode_expressions", "recursive_protection"] }
+datafusion-datasource = { version = "=54.1.0", default-features = false }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros"] }
