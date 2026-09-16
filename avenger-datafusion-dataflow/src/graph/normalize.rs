@@ -15,7 +15,7 @@ use datafusion::{
 };
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct NullableField;
+pub(crate) struct NullableField;
 
 impl ScalarUDFImpl for NullableField {
     fn name(&self) -> &str {

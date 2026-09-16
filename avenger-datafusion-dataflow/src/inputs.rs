@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use datafusion::common::ScalarValue;
 
 use crate::{
-    graph::{reference::TableRef, GraphDef, InputKind},
+    graph::{reference::TableRef, BindingMetadata, InputKind},
     Error, Result, ScalarInput, ScopeHandle, ScopeInstance, TableInput, TableSnapshot,
 };
 
@@ -11,6 +11,43 @@ use crate::{
 pub(crate) enum InputValue {
     Table(TableSnapshot),
     Scalar(ScalarValue),
+}
+
+impl InputValue {
+    pub(crate) fn size(&self) -> usize {
+        match self {
+            Self::Table(t) => {
+                t.batches()
+                    .iter()
+                    .map(|b| {
+                        b.get_array_memory_size()
+                            + std::mem::size_of::<datafusion::arrow::record_batch::RecordBatch>()
+                    })
+                    .sum::<usize>()
+                    + std::mem::size_of::<TableSnapshot>()
+            }
+            Self::Scalar(v) => v.size(),
+        }
+    }
+    pub(crate) fn key(&self) -> Result<crate::cache::BindingKey> {
+        Ok(match self {
+            Self::Table(t) => crate::cache::BindingKey::Table(t.id()),
+            Self::Scalar(v) => {
+                use datafusion::arrow::{
+                    datatypes::{Field, Schema},
+                    ipc::writer::StreamWriter,
+                    record_batch::RecordBatch,
+                };
+                let schema = Arc::new(Schema::new(vec![Field::new("value", v.data_type(), true)]));
+                let batch = RecordBatch::try_new(schema.clone(), vec![v.to_array()?])?;
+                let mut bytes = Vec::new();
+                let mut writer = StreamWriter::try_new(&mut bytes, &schema)?;
+                writer.write(&batch)?;
+                writer.finish()?;
+                crate::cache::BindingKey::Scalar(bytes.into())
+            }
+        })
+    }
 }
 
 type Bindings = HashMap<usize, InputValue>;
@@ -21,7 +58,7 @@ type Overrides = HashMap<ScopeInstance, Arc<Bindings>>;
 /// Store replacement does not modify captured snapshots.
 #[derive(Clone, Debug)]
 pub struct Inputs {
-    pub(crate) graph: Arc<GraphDef>,
+    pub(crate) graph: Arc<BindingMetadata>,
     pub(crate) values: Arc<[Option<InputValue>]>,
     defaults: Defaults,
     overrides: Overrides,
@@ -61,14 +98,14 @@ impl Inputs {
 /// Builds one immutable binding set with complete root inputs.
 #[derive(Debug)]
 pub struct InputsBuilder {
-    pub(crate) graph: Arc<GraphDef>,
+    pub(crate) graph: Arc<BindingMetadata>,
     pub(crate) values: Vec<Option<InputValue>>,
     defaults: Defaults,
     overrides: Overrides,
 }
 
 impl InputsBuilder {
-    pub(crate) fn new(graph: Arc<GraphDef>) -> Self {
+    pub(crate) fn new(graph: Arc<BindingMetadata>) -> Self {
         Self {
             values: vec![None; graph.inputs.len()],
             graph,
@@ -162,7 +199,7 @@ impl InputsBuilder {
 /// Edits one definition-default or exact-instance entry, without copying inherited values.
 #[derive(Debug)]
 pub struct ScopedBindingsBuilder {
-    graph: Arc<GraphDef>,
+    graph: Arc<BindingMetadata>,
     scope: usize,
     values: Bindings,
 }
@@ -211,13 +248,13 @@ impl ScopedBindingsBuilder {
     }
 }
 
-fn check_owner(graph: &GraphDef, scope: usize, index: usize) -> Result<()> {
+fn check_owner(graph: &BindingMetadata, scope: usize, index: usize) -> Result<()> {
     if graph.inputs[index].scope != scope {
         return Err(Error::OutOfScope(graph.inputs[index].name.to_string()));
     }
     Ok(())
 }
-fn table_index(graph: &GraphDef, scope: usize, input: &TableInput) -> Result<usize> {
+fn table_index(graph: &BindingMetadata, scope: usize, input: &TableInput) -> Result<usize> {
     if input.read.graph != graph.id {
         return Err(Error::ForeignHandle);
     }
@@ -227,14 +264,14 @@ fn table_index(graph: &GraphDef, scope: usize, input: &TableInput) -> Result<usi
     check_owner(graph, scope, index)?;
     Ok(index)
 }
-fn scalar_index(graph: &GraphDef, scope: usize, input: &ScalarInput) -> Result<usize> {
+fn scalar_index(graph: &BindingMetadata, scope: usize, input: &ScalarInput) -> Result<usize> {
     if input.graph != graph.id {
         return Err(Error::ForeignHandle);
     }
     check_owner(graph, scope, input.index)?;
     Ok(input.index)
 }
-fn validate_table(graph: &GraphDef, index: usize, value: &TableSnapshot) -> Result<()> {
+fn validate_table(graph: &BindingMetadata, index: usize, value: &TableSnapshot) -> Result<()> {
     let InputKind::Table(schema) = &graph.inputs[index].kind else {
         unreachable!()
     };
@@ -243,7 +280,7 @@ fn validate_table(graph: &GraphDef, index: usize, value: &TableSnapshot) -> Resu
     }
     Ok(())
 }
-fn validate_scalar(graph: &GraphDef, index: usize, value: &ScalarValue) -> Result<()> {
+fn validate_scalar(graph: &BindingMetadata, index: usize, value: &ScalarValue) -> Result<()> {
     let InputKind::Scalar(field) = &graph.inputs[index].kind else {
         unreachable!()
     };

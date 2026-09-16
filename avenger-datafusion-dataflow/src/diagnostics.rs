@@ -3,7 +3,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use datafusion::{arrow::datatypes::SchemaRef, logical_expr::Volatility};
 
-/// Eligibility for future cross-query result reuse. This evaluator retains no results.
+/// Eligibility for retaining completed results across queries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReuseScope {
     Reusable,
@@ -16,6 +16,9 @@ pub struct NodeReport {
     pub name: String,
     pub dependencies: Vec<String>,
     pub inputs: Vec<String>,
+    /// Complete schema at this named materialization boundary.
+    pub schema: SchemaRef,
+    pub has_external_source: bool,
     pub direct_volatility: Volatility,
     pub reuse_scope: ReuseScope,
 }
@@ -27,13 +30,15 @@ pub struct PrepareReport {
     pub outputs: Vec<String>,
     /// True while physical plans are created per demanded computation and instance.
     pub replans_on_query: bool,
+    pub cache_enabled: bool,
 }
 
 impl fmt::Display for PrepareReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "Execution: plan each demanded node per query, no retained results"
+            "Execution: plan cache misses, retention={}",
+            self.cache_enabled
         )?;
         for scope in &self.scopes {
             writeln!(
@@ -61,6 +66,13 @@ pub struct EvaluationReport {
     /// Definition-qualified names in execution order, without data-derived keys.
     pub executed_nodes: Vec<String>,
     pub physical_plans: usize,
+    pub cache_hits: usize,
+    pub cache_misses: usize,
+    pub cache_bypasses: usize,
+    /// Executed named nodes that contain external scans (not a file-read counter).
+    pub source_executions: usize,
+    /// Runtime-wide retained charge when this evaluation completed.
+    pub retained_bytes: usize,
     /// Conservative cumulative charge for values, partitions, and frame/result metadata.
     pub materialized_bytes: usize,
 }

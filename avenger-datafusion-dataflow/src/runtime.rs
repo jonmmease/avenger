@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use chrono::Utc;
@@ -29,14 +29,16 @@ use crate::{
     graph::{reference::TableRef, GraphDef, NodeKind},
     inputs::InputValue,
     result::InstanceResult,
-    Error, Graph, GraphResult, Inputs, InputsBuilder, PartitionKey, Result, ScalarOutput,
+    Dataflow, DataflowResult, Error, Inputs, InputsBuilder, PartitionKey, Result, ScalarOutput,
     ScopeHandle, ScopeInstance, TableOutput, TableSnapshot,
 };
 
-/// Controls the initial evaluator. Result caching and physical reuse are not yet implemented.
+/// Execution limits and completed-result retention for one runtime.
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeConfig {
     pub execution: ExecutionConfig,
+    pub cache: crate::CachePolicy,
+    pub function_versions: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,31 +57,77 @@ impl Default for ExecutionConfig {
     }
 }
 
-struct RuntimeInner {
-    state: SessionState,
-    config: RuntimeConfig,
+pub(crate) struct RuntimeInner {
+    pub(crate) state: SessionState,
+    pub(crate) config: RuntimeConfig,
     queries: Semaphore,
     active_bytes: AtomicUsize,
+    cache: Mutex<crate::cache::Cache>,
+    pub(crate) codec: Arc<dyn crate::LogicalExtensionCodec>,
 }
 
 #[derive(Clone)]
 pub struct Runtime {
-    inner: Arc<RuntimeInner>,
+    pub(crate) inner: Arc<RuntimeInner>,
 }
 
 impl Runtime {
+    /// Capture a function registry and application codecs used during native decoding.
+    pub fn with_session_state_and_codec(
+        state: SessionState,
+        config: RuntimeConfig,
+        codec: Arc<dyn crate::LogicalExtensionCodec>,
+    ) -> Result<Self> {
+        let mut runtime = Self::with_session_state(state, config)?;
+        Arc::get_mut(&mut runtime.inner).expect("new runtime").codec = codec;
+        Ok(runtime)
+    }
+    pub(crate) fn check_semantics(&self, semantics: &crate::SemanticConfig) -> Result<()> {
+        let zone = self
+            .inner
+            .state
+            .config_options()
+            .execution
+            .time_zone
+            .as_deref()
+            .unwrap_or("UTC");
+        if zone != semantics.time_zone {
+            return Err(Error::InvalidConfig(format!(
+                "dataflow requires time zone {}, runtime has {zone}",
+                semantics.time_zone
+            )));
+        }
+        for (name, version) in &semantics.function_versions {
+            if self.inner.config.function_versions.get(name) != Some(version) {
+                return Err(Error::InvalidConfig(format!(
+                    "missing or incompatible function version {name}={version}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Inspect retained charges shared by this runtime's prepared dataflows.
+    pub fn cache_stats(&self) -> crate::CacheStats {
+        self.inner.cache.lock().expect("cache lock").stats()
+    }
     pub fn new(config: RuntimeConfig) -> Result<Self> {
         Self::with_session_state(SessionContext::new().state(), config)
     }
 
     /// Capture the planning environment and install the graph's snapshot planner.
-    /// External catalog tables must be supplied through declared table inputs.
+    /// External providers must be finite and stable for each prepared lifetime.
     pub fn with_session_state(state: SessionState, config: RuntimeConfig) -> Result<Self> {
         if config.execution.max_active_queries == 0
             || config.execution.max_active_queries > Semaphore::MAX_PERMITS
             || config.execution.max_materialized_bytes == 0
         {
             return Err(Error::InvalidConfig("query concurrency and materialization limits must be positive, with concurrency within Tokio's semaphore limit".into()));
+        }
+        if let crate::CachePolicy::Lru(cache) = &config.cache {
+            if cache.max_bytes == 0 || cache.max_entries == 0 {
+                return Err(Error::InvalidConfig("cache limits must be positive".into()));
+            }
         }
         let state = SessionStateBuilder::new_from_existing(state)
             .with_query_planner(Arc::new(GraphQueryPlanner))
@@ -88,6 +136,8 @@ impl Runtime {
             inner: Arc::new(RuntimeInner {
                 queries: Semaphore::new(config.execution.max_active_queries),
                 state,
+                codec: Arc::new(crate::DefaultLogicalExtensionCodec {}),
+                cache: Mutex::new(crate::cache::Cache::new(config.cache.clone())),
                 config,
                 active_bytes: AtomicUsize::new(0),
             }),
@@ -96,8 +146,9 @@ impl Runtime {
 
     /// Analyze reachable definitions and partition programs without evaluating functions.
     /// Physical planning remains per computation and instance during each query.
-    pub async fn prepare(&self, graph: &Graph) -> Result<PreparedGraph> {
-        let graph = graph.inner.clone();
+    pub async fn prepare(&self, graph: &Dataflow) -> Result<PreparedDataflow> {
+        self.check_semantics(&graph.inner.semantics)?;
+        let mut graph = (*graph.inner).clone();
         for scope in &graph.scopes {
             if let Some(handle) = &scope.handle {
                 for field in handle.key_schema().fields() {
@@ -109,7 +160,8 @@ impl Runtime {
         let (reachable, _) = demand(&graph, &requested);
         let mut plans = vec![None; graph.nodes.len()];
         let mut nodes = vec![];
-        for (index, node) in graph.nodes.iter().enumerate() {
+        for index in 0..graph.nodes.len() {
+            let node = &graph.nodes[index];
             if !reachable[index] {
                 continue;
             }
@@ -123,6 +175,29 @@ impl Runtime {
                     |_, _| {},
                 )
                 .map_err(|source| execution_error(&graph, index, source))?;
+            let mut analysis = crate::graph::analysis::analyze(&plan, &graph, node.scope)?;
+            analysis
+                .dependencies
+                .extend(node.analysis.dependencies.iter().copied());
+            analysis.inputs.extend(node.analysis.inputs.iter().copied());
+            for dependency in &analysis.dependencies {
+                analysis
+                    .inputs
+                    .extend(graph.nodes[*dependency].analysis.inputs.iter().copied());
+                if graph.nodes[*dependency].analysis.reuse_scope
+                    == crate::ReuseScope::EvaluationLocal
+                {
+                    analysis.reuse_scope = crate::ReuseScope::EvaluationLocal;
+                }
+            }
+            if node.analysis.reuse_scope == crate::ReuseScope::EvaluationLocal {
+                analysis.reuse_scope = crate::ReuseScope::EvaluationLocal;
+            }
+            if !crate::graph::same_schema(plan.schema(), node.plan.schema()) {
+                return Err(Error::SchemaMismatch(node.name.to_string()));
+            }
+            graph.nodes[index].analysis = analysis;
+            let node = &graph.nodes[index];
             plans[index] = Some(plan);
             nodes.push(NodeReport {
                 name: node.name.to_string(),
@@ -141,6 +216,8 @@ impl Runtime {
                     .collect(),
                 direct_volatility: node.analysis.direct_volatility,
                 reuse_scope: node.analysis.reuse_scope,
+                schema: Arc::new(node.plan.schema().as_arrow().clone()),
+                has_external_source: node.analysis.has_source,
             });
         }
         let scopes = graph
@@ -185,10 +262,23 @@ impl Runtime {
                 .map(|output| output.name.to_string())
                 .collect(),
             replans_on_query: true,
+            cache_enabled: self.inner.cache.lock().expect("cache lock").enabled(),
         };
-        Ok(PreparedGraph {
+        let namespace = fresh_id();
+        self.inner
+            .cache
+            .lock()
+            .expect("cache lock")
+            .register(namespace);
+        let graph = Arc::new(graph);
+        Ok(PreparedDataflow {
             inner: Arc::new(PreparedInner {
                 runtime: self.inner.clone(),
+                namespace,
+                bindings: Arc::new(crate::graph::BindingMetadata {
+                    id: graph.id,
+                    inputs: graph.inputs.clone(),
+                }),
                 graph,
                 plans,
                 report,
@@ -198,20 +288,45 @@ impl Runtime {
 }
 
 struct PreparedInner {
+    namespace: u64,
     runtime: Arc<RuntimeInner>,
     graph: Arc<GraphDef>,
+    bindings: Arc<crate::graph::BindingMetadata>,
     plans: Vec<Option<LogicalPlan>>,
     report: PrepareReport,
 }
 
+impl Drop for PreparedInner {
+    fn drop(&mut self) {
+        self.runtime
+            .cache
+            .lock()
+            .expect("cache lock")
+            .remove(self.namespace);
+    }
+}
+
 #[derive(Clone)]
-pub struct PreparedGraph {
+pub struct PreparedDataflow {
     inner: Arc<PreparedInner>,
 }
 
-impl PreparedGraph {
+impl PreparedDataflow {
+    /// Retrieve public typed handles without retaining plan lineage.
+    pub fn interface(&self) -> crate::DataflowInterface {
+        crate::DataflowInterface::new(&self.inner.graph)
+    }
+    /// Clear this preparation's retained results. Active requests keep their owned values.
+    pub fn clear_results(&self) {
+        self.inner
+            .runtime
+            .cache
+            .lock()
+            .expect("cache lock")
+            .clear(self.inner.namespace);
+    }
     pub fn inputs(&self) -> InputsBuilder {
-        InputsBuilder::new(self.inner.graph.clone())
+        InputsBuilder::new(self.inner.bindings.clone())
     }
     pub fn explain(&self) -> PrepareReport {
         self.inner.report.clone()
@@ -224,7 +339,7 @@ impl PreparedGraph {
         tables: &[TableOutput],
         scalars: &[ScalarOutput],
         inputs: &Inputs,
-    ) -> Result<GraphResult> {
+    ) -> Result<DataflowResult> {
         let graph = &self.inner.graph;
         if inputs.graph.id != graph.id {
             return Err(Error::ForeignHandle);
@@ -249,6 +364,11 @@ impl PreparedGraph {
             query_start_time: Utc::now(),
             executed_nodes: vec![],
             physical_plans: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            cache_bypasses: 0,
+            source_executions: 0,
+            retained_bytes: 0,
             materialized_bytes: 0,
             scopes: graph
                 .scopes
@@ -263,7 +383,7 @@ impl PreparedGraph {
                 .collect(),
         };
         if !requested.iter().any(|requested| *requested) {
-            return Ok(GraphResult {
+            return Ok(DataflowResult {
                 graph: graph.id,
                 root: InstanceResult {
                     scope: 0,
@@ -284,18 +404,25 @@ impl PreparedGraph {
             inputs,
             requested: &requested,
             scope_needed,
+            epoch: runtime
+                .cache
+                .lock()
+                .expect("cache lock")
+                .epoch(self.inner.namespace),
             frames: vec![Frame {
                 scope: 0,
                 instance: None,
                 values: HashMap::new(),
                 inputs: HashMap::new(),
+                keys: HashMap::new(),
             }],
             reservation: Reservation { runtime, bytes: 0 },
             report,
         };
         let root = evaluation.frame().await?;
         evaluation.report.materialized_bytes = evaluation.reservation.bytes;
-        Ok(GraphResult {
+        evaluation.report.retained_bytes = runtime.cache.lock().expect("cache lock").stats().bytes;
+        Ok(DataflowResult {
             graph: graph.id,
             root,
             report: evaluation.report.clone(),
@@ -335,6 +462,7 @@ struct Frame {
     instance: Option<ScopeInstance>,
     values: HashMap<usize, InputValue>,
     inputs: HashMap<usize, InputValue>,
+    keys: HashMap<usize, crate::cache::BindingKey>,
 }
 
 struct Evaluation<'a> {
@@ -342,6 +470,7 @@ struct Evaluation<'a> {
     inputs: &'a Inputs,
     requested: &'a [bool],
     scope_needed: Vec<bool>,
+    epoch: u64,
     frames: Vec<Frame>,
     reservation: Reservation<'a>,
     report: EvaluationReport,
@@ -426,6 +555,7 @@ impl Evaluation<'_> {
                         instance: Some(address),
                         values: HashMap::from([(rows_index, InputValue::Table(local))]),
                         inputs: HashMap::new(),
+                        keys: HashMap::new(),
                     });
                     let child_result = self.frame().await?;
                     self.frames.pop();
@@ -518,8 +648,19 @@ impl Evaluation<'_> {
                 return Ok(());
             }
             assert!(!node.local_rows, "local rows installed at frame creation");
-            for dependency in &node.analysis.dependencies {
-                self.node(*dependency).await?;
+            if let LogicalPlan::Extension(extension) = &node.plan {
+                if let Some(read) = extension
+                    .node
+                    .as_any()
+                    .downcast_ref::<crate::graph::reference::GraphRead>()
+                {
+                    if let TableRef::Asset(asset) = read.source {
+                        self.frames[frame]
+                            .values
+                            .insert(index, InputValue::Table(graph.assets[asset].clone()));
+                        return Ok(());
+                    }
+                }
             }
             for input in &node.analysis.inputs {
                 let owner = self.frame_index(graph.inputs[*input].scope);
@@ -542,6 +683,47 @@ impl Evaluation<'_> {
                     .map_err(|error| contextual(address, error))?;
                 self.frames[owner].inputs.insert(*input, value.clone());
             }
+            let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable
+                && self.prepared.report.cache_enabled;
+            let key = if eligible {
+                let mut inputs = Vec::new();
+                for input in &node.analysis.inputs {
+                    let owner = self.frame_index(graph.inputs[*input].scope);
+                    if !self.frames[owner].keys.contains_key(input) {
+                        let key = self.frames[owner].inputs[input].key()?;
+                        self.reservation.charge(key.size())?;
+                        self.frames[owner].keys.insert(*input, key);
+                    }
+                    inputs.push((*input, self.frames[owner].keys[input].clone()));
+                }
+                Some(crate::cache::ValueKey {
+                    namespace: self.prepared.namespace,
+                    node: index,
+                    instance: self.frames[frame].instance.clone(),
+                    inputs,
+                })
+            } else {
+                None
+            };
+            if let Some(key) = &key {
+                let cached = self
+                    .prepared
+                    .runtime
+                    .cache
+                    .lock()
+                    .expect("cache lock")
+                    .get(key, self.epoch);
+                if let Some(value) = cached {
+                    self.reservation.charge(value.size())?;
+                    self.frames[frame].values.insert(index, value);
+                    self.report.cache_hits += 1;
+                    return Ok(());
+                }
+                self.report.cache_misses += 1;
+            }
+            for dependency in &node.analysis.dependencies {
+                self.node(*dependency).await?;
+            }
             let value = self
                 .execute(index)
                 .await
@@ -550,6 +732,18 @@ impl Evaluation<'_> {
             self.reservation
                 .charge(128)
                 .map_err(|error| contextual(self.frames[frame].instance.as_ref(), error))?;
+            if let Some(key) = key {
+                if !self
+                    .prepared
+                    .runtime
+                    .cache
+                    .lock()
+                    .expect("cache lock")
+                    .insert(key, self.epoch, value.clone())
+                {
+                    self.report.cache_bypasses += 1;
+                }
+            }
             self.frames[frame].values.insert(index, value);
             self.report.executed_nodes.push(node_name(&graph, index));
             self.report.scopes[node.scope].executed_nodes += 1;
@@ -580,6 +774,10 @@ impl Evaluation<'_> {
             .await
             .map_err(|source| execution_error(graph, index, source))?;
         self.report.physical_plans += 1;
+        reject_unbounded(&physical)?;
+        if node.analysis.has_source {
+            self.report.source_executions += 1;
+        }
         let mut stream = execute_stream(physical, state.task_ctx())
             .map_err(|source| execution_error(graph, index, source))?;
         let schema = Arc::new(node.plan.schema().as_arrow().clone());
@@ -679,4 +877,15 @@ impl Drop for Reservation<'_> {
             .active_bytes
             .fetch_sub(self.bytes, Ordering::Relaxed);
     }
+}
+
+fn reject_unbounded(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> Result<()> {
+    use datafusion::physical_plan::{execution_plan::Boundedness, ExecutionPlanProperties};
+    if matches!(plan.boundedness(), Boundedness::Unbounded { .. }) {
+        return Err(Error::UnsupportedPlan("unbounded physical source".into()));
+    }
+    for child in plan.children() {
+        reject_unbounded(child)?;
+    }
+    Ok(())
 }

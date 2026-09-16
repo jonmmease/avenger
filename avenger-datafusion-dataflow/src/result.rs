@@ -55,13 +55,13 @@ impl InstanceResult {
 
 /// Owns fully materialized requested values and their indexed scope hierarchy.
 #[derive(Debug)]
-pub struct GraphResult {
+pub struct DataflowResult {
     pub(crate) graph: u64,
     pub(crate) root: InstanceResult,
     pub(crate) report: EvaluationReport,
 }
 
-impl GraphResult {
+impl DataflowResult {
     /// Read a requested root table without execution or row gathering.
     pub fn table(&self, output: &TableOutput) -> Result<&TableSnapshot> {
         if output.graph != self.graph {
