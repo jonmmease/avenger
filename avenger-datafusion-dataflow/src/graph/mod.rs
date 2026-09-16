@@ -1,6 +1,6 @@
-mod analysis;
-mod normalize;
-mod scope;
+pub(crate) mod analysis;
+pub(crate) mod normalize;
+pub(crate) mod scope;
 pub use scope::ScopeBuilder;
 pub(crate) use scope::ScopeDef;
 pub(crate) mod reference;
@@ -140,7 +140,15 @@ pub(crate) struct OutputDef {
 }
 
 #[derive(Debug)]
+pub(crate) struct BindingMetadata {
+    pub id: u64,
+    pub inputs: Vec<InputDef>,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct GraphDef {
+    pub assets: Vec<crate::TableSnapshot>,
+    pub semantics: crate::SemanticConfig,
     pub id: u64,
     pub scopes: Vec<ScopeDef>,
     pub inputs: Vec<InputDef>,
@@ -150,11 +158,11 @@ pub(crate) struct GraphDef {
 }
 
 #[derive(Clone, Debug)]
-pub struct Graph {
+pub struct Dataflow {
     pub(crate) inner: Arc<GraphDef>,
 }
 
-impl Graph {
+impl Dataflow {
     pub fn num_nodes(&self) -> usize {
         self.inner.nodes.len()
     }
@@ -168,23 +176,32 @@ impl Graph {
 
 /// Registers nodes in dependency order. Returned references never duplicate lineage.
 #[derive(Debug)]
-pub struct GraphBuilder {
+pub struct DataflowBuilder {
     def: GraphDef,
     current_scope: usize,
     failed_scope: bool,
 }
 
-impl Default for GraphBuilder {
+impl Default for DataflowBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GraphBuilder {
+impl DataflowBuilder {
+    /// Construct a definition with explicit result-affecting requirements.
+    pub fn with_semantics(semantics: crate::SemanticConfig) -> Self {
+        let mut builder = Self::new();
+        builder.def.semantics = semantics;
+        builder
+    }
+
     pub fn new() -> Self {
         Self {
             def: GraphDef {
                 id: fresh_id(),
+                assets: vec![],
+                semantics: crate::SemanticConfig::default(),
                 scopes: vec![ScopeDef::root()],
                 inputs: vec![],
                 nodes: vec![],
@@ -256,6 +273,31 @@ impl GraphBuilder {
         );
         self.def.scopes[self.current_scope].input_names.insert(name);
         Ok(input)
+    }
+
+    /// Register an immutable graph-owned table, independent of query bindings.
+    pub fn table_snapshot(
+        &mut self,
+        name: impl Into<String>,
+        snapshot: crate::TableSnapshot,
+    ) -> Result<PlanNode> {
+        let name = name.into();
+        check_name(
+            &self.def.scopes[self.current_scope].node_names,
+            "computation",
+            &name,
+        )?;
+        let read = GraphRead {
+            graph: self.def.id,
+            source: TableRef::Asset(self.def.assets.len()),
+            schema: Arc::new(DFSchema::try_from_qualified_schema(
+                name.as_str(),
+                snapshot.schema().as_ref(),
+            )?),
+            label: Arc::from(name.as_str()),
+        };
+        self.def.assets.push(snapshot);
+        self.add_plan(name, read.plan())
     }
 
     pub fn add_plan(&mut self, name: impl Into<String>, plan: LogicalPlan) -> Result<PlanNode> {
@@ -378,7 +420,7 @@ impl GraphBuilder {
         Ok(index)
     }
 
-    pub fn finish(self) -> Result<Graph> {
+    pub fn finish(self) -> Result<Dataflow> {
         if self.failed_scope {
             return Err(Error::InvalidReference(
                 "scope construction failed, discard this builder".into(),
@@ -386,7 +428,7 @@ impl GraphBuilder {
         }
         // Registration permits only existing, same-graph references, so insertion
         // order is a topological order and cycles cannot be constructed.
-        Ok(Graph {
+        Ok(Dataflow {
             inner: Arc::new(self.def),
         })
     }
@@ -400,4 +442,13 @@ fn check_name(names: &HashSet<String>, namespace: &'static str, name: &str) -> R
         });
     }
     Ok(())
+}
+
+/// Functional dependencies are derived optimizer metadata, not part of the interface.
+pub(crate) fn same_schema(left: &DFSchema, right: &DFSchema) -> bool {
+    left.as_arrow() == right.as_arrow()
+        && left
+            .iter()
+            .map(|(qualifier, _)| qualifier)
+            .eq(right.iter().map(|(qualifier, _)| qualifier))
 }

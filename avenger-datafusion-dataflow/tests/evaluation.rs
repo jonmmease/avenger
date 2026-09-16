@@ -10,12 +10,12 @@ use avenger_datafusion_dataflow::{
         functions_aggregate::expr_fn::sum,
         logical_expr::{col, lit, scalar_subquery, Expr, LogicalPlanBuilder},
     },
-    Error, ExecutionConfig, GraphBuilder, Runtime, RuntimeConfig, TableSnapshot,
+    DataflowBuilder, Error, ExecutionConfig, Runtime, RuntimeConfig, TableSnapshot,
 };
 
 #[tokio::test]
 async fn mixed_outputs_match_datafusion_and_rebinding_recomputes() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let source = graph.table_input("source", common::schema()).unwrap();
     let cutoff = graph.scalar_input("cutoff", DataType::Int64).unwrap();
     let filtered = graph
@@ -45,11 +45,14 @@ async fn mixed_outputs_match_datafusion_and_rebinding_recomputes() {
         .unwrap();
     let rows = graph.table_output("rows", &filtered).unwrap();
     let scalar = graph.scalar_output("sum", &total).unwrap();
-    let prepared = Runtime::new(RuntimeConfig::default())
-        .unwrap()
-        .prepare(&graph.finish().unwrap())
-        .await
-        .unwrap();
+    let prepared = Runtime::new(RuntimeConfig {
+        cache: avenger_datafusion_dataflow::CachePolicy::Disabled,
+        ..RuntimeConfig::default()
+    })
+    .unwrap()
+    .prepare(&graph.finish().unwrap())
+    .await
+    .unwrap();
     let snapshot = common::snapshot(&[4, 1, 3, 2]);
     let inputs = prepared
         .inputs()
@@ -152,7 +155,7 @@ async fn mixed_outputs_match_datafusion_and_rebinding_recomputes() {
 
 #[tokio::test]
 async fn concurrent_queries_keep_distinct_scalar_bindings() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let parameter = graph.scalar_input("parameter", DataType::Int64).unwrap();
     let node = graph
         .add_expr("twice", parameter.expr_ref() * lit(2_i64))
@@ -193,13 +196,15 @@ async fn concurrent_queries_keep_distinct_scalar_bindings() {
 #[tokio::test]
 async fn resource_failure_is_an_error_and_does_not_poison_the_runtime() {
     let runtime = Runtime::new(RuntimeConfig {
+        cache: avenger_datafusion_dataflow::CachePolicy::Disabled,
         execution: ExecutionConfig {
             max_active_queries: 1,
             max_materialized_bytes: 1,
         },
+        ..RuntimeConfig::default()
     })
     .unwrap();
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let node = graph.add_expr("value", lit(1_i64)).unwrap();
     let output = graph.scalar_output("value", &node).unwrap();
     let prepared = runtime.prepare(&graph.finish().unwrap()).await.unwrap();
@@ -214,11 +219,11 @@ async fn resource_failure_is_an_error_and_does_not_poison_the_runtime() {
 #[tokio::test]
 async fn rejects_foreign_outputs_and_inputs() {
     let runtime = Runtime::new(RuntimeConfig::default()).unwrap();
-    let mut one = GraphBuilder::new();
+    let mut one = DataflowBuilder::new();
     let node = one.add_expr("one", lit(1)).unwrap();
     let output = one.scalar_output("one", &node).unwrap();
     let one = runtime.prepare(&one.finish().unwrap()).await.unwrap();
-    let mut two = GraphBuilder::new();
+    let mut two = DataflowBuilder::new();
     let node = two.add_expr("two", lit(2)).unwrap();
     let foreign = two.scalar_output("two", &node).unwrap();
     let two = runtime.prepare(&two.finish().unwrap()).await.unwrap();

@@ -1,0 +1,17 @@
+{
+  "bindings": {
+    "scalars": {"minimum": 80},
+    "scope_defaults": [
+      {"scope": ["regions"], "scalars": {"offset": 0}, "tables": {"selected_years": {"values": [{"year": 2024}, {"year": 2025}]}}},
+      {"scope": ["regions", "years"], "scalars": {"fraction": 0.5}}
+    ],
+    "overrides": [
+      {"path": [{"scope": "regions", "key": ["East"]}], "scalars": {"offset": 20}},
+      {"path": [{"scope": "regions", "key": ["East"]}, {"scope": "years", "key": [2025]}], "scalars": {"fraction": 1}}
+    ]
+  },
+  "outputs": {
+    "tables": [{"output": "eligible_sales"}, {"scope": ["regions", "years"], "output": "marks"}],
+    "scalars": [{"output": "total"}, {"scope": ["regions"], "output": "total"}, {"scope": ["regions", "years"], "output": "threshold"}]
+  }
+}

@@ -1,12 +1,12 @@
 #[path = "common/scoped.rs"]
 mod scoped;
 use avenger_datafusion_dataflow::{
-    datafusion::common::ScalarValue, Error, GraphBuilder, Inputs, PreparedGraph, Result, Runtime,
-    RuntimeConfig, TableStore,
+    datafusion::common::ScalarValue, DataflowBuilder, Error, Inputs, PreparedDataflow, Result,
+    Runtime, RuntimeConfig, TableStore,
 };
 
-async fn setup() -> Result<(PreparedGraph, scoped::Fixture)> {
-    let mut graph = GraphBuilder::new();
+async fn setup() -> Result<(PreparedDataflow, scoped::Fixture)> {
+    let mut graph = DataflowBuilder::new();
     let fixture = scoped::build(&mut graph)?;
     Ok((
         Runtime::new(RuntimeConfig::default())?
@@ -15,7 +15,7 @@ async fn setup() -> Result<(PreparedGraph, scoped::Fixture)> {
         fixture,
     ))
 }
-fn defaults(prepared: &PreparedGraph, f: &scoped::Fixture) -> Result<Inputs> {
+fn defaults(prepared: &PreparedDataflow, f: &scoped::Fixture) -> Result<Inputs> {
     prepared
         .inputs()
         .table(&f.sales, scoped::sales())?

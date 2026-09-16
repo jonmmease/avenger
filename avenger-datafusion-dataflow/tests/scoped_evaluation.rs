@@ -16,7 +16,7 @@ use avenger_datafusion_dataflow::{
             Volatility,
         },
     },
-    Error, ExecutionConfig, GraphBuilder, Result, ReuseScope, Runtime, RuntimeConfig,
+    DataflowBuilder, Error, ExecutionConfig, Result, ReuseScope, Runtime, RuntimeConfig,
     TableSnapshot,
 };
 use std::sync::{
@@ -26,7 +26,7 @@ use std::sync::{
 
 #[tokio::test]
 async fn nested_mixed_outputs_match_independent_datafusion_queries() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let f = scoped::build(&mut graph)?;
     let root = graph.add_expr("root", lit(123_i64))?;
     let root = graph.scalar_output("root", &root)?;
@@ -130,7 +130,7 @@ async fn nested_mixed_outputs_match_independent_datafusion_queries() -> Result<(
 
 #[tokio::test]
 async fn composite_computed_keys_preserve_rows_and_scalar_cardinality_per_instance() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, (rows, maximum, bad, empty, zero_columns)) = graph.partition_by(
         "panels",
@@ -273,7 +273,7 @@ async fn supported_key_types_group_and_lookup_with_the_same_equivalence() -> Res
         let array = ScalarValue::iter_to_array([sample.clone(), sample.clone(), null.clone()])?;
         let batch = RecordBatch::try_from_iter(vec![("key", array)])?;
         let source = TableSnapshot::from_batches(batch.schema(), vec![batch])?;
-        let mut graph = GraphBuilder::new();
+        let mut graph = DataflowBuilder::new();
         let input = graph.table_input("source", source.schema().clone())?;
         let (panels, output) =
             graph.partition_by("panels", input.plan_ref(), vec![col("key")], |scope| {
@@ -305,7 +305,7 @@ async fn supported_key_types_group_and_lookup_with_the_same_equivalence() -> Res
 
 #[tokio::test]
 async fn a_parent_can_have_no_children_and_nested_sources_read_parent_inputs() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("source", scoped::schema())?;
     let (regions, (limit, years, rows)) =
         graph.partition_by("regions", input.plan_ref(), vec![col("region")], |scope| {
@@ -386,7 +386,7 @@ async fn volatile_values_are_shared_in_defining_frames_and_accessors_do_no_work(
             )))
         }),
     );
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let global = graph.add_expr("global", draw.call(vec![]))?;
     let global_output = graph.scalar_output("global", &global)?;
@@ -472,7 +472,7 @@ async fn volatile_values_are_shared_in_defining_frames_and_accessors_do_no_work(
 
 #[tokio::test]
 async fn resource_failure_releases_all_frames_and_reservations() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, rows) = graph.partition_by(
         "panels",
@@ -481,10 +481,12 @@ async fn resource_failure_releases_all_frames_and_reservations() -> Result<()> {
         |scope| scope.table_output("rows", &scope.rows()),
     )?;
     let prepared = Runtime::new(RuntimeConfig {
+        cache: avenger_datafusion_dataflow::CachePolicy::Disabled,
         execution: ExecutionConfig {
             max_active_queries: 1,
             max_materialized_bytes: 32_000,
         },
+        ..RuntimeConfig::default()
     })?
     .prepare(&graph.finish()?)
     .await?;
@@ -529,7 +531,7 @@ async fn cancellation_releases_the_single_outer_permit_and_active_memory() -> Re
             Ok(ColumnarValue::Scalar(ScalarValue::from(1_i64)))
         }),
     );
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, value) =
         graph.partition_by("panels", input.plan_ref(), vec![col("region")], |scope| {
@@ -537,10 +539,12 @@ async fn cancellation_releases_the_single_outer_permit_and_active_memory() -> Re
             scope.scalar_output("value", &value)
         })?;
     let prepared = Runtime::new(RuntimeConfig {
+        cache: avenger_datafusion_dataflow::CachePolicy::Disabled,
         execution: ExecutionConfig {
             max_active_queries: 1,
             max_materialized_bytes: 32_000,
         },
+        ..RuntimeConfig::default()
     })?
     .prepare(&graph.finish()?)
     .await?;
@@ -565,7 +569,7 @@ async fn nullable_subquery_keys_have_nullable_schemas_and_one_null_group() -> Re
     let key = LogicalPlanBuilder::empty(false)
         .project(vec![lit(1_i64).alias("key")])?
         .build()?;
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, rows) = graph.partition_by(
         "panels",
@@ -614,7 +618,7 @@ async fn volatile_partition_keys_run_once_before_child_transforms() -> Result<()
             ]))))
         }),
     );
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, (rows, constant)) = graph.partition_by(
         "panels",

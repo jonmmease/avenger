@@ -1,0 +1,76 @@
+syntax = "proto3";
+package avenger.dataflow;
+import "datafusion.proto";
+import "datafusion/proto-common/proto/datafusion_common.proto";
+
+message DataflowArtifact {
+  uint32 version = 1;
+  string datafusion_version = 2;
+  repeated Input inputs = 3;
+  repeated Node nodes = 4;
+  repeated Scope scopes = 5;
+  repeated Output outputs = 6;
+  repeated bytes assets = 7;
+  string time_zone = 8;
+  repeated FunctionRequirement functions = 9;
+}
+message Input {
+  uint32 id = 1;
+  uint32 scope = 2;
+  string name = 3;
+  oneof kind {
+    datafusion_common.DfSchema table = 4;
+    datafusion_common.Field scalar = 5;
+  }
+}
+message Node {
+  uint32 id = 1;
+  uint32 scope = 2;
+  string name = 3;
+  bool local_rows = 4;
+  repeated ExpressionExtension expression_extensions = 8;
+  datafusion_common.DfSchema schema = 5;
+  oneof program {
+    datafusion.LogicalPlanNode plan = 6;
+    datafusion.LogicalExprNode expression = 7;
+  }
+}
+message Scope {
+  uint32 id = 1;
+  optional uint32 parent = 2;
+  string name = 3;
+  optional uint32 discovery = 4;
+  optional uint32 rows = 5;
+  datafusion_common.Schema keys = 6;
+}
+message Output {
+  uint32 scope = 1;
+  uint32 node = 2;
+  string name = 3;
+}
+message Read {
+  enum Kind { INPUT = 0; NODE = 1; ROWS = 2; ASSET = 3; }
+  Kind kind = 1;
+  uint32 index = 2;
+  datafusion_common.DfSchema schema = 3;
+  string label = 4;
+}
+message FunctionRequirement {
+  string kind = 1;
+  string name = 2;
+  string version = 3;
+  int32 volatility = 4;
+}
+
+// DataFusion 54.1 does not encode these expression variants. Ordinary expressions
+// and nested plans continue to use its imported messages.
+message ExpressionExtension {
+  enum Kind { IN = 0; EXISTS = 1; OUTER_COLUMN = 2; SET_COMPARISON = 3; }
+  Kind kind = 1;
+  datafusion.LogicalExprNode operand = 2;
+  datafusion.SubqueryNode subquery = 3;
+  bool negated = 4;
+  datafusion_common.Field field = 5;
+  string comparison = 6;
+  bool all = 7;
+}

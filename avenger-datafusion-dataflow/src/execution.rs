@@ -132,7 +132,12 @@ pub(crate) fn bind_plan<'a>(
     plan.transform_up_with_subqueries(|plan| {
         if let LogicalPlan::Extension(extension) = &plan {
             if let Some(read) = extension.node.as_any().downcast_ref::<GraphRead>() {
+                let asset;
                 let value = match read.source {
+                    TableRef::Asset(index) => {
+                        asset = InputValue::Table(graph.assets[index].clone());
+                        &asset
+                    }
                     TableRef::Input(index) => input(index),
                     TableRef::Node(index) => value(index),
                     TableRef::Rows(_) => {

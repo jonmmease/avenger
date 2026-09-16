@@ -8,12 +8,12 @@ use datafusion::{
 use super::{
     analysis, check_name, normalize,
     reference::{GraphRead, TableRef},
-    ExprNode, GraphBuilder, GraphDef, NodeDef, NodeKind, PlanNode, ScalarInput, ScalarOutput,
+    DataflowBuilder, ExprNode, GraphDef, NodeDef, NodeKind, PlanNode, ScalarInput, ScalarOutput,
     TableInput, TableOutput,
 };
 use crate::{partition::ScopeIdentity, Error, Result, ScopeHandle};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ScopeDef {
     pub parent: Option<usize>,
     pub handle: Option<ScopeHandle>,
@@ -74,7 +74,7 @@ impl GraphDef {
     }
 }
 
-impl GraphBuilder {
+impl DataflowBuilder {
     /// Build a child template once. Queries discover instances from observed key tuples.
     /// A failed callback leaves the builder unable to finish, so leaked partial handles
     /// cannot alias later definitions.
@@ -196,7 +196,7 @@ impl GraphBuilder {
 /// Builds one child definition. Captured handles may refer to the current scope or ancestors.
 #[derive(Debug)]
 pub struct ScopeBuilder<'a> {
-    builder: &'a mut GraphBuilder,
+    pub(crate) builder: &'a mut DataflowBuilder,
     parent: usize,
     completed: bool,
 }
@@ -233,6 +233,14 @@ impl ScopeBuilder<'_> {
         data_type: DataType,
     ) -> Result<ScalarInput> {
         self.builder.scalar_input(name, data_type)
+    }
+    /// Register one fixed snapshot shared by instances of this scope.
+    pub fn table_snapshot(
+        &mut self,
+        name: impl Into<String>,
+        snapshot: crate::TableSnapshot,
+    ) -> Result<PlanNode> {
+        self.builder.table_snapshot(name, snapshot)
     }
     /// Register a named local table computation.
     pub fn add_plan(&mut self, name: impl Into<String>, plan: LogicalPlan) -> Result<PlanNode> {
