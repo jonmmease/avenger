@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use datafusion::logical_expr::Volatility;
+use datafusion::{arrow::datatypes::SchemaRef, logical_expr::Volatility};
 
 /// Eligibility for future cross-query result reuse. This evaluator retains no results.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub enum ReuseScope {
 
 #[derive(Clone, Debug)]
 pub struct NodeReport {
+    pub scope: String,
     pub name: String,
     pub dependencies: Vec<String>,
     pub inputs: Vec<String>,
@@ -21,9 +22,10 @@ pub struct NodeReport {
 
 #[derive(Clone, Debug)]
 pub struct PrepareReport {
+    pub scopes: Vec<ScopeReport>,
     pub nodes: Vec<NodeReport>,
     pub outputs: Vec<String>,
-    /// True for the phase 2 evaluator, which plans each demanded node per query.
+    /// True while physical plans are created per demanded computation and instance.
     pub replans_on_query: bool,
 }
 
@@ -33,11 +35,18 @@ impl fmt::Display for PrepareReport {
             f,
             "Execution: plan each demanded node per query, no retained results"
         )?;
+        for scope in &self.scopes {
+            writeln!(
+                f,
+                "Scope {}: parent={:?}, captures={:?}",
+                scope.name, scope.parent, scope.captures
+            )?;
+        }
         for node in &self.nodes {
             writeln!(
                 f,
-                "{}: {:?}, dependencies={:?}, inputs={:?}",
-                node.name, node.reuse_scope, node.dependencies, node.inputs
+                "{}::{}: {:?}, dependencies={:?}, inputs={:?}",
+                node.scope, node.name, node.reuse_scope, node.dependencies, node.inputs
             )?;
         }
         Ok(())
@@ -46,11 +55,30 @@ impl fmt::Display for PrepareReport {
 
 #[derive(Clone, Debug)]
 pub struct EvaluationReport {
+    pub scopes: Vec<ScopeEvaluationReport>,
     pub evaluation_id: u64,
     pub query_start_time: DateTime<Utc>,
-    /// In dependency order, with each demanded node present once.
+    /// Definition-qualified names in execution order, without data-derived keys.
     pub executed_nodes: Vec<String>,
     pub physical_plans: usize,
-    /// Conservative charge for completed batches and scalar values in this query.
+    /// Conservative cumulative charge for values, partitions, and frame/result metadata.
     pub materialized_bytes: usize,
+}
+
+/// One definition's partition schema and captured ancestor dependencies.
+#[derive(Clone, Debug)]
+pub struct ScopeReport {
+    pub name: String,
+    pub parent: Option<String>,
+    pub key_schema: Option<SchemaRef>,
+    pub captures: Vec<String>,
+}
+
+/// Aggregate work for a definition, without parameter or key values.
+#[derive(Clone, Debug)]
+pub struct ScopeEvaluationReport {
+    pub name: String,
+    pub instances: usize,
+    pub executed_nodes: usize,
+    pub partitioned_rows: usize,
 }

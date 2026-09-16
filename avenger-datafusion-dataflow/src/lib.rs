@@ -8,16 +8,23 @@ mod error;
 mod execution;
 mod graph;
 mod inputs;
+mod partition;
+mod result;
 mod runtime;
 mod table;
 
-pub use diagnostics::{EvaluationReport, NodeReport, PrepareReport, ReuseScope};
+pub use diagnostics::{
+    EvaluationReport, NodeReport, PrepareReport, ReuseScope, ScopeEvaluationReport, ScopeReport,
+};
 pub use error::{Error, Result};
 pub use graph::{
-    ExprNode, Graph, GraphBuilder, PlanNode, ScalarInput, ScalarOutput, TableInput, TableOutput,
+    ExprNode, Graph, GraphBuilder, PlanNode, ScalarInput, ScalarOutput, ScopeBuilder, TableInput,
+    TableOutput,
 };
-pub use inputs::{Inputs, InputsBuilder};
-pub use runtime::{ExecutionConfig, GraphResult, PreparedGraph, Runtime, RuntimeConfig};
+pub use inputs::{Inputs, InputsBuilder, ScopedBindingsBuilder};
+pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
+pub use result::{GraphResult, ScopeResult, ScopeResults};
+pub use runtime::{ExecutionConfig, PreparedGraph, Runtime, RuntimeConfig};
 pub use table::{SnapshotId, TableSnapshot, TableStore};
 
 use std::sync::atomic::{AtomicU64, Ordering};

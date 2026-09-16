@@ -121,20 +121,25 @@ impl ExtensionPlanner for SnapshotPlanner {
     }
 }
 
-/// Bind captured values into a fresh logical plan. Phase 2 deliberately performs
-/// literal substitution here and plans the result during this query.
-pub(crate) fn bind_plan(
+/// Bind captured values into a fresh logical plan. Literal substitution requires
+/// physical planning during the current query.
+pub(crate) fn bind_plan<'a>(
     plan: LogicalPlan,
     graph: &GraphDef,
-    inputs: &[InputValue],
-    values: &[Option<InputValue>],
+    input: impl Fn(usize) -> &'a InputValue,
+    value: impl Fn(usize) -> &'a InputValue,
 ) -> Result<LogicalPlan> {
     plan.transform_up_with_subqueries(|plan| {
         if let LogicalPlan::Extension(extension) = &plan {
             if let Some(read) = extension.node.as_any().downcast_ref::<GraphRead>() {
                 let value = match read.source {
-                    TableRef::Input(index) => &inputs[index],
-                    TableRef::Node(index) => values[index].as_ref().expect("prerequisite executed"),
+                    TableRef::Input(index) => input(index),
+                    TableRef::Node(index) => value(index),
+                    TableRef::Rows(_) => {
+                        return datafusion::common::internal_err!(
+                            "local rows must be automatically bound before execution"
+                        )
+                    }
                 };
                 let InputValue::Table(snapshot) = value else {
                     unreachable!()
@@ -156,10 +161,8 @@ pub(crate) fn bind_plan(
                 };
                 let (source, field) = &graph.placeholders[&placeholder.id];
                 let value = match source {
-                    ScalarRef::Input(index) => &inputs[*index],
-                    ScalarRef::Node(index) => {
-                        values[*index].as_ref().expect("prerequisite executed")
-                    }
+                    ScalarRef::Input(index) => input(*index),
+                    ScalarRef::Node(index) => value(*index),
                 };
                 let InputValue::Scalar(value) = value else {
                     unreachable!()

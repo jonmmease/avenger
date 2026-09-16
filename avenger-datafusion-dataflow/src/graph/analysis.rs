@@ -19,7 +19,7 @@ pub(crate) struct Analysis {
     pub dependencies: BTreeSet<usize>,
     pub inputs: BTreeSet<usize>,
     pub direct_volatility: Volatility,
-    pub scope: ReuseScope,
+    pub reuse_scope: ReuseScope,
 }
 
 pub(crate) fn validate_scalar(expr: &Expr) -> Result<()> {
@@ -45,23 +45,38 @@ pub(crate) fn validate_scalar(expr: &Expr) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn analyze(plan: &LogicalPlan, graph: &GraphDef) -> Result<Analysis> {
+pub(crate) fn analyze(plan: &LogicalPlan, graph: &GraphDef, owner: usize) -> Result<Analysis> {
     let mut result = Analysis {
         dependencies: BTreeSet::new(),
         inputs: BTreeSet::new(),
         direct_volatility: Volatility::Immutable,
-        scope: ReuseScope::Reusable,
+        reuse_scope: ReuseScope::Reusable,
     };
     visit_plan(plan, graph, &[], &mut result)?;
+    for index in &result.inputs {
+        graph.check_visible(
+            graph.inputs[*index].scope,
+            owner,
+            &graph.inputs[*index].name,
+        )?;
+    }
+    for index in &result.dependencies {
+        graph.check_visible(graph.nodes[*index].scope, owner, &graph.nodes[*index].name)?;
+    }
+    if let Some(discovery) = graph.scopes[owner].discovery {
+        if graph.nodes[discovery].analysis.reuse_scope == ReuseScope::EvaluationLocal {
+            result.reuse_scope = ReuseScope::EvaluationLocal;
+        }
+    }
     for dependency in &result.dependencies {
         let upstream = &graph.nodes[*dependency].analysis;
         result.inputs.extend(&upstream.inputs);
-        if upstream.scope == ReuseScope::EvaluationLocal {
-            result.scope = ReuseScope::EvaluationLocal;
+        if upstream.reuse_scope == ReuseScope::EvaluationLocal {
+            result.reuse_scope = ReuseScope::EvaluationLocal;
         }
     }
     if result.direct_volatility != Volatility::Immutable {
-        result.scope = ReuseScope::EvaluationLocal;
+        result.reuse_scope = ReuseScope::EvaluationLocal;
     }
     Ok(result)
 }
@@ -93,6 +108,14 @@ fn visit_plan(
                         return Err(Error::InvalidReference(read.label.to_string()));
                     }
                     result.inputs.insert(index);
+                }
+                TableRef::Rows(scope) => {
+                    let discovery = graph
+                        .scopes
+                        .get(scope)
+                        .and_then(|scope| scope.discovery)
+                        .ok_or_else(|| Error::InvalidReference(read.label.to_string()))?;
+                    result.dependencies.insert(discovery);
                 }
                 TableRef::Node(index) => {
                     if index >= graph.nodes.len() {
