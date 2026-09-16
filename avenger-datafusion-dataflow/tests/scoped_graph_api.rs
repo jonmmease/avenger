@@ -7,13 +7,13 @@ use avenger_datafusion_dataflow::{
         common::ScalarValue,
         logical_expr::{col, lit, scalar_subquery, LogicalPlanBuilder},
     },
-    Error, GraphBuilder, Result, Runtime, RuntimeConfig,
+    DataflowBuilder, Error, Result, Runtime, RuntimeConfig,
 };
 use std::{cell::Cell, sync::Arc};
 
 #[test]
 fn callbacks_run_once_and_visibility_is_lexical() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("data", common::schema())?;
     let global = graph.add_expr("value", lit(5_i64))?;
     let calls = Cell::new(0);
@@ -90,7 +90,7 @@ async fn unsupported_key_types_fail_preparation_without_execution() -> Result<()
         DataType::Float64,
         DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
     ] {
-        let mut graph = GraphBuilder::new();
+        let mut graph = DataflowBuilder::new();
         let input = graph.table_input(
             "data",
             Arc::new(Schema::new(vec![Field::new("key", data_type, true)])),
@@ -110,9 +110,9 @@ async fn unsupported_key_types_fail_preparation_without_execution() -> Result<()
 
 #[test]
 fn local_keys_are_portable_but_addresses_validate_graph_and_parent() -> Result<()> {
-    let mut a = GraphBuilder::new();
+    let mut a = DataflowBuilder::new();
     let a_fixture = scoped::build(&mut a)?;
-    let mut b = GraphBuilder::new();
+    let mut b = DataflowBuilder::new();
     let b_fixture = scoped::build(&mut b)?;
     let key = a_fixture.regions.key([ScalarValue::from("East")])?;
     assert_eq!(key, b_fixture.regions.key([ScalarValue::from("East")])?);
@@ -131,7 +131,7 @@ fn local_keys_are_portable_but_addresses_validate_graph_and_parent() -> Result<(
 
 #[test]
 fn failed_callback_cannot_publish_a_partial_graph() -> Result<()> {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let source = LogicalPlanBuilder::empty(true)
         .project(vec![lit(1_i64).alias("key")])?
         .build()?;

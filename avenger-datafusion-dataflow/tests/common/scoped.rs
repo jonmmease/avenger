@@ -9,7 +9,7 @@ use avenger_datafusion_dataflow::{
         functions_aggregate::expr_fn::max,
         logical_expr::{col, scalar_subquery, Expr, JoinType, LogicalPlanBuilder},
     },
-    GraphBuilder, Result, ScalarInput, ScalarOutput, ScopeHandle, TableInput, TableOutput,
+    DataflowBuilder, Result, ScalarInput, ScalarOutput, ScopeHandle, TableInput, TableOutput,
     TableSnapshot,
 };
 use std::sync::Arc;
@@ -103,7 +103,7 @@ pub struct Fixture {
     pub regions: ScopeHandle,
     pub region: Region,
 }
-pub fn build(graph: &mut GraphBuilder) -> Result<Fixture> {
+pub fn build(graph: &mut DataflowBuilder) -> Result<Fixture> {
     let sales = graph.table_input("sales", schema())?;
     let multiplier = graph.scalar_input("multiplier", DataType::Int64)?;
     let (regions, region) =

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use avenger_datafusion_dataflow::{
     arrow::{
-        array::{Int64Array, StringArray},
+        array::StringArray,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
         util::pretty::pretty_format_batches,
@@ -12,8 +12,9 @@ use avenger_datafusion_dataflow::{
         common::ScalarValue,
         functions_aggregate::expr_fn::{max, sum},
         logical_expr::{col, scalar_subquery, Expr, JoinType, LogicalPlanBuilder},
+        prelude::{CsvReadOptions, SessionContext},
     },
-    GraphBuilder, GraphResult, Result, Runtime, RuntimeConfig, ScalarOutput, TableOutput,
+    DataflowBuilder, DataflowResult, Result, Runtime, RuntimeConfig, ScalarOutput, TableOutput,
     TableSnapshot, TableStore,
 };
 
@@ -30,8 +31,18 @@ async fn main() -> Result<()> {
         false,
     )]));
 
-    let mut graph = GraphBuilder::new();
-    let sales = graph.table_input("sales", sales_schema.clone())?;
+    let mut graph = DataflowBuilder::new();
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/data/sales.csv");
+    let sales = graph.add_plan(
+        "sales",
+        SessionContext::new()
+            .read_csv(
+                path,
+                CsvReadOptions::new().schema(&sales_schema).has_header(true),
+            )
+            .await?
+            .into_unoptimized_plan(),
+    )?;
     let selected_regions = graph.table_input("selected_regions", region_schema.clone())?;
     let fraction = graph.scalar_input("fraction", DataType::Float64)?;
 
@@ -80,21 +91,6 @@ async fn main() -> Result<()> {
     let prepared = runtime.prepare(&definition).await?;
     println!("{}", prepared.explain());
 
-    let sales_batch = RecordBatch::try_new(
-        sales_schema.clone(),
-        vec![
-            Arc::new(StringArray::from(vec![
-                "East", "East", "West", "North", "South",
-            ])),
-            Arc::new(Int64Array::from(vec![60, 40, 50, 30, 10])),
-            Arc::new(Int64Array::from(vec![2, 2, 3, 3, 3])),
-        ],
-    )?;
-    // A table can contain several batches. Cloning its snapshot shares buffers.
-    let sales_store = TableStore::new(TableSnapshot::from_batches(
-        sales_schema,
-        vec![sales_batch.slice(0, 2), sales_batch.slice(2, 3)],
-    )?);
     let selection = RecordBatch::try_new(
         region_schema.clone(),
         vec![Arc::new(StringArray::from(vec!["East", "West", "North"]))],
@@ -105,7 +101,6 @@ async fn main() -> Result<()> {
     )?);
     let inputs = prepared
         .inputs()
-        .table(&sales, sales_store.snapshot())?
         .table(&selected_regions, selection_store.snapshot())?
         .scalar(&fraction, ScalarValue::Float64(Some(0.5)))?
         .finish()?;
@@ -160,22 +155,24 @@ async fn main() -> Result<()> {
     )?;
     assert_eq!(third.table(&rows_output)?.num_rows(), 1);
     println!("The original inputs still hold the original selection snapshot.");
-    println!("Each query executes five nodes. Cross-query caching and compiled-plan reuse are future phases.");
+    println!("Resident named results skip their prerequisites. Cache misses still create physical plans.");
     Ok(())
 }
 
 fn show(
     label: &str,
-    result: &GraphResult,
+    result: &DataflowResult,
     rows: TableOutput,
     threshold: ScalarOutput,
 ) -> Result<()> {
     println!("{label}: threshold={}", result.scalar(&threshold)?);
     println!("{}", pretty_format_batches(result.table(&rows)?.batches())?);
     println!(
-        "Executed: {:?}, physical plans: {}\n",
+        "Executed: {:?}, physical plans: {}, cache hits: {}, source executions: {}\n",
         result.report().executed_nodes,
-        result.report().physical_plans
+        result.report().physical_plans,
+        result.report().cache_hits,
+        result.report().source_executions
     );
     Ok(())
 }

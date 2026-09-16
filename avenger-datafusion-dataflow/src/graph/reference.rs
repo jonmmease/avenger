@@ -16,6 +16,7 @@ pub(crate) enum TableRef {
     Input(usize),
     Node(usize),
     Rows(usize),
+    Asset(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

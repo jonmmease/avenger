@@ -5,13 +5,13 @@ use avenger_datafusion_dataflow::{
         common::ScalarValue,
         logical_expr::{col, lit, scalar_subquery, when, Expr, LogicalPlanBuilder},
     },
-    Error, GraphBuilder, Runtime, RuntimeConfig, TableSnapshot,
+    DataflowBuilder, Error, Runtime, RuntimeConfig, TableSnapshot,
 };
 use std::sync::Arc;
 
 #[tokio::test]
 async fn scalar_subqueries_enforce_zero_one_and_multiple_row_semantics() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let input = graph.table_input("values", common::schema()).unwrap();
     let node = graph.add_plan("values", input.plan_ref()).unwrap();
     let scalar = graph
@@ -59,7 +59,7 @@ async fn scalar_subqueries_enforce_zero_one_and_multiple_row_semantics() {
 
 #[tokio::test]
 async fn nested_subqueries_find_table_and_scalar_dependencies() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let table = graph.table_input("table", common::schema()).unwrap();
     let offset = graph.scalar_input("offset", DataType::Int64).unwrap();
     let value = graph
@@ -105,7 +105,7 @@ async fn nested_subqueries_find_table_and_scalar_dependencies() {
 
 #[tokio::test]
 async fn strict_named_dependency_fails_even_when_consumer_guard_is_false() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let source = graph.table_input("source", common::schema()).unwrap();
     let bad = graph
         .add_expr("bad", scalar_subquery(Arc::new(source.plan_ref())))
@@ -136,7 +136,7 @@ async fn strict_named_dependency_fails_even_when_consumer_guard_is_false() {
 
 #[test]
 fn rejects_unresolved_correlation_at_a_graph_boundary() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let expr = Expr::OuterReferenceColumn(
         Arc::new(Field::new("outside", DataType::Int64, false)),
         "outside".into(),
@@ -156,7 +156,7 @@ fn rejects_unresolved_correlation_at_a_graph_boundary() {
 async fn correlated_subquery_inside_a_plan_keeps_its_row_scope() {
     use avenger_datafusion_dataflow::datafusion::common::Column;
     use avenger_datafusion_dataflow::datafusion::functions_aggregate::expr_fn::sum;
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let outer = graph.table_input("outer_rows", common::schema()).unwrap();
     let inner = graph.table_input("inner_rows", common::schema()).unwrap();
     let outer_value = Expr::OuterReferenceColumn(
@@ -221,7 +221,7 @@ async fn correlated_subquery_inside_a_plan_keeps_its_row_scope() {
 
 #[tokio::test]
 async fn empty_scalar_subquery_in_a_table_plan_remains_nullable() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let source = graph.table_input("source", common::schema()).unwrap();
     let plan = LogicalPlanBuilder::empty(true)
         .project(vec![

@@ -3,28 +3,36 @@
 pub use datafusion;
 pub use datafusion::arrow;
 
+mod cache;
 mod diagnostics;
 mod error;
 mod execution;
 mod graph;
 mod inputs;
+mod interface;
 mod partition;
 mod result;
 mod runtime;
+mod semantics;
+mod serialization;
 mod table;
 
+pub use cache::{CacheConfig, CachePolicy, CacheStats};
+pub use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
 pub use diagnostics::{
     EvaluationReport, NodeReport, PrepareReport, ReuseScope, ScopeEvaluationReport, ScopeReport,
 };
 pub use error::{Error, Result};
 pub use graph::{
-    ExprNode, Graph, GraphBuilder, PlanNode, ScalarInput, ScalarOutput, ScopeBuilder, TableInput,
-    TableOutput,
+    Dataflow, DataflowBuilder, ExprNode, PlanNode, ScalarInput, ScalarOutput, ScopeBuilder,
+    TableInput, TableOutput,
 };
 pub use inputs::{Inputs, InputsBuilder, ScopedBindingsBuilder};
+pub use interface::{DataflowInterface, ScopeInterface};
 pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
-pub use result::{GraphResult, ScopeResult, ScopeResults};
-pub use runtime::{ExecutionConfig, PreparedGraph, Runtime, RuntimeConfig};
+pub use result::{DataflowResult, ScopeResult, ScopeResults};
+pub use runtime::{ExecutionConfig, PreparedDataflow, Runtime, RuntimeConfig};
+pub use semantics::SemanticConfig;
 pub use table::{SnapshotId, TableSnapshot, TableStore};
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -35,3 +43,6 @@ fn fresh_id() -> u64 {
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .expect("dataflow identity space exhausted")
 }
+
+#[cfg(feature = "json")]
+pub mod json;

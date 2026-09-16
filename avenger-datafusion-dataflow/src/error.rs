@@ -5,6 +5,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[cfg(feature = "json")]
+    #[error("invalid JSON dataflow or query: {0}")]
+    Json(String),
+    #[error("invalid dataflow artifact: {0}")]
+    Artifact(String),
     #[error("duplicate {namespace} name: {name}")]
     DuplicateName {
         namespace: &'static str,

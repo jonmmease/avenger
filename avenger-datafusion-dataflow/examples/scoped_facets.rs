@@ -12,7 +12,7 @@ use avenger_datafusion_dataflow::{
         functions_aggregate::expr_fn::max,
         logical_expr::{col, scalar_subquery, Expr, JoinType, LogicalPlanBuilder},
     },
-    GraphBuilder, GraphResult, Result, Runtime, RuntimeConfig, ScalarInput, ScalarOutput,
+    DataflowBuilder, DataflowResult, Result, Runtime, RuntimeConfig, ScalarInput, ScalarOutput,
     ScopeHandle, TableInput, TableOutput, TableSnapshot, TableStore,
 };
 
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
     let all_products = products(product_schema.clone(), &["A", "B"])?;
     let east_products = products(product_schema.clone(), &["B"])?;
 
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let sales = graph.table_input("sales", sales_schema)?;
     let multiplier = graph.scalar_input("multiplier", DataType::Float64)?;
     let (regions, region) =
@@ -215,7 +215,11 @@ fn products(schema: SchemaRef, values: &[&str]) -> Result<TableSnapshot> {
     )
 }
 
-fn print_panels(result: &GraphResult, regions: &ScopeHandle, region: &RegionHandles) -> Result<()> {
+fn print_panels(
+    result: &DataflowResult,
+    regions: &ScopeHandle,
+    region: &RegionHandles,
+) -> Result<()> {
     let mut panels = vec![];
     for (_, parent) in result.scope(regions)?.iter() {
         panels.extend(parent.scope(&region.years)?.iter().map(|(_, panel)| panel));
@@ -235,8 +239,9 @@ fn print_panels(result: &GraphResult, regions: &ScopeHandle, region: &RegionHand
         );
     }
     println!(
-        "Physical plans this query: {}. No cross-query result caching.\n",
-        result.report().physical_plans
+        "Physical plans: {}, cache hits: {}. Partition indexing and gathering run each query.\n",
+        result.report().physical_plans,
+        result.report().cache_hits
     );
     Ok(())
 }

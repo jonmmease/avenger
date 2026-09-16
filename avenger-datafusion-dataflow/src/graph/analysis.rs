@@ -18,6 +18,7 @@ use crate::{Error, Result, ReuseScope};
 pub(crate) struct Analysis {
     pub dependencies: BTreeSet<usize>,
     pub inputs: BTreeSet<usize>,
+    pub has_source: bool,
     pub direct_volatility: Volatility,
     pub reuse_scope: ReuseScope,
 }
@@ -50,6 +51,7 @@ pub(crate) fn analyze(plan: &LogicalPlan, graph: &GraphDef, owner: usize) -> Res
         dependencies: BTreeSet::new(),
         inputs: BTreeSet::new(),
         direct_volatility: Volatility::Immutable,
+        has_source: false,
         reuse_scope: ReuseScope::Reusable,
     };
     visit_plan(plan, graph, &[], &mut result)?;
@@ -100,10 +102,19 @@ fn visit_plan(
                 return Err(Error::ForeignHandle);
             }
             match read.source {
+                TableRef::Asset(index) => {
+                    let asset = graph
+                        .assets
+                        .get(index)
+                        .ok_or_else(|| Error::InvalidReference(read.label.to_string()))?;
+                    if read.schema.as_arrow() != asset.schema().as_ref() {
+                        return Err(Error::SchemaMismatch(read.label.to_string()));
+                    }
+                }
                 TableRef::Input(index) => {
                     if !matches!(
                         graph.inputs.get(index).map(|input| &input.kind),
-                        Some(InputKind::Table(_))
+                        Some(InputKind::Table(schema)) if schema == &read.schema
                     ) {
                         return Err(Error::InvalidReference(read.label.to_string()));
                     }
@@ -115,20 +126,29 @@ fn visit_plan(
                         .get(scope)
                         .and_then(|scope| scope.discovery)
                         .ok_or_else(|| Error::InvalidReference(read.label.to_string()))?;
+                    if discovery >= graph.nodes.len() {
+                        return Err(Error::InvalidReference(read.label.to_string()));
+                    }
                     result.dependencies.insert(discovery);
                 }
                 TableRef::Node(index) => {
-                    if index >= graph.nodes.len() {
+                    if graph.nodes.get(index).is_none_or(|node| {
+                        !matches!(node.kind, super::NodeKind::Table)
+                            || !super::same_schema(node.plan.schema(), &read.schema)
+                    }) {
                         return Err(Error::InvalidReference(read.label.to_string()));
                     }
                     result.dependencies.insert(index);
                 }
             }
         }
-        LogicalPlan::TableScan(_) => {
-            return Err(Error::UnsupportedPlan(
-                "external table scan: declare a table input and bind a snapshot".into(),
-            ))
+        LogicalPlan::TableScan(scan) => {
+            result.has_source = true;
+            if scan.source.get_logical_plan().is_some() {
+                return Err(Error::UnsupportedPlan(
+                    "provider contains a logical program: register that plan directly".into(),
+                ));
+            }
         }
         LogicalPlan::Ddl(_)
         | LogicalPlan::Dml(_)

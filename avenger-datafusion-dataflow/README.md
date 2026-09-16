@@ -2,7 +2,7 @@
 
 Build a graph from named DataFusion logical plans and scalar expressions, then query selected outputs against immutable scalar and table inputs.
 
-This crate implements phases 1 through 3: graph construction and correct evaluation of root, composite-key, and nested scopes. Every demanded named computation runs once per defining instance per query. The runtime creates fresh physical plans during each query and retains no computed results between queries. Graph fusion, column pruning across nodes, compiled-plan reuse, and cross-query caching are later phases.
+The native lifecycle is `DataflowBuilder → Dataflow → Runtime::prepare() → PreparedDataflow::query()`. It supports root, composite-key, and nested scopes, bounded completed-result caching, protobuf serialization, and an optional JSON/SQL adapter. A demanded computation runs at most once per defining instance per query. Cache hits skip prerequisite execution and physical planning; misses create fresh DataFusion plans. Fusion, column pruning across nodes, and retained physical plans remain deferred.
 
 The crate has no dependencies on Avenger chart, scene graph, or rendering crates. It re-exports `datafusion` and `arrow` so consumers can use matching types.
 
@@ -30,7 +30,7 @@ It queries table and scalar outputs together, changes a scalar parameter, then p
 | 0.8 | East, West, North | 160 | East: 200 |
 | 0.5 | West | 100 | West: 150 |
 
-The example prints the actual Arrow tables and per-query execution reports. All three evaluations execute five graph nodes. The shared totals computation executes once within each evaluation.
+The example prints the actual Arrow tables and per-query execution reports. The file source has its own named boundary. Changing the fraction or selection reuses resident source and aggregate results. Each report shows cache hits, source executions, and physical plans.
 
 ## Public API
 
@@ -46,14 +46,14 @@ use avenger_datafusion_dataflow::{
         common::ScalarValue,
         logical_expr::{col, LogicalPlanBuilder},
     },
-    GraphBuilder, Runtime, RuntimeConfig, TableSnapshot,
+    DataflowBuilder, Runtime, RuntimeConfig, TableSnapshot,
 };
 # async fn example() -> avenger_datafusion_dataflow::Result<()> {
 
 let schema = Arc::new(Schema::new(vec![
     Field::new("value", DataType::Int64, false),
 ]));
-let mut graph = GraphBuilder::new();
+let mut graph = DataflowBuilder::new();
 let source = graph.table_input("source", schema.clone())?;
 let cutoff = graph.scalar_input("cutoff", DataType::Int64)?;
 let cutoff_value = graph.add_expr("cutoff_value", cutoff.expr_ref())?;
@@ -92,7 +92,7 @@ assert_eq!(next.table(&rows)?.num_rows(), 1);
 # runtime.block_on(example()).unwrap();
 ```
 
-### Graph definitions and names
+### Dataflow definitions and names
 
 Register inputs and computations before referencing them. `plan_ref()` returns a private logical extension leaf, and `expr_ref()` returns a typed scalar placeholder. A reference records identity rather than copying a producer's full lineage. Registration validates graph ownership and dependencies. Insertion order provides a topological execution order, so references cannot form a cycle.
 
@@ -110,9 +110,9 @@ Bindings use handles. A chart compiler can maintain a scoped name-to-handle map 
 
 ### Scoped sub-dataflows
 
-`partition_by(name, source_plan, key_expressions, callback)` defines a child template. Its callback runs once during construction and returns any Rust value, usually a struct of handles. Output declarations determine which values are queryable. A callback that fails or panics makes `GraphBuilder::finish()` fail, so partially constructed handles cannot identify a different definition later.
+`partition_by(name, source_plan, key_expressions, callback)` defines a child template. Its callback runs once during construction and returns any Rust value, usually a struct of handles. Output declarations determine which values are queryable. A callback that fails or panics makes `DataflowBuilder::finish()` fail, so partially constructed handles cannot identify a different definition later.
 
-`ScopeBuilder` provides the same input, plan, expression, output, and partition operations as `GraphBuilder`. `scope.rows()` returns one automatically bound `PlanNode` with the source schema. It can be exported directly. Plans can read current-scope and ancestor handles. Sibling and descendant references are rejected, including inside subqueries. Child collections cannot be consumed by parent computations through this API.
+`ScopeBuilder` provides the same input, plan, expression, output, and partition operations as `DataflowBuilder`. `scope.rows()` returns one automatically bound `PlanNode` with the source schema. It can be exported directly. Plans can read current-scope and ancestor handles. Sibling and descendant references are rejected, including inside subqueries. Child collections cannot be consumed by parent computations through this API.
 
 Run the [nested and composite facet example](examples/scoped_facets.rs):
 
@@ -150,7 +150,7 @@ Keys support `Null`, Boolean, signed and unsigned integers of 8 through 64 bits,
 
 Preparation rejects other key types, including floating-point, nested, dictionary, fixed-size binary, time-of-day, duration, interval, and 32/64-bit decimal types. Keys have no implicit casts and are not serialized display strings. A local `PartitionKey` is portable between compatible key schemas. A `ScopeInstance` includes graph and definition identities along its full path.
 
-Prepared physical reuse, grouped execution, caching, explicit facet domains, ancestor-specific defaults, and requests restricted to selected instance addresses are future work. The current scoped API is a correctness baseline and does not promise interactive latency for hundreds of facets.
+Prepared physical reuse, grouped execution, explicit facet domains, ancestor-specific defaults, and requests restricted to selected instance addresses are future work. The current scoped API is a correctness baseline and does not promise interactive latency for hundreds of facets.
 
 ### Evaluation semantics
 
@@ -168,23 +168,92 @@ The runtime returns results only after all requested outputs succeed. Errors ret
 
 ### Preparation and diagnostics
 
-`prepare()` validates and analyzes all declared output paths. `PreparedGraph` retains definitions, dependency metadata, and analyzed plans. It does not retain input snapshots or compiled physical plans.
+`prepare()` validates and analyzes all declared output paths. `PreparedDataflow` retains definitions, dependency metadata, and analyzed plans. It does not retain input snapshots or compiled physical plans.
 
-`prepared.explain()` reports reachable nodes, definition paths, partition key schemas, ancestor captures, dependencies, external inputs, volatility, and reuse scope. `result.report()` reports executed nodes, physical planning count, captured query time, charged materialization, and per-definition instance, execution, and partitioned-row counts. Routine reports omit data-derived key values. `Reusable` means eligible for future result reuse. It does not mean caching is enabled in this version.
+`prepared.explain()` reports reachable nodes, definition paths, partition key schemas, ancestor captures, dependencies, external inputs, volatility, and reuse scope. `result.report()` reports executed nodes, physical planning count, captured query time, charged materialization, and per-definition instance, execution, and partitioned-row counts. Routine reports omit data-derived key values. `Reusable` marks nodes eligible for completed-result retention. Reports also expose cache hits, misses, bypasses, source executions, and retained byte charges.
 
-`Runtime::with_session_state()` captures DataFusion configuration and function registries and installs the crate's snapshot planner. Native relational plans, values, and supported subqueries execute through DataFusion. External table scans, session-variable expressions, DDL, DML, control statements, recursive queries, and unknown logical extensions are rejected. Bind external data as explicit snapshots.
+`Runtime::with_session_state()` captures DataFusion configuration and function registries and installs the crate's snapshot planner. Native relational plans, values, and supported subqueries execute through DataFusion. Finite stable external scans are supported. Providers that hide a logical program are rejected; register that program directly so its dependencies and volatility can be analyzed. Session variables, DDL, DML, control statements, recursive queries, and unknown logical extensions are rejected. Known unbounded physical sources fail before execution.
 
 ### Resource limits
 
-`RuntimeConfig` currently exposes `ExecutionConfig`: maximum active queries and an aggregate byte budget for materialized values owned by active queries. The defaults are four queries and 256 MiB. Regions and scope instances within one query execute sequentially. All frames share one query permit, captured timestamp, and materialization budget.
+`RuntimeConfig` exposes `ExecutionConfig`: maximum active queries and an aggregate byte budget for materialized values owned by active queries. The defaults are four queries and 256 MiB. Regions and scope instances within one query execute sequentially. All frames share one query permit, captured timestamp, and materialization budget.
 
-The byte budget conservatively charges Arrow array allocations, scalar copies, partition indices, instance addresses, and frame/result metadata, potentially counting shared buffers more than once. Charges accumulate until the query ends, including temporary partition buffers already released. This can reject a query below the budget in actual live memory. A query that cannot retain its required values fails with `ResourceExhausted`. This budget does not bound caller-owned inputs, returned results, or DataFusion operator memory. Operator memory uses DataFusion's runtime environment. Cache configuration and physical reuse policies will be added with their implementation phases.
+The byte budget conservatively charges Arrow array allocations, scalar copies, partition indices, instance addresses, and frame/result metadata, potentially counting shared buffers more than once. Charges accumulate until the query ends, including temporary partition buffers already released. This can reject a query below the budget in actual live memory. A query that cannot retain its required values fails with `ResourceExhausted`. This budget does not bound caller-owned inputs, returned results, or DataFusion operator memory. Operator memory uses DataFusion's runtime environment. Fixed graph assets are also excluded from active materialization charges. Retained results have a separate bounded cache budget.
+
+## Fixed sources and caching
+
+Use `table_snapshot(name, snapshot)` for immutable graph-owned data. Use `table_input()` for a table that changes between requests. A finite external provider in `add_plan()` is fixed for the preparation lifetime: if its files or database contents change, create a new preparation or call `clear_results()` after coordinating the source change. The runtime does not poll files or hash source contents.
+
+Give an expensive source its own named node before parameter-dependent transforms. Retention happens at named boundaries with complete schemas. A scan buried inside a filter node is only reused when that whole node's bindings match.
+
+The default runtime LRU retains at most 128 MiB and 1,024 entries across all its preparations. Configure `CachePolicy::Lru(CacheConfig { max_bytes, max_entries })` or use `CachePolicy::Disabled` for the uncached baseline. Oversized results bypass retention. Charges include retained Arrow allocations and key metadata, conservatively counting shared buffers more than once.
+
+Cache keys include the preparation namespace, node, complete scope address, relevant scalar values, and input snapshot identities. Irrelevant inputs do not invalidate a result. Clones of a prepared value share its namespace; separate preparations do not. Scoped overrides invalidate affected values while siblings can hit. Discovery tables can hit, but grouping indices and gathering local rows still run each query.
+
+`Stable`/`Volatile` functions and their descendants remain query-local. Caches hold only complete successful node results. A failed query can leave successful prerequisites cached. Concurrent misses run independently. `clear_results()` removes one namespace and advances its epoch, preventing active older requests from repopulating it. Dropping the last prepared clone releases its entries. Caller-held results remain valid after eviction or clearing.
+
+Cache hits count against active materialization limits. `runtime.cache_stats()` reports runtime-wide retention. The active and retained budgets bound different owners; neither bounds all process memory.
+
+## Binary serialization
+
+```rust,ignore
+let bytes = dataflow.to_bytes()?;
+let loaded = destination_runtime.decode_dataflow(&bytes)?;
+let names = loaded.interface().root();
+let marks = names.table_output("marks")?;
+let prepared = destination_runtime.prepare(&loaded).await?;
+```
+
+The version 1 protobuf envelope imports DataFusion **54.1.0** logical-plan and expression messages. It includes declarations, scopes, outputs, semantic requirements, and Arrow IPC streams for fixed assets. A narrow side table covers IN/EXISTS subqueries, outer references, and set comparisons absent from DataFusion's expression format. Generated DataFusion types are reused through Prost `extern_path`. Vendored upstream `.proto` imports and a vendored build-time `protoc` keep code generation reproducible.
+
+Decoding resolves functions immediately and produces the same native `Dataflow` used by Rust builders. Loading allocates fresh graph and snapshot identities; recover typed handles through `interface().root()`, `.scope(name)`, and the input/output lookup methods. Interfaces and immutable bindings do not retain source lineage or graph-owned assets.
+
+Artifacts contain no request bindings, warm result cache, execution frames, or physical plans. Shared assets are encoded once by snapshot identity. Stable and volatile expressions remain live. External scans cannot be exported in this phase; provide fixed snapshots. Baking and client/server splitting remain future work.
+
+`SemanticConfig` records the required time zone and application function versions. The destination must match them. Built-ins require the pinned DataFusion version. Custom functions need explicit `kind:name` version entries (`scalar:my_udf`, `aggregate:...`, `window:...`, `higher_order:...`) in both the definition and `RuntimeConfig`. Register matching functions before decoding, or supply configured-function payload codecs through `to_bytes_with_codec()` and `Runtime::with_session_state_and_codec()`. Codecs do not transport arbitrary Rust code. Higher-order functions and lambdas currently fail export because the pinned DataFusion codec cannot encode them. The decoder checks declared function volatility as well as version requirements.
+
+```sh
+cargo run --release -p avenger-datafusion-dataflow --example serialized_dataflow
+```
+
+## JSON definitions and requests
+
+Enable the `json` feature to load `DataflowSpec` and submit `QueryRequest`. The SQL parser and file-format adapters are optional; the native/protobuf API does not require this feature.
+
+```rust,ignore
+let spec: DataflowSpec = serde_json::from_str(definition_json)?;
+let dataflow = runtime.load_spec(&spec, &FileSourceResolver::new(base_directory)).await?;
+let prepared = runtime.prepare(&dataflow).await?;
+let request: QueryRequest = serde_json::from_str(request_json)?;
+let result = prepared.query_request(&request, &AssetBindings::new()).await?;
+```
+
+See the [definition fixture](tests/fixtures/facets.dataflow.json), [request fixture](tests/fixtures/facets.query.json), and [runnable example](examples/json_dataflow.rs). The `dataflow_spec_schema()` and `query_request_schema()` functions publish the matching [JSON Schemas](schemas/), regenerated with the `json_schemas` example. Version 1 requests use the adapter's grammar without a separate version field.
+
+Each scope has `inputs`, `sources`, SQL-string `tables` and `scalars`, public `outputs`, and child `scopes`. A child declares a visible `partition.source`, ordered SQL `partition.keys`, and a local `rows` relation name. SQL names resolve lexically; local symbols shadow ancestors. Local inputs, sources, computations, and the rows alias share one namespace in JSON. SQL CTEs and aliases use DataFusion's normal rules. Computations can reference later definitions; unresolved or cyclic dependencies fail loading. Outputs are aliases and do not add SQL symbols. Only query SQL is accepted, and all relations must be declared.
+
+Inputs have no declaration defaults. Requests combine root scalar/table bindings, `scope_defaults`, full-path instance `overrides`, and table/scalar output selections. All root inputs are required; scoped inputs are required only where demanded. Each request is independent. A null or empty table is an explicit binding. Overrides for absent facets do not create facets. Results keep the native nested materialized shape.
+
+### Sources and values
+
+* Inline sources require a schema and `values`, an array of row objects. Schema order determines columns. Missing nullable values become null; unknown fields, missing non-nullable values, and incompatible types fail.
+* File sources use `url`, `format` (`csv`, `parquet`, or `arrow`), optional `schema`, and `options`. CSV options are `has_header` (default true), a one-byte ASCII `delimiter` (default comma; use `\t` for TSV), and positive `schema_infer_max_records` (default 1,000). Arrow files use the IPC file format.
+* Parsing performs no I/O. With an explicit schema, loading and preparation do not open the file. Without one, `SourceResolver::infer_schema()` runs once during loading. Actual reads occur on demanded misses. The built-in resolver handles local paths relative to its base directory; use a trailing separator for directory paths. Custom resolvers can return other deferred providers.
+* Fixed `asset` sources resolve host-supplied `TableSnapshot` values. Repeated references share identity within a load. Request assets use `AssetBindings`; table bindings can also provide inline `values` using the input's declared schema.
+* Supported JSON types are `null`, `boolean`, signed/unsigned 8–64-bit integers, `float32`, `float64`, `utf8`, `large_utf8`, `date32`, `date64`, and `{"timestamp":{"unit":"s|ms|us|ns","timezone":null}}`. Dates use `YYYY-MM-DD`. Timestamps accept integer epoch units or RFC 3339 strings. Integer decimal strings preserve 64-bit precision through JavaScript clients. Null is typed by the declaration. Nested, binary, decimal, interval, and other Arrow values remain available through the native/IPC API.
+
+Inline request tables allocate new snapshot identities on every submission; host assets preserve identity. Reuse typed `Inputs` when that is preferable. JSON result serialization, SQL export, HTTP transport, and text round-trip fidelity are outside this adapter.
+
+```sh
+cargo run --release -p avenger-datafusion-dataflow --features json --example json_dataflow
+```
 
 ## Validation
 
 ```sh
 cargo test --release -p avenger-datafusion-dataflow --locked
-cargo clippy --release -p avenger-datafusion-dataflow --all-targets --locked -- -D warnings
+cargo test --release -p avenger-datafusion-dataflow --features json --locked
+cargo clippy -p avenger-datafusion-dataflow --features json --all-targets --locked -- -D warnings
 ```
 
 The tests cover graph and scope ownership, immutable bindings, nested and composite discovery, supported key types, native DataFusion result comparisons, scalar-subquery cardinality, strict dependencies, per-instance volatile sharing, stable query time, result lookup, cancellation, and concurrent input isolation.

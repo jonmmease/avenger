@@ -6,7 +6,7 @@ use avenger_datafusion_dataflow::{
         record_batch::RecordBatch,
     },
     datafusion::common::ScalarValue,
-    Error, GraphBuilder, Runtime, RuntimeConfig, TableSnapshot, TableStore,
+    DataflowBuilder, Error, Runtime, RuntimeConfig, TableSnapshot, TableStore,
 };
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ fn stores_publish_data_and_identity_together_and_allow_republishing() {
 
 #[tokio::test]
 async fn bindings_validate_completeness_types_ownership_and_keep_old_values() {
-    let mut graph = GraphBuilder::new();
+    let mut graph = DataflowBuilder::new();
     let table = graph.table_input("table", common::schema()).unwrap();
     let scalar = graph.scalar_input("scalar", DataType::Int64).unwrap();
     let plan = graph.add_plan("rows", table.plan_ref()).unwrap();
@@ -72,7 +72,7 @@ async fn bindings_validate_completeness_types_ownership_and_keep_old_values() {
             .scalar(&scalar, ScalarValue::Float64(Some(1.0))),
         Err(Error::ScalarTypeMismatch { .. })
     ));
-    let mut other = GraphBuilder::new();
+    let mut other = DataflowBuilder::new();
     let other_scalar = other.scalar_input("scalar", DataType::Int64).unwrap();
     assert!(matches!(
         prepared
