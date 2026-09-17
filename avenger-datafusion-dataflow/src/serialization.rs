@@ -165,6 +165,7 @@ impl LogicalExtensionCodec for Codec {
             return Err(df_error("foreign dataflow reference"));
         }
         let (kind, index) = match read.source {
+            TableRef::Import(_) => return Err(df_error("external imports are not serializable")),
             TableRef::Input(i) => (wire::read::Kind::Input, i),
             TableRef::Node(i) => (wire::read::Kind::Node, i),
             TableRef::Rows(i) => (wire::read::Kind::Rows, i),
@@ -332,6 +333,9 @@ fn remap(plan: LogicalPlan, graph: &GraphDef, exporting: bool) -> Result<Logical
                             .get(&p.id)
                             .ok_or_else(|| df_error("unknown placeholder"))?;
                         p.id = match reference {
+                            ScalarRef::BaseInput(_) | ScalarRef::Import(_) => {
+                                return Err(df_error("external imports are not serializable"))
+                            }
                             ScalarRef::Input(i) => format!("$dataflow_input_{i}"),
                             ScalarRef::Node(i) => format!("$dataflow_node_{i}"),
                         };
@@ -451,6 +455,9 @@ impl Dataflow {
         application: Arc<dyn LogicalExtensionCodec>,
     ) -> Result<Vec<u8>> {
         let graph = &self.inner;
+        if graph.base.is_some() {
+            return Err(invalid("external imports are not serializable"));
+        }
         let mut identities = HashMap::new();
         let mut assets = Vec::new();
         let mut indices = Vec::new();
@@ -621,6 +628,8 @@ impl Runtime {
             .collect::<Result<Vec<_>>>()?;
         let mut expected_rows = Vec::new();
         let mut graph = GraphDef {
+            base: None,
+            imports: HashMap::new(),
             id: crate::fresh_id(),
             assets,
             semantics,

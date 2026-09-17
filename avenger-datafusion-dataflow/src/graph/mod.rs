@@ -173,6 +173,9 @@ pub(crate) struct BindingMetadata {
 
 #[derive(Clone, Debug)]
 pub(crate) struct GraphDef {
+    pub base: Option<crate::DataflowInterface>,
+    /// Local alias node to the base's declared output index.
+    pub imports: HashMap<usize, usize>,
     pub assets: Vec<crate::TableSnapshot>,
     pub semantics: crate::SemanticConfig,
     pub id: u64,
@@ -190,7 +193,7 @@ pub struct Dataflow {
 
 impl Dataflow {
     pub fn num_nodes(&self) -> usize {
-        self.inner.nodes.len()
+        self.inner.nodes.len() - self.inner.imports.len()
     }
     pub fn num_inputs(&self) -> usize {
         self.inner.inputs.len()
@@ -215,6 +218,83 @@ impl Default for DataflowBuilder {
 }
 
 impl DataflowBuilder {
+    /// Build additional computations against a base definition's public interface.
+    /// Root input handles remain owned and bound by the base.
+    pub fn with_base(base: &crate::DataflowInterface) -> Self {
+        let mut builder = Self::with_semantics(base.inner.semantics.clone());
+        builder.def.base = Some(base.clone());
+        for (index, input) in base.inner.inputs.iter().enumerate() {
+            if let InputKind::Scalar(field) | InputKind::Expr(field) = &input.kind {
+                builder.def.placeholders.insert(
+                    placeholder_id(base.inner.id, ScalarRef::Input(index)),
+                    (ScalarRef::BaseInput(index), field.clone()),
+                );
+            }
+        }
+        builder
+    }
+
+    /// Reference a published root table without copying its lineage or cached value.
+    pub fn import_table(
+        &mut self,
+        name: impl Into<String>,
+        output: &TableOutput,
+    ) -> Result<PlanNode> {
+        let schema = self.import_schema(output.graph, output.index, NodeKind::Table)?;
+        let name = name.into();
+        let node = self.add_plan(
+            name.clone(),
+            GraphRead {
+                graph: self.def.id,
+                source: TableRef::Import(output.index),
+                schema,
+                label: name.into(),
+            }
+            .plan(),
+        )?;
+        self.def
+            .imports
+            .insert(self.def.nodes.len() - 1, output.index);
+        Ok(node)
+    }
+
+    /// Reference a published root scalar without evaluating a wrapper expression.
+    pub fn import_scalar(
+        &mut self,
+        name: impl Into<String>,
+        output: &ScalarOutput,
+    ) -> Result<ScalarNode> {
+        let schema = self.import_schema(output.graph, output.index, NodeKind::Scalar)?;
+        let field = schema.field(0).clone();
+        let source = ScalarRef::Import(output.index);
+        self.def
+            .placeholders
+            .insert(placeholder_id(self.def.id, source), (source, field.clone()));
+        let node = self.add_scalar(name, scalar_ref(self.def.id, source, field))?;
+        self.def
+            .imports
+            .insert(self.def.nodes.len() - 1, output.index);
+        Ok(node)
+    }
+
+    fn import_schema(&self, graph: u64, index: usize, kind: NodeKind) -> Result<DFSchemaRef> {
+        let base = self.def.base.as_ref().ok_or(Error::BaseRequired)?;
+        if graph != base.inner.id {
+            return Err(Error::ForeignHandle);
+        }
+        let output = &base.inner.outputs[index];
+        if output.scope != 0 {
+            return Err(Error::OutOfScope(format!(
+                "base output {}: only root imports are supported",
+                output.name
+            )));
+        }
+        if output.kind != kind {
+            return Err(Error::InvalidReference(output.name.to_string()));
+        }
+        Ok(output.schema.clone())
+    }
+
     /// Construct a definition with explicit result-affecting requirements.
     pub fn with_semantics(semantics: crate::SemanticConfig) -> Self {
         let mut builder = Self::new();
@@ -225,6 +305,8 @@ impl DataflowBuilder {
     pub fn new() -> Self {
         Self {
             def: GraphDef {
+                base: None,
+                imports: HashMap::new(),
                 id: fresh_id(),
                 assets: vec![],
                 semantics: crate::SemanticConfig::default(),

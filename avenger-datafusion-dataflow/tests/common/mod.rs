@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub mod source;
 use std::sync::Arc;
 
 use avenger_datafusion_dataflow::{
