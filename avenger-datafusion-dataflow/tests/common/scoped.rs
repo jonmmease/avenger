@@ -111,14 +111,15 @@ pub fn build(graph: &mut DataflowBuilder) -> Result<Fixture> {
             let rows = scope.rows();
             let output = scope.table_output("rows", &rows)?;
             let limit = scope.scalar_input("limit", DataType::Int64)?;
-            let regional = scope.add_expr("regional", multiplier.expr_ref() * limit.expr_ref())?;
+            let regional =
+                scope.add_scalar("regional", multiplier.expr_ref() * limit.expr_ref())?;
             let (years, year) =
                 scope.partition_by("years", rows.plan_ref(), vec![col("year")], |scope| {
                     let fraction = scope.scalar_input("fraction", DataType::Int64)?;
                     let selected = scope.table_input("selected", products(&[]).schema().clone())?;
                     scope.scalar_input("unused", DataType::Utf8)?;
                     let threshold =
-                        scope.add_expr("threshold", regional.expr_ref() * fraction.expr_ref())?;
+                        scope.add_scalar("threshold", regional.expr_ref() * fraction.expr_ref())?;
                     let filtered = scope.add_plan(
                         "filtered",
                         LogicalPlanBuilder::from(scope.rows().plan_ref())
@@ -140,7 +141,7 @@ pub fn build(graph: &mut DataflowBuilder) -> Result<Fixture> {
                             )?
                             .build()?,
                     )?;
-                    let maximum = scope.add_expr(
+                    let maximum = scope.add_scalar(
                         "maximum",
                         scalar_subquery(Arc::new(maximum_table.plan_ref())),
                     )?;

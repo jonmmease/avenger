@@ -37,6 +37,18 @@ pub enum Error {
     InvalidReference(String),
     #[error("unregistered scalar placeholder: {0}")]
     UnknownPlaceholder(String),
+    #[error("invalid expression input {name} at {context}: {reason}")]
+    InvalidExprInput {
+        name: String,
+        context: String,
+        reason: String,
+    },
+    #[error("input {name}: expected {expected}, received {actual}")]
+    InputKindMismatch {
+        name: String,
+        expected: &'static str,
+        actual: &'static str,
+    },
     #[error("invalid standalone expression: {0}")]
     InvalidExpression(String),
     #[error("unsupported plan: {0}")]

@@ -57,7 +57,7 @@ async fn bindings_validate_completeness_types_ownership_and_keep_old_values() {
     let table = graph.table_input("table", common::schema()).unwrap();
     let scalar = graph.scalar_input("scalar", DataType::Int64).unwrap();
     let plan = graph.add_plan("rows", table.plan_ref()).unwrap();
-    let expression = graph.add_expr("parameter", scalar.expr_ref()).unwrap();
+    let expression = graph.add_scalar("parameter", scalar.expr_ref()).unwrap();
     let rows = graph.table_output("rows", &plan).unwrap();
     let value = graph.scalar_output("value", &expression).unwrap();
     let runtime = Runtime::new(RuntimeConfig::default()).unwrap();

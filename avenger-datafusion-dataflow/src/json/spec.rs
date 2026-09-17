@@ -80,6 +80,10 @@ pub struct PartitionSpec {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputSpec {
+    Expr {
+        #[serde(rename = "type")]
+        data_type: TypeSpec,
+    },
     Scalar {
         #[serde(rename = "type")]
         data_type: TypeSpec,
@@ -199,6 +203,8 @@ pub struct RequestBindings {
     #[serde(default, deserialize_with = "unique")]
     pub scalars: BTreeMap<String, Value>,
     #[serde(default, deserialize_with = "unique")]
+    pub exprs: BTreeMap<String, String>,
+    #[serde(default, deserialize_with = "unique")]
     pub tables: BTreeMap<String, TableBinding>,
     #[serde(default)]
     pub scope_defaults: Vec<ScopeBindings>,
@@ -223,6 +229,8 @@ pub struct ScopeBindings {
     #[serde(default, deserialize_with = "unique")]
     pub scalars: BTreeMap<String, Value>,
     #[serde(default, deserialize_with = "unique")]
+    pub exprs: BTreeMap<String, String>,
+    #[serde(default, deserialize_with = "unique")]
     pub tables: BTreeMap<String, TableBinding>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -231,6 +239,8 @@ pub struct InstanceBindings {
     pub path: Vec<InstanceAddress>,
     #[serde(default, deserialize_with = "unique")]
     pub scalars: BTreeMap<String, Value>,
+    #[serde(default, deserialize_with = "unique")]
+    pub exprs: BTreeMap<String, String>,
     #[serde(default, deserialize_with = "unique")]
     pub tables: BTreeMap<String, TableBinding>,
 }

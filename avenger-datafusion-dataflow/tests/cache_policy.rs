@@ -123,7 +123,7 @@ async fn cached_child_skips_evicted_source_and_sources_reuse_across_filters() ->
 async fn retention_bypass_disabled_and_signed_zero_keys() -> Result<()> {
     let mut b = DataflowBuilder::new();
     let input = b.scalar_input("x", DataType::Float64)?;
-    let node = b.add_expr("x", input.expr_ref())?;
+    let node = b.add_scalar("x", input.expr_ref())?;
     let out = b.scalar_output("x", &node)?;
     let graph = b.finish()?;
     for policy in [
@@ -166,7 +166,7 @@ async fn fixed_assets_survive_clearing_and_bindings_do_not_own_sources() -> Resu
     let asset = common::snapshot(&[1, 2]);
     let node = b.table_snapshot("asset", asset.clone())?;
     let out = b.table_output("asset", &node)?;
-    let scalar = b.add_expr("one", lit(1_i64))?;
+    let scalar = b.add_scalar("one", lit(1_i64))?;
     let scalar_out = b.scalar_output("one", &scalar)?;
     let runtime = Runtime::new(RuntimeConfig::default())?;
     let p = runtime.prepare(&b.finish()?).await?;

@@ -7,6 +7,7 @@ mod cache;
 mod diagnostics;
 mod error;
 mod execution;
+mod expr_input;
 mod graph;
 mod inputs;
 mod interface;
@@ -24,11 +25,11 @@ pub use diagnostics::{
 };
 pub use error::{Error, Result};
 pub use graph::{
-    Dataflow, DataflowBuilder, ExprNode, PlanNode, ScalarInput, ScalarOutput, ScopeBuilder,
-    TableInput, TableOutput,
+    Dataflow, DataflowBuilder, ExprInput, PlanNode, ScalarInput, ScalarNode, ScalarOutput,
+    ScopeBuilder, TableInput, TableOutput,
 };
 pub use inputs::{Inputs, InputsBuilder, ScopedBindingsBuilder};
-pub use interface::{DataflowInterface, ScopeInterface};
+pub use interface::{DataflowInterface, InputHandle, ScopeInterface};
 pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
 pub use result::{DataflowResult, ScopeResult, ScopeResults};
 pub use runtime::{ExecutionConfig, PreparedDataflow, Runtime, RuntimeConfig};

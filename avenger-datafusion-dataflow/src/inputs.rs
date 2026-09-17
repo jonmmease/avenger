@@ -1,19 +1,19 @@
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::common::ScalarValue;
+use datafusion::{common::ScalarValue, logical_expr::Expr};
 
 use crate::{
     graph::{reference::TableRef, BindingMetadata, InputKind},
-    Error, Result, ScalarInput, ScopeHandle, ScopeInstance, TableInput, TableSnapshot,
+    Error, ExprInput, Result, ScalarInput, ScopeHandle, ScopeInstance, TableInput, TableSnapshot,
 };
 
 #[derive(Clone, Debug)]
-pub(crate) enum InputValue {
+pub(crate) enum MaterializedValue {
     Table(TableSnapshot),
     Scalar(ScalarValue),
 }
 
-impl InputValue {
+impl MaterializedValue {
     pub(crate) fn size(&self) -> usize {
         match self {
             Self::Table(t) => {
@@ -50,7 +50,28 @@ impl InputValue {
     }
 }
 
-type Bindings = HashMap<usize, InputValue>;
+#[derive(Clone, Debug)]
+pub(crate) enum InputBinding {
+    Value(MaterializedValue),
+    Expr(Arc<crate::expr_input::BoundExpr>),
+}
+impl InputBinding {
+    pub(crate) fn key(&self) -> Result<crate::cache::BindingKey> {
+        match self {
+            Self::Value(value) => value.key(),
+            Self::Expr(expr) => Ok(crate::cache::BindingKey::Expr(expr.key.clone())),
+        }
+    }
+    pub(crate) fn frame_size(&self) -> usize {
+        match self {
+            Self::Value(MaterializedValue::Table(_)) => 0,
+            Self::Value(MaterializedValue::Scalar(value)) => value.size(),
+            Self::Expr(expr) => expr.size(),
+        }
+    }
+}
+
+type Bindings = HashMap<usize, InputBinding>;
 type Defaults = HashMap<usize, Arc<Bindings>>;
 type Overrides = HashMap<ScopeInstance, Arc<Bindings>>;
 
@@ -59,7 +80,7 @@ type Overrides = HashMap<ScopeInstance, Arc<Bindings>>;
 #[derive(Clone, Debug)]
 pub struct Inputs {
     pub(crate) graph: Arc<BindingMetadata>,
-    pub(crate) values: Arc<[Option<InputValue>]>,
+    pub(crate) values: Arc<[Option<InputBinding>]>,
     defaults: Defaults,
     overrides: Overrides,
 }
@@ -79,7 +100,7 @@ impl Inputs {
         &self,
         index: usize,
         instance: Option<&ScopeInstance>,
-    ) -> Option<&InputValue> {
+    ) -> Option<&InputBinding> {
         let scope = self.graph.inputs[index].scope;
         if scope == 0 {
             return self.values[index].as_ref();
@@ -99,7 +120,7 @@ impl Inputs {
 #[derive(Debug)]
 pub struct InputsBuilder {
     pub(crate) graph: Arc<BindingMetadata>,
-    pub(crate) values: Vec<Option<InputValue>>,
+    pub(crate) values: Vec<Option<InputBinding>>,
     defaults: Defaults,
     overrides: Overrides,
 }
@@ -118,7 +139,7 @@ impl InputsBuilder {
     pub fn table(mut self, input: &TableInput, value: TableSnapshot) -> Result<Self> {
         let index = table_index(&self.graph, 0, input)?;
         validate_table(&self.graph, index, &value)?;
-        self.values[index] = Some(InputValue::Table(value));
+        self.values[index] = Some(InputBinding::Value(MaterializedValue::Table(value)));
         Ok(self)
     }
 
@@ -126,7 +147,14 @@ impl InputsBuilder {
     pub fn scalar(mut self, input: &ScalarInput, value: ScalarValue) -> Result<Self> {
         let index = scalar_index(&self.graph, 0, input)?;
         validate_scalar(&self.graph, index, &value)?;
-        self.values[index] = Some(InputValue::Scalar(value));
+        self.values[index] = Some(InputBinding::Value(MaterializedValue::Scalar(value)));
+        Ok(self)
+    }
+
+    /// Bind a root expression after checking every declared usage context.
+    pub fn expr(mut self, input: &ExprInput, value: Expr) -> Result<Self> {
+        let index = expr_index(&self.graph, 0, input)?;
+        self.values[index] = Some(bind_expr(&self.graph, index, value)?);
         Ok(self)
     }
 
@@ -221,7 +249,8 @@ impl ScopedBindingsBuilder {
     pub fn table(mut self, input: &TableInput, value: TableSnapshot) -> Result<Self> {
         let index = table_index(&self.graph, self.scope, input)?;
         validate_table(&self.graph, index, &value)?;
-        self.values.insert(index, InputValue::Table(value));
+        self.values
+            .insert(index, InputBinding::Value(MaterializedValue::Table(value)));
         Ok(self)
     }
 
@@ -229,7 +258,23 @@ impl ScopedBindingsBuilder {
     pub fn scalar(mut self, input: &ScalarInput, value: ScalarValue) -> Result<Self> {
         let index = scalar_index(&self.graph, self.scope, input)?;
         validate_scalar(&self.graph, index, &value)?;
-        self.values.insert(index, InputValue::Scalar(value));
+        self.values
+            .insert(index, InputBinding::Value(MaterializedValue::Scalar(value)));
+        Ok(self)
+    }
+
+    /// Bind an expression declared directly in this scope.
+    pub fn expr(mut self, input: &ExprInput, value: Expr) -> Result<Self> {
+        let index = expr_index(&self.graph, self.scope, input)?;
+        self.values
+            .insert(index, bind_expr(&self.graph, index, value)?);
+        Ok(self)
+    }
+
+    /// Remove this entry, restoring default inheritance for an instance override.
+    pub fn unset_expr(mut self, input: &ExprInput) -> Result<Self> {
+        let index = expr_index(&self.graph, self.scope, input)?;
+        self.values.remove(&index);
         Ok(self)
     }
 
@@ -292,4 +337,25 @@ fn validate_scalar(graph: &BindingMetadata, index: usize, value: &ScalarValue) -
         });
     }
     Ok(())
+}
+
+fn expr_index(graph: &BindingMetadata, scope: usize, input: &ExprInput) -> Result<usize> {
+    if input.graph != graph.id {
+        return Err(Error::ForeignHandle);
+    }
+    check_owner(graph, scope, input.index)?;
+    Ok(input.index)
+}
+fn bind_expr(graph: &BindingMetadata, index: usize, value: Expr) -> Result<InputBinding> {
+    let InputKind::Expr(field) = &graph.inputs[index].kind else {
+        unreachable!()
+    };
+    Ok(InputBinding::Expr(Arc::new(
+        crate::expr_input::BoundExpr::new(
+            value,
+            &graph.expr_sites[index],
+            field,
+            &graph.inputs[index].name,
+        )?,
+    )))
 }

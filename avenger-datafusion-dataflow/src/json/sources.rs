@@ -179,8 +179,8 @@ impl TableProvider for DeferredFile {
         }
         let table = ListingTable::try_new(
             ListingTableConfig::new(self.location.clone())
-                .with_schema(self.schema.clone())
-                .with_listing_options(self.options.clone()),
+                .with_listing_options(self.options.clone())
+                .with_schema(self.schema.clone()),
         )?;
         table.scan(state, projection, filters, limit).await
     }

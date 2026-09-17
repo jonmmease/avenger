@@ -153,3 +153,33 @@ async fn bindings_and_interface_do_not_retain_graph_owned_source_buffers() -> Re
     let _ = inputs.edit();
     Ok(())
 }
+
+#[tokio::test]
+async fn retained_expression_inputs_do_not_retain_prepared_cache_namespaces() -> Result<()> {
+    use avenger_datafusion_dataflow::{
+        arrow::datatypes::DataType,
+        datafusion::logical_expr::{col, lit},
+    };
+    let mut b = DataflowBuilder::new();
+    let data = b.table_snapshot("data", common::snapshot(&[1, 2, 3]))?;
+    let expr = b.expr_input("selection", DataType::Boolean)?;
+    let node = b.add_plan(
+        "selected",
+        LogicalPlanBuilder::from(data.plan_ref())
+            .filter(expr.expr_ref())?
+            .build()?,
+    )?;
+    let out = b.table_output("out", &node)?;
+    let runtime = Runtime::new(Default::default())?;
+    let p = runtime.prepare(&b.finish()?).await?;
+    let inputs = p
+        .inputs()
+        .expr(&expr, col("value").gt(lit(1_i64)))?
+        .finish()?;
+    p.query(&[out], &[], &inputs).await?;
+    assert_eq!(runtime.cache_stats().entries, 1);
+    drop(p);
+    assert_eq!(runtime.cache_stats().entries, 0);
+    assert!(inputs.edit().expr(&expr, lit(true))?.finish().is_ok());
+    Ok(())
+}

@@ -3,7 +3,8 @@ use crate::{
         reference::{GraphRead, TableRef},
         GraphDef, InputDef, InputKind, NodeKind,
     },
-    Dataflow, Error, Result, ScalarInput, ScalarOutput, ScopeHandle, TableInput, TableOutput,
+    Dataflow, Error, ExprInput, Result, ScalarInput, ScalarOutput, ScopeHandle, TableInput,
+    TableOutput,
 };
 use std::sync::Arc;
 
@@ -85,7 +86,7 @@ impl ScopeInterface {
     pub fn table_input(&self, name: &str) -> Result<TableInput> {
         let (index, input) = self.input(name)?;
         let InputKind::Table(schema) = &input.kind else {
-            return Err(Error::InvalidReference(name.into()));
+            return Err(kind_error(name, "table", &input.kind));
         };
         Ok(TableInput {
             read: GraphRead {
@@ -100,9 +101,22 @@ impl ScopeInterface {
     pub fn scalar_input(&self, name: &str) -> Result<ScalarInput> {
         let (index, input) = self.input(name)?;
         let InputKind::Scalar(field) = &input.kind else {
-            return Err(Error::InvalidReference(name.into()));
+            return Err(kind_error(name, "scalar", &input.kind));
         };
         Ok(ScalarInput {
+            graph: self.interface.inner.id,
+            index,
+            name: input.name.clone(),
+            field: field.clone(),
+        })
+    }
+    /// Look up an expression input declared directly in this scope.
+    pub fn expr_input(&self, name: &str) -> Result<ExprInput> {
+        let (index, input) = self.input(name)?;
+        let InputKind::Expr(field) = &input.kind else {
+            return Err(kind_error(name, "expr", &input.kind));
+        };
+        Ok(ExprInput {
             graph: self.interface.inner.id,
             index,
             name: input.name.clone(),
@@ -133,6 +147,26 @@ impl ScopeInterface {
             scope: self.scope,
         })
     }
+    /// Enumerate directly declared inputs in declaration order, without executing data.
+    pub fn inputs(&self) -> impl Iterator<Item = InputHandle> + '_ {
+        self.interface
+            .inner
+            .inputs
+            .iter()
+            .filter(move |input| input.scope == self.scope)
+            .map(|input| match &input.kind {
+                InputKind::Table(_) => {
+                    InputHandle::Table(self.table_input(&input.name).expect("declared input"))
+                }
+                InputKind::Scalar(_) => {
+                    InputHandle::Scalar(self.scalar_input(&input.name).expect("declared input"))
+                }
+                InputKind::Expr(_) => {
+                    InputHandle::Expr(self.expr_input(&input.name).expect("declared input"))
+                }
+            })
+    }
+
     fn input(&self, name: &str) -> Result<(usize, &InputDef)> {
         self.interface
             .inner
@@ -151,5 +185,34 @@ impl ScopeInterface {
             .find(|(_, (s, n, _))| *s == self.scope && n.as_ref() == name)
             .map(|(i, (_, _, k))| (i, *k))
             .ok_or_else(|| Error::InvalidReference(name.into()))
+    }
+}
+
+/// A typed input discovered through a dataflow's public interface.
+#[derive(Clone, Debug)]
+pub enum InputHandle {
+    Table(TableInput),
+    Scalar(ScalarInput),
+    Expr(ExprInput),
+}
+impl InputHandle {
+    /// Return the name within the input's declaring scope.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Table(i) => i.name(),
+            Self::Scalar(i) => i.name(),
+            Self::Expr(i) => i.name(),
+        }
+    }
+}
+fn kind_error(name: &str, expected: &'static str, kind: &InputKind) -> Error {
+    Error::InputKindMismatch {
+        name: name.into(),
+        expected,
+        actual: match kind {
+            InputKind::Table(_) => "table",
+            InputKind::Scalar(_) => "scalar",
+            InputKind::Expr(_) => "expr",
+        },
     }
 }

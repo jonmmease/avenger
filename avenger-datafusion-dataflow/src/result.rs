@@ -3,15 +3,15 @@ use std::collections::HashMap;
 use datafusion::common::ScalarValue;
 
 use crate::{
-    inputs::InputValue, Error, EvaluationReport, PartitionKey, Result, ScalarOutput, ScopeHandle,
-    ScopeInstance, TableOutput, TableSnapshot,
+    inputs::MaterializedValue, Error, EvaluationReport, PartitionKey, Result, ScalarOutput,
+    ScopeHandle, ScopeInstance, TableOutput, TableSnapshot,
 };
 
 #[derive(Debug)]
 pub(crate) struct InstanceResult {
     pub scope: usize,
     pub instance: Option<ScopeInstance>,
-    pub outputs: HashMap<usize, InputValue>,
+    pub outputs: HashMap<usize, MaterializedValue>,
     pub children: HashMap<usize, HashMap<PartitionKey, InstanceResult>>,
 }
 
@@ -23,7 +23,7 @@ impl InstanceResult {
             ));
         }
         match self.outputs.get(&output.index) {
-            Some(InputValue::Table(value)) => Ok(value),
+            Some(MaterializedValue::Table(value)) => Ok(value),
             _ => Err(Error::UnrequestedOutput),
         }
     }
@@ -34,7 +34,7 @@ impl InstanceResult {
             ));
         }
         match self.outputs.get(&output.index) {
-            Some(InputValue::Scalar(value)) => Ok(value),
+            Some(MaterializedValue::Scalar(value)) => Ok(value),
             _ => Err(Error::UnrequestedOutput),
         }
     }
