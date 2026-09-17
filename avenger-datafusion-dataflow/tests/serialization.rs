@@ -23,7 +23,7 @@ async fn fixed_assets_and_scalar_subqueries_round_trip_to_native_dataflow() -> R
             .build()?,
     )?;
     b.table_output("marks", &table)?;
-    let scalar = b.add_expr("answer", min.expr_ref() + lit(1_i64))?;
+    let scalar = b.add_scalar("answer", min.expr_ref() + lit(1_i64))?;
     b.scalar_output("answer", &scalar)?;
     let original = b.finish()?;
     let runtime = Runtime::new(RuntimeConfig::default())?;
@@ -108,7 +108,7 @@ async fn registered_volatile_udf_requires_registry_and_matching_version_at_decod
         function_versions: versions.clone(),
         ..SemanticConfig::default()
     });
-    let draw = b.add_expr("draw", udf.call(vec![]))?;
+    let draw = b.add_scalar("draw", udf.call(vec![]))?;
     b.scalar_output("draw", &draw)?;
     let graph = b.finish()?;
     let bytes = graph.to_bytes()?;
@@ -230,7 +230,7 @@ async fn configured_function_codec_payloads_and_hook_errors_are_preserved() -> R
         function_versions: versions.clone(),
         ..SemanticConfig::default()
     });
-    let node = b.add_expr("configured", function(42).call(vec![]))?;
+    let node = b.add_scalar("configured", function(42).call(vec![]))?;
     b.scalar_output("out", &node)?;
     let flow = b.finish()?;
     assert!(flow
@@ -297,7 +297,7 @@ async fn dictionary_multibatch_empty_assets_and_typed_nulls_round_trip() -> Resu
     let first = builder.table_snapshot("first", asset.clone())?;
     let second = builder.table_snapshot("second", asset)?;
     let empty = builder.table_snapshot("empty", TableSnapshot::empty(schema))?;
-    let null = builder.add_expr("null", lit(ScalarValue::Int64(None)))?;
+    let null = builder.add_scalar("null", lit(ScalarValue::Int64(None)))?;
     builder.table_output("first", &first)?;
     builder.table_output("second", &second)?;
     builder.table_output("empty", &empty)?;

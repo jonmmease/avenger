@@ -1,8 +1,8 @@
 # avenger-datafusion-dataflow
 
-Build a graph from named DataFusion logical plans and scalar expressions, then query selected outputs against immutable scalar and table inputs.
+Build a graph from named DataFusion logical plans and scalar expressions, then query selected outputs against immutable scalar, table, and expression inputs.
 
-The native lifecycle is `DataflowBuilder → Dataflow → Runtime::prepare() → PreparedDataflow::query()`. It supports root, composite-key, and nested scopes, bounded completed-result caching, protobuf serialization, and an optional JSON/SQL adapter. A demanded computation runs at most once per defining instance per query. Cache hits skip prerequisite execution and physical planning; misses create fresh DataFusion plans. Fusion, column pruning across nodes, and retained physical plans remain deferred.
+The native lifecycle is `DataflowBuilder → Dataflow → Runtime::prepare() → PreparedDataflow::query()`. It supports root, composite-key, and nested scopes, bounded completed-result caching, protobuf serialization, and an optional JSON/SQL adapter. A demanded computation runs at most once per defining instance per query. Cache hits skip prerequisite execution and physical planning. Misses create fresh DataFusion plans. Fusion, column pruning across nodes, and retained physical plans remain deferred.
 
 The crate has no dependencies on Avenger chart, scene graph, or rendering crates. It re-exports `datafusion` and `arrow` so consumers can use matching types.
 
@@ -56,7 +56,7 @@ let schema = Arc::new(Schema::new(vec![
 let mut graph = DataflowBuilder::new();
 let source = graph.table_input("source", schema.clone())?;
 let cutoff = graph.scalar_input("cutoff", DataType::Int64)?;
-let cutoff_value = graph.add_expr("cutoff_value", cutoff.expr_ref())?;
+let cutoff_value = graph.add_scalar("cutoff_value", cutoff.expr_ref())?;
 let filtered = graph.add_plan(
     "filtered",
     LogicalPlanBuilder::from(source.plan_ref())
@@ -92,9 +92,41 @@ assert_eq!(next.table(&rows)?.num_rows(), 1);
 # runtime.block_on(example()).unwrap();
 ```
 
+### Expression inputs and scalar computations
+
+`scalar_input(name, type)` accepts one value per scope instance. `add_scalar(name, expr)` registers a named `ScalarNode` that computes one value per scope instance. `expr_input(name, type)` accepts a caller-supplied DataFusion `Expr` that runs in each consuming operation's row context. It can be a filter predicate, a projected value, or an argument to an aggregate already in the definition.
+
+```rust,ignore
+let selection = graph.expr_input("selection", DataType::Boolean)?;
+let filtered = graph.add_plan(
+    "filtered",
+    LogicalPlanBuilder::from(source.plan_ref())
+        .filter(selection.expr_ref())?
+        .build()?,
+)?;
+// After finishing and preparing the definition:
+let inputs = prepared.inputs()
+    .expr(&selection, col("amount").gt(lit(20_i64)))?
+    .finish()?;
+```
+
+Declarations need only a name and return type. Binding validates column references and the exact return type against every usage site, including consumers outside the requested outputs. Unqualified columns resolve independently in each consumer. Qualified columns must match each consumer's schema. Bindings cannot change output names, types, or conservative nullability. An unused declaration receives structural and volatility checks without a fabricated row schema or a return-type check. A use in a standalone scalar computation has an actual empty row context and rejects bare columns. All root inputs remain required.
+
+The initial binding subset includes literals, columns, arithmetic, comparisons, Boolean and null operations, `CASE`, casts, lists for `IN`, and immutable scalar UDFs. Subqueries, aggregates, windows, graph references, placeholders, session variables, outer references, unnesting, higher-order functions, and Stable or Volatile functions are rejected in bindings. Existing scalar computations keep their normal volatility rules. Validation performs no reads or function evaluation. Native Rust bindings do not need a protobuf codec.
+
+Expression trees are substituted before query optimization on cache misses. Their structural identity contributes only to dependent result keys. Returning from A to B to A can reuse A while its result remains resident. This does not push a predicate across a materialized named boundary. Keep an expensive source in its own named node to reuse it across expression changes. See the [file-backed expression example](examples/expression_inputs.rs):
+
+```sh
+cargo run -p avenger-datafusion-dataflow --example expression_inputs
+```
+
+Use `.expr()` in root bindings, `scope_defaults()`, and `.at()` overrides. Scoped `.unset_expr()` removes the edited entry, restoring default inheritance when removing an override. Table, scalar, and expression inputs have corresponding declaration, binding, scoped-removal, and typed name-lookup methods.
+
+`dataflow.interface().root().inputs()` enumerates directly declared inputs in declaration order. Each `InputHandle::Table`, `InputHandle::Scalar`, or `InputHandle::Expr` contains its typed handle. The handle exposes its name and schema or field. Child interfaces obtained with `.scope(name)` enumerate their own declarations without flattening ancestors. Enumeration and name lookup retain no source assets or plan lineage.
+
 ### Dataflow definitions and names
 
-Register inputs and computations before referencing them. `plan_ref()` returns a private logical extension leaf, and `expr_ref()` returns a typed scalar placeholder. A reference records identity rather than copying a producer's full lineage. Registration validates graph ownership and dependencies. Insertion order provides a topological execution order, so references cannot form a cycle.
+Register inputs and computations before referencing them. `plan_ref()` returns a private logical extension leaf, and `expr_ref()` returns a typed placeholder for a scalar value or an input expression. A reference records identity rather than copying a producer's full lineage. Registration validates graph ownership and dependencies. Insertion order provides a topological execution order, so references cannot form a cycle.
 
 Input names, computation names, and output names have separate namespaces within each scope. Child scope names are unique among siblings. Plans and expressions share the computation namespace. Output declarations make selected node values available to callers. An output may have the same name as its producer. Handles from another graph are rejected.
 
@@ -188,7 +220,7 @@ Give an expensive source its own named node before parameter-dependent transform
 
 The default runtime LRU retains at most 128 MiB and 1,024 entries across all its preparations. Configure `CachePolicy::Lru(CacheConfig { max_bytes, max_entries })` or use `CachePolicy::Disabled` for the uncached baseline. Oversized results bypass retention. Charges include retained Arrow allocations and key metadata, conservatively counting shared buffers more than once.
 
-Cache keys include the preparation namespace, node, complete scope address, relevant scalar values, and input snapshot identities. Irrelevant inputs do not invalidate a result. Clones of a prepared value share its namespace; separate preparations do not. Scoped overrides invalidate affected values while siblings can hit. Discovery tables can hit, but grouping indices and gathering local rows still run each query.
+Cache keys include the preparation namespace, node, complete scope address, relevant scalar values, input snapshot identities, and structural expression bindings. Irrelevant inputs do not invalidate a result. Clones of a prepared value share its namespace; separate preparations do not. Scoped overrides invalidate affected values while siblings can hit. Discovery tables can hit, but grouping indices and gathering local rows still run each query.
 
 `Stable`/`Volatile` functions and their descendants remain query-local. Caches hold only complete successful node results. A failed query can leave successful prerequisites cached. Concurrent misses run independently. `clear_results()` removes one namespace and advances its epoch, preventing active older requests from repopulating it. Dropping the last prepared clone releases its entries. Caller-held results remain valid after eviction or clearing.
 
@@ -232,7 +264,12 @@ See the [definition fixture](tests/fixtures/facets.dataflow.json), [request fixt
 
 Each scope has `inputs`, `sources`, SQL-string `tables` and `scalars`, public `outputs`, and child `scopes`. A child declares a visible `partition.source`, ordered SQL `partition.keys`, and a local `rows` relation name. SQL names resolve lexically; local symbols shadow ancestors. Local inputs, sources, computations, and the rows alias share one namespace in JSON. SQL CTEs and aliases use DataFusion's normal rules. Computations can reference later definitions; unresolved or cyclic dependencies fail loading. Outputs are aliases and do not add SQL symbols. Only query SQL is accepted, and all relations must be declared.
 
-Inputs have no declaration defaults. Requests combine root scalar/table bindings, `scope_defaults`, full-path instance `overrides`, and table/scalar output selections. All root inputs are required; scoped inputs are required only where demanded. Each request is independent. A null or empty table is an explicit binding. Overrides for absent facets do not create facets. Results keep the native nested materialized shape.
+Inputs have no declaration defaults. Requests combine root scalar/table/expression bindings, `scope_defaults`, full-path instance `overrides`, and table/scalar output selections. All root inputs are required; scoped inputs are required only where demanded. Each request is independent. A null or empty table is an explicit binding. Overrides for absent facets do not create facets. Results keep the native nested materialized shape.
+
+Declare JSON expression inputs as `{"kind": "expr", "type": "boolean"}` and reference them with `$name` in definition SQL. Supply SQL expression strings in the request's `bindings.exprs` map. The same `exprs` map is available in scope defaults and instance overrides. Binding strings are single expressions with the native binding restrictions and cannot refer to other parameters. An unused input may contain unresolved column references, but still rejects unsupported or volatile expressions.
+
+The [expression definition](tests/fixtures/expressions.dataflow.json) and [request](tests/fixtures/expressions.query.json) run in the JSON example, including a protobuf round trip and input discovery. Artifacts retain expression declarations and typed references, while requests supply the actual expressions.
+
 
 ### Sources and values
 

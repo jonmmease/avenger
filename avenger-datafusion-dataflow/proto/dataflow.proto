@@ -21,6 +21,7 @@ message Input {
   oneof kind {
     datafusion_common.DfSchema table = 4;
     datafusion_common.Field scalar = 5;
+    datafusion_common.Field expr = 6;
   }
 }
 message Node {

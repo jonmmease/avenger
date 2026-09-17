@@ -23,10 +23,10 @@ fn registers_all_plan_expression_edges_and_separate_namespaces() {
         )
         .unwrap();
     let expr = graph
-        .add_expr("expression", scalar_subquery(Arc::new(second.plan_ref())))
+        .add_scalar("expression", scalar_subquery(Arc::new(second.plan_ref())))
         .unwrap();
     let combined = graph
-        .add_expr("combined", expr.expr_ref() + scalar.expr_ref())
+        .add_scalar("combined", expr.expr_ref() + scalar.expr_ref())
         .unwrap();
     let final_plan = graph
         .add_plan(
@@ -59,7 +59,7 @@ fn rejects_foreign_references_duplicate_names_and_unknown_placeholders() {
     ));
     let node = one.add_plan("node", table.plan_ref()).unwrap();
     assert!(matches!(
-        one.add_expr("node", lit(1)),
+        one.add_scalar("node", lit(1)),
         Err(Error::DuplicateName {
             namespace: "computation",
             ..
@@ -82,16 +82,16 @@ fn rejects_foreign_references_duplicate_names_and_unknown_placeholders() {
         two.table_output("foreign", &node),
         Err(Error::ForeignHandle)
     ));
-    assert!(two.add_expr("unknown", placeholder("$unknown")).is_err());
+    assert!(two.add_scalar("unknown", placeholder("$unknown")).is_err());
     // An unsuccessful registration does not reserve its name.
-    two.add_expr("unknown", lit(42)).unwrap();
+    two.add_scalar("unknown", lit(42)).unwrap();
 }
 
 #[test]
 fn rejects_free_columns_and_multicolumn_scalar_subqueries() {
     let mut graph = DataflowBuilder::new();
     assert!(matches!(
-        graph.add_expr("bad", col("value")),
+        graph.add_scalar("bad", col("value")),
         Err(Error::InvalidExpression(_))
     ));
     let plan = LogicalPlanBuilder::empty(true)
@@ -100,15 +100,15 @@ fn rejects_free_columns_and_multicolumn_scalar_subqueries() {
         .build()
         .unwrap();
     assert!(graph
-        .add_expr("bad", scalar_subquery(Arc::new(plan)))
+        .add_scalar("bad", scalar_subquery(Arc::new(plan)))
         .is_err());
 }
 
 #[tokio::test]
 async fn prepare_reports_only_nodes_reachable_from_outputs() {
     let mut graph = DataflowBuilder::new();
-    let reachable = graph.add_expr("reachable", lit(1)).unwrap();
-    graph.add_expr("unused", lit(2)).unwrap();
+    let reachable = graph.add_scalar("reachable", lit(1)).unwrap();
+    graph.add_scalar("unused", lit(2)).unwrap();
     graph.scalar_output("answer", &reachable).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
         .unwrap()

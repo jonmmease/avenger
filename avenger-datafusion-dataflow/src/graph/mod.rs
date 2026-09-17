@@ -70,14 +70,38 @@ impl ScalarInput {
     }
 }
 
+/// A typed row expression supplied independently for each query.
 #[derive(Clone, Debug)]
-pub struct ExprNode {
+pub struct ExprInput {
+    pub(crate) graph: u64,
+    pub(crate) index: usize,
+    pub(crate) name: Arc<str>,
+    pub(crate) field: FieldRef,
+}
+impl ExprInput {
+    /// Reference this input for substitution in a consuming row expression.
+    pub fn expr_ref(&self) -> Expr {
+        scalar_ref(self.graph, ScalarRef::Input(self.index), self.field.clone())
+    }
+    /// Return the fixed, conservatively nullable result field.
+    pub fn field(&self) -> &FieldRef {
+        &self.field
+    }
+    /// Return the input name within its declaring scope.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// A named computation that produces one scalar per defining scope instance.
+#[derive(Clone, Debug)]
+pub struct ScalarNode {
     graph: u64,
     index: usize,
     name: Arc<str>,
     field: FieldRef,
 }
-impl ExprNode {
+impl ScalarNode {
     pub fn expr_ref(&self) -> Expr {
         scalar_ref(self.graph, ScalarRef::Node(self.index), self.field.clone())
     }
@@ -109,6 +133,7 @@ pub struct ScalarOutput {
 pub(crate) enum InputKind {
     Table(DFSchemaRef),
     Scalar(FieldRef),
+    Expr(FieldRef),
 }
 #[derive(Clone, Debug)]
 pub(crate) struct InputDef {
@@ -143,6 +168,7 @@ pub(crate) struct OutputDef {
 pub(crate) struct BindingMetadata {
     pub id: u64,
     pub inputs: Vec<InputDef>,
+    pub expr_sites: Vec<Vec<crate::expr_input::ExprSite>>,
 }
 
 #[derive(Clone, Debug)]
@@ -275,6 +301,39 @@ impl DataflowBuilder {
         Ok(input)
     }
 
+    /// Declare an expression input with a fixed return type and inferred usage contexts.
+    pub fn expr_input(
+        &mut self,
+        name: impl Into<String>,
+        data_type: DataType,
+    ) -> Result<ExprInput> {
+        let name = name.into();
+        check_name(
+            &self.def.scopes[self.current_scope].input_names,
+            "input",
+            &name,
+        )?;
+        let index = self.def.inputs.len();
+        let field = Arc::new(Field::new(&name, data_type, true));
+        let input = ExprInput {
+            graph: self.def.id,
+            index,
+            name: Arc::from(name.as_str()),
+            field: field.clone(),
+        };
+        self.def.inputs.push(InputDef {
+            scope: self.current_scope,
+            name: input.name.clone(),
+            kind: InputKind::Expr(field.clone()),
+        });
+        self.def.placeholders.insert(
+            placeholder_id(self.def.id, ScalarRef::Input(index)),
+            (ScalarRef::Input(index), field),
+        );
+        self.def.scopes[self.current_scope].input_names.insert(name);
+        Ok(input)
+    }
+
     /// Register an immutable graph-owned table, independent of query bindings.
     pub fn table_snapshot(
         &mut self,
@@ -327,7 +386,8 @@ impl DataflowBuilder {
         Ok(PlanNode { read })
     }
 
-    pub fn add_expr(&mut self, name: impl Into<String>, expr: Expr) -> Result<ExprNode> {
+    /// Register a named scalar computation, including supported scalar subqueries.
+    pub fn add_scalar(&mut self, name: impl Into<String>, expr: Expr) -> Result<ScalarNode> {
         let name = name.into();
         check_name(
             &self.def.scopes[self.current_scope].node_names,
@@ -342,7 +402,7 @@ impl DataflowBuilder {
         let analysis = analysis::analyze(&plan, &self.def, self.current_scope)?;
         let field = plan.schema().field(0).clone();
         let index = self.def.nodes.len();
-        let node = ExprNode {
+        let node = ScalarNode {
             graph: self.def.id,
             index,
             name: Arc::from(name.as_str()),
@@ -385,7 +445,7 @@ impl DataflowBuilder {
     pub fn scalar_output(
         &mut self,
         name: impl Into<String>,
-        node: &ExprNode,
+        node: &ScalarNode,
     ) -> Result<ScalarOutput> {
         if node.graph != self.def.id {
             return Err(Error::ForeignHandle);

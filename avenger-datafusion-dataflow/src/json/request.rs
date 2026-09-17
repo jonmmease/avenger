@@ -32,6 +32,8 @@ fn scoped(
     scalars: &BTreeMap<String, Value>,
     tables: &BTreeMap<String, TableBinding>,
     assets: &AssetBindings,
+    exprs: &BTreeMap<String, String>,
+    prepared: &PreparedDataflow,
 ) -> Result<ScopedBindingsBuilder> {
     for (name, value) in scalars {
         let input = names.scalar_input(name)?;
@@ -47,6 +49,10 @@ fn scoped(
                 assets,
             )?,
         )?;
+    }
+    for (name, value) in exprs {
+        let input = names.expr_input(name)?;
+        b = b.expr(&input, prepared.expression_from_sql(&input, value)?)?;
     }
     Ok(b)
 }
@@ -74,6 +80,10 @@ impl PreparedDataflow {
                 )?,
             )?;
         }
+        for (name, value) in &request.bindings.exprs {
+            let input = root.expr_input(name)?;
+            inputs = inputs.expr(&input, self.expression_from_sql(&input, value)?)?;
+        }
         let mut defaults = HashSet::new();
         for binding in &request.bindings.scope_defaults {
             if !defaults.insert(&binding.scope) {
@@ -84,7 +94,15 @@ impl PreparedDataflow {
                 .handle()
                 .ok_or_else(|| invalid("scope_defaults requires a child scope"))?;
             inputs = inputs.scope_defaults(handle, |b| {
-                scoped(b, &names, &binding.scalars, &binding.tables, assets)
+                scoped(
+                    b,
+                    &names,
+                    &binding.scalars,
+                    &binding.tables,
+                    assets,
+                    &binding.exprs,
+                    self,
+                )
             })?;
         }
         let mut overrides = HashSet::new();
@@ -113,7 +131,15 @@ impl PreparedDataflow {
                 return Err(invalid("duplicate override address"));
             }
             inputs = inputs.at(&instance, |b| {
-                scoped(b, &names, &binding.scalars, &binding.tables, assets)
+                scoped(
+                    b,
+                    &names,
+                    &binding.scalars,
+                    &binding.tables,
+                    assets,
+                    &binding.exprs,
+                    self,
+                )
             })?;
         }
         let inputs = inputs.finish()?;

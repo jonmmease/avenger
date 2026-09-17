@@ -70,14 +70,14 @@ async fn main() -> Result<()> {
             let local_rows = scope.rows();
             let limit = scope.scalar_input("limit", DataType::Float64)?;
             let regional_limit =
-                scope.add_expr("regional_limit", multiplier.expr_ref() * limit.expr_ref())?;
+                scope.add_scalar("regional_limit", multiplier.expr_ref() * limit.expr_ref())?;
             let (years, year) =
                 scope.partition_by("years", local_rows.plan_ref(), vec![col("year")], |scope| {
                     let fraction = scope.scalar_input("fraction", DataType::Float64)?;
                     let selected_products =
                         scope.table_input("selected_products", product_schema)?;
                     let threshold = scope
-                        .add_expr("threshold", regional_limit.expr_ref() * fraction.expr_ref())?;
+                        .add_scalar("threshold", regional_limit.expr_ref() * fraction.expr_ref())?;
                     let filtered = scope.add_plan(
                         "filtered",
                         LogicalPlanBuilder::from(scope.rows().plan_ref())
@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
                             )?
                             .build()?,
                     )?;
-                    let maximum = scope.add_expr(
+                    let maximum = scope.add_scalar(
                         "maximum",
                         scalar_subquery(Arc::new(maximum_table.plan_ref())),
                     )?;

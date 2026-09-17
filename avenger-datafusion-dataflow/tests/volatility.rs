@@ -32,9 +32,9 @@ async fn named_volatile_scalars_are_shared_within_a_query_and_fresh_across_queri
         }),
     );
     let mut graph = DataflowBuilder::new();
-    let draw = graph.add_expr("draw", udf.call(vec![])).unwrap();
+    let draw = graph.add_scalar("draw", udf.call(vec![])).unwrap();
     let next = graph
-        .add_expr("next", draw.expr_ref() + lit(1_i64))
+        .add_scalar("next", draw.expr_ref() + lit(1_i64))
         .unwrap();
     let table = graph
         .add_plan(
@@ -122,8 +122,8 @@ async fn separately_named_volatile_expressions_are_not_merged() {
         }),
     );
     let mut graph = DataflowBuilder::new();
-    let a = graph.add_expr("a", udf.call(vec![])).unwrap();
-    let b = graph.add_expr("b", udf.call(vec![])).unwrap();
+    let a = graph.add_scalar("a", udf.call(vec![])).unwrap();
+    let b = graph.add_scalar("b", udf.call(vec![])).unwrap();
     let a = graph.scalar_output("a", &a).unwrap();
     let b = graph.scalar_output("b", &b).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
@@ -214,10 +214,10 @@ async fn volatility_in_nested_subqueries_propagates_to_graph_descendants() {
         .unwrap();
     let mut graph = DataflowBuilder::new();
     let node = graph
-        .add_expr("nested", scalar_subquery(Arc::new(nested)))
+        .add_scalar("nested", scalar_subquery(Arc::new(nested)))
         .unwrap();
     let descendant = graph
-        .add_expr("descendant", node.expr_ref() + lit(1_i64))
+        .add_scalar("descendant", node.expr_ref() + lit(1_i64))
         .unwrap();
     let output = graph.scalar_output("out", &descendant).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
@@ -246,8 +246,8 @@ async fn volatility_in_nested_subqueries_propagates_to_graph_descendants() {
 #[tokio::test]
 async fn stable_now_uses_one_query_time_across_independently_planned_nodes() {
     let mut graph = DataflowBuilder::new();
-    let a = graph.add_expr("a", now()).unwrap();
-    let b = graph.add_expr("b", now()).unwrap();
+    let a = graph.add_scalar("a", now()).unwrap();
+    let b = graph.add_scalar("b", now()).unwrap();
     let a = graph.scalar_output("a", &a).unwrap();
     let b = graph.scalar_output("b", &b).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())

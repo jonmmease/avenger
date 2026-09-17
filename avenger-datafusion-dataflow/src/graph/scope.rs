@@ -8,8 +8,8 @@ use datafusion::{
 use super::{
     analysis, check_name, normalize,
     reference::{GraphRead, TableRef},
-    DataflowBuilder, ExprNode, GraphDef, NodeDef, NodeKind, PlanNode, ScalarInput, ScalarOutput,
-    TableInput, TableOutput,
+    DataflowBuilder, ExprInput, GraphDef, NodeDef, NodeKind, PlanNode, ScalarInput, ScalarNode,
+    ScalarOutput, TableInput, TableOutput,
 };
 use crate::{partition::ScopeIdentity, Error, Result, ScopeHandle};
 
@@ -235,6 +235,15 @@ impl ScopeBuilder<'_> {
         self.builder.scalar_input(name, data_type)
     }
     /// Register one fixed snapshot shared by instances of this scope.
+    /// Declare a row expression input owned by this scope.
+    pub fn expr_input(
+        &mut self,
+        name: impl Into<String>,
+        data_type: DataType,
+    ) -> Result<ExprInput> {
+        self.builder.expr_input(name, data_type)
+    }
+    /// Register one fixed snapshot shared by instances of this scope.
     pub fn table_snapshot(
         &mut self,
         name: impl Into<String>,
@@ -247,8 +256,9 @@ impl ScopeBuilder<'_> {
         self.builder.add_plan(name, plan)
     }
     /// Register a named local scalar computation.
-    pub fn add_expr(&mut self, name: impl Into<String>, expr: Expr) -> Result<ExprNode> {
-        self.builder.add_expr(name, expr)
+    /// Register one scalar computation per instance of this scope.
+    pub fn add_scalar(&mut self, name: impl Into<String>, expr: Expr) -> Result<ScalarNode> {
+        self.builder.add_scalar(name, expr)
     }
     /// Declare a local table value available through scoped results.
     pub fn table_output(
@@ -262,7 +272,7 @@ impl ScopeBuilder<'_> {
     pub fn scalar_output(
         &mut self,
         name: impl Into<String>,
-        node: &ExprNode,
+        node: &ScalarNode,
     ) -> Result<ScalarOutput> {
         self.builder.scalar_output(name, node)
     }

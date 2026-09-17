@@ -1,5 +1,6 @@
 //! JSON authoring and query adapters. Definitions lower to the native Dataflow API.
 mod load;
+pub(crate) use load::binding_expr;
 mod request;
 mod sources;
 mod spec;

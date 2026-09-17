@@ -41,7 +41,7 @@ async fn mixed_outputs_match_datafusion_and_rebinding_recomputes() {
         )
         .unwrap();
     let total = graph
-        .add_expr("total", scalar_subquery(Arc::new(total_plan.plan_ref())))
+        .add_scalar("total", scalar_subquery(Arc::new(total_plan.plan_ref())))
         .unwrap();
     let rows = graph.table_output("rows", &filtered).unwrap();
     let scalar = graph.scalar_output("sum", &total).unwrap();
@@ -158,7 +158,7 @@ async fn concurrent_queries_keep_distinct_scalar_bindings() {
     let mut graph = DataflowBuilder::new();
     let parameter = graph.scalar_input("parameter", DataType::Int64).unwrap();
     let node = graph
-        .add_expr("twice", parameter.expr_ref() * lit(2_i64))
+        .add_scalar("twice", parameter.expr_ref() * lit(2_i64))
         .unwrap();
     let output = graph.scalar_output("twice", &node).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
@@ -205,7 +205,7 @@ async fn resource_failure_is_an_error_and_does_not_poison_the_runtime() {
     })
     .unwrap();
     let mut graph = DataflowBuilder::new();
-    let node = graph.add_expr("value", lit(1_i64)).unwrap();
+    let node = graph.add_scalar("value", lit(1_i64)).unwrap();
     let output = graph.scalar_output("value", &node).unwrap();
     let prepared = runtime.prepare(&graph.finish().unwrap()).await.unwrap();
     let inputs = prepared.inputs().finish().unwrap();
@@ -220,11 +220,11 @@ async fn resource_failure_is_an_error_and_does_not_poison_the_runtime() {
 async fn rejects_foreign_outputs_and_inputs() {
     let runtime = Runtime::new(RuntimeConfig::default()).unwrap();
     let mut one = DataflowBuilder::new();
-    let node = one.add_expr("one", lit(1)).unwrap();
+    let node = one.add_scalar("one", lit(1)).unwrap();
     let output = one.scalar_output("one", &node).unwrap();
     let one = runtime.prepare(&one.finish().unwrap()).await.unwrap();
     let mut two = DataflowBuilder::new();
-    let node = two.add_expr("two", lit(2)).unwrap();
+    let node = two.add_scalar("two", lit(2)).unwrap();
     let foreign = two.scalar_output("two", &node).unwrap();
     let two = runtime.prepare(&two.finish().unwrap()).await.unwrap();
     let inputs = one.inputs().finish().unwrap();

@@ -15,27 +15,27 @@ use std::{cell::Cell, sync::Arc};
 fn callbacks_run_once_and_visibility_is_lexical() -> Result<()> {
     let mut graph = DataflowBuilder::new();
     let input = graph.table_input("data", common::schema())?;
-    let global = graph.add_expr("value", lit(5_i64))?;
+    let global = graph.add_scalar("value", lit(5_i64))?;
     let calls = Cell::new(0);
     let (outer, (inner, parameter, expression, rows)) =
         graph.partition_by("outer", input.plan_ref(), vec![col("value")], |scope| {
             calls.set(calls.get() + 1);
             let parameter = scope.scalar_input("value", DataType::Int64)?;
-            let expression = scope.add_expr("value", global.expr_ref() + parameter.expr_ref())?;
+            let expression = scope.add_scalar("value", global.expr_ref() + parameter.expr_ref())?;
             let rows = scope.rows();
             assert_eq!(rows.plan_ref(), scope.rows().plan_ref());
             scope.table_output("rows", &rows)?;
             let (inner, _) =
                 scope.partition_by("inner", rows.plan_ref(), vec![col("value")], |scope| {
                     calls.set(calls.get() + 1);
-                    scope.add_expr("value", expression.expr_ref())?;
+                    scope.add_scalar("value", expression.expr_ref())?;
                     Ok(())
                 })?;
             Ok((inner, parameter, expression, rows))
         })?;
     assert_eq!(calls.get(), 2);
     assert!(matches!(
-        graph.add_expr("bad", parameter.expr_ref()),
+        graph.add_scalar("bad", parameter.expr_ref()),
         Err(Error::OutOfScope(_))
     ));
     assert!(matches!(
@@ -43,7 +43,7 @@ fn callbacks_run_once_and_visibility_is_lexical() -> Result<()> {
         Err(Error::OutOfScope(_))
     ));
     assert!(matches!(
-        graph.add_expr("bad", scalar_subquery(Arc::new(rows.plan_ref()))),
+        graph.add_scalar("bad", scalar_subquery(Arc::new(rows.plan_ref()))),
         Err(Error::OutOfScope(_))
     ));
     assert!(matches!(
@@ -52,7 +52,7 @@ fn callbacks_run_once_and_visibility_is_lexical() -> Result<()> {
     ));
     graph.partition_by("sibling", input.plan_ref(), vec![col("value")], |scope| {
         assert!(matches!(
-            scope.add_expr("bad", expression.expr_ref()),
+            scope.add_scalar("bad", expression.expr_ref()),
             Err(Error::OutOfScope(_))
         ));
         assert!(matches!(
