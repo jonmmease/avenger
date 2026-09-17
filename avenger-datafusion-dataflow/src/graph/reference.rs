@@ -17,12 +17,15 @@ pub(crate) enum TableRef {
     Node(usize),
     Rows(usize),
     Asset(usize),
+    Import(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ScalarRef {
     Input(usize),
     Node(usize),
+    BaseInput(usize),
+    Import(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +90,8 @@ pub(crate) fn placeholder_id(graph: u64, source: ScalarRef) -> String {
     match source {
         ScalarRef::Input(index) => format!("$__avenger_{graph}_input_{index}"),
         ScalarRef::Node(index) => format!("$__avenger_{graph}_node_{index}"),
+        ScalarRef::BaseInput(index) => format!("$__avenger_{graph}_base_input_{index}"),
+        ScalarRef::Import(index) => format!("$__avenger_{graph}_import_{index}"),
     }
 }
 

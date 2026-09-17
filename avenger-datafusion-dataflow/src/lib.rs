@@ -21,7 +21,8 @@ mod table;
 pub use cache::{CacheConfig, CachePolicy, CacheStats};
 pub use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
 pub use diagnostics::{
-    EvaluationReport, NodeReport, PrepareReport, ReuseScope, ScopeEvaluationReport, ScopeReport,
+    EvaluationReport, ImportReport, NodeReport, PrepareReport, ReuseScope, ScopeEvaluationReport,
+    ScopeReport,
 };
 pub use error::{Error, Result};
 pub use graph::{
@@ -32,7 +33,7 @@ pub use inputs::{Inputs, InputsBuilder, ScopedBindingsBuilder};
 pub use interface::{DataflowInterface, InputHandle, ScopeInterface};
 pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
 pub use result::{DataflowResult, ScopeResult, ScopeResults};
-pub use runtime::{ExecutionConfig, PreparedDataflow, Runtime, RuntimeConfig};
+pub use runtime::{ExecutionConfig, PreparedDataflow, PreparedExtension, Runtime, RuntimeConfig};
 pub use semantics::SemanticConfig;
 pub use table::{SnapshotId, TableSnapshot, TableStore};
 
