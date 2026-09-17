@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "dialect": "datafusion",
+  "inputs": {
+    "selection": {"kind": "expr", "type": "boolean"},
+    "measure": {"kind": "expr", "type": "int64"}
+  },
+  "sources": {
+    "sales": {
+      "schema": [
+        {"name": "price", "type": "int64", "nullable": false},
+        {"name": "quantity", "type": "int64", "nullable": false}
+      ],
+      "values": [{"price": 60, "quantity": 2}, {"price": 40, "quantity": 2}, {"price": 10, "quantity": 3}]
+    }
+  },
+  "tables": {"visible": "SELECT $measure AS value FROM sales WHERE $selection"},
+  "outputs": {"tables": {"rows": "visible"}}
+}

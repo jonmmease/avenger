@@ -1,0 +1,6 @@
+{
+  "bindings": {
+    "exprs": {"selection": "price >= 40", "measure": "price * quantity"}
+  },
+  "outputs": {"tables": [{"output": "rows"}]}
+}

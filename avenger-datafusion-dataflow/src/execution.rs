@@ -27,7 +27,7 @@ use crate::{
         reference::{GraphRead, ScalarRef, TableRef},
         GraphDef,
     },
-    inputs::InputValue,
+    inputs::{InputBinding, MaterializedValue},
     TableSnapshot,
 };
 
@@ -126,8 +126,8 @@ impl ExtensionPlanner for SnapshotPlanner {
 pub(crate) fn bind_plan<'a>(
     plan: LogicalPlan,
     graph: &GraphDef,
-    input: impl Fn(usize) -> &'a InputValue,
-    value: impl Fn(usize) -> &'a InputValue,
+    input: impl Fn(usize) -> &'a InputBinding,
+    value: impl Fn(usize) -> &'a MaterializedValue,
 ) -> Result<LogicalPlan> {
     plan.transform_up_with_subqueries(|plan| {
         if let LogicalPlan::Extension(extension) = &plan {
@@ -135,10 +135,15 @@ pub(crate) fn bind_plan<'a>(
                 let asset;
                 let value = match read.source {
                     TableRef::Asset(index) => {
-                        asset = InputValue::Table(graph.assets[index].clone());
+                        asset = MaterializedValue::Table(graph.assets[index].clone());
                         &asset
                     }
-                    TableRef::Input(index) => input(index),
+                    TableRef::Input(index) => {
+                        let InputBinding::Value(value) = input(index) else {
+                            unreachable!()
+                        };
+                        value
+                    }
                     TableRef::Node(index) => value(index),
                     TableRef::Rows(_) => {
                         return datafusion::common::internal_err!(
@@ -146,7 +151,7 @@ pub(crate) fn bind_plan<'a>(
                         )
                     }
                 };
-                let InputValue::Table(snapshot) = value else {
+                let MaterializedValue::Table(snapshot) = value else {
                     unreachable!()
                 };
                 return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
@@ -158,7 +163,7 @@ pub(crate) fn bind_plan<'a>(
             }
         }
         let names = NamePreserver::new(&plan);
-        plan.map_expressions(|expr| {
+        crate::expr_input::map_context_expressions(plan, |expr, schema| {
             let original_name = names.save(&expr);
             expr.transform_up(|expr| {
                 let Expr::Placeholder(placeholder) = &expr else {
@@ -166,10 +171,20 @@ pub(crate) fn bind_plan<'a>(
                 };
                 let (source, field) = &graph.placeholders[&placeholder.id];
                 let value = match source {
-                    ScalarRef::Input(index) => input(*index),
+                    ScalarRef::Input(index) => match input(*index) {
+                        InputBinding::Value(value) => value,
+                        InputBinding::Expr(expr) => {
+                            let schema = schema.ok_or_else(|| {
+                                datafusion::common::DataFusionError::Internal(
+                                    "missing expression usage schema".into(),
+                                )
+                            })?;
+                            return Ok(Transformed::yes(expr.at(schema)?));
+                        }
+                    },
                     ScalarRef::Node(index) => value(*index),
                 };
-                let InputValue::Scalar(value) = value else {
+                let MaterializedValue::Scalar(value) = value else {
                     unreachable!()
                 };
                 let metadata =

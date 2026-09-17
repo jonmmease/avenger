@@ -7,6 +7,7 @@
     "bindings": {
       "$ref": "#/$defs/RequestBindings",
       "default": {
+        "exprs": {},
         "overrides": [],
         "scalars": {},
         "scope_defaults": [],
@@ -71,6 +72,13 @@
     "InstanceBindings": {
       "type": "object",
       "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
         "path": {
           "type": "array",
           "items": {
@@ -137,6 +145,13 @@
     "RequestBindings": {
       "type": "object",
       "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
         "overrides": {
           "type": "array",
           "default": [],
@@ -169,6 +184,13 @@
     "ScopeBindings": {
       "type": "object",
       "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
         "scalars": {
           "type": "object",
           "additionalProperties": true,

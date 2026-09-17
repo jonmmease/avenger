@@ -65,11 +65,11 @@ async fn main() -> Result<()> {
             .aggregate(Vec::<Expr>::new(), vec![max(col("total")).alias("maximum")])?
             .build()?,
     )?;
-    let maximum = graph.add_expr(
+    let maximum = graph.add_scalar(
         "maximum",
         scalar_subquery(Arc::new(maximum_table.plan_ref())),
     )?;
-    let threshold = graph.add_expr("threshold", maximum.expr_ref() * fraction.expr_ref())?;
+    let threshold = graph.add_scalar("threshold", maximum.expr_ref() * fraction.expr_ref())?;
     let visible = graph.add_plan(
         "visible",
         LogicalPlanBuilder::from(totals.plan_ref())

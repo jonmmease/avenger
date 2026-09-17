@@ -520,6 +520,9 @@ impl Dataflow {
                         InputKind::Scalar(field) => {
                             wire::input::Kind::Scalar(field.as_ref().try_into().map_err(invalid)?)
                         }
+                        InputKind::Expr(field) => {
+                            wire::input::Kind::Expr(field.as_ref().try_into().map_err(invalid)?)
+                        }
                     }),
                 })
             })
@@ -708,6 +711,14 @@ impl Runtime {
                     );
                     InputKind::Scalar(field)
                 }
+                wire::input::Kind::Expr(field) => {
+                    let field = Arc::new(Field::try_from(&field).map_err(invalid)?);
+                    graph.placeholders.insert(
+                        placeholder_id(graph.id, ScalarRef::Input(id)),
+                        (ScalarRef::Input(id), field.clone()),
+                    );
+                    InputKind::Expr(field)
+                }
             };
             graph.inputs.push(InputDef {
                 scope,
@@ -895,9 +906,38 @@ impl Runtime {
 mod tests {
     use super::*;
     #[test]
+    fn malformed_expression_input_declarations_are_rejected() -> Result<()> {
+        let mut builder = crate::DataflowBuilder::new();
+        let input = builder.expr_input("input", datafusion::arrow::datatypes::DataType::Int64)?;
+        let value = builder.add_scalar("value", input.expr_ref())?;
+        builder.scalar_output("value", &value)?;
+        let original = wire::DataflowArtifact::decode(builder.finish()?.to_bytes()?.as_slice())
+            .map_err(invalid)?;
+        let runtime = Runtime::new(crate::RuntimeConfig::default())?;
+        for kind in [
+            None,
+            Some(wire::input::Kind::Table(Default::default())),
+            Some(wire::input::Kind::Expr(
+                (&Field::new(
+                    "input",
+                    datafusion::arrow::datatypes::DataType::Boolean,
+                    true,
+                ))
+                    .try_into()
+                    .map_err(invalid)?,
+            )),
+        ] {
+            let mut bad = original.clone();
+            bad.inputs[0].kind = kind;
+            assert!(runtime.decode_dataflow(&bad.encode_to_vec()).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn malformed_artifacts_are_recoverable_errors() -> Result<()> {
         let mut builder = crate::DataflowBuilder::new();
-        let value = builder.add_expr("value", datafusion::logical_expr::lit(42_i64))?;
+        let value = builder.add_scalar("value", datafusion::logical_expr::lit(42_i64))?;
         builder.scalar_output("value", &value)?;
         let bytes = builder.finish()?.to_bytes()?;
         let runtime = Runtime::new(crate::RuntimeConfig::default())?;

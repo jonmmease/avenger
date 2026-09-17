@@ -27,7 +27,7 @@ use crate::{
     execution::{bind_plan, GraphQueryPlanner},
     fresh_id,
     graph::{reference::TableRef, GraphDef, NodeKind},
-    inputs::InputValue,
+    inputs::{InputBinding, MaterializedValue},
     result::InstanceResult,
     Dataflow, DataflowResult, Error, Inputs, InputsBuilder, PartitionKey, Result, ScalarOutput,
     ScopeHandle, ScopeInstance, TableOutput, TableSnapshot,
@@ -156,6 +156,7 @@ impl Runtime {
                 }
             }
         }
+        let expr_sites = crate::expr_input::collect_sites(&graph)?;
         let requested = vec![true; graph.outputs.len()];
         let (reachable, _) = demand(&graph, &requested);
         let mut plans = vec![None; graph.nodes.len()];
@@ -165,16 +166,24 @@ impl Runtime {
             if !reachable[index] {
                 continue;
             }
-            let plan = self
-                .inner
-                .state
-                .analyzer()
-                .execute_and_check(
-                    node.plan.clone(),
-                    self.inner.state.config_options(),
-                    |_, _| {},
-                )
-                .map_err(|source| execution_error(&graph, index, source))?;
+            let plan = if node
+                .analysis
+                .inputs
+                .iter()
+                .any(|i| matches!(graph.inputs[*i].kind, crate::graph::InputKind::Expr(_)))
+            {
+                node.plan.clone()
+            } else {
+                self.inner
+                    .state
+                    .analyzer()
+                    .execute_and_check(
+                        node.plan.clone(),
+                        self.inner.state.config_options(),
+                        |_, _| {},
+                    )
+                    .map_err(|source| execution_error(&graph, index, source))?
+            };
             let mut analysis = crate::graph::analysis::analyze(&plan, &graph, node.scope)?;
             analysis
                 .dependencies
@@ -278,6 +287,7 @@ impl Runtime {
                 bindings: Arc::new(crate::graph::BindingMetadata {
                     id: graph.id,
                     inputs: graph.inputs.clone(),
+                    expr_sites,
                 }),
                 graph,
                 plans,
@@ -312,6 +322,27 @@ pub struct PreparedDataflow {
 }
 
 impl PreparedDataflow {
+    #[cfg(feature = "json")]
+    pub(crate) fn expression_from_sql(
+        &self,
+        input: &crate::ExprInput,
+        sql: &str,
+    ) -> Result<datafusion::logical_expr::Expr> {
+        if input.graph != self.inner.graph.id {
+            return Err(Error::ForeignHandle);
+        }
+        crate::json::binding_expr(
+            sql,
+            &self.inner.runtime.state,
+            &self.inner.bindings.expr_sites[input.index],
+        )
+        .map_err(|e| Error::InvalidExprInput {
+            name: input.name().into(),
+            context: "SQL binding".into(),
+            reason: e.to_string(),
+        })
+    }
+
     /// Retrieve public typed handles without retaining plan lineage.
     pub fn interface(&self) -> crate::DataflowInterface {
         crate::DataflowInterface::new(&self.inner.graph)
@@ -460,8 +491,8 @@ fn demand(graph: &GraphDef, requested: &[bool]) -> (Vec<bool>, Vec<bool>) {
 struct Frame {
     scope: usize,
     instance: Option<ScopeInstance>,
-    values: HashMap<usize, InputValue>,
-    inputs: HashMap<usize, InputValue>,
+    values: HashMap<usize, MaterializedValue>,
+    inputs: HashMap<usize, InputBinding>,
     keys: HashMap<usize, crate::cache::BindingKey>,
 }
 
@@ -505,8 +536,8 @@ impl Evaluation<'_> {
                     self.node(output.node).await?;
                     let value = &self.frames[frame_index].values[&output.node];
                     let charge = match value {
-                        InputValue::Scalar(value) => value.size(),
-                        InputValue::Table(_) => 0,
+                        MaterializedValue::Scalar(value) => value.size(),
+                        MaterializedValue::Table(_) => 0,
                     };
                     self.reservation.charge(128 + charge).map_err(|error| {
                         contextual(self.frames[frame_index].instance.as_ref(), error)
@@ -520,7 +551,8 @@ impl Evaluation<'_> {
                 }
                 let discovery = definition.discovery.expect("child discovery");
                 self.node(discovery).await?;
-                let InputValue::Table(table) = self.frames[frame_index].values[&discovery].clone()
+                let MaterializedValue::Table(table) =
+                    self.frames[frame_index].values[&discovery].clone()
                 else {
                     unreachable!()
                 };
@@ -553,7 +585,7 @@ impl Evaluation<'_> {
                     self.frames.push(Frame {
                         scope: child,
                         instance: Some(address),
-                        values: HashMap::from([(rows_index, InputValue::Table(local))]),
+                        values: HashMap::from([(rows_index, MaterializedValue::Table(local))]),
                         inputs: HashMap::new(),
                         keys: HashMap::new(),
                     });
@@ -657,7 +689,7 @@ impl Evaluation<'_> {
                     if let TableRef::Asset(asset) = read.source {
                         self.frames[frame]
                             .values
-                            .insert(index, InputValue::Table(graph.assets[asset].clone()));
+                            .insert(index, MaterializedValue::Table(graph.assets[asset].clone()));
                         return Ok(());
                     }
                 }
@@ -674,10 +706,7 @@ impl Evaluation<'_> {
                         Error::MissingInput(graph.inputs[*input].name.to_string()),
                     )
                 })?;
-                let charge = match value {
-                    InputValue::Scalar(value) => value.size(),
-                    InputValue::Table(_) => 0,
-                };
+                let charge = value.frame_size();
                 self.reservation
                     .charge(128 + charge)
                     .map_err(|error| contextual(address, error))?;
@@ -751,7 +780,7 @@ impl Evaluation<'_> {
         })
     }
 
-    async fn execute(&mut self, index: usize) -> Result<InputValue> {
+    async fn execute(&mut self, index: usize) -> Result<MaterializedValue> {
         let graph = &self.prepared.graph;
         let node = &graph.nodes[index];
         let plan = bind_plan(
@@ -775,12 +804,23 @@ impl Evaluation<'_> {
             .map_err(|source| execution_error(graph, index, source))?;
         self.report.physical_plans += 1;
         reject_unbounded(&physical)?;
+        let schema = Arc::new(node.plan.schema().as_arrow().clone());
+        let actual = physical.schema();
+        // Planning may narrow nullability, but cannot change the public column contract.
+        if actual.fields().len() != schema.fields().len()
+            || actual.fields().iter().zip(schema.fields()).any(|(a, e)| {
+                a.name() != e.name()
+                    || a.data_type() != e.data_type()
+                    || (a.is_nullable() && !e.is_nullable())
+            })
+        {
+            return Err(Error::SchemaMismatch(node.name.to_string()));
+        }
         if node.analysis.has_source {
             self.report.source_executions += 1;
         }
         let mut stream = execute_stream(physical, state.task_ctx())
             .map_err(|source| execution_error(graph, index, source))?;
-        let schema = Arc::new(node.plan.schema().as_arrow().clone());
         let mut batches = vec![];
         while let Some(batch) = stream
             .try_next()
@@ -801,7 +841,7 @@ impl Evaluation<'_> {
             batches.push(batch);
         }
         match node.kind {
-            NodeKind::Table => Ok(InputValue::Table(TableSnapshot::from_batches(
+            NodeKind::Table => Ok(MaterializedValue::Table(TableSnapshot::from_batches(
                 schema, batches,
             )?)),
             NodeKind::Scalar => {
@@ -821,7 +861,7 @@ impl Evaluation<'_> {
                     .expect("one scalar row");
                 let scalar = ScalarValue::try_from_array(batch.column(0), 0)?;
                 self.reservation.charge(scalar.size())?;
-                Ok(InputValue::Scalar(scalar))
+                Ok(MaterializedValue::Scalar(scalar))
             }
         }
     }

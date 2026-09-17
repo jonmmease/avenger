@@ -1,6 +1,6 @@
 use super::{invalid, sources::SourceResolver, spec::*, values};
 use crate::{
-    Dataflow, DataflowBuilder, ExprNode, PlanNode, Result, Runtime, SemanticConfig, TableSnapshot,
+    Dataflow, DataflowBuilder, PlanNode, Result, Runtime, ScalarNode, SemanticConfig, TableSnapshot,
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, SchemaRef},
@@ -368,13 +368,19 @@ fn load_body(
         symbols.scalars.remove(name);
     }
     let mut local_tables = HashMap::<String, PlanNode>::new();
-    let mut local_scalars = HashMap::<String, ExprNode>::new();
+    let mut local_scalars = HashMap::<String, ScalarNode>::new();
     if let Some((name, rows)) = rows {
         symbols.tables.insert(name.into(), rows.plan_ref());
         local_tables.insert(name.into(), rows);
     }
     for (name, input) in body.inputs {
         match input {
+            InputSpec::Expr { data_type } => {
+                symbols.scalars.insert(
+                    name.clone(),
+                    builder.expr_input(name, data_type.arrow_type())?.expr_ref(),
+                );
+            }
             InputSpec::Scalar { data_type } => {
                 symbols.scalars.insert(
                     name.clone(),
@@ -432,7 +438,7 @@ fn load_body(
                 None => remaining.push((name, is_scalar, query)),
                 Some(plan) => {
                     if is_scalar {
-                        let node = builder.add_expr(name, scalar_expr(plan)?)?;
+                        let node = builder.add_scalar(name, scalar_expr(plan)?)?;
                         symbols.scalars.insert(name.clone(), node.expr_ref());
                         local_scalars.insert(name.clone(), node);
                     } else {
@@ -469,7 +475,7 @@ fn load_body(
     for (alias, name) in &body.outputs.scalars {
         let node = match local_scalars.get(name) {
             Some(node) => node.clone(),
-            None => builder.add_expr(
+            None => builder.add_scalar(
                 format!("$output_scalar_{alias}"),
                 symbols
                     .scalars
@@ -541,4 +547,94 @@ fn load_body(
         })?;
     }
     Ok(())
+}
+
+/// Lower columns through temporary parameters so SQL planning cannot capture one site's aliases.
+pub(crate) fn binding_expr(
+    sql: &str,
+    state: &SessionState,
+    sites: &[crate::expr_input::ExprSite],
+) -> Result<Expr> {
+    use datafusion::common::{Column, DFSchema};
+    use datafusion::sql::sqlparser::parser::Parser;
+    use std::ops::ControlFlow;
+
+    let dialect = GenericDialect {};
+    let mut parser = Parser::new(&dialect).try_with_sql(sql).map_err(invalid)?;
+    let mut sql = parser.parse_expr().map_err(invalid)?;
+    parser.expect_token(&Token::EOF).map_err(invalid)?;
+    let mut columns = Vec::new();
+    let mut fields = Vec::new();
+    let visited = ast::visit_expressions_mut(&mut sql, |expr| {
+        let name = match expr {
+            ast::Expr::Identifier(id) => Some(id.to_string()),
+            ast::Expr::CompoundIdentifier(ids) => Some(
+                ids.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("."),
+            ),
+            ast::Expr::Value(value) if matches!(value.value, ast::Value::Placeholder(_)) => {
+                return ControlFlow::Break(invalid(
+                    "expression bindings cannot reference parameters",
+                ));
+            }
+            ast::Expr::Subquery(_) | ast::Expr::Exists { .. } | ast::Expr::InSubquery { .. } => {
+                return ControlFlow::Break(invalid(
+                    "expression bindings cannot contain subqueries",
+                ));
+            }
+            _ => None,
+        };
+        if let Some(name) = name {
+            if name.starts_with('@') {
+                return ControlFlow::Break(invalid(
+                    "expression bindings cannot reference session variables",
+                ));
+            }
+            let column = Column::from_qualified_name_ignore_case(name);
+            let field = if let Some(site) = sites.first() {
+                match site.schema.qualified_field_from_column(&column) {
+                    Ok((_, field)) => field.clone(),
+                    Err(e) => return ControlFlow::Break(invalid(e)),
+                }
+            } else {
+                Arc::new(Field::new("unresolved", DataType::Null, true))
+            };
+            columns.push(Expr::Column(column));
+            fields.push(Some(field));
+            *expr = ast::Expr::Value(ast::Value::Placeholder(format!("${}", columns.len())).into());
+        }
+        ControlFlow::Continue(())
+    });
+    if let ControlFlow::Break(error) = visited {
+        return Err(error);
+    }
+    let symbols = Symbols::default();
+    let context = Context {
+        state,
+        symbols: &symbols,
+        missing: RefCell::default(),
+    };
+    let expr = SqlToRel::new(&context).sql_to_expr(
+        sql,
+        &DFSchema::empty(),
+        &mut PlannerContext::new().with_prepare_param_data_types(fields),
+    )?;
+    Ok(expr
+        .transform_up(|expr| {
+            if let Expr::Placeholder(p) = &expr {
+                let index =
+                    p.id.strip_prefix('$')
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .and_then(|n| n.checked_sub(1));
+                let column = index.and_then(|i| columns.get(i)).ok_or_else(|| {
+                    DataFusionError::Plan("invalid binding column parameter".into())
+                })?;
+                Ok(Transformed::yes(column.clone()))
+            } else {
+                Ok(Transformed::no(expr))
+            }
+        })?
+        .data)
 }

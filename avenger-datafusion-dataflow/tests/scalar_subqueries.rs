@@ -15,7 +15,7 @@ async fn scalar_subqueries_enforce_zero_one_and_multiple_row_semantics() {
     let input = graph.table_input("values", common::schema()).unwrap();
     let node = graph.add_plan("values", input.plan_ref()).unwrap();
     let scalar = graph
-        .add_expr("scalar", scalar_subquery(Arc::new(node.plan_ref())))
+        .add_scalar("scalar", scalar_subquery(Arc::new(node.plan_ref())))
         .unwrap();
     let output = graph.scalar_output("scalar", &scalar).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
@@ -63,7 +63,7 @@ async fn nested_subqueries_find_table_and_scalar_dependencies() {
     let table = graph.table_input("table", common::schema()).unwrap();
     let offset = graph.scalar_input("offset", DataType::Int64).unwrap();
     let value = graph
-        .add_expr("offset_plus_one", offset.expr_ref() + lit(1_i64))
+        .add_scalar("offset_plus_one", offset.expr_ref() + lit(1_i64))
         .unwrap();
     let inner = LogicalPlanBuilder::from(table.plan_ref())
         .project(vec![(col("value") + value.expr_ref()).alias("v")])
@@ -76,7 +76,7 @@ async fn nested_subqueries_find_table_and_scalar_dependencies() {
         .build()
         .unwrap();
     let scalar = graph
-        .add_expr("answer", scalar_subquery(Arc::new(middle)))
+        .add_scalar("answer", scalar_subquery(Arc::new(middle)))
         .unwrap();
     let output = graph.scalar_output("answer", &scalar).unwrap();
     let prepared = Runtime::new(RuntimeConfig::default())
@@ -108,10 +108,10 @@ async fn strict_named_dependency_fails_even_when_consumer_guard_is_false() {
     let mut graph = DataflowBuilder::new();
     let source = graph.table_input("source", common::schema()).unwrap();
     let bad = graph
-        .add_expr("bad", scalar_subquery(Arc::new(source.plan_ref())))
+        .add_scalar("bad", scalar_subquery(Arc::new(source.plan_ref())))
         .unwrap();
     let guarded = graph
-        .add_expr(
+        .add_scalar(
             "guarded",
             when(lit(false), bad.expr_ref())
                 .otherwise(lit(0_i64))

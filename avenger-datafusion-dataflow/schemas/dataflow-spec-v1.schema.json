@@ -192,6 +192,23 @@
           "properties": {
             "kind": {
               "type": "string",
+              "const": "expr"
+            },
+            "type": {
+              "$ref": "#/$defs/TypeSpec"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
               "const": "scalar"
             },
             "type": {

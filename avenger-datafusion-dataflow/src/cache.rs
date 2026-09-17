@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{inputs::InputValue, ScopeInstance, SnapshotId};
+use crate::{inputs::MaterializedValue, ScopeInstance, SnapshotId};
 
 /// Retention policy for completed reusable values. Query-local sharing is always enabled.
 #[derive(Clone, Debug)]
@@ -42,12 +42,14 @@ pub(crate) enum BindingKey {
     Table(SnapshotId),
     // IPC preserves types, nulls, and floating-point bits, including nested scalars.
     Scalar(Arc<[u8]>),
+    Expr(Arc<crate::expr_input::ExprKey>),
 }
 impl BindingKey {
     pub(crate) fn size(&self) -> usize {
         match self {
             Self::Table(_) => std::mem::size_of::<Self>(),
             Self::Scalar(v) => v.len() + std::mem::size_of::<Self>(),
+            Self::Expr(v) => v.size() + std::mem::size_of::<Self>(),
         }
     }
 }
@@ -72,7 +74,7 @@ impl ValueKey {
 }
 
 struct Entry {
-    value: InputValue,
+    value: MaterializedValue,
     bytes: usize,
     used: u64,
 }
@@ -125,7 +127,7 @@ impl Cache {
         self.clear(namespace);
         self.epochs.remove(&namespace);
     }
-    pub fn get(&mut self, key: &ValueKey, epoch: u64) -> Option<InputValue> {
+    pub fn get(&mut self, key: &ValueKey, epoch: u64) -> Option<MaterializedValue> {
         if self.epochs.get(&key.namespace) != Some(&epoch) {
             return None;
         }
@@ -134,7 +136,7 @@ impl Cache {
         entry.used = self.tick;
         Some(entry.value.clone())
     }
-    pub fn insert(&mut self, key: ValueKey, epoch: u64, value: InputValue) -> bool {
+    pub fn insert(&mut self, key: ValueKey, epoch: u64, value: MaterializedValue) -> bool {
         let CachePolicy::Lru(config) = &self.policy else {
             return false;
         };

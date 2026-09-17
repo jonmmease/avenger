@@ -291,3 +291,184 @@ async fn correlated_subqueries_and_window_functions_survive_artifacts() -> Resul
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn sql_expression_bindings_keep_columns_local_and_round_trip() -> Result<()> {
+    use avenger_datafusion_dataflow::datafusion::logical_expr::{col, lit};
+    let runtime = Runtime::new(Default::default())?;
+    let spec: DataflowSpec = serde_json::from_value(serde_json::json!({
+        "version": 1, "dialect": "datafusion",
+        "inputs": {
+            "selection": {"kind":"expr", "type":"boolean"},
+            "unused": {"kind":"expr", "type":"boolean"},
+            "measure": {"kind":"expr", "type":"int64"}
+        },
+        "sources": {"data": {"schema": [{"name":"x", "type":"int64", "nullable":false}, {"name":"y", "type":"int64", "nullable":false}], "values": [{"x":1,"y":10},{"x":2,"y":20},{"x":3,"y":30}]}},
+        "tables": {
+            "left": "SELECT $measure AS value FROM data AS l WHERE $selection",
+            "right": "SELECT $measure AS value FROM data AS r WHERE $selection"
+        },
+        "outputs": {"tables": {"left":"left", "right":"right"}}
+    })).unwrap();
+    let flow = runtime
+        .load_spec(&spec, &FileSourceResolver::new("."))
+        .await?;
+    let bytes = flow.to_bytes()?;
+    for flow in [flow, runtime.decode_dataflow(&bytes)?] {
+        let p = runtime.prepare(&flow).await?;
+        let names = flow.interface().root();
+        let mut request: QueryRequest = serde_json::from_value(serde_json::json!({
+            "bindings": {"exprs": {"selection": "x >= 2", "measure":"y + 1", "unused":"missing.field > 0"}},
+            "outputs": {"tables":[{"output":"left"},{"output":"right"}]}
+        })).unwrap();
+        let result = p.query_request(&request, &AssetBindings::new()).await?;
+        for name in ["left", "right"] {
+            assert_eq!(result.table(&names.table_output(name)?)?.num_rows(), 2);
+        }
+        let native = p
+            .inputs()
+            .expr(&names.expr_input("selection")?, col("x").gt_eq(lit(2_i64)))?
+            .expr(&names.expr_input("measure")?, col("y") + lit(1_i64))?
+            .expr(&names.expr_input("unused")?, col("unresolved"))?
+            .finish()?;
+        let out = names.table_output("left")?;
+        let expected = p.query(&[out], &[], &native).await?;
+        assert_eq!(
+            result.table(&out)?.batches(),
+            expected.table(&out)?.batches()
+        );
+        request
+            .bindings
+            .exprs
+            .insert("selection".into(), "y >= 30".into());
+        assert_eq!(
+            p.query_request(&request, &AssetBindings::new())
+                .await?
+                .table(&out)?
+                .num_rows(),
+            1
+        );
+        for bad in [
+            "missing > 0",
+            "SELECT true",
+            "x > 0; SELECT true",
+            "$measure > 0",
+            "(SELECT true)",
+            "now() IS NOT NULL",
+            "sum(x) > 0",
+            "x",
+            "@secret = 1",
+        ] {
+            request
+                .bindings
+                .exprs
+                .insert("selection".into(), bad.into());
+            assert!(
+                p.query_request(&request, &AssetBindings::new())
+                    .await
+                    .is_err(),
+                "{bad}"
+            );
+        }
+        request
+            .bindings
+            .exprs
+            .insert("selection".into(), "true".into());
+        request
+            .bindings
+            .exprs
+            .insert("unused".into(), "now() IS NOT NULL".into());
+        assert!(p
+            .query_request(&request, &AssetBindings::new())
+            .await
+            .is_err());
+    }
+    assert!(serde_json::from_str::<QueryRequest>(
+        r#"{"bindings":{"exprs":{"x":"true","x":"false"}}}"#
+    )
+    .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn json_expression_defaults_and_nested_overrides_use_native_binding_rules() -> Result<()> {
+    let runtime = Runtime::new(Default::default())?;
+    let mut spec: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/facets.dataflow.json")).unwrap();
+    spec["scopes"]["regions"]["scopes"]["years"]["inputs"]["selection"] =
+        serde_json::json!({"kind":"expr", "type":"boolean"});
+    spec["scopes"]["regions"]["scopes"]["years"]["outputs"]["tables"]["selected"] =
+        serde_json::json!("selected");
+    // Match the fixture's local row alias rather than relying on its table names.
+    let rows_alias = spec["scopes"]["regions"]["scopes"]["years"]["rows"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    spec["scopes"]["regions"]["scopes"]["years"]["tables"]["selected"] =
+        format!("SELECT * FROM {rows_alias} WHERE $selection").into();
+    let flow = runtime
+        .load_spec(
+            &serde_json::from_value(spec).unwrap(),
+            &FileSourceResolver::new("."),
+        )
+        .await?;
+    let p = runtime.prepare(&flow).await?;
+    let request: QueryRequest = serde_json::from_value(serde_json::json!({
+        "bindings": {"scalars":{"minimum":0.0}, "scope_defaults":[{"scope":["regions","years"],"exprs":{"selection":"true"}}],
+            "overrides":[{"path":[{"scope":"regions","key":["East"]},{"scope":"years","key":[2025]}],"exprs":{"selection":"false"}}]},
+        "outputs":{"tables":[{"scope":["regions","years"],"output":"selected"}]}
+    })).unwrap();
+    let result = p.query_request(&request, &AssetBindings::new()).await?;
+    let regions = flow.interface().root().scope("regions")?;
+    let years = regions.scope("years")?;
+    let east = result
+        .scope(regions.handle().unwrap())?
+        .get(&regions.handle().unwrap().key(["East".into()])?)
+        .unwrap();
+    let panel = east
+        .scope(years.handle().unwrap())?
+        .get(&years.handle().unwrap().key([2025_i64.into()])?)
+        .unwrap();
+    assert_eq!(panel.table(&years.table_output("selected")?)?.num_rows(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn json_standalone_expression_inputs_validate_the_actual_empty_context() -> Result<()> {
+    let runtime = Runtime::new(Default::default())?;
+    let spec: DataflowSpec = serde_json::from_value(serde_json::json!({
+        "version": 1, "dialect": "datafusion",
+        "inputs": {"predicate": {"kind":"expr", "type":"boolean"}},
+        "scalars": {"value":"$predicate"},
+        "outputs": {"scalars":{"value":"value"}}
+    }))
+    .unwrap();
+    let flow = runtime
+        .load_spec(&spec, &FileSourceResolver::new("."))
+        .await?;
+    let p = runtime.prepare(&flow).await?;
+    for bindings in [
+        serde_json::json!({}),
+        serde_json::json!({"scalars":{"predicate":true}}),
+        serde_json::json!({"exprs":{"unknown":"true"}}),
+        serde_json::json!({"exprs":{"predicate":"missing > 0"}}),
+    ] {
+        let request: QueryRequest =
+            serde_json::from_value(serde_json::json!({"bindings":bindings})).unwrap();
+        assert!(p
+            .query_request(&request, &AssetBindings::new())
+            .await
+            .is_err());
+    }
+    let request: QueryRequest = serde_json::from_value(serde_json::json!({
+        "bindings":{"exprs":{"predicate":"true"}},
+        "outputs":{"scalars":[{"output":"value"}]}
+    }))
+    .unwrap();
+    let result = p.query_request(&request, &AssetBindings::new()).await?;
+    assert_eq!(
+        result.scalar(&flow.interface().root().scalar_output("value")?)?,
+        &avenger_datafusion_dataflow::datafusion::common::ScalarValue::Boolean(Some(true))
+    );
+    Ok(())
+}

@@ -43,5 +43,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    let spec: DataflowSpec =
+        serde_json::from_str(include_str!("../tests/fixtures/expressions.dataflow.json"))?;
+    let request: QueryRequest =
+        serde_json::from_str(include_str!("../tests/fixtures/expressions.query.json"))?;
+    let flow = runtime
+        .load_spec(&spec, &FileSourceResolver::new("."))
+        .await?;
+    let flow = runtime.decode_dataflow(&flow.to_bytes()?)?;
+    let root = flow.interface().root();
+    for input in root.inputs() {
+        println!("expression example input: {}", input.name());
+    }
+    let prepared = runtime.prepare(&flow).await?;
+    let result = prepared
+        .query_request(&request, &AssetBindings::new())
+        .await?;
+    let rows = result.table(&root.table_output("rows")?)?;
+    assert_eq!(rows.num_rows(), 2);
+    println!(
+        "JSON expressions after protobuf round trip:\n{}",
+        avenger_datafusion_dataflow::arrow::util::pretty::pretty_format_batches(rows.batches())?
+    );
     Ok(())
 }

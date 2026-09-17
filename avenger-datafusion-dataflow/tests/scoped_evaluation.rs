@@ -28,7 +28,7 @@ use std::sync::{
 async fn nested_mixed_outputs_match_independent_datafusion_queries() -> Result<()> {
     let mut graph = DataflowBuilder::new();
     let f = scoped::build(&mut graph)?;
-    let root = graph.add_expr("root", lit(123_i64))?;
+    let root = graph.add_scalar("root", lit(123_i64))?;
     let root = graph.scalar_output("root", &root)?;
     let prepared = Runtime::new(RuntimeConfig::default())?
         .prepare(&graph.finish()?)
@@ -143,8 +143,8 @@ async fn composite_computed_keys_preserve_rows_and_scalar_cardinality_per_instan
                 .limit(0, Some(1))?
                 .project(vec![col("amount")])?
                 .build()?;
-            let maximum = scope.add_expr("maximum", scalar_subquery(Arc::new(ordered)))?;
-            let bad = scope.add_expr(
+            let maximum = scope.add_scalar("maximum", scalar_subquery(Arc::new(ordered)))?;
+            let bad = scope.add_scalar(
                 "bad",
                 scalar_subquery(Arc::new(
                     LogicalPlanBuilder::from(local.plan_ref())
@@ -156,7 +156,7 @@ async fn composite_computed_keys_preserve_rows_and_scalar_cardinality_per_instan
                 .filter(lit(false))?
                 .project(vec![col("amount")])?
                 .build()?;
-            let empty = scope.add_expr("empty", scalar_subquery(Arc::new(no_rows)))?;
+            let empty = scope.add_scalar("empty", scalar_subquery(Arc::new(no_rows)))?;
             let zero_columns = scope.add_plan(
                 "zero_columns",
                 LogicalPlanBuilder::from(local.plan_ref())
@@ -388,23 +388,23 @@ async fn volatile_values_are_shared_in_defining_frames_and_accessors_do_no_work(
     );
     let mut graph = DataflowBuilder::new();
     let input = graph.table_input("sales", scoped::schema())?;
-    let global = graph.add_expr("global", draw.call(vec![]))?;
+    let global = graph.add_scalar("global", draw.call(vec![]))?;
     let global_output = graph.scalar_output("global", &global)?;
     let (regions, (years, value, clock, a, b)) =
         graph.partition_by("regions", input.plan_ref(), vec![col("region")], |scope| {
-            let regional = scope.add_expr("regional", draw.call(vec![]))?;
+            let regional = scope.add_scalar("regional", draw.call(vec![]))?;
             scope
                 .partition_by(
                     "years",
                     scope.rows().plan_ref(),
                     vec![col("year")],
                     |scope| {
-                        let local = scope.add_expr("local", draw.call(vec![]))?;
-                        let combined = scope.add_expr(
+                        let local = scope.add_scalar("local", draw.call(vec![]))?;
+                        let combined = scope.add_scalar(
                             "combined",
                             global.expr_ref() + regional.expr_ref() + local.expr_ref(),
                         )?;
-                        let clock = scope.add_expr("clock", now())?;
+                        let clock = scope.add_scalar("clock", now())?;
                         let rows = scope.add_plan(
                             "draw_rows",
                             LogicalPlanBuilder::from(scope.rows().plan_ref())
@@ -535,7 +535,7 @@ async fn cancellation_releases_the_single_outer_permit_and_active_memory() -> Re
     let input = graph.table_input("sales", scoped::schema())?;
     let (panels, value) =
         graph.partition_by("panels", input.plan_ref(), vec![col("region")], |scope| {
-            let value = scope.add_expr("value", blocker.call(vec![]))?;
+            let value = scope.add_scalar("value", blocker.call(vec![]))?;
             scope.scalar_output("value", &value)
         })?;
     let prepared = Runtime::new(RuntimeConfig {
@@ -631,7 +631,7 @@ async fn volatile_partition_keys_run_once_before_child_transforms() -> Result<()
                     .filter(lit(false))?
                     .build()?,
             )?;
-            let constant = scope.add_expr("constant", lit(7_i64))?;
+            let constant = scope.add_scalar("constant", lit(7_i64))?;
             Ok((
                 scope.table_output("rows", &filtered)?,
                 scope.scalar_output("constant", &constant)?,
