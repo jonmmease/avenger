@@ -18,6 +18,8 @@ use crate::{Error, Result, ReuseScope};
 pub(crate) struct Analysis {
     pub dependencies: BTreeSet<usize>,
     pub inputs: BTreeSet<usize>,
+    pub base_inputs: BTreeSet<usize>,
+    pub base_outputs: BTreeSet<usize>,
     pub has_source: bool,
     pub direct_volatility: Volatility,
     pub reuse_scope: ReuseScope,
@@ -50,6 +52,8 @@ pub(crate) fn analyze(plan: &LogicalPlan, graph: &GraphDef, owner: usize) -> Res
     let mut result = Analysis {
         dependencies: BTreeSet::new(),
         inputs: BTreeSet::new(),
+        base_inputs: BTreeSet::new(),
+        base_outputs: BTreeSet::new(),
         direct_volatility: Volatility::Immutable,
         has_source: false,
         reuse_scope: ReuseScope::Reusable,
@@ -73,6 +77,8 @@ pub(crate) fn analyze(plan: &LogicalPlan, graph: &GraphDef, owner: usize) -> Res
     for dependency in &result.dependencies {
         let upstream = &graph.nodes[*dependency].analysis;
         result.inputs.extend(&upstream.inputs);
+        result.base_inputs.extend(&upstream.base_inputs);
+        result.base_outputs.extend(&upstream.base_outputs);
         if upstream.reuse_scope == ReuseScope::EvaluationLocal {
             result.reuse_scope = ReuseScope::EvaluationLocal;
         }
@@ -99,9 +105,36 @@ fn visit_plan(
                     Error::UnsupportedPlan(format!("custom extension {}", extension.node.name()))
                 })?;
             if read.graph != graph.id {
-                return Err(Error::ForeignHandle);
+                let base = graph.base.as_ref().ok_or(Error::ForeignHandle)?;
+                if read.graph != base.inner.id {
+                    return Err(Error::ForeignHandle);
+                }
+                let TableRef::Input(index) = read.source else {
+                    return Err(Error::ForeignHandle);
+                };
+                let input = base_input(graph, index)?;
+                if !matches!(&input.kind, InputKind::Table(schema) if schema == &read.schema) {
+                    return Err(Error::SchemaMismatch(read.label.to_string()));
+                }
+                result.base_inputs.insert(index);
+                return Ok(());
             }
             match read.source {
+                TableRef::Import(index) => {
+                    let output = &graph
+                        .base
+                        .as_ref()
+                        .ok_or(Error::BaseRequired)?
+                        .inner
+                        .outputs[index];
+                    if output.scope != 0
+                        || output.kind != super::NodeKind::Table
+                        || output.schema != read.schema
+                    {
+                        return Err(Error::InvalidReference(read.label.to_string()));
+                    }
+                    result.base_outputs.insert(index);
+                }
                 TableRef::Asset(index) => {
                     let asset = graph
                         .assets
@@ -211,6 +244,13 @@ fn visit_expr(
                 )));
             }
             match source {
+                ScalarRef::BaseInput(index) => {
+                    base_input(graph, *index)?;
+                    result.base_inputs.insert(*index);
+                }
+                ScalarRef::Import(index) => {
+                    result.base_outputs.insert(*index);
+                }
                 ScalarRef::Input(index) => {
                     result.inputs.insert(*index);
                 }
@@ -251,4 +291,22 @@ fn visit_expr(
         _ => {}
     }
     Ok(())
+}
+
+fn base_input(graph: &GraphDef, index: usize) -> Result<&super::InputDef> {
+    let input = graph
+        .base
+        .as_ref()
+        .ok_or(Error::BaseRequired)?
+        .inner
+        .inputs
+        .get(index)
+        .ok_or_else(|| Error::InvalidReference(format!("base input {index}")))?;
+    if input.scope != 0 {
+        return Err(Error::OutOfScope(format!(
+            "base input {}: only root imports are supported",
+            input.name
+        )));
+    }
+    Ok(input)
 }

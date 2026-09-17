@@ -1,63 +1,19 @@
 mod common;
-use async_trait::async_trait;
 use avenger_datafusion_dataflow::{
-    arrow::datatypes::SchemaRef,
     datafusion::{
-        catalog::{Session, TableProvider},
-        common::Result as DFResult,
         datasource::{provider_as_source, MemTable},
-        logical_expr::{Expr, LogicalPlanBuilder, TableType},
-        physical_plan::ExecutionPlan,
+        logical_expr::LogicalPlanBuilder,
     },
     CachePolicy, DataflowBuilder, Error, ExecutionConfig, Result, Runtime, RuntimeConfig,
 };
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
-};
-use tokio::sync::Notify;
+use common::source::ControlledSource;
+use std::sync::{atomic::Ordering, Arc};
 
-#[derive(Debug)]
-struct GatedSource {
-    table: MemTable,
-    gated: AtomicBool,
-    scans: AtomicUsize,
-    entered: Notify,
-    release: Notify,
-}
-#[async_trait]
-impl TableProvider for GatedSource {
-    fn schema(&self) -> SchemaRef {
-        self.table.schema()
-    }
-    fn table_type(&self) -> TableType {
-        TableType::Base
-    }
-    async fn scan(
-        &self,
-        state: &dyn Session,
-        projection: Option<&Vec<usize>>,
-        filters: &[Expr],
-        limit: Option<usize>,
-    ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        self.scans.fetch_add(1, Ordering::SeqCst);
-        if self.gated.load(Ordering::SeqCst) {
-            self.entered.notify_one();
-            self.release.notified().await;
-        }
-        self.table.scan(state, projection, filters, limit).await
-    }
-}
 #[tokio::test]
 async fn clearing_and_cancelling_in_flight_misses_cannot_repopulate_results() -> Result<()> {
     let data = common::snapshot(&[1, 2, 3]);
-    let source = Arc::new(GatedSource {
-        table: MemTable::try_new(data.schema().clone(), vec![data.batches().to_vec()])?,
-        gated: AtomicBool::new(true),
-        scans: AtomicUsize::new(0),
-        entered: Notify::new(),
-        release: Notify::new(),
-    });
+    let source = Arc::new(ControlledSource::new(&data)?);
+    source.gated.store(true, Ordering::SeqCst);
     let mut b = DataflowBuilder::new();
     let node = b.add_plan(
         "source",
@@ -140,6 +96,9 @@ async fn bindings_and_interface_do_not_retain_graph_owned_source_buffers() -> Re
     b.table_output("out", &node)?;
     let definition = b.finish()?;
     let interface = definition.interface();
+    let mut additional = DataflowBuilder::with_base(&interface);
+    additional.import_table("source", &interface.root().table_output("out")?)?;
+    let additional = additional.finish()?;
     let runtime = Runtime::new(RuntimeConfig {
         cache: CachePolicy::Disabled,
         ..RuntimeConfig::default()
@@ -149,6 +108,7 @@ async fn bindings_and_interface_do_not_retain_graph_owned_source_buffers() -> Re
     drop(p);
     drop(definition);
     assert!(weak.upgrade().is_none());
+    assert_eq!(additional.num_nodes(), 0);
     assert!(interface.root().table_output("out").is_ok());
     let _ = inputs.edit();
     Ok(())

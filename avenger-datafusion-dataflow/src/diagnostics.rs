@@ -25,12 +25,21 @@ pub struct NodeReport {
 
 #[derive(Clone, Debug)]
 pub struct PrepareReport {
+    pub imports: Vec<ImportReport>,
     pub scopes: Vec<ScopeReport>,
     pub nodes: Vec<NodeReport>,
     pub outputs: Vec<String>,
     /// True while physical plans are created per demanded computation and instance.
     pub replans_on_query: bool,
     pub cache_enabled: bool,
+}
+
+/// A local alias of an existing base output. Imports require no wrapper execution.
+#[derive(Clone, Debug)]
+pub struct ImportReport {
+    pub name: String,
+    pub output: String,
+    pub producer: String,
 }
 
 impl fmt::Display for PrepareReport {
@@ -40,6 +49,13 @@ impl fmt::Display for PrepareReport {
             "Execution: plan cache misses, retention={}",
             self.cache_enabled
         )?;
+        for import in &self.imports {
+            writeln!(
+                f,
+                "Import additional::{}: base output {} from base::{}",
+                import.name, import.output, import.producer
+            )?;
+        }
         for scope in &self.scopes {
             writeln!(
                 f,

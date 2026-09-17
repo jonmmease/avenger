@@ -147,6 +147,17 @@ impl Runtime {
     /// Analyze reachable definitions and partition programs without evaluating functions.
     /// Physical planning remains per computation and instance during each query.
     pub async fn prepare(&self, graph: &Dataflow) -> Result<PreparedDataflow> {
+        if graph.inner.base.is_some() {
+            return Err(Error::BaseRequired);
+        }
+        self.prepare_program(graph, None).await
+    }
+
+    async fn prepare_program(
+        &self,
+        graph: &Dataflow,
+        base: Option<&PreparedInner>,
+    ) -> Result<PreparedDataflow> {
         self.check_semantics(&graph.inner.semantics)?;
         let mut graph = (*graph.inner).clone();
         for scope in &graph.scopes {
@@ -156,12 +167,20 @@ impl Runtime {
                 }
             }
         }
-        let expr_sites = crate::expr_input::collect_sites(&graph)?;
+        let expr_sites = crate::expr_input::collect_sites(&graph, false)?;
+        let base_expr_sites = crate::expr_input::collect_sites(&graph, true)?;
         let requested = vec![true; graph.outputs.len()];
         let (reachable, _) = demand(&graph, &requested);
         let mut plans = vec![None; graph.nodes.len()];
         let mut nodes = vec![];
         for index in 0..graph.nodes.len() {
+            let mut linked = crate::graph::analysis::analyze(
+                &graph.nodes[index].plan,
+                &graph,
+                graph.nodes[index].scope,
+            )?;
+            link_base(&mut linked, base);
+            graph.nodes[index].analysis = linked;
             let node = &graph.nodes[index];
             if !reachable[index] {
                 continue;
@@ -171,7 +190,11 @@ impl Runtime {
                 .inputs
                 .iter()
                 .any(|i| matches!(graph.inputs[*i].kind, crate::graph::InputKind::Expr(_)))
-            {
+                || base.is_some_and(|base| {
+                    node.analysis.base_inputs.iter().any(|i| {
+                        matches!(base.graph.inputs[*i].kind, crate::graph::InputKind::Expr(_))
+                    })
+                }) {
                 node.plan.clone()
             } else {
                 self.inner
@@ -185,10 +208,13 @@ impl Runtime {
                     .map_err(|source| execution_error(&graph, index, source))?
             };
             let mut analysis = crate::graph::analysis::analyze(&plan, &graph, node.scope)?;
+            link_base(&mut analysis, base);
             analysis
                 .dependencies
                 .extend(node.analysis.dependencies.iter().copied());
             analysis.inputs.extend(node.analysis.inputs.iter().copied());
+            analysis.base_inputs.extend(&node.analysis.base_inputs);
+            analysis.base_outputs.extend(&node.analysis.base_outputs);
             for dependency in &analysis.dependencies {
                 analysis
                     .inputs
@@ -208,7 +234,10 @@ impl Runtime {
             graph.nodes[index].analysis = analysis;
             let node = &graph.nodes[index];
             plans[index] = Some(plan);
-            nodes.push(NodeReport {
+            if graph.imports.contains_key(&index) {
+                continue;
+            }
+            let mut node_report = NodeReport {
                 name: node.name.to_string(),
                 scope: graph.scope_name(node.scope),
                 dependencies: node
@@ -227,7 +256,25 @@ impl Runtime {
                 reuse_scope: node.analysis.reuse_scope,
                 schema: Arc::new(node.plan.schema().as_arrow().clone()),
                 has_external_source: node.analysis.has_source,
-            });
+            };
+            if let Some(base) = base {
+                qualify_node_report(&mut node_report, "additional");
+                node_report
+                    .dependencies
+                    .extend(node.analysis.base_outputs.iter().map(|output| {
+                        format!(
+                            "base::{}",
+                            node_name(&base.graph, base.graph.outputs[*output].node)
+                        )
+                    }));
+                node_report.inputs.extend(
+                    node.analysis
+                        .base_inputs
+                        .iter()
+                        .map(|input| format!("base::{}", base.graph.inputs[*input].name)),
+                );
+            }
+            nodes.push(node_report);
         }
         let scopes = graph
             .scopes
@@ -262,7 +309,19 @@ impl Runtime {
                 }
             })
             .collect();
-        let report = PrepareReport {
+        let mut report = PrepareReport {
+            imports: graph
+                .imports
+                .iter()
+                .map(|(node, output)| {
+                    let base = base.expect("validated import base");
+                    crate::ImportReport {
+                        name: graph.nodes[*node].name.to_string(),
+                        output: base.graph.outputs[*output].name.to_string(),
+                        producer: node_name(&base.graph, base.graph.outputs[*output].node),
+                    }
+                })
+                .collect(),
             nodes,
             scopes,
             outputs: graph
@@ -273,6 +332,36 @@ impl Runtime {
             replans_on_query: true,
             cache_enabled: self.inner.cache.lock().expect("cache lock").enabled(),
         };
+        report.imports.sort_by(|a, b| a.name.cmp(&b.name));
+        if let Some(base) = base {
+            for (index, scope) in report.scopes.iter_mut().enumerate() {
+                scope.name = format!("additional::{}", scope.name);
+                scope.parent = scope
+                    .parent
+                    .as_ref()
+                    .map(|parent| format!("additional::{parent}"));
+                let mut captures = scope
+                    .captures
+                    .iter()
+                    .map(|name| format!("additional::{name}"))
+                    .collect::<BTreeSet<_>>();
+                for node in graph.nodes.iter().filter(|node| node.scope == index) {
+                    captures.extend(node.analysis.base_outputs.iter().map(|output| {
+                        format!(
+                            "base::{}",
+                            node_name(&base.graph, base.graph.outputs[*output].node)
+                        )
+                    }));
+                    captures.extend(
+                        node.analysis
+                            .base_inputs
+                            .iter()
+                            .map(|input| format!("base::{}", base.graph.inputs[*input].name)),
+                    );
+                }
+                scope.captures = captures.into_iter().collect();
+            }
+        }
         let namespace = fresh_id();
         self.inner
             .cache
@@ -291,6 +380,7 @@ impl Runtime {
                 }),
                 graph,
                 plans,
+                base_expr_sites,
                 report,
             }),
         })
@@ -303,6 +393,7 @@ struct PreparedInner {
     graph: Arc<GraphDef>,
     bindings: Arc<crate::graph::BindingMetadata>,
     plans: Vec<Option<LogicalPlan>>,
+    base_expr_sites: Vec<Vec<crate::expr_input::ExprSite>>,
     report: PrepareReport,
 }
 
@@ -321,7 +412,135 @@ pub struct PreparedDataflow {
     inner: Arc<PreparedInner>,
 }
 
+/// Additional computations attached to one immutable prepared base.
+/// Clones share both preparations and their cache namespaces.
+#[derive(Clone)]
+pub struct PreparedExtension {
+    base: PreparedDataflow,
+    additional: PreparedDataflow,
+}
+
+impl PreparedExtension {
+    /// Discover only the additional definition's inputs, outputs, and scopes.
+    pub fn interface(&self) -> crate::DataflowInterface {
+        self.additional.interface()
+    }
+    /// Bind inputs declared by the additional definition. Base bindings stay separate.
+    pub fn inputs(&self) -> InputsBuilder {
+        self.additional.inputs()
+    }
+    /// Clear retained additional results while preserving the base's cache.
+    pub fn clear_results(&self) {
+        self.additional.clear_results();
+    }
+    pub fn explain(&self) -> PrepareReport {
+        let mut report = self.additional.explain();
+        let graph = &self.base.inner.graph;
+        let mut requested = vec![false; graph.outputs.len()];
+        let additional = &self.additional.inner.graph;
+        let (reachable, _) = demand(additional, &vec![true; additional.outputs.len()]);
+        for (index, node) in additional.nodes.iter().enumerate() {
+            if reachable[index] {
+                for output in &node.analysis.base_outputs {
+                    requested[*output] = true;
+                }
+            }
+        }
+        let (needed, _) = demand(graph, &requested);
+        let names = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| needed[*index])
+            .map(|(_, node)| node.name.as_ref())
+            .collect::<BTreeSet<_>>();
+        for node in &self.base.inner.report.nodes {
+            // Imported producers and all their dependencies are root-owned.
+            if node.scope != "root" || !names.contains(node.name.as_str()) {
+                continue;
+            }
+            let mut node_report = node.clone();
+            qualify_node_report(&mut node_report, "base");
+            report.nodes.push(node_report);
+        }
+        report.scopes.push(ScopeReport {
+            name: "base::root".into(),
+            parent: None,
+            key_schema: None,
+            captures: vec![],
+        });
+        report
+    }
+    /// Materialize additional outputs using independently owned base and local bindings.
+    pub async fn query(
+        &self,
+        tables: &[TableOutput],
+        scalars: &[ScalarOutput],
+        base_inputs: &Inputs,
+        additional_inputs: &Inputs,
+    ) -> Result<DataflowResult> {
+        self.additional
+            .query_with_base(
+                tables,
+                scalars,
+                additional_inputs,
+                Some((&self.base.inner, base_inputs)),
+            )
+            .await
+    }
+}
+
+fn qualify_node_report(report: &mut NodeReport, origin: &str) {
+    report.name = format!("{origin}::{}", report.name);
+    report.scope = format!("{origin}::{}", report.scope);
+    report
+        .dependencies
+        .iter_mut()
+        .for_each(|name| *name = format!("{origin}::{name}"));
+    report
+        .inputs
+        .iter_mut()
+        .for_each(|name| *name = format!("{origin}::{name}"));
+}
+
+fn link_base(analysis: &mut crate::graph::analysis::Analysis, base: Option<&PreparedInner>) {
+    if let Some(base) = base {
+        for output in &analysis.base_outputs {
+            let upstream = &base.graph.nodes[base.graph.outputs[*output].node].analysis;
+            analysis.base_inputs.extend(&upstream.inputs);
+            if upstream.reuse_scope == crate::ReuseScope::EvaluationLocal {
+                analysis.reuse_scope = crate::ReuseScope::EvaluationLocal;
+            }
+        }
+    }
+}
+
 impl PreparedDataflow {
+    /// Prepare an additional definition once against this exact base preparation.
+    pub async fn prepare_extension(
+        &self,
+        additional_dataflow: &Dataflow,
+    ) -> Result<PreparedExtension> {
+        let interface = additional_dataflow
+            .inner
+            .base
+            .as_ref()
+            .ok_or(Error::BaseRequired)?;
+        if interface.inner.id != self.inner.graph.id {
+            return Err(Error::ForeignHandle);
+        }
+        let runtime = Runtime {
+            inner: self.inner.runtime.clone(),
+        };
+        let additional = runtime
+            .prepare_program(additional_dataflow, Some(&self.inner))
+            .await?;
+        Ok(PreparedExtension {
+            base: self.clone(),
+            additional,
+        })
+    }
+
     #[cfg(feature = "json")]
     pub(crate) fn expression_from_sql(
         &self,
@@ -371,6 +590,19 @@ impl PreparedDataflow {
         scalars: &[ScalarOutput],
         inputs: &Inputs,
     ) -> Result<DataflowResult> {
+        self.query_with_base(tables, scalars, inputs, None).await
+    }
+
+    async fn query_with_base(
+        &self,
+        tables: &[TableOutput],
+        scalars: &[ScalarOutput],
+        inputs: &Inputs,
+        base: Option<(&PreparedInner, &Inputs)>,
+    ) -> Result<DataflowResult> {
+        if base.is_some_and(|(prepared, inputs)| prepared.graph.id != inputs.graph.id) {
+            return Err(Error::ForeignHandle);
+        }
         let graph = &self.inner.graph;
         if inputs.graph.id != graph.id {
             return Err(Error::ForeignHandle);
@@ -390,7 +622,7 @@ impl PreparedDataflow {
         }
         let (_, scope_needed) = demand(graph, &requested);
         let runtime = &self.inner.runtime;
-        let report = EvaluationReport {
+        let mut report = EvaluationReport {
             evaluation_id: fresh_id(),
             query_start_time: Utc::now(),
             executed_nodes: vec![],
@@ -406,7 +638,11 @@ impl PreparedDataflow {
                 .iter()
                 .enumerate()
                 .map(|(scope, _)| ScopeEvaluationReport {
-                    name: graph.scope_name(scope),
+                    name: if base.is_some() {
+                        format!("additional::{}", graph.scope_name(scope))
+                    } else {
+                        graph.scope_name(scope)
+                    },
                     instances: 0,
                     executed_nodes: 0,
                     partitioned_rows: 0,
@@ -430,26 +666,43 @@ impl PreparedDataflow {
             .acquire()
             .await
             .expect("private semaphore stays open");
+        let mut frames = Vec::new();
+        let mut base_state = None;
+        if let Some((prepared, inputs)) = base {
+            frames.push(Frame::root(Origin::Base));
+            report.scopes.push(ScopeEvaluationReport {
+                name: "base::root".into(),
+                instances: 0,
+                executed_nodes: 0,
+                partitioned_rows: 0,
+            });
+            base_state = Some(BaseEvaluation {
+                prepared,
+                inputs,
+                epoch: 0,
+                expressions: HashMap::new(),
+            });
+        }
+        frames.push(Frame::root(Origin::Local));
+        let epoch = {
+            let cache = runtime.cache.lock().expect("cache lock");
+            if let Some(base) = &mut base_state {
+                base.epoch = cache.epoch(base.prepared.namespace);
+            }
+            cache.epoch(self.inner.namespace)
+        };
         let mut evaluation = Evaluation {
+            base: base_state,
             prepared: &self.inner,
             inputs,
             requested: &requested,
             scope_needed,
-            epoch: runtime
-                .cache
-                .lock()
-                .expect("cache lock")
-                .epoch(self.inner.namespace),
-            frames: vec![Frame {
-                scope: 0,
-                instance: None,
-                values: HashMap::new(),
-                inputs: HashMap::new(),
-                keys: HashMap::new(),
-            }],
+            epoch,
+            frames,
             reservation: Reservation { runtime, bytes: 0 },
             report,
         };
+        evaluation.validate_base_expressions()?;
         let root = evaluation.frame().await?;
         evaluation.report.materialized_bytes = evaluation.reservation.bytes;
         evaluation.report.retained_bytes = runtime.cache.lock().expect("cache lock").stats().bytes;
@@ -488,7 +741,14 @@ fn demand(graph: &GraphDef, requested: &[bool]) -> (Vec<bool>, Vec<bool>) {
     (nodes, scopes)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Local,
+    Base,
+}
+
 struct Frame {
+    origin: Origin,
     scope: usize,
     instance: Option<ScopeInstance>,
     values: HashMap<usize, MaterializedValue>,
@@ -496,7 +756,28 @@ struct Frame {
     keys: HashMap<usize, crate::cache::BindingKey>,
 }
 
+impl Frame {
+    fn root(origin: Origin) -> Self {
+        Self {
+            origin,
+            scope: 0,
+            instance: None,
+            values: HashMap::new(),
+            inputs: HashMap::new(),
+            keys: HashMap::new(),
+        }
+    }
+}
+
+struct BaseEvaluation<'a> {
+    prepared: &'a PreparedInner,
+    inputs: &'a Inputs,
+    epoch: u64,
+    expressions: HashMap<usize, InputBinding>,
+}
+
 struct Evaluation<'a> {
+    base: Option<BaseEvaluation<'a>>,
     prepared: &'a PreparedInner,
     inputs: &'a Inputs,
     requested: &'a [bool],
@@ -508,10 +789,58 @@ struct Evaluation<'a> {
 }
 
 impl Evaluation<'_> {
-    fn frame_index(&self, scope: usize) -> usize {
+    fn program(&self, origin: Origin) -> &PreparedInner {
+        match origin {
+            Origin::Local => self.prepared,
+            Origin::Base => self.base.as_ref().expect("attached base").prepared,
+        }
+    }
+    fn epoch(&self, origin: Origin) -> u64 {
+        match origin {
+            Origin::Local => self.epoch,
+            Origin::Base => self.base.as_ref().expect("attached base").epoch,
+        }
+    }
+    fn scope_report(&self, origin: Origin, scope: usize) -> usize {
+        match origin {
+            Origin::Local => scope,
+            Origin::Base => self.prepared.graph.scopes.len() + scope,
+        }
+    }
+    fn qualified_name(&self, origin: Origin, index: usize) -> String {
+        let name = node_name(&self.program(origin).graph, index);
+        match (origin, self.base.is_some()) {
+            (Origin::Base, _) => format!("base::{name}"),
+            (Origin::Local, true) => format!("additional::{name}"),
+            _ => name,
+        }
+    }
+    fn validate_base_expressions(&mut self) -> Result<()> {
+        let Some(base) = &mut self.base else {
+            return Ok(());
+        };
+        for (index, sites) in self.prepared.base_expr_sites.iter().enumerate() {
+            if sites.is_empty() {
+                continue;
+            }
+            let input = &base.prepared.graph.inputs[index];
+            let crate::graph::InputKind::Expr(field) = &input.kind else {
+                unreachable!()
+            };
+            let Some(InputBinding::Expr(binding)) = base.inputs.resolve(index, None) else {
+                return Err(Error::MissingInput(input.name.to_string()));
+            };
+            let bound = binding.for_sites(sites, field, &format!("base::{}", input.name))?;
+            self.reservation.charge(128 + bound.size())?;
+            base.expressions
+                .insert(index, InputBinding::Expr(Arc::new(bound)));
+        }
+        Ok(())
+    }
+    fn frame_index(&self, origin: Origin, scope: usize) -> usize {
         self.frames
             .iter()
-            .rposition(|frame| frame.scope == scope)
+            .rposition(|frame| frame.origin == origin && frame.scope == scope)
             .expect("validated ancestor frame")
     }
 
@@ -533,7 +862,7 @@ impl Evaluation<'_> {
             };
             for (index, output) in graph.outputs.iter().enumerate() {
                 if output.scope == scope && self.requested[index] {
-                    self.node(output.node).await?;
+                    self.node(Origin::Local, output.node).await?;
                     let value = &self.frames[frame_index].values[&output.node];
                     let charge = match value {
                         MaterializedValue::Scalar(value) => value.size(),
@@ -550,7 +879,7 @@ impl Evaluation<'_> {
                     continue;
                 }
                 let discovery = definition.discovery.expect("child discovery");
-                self.node(discovery).await?;
+                self.node(Origin::Local, discovery).await?;
                 let MaterializedValue::Table(table) =
                     self.frames[frame_index].values[&discovery].clone()
                 else {
@@ -583,6 +912,7 @@ impl Evaluation<'_> {
                         .materialize_partition(&table, schema.clone(), &indices)
                         .map_err(|error| contextual(Some(&address), error))?;
                     self.frames.push(Frame {
+                        origin: Origin::Local,
                         scope: child,
                         instance: Some(address),
                         values: HashMap::from([(rows_index, MaterializedValue::Table(local))]),
@@ -671,12 +1001,93 @@ impl Evaluation<'_> {
         Ok(groups)
     }
 
-    fn node(&mut self, index: usize) -> BoxFuture<'_, Result<()>> {
+    fn activate_base_frame(&mut self) -> Result<()> {
+        let report = self.scope_report(Origin::Base, 0);
+        if self.report.scopes[report].instances == 0 {
+            self.reservation.charge(std::mem::size_of::<Frame>())?;
+            self.report.scopes[report].instances = 1;
+        }
+        Ok(())
+    }
+
+    fn load_inputs(&mut self, origin: Origin, indices: &BTreeSet<usize>) -> Result<()> {
+        if origin == Origin::Base && !indices.is_empty() {
+            self.activate_base_frame()?;
+        }
+        let graph = self.program(origin).graph.clone();
+        for index in indices {
+            let owner = self.frame_index(origin, graph.inputs[*index].scope);
+            if self.frames[owner].inputs.contains_key(index) {
+                continue;
+            }
+            let inputs = match origin {
+                Origin::Local => self.inputs,
+                Origin::Base => self.base.as_ref().expect("attached base").inputs,
+            };
+            let address = self.frames[owner].instance.as_ref();
+            let binding = inputs.resolve(*index, address).ok_or_else(|| {
+                contextual(
+                    address,
+                    Error::MissingInput(graph.inputs[*index].name.to_string()),
+                )
+            })?;
+            self.reservation
+                .charge(128 + binding.frame_size())
+                .map_err(|error| contextual(address, error))?;
+            self.frames[owner].inputs.insert(*index, binding.clone());
+        }
+        Ok(())
+    }
+
+    fn input_keys(
+        &mut self,
+        origin: Origin,
+        indices: &BTreeSet<usize>,
+    ) -> Result<Vec<(usize, crate::cache::BindingKey)>> {
+        let graph = self.program(origin).graph.clone();
+        let mut keys = Vec::new();
+        for index in indices {
+            let owner = self.frame_index(origin, graph.inputs[*index].scope);
+            if !self.frames[owner].keys.contains_key(index) {
+                let key = self.frames[owner].inputs[index].key()?;
+                self.reservation.charge(key.size())?;
+                self.frames[owner].keys.insert(*index, key);
+            }
+            keys.push((*index, self.frames[owner].keys[index].clone()));
+        }
+        Ok(keys)
+    }
+
+    fn node(&mut self, origin: Origin, index: usize) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
-            let graph = self.prepared.graph.clone();
+            let graph = self.program(origin).graph.clone();
             let node = &graph.nodes[index];
-            let frame = self.frame_index(node.scope);
+            let frame = self.frame_index(origin, node.scope);
             if self.frames[frame].values.contains_key(&index) {
+                return Ok(());
+            }
+            if origin == Origin::Base {
+                self.activate_base_frame()?;
+            }
+            if let Some(output) = graph.imports.get(&index) {
+                let producer = self
+                    .base
+                    .as_ref()
+                    .expect("attached base")
+                    .prepared
+                    .graph
+                    .outputs[*output]
+                    .node;
+                self.node(Origin::Base, producer).await?;
+                let base_frame = self.frame_index(Origin::Base, 0);
+                let value = self.frames[base_frame].values[&producer].clone();
+                self.reservation.charge(
+                    128 + match &value {
+                        MaterializedValue::Scalar(v) => v.size(),
+                        _ => 0,
+                    },
+                )?;
+                self.frames[frame].values.insert(index, value);
                 return Ok(());
             }
             assert!(!node.local_rows, "local rows installed at frame creation");
@@ -694,42 +1105,32 @@ impl Evaluation<'_> {
                     }
                 }
             }
-            for input in &node.analysis.inputs {
-                let owner = self.frame_index(graph.inputs[*input].scope);
-                if self.frames[owner].inputs.contains_key(input) {
-                    continue;
-                }
-                let address = self.frames[owner].instance.as_ref();
-                let value = self.inputs.resolve(*input, address).ok_or_else(|| {
-                    contextual(
-                        address,
-                        Error::MissingInput(graph.inputs[*input].name.to_string()),
-                    )
-                })?;
-                let charge = value.frame_size();
-                self.reservation
-                    .charge(128 + charge)
-                    .map_err(|error| contextual(address, error))?;
-                self.frames[owner].inputs.insert(*input, value.clone());
+            self.load_inputs(origin, &node.analysis.inputs)?;
+            if !node.analysis.base_inputs.is_empty() {
+                self.load_inputs(Origin::Base, &node.analysis.base_inputs)?;
             }
             let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable
-                && self.prepared.report.cache_enabled;
+                && self.program(origin).report.cache_enabled;
             let key = if eligible {
-                let mut inputs = Vec::new();
-                for input in &node.analysis.inputs {
-                    let owner = self.frame_index(graph.inputs[*input].scope);
-                    if !self.frames[owner].keys.contains_key(input) {
-                        let key = self.frames[owner].inputs[input].key()?;
-                        self.reservation.charge(key.size())?;
-                        self.frames[owner].keys.insert(*input, key);
-                    }
-                    inputs.push((*input, self.frames[owner].keys[input].clone()));
-                }
+                let inputs = self.input_keys(origin, &node.analysis.inputs)?;
+                let base_inputs = if node.analysis.base_inputs.is_empty() {
+                    Vec::new()
+                } else {
+                    self.input_keys(Origin::Base, &node.analysis.base_inputs)?
+                };
+                let upstream = if node.analysis.base_outputs.is_empty() {
+                    None
+                } else {
+                    let base = self.base.as_ref().expect("attached base");
+                    Some((base.prepared.namespace, base.epoch))
+                };
                 Some(crate::cache::ValueKey {
-                    namespace: self.prepared.namespace,
+                    namespace: self.program(origin).namespace,
                     node: index,
                     instance: self.frames[frame].instance.clone(),
                     inputs,
+                    base_inputs,
+                    upstream,
                 })
             } else {
                 None
@@ -741,7 +1142,7 @@ impl Evaluation<'_> {
                     .cache
                     .lock()
                     .expect("cache lock")
-                    .get(key, self.epoch);
+                    .get(key, self.epoch(origin));
                 if let Some(value) = cached {
                     self.reservation.charge(value.size())?;
                     self.frames[frame].values.insert(index, value);
@@ -751,10 +1152,10 @@ impl Evaluation<'_> {
                 self.report.cache_misses += 1;
             }
             for dependency in &node.analysis.dependencies {
-                self.node(*dependency).await?;
+                self.node(origin, *dependency).await?;
             }
             let value = self
-                .execute(index)
+                .execute(origin, index)
                 .await
                 .map_err(|error| contextual(self.frames[frame].instance.as_ref(), error))?;
             tokio::task::yield_now().await;
@@ -768,31 +1169,54 @@ impl Evaluation<'_> {
                     .cache
                     .lock()
                     .expect("cache lock")
-                    .insert(key, self.epoch, value.clone())
+                    .insert(key, self.epoch(origin), value.clone())
                 {
                     self.report.cache_bypasses += 1;
                 }
             }
             self.frames[frame].values.insert(index, value);
-            self.report.executed_nodes.push(node_name(&graph, index));
-            self.report.scopes[node.scope].executed_nodes += 1;
+            self.report
+                .executed_nodes
+                .push(self.qualified_name(origin, index));
+            let report = self.scope_report(origin, node.scope);
+            self.report.scopes[report].executed_nodes += 1;
             Ok(())
         })
     }
 
-    async fn execute(&mut self, index: usize) -> Result<MaterializedValue> {
-        let graph = &self.prepared.graph;
+    fn execution_error(&self, origin: Origin, index: usize, source: DataFusionError) -> Error {
+        Error::Execution {
+            node: self.qualified_name(origin, index),
+            source,
+        }
+    }
+
+    async fn execute(&mut self, origin: Origin, index: usize) -> Result<MaterializedValue> {
+        let graph = self.program(origin).graph.clone();
         let node = &graph.nodes[index];
         let plan = bind_plan(
-            self.prepared.plans[index]
+            self.program(origin).plans[index]
                 .as_ref()
                 .expect("reachable node prepared")
                 .clone(),
-            graph,
-            |index| &self.frames[self.frame_index(graph.inputs[index].scope)].inputs[&index],
-            |index| &self.frames[self.frame_index(graph.nodes[index].scope)].values[&index],
+            &graph,
+            |index| {
+                &self.frames[self.frame_index(origin, graph.inputs[index].scope)].inputs[&index]
+            },
+            |index| &self.frames[self.frame_index(origin, graph.nodes[index].scope)].values[&index],
+            |index| {
+                let base = self.base.as_ref().expect("attached base");
+                base.expressions.get(&index).unwrap_or_else(|| {
+                    &self.frames[self.frame_index(Origin::Base, 0)].inputs[&index]
+                })
+            },
+            |output| {
+                let base = self.base.as_ref().expect("attached base");
+                &self.frames[self.frame_index(Origin::Base, 0)].values
+                    [&base.prepared.graph.outputs[output].node]
+            },
         )
-        .map_err(|source| execution_error(graph, index, source))?;
+        .map_err(|source| self.execution_error(origin, index, source))?;
         let mut state = self.prepared.runtime.state.clone();
         let mut properties =
             ExecutionProps::new().with_query_execution_start_time(self.report.query_start_time);
@@ -801,7 +1225,7 @@ impl Evaluation<'_> {
         let physical = state
             .create_physical_plan(&plan)
             .await
-            .map_err(|source| execution_error(graph, index, source))?;
+            .map_err(|source| self.execution_error(origin, index, source))?;
         self.report.physical_plans += 1;
         reject_unbounded(&physical)?;
         let schema = Arc::new(node.plan.schema().as_arrow().clone());
@@ -820,12 +1244,12 @@ impl Evaluation<'_> {
             self.report.source_executions += 1;
         }
         let mut stream = execute_stream(physical, state.task_ctx())
-            .map_err(|source| execution_error(graph, index, source))?;
+            .map_err(|source| self.execution_error(origin, index, source))?;
         let mut batches = vec![];
         while let Some(batch) = stream
             .try_next()
             .await
-            .map_err(|source| execution_error(graph, index, source))?
+            .map_err(|source| self.execution_error(origin, index, source))?
         {
             self.reservation.charge(
                 batch
@@ -847,8 +1271,8 @@ impl Evaluation<'_> {
             NodeKind::Scalar => {
                 let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
                 if rows != 1 {
-                    return Err(execution_error(
-                        graph,
+                    return Err(self.execution_error(
+                        origin,
                         index,
                         DataFusionError::Execution(format!(
                             "standalone expression produced {rows} rows instead of one"

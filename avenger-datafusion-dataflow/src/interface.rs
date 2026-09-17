@@ -9,23 +9,33 @@ use crate::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-struct InterfaceDef {
-    id: u64,
-    inputs: Vec<InputDef>,
+pub(crate) struct InterfaceDef {
+    pub id: u64,
+    pub semantics: crate::SemanticConfig,
+    pub inputs: Vec<InputDef>,
     scopes: Vec<(Option<usize>, Option<ScopeHandle>)>,
-    outputs: Vec<(usize, Arc<str>, NodeKind)>,
+    pub outputs: Vec<OutputInterface>,
+}
+
+#[derive(Debug)]
+pub(crate) struct OutputInterface {
+    pub scope: usize,
+    pub name: Arc<str>,
+    pub kind: NodeKind,
+    pub schema: datafusion::common::DFSchemaRef,
 }
 
 /// Typed public names and scope ownership, without source assets or plan lineage.
 #[derive(Clone, Debug)]
 pub struct DataflowInterface {
-    inner: Arc<InterfaceDef>,
+    pub(crate) inner: Arc<InterfaceDef>,
 }
 impl DataflowInterface {
     pub(crate) fn new(graph: &GraphDef) -> Self {
         Self {
             inner: Arc::new(InterfaceDef {
                 id: graph.id,
+                semantics: graph.semantics.clone(),
                 inputs: graph.inputs.clone(),
                 scopes: graph
                     .scopes
@@ -35,7 +45,12 @@ impl DataflowInterface {
                 outputs: graph
                     .outputs
                     .iter()
-                    .map(|o| (o.scope, o.name.clone(), graph.nodes[o.node].kind))
+                    .map(|o| OutputInterface {
+                        scope: o.scope,
+                        name: o.name.clone(),
+                        kind: graph.nodes[o.node].kind,
+                        schema: graph.nodes[o.node].plan.schema().clone(),
+                    })
                     .collect(),
             }),
         }
@@ -182,8 +197,8 @@ impl ScopeInterface {
             .outputs
             .iter()
             .enumerate()
-            .find(|(_, (s, n, _))| *s == self.scope && n.as_ref() == name)
-            .map(|(i, (_, _, k))| (i, *k))
+            .find(|(_, output)| output.scope == self.scope && output.name.as_ref() == name)
+            .map(|(i, output)| (i, output.kind))
             .ok_or_else(|| Error::InvalidReference(name.into()))
     }
 }

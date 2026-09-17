@@ -48,27 +48,17 @@ impl ExprKey {
 #[derive(Debug)]
 pub(crate) struct BoundExpr {
     pub key: Arc<ExprKey>,
+    original: Arc<Expr>,
     forms: Vec<(DFSchemaRef, Expr)>,
 }
 impl BoundExpr {
     pub fn new(expr: Expr, sites: &[ExprSite], field: &FieldRef, name: &str) -> Result<Self> {
         validate_structure(&expr).map_err(|source| binding_error(name, "expression", source))?;
-        let mut forms = Vec::new();
-        for site in sites {
-            let form = resolve(expr.clone(), &site.schema)
-                .and_then(|expr| {
-                    let actual = expr.get_type(site.schema.as_ref())?;
-                    if &actual != field.data_type() {
-                        return datafusion::common::plan_err!(
-                            "expected {}, received {actual}",
-                            field.data_type()
-                        );
-                    }
-                    Ok(ScalarUDF::from(DeclaredField(field.clone())).call(vec![expr]))
-                })
-                .map_err(|source| binding_error(name, &site.label, source))?;
-            forms.push((site.schema.clone(), form));
-        }
+        let forms = sites
+            .iter()
+            .map(|site| Ok((site.schema.clone(), bind_form(&expr, site, field, name)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let original = Arc::new(expr.clone());
         let mut literals = Vec::new();
         let structure = expr
             .transform_up(|expr| {
@@ -87,10 +77,30 @@ impl BoundExpr {
             })?
             .data;
         Ok(Self {
+            original,
             key: Arc::new(ExprKey {
                 structure,
                 literals,
             }),
+            forms,
+        })
+    }
+
+    /// Validate additional contexts without mutating the original binding or key.
+    pub fn for_sites(&self, sites: &[ExprSite], field: &FieldRef, name: &str) -> Result<Self> {
+        let forms = sites
+            .iter()
+            .map(|site| {
+                let form = match self.forms.iter().find(|(schema, _)| schema == &site.schema) {
+                    Some((_, form)) => form.clone(),
+                    None => bind_form(&self.original, site, field, name)?,
+                };
+                Ok((site.schema.clone(), form))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            original: self.original.clone(),
+            key: self.key.clone(),
             forms,
         })
     }
@@ -109,12 +119,28 @@ impl BoundExpr {
 
     pub fn size(&self) -> usize {
         self.key.size()
+            + expression_size(&self.original)
             + self
                 .forms
                 .iter()
                 .map(|(_, e)| expression_size(e))
                 .sum::<usize>()
     }
+}
+
+fn bind_form(expr: &Expr, site: &ExprSite, field: &FieldRef, name: &str) -> Result<Expr> {
+    resolve(expr.clone(), &site.schema)
+        .and_then(|expr| {
+            let actual = expr.get_type(site.schema.as_ref())?;
+            if &actual != field.data_type() {
+                return datafusion::common::plan_err!(
+                    "expected {}, received {actual}",
+                    field.data_type()
+                );
+            }
+            Ok(ScalarUDF::from(DeclaredField(field.clone())).call(vec![expr]))
+        })
+        .map_err(|source| binding_error(name, &site.label, source))
 }
 
 fn binding_error(name: &str, context: &str, source: impl std::fmt::Display) -> Error {
@@ -221,35 +247,43 @@ impl ScalarUDFImpl for DeclaredField {
     }
 }
 
-pub(crate) fn collect_sites(graph: &GraphDef) -> Result<Vec<Vec<ExprSite>>> {
-    let mut sites: Vec<Vec<ExprSite>> = vec![Vec::new(); graph.inputs.len()];
+pub(crate) fn collect_sites(graph: &GraphDef, from_base: bool) -> Result<Vec<Vec<ExprSite>>> {
+    let inputs = if from_base {
+        graph
+            .base
+            .as_ref()
+            .map(|base| base.inner.inputs.as_slice())
+            .unwrap_or(&[])
+    } else {
+        &graph.inputs
+    };
+    let mut sites: Vec<Vec<ExprSite>> = vec![Vec::new(); inputs.len()];
     for node in &graph.nodes {
-        if !node
-            .analysis
-            .inputs
-            .iter()
-            .any(|i| matches!(graph.inputs[*i].kind, InputKind::Expr(_)))
-        {
-            continue;
-        }
-        let label = format!("{}::{}", graph.scope_name(node.scope), node.name);
+        let label = format!(
+            "{}{}::{}",
+            if from_base { "additional::" } else { "" },
+            graph.scope_name(node.scope),
+            node.name
+        );
         node.plan.apply_with_subqueries(|plan| {
             map_context_expressions(plan.clone(), |expr, schema| {
                 expr.apply(|e| {
                     if let Expr::Placeholder(p) = e {
-                        if let Some((ScalarRef::Input(index), _)) = graph.placeholders.get(&p.id) {
-                            if matches!(graph.inputs[*index].kind, InputKind::Expr(_)) {
+                        let index = match graph.placeholders.get(&p.id) {
+                            Some((ScalarRef::Input(index), _)) if !from_base => Some(*index),
+                            Some((ScalarRef::BaseInput(index), _)) if from_base => Some(*index),
+                            _ => None,
+                        };
+                        if let Some(index) = index {
+                            if matches!(inputs[index].kind, InputKind::Expr(_)) {
                                 let schema = schema.ok_or_else(|| {
                                     datafusion::common::DataFusionError::Plan(format!(
                                         "expression input {} has an unsupported usage context at {label}",
-                                        graph.inputs[*index].name
+                                        inputs[index].name
                                     ))
                                 })?;
-                                if !sites[*index].iter().any(|site| site.schema == *schema) {
-                                    sites[*index].push(ExprSite {
-                                        schema: schema.clone(),
-                                        label: label.clone(),
-                                    });
+                                if !sites[index].iter().any(|site| site.schema == *schema) {
+                                    sites[index].push(ExprSite { schema: schema.clone(), label: label.clone() });
                                 }
                             }
                         }

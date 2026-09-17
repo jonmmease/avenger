@@ -60,6 +60,9 @@ pub(crate) struct ValueKey {
     pub node: usize,
     pub instance: Option<ScopeInstance>,
     pub inputs: Vec<(usize, BindingKey)>,
+    pub base_inputs: Vec<(usize, BindingKey)>,
+    /// Originating preparation and its clear epoch, independent of ordinary eviction.
+    pub upstream: Option<(u64, u64)>,
 }
 impl ValueKey {
     pub(crate) fn size(&self) -> usize {
@@ -68,6 +71,7 @@ impl ValueKey {
             + self
                 .inputs
                 .iter()
+                .chain(&self.base_inputs)
                 .map(|(_, v)| std::mem::size_of::<usize>() + v.size())
                 .sum::<usize>()
     }
@@ -87,6 +91,13 @@ pub(crate) struct Cache {
     stats: CacheStats,
 }
 impl Cache {
+    fn current(&self, key: &ValueKey, epoch: u64) -> bool {
+        self.epochs.get(&key.namespace) == Some(&epoch)
+            && key
+                .upstream
+                .is_none_or(|(namespace, epoch)| self.epochs.get(&namespace) == Some(&epoch))
+    }
+
     pub fn new(policy: CachePolicy) -> Self {
         Self {
             policy,
@@ -114,7 +125,9 @@ impl Cache {
             .get_mut(&namespace)
             .expect("registered namespace") += 1;
         self.entries.retain(|key, entry| {
-            if key.namespace == namespace {
+            if key.namespace == namespace
+                || key.upstream.is_some_and(|(origin, _)| origin == namespace)
+            {
                 self.stats.bytes -= entry.bytes;
                 false
             } else {
@@ -128,7 +141,7 @@ impl Cache {
         self.epochs.remove(&namespace);
     }
     pub fn get(&mut self, key: &ValueKey, epoch: u64) -> Option<MaterializedValue> {
-        if self.epochs.get(&key.namespace) != Some(&epoch) {
+        if !self.current(key, epoch) {
             return None;
         }
         let entry = self.entries.get_mut(key)?;
@@ -141,7 +154,7 @@ impl Cache {
             return false;
         };
         let (max_bytes, max_entries) = (config.max_bytes, config.max_entries);
-        if self.epochs.get(&key.namespace) != Some(&epoch) {
+        if !self.current(&key, epoch) {
             return false;
         }
         let bytes = value.size().saturating_add(key.size()).saturating_add(128);

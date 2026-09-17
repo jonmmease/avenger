@@ -128,6 +128,8 @@ pub(crate) fn bind_plan<'a>(
     graph: &GraphDef,
     input: impl Fn(usize) -> &'a InputBinding,
     value: impl Fn(usize) -> &'a MaterializedValue,
+    base_input: impl Fn(usize) -> &'a InputBinding,
+    imported: impl Fn(usize) -> &'a MaterializedValue,
 ) -> Result<LogicalPlan> {
     plan.transform_up_with_subqueries(|plan| {
         if let LogicalPlan::Extension(extension) = &plan {
@@ -139,12 +141,18 @@ pub(crate) fn bind_plan<'a>(
                         &asset
                     }
                     TableRef::Input(index) => {
-                        let InputBinding::Value(value) = input(index) else {
+                        let binding = if read.graph == graph.id {
+                            input(index)
+                        } else {
+                            base_input(index)
+                        };
+                        let InputBinding::Value(value) = binding else {
                             unreachable!()
                         };
                         value
                     }
                     TableRef::Node(index) => value(index),
+                    TableRef::Import(index) => imported(index),
                     TableRef::Rows(_) => {
                         return datafusion::common::internal_err!(
                             "local rows must be automatically bound before execution"
@@ -170,8 +178,13 @@ pub(crate) fn bind_plan<'a>(
                     return Ok(Transformed::no(expr));
                 };
                 let (source, field) = &graph.placeholders[&placeholder.id];
-                let value = match source {
-                    ScalarRef::Input(index) => match input(*index) {
+                let binding = match source {
+                    ScalarRef::Input(index) => Some(input(*index)),
+                    ScalarRef::BaseInput(index) => Some(base_input(*index)),
+                    _ => None,
+                };
+                let value = if let Some(binding) = binding {
+                    match binding {
                         InputBinding::Value(value) => value,
                         InputBinding::Expr(expr) => {
                             let schema = schema.ok_or_else(|| {
@@ -181,8 +194,13 @@ pub(crate) fn bind_plan<'a>(
                             })?;
                             return Ok(Transformed::yes(expr.at(schema)?));
                         }
-                    },
-                    ScalarRef::Node(index) => value(*index),
+                    }
+                } else {
+                    match source {
+                        ScalarRef::Node(index) => value(*index),
+                        ScalarRef::Import(index) => imported(*index),
+                        _ => unreachable!(),
+                    }
                 };
                 let MaterializedValue::Scalar(value) = value else {
                     unreachable!()

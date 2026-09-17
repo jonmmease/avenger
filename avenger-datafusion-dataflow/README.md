@@ -170,7 +170,7 @@ It discovers regions and years from sales rows, captures root and regional scala
 
 Resolve each scoped input from its exact override, then its definition default. Repeated writes replace one entry without copying resolved defaults. Changing a default preserves explicit overrides. Missing bindings fail only when a demanded computation reads them. An absent-instance override remains configuration and can become active after source replacement.
 
-The query signature stays `query(tables, scalars, inputs)`. Scoped output handles request all observed instances of their definition. Descendant requests expose ancestor navigation without exposing unrequested ancestor outputs. Scopes outside requested paths are unavailable. Both empty slices perform no discovery. A wrong-scope output access fails, and `.get()` returns `None` for absent or type-incompatible keys.
+For standalone dataflows, the query signature stays `query(tables, scalars, inputs)`. Scoped output handles request all observed instances of their definition. Descendant requests expose ancestor navigation without exposing unrequested ancestor outputs. Scopes outside requested paths are unavailable. Both empty slices perform no discovery. A wrong-scope output access fails, and `.get()` returns `None` for absent or type-incompatible keys.
 
 Discovery uses the source before child transforms. Empty sources have no observed instances, and a present parent can have an empty child collection. Composite keys include only observed tuples, without generating a crossed grid. Iteration order is unspecified. A computed key does not add a public source column.
 
@@ -211,6 +211,79 @@ The runtime returns results only after all requested outputs succeed. Errors ret
 `RuntimeConfig` exposes `ExecutionConfig`: maximum active queries and an aggregate byte budget for materialized values owned by active queries. The defaults are four queries and 256 MiB. Regions and scope instances within one query execute sequentially. All frames share one query permit, captured timestamp, and materialization budget.
 
 The byte budget conservatively charges Arrow array allocations, scalar copies, partition indices, instance addresses, and frame/result metadata, potentially counting shared buffers more than once. Charges accumulate until the query ends, including temporary partition buffers already released. This can reject a query below the budget in actual live memory. A query that cannot retain its required values fails with `ResourceExhausted`. This budget does not bound caller-owned inputs, returned results, or DataFusion operator memory. Operator memory uses DataFusion's runtime environment. Fixed graph assets are also excluded from active materialization charges. Retained results have a separate bounded cache budget.
+
+## Prepared extensions
+
+Construct additional computations on demand with `DataflowBuilder::with_base(&base.interface())`. The resulting definition is an ordinary `Dataflow`. `base.prepare_extension(&additional_dataflow)` returns a reusable `PreparedExtension` attached to that exact base preparation. It preserves the base's analyzed plans and cache identity.
+
+| Prepared value | Execution method | Binding builder |
+|---|---|---|
+| `PreparedDataflow` | `query(tables, scalars, inputs)` | `base.inputs()` binds the base declarations |
+| `PreparedExtension` | `query(tables, scalars, base_inputs, additional_inputs)` | `extension.inputs()` binds the additional declarations |
+
+The following example assumes `source` exposes an Int64 column named `value`. It prepares once and queries two different selections:
+
+```rust
+use avenger_datafusion_dataflow::{
+    arrow::datatypes::DataType,
+    datafusion::logical_expr::{col, lit, LogicalPlanBuilder},
+    DataflowBuilder, DataflowResult, Inputs, PreparedDataflow, Result, TableOutput,
+};
+
+async fn query_selections(
+    base: &PreparedDataflow,
+    source: TableOutput,
+    base_inputs: &Inputs,
+) -> Result<Vec<DataflowResult>> {
+    let mut additional = DataflowBuilder::with_base(&base.interface());
+    let rows = additional.import_table("source", &source)?;
+    let selection = additional.expr_input("selection", DataType::Boolean)?;
+    let filtered = additional.add_plan(
+        "filtered",
+        LogicalPlanBuilder::from(rows.plan_ref())
+            .filter(selection.expr_ref())?
+            .build()?,
+    )?;
+    let output = additional.table_output("rows", &filtered)?;
+    let extension = base.prepare_extension(&additional.finish()?).await?;
+    let mut results = Vec::new();
+    for cutoff in [10_i64, 20_i64] {
+        let additional_inputs = extension.inputs()
+            .expr(&selection, col("value").gt(lit(cutoff)))?
+            .finish()?;
+        results.push(extension.query(&[output], &[], base_inputs, &additional_inputs).await?);
+    }
+    Ok(results)
+}
+```
+
+Retain the `PreparedExtension` across interactions and edit its immutable bindings for subsequent queries. Repeated calls to `prepare_extension` create independent additional cache namespaces. Clones share the same preparation. Ordinary base queries need no extension or empty additional definition.
+
+### Imports and bindings
+
+`import_table` and `import_scalar` accept published root outputs and return ordinary `PlanNode` and `ScalarNode` handles. Imports share the original producer's materialized value and perform no wrapper execution. Re-export an import to request it alongside additional outputs. `Dataflow::num_nodes()` counts local computations, excluding import aliases. The additional interface exposes its own declared inputs and outputs.
+
+Use existing base root input handles directly in additional plans and expressions. They read `base_inputs`. Additional scalar, table, and expression inputs read `additional_inputs`. Both binding sets retain their own ownership and completeness checks, including when input names match. An empty additional binding set comes from `extension.inputs().finish()?`. Existing base expression bindings are validated against their additional usage schemas before data execution without changing the original binding.
+
+Only the associated base's root inputs and published root outputs can cross this boundary. Internal base computation handles remain private to their definition. Additional definitions can create nested scopes over imported root tables and use ordinary scoped defaults and overrides in `additional_inputs`. Importing an existing base facet instance requires a future scope-mapping API.
+
+### Shared evaluation and retention
+
+A composed query has one evaluation ID, query start time, execution permit, and active-memory reservation. Shared base computations run at most once within that evaluation. Stable and Volatile dependencies remain evaluation-local across both programs. Preparation and execution reports distinguish base and additional work, and `explain().imports` identifies each imported producer.
+
+Resident base results serve ordinary queries and every extension attached to that preparation. Additional cache keys include their transitive base and local bindings. An additional result hit can skip base execution entirely. `base.clear_results()` also removes dependent additional entries and prevents in-flight requests from publishing results derived under the old clear epoch. `extension.clear_results()` removes only that extension's entries. Ordinary eviction of an upstream value does not invalidate retained downstream results.
+
+The extension keeps its base alive. Dropping the last extension clone releases its additional cache namespace without clearing other users' base results. Both programs share the runtime's LRU budget and execution limits. Concurrent cold queries can duplicate work. Query misses still optimize and physically plan named computations.
+
+### Generated pre-aggregation example
+
+```sh
+cargo run -p avenger-datafusion-dataflow --example additional_dataflow
+```
+
+The [flight example](examples/additional_dataflow.rs) warms a CSV source in the base, then constructs a delay-to-carrier pre-aggregation with a local active predicate. Changing the delay interval reuses the pre-aggregation, changing fixed filters recomputes it, and returning to a previous interval can reuse the final result. The example compares every result with a direct aggregate and prints actual execution reports. It groups by exact delay values and does not implement selection-aware binning or aggregate rewriting.
+
+Extensions currently use native Rust construction against one standalone base. A protobuf- or JSON-loaded base can supply its interface. Serializing an additional definition returns an explicit external-import error. Portable import manifests, JSON extension requests, multiple bases, and extensions of extensions remain deferred.
 
 ## Fixed sources and caching
 

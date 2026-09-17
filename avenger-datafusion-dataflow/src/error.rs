@@ -5,6 +5,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(
+        "additional dataflows require a matching base and PreparedDataflow::prepare_extension"
+    )]
+    BaseRequired,
     #[cfg(feature = "json")]
     #[error("invalid JSON dataflow or query: {0}")]
     Json(String),
