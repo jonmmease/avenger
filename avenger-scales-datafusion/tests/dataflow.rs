@@ -51,7 +51,7 @@ async fn scoped_domains_dynamic_ranges_cache_and_decode_into_a_fresh_runtime() -
                 .aggregate(Vec::<Expr>::new(), vec![max(col("value"))])?
                 .build()?,
         )?;
-        let upper = s.add_expr("upper", scalar_subquery(Arc::new(maximum.plan_ref())))?;
+        let upper = s.add_scalar("upper", scalar_subquery(Arc::new(maximum.plan_ref())))?;
         let x = scale_expr(
             BuiltinScale::Linear,
             make_array(vec![lit(0.0_f64), upper.expr_ref()]),
@@ -66,7 +66,7 @@ async fn scoped_domains_dynamic_ranges_cache_and_decode_into_a_fresh_runtime() -
                 .build()?,
         )?;
         s.table_output("marks", &projected)?;
-        let marker = s.add_expr(
+        let marker = s.add_scalar(
             "midpoint",
             scale_expr(
                 BuiltinScale::Linear,
@@ -145,5 +145,62 @@ async fn scoped_domains_dynamic_ranges_cache_and_decode_into_a_fresh_runtime() -
     let third = prepared.query(&[marks], &[midpoint], &inputs).await?;
     assert!(third.report().cache_hits > 0);
     assert_eq!(third.report().physical_plans, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn scale_expression_bindings_need_no_codec_and_reuse_previous_results() -> Result<()> {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Float64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(Float64Array::from(vec![0.0, 0.5, 1.0]))],
+    )?;
+    let mut b = DataflowBuilder::new();
+    let source = b.table_snapshot("source", TableSnapshot::from_batches(schema, vec![batch])?)?;
+    let position = b.expr_input("position", DataType::Float32)?;
+    let marks = b.add_plan(
+        "marks",
+        LogicalPlanBuilder::from(source.plan_ref())
+            .project(vec![position.expr_ref().alias("x")])?
+            .build()?,
+    )?;
+    b.table_output("marks", &marks)?;
+    // The artifact contains a typed input declaration. Its UDF is supplied at query time.
+    let bytes = b.finish()?.to_bytes()?;
+    let runtime = Runtime::new(Default::default())?;
+    let flow = runtime.decode_dataflow(&bytes)?;
+    let names = flow.interface().root();
+    let position = names.expr_input("position")?;
+    let marks = names.table_output("marks")?;
+    let p = runtime.prepare(&flow).await?;
+    let expression = |width| -> datafusion::common::Result<Expr> {
+        scale_expr(
+            BuiltinScale::Linear,
+            list_literal(Arc::new(Float64Array::from(vec![0.0, 1.0])))?,
+            list_literal(Arc::new(Float64Array::from(vec![0.0, width])))?,
+            options_literal(&HashMap::new())?,
+            col("value"),
+        )
+    };
+    let a = p.inputs().expr(&position, expression(100.0)?)?.finish()?;
+    let b = a.edit().expr(&position, expression(200.0)?)?.finish()?;
+    for (inputs, expected, plans) in [
+        (&a, vec![0.0_f32, 50.0, 100.0], 1),
+        (&b, vec![0.0_f32, 100.0, 200.0], 1),
+        (&a, vec![0.0_f32, 50.0, 100.0], 0),
+    ] {
+        let result = p.query(&[marks], &[], inputs).await?;
+        let values = result.table(&marks)?.batches()[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Float32Array>()
+            .unwrap();
+        assert_eq!(values.values().as_ref(), expected);
+        assert_eq!(result.report().physical_plans, plans);
+    }
     Ok(())
 }

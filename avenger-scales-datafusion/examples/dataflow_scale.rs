@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
             .aggregate(Vec::<Expr>::new(), vec![max(col("value"))])?
             .build()?,
     )?;
-    let upper = b.add_expr("upper", scalar_subquery(Arc::new(maximum.plan_ref())))?;
+    let upper = b.add_scalar("upper", scalar_subquery(Arc::new(maximum.plan_ref())))?;
     let width = b.scalar_input("width", DataType::Float64)?;
     let x = scale_expr(
         BuiltinScale::Linear,
