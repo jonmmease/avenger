@@ -227,15 +227,20 @@ impl ResolvedContribution {
 pub struct ResolvedProjection {
     id: ProjectionId,
     expr: Expr,
+    raw_expr: Expr,
 }
 impl ResolvedProjection {
     /// Return the producer-local projection ID.
     pub fn id(&self) -> &ProjectionId {
         &self.id
     }
-    /// Return the effective consumer expression.
+    /// Return the comparison expression, including cell mapping for pixel dimensions.
     pub fn expr(&self) -> &Expr {
         &self.expr
+    }
+    /// Return the consumer's row expression before any pixel mapping.
+    pub fn raw_expr(&self) -> &Expr {
+        &self.raw_expr
     }
 }
 
@@ -273,13 +278,21 @@ fn resolve(
                     .producer()
                     .projections()
                     .iter()
-                    .map(|p| ResolvedProjection {
-                        id: p.id().clone(),
-                        expr: consumer
+                    .map(|p| {
+                        let raw_expr = consumer
                             .projections
                             .get(&(address.clone(), p.id().clone()))
                             .unwrap_or(p.expr())
-                            .clone(),
+                            .clone();
+                        let expr = match contribution.producer().pixel_grid(p.id()) {
+                            Some(grid) => grid.cell_expr(raw_expr.clone()),
+                            None => raw_expr.clone(),
+                        };
+                        ResolvedProjection {
+                            id: p.id().clone(),
+                            expr,
+                            raw_expr,
+                        }
                     })
                     .collect();
                 let identity_expr = if let SelectionValue::RowIds(ids) = contribution.value() {

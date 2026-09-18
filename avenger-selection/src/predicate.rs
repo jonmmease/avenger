@@ -40,7 +40,7 @@ fn combine(exprs: impl IntoIterator<Item = Expr>, and: bool) -> Expr {
         .unwrap_or_else(|| lit(and))
 }
 fn contribution(c: &ResolvedContribution) -> Expr {
-    match c.contribution().value() {
+    match c.contribution().effective_value() {
         SelectionValue::Tuples(tuples) => combine(
             tuples.iter().map(|tuple| {
                 combine(
