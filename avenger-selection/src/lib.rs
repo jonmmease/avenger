@@ -6,6 +6,7 @@ mod definitions;
 mod error;
 mod identity;
 mod pixels;
+mod preaggregate;
 mod predicate;
 mod query;
 mod resolve;
@@ -23,6 +24,7 @@ pub use identity::{
     FacetKey, ProducerAddress, ProducerId, ProjectionId, ScopeId, SelectionId, ViewAddress, ViewId,
 };
 pub use pixels::PixelGrid;
+pub use preaggregate::AggregateStep;
 pub use query::{
     BoundQuery, DirectReason, QueryDiagnostics, QueryFamily, QueryFamilyBuilder, QueryPolicy,
     QueryStrategy, SelectionQuery,

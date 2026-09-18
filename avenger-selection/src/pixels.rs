@@ -406,7 +406,7 @@ fn safe_time_values(array: ArrayRef, start: i64) -> DFResult<ArrayRef> {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct PixelCell {
+pub(crate) struct PixelCell {
     grid: PixelGrid,
     signature: Signature,
 }

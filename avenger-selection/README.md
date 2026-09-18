@@ -214,7 +214,7 @@ The three-view example supports pixel precision for both brushes:
 cargo run -p avenger-selection --example direct_crossfilter -- --pixels
 ```
 
-## Query families and direct execution
+## Query families and count pre-aggregation
 
 Construct a query once with a callback over its selection-filtered relation:
 
@@ -248,18 +248,62 @@ Planning and binding read no data and invoke no projection functions.
 
 `query.logical_plan(selections)` returns the ordinary native plan with the full
 consumer predicate. `family.bind(selections)` returns a `BoundQuery` and strategy
-diagnostics. All families currently return `BoundQuery::Direct`.
-Pre-aggregation and `AggregateStep` are not implemented. The strategy and reason
-enums are non-exhaustive so additional strategies can be added.
+diagnostics. Compatible counts return `BoundQuery::Preaggregated`:
 
-`QueryPolicy::Auto` is the default and currently reports
-`DirectReason::PreaggregationNotImplemented`. `ForceDirect` reports
-`DirectReason::Forced` and remains available when optimizations are added. Use
+- `materialization` applies fixed selections and groups by the target's display
+  keys plus the focused producer's interaction keys. Each cell stores counts.
+- `aggregate` is an `AggregateStep`. Its `over(materialized_relation)` method
+  filters those cells with the current focused selection, sums their counts,
+  restores the original count schema, and applies the query's original suffix.
+  `schema()` describes the required materialization fields. Relation qualifiers
+  may differ. Field names, order, types, nullability, and metadata must match.
+
+Execute the materialization once and supply a scan of its result to `over`, or
+use the dataflow installation below to manage both stages. Passing the
+materialization plan itself to `over` produces one nested query without a reuse
+boundary. An empty ungrouped result is finalized as zero. Grouped queries retain
+only observed groups, including groups with a zero `COUNT(column)` value.
+
+The initial rewrite supports built-in `COUNT(*)` and `COUNT(column)`, including
+several counts in one aggregate. It accepts one selection site followed by an
+aggregate and optional projection, alias, sorting without a fetch limit, and
+post-aggregate filters such as `HAVING`. Fixed row filters may precede the
+aggregate. Source transformations can remain upstream of the selection site.
+
+The consumer predicate must factor into fixed and changing conjunctions after
+self-exclusion. An intersecting shared selection supports this split. Other
+producers remain fixed dependencies, including producers under the same name.
+The first rewrite conservatively leaves focused union/global resolution and
+focused OR/NOT expressions direct. Arbitrary Boolean branches that do not use
+the focus remain fixed.
+
+Interaction keys retain all observed values, including nulls and values outside
+the current brush. Pixel producers retain cells from the same captured grid used
+by direct predicates. Multiple keys preserve tuple correlation. Without a pixel
+grid, exact values are retained. High-cardinality keys may provide little size
+reduction. There is no cardinality-based cost decision yet.
+
+Grouping expressions are checked because materialization also evaluates
+unselected rows. Initially, supported expressions are columns, literals, aliases,
+`TRY_CAST` over supported expressions, captured pixel cells, and division by a
+positive constant of the same numeric type. Other calculations and unknown UDFs
+fall back even when immutable. This avoids introducing errors such as division
+by zero in a group expression for an otherwise unselected row.
+
+Distinct counts, aggregate filters, calculated count arguments, other aggregates,
+unsupported query shapes, and stable/volatile computations also use the direct
+path with a specific reason. There is no retry that hides backend execution
+failures. Invalid state and mappings remain errors.
+
+`QueryPolicy::Auto` is the default. `ForceDirect` reports
+`DirectReason::Forced` and applies the original complete predicate. Use
 `.policy(QueryPolicy::ForceDirect)` on the family builder to set that default,
-or `bind_with_policy` for one request. Neither option disables ordinary dataflow
-caching or changes exact/pixel membership. Invalid state and mappings remain
-errors. A focus is optional and can name an inactive producer. Current state
-determines actual membership, including after a grid or producer change.
+or `bind_with_policy` for one request. Policy overrides work in either direction
+within the same family. Neither option disables ordinary dataflow caching or
+changes exact/pixel membership. A focus is optional and can name an inactive
+producer. A changed producer definition or grid selects direct execution until
+a compatible family is prepared. Changing bounds or fixed-selection values
+does not require a new family.
 
 ### Install once and bind through dataflow
 
@@ -289,7 +333,7 @@ let family = filter.query(source.plan_ref(), |rows| {
 let installed = family.install(&mut additional, "airline_counts")?;
 let extension = base.prepare_extension(&additional.finish()?).await?;
 
-let binding = installed.bind_with_policy(selections, QueryPolicy::ForceDirect)?;
+let binding = installed.bind(selections)?;
 let inputs = binding.apply(extension.inputs())?.finish()?;
 let output = binding.output();
 let result = extension.query(&[output], &[], base_inputs, &inputs).await?;
@@ -308,27 +352,51 @@ and preserves unrelated bindings. The caller must still supply every unrelated
 required root input.
 
 Both `installed.bind` and `installed.bind_with_policy` use this path. A policy
-override does not require another preparation. Direct bindings expose no
-warm-up computation: `preaggregate_output()` returns `None`. The runtime still
-caches eligible sources and results, coalesces in-progress work, and handles
-cancellation. Installation currently adds one full-predicate input and one
-direct output per target. It adds no unused pre-aggregation branches.
+override does not require another preparation. Compatible installations have
+three expression inputs: full, fixed, and changing predicates. They expose a
+direct output, a materialization output, and a final aggregate output. Direct-only
+families have just the full predicate and direct output. `apply` supplies every
+owned input, including neutral predicates on unused optimized branches.
+
+`preaggregate_output()` returns the compatible materialization output, or `None`
+for direct bindings. On plot entry, bind an inactive focus and query those
+outputs to warm the same nodes that final queries depend on. This does not
+change selections or render a chart. Overlapping queries share in-progress
+work through dataflow. Dropping a query detaches that consumer's interest.
+
+The materialization depends on the source, fixed predicate, and concrete plan.
+Focused bounds affect only the final node. A new source `TableSnapshot` or a
+changed fixed predicate creates a new cache dependency. Externally mutable
+sources still need the dataflow's explicit refresh/version policy. Retention
+is subject to the runtime's LRU budget: eviction, `clear_results`, and disabled
+caching can require rebuilding after warm-up. Keeping a preparation does not
+guarantee keeping its results. The controller separately bounds the number of
+preparations it keeps when switching focus.
 
 The installed three-view example starts with inactive selections, applies a
 delay brush `[10, 40)`, drags its lower edge to `[11, 40)`, and repeats that last
-request. It prints each generated query as SQL before executing the installed
-outputs. After each request, it prints the names of executed nodes, the cache-hit
-count, and the count of shared in-progress computations from the runtime's
-`EvaluationReport`:
+request. It first warms compatible materializations with the inactive snapshot.
+The default output follows these steps, states which outputs each step requests,
+and prints pretty result tables in a stable order. Each step reports the actual
+executed-node names, cache hits, and shared in-progress computations from the
+runtime's `EvaluationReport`. A legend explains the materialization, aggregate,
+and direct node names.
 
 ```sh
 cargo run -p avenger-selection --features dataflow --example query_families
 cargo run -p avenger-selection --features dataflow --example query_families -- --force-direct
+cargo run -p avenger-selection --features dataflow --example query_families -- --sql
 ```
 
 The example retains each `QueryFamily` beside its installation.
-`family.bind(&state)` exposes the generated `LogicalPlan` through
-`BoundQuery::Direct { plan, .. }`. `query.logical_plan(&state)` is also available
+`family.bind(&state)` exposes either a direct plan or both pre-aggregation stages.
+The optional `--sql` appendix prints the bound SQL separately from the execution
+trace. It prints each materialization as its own query and gives the final
+aggregate a schema-only reference to that named relation for inspection. This
+keeps the reuse boundary visible. Later steps print only changed SQL text.
+Printing a plan does not execute it or report a cache lookup. `--sql` can also
+be combined with `--force-direct`.
+`query.logical_plan(&state)` is also available
 when inspecting the ordinary direct query without a family. The dataflow crate's
 `additional.sql().plan(&plan)` formats that plan using DataFusion's unparser and
 renders its source reference as `nodes.flights`. Generated selection UDFs remain
@@ -350,7 +418,9 @@ adapter for root installations. Root and scoped dataflow Expr inputs also accept
 the predicates directly. Dataflow is a development dependency for integration
 tests and the direct example.
 
-The current implementation covers typed state, direct predicates, and pixel
-membership (phases 1–3), plus the direct-execution query-family and installation
-APIs. Count pre-aggregation, two-stage rewrites, and optimized warm-up remain
-later work. Selection-state serialization is deferred.
+The implementation covers typed state, direct predicates, pixel membership,
+count query families, and root/extension installation with optional warm-up.
+Aggregate recipes separate state expressions, merge expressions, and finalization
+from predicate factorization and grouping. Further aggregates can extend those
+recipes without changing the binding, installation, or cache lifecycle.
+Selection-state serialization is deferred.

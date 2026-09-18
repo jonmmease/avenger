@@ -33,26 +33,20 @@ pub(crate) fn resolved(filter: &ResolvedFilter) -> Expr {
         },
     }
 }
-fn combine(exprs: impl IntoIterator<Item = Expr>, and: bool) -> Expr {
+pub(crate) fn combine(exprs: impl IntoIterator<Item = Expr>, and: bool) -> Expr {
     exprs
         .into_iter()
         .reduce(|a, b| if and { a.and(b) } else { a.or(b) })
         .unwrap_or_else(|| lit(and))
 }
-fn contribution(c: &ResolvedContribution) -> Expr {
+pub(crate) fn contribution(c: &ResolvedContribution) -> Expr {
     match c.contribution().effective_value() {
-        SelectionValue::Tuples(tuples) => combine(
-            tuples.iter().map(|tuple| {
-                combine(
-                    tuple
-                        .terms
-                        .iter()
-                        .zip(c.projections())
-                        .map(|(term, p)| comparison(p.expr().clone(), &term.test)),
-                    true,
-                )
-            }),
-            false,
+        SelectionValue::Tuples(tuples) => tuples_predicate(
+            tuples,
+            &c.projections()
+                .iter()
+                .map(|p| p.expr().clone())
+                .collect::<Vec<_>>(),
         ),
         SelectionValue::RowIds(ids) => combine(
             ids.values().iter().map(|value| {
@@ -64,6 +58,24 @@ fn contribution(c: &ResolvedContribution) -> Expr {
             false,
         ),
     }
+}
+
+// Both native row predicates and predicates over retained interaction keys use
+// these comparisons. This keeps tuple correlation and pixel bounds identical.
+pub(crate) fn tuples_predicate(tuples: &[crate::SelectionTuple], projections: &[Expr]) -> Expr {
+    combine(
+        tuples.iter().map(|tuple| {
+            combine(
+                tuple
+                    .terms
+                    .iter()
+                    .zip(projections)
+                    .map(|(term, expr)| comparison(expr.clone(), &term.test)),
+                true,
+            )
+        }),
+        false,
+    )
 }
 fn equality(expr: Expr, value: &ScalarValue) -> Expr {
     let neg_zero = match value {

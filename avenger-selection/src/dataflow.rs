@@ -1,5 +1,8 @@
 use avenger_datafusion_dataflow::{DataflowBuilder, ExprInput, InputsBuilder, TableOutput};
-use datafusion::{arrow::datatypes::DataType, logical_expr::Expr};
+use datafusion::{
+    arrow::datatypes::DataType,
+    logical_expr::{lit, Expr},
+};
 
 use crate::{QueryDiagnostics, QueryFamily, QueryPolicy, Result, SelectionSet};
 
@@ -10,12 +13,23 @@ pub struct InstalledSelectionQuery {
     family: QueryFamily,
     full_predicate: ExprInput,
     direct_output: TableOutput,
+    preaggregation: Option<InstalledPreaggregation>,
+}
+
+#[derive(Clone, Debug)]
+struct InstalledPreaggregation {
+    fixed: ExprInput,
+    changing: ExprInput,
+    materialization: TableOutput,
+    output: TableOutput,
 }
 impl QueryFamily {
-    /// Install a parameterized direct output into the caller's builder.
+    /// Install direct and, when supported, pre-aggregated outputs into the builder.
     ///
     /// Generated names are `{name}__selection_full` for the input,
-    /// `{name}__direct` for the plan, and `name` for the output. Collisions and
+    /// `{name}__direct` for the plan, and `name` for the output.
+    /// Supported families also own `__selection_fixed`, `__selection_changing`,
+    /// `__materialization`, and `__aggregate` names. Collisions and
     /// invalid graph references are errors. Discard the builder after an error
     /// because registration can have partially succeeded. No data is read.
     pub fn install(
@@ -31,10 +45,39 @@ impl QueryFamily {
             self.query.with_predicate(full_predicate.expr_ref())?,
         )?;
         let direct_output = builder.table_output(name, &direct)?;
+        let preaggregation = match &self.preaggregation {
+            Ok(prepared) => {
+                let fixed =
+                    builder.expr_input(format!("{name}__selection_fixed"), DataType::Boolean)?;
+                let changing =
+                    builder.expr_input(format!("{name}__selection_changing"), DataType::Boolean)?;
+                let materialized = builder.add_plan(
+                    format!("{name}__materialization"),
+                    prepared.materialization(fixed.expr_ref())?,
+                )?;
+                let materialization =
+                    builder.table_output(format!("{name}__materialization"), &materialized)?;
+                let aggregate = builder.add_plan(
+                    format!("{name}__aggregate"),
+                    prepared
+                        .aggregate(changing.expr_ref())?
+                        .over(materialized.plan_ref())?,
+                )?;
+                let output = builder.table_output(format!("{name}__aggregate"), &aggregate)?;
+                Some(InstalledPreaggregation {
+                    fixed,
+                    changing,
+                    materialization,
+                    output,
+                })
+            }
+            Err(_) => None,
+        };
         Ok(InstalledSelectionQuery {
             family: self.clone(),
             full_predicate,
             direct_output,
+            preaggregation,
         })
     }
 }
@@ -54,11 +97,34 @@ impl InstalledSelectionQuery {
         selections: &SelectionSet,
         policy: QueryPolicy,
     ) -> Result<SelectionQueryBinding> {
+        let full = self.family.query.predicate(selections)?;
+        let split = self.family.split(selections, policy)?;
+        let mut predicates = vec![(self.full_predicate.clone(), full)];
+        let (output, materialization, diagnostics) = match (&self.preaggregation, split) {
+            (Some(prepared), Ok(split)) => {
+                predicates.push((prepared.fixed.clone(), split.fixed));
+                predicates.push((prepared.changing.clone(), split.changing));
+                (
+                    prepared.output,
+                    Some(prepared.materialization),
+                    QueryDiagnostics::preaggregated(),
+                )
+            }
+            (prepared, Err(reason)) => {
+                if let Some(prepared) = prepared {
+                    // Dataflow requires every declared input, even on unused branches.
+                    predicates.push((prepared.fixed.clone(), lit(true)));
+                    predicates.push((prepared.changing.clone(), lit(true)));
+                }
+                (self.direct_output, None, QueryDiagnostics::direct(reason))
+            }
+            (None, Ok(_)) => unreachable!("eligible family was installed without its template"),
+        };
         Ok(SelectionQueryBinding {
-            input: self.full_predicate.clone(),
-            predicate: self.family.query.predicate(selections)?,
-            output: self.direct_output,
-            diagnostics: QueryFamily::diagnostics(policy),
+            predicates,
+            output,
+            materialization,
+            diagnostics,
         })
     }
 }
@@ -67,17 +133,20 @@ impl InstalledSelectionQuery {
 /// The binding owns its predicate and can outlive subsequent chart-state updates.
 #[derive(Clone, Debug)]
 pub struct SelectionQueryBinding {
-    input: ExprInput,
-    predicate: Expr,
+    predicates: Vec<(ExprInput, Expr)>,
     output: TableOutput,
+    materialization: Option<TableOutput>,
     diagnostics: QueryDiagnostics,
 }
 impl SelectionQueryBinding {
     /// Bind all inputs owned by this installation, preserving other inputs.
     /// The dataflow validates the predicate at every usage site. A builder from
     /// another graph is an error. The caller still supplies unrelated inputs.
-    pub fn apply(&self, inputs: InputsBuilder) -> Result<InputsBuilder> {
-        Ok(inputs.expr(&self.input, self.predicate.clone())?)
+    pub fn apply(&self, mut inputs: InputsBuilder) -> Result<InputsBuilder> {
+        for (input, predicate) in &self.predicates {
+            inputs = inputs.expr(input, predicate.clone())?;
+        }
+        Ok(inputs)
     }
     /// Return the requested table output, independent of execution strategy.
     pub fn output(&self) -> TableOutput {
@@ -86,7 +155,7 @@ impl SelectionQueryBinding {
     /// Return the compatible materialization for optional warm-up.
     /// Direct execution has no materialization and always returns None.
     pub fn preaggregate_output(&self) -> Option<TableOutput> {
-        None
+        self.materialization
     }
     /// Explain the strategy chosen for this request.
     pub fn explain(&self) -> QueryDiagnostics {
