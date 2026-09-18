@@ -868,9 +868,10 @@ name = "avenger-selection"
 version = "0.1.0"
 dependencies = [
  "avenger-datafusion-dataflow",
+ "avenger-scales-datafusion",
  "datafusion",
  "half",
- "thiserror 2.0.12",
+ "thiserror 2.0.21",
  "tokio",
 ]
 

@@ -1,11 +1,11 @@
-use crate::{Error, ProducerAddress, ProjectionId, Result, SelectionId};
+use crate::{Error, PixelGrid, ProducerAddress, ProjectionId, Result, SelectionId};
 use datafusion::{
     arrow::datatypes::DataType,
     common::tree_node::{Transformed, TreeNode, TreeNodeRecursion},
     logical_expr::{Expr, Volatility},
 };
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -49,9 +49,10 @@ pub enum SelectionKind {
 }
 
 /// Comparison precision captured by a producer definition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IntervalPrecision {
     Exact,
+    Pixels { size: f64 },
 }
 
 /// A checked deterministic row expression with a producer-local identity.
@@ -124,6 +125,7 @@ pub struct ProducerDefinition {
     kind: SelectionKind,
     projections: Vec<Projection>,
     identity: Option<RowIdentity>,
+    grids: BTreeMap<ProjectionId, PixelGrid>,
 }
 impl ProducerDefinition {
     /// Define a producer with unique, nonempty projected dimensions and exact precision.
@@ -152,6 +154,7 @@ impl ProducerDefinition {
             kind,
             projections,
             identity: None,
+            grids: BTreeMap::new(),
         })
     }
     /// Define point selection by row IDs instead of projected tuples.
@@ -161,6 +164,7 @@ impl ProducerDefinition {
             kind: SelectionKind::Point,
             projections: vec![],
             identity: Some(identity),
+            grids: BTreeMap::new(),
         }
     }
     /// Return the selection, declaration, and view instance.
@@ -181,7 +185,61 @@ impl ProducerDefinition {
     }
     /// Return the membership precision captured by this definition.
     pub fn precision(&self) -> IntervalPrecision {
-        IntervalPrecision::Exact
+        match self.grids.values().next() {
+            Some(grid) => IntervalPrecision::Pixels { size: grid.size() },
+            None => IntervalPrecision::Exact,
+        }
+    }
+    /// Capture a replacement set of pixel grids without modifying this definition.
+    /// All grids must refer to declared projections and use the same pixel size.
+    /// Only interval producers accept grids. Reapply retained raw values with `set`
+    /// to change an existing contribution's precision after a resize.
+    pub fn with_pixel_grids(
+        &self,
+        grids: impl IntoIterator<Item = (ProjectionId, PixelGrid)>,
+    ) -> Result<Self> {
+        if self.kind != SelectionKind::Interval {
+            return Err(Error::InvalidDefinition(
+                "pixel grids require an interval producer".into(),
+            ));
+        }
+        let mut result = self.clone();
+        result.grids.clear();
+        for (id, grid) in grids {
+            if !self.projections.iter().any(|p| p.id() == &id) {
+                return Err(Error::InvalidDefinition(format!(
+                    "unknown pixel projection {id}"
+                )));
+            }
+            if result
+                .grids
+                .values()
+                .any(|other| other.size() != grid.size())
+            {
+                return Err(Error::InvalidDefinition(
+                    "pixel grids must have the same cell size".into(),
+                ));
+            }
+            if result.grids.insert(id.clone(), grid).is_some() {
+                return Err(Error::InvalidDefinition(format!(
+                    "duplicate pixel grid for {id}"
+                )));
+            }
+        }
+        if result.grids.is_empty() {
+            return Err(Error::InvalidDefinition(
+                "pixel precision requires at least one grid".into(),
+            ));
+        }
+        Ok(result)
+    }
+    /// Return the captured grid for a projected dimension, if any.
+    pub fn pixel_grid(&self, id: &ProjectionId) -> Option<&PixelGrid> {
+        self.grids.get(id)
+    }
+    /// Inspect captured grids in canonical projection order.
+    pub fn pixel_grids(&self) -> impl Iterator<Item = (&ProjectionId, &PixelGrid)> {
+        self.grids.iter()
     }
 }
 

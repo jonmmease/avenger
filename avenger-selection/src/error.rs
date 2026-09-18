@@ -1,6 +1,6 @@
 use crate::SelectionId;
 
-/// Invalid selection definitions, updates, or consumer mappings.
+/// Invalid definitions, updates, mappings, queries, or dataflow bindings.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Invalid selection definition: {0}")]
@@ -15,9 +15,14 @@ pub enum Error {
     InvalidUpdate(String),
     #[error("Invalid consumer mapping: {0}")]
     InvalidMapping(String),
+    #[error("Invalid selection query: {0}")]
+    InvalidQuery(String),
+    #[cfg(feature = "dataflow")]
+    #[error(transparent)]
+    Dataflow(#[from] avenger_datafusion_dataflow::Error),
     #[error(transparent)]
     DataFusion(#[from] datafusion::common::DataFusionError),
 }
 
-/// A result from selection construction, updates, or resolution.
+/// A result from selection construction, updates, resolution, or query binding.
 pub type Result<T> = std::result::Result<T, Error>;
