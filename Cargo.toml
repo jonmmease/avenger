@@ -30,6 +30,7 @@ members = [
     "avenger-app-tools",
     "avenger-widgets",
     "avenger-datafusion-rasterize",
+    "avenger-datafusion-aggregate-state",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
