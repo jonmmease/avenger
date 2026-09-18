@@ -1,0 +1,15 @@
+[package]
+name = "avenger-selection"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Typed selections and consumer-specific DataFusion predicates"
+
+[dependencies]
+datafusion = { version = "=54.1.0", default-features = false }
+thiserror = { workspace = true }
+half = "2"
+
+[dev-dependencies]
+avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

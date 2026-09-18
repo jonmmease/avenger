@@ -828,6 +828,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-selection"
+version = "0.1.0"
+dependencies = [
+ "avenger-datafusion-dataflow",
+ "datafusion",
+ "half",
+ "thiserror 2.0.12",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-svg"
 version = "0.0.8"
 dependencies = [
