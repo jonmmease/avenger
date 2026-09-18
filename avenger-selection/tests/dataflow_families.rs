@@ -92,8 +92,8 @@ async fn installed_families_rebind_in_one_extension_with_transparent_policy_and_
             recipes.push(recipe(source_native.clone())?);
         }
         let definition = additional.finish()?;
-        assert_eq!(definition.num_inputs(), 4); // One full predicate per target and the caller's scalar.
-        assert_eq!(definition.num_outputs(), 3);
+        assert_eq!(definition.num_inputs(), 8); // Two optimized targets, one exempt target, and caller input.
+        assert_eq!(definition.num_outputs(), 7);
         let extension = base.prepare_extension(&definition).await?;
         let mut saved = None;
         for (step, s) in [&inactive, &selected, &moved, &inactive]
@@ -108,17 +108,29 @@ async fn installed_families_rebind_in_one_extension_with_transparent_policy_and_
                     .collect::<Result<Vec<_>>>()?;
                 let outputs: Vec<_> = bindings.iter().map(|b| b.output()).collect();
                 let mut inputs = extension.inputs();
-                for binding in &bindings {
-                    assert_eq!(binding.explain().strategy, QueryStrategy::Direct);
+                for (index, binding) in bindings.iter().enumerate() {
+                    let optimized = policy == QueryPolicy::Auto && index != 0;
+                    assert_eq!(
+                        binding.explain().strategy,
+                        if optimized {
+                            QueryStrategy::Preaggregated
+                        } else {
+                            QueryStrategy::Direct
+                        }
+                    );
                     assert_eq!(
                         binding.explain().direct_reason,
-                        Some(if policy == QueryPolicy::Auto {
-                            DirectReason::PreaggregationNotImplemented
+                        if optimized {
+                            None
                         } else {
-                            DirectReason::Forced
-                        })
+                            Some(if policy == QueryPolicy::Auto {
+                                DirectReason::FocusNotUsed
+                            } else {
+                                DirectReason::Forced
+                            })
+                        }
                     );
-                    assert!(binding.preaggregate_output().is_none());
+                    assert_eq!(binding.preaggregate_output().is_some(), optimized);
                     inputs = binding.apply(inputs)?;
                 }
                 // Installation owns its predicates, not every input in the extension.
@@ -148,18 +160,16 @@ async fn installed_families_rebind_in_one_extension_with_transparent_policy_and_
                     assert_eq!(&tables, prior);
                 }
                 prior_tables = Some(tables);
-                if cached && policy == QueryPolicy::ForceDirect {
-                    assert_eq!(
-                        result.report().physical_plans,
-                        0,
-                        "policy changes do not change a direct predicate's cache key"
-                    );
-                }
                 if cached && step == 2 && policy == QueryPolicy::Auto {
+                    let mut executed = result.report().executed_nodes.clone();
+                    executed.sort();
                     assert_eq!(
-                        result.report().physical_plans,
-                        2,
-                        "the focused view still has its own cached result"
+                        executed,
+                        vec![
+                            "additional::carrier__aggregate",
+                            "additional::distance__aggregate"
+                        ],
+                        "moving only focus reuses both materializations and the exempt output"
                     );
                 }
                 if step == 1 && policy == QueryPolicy::Auto {
@@ -266,6 +276,223 @@ async fn root_installation_checks_usage_contexts_handles_and_name_collisions() -
         assert!(
             matches!(family.install(&mut other, "target"), Err(Error::Dataflow(FlowError::DuplicateName { namespace: n, .. })) if n == namespace)
         );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() -> TestResult {
+    let focus = interval("delay", "delay");
+    let fixed = point("airlines", "carrier");
+    let inactive = state(Resolution::Intersect);
+    for cache in [
+        CachePolicy::default(),
+        CachePolicy::Disabled,
+        CachePolicy::Lru(avenger_datafusion_dataflow::CacheConfig {
+            max_bytes: 1,
+            max_entries: 1,
+        }),
+    ] {
+        let retained = matches!(&cache, CachePolicy::Lru(c) if c.max_bytes > 1);
+        let runtime = Runtime::new(RuntimeConfig {
+            cache,
+            ..Default::default()
+        })?;
+        let mut graph = DataflowBuilder::new();
+        let source = graph.table_input("flights", flights().schema())?;
+        let query = membership().query(source.plan_ref(), |rows| {
+            LogicalPlanBuilder::from(rows)
+                .aggregate(vec![col("carrier")], vec![count(lit(1_i64)).alias("n")])?
+                .sort(vec![col("carrier").sort(true, true)])?
+                .build()
+        })?;
+        // The default policy can be overridden in either direction, without preparation.
+        let family = query
+            .plan(&inactive)
+            .focus(&focus)
+            .policy(QueryPolicy::ForceDirect)
+            .build()?;
+        assert_eq!(family.explain().direct_reason, Some(DirectReason::Forced));
+        let installed = family.install(&mut graph, "counts")?;
+        let scatter = membership()
+            .query(source.plan_ref(), Ok)?
+            .plan(&inactive)
+            .focus(&focus)
+            .build()?;
+        assert_eq!(
+            scatter.explain().direct_reason,
+            Some(DirectReason::UnsupportedQueryShape)
+        );
+        let scatter = scatter.install(&mut graph, "scatter")?;
+        let prepared = runtime.prepare(&graph.finish()?).await?;
+        let warm = installed.bind_with_policy(&inactive, QueryPolicy::Auto)?;
+        let scatter_binding = scatter.bind(&inactive)?;
+        assert!(installed.bind(&inactive)?.preaggregate_output().is_none());
+        assert!(scatter_binding.preaggregate_output().is_none());
+        let snapshot = TableSnapshot::from_batches(flights().schema(), vec![flights()])?;
+        let inputs = warm
+            .apply(scatter_binding.apply(prepared.inputs())?)?
+            .table(&source, snapshot.clone())?
+            .finish()?;
+        let materialization = warm.preaggregate_output().unwrap();
+        let warmed = prepared.query(&[materialization], &[], &inputs).await?;
+        assert_eq!(
+            warmed.report().executed_nodes,
+            vec!["counts__materialization"]
+        );
+        assert!(inactive.get(&id())?.contributions().next().is_none());
+
+        let brushed = inactive.apply(
+            &id(),
+            SelectionUpdate::set(&focus, between("delay", 10, 30)),
+        )?;
+        let fixed_changed = brushed.apply(
+            &id(),
+            SelectionUpdate::set(&fixed, values("carrier", ["AA".into()])),
+        )?;
+        let moved = fixed_changed.apply(
+            &id(),
+            SelectionUpdate::set(&focus, between("delay", 15, 31)),
+        )?;
+        let replacement = flights().slice(0, 2);
+        let changed_source =
+            TableSnapshot::from_batches(replacement.schema(), vec![replacement.clone()])?;
+        for (index, (state, snapshot, native)) in [
+            (&brushed, snapshot.clone(), flights()),
+            (&fixed_changed, snapshot.clone(), flights()),
+            (&moved, snapshot.clone(), flights()),
+            (&moved, changed_source.clone(), replacement.clone()),
+            (&inactive, changed_source.clone(), replacement.clone()),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let binding = installed.bind_with_policy(state, QueryPolicy::Auto)?;
+            let scatter_binding = scatter.bind(state)?;
+            let inputs = binding
+                .apply(scatter_binding.apply(prepared.inputs())?)?
+                .table(&source, snapshot)?
+                .finish()?;
+            let result = prepared
+                .query(&[binding.output(), scatter_binding.output()], &[], &inputs)
+                .await?;
+            let mat_executed = result
+                .report()
+                .executed_nodes
+                .iter()
+                .any(|n| n == "counts__materialization");
+            assert_eq!(mat_executed, !retained || matches!(index, 1 | 3 | 4));
+            let recipe = membership().query(
+                SessionContext::new()
+                    .read_batch(native)?
+                    .into_unoptimized_plan(),
+                |rows| {
+                    LogicalPlanBuilder::from(rows)
+                        .aggregate(vec![col("carrier")], vec![count(lit(1_i64)).alias("n")])?
+                        .sort(vec![col("carrier").sort(true, true)])?
+                        .build()
+                },
+            )?;
+            let expected = SessionContext::new()
+                .execute_logical_plan(recipe.logical_plan(state)?)
+                .await?
+                .collect()
+                .await?;
+            assert_eq!(
+                rows(result.table(&binding.output())?.batches()),
+                rows(&expected)
+            );
+        }
+        prepared.clear_results();
+        let result = prepared.query(&[materialization], &[], &inputs).await?;
+        assert_eq!(
+            result.report().executed_nodes,
+            vec!["counts__materialization"]
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn installed_regridding_uses_direct_output_without_warming_an_incompatible_grid() -> TestResult
+{
+    use avenger_scales_datafusion::BuiltinScale;
+    use datafusion::arrow::array::Float32Array;
+    use std::sync::Arc;
+    let grid = |size| {
+        PixelGrid::new(
+            BuiltinScale::Linear,
+            Arc::new(Float32Array::from(vec![0.0, 40.0])),
+            Arc::new(Float32Array::from(vec![0.0, 40.0])),
+            Default::default(),
+            0.0,
+            size,
+        )
+    };
+    let focus = interval("brush", "delay")
+        .with_pixel_grids([(ProjectionId::new("delay")?, grid(10.0)?)])?;
+    let inactive = state(Resolution::Intersect);
+    let selected = inactive.apply(
+        &id(),
+        SelectionUpdate::set(&focus, between("delay", 11, 30)),
+    )?;
+    let resized = focus.with_pixel_grids([(ProjectionId::new("delay")?, grid(1.0)?)])?;
+    let changed = selected.apply(
+        &id(),
+        SelectionUpdate::set(&resized, between("delay", 11, 30)),
+    )?;
+    let mut graph = DataflowBuilder::new();
+    let source = graph.table_snapshot(
+        "flights",
+        TableSnapshot::from_batches(flights().schema(), vec![flights()])?,
+    )?;
+    let query = membership().query(source.plan_ref(), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(
+                Vec::<datafusion::logical_expr::Expr>::new(),
+                vec![count(lit(1_i64)).alias("n")],
+            )?
+            .build()
+    })?;
+    let installed = query
+        .plan(&inactive)
+        .focus(&focus)
+        .build()?
+        .install(&mut graph, "counts")?;
+    let prepared = Runtime::new(Default::default())?
+        .prepare(&graph.finish()?)
+        .await?;
+    for (state, incompatible) in [(&selected, false), (&changed, true), (&selected, false)] {
+        let automatic = installed.bind(state)?;
+        assert_eq!(automatic.preaggregate_output().is_none(), incompatible);
+        if incompatible {
+            assert_eq!(
+                automatic.explain().direct_reason,
+                Some(DirectReason::IncompatibleFocus)
+            );
+        }
+        let direct = installed.bind_with_policy(state, QueryPolicy::ForceDirect)?;
+        let actual = prepared
+            .query(
+                &[automatic.output()],
+                &[],
+                &automatic.apply(prepared.inputs())?.finish()?,
+            )
+            .await?;
+        let expected = prepared
+            .query(
+                &[direct.output()],
+                &[],
+                &direct.apply(prepared.inputs())?.finish()?,
+            )
+            .await?;
+        assert_eq!(
+            rows(actual.table(&automatic.output())?.batches()),
+            rows(expected.table(&direct.output())?.batches())
+        );
+        if incompatible {
+            assert_eq!(actual.report().executed_nodes, vec!["counts__direct"]);
+        }
     }
     Ok(())
 }
