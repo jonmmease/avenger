@@ -87,6 +87,14 @@ async fn main() -> Result<()> {
     let threshold_output = graph.scalar_output("threshold", &threshold)?;
     let definition = graph.finish()?;
 
+    #[cfg(feature = "sql")]
+    {
+        let sql = definition.sql();
+        println!("Visible rows:\n{}", sql.table(&visible)?);
+        println!("Maximum expression: {}", sql.scalar(&maximum)?);
+        println!("Threshold expression: {}", sql.scalar(&threshold)?);
+    }
+
     let runtime = Runtime::new(RuntimeConfig::default())?;
     let prepared = runtime.prepare(&definition).await?;
     println!("{}", prepared.explain());

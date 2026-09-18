@@ -132,6 +132,79 @@ Input names, computation names, and output names have separate namespaces within
 
 Bindings use handles. A chart compiler can maintain a scoped name-to-handle map without putting visualization naming rules into this runtime.
 
+### Inspect plans and expressions as SQL
+
+Enable the `sql` feature to pretty-print computations with DataFusion's unparser.
+The `json` feature includes it. `Dataflow::sql()` and `DataflowBuilder::sql()`
+return a `SqlFormatter` that knows the definition's names and references.
+Formatting requires no preparation, bindings, source reads, or UDF execution.
+
+```rust
+# #[cfg(feature = "sql")]
+# fn example() -> avenger_datafusion_dataflow::Result<()> {
+use std::sync::Arc;
+use avenger_datafusion_dataflow::{
+    arrow::datatypes::{DataType, Field, Schema},
+    datafusion::logical_expr::{col, lit, LogicalPlanBuilder},
+    DataflowBuilder,
+};
+
+let mut graph = DataflowBuilder::new();
+let sales = graph.table_input("sales", Arc::new(Schema::new(vec![
+    Field::new("amount", DataType::Int64, false),
+])))?;
+let cutoff = graph.scalar_input("cutoff", DataType::Int64)?;
+let threshold = graph.add_scalar("threshold", cutoff.expr_ref() * lit(2_i64))?;
+let filtered = graph.add_plan(
+    "filtered",
+    LogicalPlanBuilder::from(sales.plan_ref())
+        .filter(col("amount").gt(threshold.expr_ref()))?
+        .build()?,
+)?;
+let rows = graph.table_output("rows", &filtered)?;
+let value = graph.scalar_output("value", &threshold)?;
+let dataflow = graph.finish()?;
+let sql = dataflow.sql();
+
+println!("{}", sql.table(&filtered)?); // SELECT ... FROM inputs.sales WHERE ...;
+println!("{}", sql.scalar(&threshold)?); // $input__cutoff * 2
+assert_eq!(sql.table_output(&rows)?, sql.table(&filtered)?);
+assert_eq!(sql.scalar_output(&value)?, sql.scalar(&threshold)?);
+
+// Native plans and expressions can also contain references to this definition.
+println!("{}", sql.plan(&filtered.plan_ref())?); // SELECT ... FROM nodes.filtered;
+println!("{}", sql.expr(&threshold.expr_ref())?); // $scalar__threshold
+# Ok(())
+# }
+# #[cfg(feature = "sql")]
+# example().unwrap();
+```
+
+`table()` and `scalar()` render the stored computation. `plan()` and `expr()`
+render the supplied native value, so passing a node reference shows that
+reference. Plans produce query statements with a semicolon; expressions have
+no statement wrapper or trailing semicolon.
+
+Dependencies remain named boundaries: `inputs.sales`, `nodes.filtered`,
+`assets.sales`, or `base.outputs.sales`. Scoped relations include their definition
+path, such as `"regions/panels".nodes.filtered`. Scalar and expression inputs use
+display parameters such as `$input__cutoff`; scalar nodes use `$scalar__threshold`.
+Scoped parameters include the path (`$input__regions__cutoff`). Parameter name
+components encode punctuation, including underscores, as hexadecimal UTF-8 bytes
+to keep names distinct. SQL identifiers use DataFusion's quoting rules.
+
+This is diagnostic SQL. It preserves named boundaries without expanding upstream
+lineage, embedding source data, or substituting input values. UDFs remain function
+calls. Unsupported plans and expressions return DataFusion unparser errors. It is
+not the JSON specification format or a standalone SQL export.
+
+The complete example also prints a table query and scalar expressions with this
+feature enabled:
+
+```sh
+cargo run -p avenger-datafusion-dataflow --features sql --example parameterized_graph
+```
+
 ### Inputs and stores
 
 `TableSnapshot` holds a schema, a shared collection of record batches, and an opaque identity. Constructors validate schemas and allocate an ID from a process-wide atomic counter. Identical contents constructed separately receive different IDs. Clones share Arrow buffers and preserve identity. Empty tables preserve their declared schema.
