@@ -17,8 +17,11 @@ use datafusion::{
     logical_expr::{execution_props::ExecutionProps, LogicalPlan},
     physical_plan::execute_stream,
 };
-use futures::{future::BoxFuture, TryStreamExt};
+use futures::{future::BoxFuture, FutureExt, TryStreamExt};
+
 use tokio::sync::Semaphore;
+
+mod execution_lifetime;
 
 use crate::{
     diagnostics::{
@@ -62,7 +65,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) config: RuntimeConfig,
     queries: Semaphore,
     active_bytes: AtomicUsize,
-    cache: Mutex<crate::cache::Cache>,
+    pub(crate) cache: Mutex<crate::cache::Cache>,
     pub(crate) codec: Arc<dyn crate::LogicalExtensionCodec>,
 }
 
@@ -584,6 +587,8 @@ impl PreparedDataflow {
 
     /// Materialize root and scoped outputs in one evaluation. Scoped handles select
     /// every discovered instance. Shared ancestors execute once in their defining frame.
+    /// Overlapping queries share reusable calculations. Dropping this future detaches
+    /// its interest and stops calculations only when no other consumers need them.
     pub async fn query(
         &self,
         tables: &[TableOutput],
@@ -598,7 +603,7 @@ impl PreparedDataflow {
         tables: &[TableOutput],
         scalars: &[ScalarOutput],
         inputs: &Inputs,
-        base: Option<(&PreparedInner, &Inputs)>,
+        base: Option<(&Arc<PreparedInner>, &Inputs)>,
     ) -> Result<DataflowResult> {
         if base.is_some_and(|(prepared, inputs)| prepared.graph.id != inputs.graph.id) {
             return Err(Error::ForeignHandle);
@@ -628,6 +633,7 @@ impl PreparedDataflow {
             executed_nodes: vec![],
             physical_plans: 0,
             cache_hits: 0,
+            in_flight_hits: 0,
             cache_misses: 0,
             cache_bypasses: 0,
             source_executions: 0,
@@ -677,8 +683,8 @@ impl PreparedDataflow {
                 partitioned_rows: 0,
             });
             base_state = Some(BaseEvaluation {
-                prepared,
-                inputs,
+                prepared: prepared.clone(),
+                inputs: inputs.clone(),
                 epoch: 0,
                 expressions: HashMap::new(),
             });
@@ -693,18 +699,24 @@ impl PreparedDataflow {
         };
         let mut evaluation = Evaluation {
             base: base_state,
-            prepared: &self.inner,
-            inputs,
-            requested: &requested,
+            prepared: self.inner.clone(),
+            inputs: inputs.clone(),
+            requested,
             scope_needed,
             epoch,
             frames,
-            reservation: Reservation { runtime, bytes: 0 },
+            reservation: Arc::new(Reservation {
+                runtime: runtime.clone(),
+                bytes: AtomicUsize::new(0),
+            }),
+            work: Arc::new(Mutex::new(Work::default())),
+            cleanup: vec![],
             report,
         };
         evaluation.validate_base_expressions()?;
         let root = evaluation.frame().await?;
-        evaluation.report.materialized_bytes = evaluation.reservation.bytes;
+        evaluation.finish_report();
+        evaluation.report.materialized_bytes = evaluation.reservation.bytes.load(Ordering::Relaxed);
         evaluation.report.retained_bytes = runtime.cache.lock().expect("cache lock").stats().bytes;
         Ok(DataflowResult {
             graph: graph.id,
@@ -741,17 +753,18 @@ fn demand(graph: &GraphDef, requested: &[bool]) -> (Vec<bool>, Vec<bool>) {
     (nodes, scopes)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Origin {
     Local,
     Base,
 }
 
+#[derive(Clone)]
 struct Frame {
     origin: Origin,
     scope: usize,
     instance: Option<ScopeInstance>,
-    values: HashMap<usize, MaterializedValue>,
+    values: HashMap<usize, Arc<NodeValue>>,
     inputs: HashMap<usize, InputBinding>,
     keys: HashMap<usize, crate::cache::BindingKey>,
 }
@@ -769,30 +782,33 @@ impl Frame {
     }
 }
 
-struct BaseEvaluation<'a> {
-    prepared: &'a PreparedInner,
-    inputs: &'a Inputs,
+#[derive(Clone)]
+struct BaseEvaluation {
+    prepared: Arc<PreparedInner>,
+    inputs: Inputs,
     epoch: u64,
     expressions: HashMap<usize, InputBinding>,
 }
 
-struct Evaluation<'a> {
-    base: Option<BaseEvaluation<'a>>,
-    prepared: &'a PreparedInner,
-    inputs: &'a Inputs,
-    requested: &'a [bool],
+struct Evaluation {
+    cleanup: Vec<tokio::sync::oneshot::Receiver<()>>,
+    base: Option<BaseEvaluation>,
+    prepared: Arc<PreparedInner>,
+    inputs: Inputs,
+    requested: Vec<bool>,
     scope_needed: Vec<bool>,
     epoch: u64,
     frames: Vec<Frame>,
-    reservation: Reservation<'a>,
+    reservation: Arc<Reservation>,
+    work: Arc<Mutex<Work>>,
     report: EvaluationReport,
 }
 
-impl Evaluation<'_> {
+impl Evaluation {
     fn program(&self, origin: Origin) -> &PreparedInner {
         match origin {
-            Origin::Local => self.prepared,
-            Origin::Base => self.base.as_ref().expect("attached base").prepared,
+            Origin::Local => &self.prepared,
+            Origin::Base => &self.base.as_ref().expect("attached base").prepared,
         }
     }
     fn epoch(&self, origin: Origin) -> u64 {
@@ -863,7 +879,7 @@ impl Evaluation<'_> {
             for (index, output) in graph.outputs.iter().enumerate() {
                 if output.scope == scope && self.requested[index] {
                     self.node(Origin::Local, output.node).await?;
-                    let value = &self.frames[frame_index].values[&output.node];
+                    let value = &self.frames[frame_index].values[&output.node].value;
                     let charge = match value {
                         MaterializedValue::Scalar(value) => value.size(),
                         MaterializedValue::Table(_) => 0,
@@ -881,7 +897,7 @@ impl Evaluation<'_> {
                 let discovery = definition.discovery.expect("child discovery");
                 self.node(Origin::Local, discovery).await?;
                 let MaterializedValue::Table(table) =
-                    self.frames[frame_index].values[&discovery].clone()
+                    self.frames[frame_index].values[&discovery].value.clone()
                 else {
                     unreachable!()
                 };
@@ -914,8 +930,18 @@ impl Evaluation<'_> {
                     self.frames.push(Frame {
                         origin: Origin::Local,
                         scope: child,
-                        instance: Some(address),
-                        values: HashMap::from([(rows_index, MaterializedValue::Table(local))]),
+                        instance: Some(address.clone()),
+                        values: HashMap::from([(
+                            rows_index,
+                            Arc::new(NodeValue {
+                                namespace: self.prepared.namespace,
+                                index: rows_index,
+                                instance: Some(address.clone()),
+                                value: MaterializedValue::Table(local),
+                                dependencies: vec![],
+                                budget: self.reservation.clone(),
+                            }),
+                        )]),
                         inputs: HashMap::new(),
                         keys: HashMap::new(),
                     });
@@ -1002,10 +1028,10 @@ impl Evaluation<'_> {
     }
 
     fn activate_base_frame(&mut self) -> Result<()> {
-        let report = self.scope_report(Origin::Base, 0);
-        if self.report.scopes[report].instances == 0 {
+        let mut work = self.work.lock().expect("work lock");
+        if !work.base_active {
             self.reservation.charge(std::mem::size_of::<Frame>())?;
-            self.report.scopes[report].instances = 1;
+            work.base_active = true;
         }
         Ok(())
     }
@@ -1021,8 +1047,8 @@ impl Evaluation<'_> {
                 continue;
             }
             let inputs = match origin {
-                Origin::Local => self.inputs,
-                Origin::Base => self.base.as_ref().expect("attached base").inputs,
+                Origin::Local => &self.inputs,
+                Origin::Base => &self.base.as_ref().expect("attached base").inputs,
             };
             let address = self.frames[owner].instance.as_ref();
             let binding = inputs.resolve(*index, address).ok_or_else(|| {
@@ -1082,7 +1108,7 @@ impl Evaluation<'_> {
                 let base_frame = self.frame_index(Origin::Base, 0);
                 let value = self.frames[base_frame].values[&producer].clone();
                 self.reservation.charge(
-                    128 + match &value {
+                    128 + match &value.value {
                         MaterializedValue::Scalar(v) => v.size(),
                         _ => 0,
                     },
@@ -1098,9 +1124,13 @@ impl Evaluation<'_> {
                     .downcast_ref::<crate::graph::reference::GraphRead>()
                 {
                     if let TableRef::Asset(asset) = read.source {
-                        self.frames[frame]
-                            .values
-                            .insert(index, MaterializedValue::Table(graph.assets[asset].clone()));
+                        let value = self.node_value(
+                            origin,
+                            index,
+                            MaterializedValue::Table(graph.assets[asset].clone()),
+                            vec![],
+                        );
+                        self.frames[frame].values.insert(index, value);
                         return Ok(());
                     }
                 }
@@ -1109,8 +1139,7 @@ impl Evaluation<'_> {
             if !node.analysis.base_inputs.is_empty() {
                 self.load_inputs(Origin::Base, &node.analysis.base_inputs)?;
             }
-            let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable
-                && self.program(origin).report.cache_enabled;
+            let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable;
             let key = if eligible {
                 let inputs = self.input_keys(origin, &node.analysis.inputs)?;
                 let base_inputs = if node.analysis.base_inputs.is_empty() {
@@ -1135,59 +1164,277 @@ impl Evaluation<'_> {
             } else {
                 None
             };
-            if let Some(key) = &key {
-                let cached = self
-                    .prepared
-                    .runtime
-                    .cache
-                    .lock()
-                    .expect("cache lock")
-                    .get(key, self.epoch(origin));
-                if let Some(value) = cached {
-                    self.reservation.charge(value.size())?;
-                    self.frames[frame].values.insert(index, value);
-                    self.report.cache_hits += 1;
-                    return Ok(());
+            if let Some(key) = key {
+                self.reservation.charge(key.size())?;
+                loop {
+                    let runtime = self.prepared.runtime.clone();
+                    let lookup = runtime.cache.lock().expect("cache lock").lookup(
+                        key.clone(),
+                        self.epoch(origin),
+                        &runtime,
+                        self.qualified_name(origin, index),
+                    );
+                    match lookup {
+                        crate::in_flight::Lookup::Ready(value) => {
+                            self.reservation.charge(value.size())?;
+                            self.work.lock().expect("work lock").cache_hits += 1;
+                            let value = self.node_value(origin, index, value, vec![]);
+                            self.frames[frame].values.insert(index, value);
+                            return Ok(());
+                        }
+                        crate::in_flight::Lookup::Pending(pending) => {
+                            {
+                                let mut work = self.work.lock().expect("work lock");
+                                work.in_flight_hits += 1;
+                                if self.program(origin).report.cache_enabled {
+                                    work.cache_misses += 1;
+                                }
+                            }
+                            match pending.wait().await? {
+                                Some(value) => {
+                                    self.install(value)?;
+                                    return Ok(());
+                                }
+                                None => continue,
+                            }
+                        }
+                        crate::in_flight::Lookup::Reserved(reservation, pending) => {
+                            if self.program(origin).report.cache_enabled {
+                                self.work.lock().expect("work lock").cache_misses += 1;
+                            }
+                            let mut job = match self.fork_node(origin, index) {
+                                Ok(job) => job,
+                                Err(error) => {
+                                    reservation.finish(Err(error), |_| {});
+                                    pending.wait().await?;
+                                    unreachable!("failed reservation returns an error");
+                                }
+                            };
+                            let task = tokio::spawn(async move {
+                                let result = {
+                                    let computation = std::panic::AssertUnwindSafe(
+                                        job.compute_node(origin, index),
+                                    )
+                                    .catch_unwind();
+                                    tokio::pin!(computation);
+                                    tokio::select! {
+                                        biased;
+                                        result = &mut computation => Some(result),
+                                        () = reservation.unwatched() => None,
+                                    }
+                                };
+                                job.settle_execution().await;
+                                let work = job.work.clone();
+                                let retention = job.program(origin).report.cache_enabled;
+                                drop(job);
+                                match result {
+                                    Some(Ok(result)) => reservation.finish(result, |bypassed| {
+                                        if bypassed && retention {
+                                            work.lock().expect("work lock").cache_bypasses += 1;
+                                        }
+                                    }),
+                                    None => reservation.cancel(),
+                                    Some(Err(_)) => drop(reservation),
+                                }
+                            });
+                            pending.track(task);
+                            match pending.wait().await? {
+                                Some(value) => {
+                                    self.install(value)?;
+                                    return Ok(());
+                                }
+                                None => continue,
+                            }
+                        }
+                    }
                 }
-                self.report.cache_misses += 1;
             }
+            let result = self.compute_node(origin, index).await;
+            self.settle_execution().await;
+            let value = result?;
+            self.frames[frame].values.insert(index, value);
+            Ok(())
+        })
+    }
+
+    fn fork_node(&self, origin: Origin, index: usize) -> Result<Self> {
+        let mut needed = std::collections::HashSet::new();
+        let mut pending = vec![(origin, index)];
+        while let Some((origin, index)) = pending.pop() {
+            if !needed.insert((origin, index)) {
+                continue;
+            }
+            let graph = &self.program(origin).graph;
+            if let Some(output) = graph.imports.get(&index) {
+                pending.push((
+                    Origin::Base,
+                    self.program(Origin::Base).graph.outputs[*output].node,
+                ));
+            }
+            pending.extend(
+                graph.nodes[index]
+                    .analysis
+                    .dependencies
+                    .iter()
+                    .map(|node| (origin, *node)),
+            );
+        }
+        let mut frames = Vec::with_capacity(self.frames.len());
+        for frame in &self.frames {
+            let values = frame
+                .values
+                .iter()
+                .filter(|(index, _)| needed.contains(&(frame.origin, **index)))
+                .map(|(index, value)| (*index, value.clone()))
+                .collect::<HashMap<_, _>>();
+            self.reservation.charge(
+                std::mem::size_of::<Frame>()
+                    + 128 * (values.len() + frame.inputs.len() + frame.keys.len()),
+            )?;
+            frames.push(Frame {
+                origin: frame.origin,
+                scope: frame.scope,
+                instance: frame.instance.clone(),
+                values,
+                inputs: frame.inputs.clone(),
+                keys: frame.keys.clone(),
+            });
+        }
+        Ok(Self {
+            prepared: self.prepared.clone(),
+            base: self.base.clone(),
+            inputs: self.inputs.clone(),
+            requested: vec![],
+            scope_needed: vec![],
+            epoch: self.epoch,
+            frames,
+            reservation: self.reservation.clone(),
+            work: self.work.clone(),
+            report: self.report.clone(),
+            cleanup: vec![],
+        })
+    }
+
+    fn compute_node(
+        &mut self,
+        origin: Origin,
+        index: usize,
+    ) -> BoxFuture<'_, Result<Arc<NodeValue>>> {
+        Box::pin(async move {
+            let graph = self.program(origin).graph.clone();
+            let node = &graph.nodes[index];
             for dependency in &node.analysis.dependencies {
                 self.node(origin, *dependency).await?;
             }
-            let value = self
-                .execute(origin, index)
-                .await
-                .map_err(|error| contextual(self.frames[frame].instance.as_ref(), error))?;
-            tokio::task::yield_now().await;
-            self.reservation
-                .charge(128)
-                .map_err(|error| contextual(self.frames[frame].instance.as_ref(), error))?;
-            if let Some(key) = key {
-                if !self
-                    .prepared
-                    .runtime
-                    .cache
-                    .lock()
-                    .expect("cache lock")
-                    .insert(key, self.epoch(origin), value.clone())
-                {
-                    self.report.cache_bypasses += 1;
-                }
-            }
-            self.frames[frame].values.insert(index, value);
-            self.report
-                .executed_nodes
-                .push(self.qualified_name(origin, index));
-            let report = self.scope_report(origin, node.scope);
-            self.report.scopes[report].executed_nodes += 1;
-            Ok(())
+            let result = self.execute(origin, index).await;
+            let value = result.map_err(|error| {
+                contextual(
+                    self.frames[self.frame_index(origin, node.scope)]
+                        .instance
+                        .as_ref(),
+                    error,
+                )
+            })?;
+            self.reservation.charge(128).map_err(|error| {
+                contextual(
+                    self.frames[self.frame_index(origin, node.scope)]
+                        .instance
+                        .as_ref(),
+                    error,
+                )
+            })?;
+            let dependencies = node
+                .analysis
+                .dependencies
+                .iter()
+                .map(|dependency| {
+                    self.frames[self.frame_index(origin, graph.nodes[*dependency].scope)].values
+                        [dependency]
+                        .clone()
+                })
+                .collect();
+            let mut work = self.work.lock().expect("work lock");
+            work.executed_nodes.push(self.qualified_name(origin, index));
+            *work
+                .scopes
+                .entry(self.scope_report(origin, node.scope))
+                .or_default() += 1;
+            Ok(self.node_value(origin, index, value, dependencies))
         })
+    }
+
+    fn node_value(
+        &self,
+        origin: Origin,
+        index: usize,
+        value: MaterializedValue,
+        dependencies: Vec<Arc<NodeValue>>,
+    ) -> Arc<NodeValue> {
+        Arc::new(NodeValue {
+            namespace: self.program(origin).namespace,
+            index,
+            instance: self.frames
+                [self.frame_index(origin, self.program(origin).graph.nodes[index].scope)]
+            .instance
+            .clone(),
+            value,
+            dependencies,
+            budget: self.reservation.clone(),
+        })
+    }
+
+    fn install(&mut self, value: Arc<NodeValue>) -> Result<()> {
+        let origin = if value.namespace == self.prepared.namespace {
+            Origin::Local
+        } else {
+            Origin::Base
+        };
+        let scope = self.program(origin).graph.nodes[value.index].scope;
+        let frame = self.frame_index(origin, scope);
+        debug_assert_eq!(self.frames[frame].instance, value.instance);
+        if self.frames[frame].values.contains_key(&value.index) {
+            return Ok(());
+        }
+        for dependency in &value.dependencies {
+            self.install(dependency.clone())?;
+        }
+        if !Arc::ptr_eq(&value.budget, &self.reservation) {
+            self.reservation.charge(value.value.size() + 128)?;
+        }
+        self.frames[frame].values.insert(value.index, value);
+        Ok(())
+    }
+
+    fn finish_report(&mut self) {
+        let work = self.work.lock().expect("work lock");
+        if work.base_active {
+            let scope = self.scope_report(Origin::Base, 0);
+            self.report.scopes[scope].instances = 1;
+        }
+        self.report.executed_nodes = work.executed_nodes.clone();
+        self.report.physical_plans = work.physical_plans;
+        self.report.source_executions = work.source_executions;
+        self.report.cache_hits = work.cache_hits;
+        self.report.in_flight_hits = work.in_flight_hits;
+        self.report.cache_misses = work.cache_misses;
+        self.report.cache_bypasses = work.cache_bypasses;
+        for (scope, count) in &work.scopes {
+            self.report.scopes[*scope].executed_nodes = *count;
+        }
     }
 
     fn execution_error(&self, origin: Origin, index: usize, source: DataFusionError) -> Error {
         Error::Execution {
             node: self.qualified_name(origin, index),
             source,
+        }
+    }
+
+    async fn settle_execution(&mut self) {
+        while let Some(completion) = self.cleanup.last_mut() {
+            // Sender drop means every tracked physical plan and stream has released its lease.
+            let _ = completion.await;
+            self.cleanup.pop();
         }
     }
 
@@ -1203,7 +1450,10 @@ impl Evaluation<'_> {
             |index| {
                 &self.frames[self.frame_index(origin, graph.inputs[index].scope)].inputs[&index]
             },
-            |index| &self.frames[self.frame_index(origin, graph.nodes[index].scope)].values[&index],
+            |index| {
+                &self.frames[self.frame_index(origin, graph.nodes[index].scope)].values[&index]
+                    .value
+            },
             |index| {
                 let base = self.base.as_ref().expect("attached base");
                 base.expressions.get(&index).unwrap_or_else(|| {
@@ -1214,6 +1464,7 @@ impl Evaluation<'_> {
                 let base = self.base.as_ref().expect("attached base");
                 &self.frames[self.frame_index(Origin::Base, 0)].values
                     [&base.prepared.graph.outputs[output].node]
+                    .value
             },
         )
         .map_err(|source| self.execution_error(origin, index, source))?;
@@ -1226,7 +1477,7 @@ impl Evaluation<'_> {
             .create_physical_plan(&plan)
             .await
             .map_err(|source| self.execution_error(origin, index, source))?;
-        self.report.physical_plans += 1;
+        self.work.lock().expect("work lock").physical_plans += 1;
         reject_unbounded(&physical)?;
         let schema = Arc::new(node.plan.schema().as_arrow().clone());
         let actual = physical.schema();
@@ -1241,8 +1492,15 @@ impl Evaluation<'_> {
             return Err(Error::SchemaMismatch(node.name.to_string()));
         }
         if node.analysis.has_source {
-            self.report.source_executions += 1;
+            self.work.lock().expect("work lock").source_executions += 1;
         }
+        let mut owners = vec![self.prepared.clone()];
+        if let Some(base) = &self.base {
+            owners.push(base.prepared.clone());
+        }
+        let (physical, completion) =
+            execution_lifetime::track(physical, self.reservation.clone(), owners)?;
+        self.cleanup.push(completion);
         let mut stream = execute_stream(physical, state.task_ctx())
             .map_err(|source| self.execution_error(origin, index, source))?;
         let mut batches = vec![];
@@ -1318,12 +1576,12 @@ fn execution_error(graph: &GraphDef, index: usize, source: DataFusionError) -> E
     }
 }
 
-struct Reservation<'a> {
-    runtime: &'a RuntimeInner,
-    bytes: usize,
+struct Reservation {
+    runtime: Arc<RuntimeInner>,
+    bytes: AtomicUsize,
 }
-impl Reservation<'_> {
-    fn charge(&mut self, bytes: usize) -> Result<()> {
+impl Reservation {
+    fn charge(&self, bytes: usize) -> Result<()> {
         let limit = self.runtime.config.execution.max_materialized_bytes;
         self.runtime
             .active_bytes
@@ -1331,15 +1589,15 @@ impl Reservation<'_> {
                 used.checked_add(bytes).filter(|next| *next <= limit)
             })
             .map_err(|_| Error::ResourceExhausted { limit })?;
-        self.bytes += bytes;
+        self.bytes.fetch_add(bytes, Ordering::Relaxed);
         Ok(())
     }
 }
-impl Drop for Reservation<'_> {
+impl Drop for Reservation {
     fn drop(&mut self) {
         self.runtime
             .active_bytes
-            .fetch_sub(self.bytes, Ordering::Relaxed);
+            .fetch_sub(self.bytes.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 }
 
@@ -1353,3 +1611,31 @@ fn reject_unbounded(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) ->
     }
     Ok(())
 }
+
+#[derive(Default)]
+struct Work {
+    base_active: bool,
+    executed_nodes: Vec<String>,
+    physical_plans: usize,
+    source_executions: usize,
+    cache_hits: usize,
+    in_flight_hits: usize,
+    cache_misses: usize,
+    cache_bypasses: usize,
+    scopes: HashMap<usize, usize>,
+}
+
+pub(crate) struct NodeValue {
+    namespace: u64,
+    index: usize,
+    instance: Option<ScopeInstance>,
+    pub(crate) value: MaterializedValue,
+    dependencies: Vec<Arc<NodeValue>>,
+    budget: Arc<Reservation>,
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod tests_execution;
