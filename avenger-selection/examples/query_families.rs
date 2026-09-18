@@ -1,16 +1,19 @@
 //! Three cross-filtered counts through the same API for automatic and forced-direct queries.
-use std::{ops::Bound, sync::Arc};
+use std::{collections::HashMap, ops::Bound, sync::Arc};
 
-use avenger_datafusion_dataflow::{DataflowBuilder, Runtime, TableSnapshot};
+use avenger_datafusion_dataflow::{
+    Dataflow, DataflowBuilder, EvaluationReport, Runtime, TableSnapshot,
+};
 use avenger_selection::*;
 use datafusion::{
     arrow::{
         array::{Int64Array, StringArray},
+        compute::{concat_batches, sort_to_indices, take_record_batch},
         record_batch::RecordBatch,
         util::pretty::print_batches,
     },
     functions_aggregate::expr_fn::count,
-    logical_expr::{col, lit, LogicalPlanBuilder},
+    logical_expr::{col, lit, LogicalPlanBuilder, LogicalTableSource},
 };
 
 // Selection state at each request, all under the shared "filters" name:
@@ -51,21 +54,110 @@ fn brush_states(delay: &ProducerDefinition) -> Result<[(&'static str, SelectionS
     let brushed = inactive.apply(name, brush(10, 40))?;
     let dragged = brushed.apply(name, brush(11, 40))?;
     Ok([
-        ("inactive", inactive),
-        ("brushed [10, 40)", brushed),
-        ("dragged [11, 40)", dragged.clone()),
-        ("unchanged [11, 40)", dragged),
+        ("Render with no selection", inactive),
+        ("Brush delay: [10, 40)", brushed),
+        ("Drag delay: [11, 40)", dragged.clone()),
+        ("Repeat the same brush: [11, 40)", dragged),
     ])
+}
+
+fn print_report(report: &EvaluationReport) {
+    println!("  Computed this request (runtime report):");
+    if report.executed_nodes.is_empty() {
+        println!("    (none)");
+    }
+    for node in &report.executed_nodes {
+        println!("    {node}");
+    }
+    println!(
+        "  Cache hits: {} | Shared in-progress computations: {}",
+        report.cache_hits, report.in_flight_hits
+    );
+}
+
+fn print_counts(label: &str, table: &TableSnapshot) -> datafusion::arrow::error::Result<()> {
+    // Aggregate row order is unspecified. Sort only the display for comparison.
+    let batch = concat_batches(table.schema(), table.batches())?;
+    let indices = sort_to_indices(batch.column(0), None, None)?;
+    let sorted = take_record_batch(&batch, &indices)?;
+    println!("\n  {label}");
+    print_batches(&[sorted])
+}
+
+fn print_sql_appendix(
+    dataflow: &Dataflow,
+    installed: &[(&str, QueryFamily, InstalledSelectionQuery)],
+    states: &[(&str, SelectionSet)],
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    println!("\nSQL inspection appendix");
+    println!("These are bound logical plans. The execution reports above show what ran.");
+    println!("Final aggregates read named materializations. Only changed SQL text is printed.");
+    let sql = dataflow.sql();
+    let mut previous = HashMap::new();
+    for (step, state) in states {
+        println!("\n--- {step} ---");
+        let mut changed = false;
+        for (label, family, _) in installed {
+            let plans = match family.bind(state)? {
+                BoundQuery::Direct { plan, .. } => vec![(format!("{label}__direct"), plan)],
+                BoundQuery::Preaggregated {
+                    materialization,
+                    aggregate,
+                } => {
+                    let name = format!("{label}__materialization");
+                    // This schema-only relation lets SQL inspection show the
+                    // same boundary that the installed dataflow materializes.
+                    let relation = LogicalPlanBuilder::scan(
+                        name.clone(),
+                        Arc::new(LogicalTableSource::new(Arc::new(
+                            materialization.schema().as_arrow().clone(),
+                        ))),
+                        None,
+                    )?
+                    .build()?;
+                    vec![
+                        (name, materialization),
+                        (format!("{label}__aggregate"), aggregate.over(relation)?),
+                    ]
+                }
+                other => return Err(format!("SQL display does not support {other:?}").into()),
+            };
+            for (name, plan) in plans {
+                let text = sql.plan(&plan)?;
+                if previous.get(&name) != Some(&text) {
+                    println!("\n{name}:\n{text}");
+                    previous.insert(name, text);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            println!("SQL text is unchanged from the previous step.");
+        }
+    }
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let force_direct = std::env::args().any(|a| a == "--force-direct");
+    let show_sql = std::env::args().any(|a| a == "--sql");
     let policy = if force_direct {
         QueryPolicy::ForceDirect
     } else {
         QueryPolicy::Auto
     };
+    println!("Cross-filtered counts | policy: {policy:?}");
+    println!("Focus: delay. Only the delay brush changes during this run.");
+    println!("The delay chart excludes its own brush; distance and airlines use it.");
+    println!("Bounds [lower, upper) include lower and exclude upper.");
+    println!("Display groups: delay / 20, distance / 500, and airline carrier.");
+    println!("Requests run sequentially. Cache statistics below come from the runtime.");
+    println!("\nNode names:");
+    println!("  __materialization = reusable counts by display group and delay value");
+    println!("  __aggregate       = filter materialized counts by brush bounds, then sum");
+    println!("  __direct          = apply the full predicate to the original query");
+    println!("\nPrepared chart strategies:");
     let name = SelectionId::new("filters")?;
     let mut panels = Vec::new();
     for (view, field, kind) in [
@@ -132,48 +224,59 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         })?;
         let family = query.plan(inactive).focus(focus).policy(policy).build()?;
         let label = producer.address().origin.view.as_str();
-        println!("{label}: {}", family.explain());
+        println!("  {label:8} {}", family.explain());
         let panel = family.install(&mut additional, label)?;
         installed.push((label, family, panel));
     }
     let additional = additional.finish()?;
-    let sql = additional.sql();
     let extension = base.prepare_extension(&additional).await?;
-    for (step, state) in states {
-        println!("\n=== {step} ===");
+
+    // Plot entry can warm every compatible receiver before the first brush.
+    // The runtime retains these ordinary outputs under its configured cache policy.
+    let mut warm_inputs = extension.inputs();
+    let mut warm_outputs = Vec::new();
+    for (_, _, panel) in &installed {
+        let binding = panel.bind(inactive)?;
+        warm_outputs.extend(binding.preaggregate_output());
+        warm_inputs = binding.apply(warm_inputs)?;
+    }
+    let mut step_number = 0;
+    if !warm_outputs.is_empty() {
+        step_number += 1;
+        println!("\n{step_number}. Hover over delay: warm-up before any selection");
+        println!("  Request: reusable counts for the other charts. No chart results requested.");
+        let warm = extension
+            .query(&warm_outputs, &[], &base_inputs, &warm_inputs.finish()?)
+            .await?;
+        print_report(warm.report());
+    } else {
+        println!("\nWarm-up skipped: these bindings use direct execution.");
+    }
+    for (step, state) in &states {
+        step_number += 1;
+        println!("\n{step_number}. {step}");
+        println!("  Request: final results for all three charts.");
         let mut inputs = extension.inputs();
         let mut outputs = Vec::new();
-        for (label, family, panel) in &installed {
-            // Native binding exposes the generated plan for inspection. Installed
-            // binding supplies the same selection state to the prepared dataflow.
-            match family.bind(&state)? {
-                BoundQuery::Direct { plan, .. } => {
-                    println!("{label} SQL:\n{}\n", sql.plan(&plan)?);
-                }
-                other => return Err(format!("SQL display does not support {other:?}").into()),
-            }
-            let binding = panel.bind(&state)?;
-            assert!(binding.preaggregate_output().is_none());
+        for (_, _, panel) in &installed {
+            let binding = panel.bind(state)?;
             outputs.push(binding.output());
             inputs = binding.apply(inputs)?;
         }
         let result = extension
             .query(&outputs, &[], &base_inputs, &inputs.finish()?)
             .await?;
-        let report = result.report();
-        println!("Executed nodes:");
-        if report.executed_nodes.is_empty() {
-            println!("  (none)");
-        }
-        for node in &report.executed_nodes {
-            println!("  {node}");
-        }
-        println!("Cache hits: {}", report.cache_hits);
-        println!("Shared in-progress computations: {}", report.in_flight_hits);
+        print_report(result.report());
+        println!("  Chart results:");
         for ((label, _, _), output) in installed.iter().zip(outputs) {
-            println!("{label}");
-            print_batches(result.table(&output)?.batches())?;
+            print_counts(label, result.table(&output)?)?;
         }
+    }
+
+    if show_sql {
+        print_sql_appendix(&additional, &installed, &states)?;
+    } else {
+        println!("\nAdd --sql to inspect the bound SQL for these steps.");
     }
     Ok(())
 }

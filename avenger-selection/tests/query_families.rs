@@ -83,7 +83,7 @@ async fn construction_runs_once_and_planning_never_evaluates_functions() -> Test
     assert_eq!(family.policy(), QueryPolicy::Auto);
     assert_eq!(
         family.explain().direct_reason,
-        Some(DirectReason::PreaggregationNotImplemented)
+        Some(DirectReason::UnsupportedQueryShape)
     );
     let selected = inactive.apply(
         &id(),

@@ -139,6 +139,29 @@ pub struct ConsumerFilter {
     filter: SelectionFilter,
 }
 impl ConsumerFilter {
+    pub(crate) fn consumer_view(&self) -> &ViewAddress {
+        self.consumer.view()
+    }
+
+    /// Resolve definitions even before the producer has an active contribution.
+    pub(crate) fn interaction_keys(&self, producer: &crate::ProducerDefinition) -> Vec<Expr> {
+        producer
+            .projections()
+            .iter()
+            .map(|p| {
+                let expr = self
+                    .consumer
+                    .projections
+                    .get(&(producer.address().clone(), p.id().clone()))
+                    .unwrap_or(p.expr())
+                    .clone();
+                producer
+                    .pixel_grid(p.id())
+                    .map_or(expr.clone(), |grid| grid.cell_expr(expr))
+            })
+            .collect()
+    }
+
     /// Resolve all named uses, including branches that currently determine no rows.
     pub fn resolve(&self, selections: &SelectionSet) -> Result<ResolvedFilter> {
         resolve(&self.filter, &self.consumer, selections)

@@ -14,7 +14,13 @@ use datafusion::{
     logical_expr::{Expr, Extension, LogicalPlan, LogicalPlanBuilder, UserDefinedLogicalNodeCore},
 };
 
-use crate::{ConsumerFilter, Error, ProducerDefinition, Result, SelectionSet};
+use crate::{
+    preaggregate::{
+        predicates::{self, PredicateSplit},
+        Eligibility, Preaggregation,
+    },
+    AggregateStep, ConsumerFilter, Error, ProducerDefinition, Result, SelectionSet,
+};
 
 /// Controls whether a query may use selection pre-aggregation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,6 +38,7 @@ pub enum QueryPolicy {
 #[non_exhaustive]
 pub enum QueryStrategy {
     Direct,
+    Preaggregated,
 }
 
 /// Why a binding uses the original query without pre-aggregation.
@@ -40,14 +47,37 @@ pub enum QueryStrategy {
 pub enum DirectReason {
     /// The caller disabled pre-aggregation through QueryPolicy.
     Forced,
-    /// The pre-aggregation planner is not implemented.
-    PreaggregationNotImplemented,
+    NoFocus,
+    FocusNotUsed,
+    UnsupportedFactorization,
+    UnsupportedInteraction,
+    IncompatibleFocus,
+    UnsupportedQueryShape,
+    UnsupportedAggregate,
+    UnsupportedGroupingExpression,
+    NonImmutableQuery,
 }
 impl fmt::Display for DirectReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Forced => "direct execution requested by QueryPolicy::ForceDirect",
-            Self::PreaggregationNotImplemented => "pre-aggregation is not implemented",
+            Self::NoFocus => "no changing producer was specified",
+            Self::FocusNotUsed => "the consumer excludes or does not use the focused producer",
+            Self::UnsupportedFactorization => {
+                "the resolved predicate has no supported fixed/changing conjunction"
+            }
+            Self::UnsupportedInteraction => {
+                "the focused producer has no supported retained interaction keys"
+            }
+            Self::IncompatibleFocus => "the focused producer's definition or pixel grid changed",
+            Self::UnsupportedQueryShape => {
+                "the query has no supported single-site aggregate and suffix"
+            }
+            Self::UnsupportedAggregate => "the query needs an unsupported aggregate state recipe",
+            Self::UnsupportedGroupingExpression => {
+                "a grouping expression is not proved safe over unselected rows"
+            }
+            Self::NonImmutableQuery => "the query contains stable or volatile computations",
         })
     }
 }
@@ -59,6 +89,12 @@ pub struct QueryDiagnostics {
     pub direct_reason: Option<DirectReason>,
 }
 impl QueryDiagnostics {
+    pub(crate) fn preaggregated() -> Self {
+        Self {
+            strategy: QueryStrategy::Preaggregated,
+            direct_reason: None,
+        }
+    }
     pub(crate) fn direct(reason: DirectReason) -> Self {
         Self {
             strategy: QueryStrategy::Direct,
@@ -156,24 +192,26 @@ impl SelectionQuery {
     }
 
     pub(crate) fn with_predicate(&self, predicate: Expr) -> Result<LogicalPlan> {
-        Ok(self
-            .0
-            .plan
-            .clone()
-            .transform_up_with_subqueries(|plan| {
-                if let Some(site) = selection_site(&plan) {
-                    if site.id == self.0.site {
-                        return Ok(Transformed::yes(
-                            LogicalPlanBuilder::from(site.input.clone())
-                                .filter(predicate.clone())?
-                                .build()?,
-                        ));
-                    }
-                }
-                Ok(Transformed::no(plan))
-            })?
-            .data)
+        with_predicate(&self.0.plan, self.0.site, predicate)
     }
+}
+
+pub(crate) fn with_predicate(plan: &LogicalPlan, id: u64, predicate: Expr) -> Result<LogicalPlan> {
+    Ok(plan
+        .clone()
+        .transform_up_with_subqueries(|plan| {
+            if let Some(site) = selection_site(&plan) {
+                if site.id == id {
+                    return Ok(Transformed::yes(
+                        LogicalPlanBuilder::from(site.input.clone())
+                            .filter(predicate.clone())?
+                            .build()?,
+                    ));
+                }
+            }
+            Ok(Transformed::no(plan))
+        })?
+        .data)
 }
 
 /// Configure a family without executing its source or retaining current values.
@@ -196,17 +234,36 @@ impl QueryFamilyBuilder<'_> {
         self.policy = policy;
         self
     }
-    /// Validate named selections and mappings, then retain the reusable recipe.
-    /// Automatic planning currently selects direct execution for every query.
+    /// Validate named selections and mappings, then derive sufficient state for
+    /// supported counts. Unsupported queries retain the direct recipe.
     pub fn build(self) -> Result<QueryFamily> {
-        self.query.0.filter.resolve(self.selections)?;
+        let resolved = self.query.0.filter.resolve(self.selections)?;
         if let Some(focus) = &self.focus {
             self.selections.get(&focus.address().selection)?;
         }
+        let preaggregation = if let Some(focus) = &self.focus {
+            if focus.identity().is_some() {
+                Err(DirectReason::UnsupportedInteraction)
+            } else {
+                let keys = self.query.0.filter.interaction_keys(focus);
+                match predicates::split(
+                    &resolved,
+                    focus,
+                    self.query.0.filter.consumer_view(),
+                    &keys,
+                ) {
+                    Ok(_) => Preaggregation::analyze(&self.query.0.plan, self.query.0.site, keys)?,
+                    Err(reason) => Err(reason),
+                }
+            }
+        } else {
+            Err(DirectReason::NoFocus)
+        };
         Ok(QueryFamily {
             query: self.query,
             focus: self.focus,
             policy: self.policy,
+            preaggregation,
         })
     }
 }
@@ -217,6 +274,7 @@ pub struct QueryFamily {
     pub(crate) query: SelectionQuery,
     focus: Option<ProducerDefinition>,
     policy: QueryPolicy,
+    pub(crate) preaggregation: Eligibility<Preaggregation>,
 }
 impl QueryFamily {
     /// Return the planning hint. Current contributions determine actual membership.
@@ -229,7 +287,13 @@ impl QueryFamily {
     }
     /// Describe the family's default strategy without binding or executing data.
     pub fn explain(&self) -> QueryDiagnostics {
-        Self::diagnostics(self.policy)
+        if self.policy == QueryPolicy::ForceDirect {
+            return QueryDiagnostics::direct(DirectReason::Forced);
+        }
+        match &self.preaggregation {
+            Ok(_) => QueryDiagnostics::preaggregated(),
+            Err(reason) => QueryDiagnostics::direct(*reason),
+        }
     }
     /// Bind a snapshot using the family's default policy.
     pub fn bind(&self, selections: &SelectionSet) -> Result<BoundQuery> {
@@ -242,24 +306,46 @@ impl QueryFamily {
         selections: &SelectionSet,
         policy: QueryPolicy,
     ) -> Result<BoundQuery> {
-        Ok(BoundQuery::Direct {
-            plan: self.query.logical_plan(selections)?,
-            reason: Self::reason(policy),
-        })
-    }
-    pub(crate) fn diagnostics(policy: QueryPolicy) -> QueryDiagnostics {
-        QueryDiagnostics::direct(Self::reason(policy))
-    }
-    fn reason(policy: QueryPolicy) -> DirectReason {
-        match policy {
-            QueryPolicy::Auto => DirectReason::PreaggregationNotImplemented,
-            QueryPolicy::ForceDirect => DirectReason::Forced,
+        // Resolve the complete predicate even when the optimized output wins.
+        let full = self.query.predicate(selections)?;
+        match self.split(selections, policy)? {
+            Ok(split) => {
+                let prepared = self.preaggregation.as_ref().expect("eligible template");
+                Ok(BoundQuery::Preaggregated {
+                    materialization: prepared.materialization(split.fixed)?,
+                    aggregate: prepared.aggregate(split.changing)?,
+                })
+            }
+            Err(reason) => Ok(BoundQuery::Direct {
+                plan: self.query.with_predicate(full)?,
+                reason,
+            }),
         }
+    }
+
+    pub(crate) fn split(
+        &self,
+        selections: &SelectionSet,
+        policy: QueryPolicy,
+    ) -> Result<Eligibility<PredicateSplit>> {
+        if policy == QueryPolicy::ForceDirect {
+            return Ok(Err(DirectReason::Forced));
+        }
+        let prepared = match &self.preaggregation {
+            Ok(prepared) => prepared,
+            Err(reason) => return Ok(Err(*reason)),
+        };
+        let resolved = self.query.0.filter.resolve(selections)?;
+        Ok(predicates::split(
+            &resolved,
+            self.focus.as_ref().expect("planned focus"),
+            self.query.0.filter.consumer_view(),
+            &prepared.interaction_keys,
+        ))
     }
 }
 
-/// Native plans for a single snapshot. All bindings currently use Direct.
-/// Additional strategies will expose their materialization and aggregate stages.
+/// Native plans for a single snapshot, with explicit materialization when supported.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum BoundQuery {
@@ -267,22 +353,27 @@ pub enum BoundQuery {
         plan: LogicalPlan,
         reason: DirectReason,
     },
+    Preaggregated {
+        materialization: LogicalPlan,
+        aggregate: AggregateStep,
+    },
 }
 impl BoundQuery {
     /// Explain the strategy chosen for this binding.
     pub fn explain(&self) -> QueryDiagnostics {
         match self {
             Self::Direct { reason, .. } => QueryDiagnostics::direct(*reason),
+            Self::Preaggregated { .. } => QueryDiagnostics::preaggregated(),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
-struct SelectionSite {
-    id: u64,
-    input: LogicalPlan,
+pub(crate) struct SelectionSite {
+    pub id: u64,
+    pub input: LogicalPlan,
 }
-fn selection_site(plan: &LogicalPlan) -> Option<&SelectionSite> {
+pub(crate) fn selection_site(plan: &LogicalPlan) -> Option<&SelectionSite> {
     match plan {
         LogicalPlan::Extension(e) => e.node.as_any().downcast_ref(),
         _ => None,
