@@ -96,8 +96,8 @@ impl ExprInput {
 /// A named computation that produces one scalar per defining scope instance.
 #[derive(Clone, Debug)]
 pub struct ScalarNode {
-    graph: u64,
-    index: usize,
+    pub(crate) graph: u64,
+    pub(crate) index: usize,
     name: Arc<str>,
     field: FieldRef,
 }
@@ -218,6 +218,12 @@ impl Default for DataflowBuilder {
 }
 
 impl DataflowBuilder {
+    /// Inspect registered plans and expressions as SQL without executing queries.
+    #[cfg(feature = "sql")]
+    pub fn sql(&self) -> crate::SqlFormatter<'_> {
+        crate::SqlFormatter::new(&self.def)
+    }
+
     /// Build additional computations against a base definition's public interface.
     /// Root input handles remain owned and bound by the base.
     pub fn with_base(base: &crate::DataflowInterface) -> Self {
