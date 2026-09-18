@@ -5,6 +5,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A calculation failure shared by concurrent consumers.
+    #[error("{0}")]
+    Shared(#[source] std::sync::Arc<Error>),
     #[error(
         "additional dataflows require a matching base and PreparedDataflow::prepare_extension"
     )]
