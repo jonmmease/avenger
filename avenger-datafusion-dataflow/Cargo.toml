@@ -32,6 +32,7 @@ prost-build = "0.14.1"
 protoc-bin-vendored = "3"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["time"] }
 tempfile = "3"
 
 [[example]]

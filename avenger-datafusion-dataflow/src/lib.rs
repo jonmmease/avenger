@@ -1,5 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(test)]
+extern crate self as avenger_datafusion_dataflow;
+
 pub use datafusion;
 pub use datafusion::arrow;
 
@@ -9,6 +12,7 @@ mod error;
 mod execution;
 mod expr_input;
 mod graph;
+mod in_flight;
 mod inputs;
 mod interface;
 mod partition;

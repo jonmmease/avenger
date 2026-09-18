@@ -3,7 +3,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use datafusion::{arrow::datatypes::SchemaRef, logical_expr::Volatility};
 
-/// Eligibility for retaining completed results across queries.
+/// Eligibility for sharing active work and retaining results across queries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReuseScope {
     Reusable,
@@ -83,6 +83,8 @@ pub struct EvaluationReport {
     pub executed_nodes: Vec<String>,
     pub physical_plans: usize,
     pub cache_hits: usize,
+    /// Subscriptions to existing attempts, including attempts that later cancel.
+    pub in_flight_hits: usize,
     pub cache_misses: usize,
     pub cache_bypasses: usize,
     /// Executed named nodes that contain external scans (not a file-read counter).

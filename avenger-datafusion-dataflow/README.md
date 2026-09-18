@@ -2,7 +2,7 @@
 
 Build a graph from named DataFusion logical plans and scalar expressions, then query selected outputs against immutable scalar, table, and expression inputs.
 
-The native lifecycle is `DataflowBuilder → Dataflow → Runtime::prepare() → PreparedDataflow::query()`. It supports root, composite-key, and nested scopes, bounded completed-result caching, protobuf serialization, and an optional JSON/SQL adapter. A demanded computation runs at most once per defining instance per query. Cache hits skip prerequisite execution and physical planning. Misses create fresh DataFusion plans. Fusion, column pruning across nodes, and retained physical plans remain deferred.
+The native lifecycle is `DataflowBuilder → Dataflow → Runtime::prepare() → PreparedDataflow::query()`. It supports root, composite-key, and nested scopes, shared in-progress calculations, bounded completed-result caching, protobuf serialization, and an optional JSON/SQL adapter. A demanded computation runs at most once per defining instance per query. Cache hits skip prerequisite execution and physical planning. Misses create fresh DataFusion plans. Fusion, column pruning across nodes, and retained physical plans remain deferred.
 
 The crate has no dependencies on Avenger chart, scene graph, or rendering crates. It re-exports `datafusion` and `arrow` so consumers can use matching types.
 
@@ -196,13 +196,25 @@ Scalar subqueries return a typed null for zero rows, a scalar for one row, and a
 
 Function signatures determine volatility. `Stable` and `Volatile` dependencies propagate evaluation-local scope through the graph. A named volatile scalar produces one value per defining instance per query, shared by its consumers. Root values are shared across descendants, and regional values are shared by that region's nested instances. Separate named volatile nodes evaluate independently. Volatile expressions in table plans retain their row-wise semantics. Every node sees the same captured query start time, so `now()` agrees across independently planned regions.
 
-The runtime returns results only after all requested outputs succeed. Errors retain their source and node context, with complete instance addresses for scoped failures. Dropping a query future releases its work and reservations. Concurrent queries have separate inputs, values, and planning state. Cross-query work coalescing and its cancellation protocol are later phases.
+The runtime returns results only after all requested outputs succeed. Errors retain their source and node context, with complete instance addresses for scoped failures. Concurrent consumers can receive `Error::Shared`, which retains the original error in its source chain.
+
+#### Concurrent queries and cancellation
+
+Overlapping queries automatically share reusable named calculations with matching relevant inputs, scope addresses, and clear epochs. A warm-up query for a pre-aggregation and an interaction query for its downstream result can await the same materialization. Their requested output sets and unrelated bindings need not match. Prepared clones and extensions importing the same base producer share its calculations. Independently prepared definitions keep separate namespaces. `Stable` and `Volatile` nodes and their descendants remain evaluation-local.
+
+This sharing also applies with `CachePolicy::Disabled` and when a result is too large for retention. After an attempt finishes, only the configured result cache can retain its value for later queries. Scope partition discovery and row gathering outside named computations remain per-query operations.
+
+Drop the owned `query()` future to cancel that consumer, or abort the Tokio task running it. Dropping a task's `JoinHandle` alone detaches the task and lets its query continue. Canceling one consumer leaves shared calculations running for the others. When the last consumer disappears, the runtime stops the unused calculation and releases its subscriptions to prerequisites. Shared prerequisites continue for their remaining consumers.
+
+A calculation remains discoverable during cancellation and teardown. A new consumer waits for it to settle, accepts a complete success, or repeats lookup after confirmed cancellation from lost interest. Execution failures and abandoned producers are returned without automatic retries. Successful completion racing cancellation can enter the cache under the normal policy and captured epochs. Clearing results separates subsequent requests from earlier attempts.
+
+Cancellation drops the owned DataFusion execution stream. Internal lifetime guards retain the preparation and materialization reservation until the physical plans and streams release them, including streams held by DataFusion worker tasks. Synchronous kernels and UDFs must return before their task can stop. Custom providers and operators must follow DataFusion's ownership and cancellation contracts for their own background work. This runtime does not impose a time limit on arbitrary external work.
 
 ### Preparation and diagnostics
 
 `prepare()` validates and analyzes all declared output paths. `PreparedDataflow` retains definitions, dependency metadata, and analyzed plans. It does not retain input snapshots or compiled physical plans.
 
-`prepared.explain()` reports reachable nodes, definition paths, partition key schemas, ancestor captures, dependencies, external inputs, volatility, and reuse scope. `result.report()` reports executed nodes, physical planning count, captured query time, charged materialization, and per-definition instance, execution, and partitioned-row counts. Routine reports omit data-derived key values. `Reusable` marks nodes eligible for completed-result retention. Reports also expose cache hits, misses, bypasses, source executions, and retained byte charges.
+`prepared.explain()` reports reachable nodes, definition paths, partition key schemas, ancestor captures, dependencies, external inputs, volatility, and reuse scope. `result.report()` reports executed nodes, physical planning count, captured query time, charged materialization, and per-definition instance, execution, and partitioned-row counts. Routine reports omit data-derived key values. `Reusable` marks nodes eligible for both active sharing and completed-result retention. Reports expose completed-cache hits, `in_flight_hits`, cache misses, bypasses, source executions, and retained byte charges. An in-flight hit counts joining an existing attempt, including one that later cancels. Actual execution and planning counts belong to the evaluation that initiated the attempt. Its report may be unavailable if that initiating query was canceled, so per-request reports are not a runtime-wide work ledger.
 
 `Runtime::with_session_state()` captures DataFusion configuration and function registries and installs the crate's snapshot planner. Native relational plans, values, and supported subqueries execute through DataFusion. Finite stable external scans are supported. Providers that hide a logical program are rejected; register that program directly so its dependencies and volatility can be analyzed. Session variables, DDL, DML, control statements, recursive queries, and unknown logical extensions are rejected. Known unbounded physical sources fail before execution.
 
@@ -210,7 +222,7 @@ The runtime returns results only after all requested outputs succeed. Errors ret
 
 `RuntimeConfig` exposes `ExecutionConfig`: maximum active queries and an aggregate byte budget for materialized values owned by active queries. The defaults are four queries and 256 MiB. Regions and scope instances within one query execute sequentially. All frames share one query permit, captured timestamp, and materialization budget.
 
-The byte budget conservatively charges Arrow array allocations, scalar copies, partition indices, instance addresses, and frame/result metadata, potentially counting shared buffers more than once. Charges accumulate until the query ends, including temporary partition buffers already released. This can reject a query below the budget in actual live memory. A query that cannot retain its required values fails with `ResourceExhausted`. This budget does not bound caller-owned inputs, returned results, or DataFusion operator memory. Operator memory uses DataFusion's runtime environment. Fixed graph assets are also excluded from active materialization charges. Retained results have a separate bounded cache budget.
+The byte budget conservatively charges Arrow array allocations, scalar copies, partition indices, instance addresses, and frame/result metadata, potentially counting shared buffers more than once. Charges accumulate while an evaluation or one of its shared calculation values or execution leases remains active, including temporary partition buffers already released. A consumer also charges its use of values received from another evaluation. Canceling the initiating query does not release reservations still owned by running work or other consumers. This can reject a query below the budget in actual live memory. A query that cannot retain its required values fails with `ResourceExhausted`. This budget does not bound caller-owned inputs, returned results, or DataFusion operator memory. Operator memory uses DataFusion's runtime environment. Fixed graph assets are also excluded from active materialization charges. Retained results have a separate bounded cache budget.
 
 ## Prepared extensions
 
@@ -273,7 +285,7 @@ A composed query has one evaluation ID, query start time, execution permit, and 
 
 Resident base results serve ordinary queries and every extension attached to that preparation. Additional cache keys include their transitive base and local bindings. An additional result hit can skip base execution entirely. `base.clear_results()` also removes dependent additional entries and prevents in-flight requests from publishing results derived under the old clear epoch. `extension.clear_results()` removes only that extension's entries. Ordinary eviction of an upstream value does not invalidate retained downstream results.
 
-The extension keeps its base alive. Dropping the last extension clone releases its additional cache namespace without clearing other users' base results. Both programs share the runtime's LRU budget and execution limits. Concurrent cold queries can duplicate work. Query misses still optimize and physically plan named computations.
+The extension keeps its base alive. Dropping the last extension clone releases its additional cache namespace without clearing other users' base results. Both programs share the runtime's LRU budget and execution limits. Concurrent cold queries share eligible base and additional computations within their respective namespaces. A newly reserved calculation still optimizes and physically plans its named computation.
 
 ### Generated pre-aggregation example
 
@@ -291,11 +303,11 @@ Use `table_snapshot(name, snapshot)` for immutable graph-owned data. Use `table_
 
 Give an expensive source its own named node before parameter-dependent transforms. Retention happens at named boundaries with complete schemas. A scan buried inside a filter node is only reused when that whole node's bindings match.
 
-The default runtime LRU retains at most 128 MiB and 1,024 entries across all its preparations. Configure `CachePolicy::Lru(CacheConfig { max_bytes, max_entries })` or use `CachePolicy::Disabled` for the uncached baseline. Oversized results bypass retention. Charges include retained Arrow allocations and key metadata, conservatively counting shared buffers more than once.
+The default runtime LRU retains at most 128 MiB and 1,024 entries across all its preparations. Configure `CachePolicy::Lru(CacheConfig { max_bytes, max_entries })` or use `CachePolicy::Disabled` to disable completed-result retention while preserving in-progress sharing. Oversized results bypass retention. Charges include retained Arrow allocations and key metadata, conservatively counting shared buffers more than once.
 
 Cache keys include the preparation namespace, node, complete scope address, relevant scalar values, input snapshot identities, and structural expression bindings. Irrelevant inputs do not invalidate a result. Clones of a prepared value share its namespace; separate preparations do not. Scoped overrides invalidate affected values while siblings can hit. Discovery tables can hit, but grouping indices and gathering local rows still run each query.
 
-`Stable`/`Volatile` functions and their descendants remain query-local. Caches hold only complete successful node results. A failed query can leave successful prerequisites cached. Concurrent misses run independently. `clear_results()` removes one namespace and advances its epoch, preventing active older requests from repopulating it. Dropping the last prepared clone releases its entries. Caller-held results remain valid after eviction or clearing.
+`Stable`/`Volatile` functions and their descendants remain query-local. Caches hold only complete successful node results. A failed query can leave successful prerequisites cached. Matching concurrent misses share one calculation. `clear_results()` removes one namespace and advances its epoch, preventing active older requests from repopulating it. Dropping the last prepared clone releases its entries. Caller-held results remain valid after eviction or clearing.
 
 Cache hits count against active materialization limits. `runtime.cache_stats()` reports runtime-wide retention. The active and retained budgets bound different owners; neither bounds all process memory.
 

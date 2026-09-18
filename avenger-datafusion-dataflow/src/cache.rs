@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{inputs::MaterializedValue, ScopeInstance, SnapshotId};
 
-/// Retention policy for completed reusable values. Query-local sharing is always enabled.
+/// Retention policy for completed reusable values. In-progress sharing is always enabled.
 #[derive(Clone, Debug)]
 pub enum CachePolicy {
     Disabled,
@@ -84,6 +84,7 @@ struct Entry {
 }
 
 pub(crate) struct Cache {
+    pub(crate) flights: HashMap<crate::in_flight::Key, crate::in_flight::Flight>,
     policy: CachePolicy,
     entries: HashMap<ValueKey, Entry>,
     epochs: HashMap<u64, u64>,
@@ -101,6 +102,7 @@ impl Cache {
     pub fn new(policy: CachePolicy) -> Self {
         Self {
             policy,
+            flights: HashMap::new(),
             entries: HashMap::new(),
             epochs: HashMap::new(),
             tick: 0,
