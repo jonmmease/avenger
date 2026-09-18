@@ -317,12 +317,9 @@ direct output per target. It adds no unused pre-aggregation branches.
 The installed three-view example starts with inactive selections, applies a
 delay brush `[10, 40)`, drags its lower edge to `[11, 40)`, and repeats that last
 request. It prints each generated query as SQL before executing the installed
-outputs. Direct execution creates 3, 2, 2, and 0 physical plans for those steps.
-The focused delay chart excludes its own brush and reuses its result during the
-drag. The distance and airline queries process source rows again for the new
-bounds. Future pre-aggregation can reuse their materializations and perform only
-the final filtering and aggregation for this step. The unchanged repeat tests
-ordinary final-result caching separately:
+outputs. After each request, it prints the names of executed nodes, the cache-hit
+count, and the count of shared in-progress computations from the runtime's
+`EvaluationReport`:
 
 ```sh
 cargo run -p avenger-selection --features dataflow --example query_families
