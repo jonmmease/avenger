@@ -7,7 +7,8 @@ description = "Parameterized graphs of DataFusion plans and scalar expressions"
 
 [features]
 default = []
-json = ["dep:serde", "dep:serde_json", "dep:schemars", "dep:url", "datafusion/sql", "datafusion/parquet"]
+sql = ["datafusion/sql"]
+json = ["dep:serde", "dep:serde_json", "dep:schemars", "dep:url", "sql", "datafusion/parquet"]
 
 [dependencies]
 datafusion = { version = "=54.1.0", default-features = false, features = ["nested_expressions", "math_expressions", "datetime_expressions", "string_expressions", "regex_expressions", "unicode_expressions", "recursive_protection"] }

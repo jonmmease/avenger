@@ -20,6 +20,8 @@ mod result;
 mod runtime;
 mod semantics;
 mod serialization;
+#[cfg(feature = "sql")]
+mod sql;
 mod table;
 
 pub use cache::{CacheConfig, CachePolicy, CacheStats};
@@ -39,6 +41,8 @@ pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
 pub use result::{DataflowResult, ScopeResult, ScopeResults};
 pub use runtime::{ExecutionConfig, PreparedDataflow, PreparedExtension, Runtime, RuntimeConfig};
 pub use semantics::SemanticConfig;
+#[cfg(feature = "sql")]
+pub use sql::SqlFormatter;
 pub use table::{SnapshotId, TableSnapshot, TableStore};
 
 use std::sync::atomic::{AtomicU64, Ordering};
