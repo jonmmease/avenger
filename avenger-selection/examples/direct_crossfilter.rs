@@ -1,13 +1,14 @@
 use avenger_datafusion_dataflow::{DataflowBuilder, Runtime, TableSnapshot};
+use avenger_scales_datafusion::BuiltinScale;
 use avenger_selection::{
-    ConsumerFilter, ProducerAddress, ProducerDefinition, ProducerId, Projection, ProjectionId,
-    Resolution, SelectionCompiler, SelectionConsumer, SelectionDefinition, SelectionFilter,
-    SelectionId, SelectionKind, SelectionSet, SelectionSnapshot, SelectionTerm, SelectionTuple,
-    SelectionUpdate, SelectionValue, ValueTest, ViewAddress, ViewId,
+    ConsumerFilter, PixelGrid, ProducerAddress, ProducerDefinition, ProducerId, Projection,
+    ProjectionId, Resolution, SelectionCompiler, SelectionConsumer, SelectionDefinition,
+    SelectionFilter, SelectionId, SelectionKind, SelectionSet, SelectionSnapshot, SelectionTerm,
+    SelectionTuple, SelectionUpdate, SelectionValue, ValueTest, ViewAddress, ViewId,
 };
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Int64Array, StringArray},
+        array::{ArrayRef, Float32Array, Int64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
         util::pretty::print_batches,
@@ -99,19 +100,35 @@ fn flights() -> Result<TableSnapshot> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let selection = SelectionId::new("filters")?;
-    let delay = plot(
+    let mut delay = plot(
         &selection,
         "delay_histogram",
         "delay",
         SelectionKind::Interval,
     )?;
-    let distance = plot(
+    let mut distance = plot(
         &selection,
         "distance_histogram",
         "distance",
         SelectionKind::Interval,
     )?;
     let airlines = plot(&selection, "airline_bars", "carrier", SelectionKind::Point)?;
+    if std::env::args().any(|arg| arg == "--pixels") {
+        for (plot, domain) in [(&mut delay, [-20.0, 60.0]), (&mut distance, [0.0, 3000.0])] {
+            let grid = PixelGrid::new(
+                BuiltinScale::Linear,
+                Arc::new(Float32Array::from(domain.to_vec())),
+                Arc::new(Float32Array::from(vec![0.0, 600.0])),
+                Default::default(),
+                0.0,
+                2.0,
+            )?;
+            plot.producer = plot
+                .producer
+                .with_pixel_grids([(plot.projection.clone(), grid)])?;
+        }
+        println!("Using two-logical-pixel interval membership");
+    }
     let mut state = SelectionSet::new([SelectionSnapshot::new(SelectionDefinition::new(
         selection.clone(),
         Resolution::Intersect,

@@ -361,7 +361,10 @@ pub(crate) fn same_meaning(
                 .zip(bp.projections())
                 .enumerate()
                 .position(|(index, (other, op))| {
-                    !matched[index] && projection.same_meaning(op) && term.test == other.test
+                    !matched[index]
+                        && projection.same_meaning(op)
+                        && ap.pixel_grid(projection.id()) == bp.pixel_grid(op.id())
+                        && term.test == other.test
                 });
         match index {
             Some(index) => matched[index] = true,

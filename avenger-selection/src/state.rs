@@ -11,6 +11,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct Contribution {
     pub(crate) producer: Producer,
     pub(crate) value: SelectionValue,
+    effective_value: Option<SelectionValue>,
 }
 impl Contribution {
     /// Return the definition captured when this contribution was updated.
@@ -20,6 +21,19 @@ impl Contribution {
     /// Return normalized selected values.
     pub fn value(&self) -> &SelectionValue {
         &self.value
+    }
+    /// Return comparison values, with pixel ranges expressed as Int64 cell bounds.
+    /// `value()` retains the original typed data bounds for overlays and regridding.
+    pub fn effective_value(&self) -> &SelectionValue {
+        self.effective_value.as_ref().unwrap_or(&self.value)
+    }
+    fn from_canonical(producer: Producer, value: SelectionValue) -> Result<Self> {
+        let effective_value = crate::pixels::effective_value(&producer, &value)?;
+        Ok(Self {
+            producer,
+            value,
+            effective_value,
+        })
     }
 }
 
@@ -88,7 +102,7 @@ impl SelectionSnapshot {
                 }
                 contributions.insert(
                     producer.address().clone(),
-                    Arc::new(Contribution { producer, value }),
+                    Arc::new(Contribution::from_canonical(producer, value)?),
                 );
             }
             Update::Clear(address) => {
@@ -141,10 +155,10 @@ impl SelectionSnapshot {
                             } else {
                                 contributions.insert(
                                     address,
-                                    Arc::new(Contribution {
-                                        producer: old.producer.clone(),
-                                        value: SelectionValue::Tuples(retained),
-                                    }),
+                                    Arc::new(Contribution::from_canonical(
+                                        old.producer.clone(),
+                                        SelectionValue::Tuples(retained),
+                                    )?),
                                 );
                             }
                         }
@@ -163,10 +177,10 @@ impl SelectionSnapshot {
                         selected.sort_by(tuple_cmp);
                         contributions.insert(
                             producer.address().clone(),
-                            Arc::new(Contribution {
-                                producer: producer.clone(),
-                                value: SelectionValue::Tuples(selected),
-                            }),
+                            Arc::new(Contribution::from_canonical(
+                                producer.clone(),
+                                SelectionValue::Tuples(selected),
+                            )?),
                         );
                     }
                 }
