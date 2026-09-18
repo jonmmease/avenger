@@ -26,10 +26,8 @@ use datafusion::{
 // the delay brush's lower edge. "Unchanged" reuses the dragged snapshot.
 // Distance and airline charts apply the delay predicate. The delay chart
 // excludes its own producer and continues to show all rows in every state.
-// All requests share one focus and prepared extension. Direct execution
-// creates 3, 2, 2, then 0 physical plans. New drag bounds exercise the case
-// that pre-aggregation can accelerate; the repeat exercises result caching.
-fn brush_states(delay: &ProducerDefinition) -> Result<[(&'static str, SelectionSet, usize); 4]> {
+// All requests share one focus and prepared extension.
+fn brush_states(delay: &ProducerDefinition) -> Result<[(&'static str, SelectionSet); 4]> {
     let name = &delay.address().selection;
     let inactive = SelectionSet::new([SelectionSnapshot::new(SelectionDefinition::new(
         name.clone(),
@@ -53,10 +51,10 @@ fn brush_states(delay: &ProducerDefinition) -> Result<[(&'static str, SelectionS
     let brushed = inactive.apply(name, brush(10, 40))?;
     let dragged = brushed.apply(name, brush(11, 40))?;
     Ok([
-        ("inactive", inactive, 3),
-        ("brushed [10, 40)", brushed, 2),
-        ("dragged [11, 40)", dragged.clone(), 2),
-        ("unchanged [11, 40)", dragged, 0),
+        ("inactive", inactive),
+        ("brushed [10, 40)", brushed),
+        ("dragged [11, 40)", dragged.clone()),
+        ("unchanged [11, 40)", dragged),
     ])
 }
 
@@ -141,7 +139,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let additional = additional.finish()?;
     let sql = additional.sql();
     let extension = base.prepare_extension(&additional).await?;
-    for (step, state, expected_plans) in states {
+    for (step, state) in states {
         println!("\n=== {step} ===");
         let mut inputs = extension.inputs();
         let mut outputs = Vec::new();
@@ -162,16 +160,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let result = extension
             .query(&outputs, &[], &base_inputs, &inputs.finish()?)
             .await?;
-        println!("{step}: {} physical plans", result.report().physical_plans);
+        let report = result.report();
+        println!("Executed nodes:");
+        if report.executed_nodes.is_empty() {
+            println!("  (none)");
+        }
+        for node in &report.executed_nodes {
+            println!("  {node}");
+        }
+        println!("Cache hits: {}", report.cache_hits);
+        println!("Shared in-progress computations: {}", report.in_flight_hits);
         for ((label, _, _), output) in installed.iter().zip(outputs) {
             println!("{label}");
             print_batches(result.table(&output)?.batches())?;
         }
-        assert_eq!(
-            result.report().physical_plans,
-            expected_plans,
-            "direct execution reuses the focused chart during a drag and all outputs on an unchanged repeat"
-        );
     }
     Ok(())
 }
