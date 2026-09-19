@@ -4,7 +4,7 @@ use crate::{
     predicate::{combine, contribution, tuples_predicate},
     resolve::{ResolvedFilter, SelectionStatus},
     ConsumerFilter, EmptySelection, ProducerDefinition, Resolution, Result, SelectionMode,
-    SelectionSet, SelectionValue, ViewAddress,
+    SelectionSet, ViewId,
 };
 
 /// Why a valid selection predicate has no supported fixed/changing split.
@@ -15,8 +15,6 @@ pub enum SplitReason {
     FocusNotUsed,
     /// A focus-dependent Boolean operation has no supported conjunction proof.
     UnsupportedComposition,
-    /// The focused interaction has no supported retained dimensions, such as row IDs.
-    UnsupportedInteraction,
     /// The active focused contribution differs from the supplied definition or grid.
     IncompatibleFocus,
 }
@@ -25,7 +23,6 @@ impl std::fmt::Display for SplitReason {
         f.write_str(match self {
             Self::FocusNotUsed => "consumer excludes or does not use the focus",
             Self::UnsupportedComposition => "no supported fixed/changing conjunction",
-            Self::UnsupportedInteraction => "interaction has no supported retained dimensions",
             Self::IncompatibleFocus => "focused definition or pixel grid changed",
         })
     }
@@ -89,11 +86,7 @@ impl ConsumerFilter {
     ) -> Result<SelectionPredicates> {
         let tree = self.resolve(selections)?;
         selections.get(&focus.address().selection)?;
-        let split = if focus.identity().is_some() {
-            Err(SplitReason::UnsupportedInteraction)
-        } else {
-            split(&tree, focus, self.view(), &self.interaction_keys(focus))
-        };
+        let split = split(&tree, focus, self.view(), &self.interaction_keys(focus));
         Ok(SelectionPredicates {
             full: tree.predicate(),
             split,
@@ -101,11 +94,11 @@ impl ConsumerFilter {
     }
 }
 
-fn uses_focus(tree: &ResolvedFilter, focus: &ProducerDefinition, view: &ViewAddress) -> bool {
+fn uses_focus(tree: &ResolvedFilter, focus: &ProducerDefinition, view: &ViewId) -> bool {
     match tree {
         ResolvedFilter::Selection(s) => {
             s.id == focus.address().selection
-                && !(s.usage.mode == SelectionMode::CrossFilter && &focus.address().origin == view)
+                && !(s.mode == SelectionMode::CrossFilter && &focus.address().origin == view)
         }
         ResolvedFilter::All(xs) | ResolvedFilter::Any(xs) => {
             xs.iter().any(|x| uses_focus(x, focus, view))
@@ -117,7 +110,7 @@ fn uses_focus(tree: &ResolvedFilter, focus: &ProducerDefinition, view: &ViewAddr
 fn split(
     tree: &ResolvedFilter,
     focus: &ProducerDefinition,
-    view: &ViewAddress,
+    view: &ViewId,
     keys: &[Expr],
 ) -> std::result::Result<PredicateSplit, SplitReason> {
     if !uses_focus(tree, focus, view) {
@@ -129,7 +122,7 @@ fn split(
 fn factor(
     tree: &ResolvedFilter,
     focus: &ProducerDefinition,
-    view: &ViewAddress,
+    view: &ViewId,
     keys: &[Expr],
 ) -> std::result::Result<PredicateSplit, SplitReason> {
     if !uses_focus(tree, focus, view) {
@@ -164,10 +157,7 @@ fn factor(
                     if c.contribution.producer() != focus {
                         return Err(SplitReason::IncompatibleFocus);
                     }
-                    let SelectionValue::Tuples(tuples) = c.contribution.effective_value() else {
-                        return Err(SplitReason::UnsupportedInteraction);
-                    };
-                    changing = tuples_predicate(tuples, keys);
+                    changing = tuples_predicate(c.contribution.effective_value().as_tuples(), keys);
                 } else {
                     fixed.push(contribution(c));
                 }
@@ -175,7 +165,7 @@ fn factor(
             // Inactivity affects this read, not the coverage of the summary.
             // In particular, MatchNone can warm all cells before the first brush.
             if s.status == SelectionStatus::Inactive {
-                changing = lit(s.usage.empty == EmptySelection::MatchAll);
+                changing = lit(s.empty == EmptySelection::MatchAll);
             }
             Ok(PredicateSplit {
                 dimensions: keys.to_vec(),

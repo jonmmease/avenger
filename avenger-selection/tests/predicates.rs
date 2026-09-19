@@ -39,7 +39,7 @@ async fn two_histograms_and_categories_cross_filter_one_shared_selection() {
         (&distance, vec![1, 2, 4]),
         (&carrier, vec![1, 2, 5, 6]),
     ] {
-        let filter = cross(p.address().origin.clone());
+        let filter = cross(p.view().clone());
         assert_eq!(
             selected(flights(), filter.predicate(&s).unwrap()).await,
             expected
@@ -54,18 +54,18 @@ async fn two_histograms_and_categories_cross_filter_one_shared_selection() {
 async fn absence_all_excluded_and_active_empty_have_distinct_meaning() {
     let p = point("p", "carrier");
     let inactive = state(Resolution::Intersect);
-    let usage = SelectionUse {
-        mode: SelectionMode::CrossFilter,
-        empty: EmptySelection::MatchNone,
-    };
     let own = filter(
-        p.address().origin.clone(),
-        SelectionFilter::Selection { id: id(), usage },
+        p.view().clone(),
+        SelectionFilter::Selection {
+            id: id(),
+            mode: SelectionMode::CrossFilter,
+            empty: EmptySelection::MatchNone,
+        },
     );
     assert!(selected(flights(), own.predicate(&inactive).unwrap())
         .await
         .is_empty());
-    let empty = inactive.set(&p, SelectionValue::Tuples(vec![])).unwrap();
+    let empty = inactive.set(&p, SelectionValue::default()).unwrap();
     assert_eq!(
         selected(flights(), own.predicate(&empty).unwrap()).await,
         vec![0, 1, 2, 3, 4, 5, 6]
@@ -143,13 +143,8 @@ async fn producer_resolution_and_outer_boolean_composition() {
 }
 #[tokio::test]
 async fn correlated_tuples_and_binned_points_preserve_conjunctions() {
-    let p = producer(
-        "points",
-        view("points"),
-        SelectionKind::Point,
-        &["carrier", "region"],
-    );
-    let values = SelectionValue::Tuples(vec![
+    let p = producer("points", view("points"), &["carrier", "region"]);
+    let values = SelectionValue::tuples(vec![
         vec![
             term("carrier", ValueTest::Equal("AA".into())),
             term("region", ValueTest::Equal("East".into())),
@@ -172,12 +167,7 @@ async fn correlated_tuples_and_binned_points_preserve_conjunctions() {
         selected(flights(), membership().predicate(&s).unwrap()).await,
         vec![1, 2, 4, 5, 6]
     );
-    let p = producer(
-        "brush2d",
-        view("brush2d"),
-        SelectionKind::Interval,
-        &["delay", "distance"],
-    );
+    let p = producer("brush2d", view("brush2d"), &["delay", "distance"]);
     let s = state(Resolution::Union)
         .set(
             &p,
@@ -398,9 +388,9 @@ async fn exact_integer_decimal_and_timestamp_values_do_not_round_through_float()
     }
 }
 #[tokio::test]
-async fn consumer_mappings_are_qualified_by_producer_and_row_lineage() {
-    let a = producer("a", view("a"), SelectionKind::Point, &["value"]);
-    let b = producer("b", view("b"), SelectionKind::Point, &["value"]);
+async fn consumer_mappings_are_qualified_by_producer_including_row_ids() {
+    let a = producer("a", view("a"), &["value"]);
+    let b = producer("b", view("b"), &["value"]);
     let s = state(Resolution::Intersect)
         .apply_all([
             SelectionUpdate::set(&a, values("value", ["AA".into()])),
@@ -409,40 +399,30 @@ async fn consumer_mappings_are_qualified_by_producer_and_row_lineage() {
         .unwrap();
     let projection = ProjectionId::new("value").unwrap();
     let consumer = membership()
-        .with_projection(a.address(), &projection, col("carrier"))
+        .with_projection(&a, &projection, col("carrier"))
         .unwrap()
-        .with_projection(b.address(), &projection, col("region"))
+        .with_projection(&b, &projection, col("region"))
         .unwrap();
     assert!(consumer
         .clone()
-        .with_projection(a.address(), &projection, col("other"))
+        .with_projection(&a, &projection, col("other"))
         .is_err());
     assert_eq!(
         selected(flights(), consumer.predicate(&s).unwrap()).await,
         vec![0, 1, 3]
     );
 
-    let identity = RowIdentity::new(DataType::Int64).unwrap();
-    let p = ProducerDefinition::row_ids(address("ids", view("rows")), identity.clone());
+    // The chart verifies that source_id and id identify the same rows.
+    let p = producer("ids", view("rows"), &["source_id"]);
     let s = state(Resolution::Union)
-        .set(
-            &p,
-            SelectionValue::RowIds(
-                RowIdSelection::new(&identity, vec![2_i64.into(), 5_i64.into()]).unwrap(),
-            ),
-        )
+        .set(&p, values("source_id", [2_i64.into(), 5_i64.into()]))
         .unwrap();
-    assert!(membership().predicate(&s).is_err());
-    let wrong = membership()
-        .with_row_identity(&RowIdentity::new(DataType::Int64).unwrap(), col("id"))
-        .unwrap();
-    assert!(wrong.predicate(&s).is_err());
-    let correct = membership()
-        .with_row_identity(&identity, col("id"))
+    let mapped = membership()
+        .with_projection(&p, &ProjectionId::new("source_id").unwrap(), col("id"))
         .unwrap();
     assert_eq!(
-        selected(flights(), correct.predicate(&s).unwrap()).await,
-        vec![2, 5]
+        selected(flights(), mapped.predicate(&s).unwrap()).await,
+        vec![2, 5],
     );
     assert_eq!(
         selected(flights(), cross(view("rows")).predicate(&s).unwrap()).await,
@@ -451,30 +431,13 @@ async fn consumer_mappings_are_qualified_by_producer_and_row_lineage() {
 }
 #[tokio::test]
 async fn same_view_layers_exclude_all_own_producers_but_not_sibling_or_nested_facets() {
-    let scope = ScopeId::new("region_year").unwrap();
-    let east = ViewAddress {
-        view: ViewId::new("hist").unwrap(),
-        scope: vec![FacetKey::new(scope.clone(), vec!["East".into(), 2026_i32.into()]).unwrap()],
-    };
-    let west = ViewAddress {
-        view: east.view.clone(),
-        scope: vec![FacetKey::new(scope, vec!["West".into(), 2026_i32.into()]).unwrap()],
-    };
-    let nested = ViewAddress {
-        view: east.view.clone(),
-        scope: vec![
-            east.scope[0].clone(),
-            FacetKey::new(ScopeId::new("carrier").unwrap(), vec!["AA".into()]).unwrap(),
-        ],
-    };
-    let a = producer("brush", east.clone(), SelectionKind::Interval, &["delay"]);
-    let b = producer("points", east.clone(), SelectionKind::Point, &["carrier"]);
-    let c = producer(
-        "brush",
-        west.clone(),
-        SelectionKind::Interval,
-        &["distance"],
-    );
+    // IDs come from the chart's facet-instance map. Selection does not parse them.
+    let east = view("instance-1");
+    let west = view("instance-2");
+    let nested = view("instance-3");
+    let a = producer("brush", east.clone(), &["delay"]);
+    let b = producer("points", east.clone(), &["carrier"]);
+    let c = producer("brush", west.clone(), &["distance"]);
     let s = state(Resolution::Intersect)
         .apply_all([
             SelectionUpdate::set(&a, between("delay", 10, 30)),

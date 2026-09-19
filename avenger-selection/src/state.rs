@@ -1,8 +1,8 @@
 use crate::{
     definitions::Producer,
+    identity::ProducerAddress,
     values::{canonical_tuples, canonical_value, same_meaning, tuple_cmp},
-    Error, ProducerAddress, ProducerDefinition, Resolution, Result, SelectionId, SelectionKind,
-    SelectionValue,
+    Error, ProducerDefinition, Resolution, Result, SelectionId, SelectionValue,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -52,14 +52,14 @@ impl SelectionUpdate {
     pub fn set(producer: &ProducerDefinition, value: SelectionValue) -> Self {
         Self(Update::Set(Arc::new(producer.clone()), value))
     }
-    /// Toggle canonical point tuples, preserving their producer origin.
-    /// Row-ID values use replacement updates.
+    /// Toggle whole normalized tuples, preserving their producer origin.
+    /// Compare raw values, including range bounds, before applying pixel grids.
     pub fn toggle(producer: &ProducerDefinition, value: SelectionValue) -> Self {
         Self(Update::Toggle(Arc::new(producer.clone()), value))
     }
     /// Remove only the specified producer in every resolution mode.
-    pub fn clear(address: &ProducerAddress) -> Self {
-        Self(Update::Clear(address.clone()))
+    pub fn clear(producer: &ProducerDefinition) -> Self {
+        Self(Update::Clear(producer.address().clone()))
     }
     /// Remove all active producers in this named selection.
     pub fn clear_all(selection: &SelectionId) -> Self {
@@ -92,17 +92,7 @@ impl NamedSelection {
             }
             Update::ClearAll(_) => Arc::make_mut(&mut next.contributions).clear(),
             Update::Toggle(producer, value) => {
-                if producer.kind() != SelectionKind::Point {
-                    return Err(Error::InvalidUpdate(
-                        "only point producers support toggle".into(),
-                    ));
-                }
-                let SelectionValue::Tuples(tuples) = value else {
-                    return Err(Error::InvalidUpdate(
-                        "row-ID values do not support toggle".into(),
-                    ));
-                };
-                let tuples = canonical_tuples(&producer, tuples)?;
+                let tuples = canonical_tuples(&producer, value.tuples)?;
                 // Configuration changes require a replacement so retained tuples
                 // cannot silently acquire different projected meanings.
                 if let Some(old) = self.contributions.get(producer.address()) {
@@ -125,9 +115,7 @@ impl NamedSelection {
                         let Some(old) = contributions.get(&address) else {
                             continue;
                         };
-                        let SelectionValue::Tuples(old_tuples) = &old.value else {
-                            continue;
-                        };
+                        let old_tuples = &old.value.tuples;
                         let retained: Vec<_> = old_tuples
                             .iter()
                             .filter(|t| !same_meaning(&tuple, &producer, t, &old.producer))
@@ -142,7 +130,7 @@ impl NamedSelection {
                                     address,
                                     Arc::new(Contribution::from_canonical(
                                         old.producer.clone(),
-                                        SelectionValue::Tuples(retained),
+                                        SelectionValue { tuples: retained },
                                     )?),
                                 );
                             }
@@ -151,12 +139,7 @@ impl NamedSelection {
                     if !removed {
                         let mut selected = contributions
                             .get(producer.address())
-                            .map(|c| match &c.value {
-                                SelectionValue::Tuples(t) => t.clone(),
-                                SelectionValue::RowIds(_) => {
-                                    unreachable!("tuple producer validated")
-                                }
-                            })
+                            .map(|c| c.value.tuples.clone())
                             .unwrap_or_default();
                         selected.push(tuple);
                         selected.sort_by(tuple_cmp);
@@ -164,7 +147,7 @@ impl NamedSelection {
                             producer.address().clone(),
                             Arc::new(Contribution::from_canonical(
                                 producer.clone(),
-                                SelectionValue::Tuples(selected),
+                                SelectionValue { tuples: selected },
                             )?),
                         );
                     }
@@ -213,14 +196,15 @@ impl SelectionSet {
         self.apply(SelectionUpdate::set(producer, value))
     }
 
-    /// Toggle point tuples, preserving their producer origins. Row IDs use replacement.
+    /// Toggle whole normalized tuples. Overlapping ranges remain separate tuples.
+    /// Pixel grids affect membership, while raw values determine which tuple to toggle.
     pub fn toggle(&self, producer: &ProducerDefinition, value: SelectionValue) -> Result<Self> {
         self.apply(SelectionUpdate::toggle(producer, value))
     }
 
     /// Remove one producer's contribution.
     pub fn clear(&self, producer: &ProducerDefinition) -> Result<Self> {
-        self.apply(SelectionUpdate::clear(producer.address()))
+        self.apply(SelectionUpdate::clear(producer))
     }
 
     /// Remove all contributions to one named selection.

@@ -48,12 +48,9 @@ async fn main() -> ExampleResult<()> {
     let source = ctx.table("flights").await?.into_unoptimized_plan();
     let selection = SelectionId::new("filters")?;
     let delay = ProducerDefinition::new(
-        ProducerAddress {
-            selection: selection.clone(),
-            producer: ProducerId::new("delay_brush")?,
-            origin: ViewAddress::root(ViewId::new("delay")?),
-        },
-        SelectionKind::Interval,
+        selection.clone(),
+        ProducerId::new("delay_brush")?,
+        ViewId::new("delay")?,
         vec![Projection::new(ProjectionId::new("delay")?, col("delay"))?],
     )?;
     let inactive = SelectionSet::new([(selection.clone(), Resolution::Intersect)])?;
@@ -78,7 +75,7 @@ async fn main() -> ExampleResult<()> {
         ("airlines", col("carrier"), "carrier"),
     ] {
         let filter = ConsumerFilter::new(
-            ViewAddress::root(ViewId::new(name)?),
+            ViewId::new(name)?,
             SelectionFilter::cross_filter([&selection]),
         );
         let target = |rows| {

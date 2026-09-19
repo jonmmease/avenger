@@ -1,6 +1,6 @@
 use crate::{
-    definitions::row_expr, Contribution, Error, ProducerAddress, ProjectionId, Resolution, Result,
-    RowIdentity, SelectionId, SelectionSet, SelectionValue, ViewAddress,
+    definitions::row_expr, identity::ProducerAddress, Contribution, Error, ProducerDefinition,
+    ProjectionId, Resolution, Result, SelectionId, SelectionSet, ViewId,
 };
 use datafusion::logical_expr::Expr;
 use std::{collections::BTreeMap, sync::Arc};
@@ -17,18 +17,13 @@ pub enum EmptySelection {
     MatchAll,
     MatchNone,
 }
-/// Consumer-local membership and inactive-selection policy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SelectionUse {
-    pub mode: SelectionMode,
-    pub empty: EmptySelection,
-}
 /// Boolean composition of explicitly named selection uses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SelectionFilter {
     Selection {
         id: SelectionId,
-        usage: SelectionUse,
+        mode: SelectionMode,
+        empty: EmptySelection,
     },
     All(Vec<Self>),
     Any(Vec<Self>),
@@ -41,10 +36,8 @@ impl SelectionFilter {
             ids.into_iter()
                 .map(|id| Self::Selection {
                     id: id.clone(),
-                    usage: SelectionUse {
-                        mode: SelectionMode::CrossFilter,
-                        empty: EmptySelection::MatchAll,
-                    },
+                    mode: SelectionMode::CrossFilter,
+                    empty: EmptySelection::MatchAll,
                 })
                 .collect(),
         )
@@ -53,10 +46,8 @@ impl SelectionFilter {
     pub fn membership(id: &SelectionId, empty: EmptySelection) -> Self {
         Self::Selection {
             id: id.clone(),
-            usage: SelectionUse {
-                mode: SelectionMode::Membership,
-                empty,
-            },
+            mode: SelectionMode::Membership,
+            empty,
         }
     }
 }
@@ -64,34 +55,32 @@ impl SelectionFilter {
 /// A consuming view and compiler-verified mappings into its row relation.
 #[derive(Clone, Debug)]
 pub struct ConsumerFilter {
-    view: ViewAddress,
+    view: ViewId,
     filter: SelectionFilter,
     projections: BTreeMap<(ProducerAddress, ProjectionId), Expr>,
-    identities: BTreeMap<RowIdentity, Expr>,
 }
 impl ConsumerFilter {
     /// Use producer expressions directly when the consumer shares their row relation.
-    pub fn new(view: ViewAddress, filter: SelectionFilter) -> Self {
+    pub fn new(view: ViewId, filter: SelectionFilter) -> Self {
         Self {
             view,
             filter,
             projections: BTreeMap::new(),
-            identities: BTreeMap::new(),
         }
     }
     /// Return the semantic view instance used for self-filter exclusion.
-    pub fn view(&self) -> &ViewAddress {
+    pub fn view(&self) -> &ViewId {
         &self.view
     }
     /// Map one producer-local projection to a verified equivalent consumer expression.
     /// The chart compiler owns lineage validation. Other projections retain their expressions.
     pub fn with_projection(
         mut self,
-        producer: &ProducerAddress,
+        producer: &ProducerDefinition,
         projection: &ProjectionId,
         expr: Expr,
     ) -> Result<Self> {
-        let key = (producer.clone(), projection.clone());
+        let key = (producer.address().clone(), projection.clone());
         if self.projections.contains_key(&key) {
             return Err(Error::InvalidMapping(format!(
                 "duplicate projection mapping for {}",
@@ -101,18 +90,6 @@ impl ConsumerFilter {
         self.projections.insert(key, row_expr(expr)?);
         Ok(self)
     }
-    /// Declare an identity-preserving ID expression for this exact lineage.
-    /// Joins, aggregates, and regenerated IDs require the compiler to verify preservation.
-    pub fn with_row_identity(mut self, identity: &RowIdentity, expr: Expr) -> Result<Self> {
-        if self.identities.contains_key(identity) {
-            return Err(Error::InvalidMapping(
-                "duplicate row-identity mapping".into(),
-            ));
-        }
-        self.identities.insert(identity.clone(), row_expr(expr)?);
-        Ok(self)
-    }
-
     /// Resolve definitions even before the producer has an active contribution.
     pub(crate) fn interaction_keys(&self, producer: &crate::ProducerDefinition) -> Vec<Expr> {
         producer
@@ -167,7 +144,8 @@ pub(crate) enum SelectionStatus {
 pub(crate) struct ResolvedSelection {
     pub(crate) id: SelectionId,
     pub(crate) resolution: Resolution,
-    pub(crate) usage: SelectionUse,
+    pub(crate) mode: SelectionMode,
+    pub(crate) empty: EmptySelection,
     pub(crate) status: SelectionStatus,
     pub(crate) contributions: Vec<ResolvedContribution>,
 }
@@ -177,7 +155,6 @@ pub(crate) struct ResolvedSelection {
 pub(crate) struct ResolvedContribution {
     pub(crate) contribution: Arc<Contribution>,
     pub(crate) projections: Vec<Expr>,
-    pub(crate) identity_expr: Option<Expr>,
 }
 
 fn resolve(
@@ -201,11 +178,11 @@ fn resolve(
         SelectionFilter::Not(filter) => {
             ResolvedFilter::Not(Box::new(resolve(filter, consumer, selections)?))
         }
-        SelectionFilter::Selection { id, usage } => {
+        SelectionFilter::Selection { id, mode, empty } => {
             let snapshot = selections.get(id)?;
             let mut contributions = Vec::new();
             for (address, contribution) in snapshot.contributions.iter() {
-                if usage.mode == SelectionMode::CrossFilter && address.origin == consumer.view {
+                if *mode == SelectionMode::CrossFilter && address.origin == consumer.view {
                     continue;
                 }
                 let projections = contribution
@@ -224,26 +201,9 @@ fn resolve(
                         }
                     })
                     .collect();
-                let identity_expr = if let SelectionValue::RowIds(ids) = contribution.value() {
-                    Some(
-                        consumer
-                            .identities
-                            .get(ids.identity())
-                            .ok_or_else(|| {
-                                Error::InvalidMapping(format!(
-                                    "no identity-preserving mapping for producer {}",
-                                    address.producer
-                                ))
-                            })?
-                            .clone(),
-                    )
-                } else {
-                    None
-                };
                 contributions.push(ResolvedContribution {
                     contribution: contribution.clone(),
                     projections,
-                    identity_expr,
                 });
             }
             let status = if snapshot.contributions.is_empty() {
@@ -256,7 +216,8 @@ fn resolve(
             ResolvedFilter::Selection(ResolvedSelection {
                 id: id.clone(),
                 resolution: snapshot.resolution,
-                usage: *usage,
+                mode: *mode,
+                empty: *empty,
                 status,
                 contributions,
             })

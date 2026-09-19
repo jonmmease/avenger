@@ -1,4 +1,4 @@
-use crate::{Error, ProducerDefinition, ProjectionId, Result, RowIdentity};
+use crate::{Error, ProducerDefinition, ProjectionId, Result};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use std::{
     cmp::Ordering,
@@ -40,18 +40,19 @@ impl PartialEq for ValueTest {
 impl Eq for ValueTest {}
 pub(crate) type Tuple = Vec<(ProjectionId, ValueTest)>;
 
-/// Replacement values for a producer. Empty values remain an active selection.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SelectionValue {
-    Tuples(Vec<Vec<(ProjectionId, ValueTest)>>),
-    RowIds(RowIdSelection),
+/// Selected tuples for a producer. Empty values remain active and match no rows.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectionValue {
+    pub(crate) tuples: Vec<Tuple>,
 }
 
 impl SelectionValue {
     /// Select one correlated tuple. Its terms combine with AND.
     /// Values are validated and normalized when applied to a SelectionSet.
     pub fn tuple(terms: impl IntoIterator<Item = (ProjectionId, ValueTest)>) -> Self {
-        Self::Tuples(vec![terms.into_iter().collect()])
+        Self {
+            tuples: vec![terms.into_iter().collect()],
+        }
     }
 
     /// Select correlated tuples combined with OR, each containing terms combined with AND.
@@ -60,12 +61,16 @@ impl SelectionValue {
     where
         I: IntoIterator<Item = (ProjectionId, ValueTest)>,
     {
-        Self::Tuples(
-            tuples
+        Self {
+            tuples: tuples
                 .into_iter()
                 .map(|terms| terms.into_iter().collect())
                 .collect(),
-        )
+        }
+    }
+    /// Inspect correlated tuples and their projection/comparison pairs.
+    pub fn as_tuples(&self) -> &[Vec<(ProjectionId, ValueTest)>] {
+        &self.tuples
     }
 }
 
@@ -87,39 +92,6 @@ impl ValueTest {
             lower: range.start_bound().map(|value| value.clone().into()),
             upper: range.end_bound().map(|value| value.clone().into()),
         }
-    }
-}
-
-/// A canonical typed set of IDs tied to one opaque lineage.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RowIdSelection {
-    identity: RowIdentity,
-    values: Vec<ScalarValue>,
-}
-impl RowIdSelection {
-    /// Check exact ID types and normalize duplicate, NaN, and signed-zero values.
-    pub fn new(identity: &RowIdentity, values: Vec<ScalarValue>) -> Result<Self> {
-        if values
-            .iter()
-            .any(|value| &value.data_type() != identity.data_type())
-        {
-            return Err(Error::InvalidValue(format!(
-                "row IDs must have type {}",
-                identity.data_type()
-            )));
-        }
-        Ok(Self {
-            identity: identity.clone(),
-            values: canonical_values(values)?,
-        })
-    }
-    /// Return the lineage captured by these IDs.
-    pub fn identity(&self) -> &RowIdentity {
-        &self.identity
-    }
-    /// Return unique IDs in canonical order.
-    pub fn values(&self) -> &[ScalarValue] {
-        &self.values
     }
 }
 
@@ -325,11 +297,6 @@ pub(crate) fn canonical_tuples(
     producer: &ProducerDefinition,
     tuples: Vec<Tuple>,
 ) -> Result<Vec<Tuple>> {
-    if producer.identity().is_some() {
-        return Err(Error::InvalidValue(
-            "row-ID producers require RowIds values".into(),
-        ));
-    }
     let mut tuples = tuples
         .into_iter()
         .map(|tuple| {
@@ -359,17 +326,9 @@ pub(crate) fn canonical_value(
     producer: &ProducerDefinition,
     value: SelectionValue,
 ) -> Result<SelectionValue> {
-    match value {
-        SelectionValue::Tuples(t) => Ok(SelectionValue::Tuples(canonical_tuples(producer, t)?)),
-        SelectionValue::RowIds(ids) => {
-            if producer.identity() != Some(ids.identity()) {
-                return Err(Error::InvalidValue(
-                    "row-ID lineage does not match producer".into(),
-                ));
-            }
-            Ok(SelectionValue::RowIds(ids))
-        }
-    }
+    Ok(SelectionValue {
+        tuples: canonical_tuples(producer, value.tuples)?,
+    })
 }
 
 pub(crate) fn same_meaning(

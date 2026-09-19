@@ -1,6 +1,6 @@
 use crate::{
     resolve::{ResolvedContribution, ResolvedFilter, SelectionStatus},
-    EmptySelection, Resolution, SelectionValue, ValueTest,
+    EmptySelection, Resolution, ValueTest,
 };
 use datafusion::{
     arrow::{
@@ -24,7 +24,7 @@ pub(crate) fn resolved(filter: &ResolvedFilter) -> Expr {
         ResolvedFilter::Any(filters) => combine(filters.iter().map(resolved), false),
         ResolvedFilter::Not(filter) => resolved(filter).not(),
         ResolvedFilter::Selection(selection) => match selection.status {
-            SelectionStatus::Inactive => lit(selection.usage.empty == EmptySelection::MatchAll),
+            SelectionStatus::Inactive => lit(selection.empty == EmptySelection::MatchAll),
             SelectionStatus::AllExcluded => lit(true),
             SelectionStatus::Active => combine(
                 selection.contributions.iter().map(contribution),
@@ -40,21 +40,7 @@ pub(crate) fn combine(exprs: impl IntoIterator<Item = Expr>, and: bool) -> Expr 
         .unwrap_or_else(|| lit(and))
 }
 pub(crate) fn contribution(c: &ResolvedContribution) -> Expr {
-    match c.contribution.effective_value() {
-        SelectionValue::Tuples(tuples) => tuples_predicate(tuples, &c.projections),
-        SelectionValue::RowIds(ids) => combine(
-            ids.values().iter().map(|value| {
-                equality(
-                    c.identity_expr
-                        .as_ref()
-                        .expect("resolved row lineage")
-                        .clone(),
-                    value,
-                )
-            }),
-            false,
-        ),
-    }
+    tuples_predicate(c.contribution.effective_value().as_tuples(), &c.projections)
 }
 
 // Both native row predicates and predicates over retained interaction keys use
