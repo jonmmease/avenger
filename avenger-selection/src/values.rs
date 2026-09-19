@@ -1,6 +1,9 @@
 use crate::{Error, ProducerDefinition, ProjectionId, Result, RowIdentity};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
-use std::{cmp::Ordering, ops::Bound};
+use std::{
+    cmp::Ordering,
+    ops::{Bound, RangeBounds},
+};
 
 /// A typed comparison for one projected dimension.
 #[derive(Clone, Debug)]
@@ -35,22 +38,56 @@ impl PartialEq for ValueTest {
     }
 }
 impl Eq for ValueTest {}
-/// One dimension of a correlated selected tuple.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SelectionTerm {
-    pub projection: ProjectionId,
-    pub test: ValueTest,
-}
-/// Terms combine with AND. Tuples in one contribution combine with OR.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SelectionTuple {
-    pub terms: Vec<SelectionTerm>,
-}
+pub(crate) type Tuple = Vec<(ProjectionId, ValueTest)>;
+
 /// Replacement values for a producer. Empty values remain an active selection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SelectionValue {
-    Tuples(Vec<SelectionTuple>),
+    Tuples(Vec<Vec<(ProjectionId, ValueTest)>>),
     RowIds(RowIdSelection),
+}
+
+impl SelectionValue {
+    /// Select one correlated tuple. Its terms combine with AND.
+    /// Values are validated and normalized when applied to a SelectionSet.
+    pub fn tuple(terms: impl IntoIterator<Item = (ProjectionId, ValueTest)>) -> Self {
+        Self::Tuples(vec![terms.into_iter().collect()])
+    }
+
+    /// Select correlated tuples combined with OR, each containing terms combined with AND.
+    /// An empty iterator selects no rows and remains an active contribution.
+    pub fn tuples<I>(tuples: impl IntoIterator<Item = I>) -> Self
+    where
+        I: IntoIterator<Item = (ProjectionId, ValueTest)>,
+    {
+        Self::Tuples(
+            tuples
+                .into_iter()
+                .map(|terms| terms.into_iter().collect())
+                .collect(),
+        )
+    }
+}
+
+impl ValueTest {
+    /// Match one value, including a typed null or NaN.
+    pub fn equal(value: impl Into<ScalarValue>) -> Self {
+        Self::Equal(value.into())
+    }
+
+    /// Match any of the supplied values. An empty set matches no rows.
+    pub fn one_of<T: Into<ScalarValue>>(values: impl IntoIterator<Item = T>) -> Self {
+        Self::OneOf(values.into_iter().map(Into::into).collect())
+    }
+
+    /// Use Rust range bounds, preserving endpoint inclusion and scalar types.
+    /// For a fully unbounded range, specify the type: `ValueTest::range::<i64>(..)`.
+    pub fn range<T: Clone + Into<ScalarValue>>(range: impl RangeBounds<T>) -> Self {
+        Self::Range {
+            lower: range.start_bound().map(|value| value.clone().into()),
+            upper: range.end_bound().map(|value| value.clone().into()),
+        }
+    }
 }
 
 /// A canonical typed set of IDs tied to one opaque lineage.
@@ -275,22 +312,19 @@ fn test_cmp(a: &ValueTest, b: &ValueTest) -> Ordering {
         _ => Ordering::Equal,
     })
 }
-pub(crate) fn tuple_cmp(a: &SelectionTuple, b: &SelectionTuple) -> Ordering {
-    a.terms
-        .iter()
-        .zip(&b.terms)
-        .map(|(a, b)| {
-            a.projection
-                .cmp(&b.projection)
-                .then_with(|| test_cmp(&a.test, &b.test))
+pub(crate) fn tuple_cmp(a: &Tuple, b: &Tuple) -> Ordering {
+    a.iter()
+        .zip(b)
+        .map(|((a_id, a_test), (b_id, b_test))| {
+            a_id.cmp(b_id).then_with(|| test_cmp(a_test, b_test))
         })
         .find(|c| !c.is_eq())
-        .unwrap_or_else(|| a.terms.len().cmp(&b.terms.len()))
+        .unwrap_or_else(|| a.len().cmp(&b.len()))
 }
 pub(crate) fn canonical_tuples(
     producer: &ProducerDefinition,
-    tuples: Vec<SelectionTuple>,
-) -> Result<Vec<SelectionTuple>> {
+    tuples: Vec<Tuple>,
+) -> Result<Vec<Tuple>> {
     if producer.identity().is_some() {
         return Err(Error::InvalidValue(
             "row-ID producers require RowIds values".into(),
@@ -300,27 +334,21 @@ pub(crate) fn canonical_tuples(
         .into_iter()
         .map(|tuple| {
             let mut terms = tuple
-                .terms
                 .into_iter()
-                .map(|t| {
-                    Ok(SelectionTerm {
-                        projection: t.projection,
-                        test: canonical_test(t.test)?,
-                    })
-                })
+                .map(|(id, test)| Ok((id, canonical_test(test)?)))
                 .collect::<Result<Vec<_>>>()?;
-            terms.sort_by(|a, b| a.projection.cmp(&b.projection));
+            terms.sort_by(|a, b| a.0.cmp(&b.0));
             if terms.len() != producer.projections().len()
                 || terms
                     .iter()
                     .zip(producer.projections())
-                    .any(|(t, p)| &t.projection != p.id())
+                    .any(|((id, _), p)| id != p.id())
             {
                 return Err(Error::InvalidValue(
                     "each tuple must have exactly one term for every producer projection".into(),
                 ));
             }
-            Ok(SelectionTuple { terms })
+            Ok(terms)
         })
         .collect::<Result<Vec<_>>>()?;
     tuples.sort_by(tuple_cmp);
@@ -345,27 +373,24 @@ pub(crate) fn canonical_value(
 }
 
 pub(crate) fn same_meaning(
-    a: &SelectionTuple,
+    a: &Tuple,
     ap: &ProducerDefinition,
-    b: &SelectionTuple,
+    b: &Tuple,
     bp: &ProducerDefinition,
 ) -> bool {
-    if a.terms.len() != b.terms.len() {
+    if a.len() != b.len() {
         return false;
     }
-    let mut matched = vec![false; b.terms.len()];
-    for (term, projection) in a.terms.iter().zip(ap.projections()) {
-        let index =
-            b.terms
-                .iter()
-                .zip(bp.projections())
-                .enumerate()
-                .position(|(index, (other, op))| {
-                    !matched[index]
-                        && projection.same_meaning(op)
-                        && ap.pixel_grid(projection.id()) == bp.pixel_grid(op.id())
-                        && term.test == other.test
-                });
+    let mut matched = vec![false; b.len()];
+    for ((_, test), projection) in a.iter().zip(ap.projections()) {
+        let index = b.iter().zip(bp.projections()).enumerate().position(
+            |(index, ((_, other_test), op))| {
+                !matched[index]
+                    && projection.same_meaning(op)
+                    && ap.pixel_grid(projection.id()) == bp.pixel_grid(op.id())
+                    && test == other_test
+            },
+        );
         match index {
             Some(index) => matched[index] = true,
             None => return false,

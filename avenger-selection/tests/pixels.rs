@@ -51,7 +51,7 @@ fn pixel_state(
     upper: Bound<ScalarValue>,
 ) -> SelectionSet {
     state(Resolution::Intersect)
-        .apply(&id(), SelectionUpdate::set(p, range("x", lower, upper)))
+        .set(p, range("x", lower, upper))
         .unwrap()
 }
 fn data(values: Vec<Option<f64>>) -> datafusion::arrow::record_batch::RecordBatch {
@@ -199,7 +199,7 @@ async fn endpoint_flags_apply_to_whole_cells_including_collapsed_intervals() {
         );
     }
     let s = pixel_state(&p, Included(10.0.into()), Excluded(30.0.into()));
-    let c = s.get(&id()).unwrap().contributions().next().unwrap();
+    let c = s.contributions(&id()).unwrap().next().unwrap();
     assert_eq!(
         c.value(),
         &range("x", Included(10.0.into()), Excluded(30.0.into()))
@@ -209,10 +209,7 @@ async fn endpoint_flags_apply_to_whole_cells_including_collapsed_intervals() {
         &range("x", Included(15_i64.into()), Excluded(45_i64.into()))
     );
     assert!(state(Resolution::Intersect)
-        .apply(
-            &id(),
-            SelectionUpdate::set(&p, range("x", Included(10.2.into()), Included(10.1.into())))
-        )
+        .set(&p, range("x", Included(10.2.into()), Included(10.1.into())))
         .is_err());
 }
 
@@ -246,7 +243,7 @@ async fn both_scale_directions_swap_bounds_and_unbounded_ends() {
                 );
             }
             let s = pixel_state(&p, Included(10.0.into()), Excluded(30.0.into()));
-            let c = s.get(&id()).unwrap().contributions().next().unwrap();
+            let c = s.contributions(&id()).unwrap().next().unwrap();
             let effective = if decreasing {
                 range("x", Excluded(255_i64.into()), Included(285_i64.into()))
             } else {
@@ -322,12 +319,9 @@ async fn clamp_offset_and_invalid_coordinates_follow_the_scale_kernel() {
         }
         let p = pixel_producer(grid);
         assert!(state(Resolution::Union)
-            .apply(
-                &id(),
-                SelectionUpdate::set(
-                    &p,
-                    range("x", Included(f64::NEG_INFINITY.into()), Unbounded)
-                )
+            .set(
+                &p,
+                range("x", Included(f64::NEG_INFINITY.into()), Unbounded)
             )
             .is_err());
     }
@@ -359,18 +353,13 @@ async fn invalid_cells_are_null_and_clear_recovers_the_rows() {
         selected(rows.clone(), membership().predicate(&active).unwrap()).await,
         vec![0, 2]
     );
-    let cleared = active
-        .apply(&id(), SelectionUpdate::clear(p.address()))
-        .unwrap();
+    let cleared = active.clear(&p).unwrap();
     assert_eq!(
         selected(rows, membership().predicate(&cleared).unwrap()).await,
         vec![0, 1, 2, 3, 4, 5]
     );
     assert!(state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(&p, range("x", Included((-min).into()), Unbounded))
-        )
+        .set(&p, range("x", Included((-min).into()), Unbounded))
         .is_err());
     let tiny = linear([0.0, 1.0], [0.0, 1.0], 0.0, f64::from_bits(1));
     assert_eq!(tiny.cell(&1.0.into()).unwrap(), None);
@@ -480,15 +469,12 @@ async fn utc_temporal_overflows_are_invalid_cells_instead_of_panics() {
     );
     let p = pixel_producer(grid.clone());
     assert!(state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &p,
-                range(
-                    "x",
-                    Unbounded,
-                    Included(ScalarValue::TimestampSecond(Some(i64::MAX), None))
-                )
+        .set(
+            &p,
+            range(
+                "x",
+                Unbounded,
+                Included(ScalarValue::TimestampSecond(Some(i64::MAX), None))
             )
         )
         .is_err());
@@ -678,13 +664,9 @@ fn producer_validation_checks_grid_shape_and_update_terms_atomically() {
             ValueTest::Equal("A".into()),
         ),
     ] {
-        let values = SelectionValue::Tuples(vec![SelectionTuple {
-            terms: vec![term("x", x), term("y", y)],
-        }]);
-        assert!(s
-            .apply(&id(), SelectionUpdate::set(&pixel, values))
-            .is_err());
-        assert_eq!(s.get(&id()).unwrap().contributions().count(), 0);
+        let values = SelectionValue::tuple(vec![term("x", x), term("y", y)]);
+        assert!(s.set(&pixel, values).is_err());
+        assert_eq!(s.contributions(&id()).unwrap().count(), 0);
     }
 }
 
@@ -700,8 +682,8 @@ async fn two_dimensional_tuples_and_categorical_dimensions_keep_correlation() {
     let pixel = exact
         .with_pixel_grids([(projection("x"), grid.clone()), (projection("y"), grid)])
         .unwrap();
-    let tuple = |x0, x1, y0, y1, carrier: &str| SelectionTuple {
-        terms: vec![
+    let tuple = |x0, x1, y0, y1, carrier: &str| {
+        vec![
             term(
                 "x",
                 ValueTest::Range {
@@ -717,18 +699,15 @@ async fn two_dimensional_tuples_and_categorical_dimensions_keep_correlation() {
                 },
             ),
             term("carrier", ValueTest::OneOf(vec![carrier.into()])),
-        ],
+        ]
     };
     let s = state(Resolution::Intersect)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &pixel,
-                SelectionValue::Tuples(vec![
-                    tuple(10_i64, 20_i64, 70_i64, 80_i64, "A"),
-                    tuple(70, 80, 10, 20, "B"),
-                ]),
-            ),
+        .set(
+            &pixel,
+            SelectionValue::Tuples(vec![
+                tuple(10_i64, 20_i64, 70_i64, 80_i64, "A"),
+                tuple(70, 80, 10, 20, "B"),
+            ]),
         )
         .unwrap();
     let rows = batch(vec![
@@ -755,27 +734,25 @@ async fn resizing_preserves_old_snapshots_and_uses_consumer_projection_mappings(
     let old_grid = linear([0.0, 200.0], [0.0, 600.0], 0.0, 2.0);
     let old_p = pixel_producer(old_grid.clone());
     let before = pixel_state(&old_p, Included(10.6.into()), Excluded(30.0.into()));
-    let c = before.get(&id()).unwrap().contributions().next().unwrap();
+    let c = before.contributions(&id()).unwrap().next().unwrap();
     let new_p = old_p
         .with_pixel_grids([(
             projection("x"),
             linear([0.0, 200.0], [0.0, 800.0], 0.0, 2.0),
         )])
         .unwrap();
-    let after = before
-        .apply(&id(), SelectionUpdate::set(&new_p, c.value().clone()))
-        .unwrap();
+    let after = before.set(&new_p, c.value().clone()).unwrap();
     let rows = batch(vec![
         ("id", Arc::new(Int64Array::from(vec![0, 1, 2]))),
         ("renamed", numbers(&[10.0, 10.6, 30.0])),
     ]);
-    let consumer = SelectionConsumer::new(view("target"))
-        .with_projection(old_p.address(), &projection("x"), col("renamed"))
-        .unwrap();
-    let filter = filter(
-        consumer,
+    let filter = ConsumerFilter::new(
+        view("target"),
         SelectionFilter::membership(&id(), EmptySelection::MatchAll),
-    );
+    )
+    .with_projection(old_p.address(), &projection("x"), col("renamed"))
+    .unwrap();
+
     assert_eq!(
         selected(rows.clone(), filter.predicate(&before).unwrap()).await,
         vec![0, 1]
@@ -791,24 +768,7 @@ async fn resizing_preserves_old_snapshots_and_uses_consumer_projection_mappings(
     assert_eq!(c.producer().pixel_grid(&projection("x")), Some(&old_grid));
     assert_eq!(
         c.value(),
-        after
-            .get(&id())
-            .unwrap()
-            .contributions()
-            .next()
-            .unwrap()
-            .value()
-    );
-    let ResolvedFilter::Selection(resolved) = filter.resolve(&before).unwrap() else {
-        panic!()
-    };
-    assert_eq!(
-        resolved.contributions()[0].projections()[0].raw_expr(),
-        &col("renamed")
-    );
-    assert_ne!(
-        resolved.contributions()[0].projections()[0].expr(),
-        &col("renamed")
+        after.contributions(&id()).unwrap().next().unwrap().value()
     );
 }
 
@@ -913,11 +873,11 @@ async fn global_toggle_keeps_distinct_exact_and_pixel_range_meanings() {
         panic!()
     };
     let s = state(Resolution::Global)
-        .apply(&id(), SelectionUpdate::set(&pixel, raw))
+        .set(&pixel, raw)
         .unwrap()
-        .apply(&id(), SelectionUpdate::toggle(&exact, tuples))
+        .toggle(&exact, SelectionValue::Tuples(tuples))
         .unwrap();
-    assert_eq!(s.get(&id()).unwrap().contributions().count(), 2);
+    assert_eq!(s.contributions(&id()).unwrap().count(), 2);
     let rows = data(vec![Some(10.0), Some(10.6), Some(30.0)]);
     assert_eq!(
         selected(

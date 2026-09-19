@@ -47,24 +47,17 @@ pub fn point(name: &str, field: &str) -> ProducerDefinition {
 pub fn interval(name: &str, field: &str) -> ProducerDefinition {
     producer(name, view(name), SelectionKind::Interval, &[field])
 }
-pub fn term(field: &str, test: ValueTest) -> SelectionTerm {
-    SelectionTerm {
-        projection: ProjectionId::new(field).unwrap(),
-        test,
-    }
+pub fn term(field: &str, test: ValueTest) -> (ProjectionId, ValueTest) {
+    (ProjectionId::new(field).unwrap(), test)
 }
-pub fn tuple(field: &str, value: impl Into<ScalarValue>) -> SelectionTuple {
-    SelectionTuple {
-        terms: vec![term(field, ValueTest::Equal(value.into()))],
-    }
+pub fn tuple(field: &str, value: impl Into<ScalarValue>) -> Vec<(ProjectionId, ValueTest)> {
+    vec![term(field, ValueTest::Equal(value.into()))]
 }
 pub fn values(field: &str, values: impl IntoIterator<Item = ScalarValue>) -> SelectionValue {
     SelectionValue::Tuples(values.into_iter().map(|v| tuple(field, v)).collect())
 }
 pub fn range(field: &str, lower: Bound<ScalarValue>, upper: Bound<ScalarValue>) -> SelectionValue {
-    SelectionValue::Tuples(vec![SelectionTuple {
-        terms: vec![term(field, ValueTest::Range { lower, upper })],
-    }])
+    SelectionValue::tuple(vec![term(field, ValueTest::Range { lower, upper })])
 }
 pub fn between(field: &str, lower: i64, upper: i64) -> SelectionValue {
     range(
@@ -74,23 +67,19 @@ pub fn between(field: &str, lower: i64, upper: i64) -> SelectionValue {
     )
 }
 pub fn state(resolution: Resolution) -> SelectionSet {
-    SelectionSet::new([SelectionSnapshot::new(SelectionDefinition::new(id(), resolution)).unwrap()])
-        .unwrap()
+    SelectionSet::new([(id(), resolution)]).unwrap()
 }
-pub fn filter(consumer: SelectionConsumer, filter: SelectionFilter) -> ConsumerFilter {
-    SelectionCompiler::new().filter(&consumer, filter).unwrap()
+pub fn filter(consumer: ViewAddress, filter: SelectionFilter) -> ConsumerFilter {
+    ConsumerFilter::new(consumer, filter)
 }
 pub fn membership() -> ConsumerFilter {
     filter(
-        SelectionConsumer::new(view("summary")),
+        view("summary"),
         SelectionFilter::membership(&id(), EmptySelection::MatchAll),
     )
 }
 pub fn cross(origin: ViewAddress) -> ConsumerFilter {
-    filter(
-        SelectionConsumer::new(origin),
-        SelectionFilter::cross_filter([&id()]),
-    )
+    filter(origin, SelectionFilter::cross_filter([&id()]))
 }
 pub fn batch(columns: Vec<(&str, ArrayRef)>) -> RecordBatch {
     let schema = Arc::new(Schema::new(

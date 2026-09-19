@@ -1,4 +1,4 @@
-use crate::{Error, PixelGrid, ProducerAddress, ProjectionId, Result, SelectionId};
+use crate::{Error, PixelGrid, ProducerAddress, ProjectionId, Result};
 use datafusion::{
     arrow::datatypes::DataType,
     common::tree_node::{Transformed, TreeNode, TreeNodeRecursion},
@@ -18,27 +18,6 @@ pub enum Resolution {
     Global,
     Union,
     Intersect,
-}
-
-/// A shared name and its producer-combination policy.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SelectionDefinition {
-    id: SelectionId,
-    resolution: Resolution,
-}
-impl SelectionDefinition {
-    /// Define one shared name, independently of its producers' projections.
-    pub fn new(id: SelectionId, resolution: Resolution) -> Self {
-        Self { id, resolution }
-    }
-    /// Return the shared name.
-    pub fn id(&self) -> &SelectionId {
-        &self.id
-    }
-    /// Return the combination policy.
-    pub fn resolution(&self) -> Resolution {
-        self.resolution
-    }
 }
 
 /// Interaction kind, independent of equality, set, or range comparison.
