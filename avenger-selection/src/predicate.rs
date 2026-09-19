@@ -1,6 +1,6 @@
 use crate::{
-    EmptySelection, Resolution, ResolvedContribution, ResolvedFilter, SelectionStatus,
-    SelectionValue, ValueTest,
+    resolve::{ResolvedContribution, ResolvedFilter, SelectionStatus},
+    EmptySelection, Resolution, SelectionValue, ValueTest,
 };
 use datafusion::{
     arrow::{
@@ -23,12 +23,12 @@ pub(crate) fn resolved(filter: &ResolvedFilter) -> Expr {
         ResolvedFilter::All(filters) => combine(filters.iter().map(resolved), true),
         ResolvedFilter::Any(filters) => combine(filters.iter().map(resolved), false),
         ResolvedFilter::Not(filter) => resolved(filter).not(),
-        ResolvedFilter::Selection(selection) => match selection.status() {
-            SelectionStatus::Inactive => lit(selection.usage().empty == EmptySelection::MatchAll),
+        ResolvedFilter::Selection(selection) => match selection.status {
+            SelectionStatus::Inactive => lit(selection.usage.empty == EmptySelection::MatchAll),
             SelectionStatus::AllExcluded => lit(true),
             SelectionStatus::Active => combine(
-                selection.contributions().iter().map(contribution),
-                selection.definition().resolution() == Resolution::Intersect,
+                selection.contributions.iter().map(contribution),
+                selection.resolution == Resolution::Intersect,
             ),
         },
     }
@@ -40,18 +40,15 @@ pub(crate) fn combine(exprs: impl IntoIterator<Item = Expr>, and: bool) -> Expr 
         .unwrap_or_else(|| lit(and))
 }
 pub(crate) fn contribution(c: &ResolvedContribution) -> Expr {
-    match c.contribution().effective_value() {
-        SelectionValue::Tuples(tuples) => tuples_predicate(
-            tuples,
-            &c.projections()
-                .iter()
-                .map(|p| p.expr().clone())
-                .collect::<Vec<_>>(),
-        ),
+    match c.contribution.effective_value() {
+        SelectionValue::Tuples(tuples) => tuples_predicate(tuples, &c.projections),
         SelectionValue::RowIds(ids) => combine(
             ids.values().iter().map(|value| {
                 equality(
-                    c.identity_expr().expect("resolved row lineage").clone(),
+                    c.identity_expr
+                        .as_ref()
+                        .expect("resolved row lineage")
+                        .clone(),
                     value,
                 )
             }),
@@ -62,15 +59,14 @@ pub(crate) fn contribution(c: &ResolvedContribution) -> Expr {
 
 // Both native row predicates and predicates over retained interaction keys use
 // these comparisons. This keeps tuple correlation and pixel bounds identical.
-pub(crate) fn tuples_predicate(tuples: &[crate::SelectionTuple], projections: &[Expr]) -> Expr {
+pub(crate) fn tuples_predicate(tuples: &[crate::values::Tuple], projections: &[Expr]) -> Expr {
     combine(
         tuples.iter().map(|tuple| {
             combine(
                 tuple
-                    .terms
                     .iter()
                     .zip(projections)
-                    .map(|(term, expr)| comparison(expr.clone(), &term.test)),
+                    .map(|((_, test), expr)| comparison(expr.clone(), test)),
                 true,
             )
         }),

@@ -19,15 +19,9 @@ async fn three_views_bind_predicates_and_reuse_unchanged_results(
     let airlines = point("airlines", "carrier");
     let filters = [&delay, &distance, &airlines].map(|p| cross(p.address().origin.clone()));
     let s = state(Resolution::Intersect).apply_all([
-        (id(), SelectionUpdate::set(&delay, between("delay", 10, 30))),
-        (
-            id(),
-            SelectionUpdate::set(&distance, between("distance", 500, 1500)),
-        ),
-        (
-            id(),
-            SelectionUpdate::set(&airlines, values("carrier", ["AA".into(), "DL".into()])),
-        ),
+        SelectionUpdate::set(&delay, between("delay", 10, 30)),
+        SelectionUpdate::set(&distance, between("distance", 500, 1500)),
+        SelectionUpdate::set(&airlines, values("carrier", ["AA".into(), "DL".into()])),
     ])?;
     for cache in [CachePolicy::default(), CachePolicy::Disabled] {
         let cached = !matches!(cache, CachePolicy::Disabled);
@@ -75,10 +69,7 @@ async fn three_views_bind_predicates_and_reuse_unchanged_results(
         {
             assert_eq!(ids(first.table(out)?.batches()), want);
         }
-        let s2 = s.apply(
-            &id(),
-            SelectionUpdate::set(&delay, between("delay", 20, 40)),
-        )?;
+        let s2 = s.set(&delay, between("delay", 20, 40))?;
         let after = bind(&s2)?;
         let second = prepared.query(&outputs, &[], &after).await?;
         for (out, want) in outputs
@@ -103,14 +94,9 @@ async fn three_views_bind_predicates_and_reuse_unchanged_results(
 async fn canonical_updates_reuse_expression_bindings_and_errors_name_the_usage_site(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let p = point("points", "id");
-    let s = state(Resolution::Union).apply(
-        &id(),
-        SelectionUpdate::set(&p, values("id", [2_i64.into(), 1_i64.into(), 2_i64.into()])),
-    )?;
-    let reordered = s.apply(
-        &id(),
-        SelectionUpdate::set(&p, values("id", [1_i64.into(), 2_i64.into()])),
-    )?;
+    let s = state(Resolution::Union)
+        .set(&p, values("id", [2_i64.into(), 1_i64.into(), 2_i64.into()]))?;
+    let reordered = s.set(&p, values("id", [1_i64.into(), 2_i64.into()]))?;
     assert_eq!(
         membership().predicate(&s)?,
         membership().predicate(&reordered)?
@@ -150,12 +136,9 @@ async fn canonical_updates_reuse_expression_bindings_and_errors_name_the_usage_s
             .physical_plans,
         0
     );
-    let bad = state(Resolution::Union).apply(
-        &id(),
-        SelectionUpdate::set(
-            &point("missing", "missing"),
-            values("missing", [1_i64.into()]),
-        ),
+    let bad = state(Resolution::Union).set(
+        &point("missing", "missing"),
+        values("missing", [1_i64.into()]),
     )?;
     let err = prepared
         .inputs()
@@ -169,12 +152,9 @@ async fn canonical_updates_reuse_expression_bindings_and_errors_name_the_usage_s
             && message.contains("missing"),
         "{message}"
     );
-    let bad = state(Resolution::Union).apply(
-        &id(),
-        SelectionUpdate::set(
-            &point("bad", "id"),
-            values("id", [ScalarValue::Binary(Some(vec![0xff]))]),
-        ),
+    let bad = state(Resolution::Union).set(
+        &point("bad", "id"),
+        values("id", [ScalarValue::Binary(Some(vec![0xff]))]),
     )?;
     assert!(prepared
         .inputs()
@@ -227,8 +207,7 @@ async fn nested_facet_bindings_use_exact_instance_addresses(
         ],
     };
     let p = producer("brush", origin.clone(), SelectionKind::Interval, &["delay"]);
-    let s = state(Resolution::Intersect)
-        .apply(&id(), SelectionUpdate::set(&p, between("delay", 20, 40)))?;
+    let s = state(Resolution::Intersect).set(&p, between("delay", 20, 40))?;
     let east_aa = regions
         .instance([ScalarValue::from("East")])?
         .child(&carriers, [ScalarValue::from("AA")])?;
@@ -270,7 +249,7 @@ async fn nested_facet_bindings_use_exact_instance_addresses(
             .batches()),
         vec![2]
     );
-    let changed = s.apply(&id(), SelectionUpdate::set(&p, between("delay", 10, 20)))?;
+    let changed = s.set(&p, between("delay", 10, 20))?;
     let rebound = inputs
         .edit()
         .scope_defaults(&carriers, |inputs| {
@@ -342,7 +321,7 @@ async fn finite_and_nan_predicates_are_valid_immutable_expression_inputs(
             vec![0],
         ),
     ] {
-        let s = state(Resolution::Union).apply(&id(), SelectionUpdate::set(&p, value))?;
+        let s = state(Resolution::Union).set(&p, value)?;
         let input = prepared
             .inputs()
             .expr(&pred, membership().predicate(&s)?)?

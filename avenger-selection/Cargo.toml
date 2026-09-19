@@ -5,23 +5,15 @@ edition = "2021"
 rust-version = "1.88"
 description = "Typed selections and consumer-specific DataFusion predicates"
 
-[features]
-default = []
-dataflow = ["dep:avenger-datafusion-dataflow"]
-
 [dependencies]
-avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate" }
-avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", optional = true }
 avenger-scales-datafusion = { path = "../avenger-scales-datafusion" }
 datafusion = { version = "=54.1.0", default-features = false }
 thiserror = { workspace = true }
 half = "2"
 
 [dev-dependencies]
+datafusion = { version = "=54.1.0", default-features = false, features = ["sql"] }
+avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate" }
 async-trait = { workspace = true }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", features = ["sql"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
-
-[[example]]
-name = "query_families"
-required-features = ["dataflow"]

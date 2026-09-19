@@ -1,5 +1,6 @@
-#![cfg(feature = "dataflow")]
 mod common;
+#[path = "../examples/support/composition.rs"]
+mod composition;
 
 use std::{
     sync::{
@@ -111,18 +112,18 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
     executor.block_on(async {
         let focus = interval("delay", "delay");
         let inactive = state(Resolution::Intersect);
-        let brushed = inactive.apply(
-            &id(),
-            SelectionUpdate::set(&focus, between("delay", 11, 30)),
-        )?;
+        let brushed = inactive.set(&focus, between("delay", 11, 30))?;
         for moments in [false, true] {
             let context = SessionContext::new();
-            let direct = membership().query(
-                context.read_batch(flights())?.into_unoptimized_plan(),
-                |rows| measures_plan(rows, moments),
+            let direct = measures_plan(
+                context
+                    .read_batch(flights())?
+                    .filter(membership().predicate(&brushed)?)?
+                    .into_unoptimized_plan(),
+                moments,
             )?;
             let expected = context
-                .execute_logical_plan(direct.logical_plan(&brushed)?)
+                .execute_logical_plan(direct)
                 .await?
                 .collect()
                 .await?;
@@ -142,12 +143,13 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                     LogicalPlanBuilder::scan("flights", provider_as_source(source.clone()), None)?
                         .build()?;
                 let mut graph = DataflowBuilder::new();
-                let installed = membership()
-                    .query(source_plan, |rows| measures_plan(rows, moments))?
-                    .plan(&inactive)
-                    .focus(&focus)
-                    .build()?
-                    .install(&mut graph, "airlines")?;
+                let predicates = membership().predicates(&inactive, &focus)?;
+                let split = predicates.split().unwrap();
+                let plans =
+                    composition::prepare(source_plan, split, |rows| measures_plan(rows, moments))?;
+                let installed =
+                    composition::OptimizedQuery::install(&mut graph, "airlines", plans, split)?
+                        .unwrap();
                 let runtime = Runtime::new(RuntimeConfig {
                     cache,
                     ..Default::default()
@@ -159,11 +161,11 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                     "preparation reads no source data"
                 );
 
-                let warm = installed.bind(&inactive)?;
-                let materialization = warm
-                    .preaggregate_output()
-                    .expect("aggregate materialization");
-                let warm_inputs = warm.apply(prepared.inputs())?.finish()?;
+                let materialization = installed.materialization;
+                let warm_inputs = prepared
+                    .inputs()
+                    .expr(&installed.predicate, installed.bind(split)?.unwrap())?
+                    .finish()?;
                 let warm_prepared = prepared.clone();
                 let warm_task = tokio::spawn(async move {
                     warm_prepared
@@ -174,10 +176,15 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                     .await
                     .expect("warm-up enters its materialization scan");
 
-                let brush = installed.bind(&brushed)?;
-                assert_eq!(brush.preaggregate_output(), Some(materialization));
-                let output = brush.output();
-                let brush_inputs = brush.apply(prepared.inputs())?.finish()?;
+                let brush = membership().predicates(&brushed, &focus)?;
+                let output = installed.output;
+                let brush_inputs = prepared
+                    .inputs()
+                    .expr(
+                        &installed.predicate,
+                        installed.bind(brush.split().unwrap())?.unwrap(),
+                    )?
+                    .finish()?;
                 let brush_prepared = prepared.clone();
                 let brush_task = tokio::spawn(async move {
                     // Request only the final chart, so interest must reach its parent.
@@ -224,11 +231,11 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                 assert_results(result.table(&output)?.batches(), &expected, FLOAT_MEASURES);
                 assert_eq!(result.report().in_flight_hits, 1);
                 assert_eq!(result.report().cache_hits, 0);
-                assert_eq!(result.report().executed_nodes, vec!["airlines__aggregate"]);
+                assert_eq!(result.report().executed_nodes, vec!["airlines_rollup"]);
                 assert_eq!(source.scans.load(Ordering::SeqCst), 1);
                 assert_eq!(source.cancelled_scans.load(Ordering::SeqCst), 0);
                 assert_eq!(runtime.cache_stats().entries > 0, retained);
-                assert!(inactive.get(&id())?.contributions().next().is_none());
+                assert!(inactive.contributions(&id())?.next().is_none());
             }
         }
         Ok(())
