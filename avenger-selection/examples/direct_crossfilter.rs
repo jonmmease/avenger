@@ -2,9 +2,8 @@ use avenger_datafusion_dataflow::{DataflowBuilder, Runtime, TableSnapshot};
 use avenger_scales_datafusion::BuiltinScale;
 use avenger_selection::{
     ConsumerFilter, PixelGrid, ProducerAddress, ProducerDefinition, ProducerId, Projection,
-    ProjectionId, Resolution, SelectionCompiler, SelectionConsumer, SelectionDefinition,
-    SelectionFilter, SelectionId, SelectionKind, SelectionSet, SelectionSnapshot, SelectionTerm,
-    SelectionTuple, SelectionUpdate, SelectionValue, ValueTest, ViewAddress, ViewId,
+    ProjectionId, Resolution, SelectionFilter, SelectionId, SelectionKind, SelectionSet,
+    SelectionUpdate, SelectionValue, ValueTest, ViewAddress, ViewId,
 };
 use datafusion::{
     arrow::{
@@ -13,11 +12,10 @@ use datafusion::{
         record_batch::RecordBatch,
         util::pretty::print_batches,
     },
-    common::ScalarValue,
     functions_aggregate::expr_fn::count,
     logical_expr::{col, lit, LogicalPlanBuilder},
 };
-use std::{ops::Bound, sync::Arc};
+use std::sync::Arc;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -38,10 +36,7 @@ fn plot(selection: &SelectionId, view: &str, field: &str, kind: SelectionKind) -
         kind,
         vec![Projection::new(projection.clone(), col(field))?],
     )?;
-    let filter = SelectionCompiler::new().filter(
-        &SelectionConsumer::new(origin),
-        SelectionFilter::cross_filter([selection]),
-    )?;
+    let filter = ConsumerFilter::new(origin, SelectionFilter::cross_filter([selection]));
     Ok(Plot {
         producer,
         projection,
@@ -49,15 +44,7 @@ fn plot(selection: &SelectionId, view: &str, field: &str, kind: SelectionKind) -
     })
 }
 fn range(plot: &Plot, lower: i64, upper: i64) -> SelectionValue {
-    SelectionValue::Tuples(vec![SelectionTuple {
-        terms: vec![SelectionTerm {
-            projection: plot.projection.clone(),
-            test: ValueTest::Range {
-                lower: Bound::Included(lower.into()),
-                upper: Bound::Excluded(upper.into()),
-            },
-        }],
-    }])
+    SelectionValue::tuple([(plot.projection.clone(), ValueTest::range(lower..upper))])
 }
 fn flights() -> Result<TableSnapshot> {
     let columns: Vec<(&str, ArrayRef)> = vec![
@@ -129,33 +116,13 @@ async fn main() -> Result<()> {
         }
         println!("Using two-logical-pixel interval membership");
     }
-    let mut state = SelectionSet::new([SelectionSnapshot::new(SelectionDefinition::new(
-        selection.clone(),
-        Resolution::Intersect,
-    ))?])?;
+    let mut state = SelectionSet::new([(selection.clone(), Resolution::Intersect)])?;
     state = state.apply_all([
-        (
-            selection.clone(),
-            SelectionUpdate::set(&delay.producer, range(&delay, 10, 30)),
-        ),
-        (
-            selection.clone(),
-            SelectionUpdate::set(&distance.producer, range(&distance, 500, 1500)),
-        ),
-        (
-            selection.clone(),
-            SelectionUpdate::set(
-                &airlines.producer,
-                SelectionValue::Tuples(vec![SelectionTuple {
-                    terms: vec![SelectionTerm {
-                        projection: airlines.projection.clone(),
-                        test: ValueTest::OneOf(vec![
-                            ScalarValue::from("AA"),
-                            ScalarValue::from("DL"),
-                        ]),
-                    }],
-                }]),
-            ),
+        SelectionUpdate::set(&delay.producer, range(&delay, 10, 30)),
+        SelectionUpdate::set(&distance.producer, range(&distance, 500, 1500)),
+        SelectionUpdate::set(
+            &airlines.producer,
+            SelectionValue::tuple([(airlines.projection.clone(), ValueTest::one_of(["AA", "DL"]))]),
         ),
     ])?;
 
@@ -199,10 +166,7 @@ async fn main() -> Result<()> {
             print_batches(result.table(output)?.batches())?;
         }
         if step == 0 {
-            state = state.apply(
-                &selection,
-                SelectionUpdate::set(&delay.producer, range(&delay, 20, 40)),
-            )?;
+            state = state.set(&delay.producer, range(&delay, 20, 40))?;
         } else if step == 1 {
             assert_eq!(
                 result.report().physical_plans,

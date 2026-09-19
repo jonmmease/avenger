@@ -445,10 +445,10 @@ pub(crate) fn effective_value(
         unreachable!("pixel interval producer")
     };
     for tuple in &mut tuples {
-        for term in &mut tuple.terms {
-            match (producer.pixel_grid(&term.projection), &term.test) {
+        for (projection, test) in tuple {
+            match (producer.pixel_grid(projection), &*test) {
                 (Some(grid), ValueTest::Range { lower, upper }) => {
-                    term.test = grid.bounds(lower, upper)?
+                    *test = grid.bounds(lower, upper)?
                 }
                 (Some(_), _) => {
                     return Err(invalid("pixel-mapped projections require range terms"))
@@ -456,7 +456,7 @@ pub(crate) fn effective_value(
                 (None, ValueTest::Range { .. }) => {
                     return Err(invalid(format!(
                         "pixel interval needs a grid for range projection {}",
-                        term.projection
+                        projection
                     )))
                 }
                 (None, _) => (),

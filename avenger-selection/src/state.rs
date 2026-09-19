@@ -1,8 +1,8 @@
 use crate::{
     definitions::Producer,
     values::{canonical_tuples, canonical_value, same_meaning, tuple_cmp},
-    Error, ProducerAddress, ProducerDefinition, Resolution, Result, SelectionDefinition,
-    SelectionId, SelectionKind, SelectionTuple, SelectionValue,
+    Error, ProducerAddress, ProducerDefinition, Resolution, Result, SelectionId, SelectionKind,
+    SelectionValue,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -37,15 +37,15 @@ impl Contribution {
     }
 }
 
-/// A pending update, validated atomically when applied to a snapshot.
+/// A pending update carrying its destination selection, validated when applied to a set.
 #[derive(Clone, Debug)]
 pub struct SelectionUpdate(Update);
 #[derive(Clone, Debug)]
 enum Update {
     Set(Producer, SelectionValue),
-    Toggle(Producer, Vec<SelectionTuple>),
+    Toggle(Producer, SelectionValue),
     Clear(ProducerAddress),
-    ClearAll,
+    ClearAll(SelectionId),
 }
 impl SelectionUpdate {
     /// Replace a contribution, or the entire named selection in Global mode.
@@ -54,50 +54,32 @@ impl SelectionUpdate {
     }
     /// Toggle canonical point tuples, preserving their producer origin.
     /// Row-ID values use replacement updates.
-    pub fn toggle(producer: &ProducerDefinition, tuples: Vec<SelectionTuple>) -> Self {
-        Self(Update::Toggle(Arc::new(producer.clone()), tuples))
+    pub fn toggle(producer: &ProducerDefinition, value: SelectionValue) -> Self {
+        Self(Update::Toggle(Arc::new(producer.clone()), value))
     }
     /// Remove only the specified producer in every resolution mode.
     pub fn clear(address: &ProducerAddress) -> Self {
         Self(Update::Clear(address.clone()))
     }
     /// Remove all active producers in this named selection.
-    pub fn clear_all() -> Self {
-        Self(Update::ClearAll)
+    pub fn clear_all(selection: &SelectionId) -> Self {
+        Self(Update::ClearAll(selection.clone()))
     }
 }
 
-/// One named selection with independently attributed active contributions.
 #[derive(Clone, Debug)]
-pub struct SelectionSnapshot {
-    pub(crate) definition: Arc<SelectionDefinition>,
+pub(crate) struct NamedSelection {
+    pub(crate) resolution: Resolution,
     pub(crate) contributions: Arc<BTreeMap<ProducerAddress, Arc<Contribution>>>,
 }
-impl SelectionSnapshot {
-    /// Start a named selection with no active producers.
-    pub fn new(definition: SelectionDefinition) -> Result<Self> {
-        Ok(Self {
-            definition: Arc::new(definition),
-            contributions: Arc::new(BTreeMap::new()),
-        })
-    }
-    /// Return the shared name and resolution policy.
-    pub fn definition(&self) -> &SelectionDefinition {
-        &self.definition
-    }
-    /// Inspect active contributions in canonical address order.
-    pub fn contributions(&self) -> impl Iterator<Item = &Contribution> {
-        self.contributions.values().map(Arc::as_ref)
-    }
-    /// Apply an update without changing this snapshot or any retained contribution.
-    pub fn apply(&self, update: SelectionUpdate) -> Result<Self> {
+impl NamedSelection {
+    fn apply(&self, update: SelectionUpdate) -> Result<Self> {
         let mut next = self.clone();
         match update.0 {
             Update::Set(producer, value) => {
-                self.check_address(producer.address())?;
                 let value = canonical_value(&producer, value)?;
                 let contributions = Arc::make_mut(&mut next.contributions);
-                if self.definition.resolution() == Resolution::Global {
+                if self.resolution == Resolution::Global {
                     contributions.clear();
                 }
                 contributions.insert(
@@ -106,17 +88,20 @@ impl SelectionSnapshot {
                 );
             }
             Update::Clear(address) => {
-                self.check_address(&address)?;
                 Arc::make_mut(&mut next.contributions).remove(&address);
             }
-            Update::ClearAll => Arc::make_mut(&mut next.contributions).clear(),
-            Update::Toggle(producer, tuples) => {
-                self.check_address(producer.address())?;
+            Update::ClearAll(_) => Arc::make_mut(&mut next.contributions).clear(),
+            Update::Toggle(producer, value) => {
                 if producer.kind() != SelectionKind::Point {
                     return Err(Error::InvalidUpdate(
                         "only point producers support toggle".into(),
                     ));
                 }
+                let SelectionValue::Tuples(tuples) = value else {
+                    return Err(Error::InvalidUpdate(
+                        "row-ID values do not support toggle".into(),
+                    ));
+                };
                 let tuples = canonical_tuples(&producer, tuples)?;
                 // Configuration changes require a replacement so retained tuples
                 // cannot silently acquire different projected meanings.
@@ -131,7 +116,7 @@ impl SelectionSnapshot {
                 let contributions = Arc::make_mut(&mut next.contributions);
                 for tuple in tuples {
                     let mut removed = false;
-                    let addresses: Vec<_> = if self.definition.resolution() == Resolution::Global {
+                    let addresses: Vec<_> = if self.resolution == Resolution::Global {
                         contributions.keys().cloned().collect()
                     } else {
                         vec![producer.address().clone()]
@@ -188,30 +173,23 @@ impl SelectionSnapshot {
         }
         Ok(next)
     }
-    fn check_address(&self, address: &ProducerAddress) -> Result<()> {
-        if &address.selection != self.definition.id() {
-            return Err(Error::InvalidUpdate(format!(
-                "producer belongs to {}, not {}",
-                address.selection,
-                self.definition.id()
-            )));
-        }
-        Ok(())
-    }
 }
 
-/// A coherent immutable collection containing one snapshot per named selection.
+/// Immutable state for named selections and their active producer contributions.
 #[derive(Clone, Debug)]
 pub struct SelectionSet {
-    selections: Arc<BTreeMap<SelectionId, SelectionSnapshot>>,
+    selections: Arc<BTreeMap<SelectionId, NamedSelection>>,
 }
 impl SelectionSet {
-    /// Collect unique named snapshots. Duplicate names are errors.
-    pub fn new(snapshots: impl IntoIterator<Item = SelectionSnapshot>) -> Result<Self> {
+    /// Start each named selection with no active producers. Duplicate names are errors.
+    pub fn new(definitions: impl IntoIterator<Item = (SelectionId, Resolution)>) -> Result<Self> {
         let mut selections = BTreeMap::new();
-        for snapshot in snapshots {
-            let id = snapshot.definition.id().clone();
-            if selections.insert(id.clone(), snapshot).is_some() {
+        for (id, resolution) in definitions {
+            let selection = NamedSelection {
+                resolution,
+                contributions: Arc::new(BTreeMap::new()),
+            };
+            if selections.insert(id.clone(), selection).is_some() {
                 return Err(Error::DuplicateSelection(id));
             }
         }
@@ -219,26 +197,63 @@ impl SelectionSet {
             selections: Arc::new(selections),
         })
     }
-    /// Look up a required named selection, including an inactive one.
-    pub fn get(&self, id: &SelectionId) -> Result<&SelectionSnapshot> {
-        self.selections
-            .get(id)
-            .ok_or_else(|| Error::MissingSelection(id.clone()))
+
+    /// Inspect active contributions in canonical address order, for example to draw overlays.
+    pub fn contributions(&self, id: &SelectionId) -> Result<impl Iterator<Item = &Contribution>> {
+        Ok(self.get(id)?.contributions.values().map(Arc::as_ref))
     }
-    /// Return a set with one updated named snapshot.
-    pub fn apply(&self, id: &SelectionId, update: SelectionUpdate) -> Result<Self> {
-        self.apply_all([(id.clone(), update)])
+
+    /// Return the combination policy for a named selection, including an inactive one.
+    pub fn resolution(&self, id: &SelectionId) -> Result<Resolution> {
+        Ok(self.get(id)?.resolution)
     }
+
+    /// Replace this producer's contribution, or the whole named selection in Global mode.
+    pub fn set(&self, producer: &ProducerDefinition, value: SelectionValue) -> Result<Self> {
+        self.apply(SelectionUpdate::set(producer, value))
+    }
+
+    /// Toggle point tuples, preserving their producer origins. Row IDs use replacement.
+    pub fn toggle(&self, producer: &ProducerDefinition, value: SelectionValue) -> Result<Self> {
+        self.apply(SelectionUpdate::toggle(producer, value))
+    }
+
+    /// Remove one producer's contribution.
+    pub fn clear(&self, producer: &ProducerDefinition) -> Result<Self> {
+        self.apply(SelectionUpdate::clear(producer.address()))
+    }
+
+    /// Remove all contributions to one named selection.
+    pub fn clear_all(&self, selection: &SelectionId) -> Result<Self> {
+        self.apply(SelectionUpdate::clear_all(selection))
+    }
+
+    /// Apply one update to the named selection carried by the update.
+    pub fn apply(&self, update: SelectionUpdate) -> Result<Self> {
+        self.apply_all([update])
+    }
+
     /// Apply ordered updates atomically. An error publishes none of the updates.
-    pub fn apply_all(
-        &self,
-        updates: impl IntoIterator<Item = (SelectionId, SelectionUpdate)>,
-    ) -> Result<Self> {
+    pub fn apply_all(&self, updates: impl IntoIterator<Item = SelectionUpdate>) -> Result<Self> {
         let mut candidate = self.clone();
-        for (id, update) in updates {
+        for update in updates {
+            let id = match &update.0 {
+                Update::Set(producer, _) | Update::Toggle(producer, _) => {
+                    &producer.address().selection
+                }
+                Update::Clear(address) => &address.selection,
+                Update::ClearAll(id) => id,
+            }
+            .clone();
             let updated = candidate.get(&id)?.apply(update)?;
             Arc::make_mut(&mut candidate.selections).insert(id, updated);
         }
         Ok(candidate)
+    }
+
+    pub(crate) fn get(&self, id: &SelectionId) -> Result<&NamedSelection> {
+        self.selections
+            .get(id)
+            .ok_or_else(|| Error::MissingSelection(id.clone()))
     }
 }

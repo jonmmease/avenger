@@ -29,15 +29,9 @@ async fn two_histograms_and_categories_cross_filter_one_shared_selection() {
     let carrier = point("airlines", "carrier");
     let s = state(Resolution::Intersect)
         .apply_all([
-            (id(), SelectionUpdate::set(&delay, between("delay", 10, 30))),
-            (
-                id(),
-                SelectionUpdate::set(&distance, between("distance", 500, 1500)),
-            ),
-            (
-                id(),
-                SelectionUpdate::set(&carrier, values("carrier", ["AA".into(), "DL".into()])),
-            ),
+            SelectionUpdate::set(&delay, between("delay", 10, 30)),
+            SelectionUpdate::set(&distance, between("distance", 500, 1500)),
+            SelectionUpdate::set(&carrier, values("carrier", ["AA".into(), "DL".into()])),
         ])
         .unwrap();
     for (p, expected) in [
@@ -50,14 +44,6 @@ async fn two_histograms_and_categories_cross_filter_one_shared_selection() {
             selected(flights(), filter.predicate(&s).unwrap()).await,
             expected
         );
-        let ResolvedFilter::All(tree) = filter.resolve(&s).unwrap() else {
-            panic!()
-        };
-        let ResolvedFilter::Selection(leaf) = &tree[0] else {
-            panic!()
-        };
-        assert_eq!(leaf.excluded(), &[p.address().clone()]);
-        assert_eq!(leaf.contributions().len(), 2);
     }
     assert_eq!(
         selected(flights(), membership().predicate(&s).unwrap()).await,
@@ -73,18 +59,13 @@ async fn absence_all_excluded_and_active_empty_have_distinct_meaning() {
         empty: EmptySelection::MatchNone,
     };
     let own = filter(
-        SelectionConsumer::new(p.address().origin.clone()),
+        p.address().origin.clone(),
         SelectionFilter::Selection { id: id(), usage },
     );
     assert!(selected(flights(), own.predicate(&inactive).unwrap())
         .await
         .is_empty());
-    let empty = inactive
-        .apply(
-            &id(),
-            SelectionUpdate::set(&p, SelectionValue::Tuples(vec![])),
-        )
-        .unwrap();
+    let empty = inactive.set(&p, SelectionValue::Tuples(vec![])).unwrap();
     assert_eq!(
         selected(flights(), own.predicate(&empty).unwrap()).await,
         vec![0, 1, 2, 3, 4, 5, 6]
@@ -92,9 +73,7 @@ async fn absence_all_excluded_and_active_empty_have_distinct_meaning() {
     assert!(selected(flights(), membership().predicate(&empty).unwrap())
         .await
         .is_empty());
-    let cleared = empty
-        .apply(&id(), SelectionUpdate::clear(p.address()))
-        .unwrap();
+    let cleared = empty.clear(&p).unwrap();
     assert_eq!(
         selected(flights(), membership().predicate(&cleared).unwrap()).await,
         vec![0, 1, 2, 3, 4, 5, 6]
@@ -110,7 +89,7 @@ async fn absence_all_excluded_and_active_empty_have_distinct_meaning() {
         ),
     ]);
     assert!(matches!(
-        filter(SelectionConsumer::new(view("summary")), missing).predicate(&empty),
+        filter(view("summary"), missing).predicate(&empty),
         Err(Error::MissingSelection(_))
     ));
 }
@@ -124,14 +103,8 @@ async fn producer_resolution_and_outer_boolean_composition() {
     ] {
         let s = state(resolution)
             .apply_all([
-                (
-                    id(),
-                    SelectionUpdate::set(&a, values("carrier", ["AA".into()])),
-                ),
-                (
-                    id(),
-                    SelectionUpdate::set(&b, values("region", ["East".into()])),
-                ),
+                SelectionUpdate::set(&a, values("carrier", ["AA".into()])),
+                SelectionUpdate::set(&b, values("region", ["East".into()])),
             ])
             .unwrap();
         assert_eq!(
@@ -140,15 +113,9 @@ async fn producer_resolution_and_outer_boolean_composition() {
         );
     }
     let s = state(Resolution::Global)
-        .apply(
-            &id(),
-            SelectionUpdate::toggle(&a, vec![tuple("carrier", "AA")]),
-        )
+        .toggle(&a, SelectionValue::tuple(tuple("carrier", "AA")))
         .unwrap()
-        .apply(
-            &id(),
-            SelectionUpdate::toggle(&b, vec![tuple("region", "East")]),
-        )
+        .toggle(&b, SelectionValue::tuple(tuple("region", "East")))
         .unwrap();
     assert_eq!(
         selected(flights(), membership().predicate(&s).unwrap()).await,
@@ -159,7 +126,7 @@ async fn producer_resolution_and_outer_boolean_composition() {
         vec![0, 1, 3, 6]
     );
     let negated = filter(
-        SelectionConsumer::new(view("summary")),
+        view("summary"),
         SelectionFilter::Not(Box::new(SelectionFilter::membership(
             &id(),
             EmptySelection::MatchAll,
@@ -169,10 +136,7 @@ async fn producer_resolution_and_outer_boolean_composition() {
         selected(flights(), negated.predicate(&s).unwrap()).await,
         vec![2, 5]
     );
-    let empty_any = filter(
-        SelectionConsumer::new(view("summary")),
-        SelectionFilter::Any(vec![]),
-    );
+    let empty_any = filter(view("summary"), SelectionFilter::Any(vec![]));
     assert!(selected(flights(), empty_any.predicate(&s).unwrap())
         .await
         .is_empty());
@@ -186,29 +150,23 @@ async fn correlated_tuples_and_binned_points_preserve_conjunctions() {
         &["carrier", "region"],
     );
     let values = SelectionValue::Tuples(vec![
-        SelectionTuple {
-            terms: vec![
-                term("carrier", ValueTest::Equal("AA".into())),
-                term("region", ValueTest::Equal("East".into())),
-            ],
-        },
-        SelectionTuple {
-            terms: vec![
-                term("region", ValueTest::Equal("West".into())),
-                term("carrier", ValueTest::Equal("DL".into())),
-            ],
-        },
+        vec![
+            term("carrier", ValueTest::Equal("AA".into())),
+            term("region", ValueTest::Equal("East".into())),
+        ],
+        vec![
+            term("region", ValueTest::Equal("West".into())),
+            term("carrier", ValueTest::Equal("DL".into())),
+        ],
     ]);
-    let s = state(Resolution::Union)
-        .apply(&id(), SelectionUpdate::set(&p, values))
-        .unwrap();
+    let s = state(Resolution::Union).set(&p, values).unwrap();
     assert_eq!(
         selected(flights(), membership().predicate(&s).unwrap()).await,
         vec![0, 1, 2, 3]
     );
     let p = point("bin", "delay");
     let s = state(Resolution::Union)
-        .apply(&id(), SelectionUpdate::set(&p, between("delay", 10, 30)))
+        .set(&p, between("delay", 10, 30))
         .unwrap();
     assert_eq!(
         selected(flights(), membership().predicate(&s).unwrap()).await,
@@ -221,29 +179,24 @@ async fn correlated_tuples_and_binned_points_preserve_conjunctions() {
         &["delay", "distance"],
     );
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &p,
-                SelectionValue::Tuples(vec![SelectionTuple {
-                    terms: vec![
-                        term(
-                            "delay",
-                            ValueTest::Range {
-                                lower: Included(10_i64.into()),
-                                upper: Excluded(30_i64.into()),
-                            },
-                        ),
-                        term(
-                            "distance",
-                            ValueTest::Range {
-                                lower: Included(500_i64.into()),
-                                upper: Excluded(1500_i64.into()),
-                            },
-                        ),
-                    ],
-                }]),
-            ),
+        .set(
+            &p,
+            SelectionValue::tuple(vec![
+                term(
+                    "delay",
+                    ValueTest::Range {
+                        lower: Included(10_i64.into()),
+                        upper: Excluded(30_i64.into()),
+                    },
+                ),
+                term(
+                    "distance",
+                    ValueTest::Range {
+                        lower: Included(500_i64.into()),
+                        upper: Excluded(1500_i64.into()),
+                    },
+                ),
+            ]),
         )
         .unwrap();
     assert_eq!(
@@ -255,17 +208,12 @@ async fn correlated_tuples_and_binned_points_preserve_conjunctions() {
 async fn nullable_categories_and_negation_produce_non_null_booleans() {
     let p = point("carrier", "carrier");
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &p,
-                SelectionValue::Tuples(vec![SelectionTuple {
-                    terms: vec![term(
-                        "carrier",
-                        ValueTest::OneOf(vec![ScalarValue::Utf8(None), "AA".into()]),
-                    )],
-                }]),
-            ),
+        .set(
+            &p,
+            SelectionValue::tuple(vec![term(
+                "carrier",
+                ValueTest::OneOf(vec![ScalarValue::Utf8(None), "AA".into()]),
+            )]),
         )
         .unwrap();
     assert_eq!(
@@ -273,7 +221,7 @@ async fn nullable_categories_and_negation_produce_non_null_booleans() {
         vec![0, 1, 3, 4, 6]
     );
     let negative = filter(
-        SelectionConsumer::new(view("summary")),
+        view("summary"),
         SelectionFilter::Not(Box::new(SelectionFilter::membership(
             &id(),
             EmptySelection::MatchAll,
@@ -330,7 +278,7 @@ async fn range_endpoint_matrix_excludes_nulls_and_nonfinite_rows() {
         (Included(2.0.into()), Excluded(2.0.into()), vec![]),
     ] {
         let s = state(Resolution::Union)
-            .apply(&id(), SelectionUpdate::set(&p, range("x", lo, hi)))
+            .set(&p, range("x", lo, hi))
             .unwrap();
         assert_eq!(
             selected(data.clone(), membership().predicate(&s).unwrap()).await,
@@ -338,13 +286,10 @@ async fn range_endpoint_matrix_excludes_nulls_and_nonfinite_rows() {
         );
     }
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(&p, range("x", Unbounded, Unbounded)),
-        )
+        .set(&p, range("x", Unbounded, Unbounded))
         .unwrap();
     let negated = filter(
-        SelectionConsumer::new(view("summary")),
+        view("summary"),
         SelectionFilter::Not(Box::new(SelectionFilter::membership(
             &id(),
             EmptySelection::MatchAll,
@@ -398,7 +343,7 @@ async fn floating_point_equality_matches_all_nan_payloads_and_both_zeros() {
         ]);
         for (value, expected) in [(nan, vec![2, 3]), (zero, vec![0, 1])] {
             let s = state(Resolution::Union)
-                .apply(&id(), SelectionUpdate::set(&p, values("x", [value])))
+                .set(&p, values("x", [value]))
                 .unwrap();
             assert_eq!(
                 selected(data.clone(), membership().predicate(&s).unwrap()).await,
@@ -444,10 +389,7 @@ async fn exact_integer_decimal_and_timestamp_values_do_not_round_through_float()
     ] {
         let p = interval("p", field);
         let s = state(Resolution::Union)
-            .apply(
-                &id(),
-                SelectionUpdate::set(&p, range(field, Included(value.clone()), Included(value))),
-            )
+            .set(&p, range(field, Included(value.clone()), Included(value)))
             .unwrap();
         assert_eq!(
             selected(data.clone(), membership().predicate(&s).unwrap()).await,
@@ -461,18 +403,12 @@ async fn consumer_mappings_are_qualified_by_producer_and_row_lineage() {
     let b = producer("b", view("b"), SelectionKind::Point, &["value"]);
     let s = state(Resolution::Intersect)
         .apply_all([
-            (
-                id(),
-                SelectionUpdate::set(&a, values("value", ["AA".into()])),
-            ),
-            (
-                id(),
-                SelectionUpdate::set(&b, values("value", ["East".into()])),
-            ),
+            SelectionUpdate::set(&a, values("value", ["AA".into()])),
+            SelectionUpdate::set(&b, values("value", ["East".into()])),
         ])
         .unwrap();
     let projection = ProjectionId::new("value").unwrap();
-    let consumer = SelectionConsumer::new(view("summary"))
+    let consumer = membership()
         .with_projection(a.address(), &projection, col("carrier"))
         .unwrap()
         .with_projection(b.address(), &projection, col("region"))
@@ -482,56 +418,30 @@ async fn consumer_mappings_are_qualified_by_producer_and_row_lineage() {
         .with_projection(a.address(), &projection, col("other"))
         .is_err());
     assert_eq!(
-        selected(
-            flights(),
-            filter(
-                consumer,
-                SelectionFilter::membership(&id(), EmptySelection::MatchAll)
-            )
-            .predicate(&s)
-            .unwrap()
-        )
-        .await,
+        selected(flights(), consumer.predicate(&s).unwrap()).await,
         vec![0, 1, 3]
     );
 
     let identity = RowIdentity::new(DataType::Int64).unwrap();
     let p = ProducerDefinition::row_ids(address("ids", view("rows")), identity.clone());
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &p,
-                SelectionValue::RowIds(
-                    RowIdSelection::new(&identity, vec![2_i64.into(), 5_i64.into()]).unwrap(),
-                ),
+        .set(
+            &p,
+            SelectionValue::RowIds(
+                RowIdSelection::new(&identity, vec![2_i64.into(), 5_i64.into()]).unwrap(),
             ),
         )
         .unwrap();
     assert!(membership().predicate(&s).is_err());
-    let wrong = SelectionConsumer::new(view("summary"))
+    let wrong = membership()
         .with_row_identity(&RowIdentity::new(DataType::Int64).unwrap(), col("id"))
         .unwrap();
-    assert!(filter(
-        wrong,
-        SelectionFilter::membership(&id(), EmptySelection::MatchAll)
-    )
-    .predicate(&s)
-    .is_err());
-    let correct = SelectionConsumer::new(view("summary"))
+    assert!(wrong.predicate(&s).is_err());
+    let correct = membership()
         .with_row_identity(&identity, col("id"))
         .unwrap();
     assert_eq!(
-        selected(
-            flights(),
-            filter(
-                correct,
-                SelectionFilter::membership(&id(), EmptySelection::MatchAll)
-            )
-            .predicate(&s)
-            .unwrap()
-        )
-        .await,
+        selected(flights(), correct.predicate(&s).unwrap()).await,
         vec![2, 5]
     );
     assert_eq!(
@@ -567,15 +477,9 @@ async fn same_view_layers_exclude_all_own_producers_but_not_sibling_or_nested_fa
     );
     let s = state(Resolution::Intersect)
         .apply_all([
-            (id(), SelectionUpdate::set(&a, between("delay", 10, 30))),
-            (
-                id(),
-                SelectionUpdate::set(&b, values("carrier", ["AA".into()])),
-            ),
-            (
-                id(),
-                SelectionUpdate::set(&c, between("distance", 500, 1500)),
-            ),
+            SelectionUpdate::set(&a, between("delay", 10, 30)),
+            SelectionUpdate::set(&b, values("carrier", ["AA".into()])),
+            SelectionUpdate::set(&c, between("distance", 500, 1500)),
         ])
         .unwrap();
     assert_eq!(
@@ -623,17 +527,12 @@ fn projection_expressions_reject_query_and_request_dependent_forms() {
 async fn categorical_interval_sets_and_boolean_categories_are_supported() {
     let p = interval("band_brush", "carrier");
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(
-                &p,
-                SelectionValue::Tuples(vec![SelectionTuple {
-                    terms: vec![term(
-                        "carrier",
-                        ValueTest::OneOf(vec!["DL".into(), "AA".into()]),
-                    )],
-                }]),
-            ),
+        .set(
+            &p,
+            SelectionValue::tuple(vec![term(
+                "carrier",
+                ValueTest::OneOf(vec!["DL".into(), "AA".into()]),
+            )]),
         )
         .unwrap();
     assert_eq!(
@@ -642,10 +541,7 @@ async fn categorical_interval_sets_and_boolean_categories_are_supported() {
     );
     let p = point("p", "flag");
     let s = state(Resolution::Union)
-        .apply(
-            &id(),
-            SelectionUpdate::set(&p, values("flag", [ScalarValue::Boolean(None)])),
-        )
+        .set(&p, values("flag", [ScalarValue::Boolean(None)]))
         .unwrap();
     let data = batch(vec![
         ("id", Arc::new(Int64Array::from(vec![0, 1, 2]))),

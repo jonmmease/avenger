@@ -1,6 +1,6 @@
 use crate::{
-    definitions::row_expr, Contribution, Error, ProducerAddress, ProjectionId, Result, RowIdentity,
-    SelectionDefinition, SelectionId, SelectionSet, SelectionValue, ViewAddress,
+    definitions::row_expr, Contribution, Error, ProducerAddress, ProjectionId, Resolution, Result,
+    RowIdentity, SelectionId, SelectionSet, SelectionValue, ViewAddress,
 };
 use datafusion::logical_expr::Expr;
 use std::{collections::BTreeMap, sync::Arc};
@@ -63,16 +63,18 @@ impl SelectionFilter {
 
 /// A consuming view and compiler-verified mappings into its row relation.
 #[derive(Clone, Debug)]
-pub struct SelectionConsumer {
+pub struct ConsumerFilter {
     view: ViewAddress,
+    filter: SelectionFilter,
     projections: BTreeMap<(ProducerAddress, ProjectionId), Expr>,
     identities: BTreeMap<RowIdentity, Expr>,
 }
-impl SelectionConsumer {
+impl ConsumerFilter {
     /// Use producer expressions directly when the consumer shares their row relation.
-    pub fn new(view: ViewAddress) -> Self {
+    pub fn new(view: ViewAddress, filter: SelectionFilter) -> Self {
         Self {
             view,
+            filter,
             projections: BTreeMap::new(),
             identities: BTreeMap::new(),
         }
@@ -110,38 +112,6 @@ impl SelectionConsumer {
         self.identities.insert(identity.clone(), row_expr(expr)?);
         Ok(self)
     }
-}
-
-/// Constructs reusable consumer filters without capturing current selection values.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SelectionCompiler;
-impl SelectionCompiler {
-    /// Create a stateless compiler for consumer-specific predicates.
-    pub fn new() -> Self {
-        Self
-    }
-    /// Capture a consumer and named-use tree for repeated snapshot resolution.
-    pub fn filter(
-        &self,
-        consumer: &SelectionConsumer,
-        filter: SelectionFilter,
-    ) -> Result<ConsumerFilter> {
-        Ok(ConsumerFilter {
-            consumer: consumer.clone(),
-            filter,
-        })
-    }
-}
-/// A consumer and filter definition that can be rebound to immutable selection sets.
-#[derive(Clone, Debug)]
-pub struct ConsumerFilter {
-    consumer: SelectionConsumer,
-    filter: SelectionFilter,
-}
-impl ConsumerFilter {
-    pub(crate) fn consumer_view(&self) -> &ViewAddress {
-        self.consumer.view()
-    }
 
     /// Resolve definitions even before the producer has an active contribution.
     pub(crate) fn interaction_keys(&self, producer: &crate::ProducerDefinition) -> Vec<Expr> {
@@ -150,7 +120,6 @@ impl ConsumerFilter {
             .iter()
             .map(|p| {
                 let expr = self
-                    .consumer
                     .projections
                     .get(&(producer.address().clone(), p.id().clone()))
                     .unwrap_or(p.expr())
@@ -163,8 +132,8 @@ impl ConsumerFilter {
     }
 
     /// Resolve all named uses, including branches that currently determine no rows.
-    pub fn resolve(&self, selections: &SelectionSet) -> Result<ResolvedFilter> {
-        resolve(&self.filter, &self.consumer, selections)
+    pub(crate) fn resolve(&self, selections: &SelectionSet) -> Result<ResolvedFilter> {
+        resolve(&self.filter, self, selections)
     }
     /// Produce a non-null Boolean expression for use in a DataFusion filter or Expr input.
     pub fn predicate(&self, selections: &SelectionSet) -> Result<Expr> {
@@ -172,9 +141,9 @@ impl ConsumerFilter {
     }
 }
 
-/// A named-use tree with explicit exclusions and effective contributions.
+/// A named-use tree after consumer mappings and self-exclusion.
 #[derive(Clone, Debug)]
-pub enum ResolvedFilter {
+pub(crate) enum ResolvedFilter {
     Selection(ResolvedSelection),
     All(Vec<Self>),
     Any(Vec<Self>),
@@ -182,94 +151,38 @@ pub enum ResolvedFilter {
 }
 impl ResolvedFilter {
     /// Lower the resolved tree using the same semantics as ConsumerFilter::predicate.
-    pub fn predicate(&self) -> Expr {
+    pub(crate) fn predicate(&self) -> Expr {
         crate::predicate::resolved(self)
     }
 }
 /// Distinguish inactivity, self-exclusion, and active (possibly empty) values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SelectionStatus {
+pub(crate) enum SelectionStatus {
     Inactive,
     AllExcluded,
     Active,
 }
 /// One resolved use of a named selection.
 #[derive(Clone, Debug)]
-pub struct ResolvedSelection {
-    definition: Arc<SelectionDefinition>,
-    usage: SelectionUse,
-    status: SelectionStatus,
-    contributions: Vec<ResolvedContribution>,
-    excluded: Vec<ProducerAddress>,
+pub(crate) struct ResolvedSelection {
+    pub(crate) id: SelectionId,
+    pub(crate) resolution: Resolution,
+    pub(crate) usage: SelectionUse,
+    pub(crate) status: SelectionStatus,
+    pub(crate) contributions: Vec<ResolvedContribution>,
 }
-impl ResolvedSelection {
-    /// Return the shared definition and resolution policy.
-    pub fn definition(&self) -> &SelectionDefinition {
-        &self.definition
-    }
-    /// Return this leaf's membership and empty policies.
-    pub fn usage(&self) -> SelectionUse {
-        self.usage
-    }
-    /// Return why the leaf is active, inactive, or unrestricted by self-exclusion.
-    pub fn status(&self) -> SelectionStatus {
-        self.status
-    }
-    /// Return retained contributions with their consumer expressions.
-    pub fn contributions(&self) -> &[ResolvedContribution] {
-        &self.contributions
-    }
-    /// Return origins removed by this use's cross-filter policy.
-    pub fn excluded(&self) -> &[ProducerAddress] {
-        &self.excluded
-    }
-}
+
 /// A retained contribution and its checked mappings into the consumer relation.
 #[derive(Clone, Debug)]
-pub struct ResolvedContribution {
-    contribution: Arc<Contribution>,
-    projections: Vec<ResolvedProjection>,
-    identity_expr: Option<Expr>,
-}
-impl ResolvedContribution {
-    /// Return the original immutable definition and selected values.
-    pub fn contribution(&self) -> &Contribution {
-        &self.contribution
-    }
-    /// Return effective projections in producer-local ID order.
-    pub fn projections(&self) -> &[ResolvedProjection] {
-        &self.projections
-    }
-    /// Return the verified ID expression for an identity contribution.
-    pub fn identity_expr(&self) -> Option<&Expr> {
-        self.identity_expr.as_ref()
-    }
-}
-/// One producer-local dimension mapped into a consumer's row relation.
-#[derive(Clone, Debug)]
-pub struct ResolvedProjection {
-    id: ProjectionId,
-    expr: Expr,
-    raw_expr: Expr,
-}
-impl ResolvedProjection {
-    /// Return the producer-local projection ID.
-    pub fn id(&self) -> &ProjectionId {
-        &self.id
-    }
-    /// Return the comparison expression, including cell mapping for pixel dimensions.
-    pub fn expr(&self) -> &Expr {
-        &self.expr
-    }
-    /// Return the consumer's row expression before any pixel mapping.
-    pub fn raw_expr(&self) -> &Expr {
-        &self.raw_expr
-    }
+pub(crate) struct ResolvedContribution {
+    pub(crate) contribution: Arc<Contribution>,
+    pub(crate) projections: Vec<Expr>,
+    pub(crate) identity_expr: Option<Expr>,
 }
 
 fn resolve(
     filter: &SelectionFilter,
-    consumer: &SelectionConsumer,
+    consumer: &ConsumerFilter,
     selections: &SelectionSet,
 ) -> Result<ResolvedFilter> {
     Ok(match filter {
@@ -291,10 +204,8 @@ fn resolve(
         SelectionFilter::Selection { id, usage } => {
             let snapshot = selections.get(id)?;
             let mut contributions = Vec::new();
-            let mut excluded = Vec::new();
             for (address, contribution) in snapshot.contributions.iter() {
                 if usage.mode == SelectionMode::CrossFilter && address.origin == consumer.view {
-                    excluded.push(address.clone());
                     continue;
                 }
                 let projections = contribution
@@ -307,14 +218,9 @@ fn resolve(
                             .get(&(address.clone(), p.id().clone()))
                             .unwrap_or(p.expr())
                             .clone();
-                        let expr = match contribution.producer().pixel_grid(p.id()) {
-                            Some(grid) => grid.cell_expr(raw_expr.clone()),
-                            None => raw_expr.clone(),
-                        };
-                        ResolvedProjection {
-                            id: p.id().clone(),
-                            expr,
-                            raw_expr,
+                        match contribution.producer().pixel_grid(p.id()) {
+                            Some(grid) => grid.cell_expr(raw_expr),
+                            None => raw_expr,
                         }
                     })
                     .collect();
@@ -348,11 +254,11 @@ fn resolve(
                 SelectionStatus::Active
             };
             ResolvedFilter::Selection(ResolvedSelection {
-                definition: snapshot.definition.clone(),
+                id: id.clone(),
+                resolution: snapshot.resolution,
                 usage: *usage,
                 status,
                 contributions,
-                excluded,
             })
         }
     })
