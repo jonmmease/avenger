@@ -10,7 +10,7 @@ default = []
 dataflow = ["dep:avenger-datafusion-dataflow"]
 
 [dependencies]
-avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
+avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate" }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", optional = true }
 avenger-scales-datafusion = { path = "../avenger-scales-datafusion" }
 datafusion = { version = "=54.1.0", default-features = false }

@@ -16,6 +16,7 @@ members = [
     "avenger-scales-datafusion",
     "avenger-selection",
     "avenger-datafusion-aggregate-state",
+    "avenger-datafusion-preaggregate",
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",
