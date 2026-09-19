@@ -831,6 +831,8 @@ dependencies = [
 name = "avenger-selection"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "avenger-datafusion-aggregate-state",
  "avenger-datafusion-dataflow",
  "avenger-scales-datafusion",
  "datafusion",

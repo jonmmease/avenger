@@ -159,3 +159,94 @@ pub fn ids(batches: &[RecordBatch]) -> Vec<i64> {
     ids.sort();
     ids
 }
+
+pub fn measures(field: &str) -> Vec<Expr> {
+    use datafusion::functions_aggregate::expr_fn::{
+        avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+    };
+    vec![
+        count(datafusion::logical_expr::lit(1_i64)).alias("rows"),
+        count(col(field)).alias("valid"),
+        sum(col(field)).alias("sum"),
+        min(col(field)).alias("min"),
+        max(col(field)).alias("max"),
+        avg(col(field)).alias("mean"),
+        var_sample(col(field)).alias("var_samp"),
+        var_pop(col(field)).alias("var_pop"),
+        stddev(col(field)).alias("stddev_samp"),
+        stddev_pop(col(field)).alias("stddev_pop"),
+    ]
+}
+
+pub const FLOAT_MEASURES: &[&str] = &[
+    "sum",
+    "mean",
+    "var_samp",
+    "var_pop",
+    "stddev_samp",
+    "stddev_pop",
+];
+
+/// Compare unordered groups exactly and allow rounding only in named measures.
+pub fn assert_results(actual: &[RecordBatch], expected: &[RecordBatch], approximate: &[&str]) {
+    if let (Some(a), Some(e)) = (actual.first(), expected.first()) {
+        assert_eq!(a.schema(), e.schema());
+    }
+    let values = |batches: &[RecordBatch]| {
+        let mut rows: Vec<_> = batches
+            .iter()
+            .flat_map(|batch| {
+                (0..batch.num_rows()).map(|row| {
+                    batch
+                        .columns()
+                        .iter()
+                        .map(|a| ScalarValue::try_from_array(a, row).unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        if let Some(batch) = batches.first() {
+            rows.sort_by_cached_key(|row| {
+                row.iter()
+                    .zip(batch.schema().fields())
+                    .filter(|(_, field)| !approximate.contains(&field.name().as_str()))
+                    .map(|(value, _)| format!("{value:?}"))
+                    .collect::<Vec<_>>()
+            });
+        }
+        rows
+    };
+    let a = values(actual);
+    let e = values(expected);
+    assert_eq!(a.len(), e.len());
+    let Some(batch) = expected.first() else {
+        return;
+    };
+    for (actual_row, expected_row) in a.iter().zip(&e) {
+        for (i, (a, e)) in actual_row.iter().zip(expected_row).enumerate() {
+            let field = batch.schema().field(i).clone();
+            if approximate.contains(&field.name().as_str()) {
+                let float = match (a, e) {
+                    (ScalarValue::Float64(Some(a)), ScalarValue::Float64(Some(e))) => {
+                        Some((*a, *e, 1e-10))
+                    }
+                    (ScalarValue::Float32(Some(a)), ScalarValue::Float32(Some(e))) => {
+                        Some((*a as f64, *e as f64, 1e-5))
+                    }
+                    _ => None,
+                };
+                if let Some((a, e, tolerance)) =
+                    float.filter(|(a, e, _)| a.is_finite() && e.is_finite())
+                {
+                    assert!(
+                        (a - e).abs() <= tolerance * (1.0 + e.abs()),
+                        "{}: {a} != {e}",
+                        field.name()
+                    );
+                    continue;
+                }
+            }
+            assert_eq!(a, e, "{}", field.name());
+        }
+    }
+}
