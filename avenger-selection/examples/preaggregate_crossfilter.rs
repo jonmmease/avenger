@@ -38,7 +38,7 @@ use std::{collections::HashMap, sync::Arc};
 // Each chart excludes its own producers. Pixel mode uses cell membership in
 // both direct and optimized queries. Regridding occurs only in pixel mode.
 fn brush_states(delay: &ProducerDefinition) -> Result<[(&'static str, SelectionSet); 4]> {
-    let name = &delay.address().selection;
+    let name = delay.selection();
     let inactive = SelectionSet::new([(name.clone(), Resolution::Intersect)])?;
     let projection = ProjectionId::new("delay")?;
     let brush = |lower: i64, upper: i64| {
@@ -290,29 +290,24 @@ async fn main() -> ExampleResult<()> {
     println!("_rollup nodes filter those states and merge aggregates into display groups.");
     let name = SelectionId::new("filters")?;
     let mut plots = Vec::new();
-    for (view, field, kind, group) in [
+    for (view, field, group) in [
         (
             "delay",
             "delay",
-            SelectionKind::Interval,
             (col("delay") / lit(20_i64)).alias("delay_bin"),
         ),
         (
             "distance",
             "distance",
-            SelectionKind::Interval,
             (col("distance") / lit(500_i64)).alias("distance_bin"),
         ),
-        ("airlines", "carrier", SelectionKind::Point, col("carrier")),
+        ("airlines", "carrier", col("carrier")),
     ] {
-        let origin = ViewAddress::root(ViewId::new(view)?);
+        let origin = ViewId::new(view)?;
         let mut producer = ProducerDefinition::new(
-            ProducerAddress {
-                selection: name.clone(),
-                producer: ProducerId::new(view)?,
-                origin: origin.clone(),
-            },
-            kind,
+            name.clone(),
+            ProducerId::new(view)?,
+            origin.clone(),
             vec![Projection::new(ProjectionId::new(field)?, col(field))?],
         )?;
         if pixels && view == "delay" {
@@ -406,7 +401,11 @@ async fn main() -> ExampleResult<()> {
             .with_pixel_grids([(ProjectionId::new("delay")?, delay_grid(20.)?)])?;
         let values = airline_state
             .contributions(&name)?
-            .find(|c| c.producer().address() == regridded.address())
+            .find(|c| {
+                c.producer().selection() == regridded.selection()
+                    && c.producer().id() == regridded.id()
+                    && c.producer().view() == regridded.view()
+            })
             .unwrap()
             .value()
             .clone();

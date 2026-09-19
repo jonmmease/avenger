@@ -1,22 +1,17 @@
 mod common;
 use avenger_selection::*;
 use common::*;
-use datafusion::{
-    arrow::datatypes::{DataType, TimeUnit},
-    common::ScalarValue,
-    logical_expr::col,
-};
+use datafusion::{common::ScalarValue, logical_expr::col};
 use std::ops::Bound;
 
 #[test]
 fn updates_route_across_names_atomically_and_clear_only_their_destination() {
     let first = point("first", "x");
     let second_id = SelectionId::new("second").unwrap();
-    let mut second_address = address("second", view("second"));
-    second_address.selection = second_id.clone();
     let second = ProducerDefinition::new(
-        second_address,
-        SelectionKind::Point,
+        second_id.clone(),
+        ProducerId::new("second").unwrap(),
+        view("second"),
         vec![Projection::new(ProjectionId::new("x").unwrap(), col("x")).unwrap()],
     )
     .unwrap();
@@ -101,12 +96,7 @@ async fn value_constructors_preserve_range_endpoints_and_tuple_correlation() {
         );
     }
 
-    let brush = producer(
-        "correlated",
-        view("brush"),
-        SelectionKind::Interval,
-        &["delay", "carrier"],
-    );
+    let brush = producer("correlated", view("brush"), &["delay", "carrier"]);
     let delay = ProjectionId::new("delay").unwrap();
     let carrier = ProjectionId::new("carrier").unwrap();
     let aa = [
@@ -124,11 +114,13 @@ async fn value_constructors_preserve_range_endpoints_and_tuple_correlation() {
         selected(flights(), membership().predicate(&state).unwrap()).await,
         vec![1, 2, 5]
     );
-    let SelectionValue::Tuples(tuples) =
-        state.contributions(&id()).unwrap().next().unwrap().value()
-    else {
-        panic!()
-    };
+    let tuples = state
+        .contributions(&id())
+        .unwrap()
+        .next()
+        .unwrap()
+        .value()
+        .as_tuples();
     assert_eq!(tuples.len(), 2);
     assert!(tuples
         .iter()
@@ -138,12 +130,7 @@ async fn value_constructors_preserve_range_endpoints_and_tuple_correlation() {
 #[test]
 fn producers_share_names_without_losing_identity_and_snapshots_are_immutable() {
     let brush = interval("delay_brush", "delay");
-    let points = producer(
-        "delay_points",
-        brush.address().origin.clone(),
-        SelectionKind::Point,
-        &["carrier"],
-    );
+    let points = producer("delay_points", brush.view().clone(), &["carrier"]);
     for resolution in [Resolution::Intersect, Resolution::Union] {
         let old = state(resolution);
         let next = old
@@ -157,15 +144,13 @@ fn producers_share_names_without_losing_identity_and_snapshots_are_immutable() {
         let cleared = next.clear(&brush).unwrap();
         assert_eq!(cleared.contributions(&id()).unwrap().count(), 1);
         assert_eq!(next.contributions(&id()).unwrap().count(), 2);
-        let SelectionValue::Tuples(tuples) = cleared
+        let tuples = cleared
             .contributions(&id())
             .unwrap()
             .next()
             .unwrap()
             .value()
-        else {
-            panic!()
-        };
+            .as_tuples();
         assert_eq!(tuples.len(), 2);
     }
 }
@@ -173,8 +158,9 @@ fn producers_share_names_without_losing_identity_and_snapshots_are_immutable() {
 fn global_set_toggle_and_clear_preserve_origins_and_projection_meaning() {
     let a = point("a", "carrier");
     let b = ProducerDefinition::new(
-        address("b", view("b")),
-        SelectionKind::Point,
+        id(),
+        ProducerId::new("b").unwrap(),
+        view("b"),
         vec![Projection::new(
             ProjectionId::new("renamed").unwrap(),
             col("carrier").alias("alias"),
@@ -198,16 +184,16 @@ fn global_set_toggle_and_clear_preserve_origins_and_projection_meaning() {
     let origins: Vec<_> = s
         .contributions(&id())
         .unwrap()
-        .map(|c| c.producer().address().producer.as_str())
+        .map(|c| c.producer().id().as_str())
         .collect();
     assert_eq!(origins, vec!["b", "c"]);
     s = s.clear(&b).unwrap();
     assert_eq!(s.contributions(&id()).unwrap().count(), 1);
-    s = s.set(&a, SelectionValue::Tuples(vec![])).unwrap();
+    s = s.set(&a, SelectionValue::default()).unwrap();
     assert_eq!(s.contributions(&id()).unwrap().count(), 1);
     assert_eq!(
         s.contributions(&id()).unwrap().next().unwrap().value(),
-        &SelectionValue::Tuples(vec![])
+        &SelectionValue::default()
     );
     s = s.clear_all(&id()).unwrap();
     assert_eq!(s.contributions(&id()).unwrap().count(), 0);
@@ -230,19 +216,22 @@ fn canonical_tuples_sets_nans_and_zero_toggle_consistently() {
             ),
         )
         .unwrap();
-    let SelectionValue::Tuples(tuples) = s.contributions(&id()).unwrap().next().unwrap().value()
-    else {
-        panic!()
-    };
+    let tuples = s
+        .contributions(&id())
+        .unwrap()
+        .next()
+        .unwrap()
+        .value()
+        .as_tuples();
     assert_eq!(tuples.len(), 2);
     let empty = s
         .toggle(
             &p,
-            SelectionValue::Tuples(vec![tuple("x", -0.0), tuple("x", f64::NAN)]),
+            SelectionValue::tuples(vec![tuple("x", -0.0), tuple("x", f64::NAN)]),
         )
         .unwrap();
     assert_eq!(empty.contributions(&id()).unwrap().count(), 0);
-    let explicit = empty.set(&p, SelectionValue::Tuples(vec![])).unwrap();
+    let explicit = empty.set(&p, SelectionValue::default()).unwrap();
     assert_eq!(explicit.contributions(&id()).unwrap().count(), 1);
 }
 #[test]
@@ -256,8 +245,13 @@ fn invalid_updates_are_atomic_and_definitions_are_checked() {
     assert!(SelectionSet::new([(id(), Resolution::Intersect), (id(), Resolution::Union)]).is_err());
     let missing = SelectionId::new("missing").unwrap();
     assert!(s.clear_all(&missing).is_err());
-    let mut foreign = p.address().clone();
-    foreign.selection = missing;
+    let foreign = ProducerDefinition::new(
+        missing,
+        p.id().clone(),
+        p.view().clone(),
+        p.projections().to_vec(),
+    )
+    .unwrap();
     assert!(s.apply(SelectionUpdate::clear(&foreign)).is_err());
     for terms in [
         vec![],
@@ -268,21 +262,22 @@ fn invalid_updates_are_atomic_and_definitions_are_checked() {
     ] {
         assert!(s.set(&p, SelectionValue::tuple(terms)).is_err());
     }
-    assert!(ProducerDefinition::new(p.address().clone(), SelectionKind::Point, vec![]).is_err());
+    assert!(ProducerDefinition::new(
+        p.selection().clone(),
+        p.id().clone(),
+        p.view().clone(),
+        vec![]
+    )
+    .is_err());
     let proj = Projection::new(ProjectionId::new("x").unwrap(), col("x")).unwrap();
     assert!(ProducerDefinition::new(
-        p.address().clone(),
-        SelectionKind::Point,
+        p.selection().clone(),
+        p.id().clone(),
+        p.view().clone(),
         vec![proj.clone(), proj]
     )
     .is_err());
     assert!(SelectionId::new(" ").is_err());
-    assert!(s
-        .toggle(
-            &interval("i", "x"),
-            SelectionValue::tuple(tuple("x", 1_i64))
-        )
-        .is_err());
 }
 #[test]
 fn ranges_and_sets_validate_types_without_converting_values() {
@@ -311,8 +306,9 @@ fn ranges_and_sets_validate_types_without_converting_values() {
         &values("x", [value])
     );
     let changed = ProducerDefinition::new(
-        p.address().clone(),
-        SelectionKind::Point,
+        p.selection().clone(),
+        p.id().clone(),
+        p.view().clone(),
         vec![Projection::new(ProjectionId::new("x").unwrap(), col("other")).unwrap()],
     )
     .unwrap();
@@ -321,61 +317,75 @@ fn ranges_and_sets_validate_types_without_converting_values() {
         .is_err());
 }
 #[test]
-fn nested_composite_addresses_keep_types_nulls_zones_and_order() {
-    let scope = ScopeId::new("facets").unwrap();
-    let key = |v| FacetKey::new(scope.clone(), v).unwrap();
-    let a = key(vec!["East".into(), ScalarValue::Int64(None)]);
-    assert_eq!(a, key(vec!["East".into(), ScalarValue::Int64(None)]));
-    assert_ne!(a, key(vec!["East".into(), ScalarValue::Int32(None)]));
-    assert_ne!(a, key(vec![ScalarValue::Int64(None), "East".into()]));
-    let utc = key(vec![ScalarValue::TimestampSecond(
-        Some(0),
-        Some("UTC".into()),
-    )]);
-    let other = key(vec![ScalarValue::TimestampSecond(
-        Some(0),
-        Some("America/New_York".into()),
-    )]);
-    assert_ne!(utc, other);
-    assert!(!utc.cmp(&other).is_eq());
-    assert!(FacetKey::new(scope, vec![1.0.into()]).is_err());
-    let mut nested = view("hist");
-    nested.scope = vec![a, utc];
-    let parent = ViewAddress {
-        view: nested.view.clone(),
-        scope: nested.scope[..1].to_vec(),
-    };
-    assert_ne!(nested, parent);
-    let ids = RowIdentity::new(DataType::Timestamp(
-        TimeUnit::Nanosecond,
-        Some("UTC".into()),
-    ))
+fn producer_identity_keeps_selection_name_and_view_instance_separate() {
+    let first = producer("brush", view("first-instance"), &["x"]);
+    let sibling = producer("brush", view("second-instance"), &["x"]);
+    let other_name = SelectionId::new("other-selection").unwrap();
+    let other = ProducerDefinition::new(
+        other_name.clone(),
+        first.id().clone(),
+        first.view().clone(),
+        first.projections().to_vec(),
+    )
     .unwrap();
-    let unrelated = RowIdentity::new(ids.data_type().clone()).unwrap();
-    assert_ne!(ids, unrelated);
-    assert_eq!(ids, ids.clone());
+    let state = SelectionSet::new([
+        (id(), Resolution::Union),
+        (other_name.clone(), Resolution::Union),
+    ])
+    .unwrap()
+    .apply_all([
+        SelectionUpdate::set(&first, values("x", [1_i64.into()])),
+        SelectionUpdate::set(&sibling, values("x", [2_i64.into()])),
+        SelectionUpdate::set(&other, values("x", [3_i64.into()])),
+    ])
+    .unwrap();
+    assert_eq!(state.contributions(&id()).unwrap().count(), 2);
+    assert_eq!(state.contributions(&other_name).unwrap().count(), 1);
+    let cleared = state.apply(SelectionUpdate::clear(&first)).unwrap();
+    assert_eq!(
+        cleared
+            .contributions(&id())
+            .unwrap()
+            .next()
+            .unwrap()
+            .producer()
+            .view(),
+        sibling.view()
+    );
+    assert_eq!(cleared.contributions(&other_name).unwrap().count(), 1);
 }
+
 #[test]
-fn row_ids_are_typed_and_require_the_same_lineage() {
-    let identity = RowIdentity::new(DataType::UInt64).unwrap();
-    let p = ProducerDefinition::row_ids(address("ids", view("rows")), identity.clone());
-    let ids =
-        RowIdSelection::new(&identity, vec![2_u64.into(), 1_u64.into(), 2_u64.into()]).unwrap();
-    assert_eq!(ids.values(), &[1_u64.into(), 2_u64.into()]);
-    assert!(RowIdSelection::new(&identity, vec![1_i64.into()]).is_err());
-    let s = state(Resolution::Union)
-        .set(&p, SelectionValue::RowIds(ids))
+fn row_ids_are_ordinary_typed_projection_values_and_support_toggle() {
+    let p = point("ids", "id");
+    let state = state(Resolution::Union)
+        .set(&p, values("id", [2_u64.into(), 1_u64.into(), 2_u64.into()]))
         .unwrap();
-    let value = s.contributions(&id()).unwrap().next().unwrap().value();
-    assert!(s.toggle(&p, value.clone()).is_err());
-    let foreign = RowIdentity::new(DataType::UInt64).unwrap();
-    assert!(s
+    let value = state.contributions(&id()).unwrap().next().unwrap().value();
+    assert_eq!(value.as_tuples().len(), 2);
+    assert_eq!(value.as_tuples()[0][0].1, ValueTest::equal(1_u64));
+    assert_eq!(value.as_tuples()[1][0].1, ValueTest::equal(2_u64));
+    let toggled = state
+        .toggle(&p, values("id", [2_u64.into(), 3_u64.into()]))
+        .unwrap();
+    assert_eq!(
+        toggled
+            .contributions(&id())
+            .unwrap()
+            .next()
+            .unwrap()
+            .value(),
+        &values("id", [1_u64.into(), 3_u64.into()])
+    );
+    assert!(state
         .set(
             &p,
-            SelectionValue::RowIds(RowIdSelection::new(&foreign, vec![]).unwrap())
+            SelectionValue::tuple([(
+                ProjectionId::new("id").unwrap(),
+                ValueTest::one_of([ScalarValue::UInt64(Some(1)), ScalarValue::Int64(Some(1))])
+            )])
         )
         .is_err());
-    assert!(s.set(&p, SelectionValue::Tuples(vec![])).is_err());
 }
 
 #[test]
@@ -386,16 +396,20 @@ fn timezone_metadata_survives_tuple_deduplication_and_projection_identity() {
     let s = state(Resolution::Union)
         .set(&p, values("time", [utc.clone(), local.clone()]))
         .unwrap();
-    let SelectionValue::Tuples(tuples) = s.contributions(&id()).unwrap().next().unwrap().value()
-    else {
-        panic!()
-    };
+    let tuples = s
+        .contributions(&id())
+        .unwrap()
+        .next()
+        .unwrap()
+        .value()
+        .as_tuples();
     assert_eq!(tuples.len(), 2);
 
     let make = |name, value| {
         ProducerDefinition::new(
-            address(name, view(name)),
-            SelectionKind::Point,
+            id(),
+            ProducerId::new(name).unwrap(),
+            view(name),
             vec![Projection::new(
                 ProjectionId::new("time").unwrap(),
                 datafusion::logical_expr::lit(value),

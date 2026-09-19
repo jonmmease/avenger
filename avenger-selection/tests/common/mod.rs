@@ -15,37 +15,25 @@ use std::{ops::Bound, sync::Arc};
 pub fn id() -> SelectionId {
     SelectionId::new("filters").unwrap()
 }
-pub fn view(name: &str) -> ViewAddress {
-    ViewAddress::root(ViewId::new(name).unwrap())
+pub fn view(name: &str) -> ViewId {
+    ViewId::new(name).unwrap()
 }
-pub fn address(name: &str, origin: ViewAddress) -> ProducerAddress {
-    ProducerAddress {
-        selection: id(),
-        producer: ProducerId::new(name).unwrap(),
-        origin,
-    }
-}
-pub fn producer(
-    name: &str,
-    origin: ViewAddress,
-    kind: SelectionKind,
-    fields: &[&str],
-) -> ProducerDefinition {
+pub fn producer(name: &str, origin: ViewId, fields: &[&str]) -> ProducerDefinition {
     ProducerDefinition::new(
-        address(name, origin),
-        kind,
+        id(),
+        ProducerId::new(name).unwrap(),
+        origin,
         fields
             .iter()
-            .map(|f| Projection::new(ProjectionId::new(*f).unwrap(), col(*f)).unwrap())
-            .collect(),
+            .map(|f| Projection::new(ProjectionId::new(*f).unwrap(), col(*f)).unwrap()),
     )
     .unwrap()
 }
 pub fn point(name: &str, field: &str) -> ProducerDefinition {
-    producer(name, view(name), SelectionKind::Point, &[field])
+    producer(name, view(name), &[field])
 }
 pub fn interval(name: &str, field: &str) -> ProducerDefinition {
-    producer(name, view(name), SelectionKind::Interval, &[field])
+    producer(name, view(name), &[field])
 }
 pub fn term(field: &str, test: ValueTest) -> (ProjectionId, ValueTest) {
     (ProjectionId::new(field).unwrap(), test)
@@ -54,7 +42,7 @@ pub fn tuple(field: &str, value: impl Into<ScalarValue>) -> Vec<(ProjectionId, V
     vec![term(field, ValueTest::Equal(value.into()))]
 }
 pub fn values(field: &str, values: impl IntoIterator<Item = ScalarValue>) -> SelectionValue {
-    SelectionValue::Tuples(values.into_iter().map(|v| tuple(field, v)).collect())
+    SelectionValue::tuples(values.into_iter().map(|v| tuple(field, v)))
 }
 pub fn range(field: &str, lower: Bound<ScalarValue>, upper: Bound<ScalarValue>) -> SelectionValue {
     SelectionValue::tuple(vec![term(field, ValueTest::Range { lower, upper })])
@@ -69,7 +57,7 @@ pub fn between(field: &str, lower: i64, upper: i64) -> SelectionValue {
 pub fn state(resolution: Resolution) -> SelectionSet {
     SelectionSet::new([(id(), resolution)]).unwrap()
 }
-pub fn filter(consumer: ViewAddress, filter: SelectionFilter) -> ConsumerFilter {
+pub fn filter(consumer: ViewId, filter: SelectionFilter) -> ConsumerFilter {
     ConsumerFilter::new(consumer, filter)
 }
 pub fn membership() -> ConsumerFilter {
@@ -78,7 +66,7 @@ pub fn membership() -> ConsumerFilter {
         SelectionFilter::membership(&id(), EmptySelection::MatchAll),
     )
 }
-pub fn cross(origin: ViewAddress) -> ConsumerFilter {
+pub fn cross(origin: ViewId) -> ConsumerFilter {
     filter(origin, SelectionFilter::cross_filter([&id()]))
 }
 pub fn batch(columns: Vec<(&str, ArrayRef)>) -> RecordBatch {

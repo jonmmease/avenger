@@ -614,11 +614,7 @@ fn configuration_validation_rejects_unsupported_and_degenerate_mappings() {
 #[test]
 fn producer_validation_checks_grid_shape_and_update_terms_atomically() {
     let grid = linear([0.0, 200.0], [0.0, 600.0], 0.0, 2.0);
-    assert!(point("p", "x")
-        .with_pixel_grids([(projection("x"), grid.clone())])
-        .is_err());
-    let exact = producer("brush", view("brush"), SelectionKind::Interval, &["x", "y"]);
-    assert!(exact.with_pixel_grids([]).is_err());
+    let exact = producer("brush", view("brush"), &["x", "y"]);
     assert!(exact
         .with_pixel_grids([(projection("missing"), grid.clone())])
         .is_err());
@@ -628,33 +624,32 @@ fn producer_validation_checks_grid_shape_and_update_terms_atomically() {
             (projection("x"), grid.clone())
         ])
         .is_err());
-    assert!(exact
+    let independent = exact
         .with_pixel_grids([
             (projection("x"), grid.clone()),
             (
                 projection("y"),
-                linear([0.0, 200.0], [0.0, 600.0], 0.0, 1.0)
-            )
+                linear([0.0, 200.0], [0.0, 600.0], 0.0, 1.0),
+            ),
         ])
-        .is_err());
+        .unwrap();
+    assert_eq!(
+        independent.pixel_grid(&projection("x")).unwrap().size(),
+        2.0
+    );
+    assert_eq!(
+        independent.pixel_grid(&projection("y")).unwrap().size(),
+        1.0
+    );
     let pixel = exact.with_pixel_grids([(projection("x"), grid)]).unwrap();
-    assert_eq!(pixel.precision(), IntervalPrecision::Pixels { size: 2.0 });
-    assert_eq!(exact.precision(), IntervalPrecision::Exact);
+    assert_eq!(pixel.pixel_grids().count(), 1);
+    assert_eq!(pixel.with_pixel_grids([]).unwrap(), exact);
+    assert_eq!(exact.pixel_grids().count(), 0);
     let s = state(Resolution::Intersect);
     for (x, y) in [
         (
             ValueTest::Equal(10_i64.into()),
             ValueTest::Equal("A".into()),
-        ),
-        (
-            ValueTest::Range {
-                lower: Included(10_i64.into()),
-                upper: Excluded(30_i64.into()),
-            },
-            ValueTest::Range {
-                lower: Unbounded,
-                upper: Unbounded,
-            },
         ),
         (
             ValueTest::Range {
@@ -671,13 +666,144 @@ fn producer_validation_checks_grid_shape_and_update_terms_atomically() {
 }
 
 #[tokio::test]
-async fn two_dimensional_tuples_and_categorical_dimensions_keep_correlation() {
-    let exact = producer(
-        "brush",
-        view("brush"),
-        SelectionKind::Interval,
-        &["x", "y", "carrier"],
+async fn per_projection_grids_support_independent_sizes_exact_ranges_and_removal() {
+    let exact = producer("brush", view("focus"), &["x", "y"]);
+    let x_grid = linear([0., 100.], [0., 100.], 0., 10.);
+    let y_grid = linear([0., 100.], [0., 100.], 0., 20.);
+    let mixed = exact
+        .with_pixel_grids([(projection("x"), x_grid.clone())])
+        .unwrap();
+    let both = exact
+        .with_pixel_grids([
+            (projection("x"), x_grid.clone()),
+            (projection("y"), y_grid.clone()),
+        ])
+        .unwrap();
+    let raw = SelectionValue::tuple([
+        (projection("x"), ValueTest::range(11_f64..29_f64)),
+        (projection("y"), ValueTest::range(21_f64..59_f64)),
+    ]);
+    let rows = batch(vec![
+        ("id", Arc::new(Int64Array::from(vec![0, 1, 2, 3, 4]))),
+        ("x", numbers(&[10., 11., 19., 20., 15.])),
+        ("y", numbers(&[20., 21., 39., 30., 40.])),
+    ]);
+    let filter = cross(view("target"));
+    for (producer, dimensions, expected) in [
+        (
+            &both,
+            vec![x_grid.cell_expr(col("x")), y_grid.cell_expr(col("y"))],
+            vec![0, 1, 2],
+        ),
+        (
+            &mixed,
+            vec![x_grid.cell_expr(col("x")), col("y")],
+            vec![1, 2, 4],
+        ),
+        (&exact, vec![col("x"), col("y")], vec![1, 2, 3, 4]),
+    ] {
+        let state = state(Resolution::Intersect)
+            .set(producer, raw.clone())
+            .unwrap();
+        let predicates = filter.predicates(&state, producer).unwrap();
+        let split = predicates.split().unwrap();
+        assert_eq!(split.dimensions(), dimensions);
+        assert_eq!(
+            selected(rows.clone(), predicates.full().clone()).await,
+            expected
+        );
+        assert_eq!(
+            selected(
+                rows.clone(),
+                split.fixed().clone().and(split.changing().clone())
+            )
+            .await,
+            expected
+        );
+        assert_eq!(
+            state.contributions(&id()).unwrap().next().unwrap().value(),
+            &raw
+        );
+    }
+    let before = state(Resolution::Intersect)
+        .set(&both, raw.clone())
+        .unwrap();
+    let without_grids = both.with_pixel_grids([]).unwrap();
+    let after = before.set(&without_grids, raw).unwrap();
+    assert_eq!(
+        selected(rows.clone(), filter.predicate(&before).unwrap()).await,
+        vec![0, 1, 2]
     );
+    assert_eq!(
+        selected(rows, filter.predicate(&after).unwrap()).await,
+        vec![1, 2, 3, 4]
+    );
+}
+
+#[tokio::test]
+async fn toggles_compare_whole_raw_tuples_before_pixel_mapping() {
+    let pixel = pixel_producer(linear([0., 100.], [0., 100.], 0., 10.));
+    let first = SelectionValue::tuple([(projection("x"), ValueTest::range(11_f64..29_f64))]);
+    let second = SelectionValue::tuple([(projection("x"), ValueTest::range(12_f64..28_f64))]);
+    let one = state(Resolution::Global)
+        .toggle(&pixel, first.clone())
+        .unwrap();
+    let two = one.toggle(&pixel, second.clone()).unwrap();
+    assert_eq!(
+        one.contributions(&id())
+            .unwrap()
+            .next()
+            .unwrap()
+            .value()
+            .as_tuples()
+            .len(),
+        1
+    );
+    assert_eq!(
+        two.contributions(&id())
+            .unwrap()
+            .next()
+            .unwrap()
+            .value()
+            .as_tuples()
+            .len(),
+        2
+    );
+    let remaining = two.toggle(&pixel, first).unwrap();
+    assert_eq!(
+        remaining
+            .contributions(&id())
+            .unwrap()
+            .next()
+            .unwrap()
+            .value(),
+        &second
+    );
+    let rows = data(vec![Some(10.), Some(12.), Some(19.), Some(20.), Some(28.)]);
+    assert_eq!(
+        selected(rows, membership().predicate(&remaining).unwrap()).await,
+        vec![0, 1, 2]
+    );
+    assert!(remaining
+        .toggle(
+            &pixel,
+            SelectionValue::tuple([(projection("x"), ValueTest::equal(12_f64))])
+        )
+        .is_err());
+    assert_eq!(
+        remaining
+            .toggle(&pixel, second)
+            .unwrap()
+            .contributions(&id())
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn two_dimensional_tuples_and_categorical_dimensions_keep_correlation() {
+    let exact = producer("brush", view("brush"), &["x", "y", "carrier"]);
     let grid = linear([0.0, 100.0], [0.0, 100.0], 0.0, 10.0);
     let pixel = exact
         .with_pixel_grids([(projection("x"), grid.clone()), (projection("y"), grid)])
@@ -704,7 +830,7 @@ async fn two_dimensional_tuples_and_categorical_dimensions_keep_correlation() {
     let s = state(Resolution::Intersect)
         .set(
             &pixel,
-            SelectionValue::Tuples(vec![
+            SelectionValue::tuples(vec![
                 tuple(10_i64, 20_i64, 70_i64, 80_i64, "A"),
                 tuple(70, 80, 10, 20, "B"),
             ]),
@@ -750,7 +876,7 @@ async fn resizing_preserves_old_snapshots_and_uses_consumer_projection_mappings(
         view("target"),
         SelectionFilter::membership(&id(), EmptySelection::MatchAll),
     )
-    .with_projection(old_p.address(), &projection("x"), col("renamed"))
+    .with_projection(&old_p, &projection("x"), col("renamed"))
     .unwrap();
 
     assert_eq!(
@@ -869,30 +995,23 @@ async fn global_toggle_keeps_distinct_exact_and_pixel_range_meanings() {
     let pixel = pixel_producer(linear([0.0, 200.0], [0.0, 600.0], 0.0, 2.0));
     let exact = point("bin", "x");
     let raw = range("x", Included(10.6.into()), Excluded(30.0.into()));
-    let SelectionValue::Tuples(tuples) = raw.clone() else {
-        panic!()
-    };
     let s = state(Resolution::Global)
-        .set(&pixel, raw)
+        .set(&pixel, raw.clone())
         .unwrap()
-        .toggle(&exact, SelectionValue::Tuples(tuples))
+        .toggle(&exact, raw)
         .unwrap();
     assert_eq!(s.contributions(&id()).unwrap().count(), 2);
     let rows = data(vec![Some(10.0), Some(10.6), Some(30.0)]);
     assert_eq!(
         selected(
             rows.clone(),
-            cross(pixel.address().origin.clone()).predicate(&s).unwrap()
+            cross(pixel.view().clone()).predicate(&s).unwrap()
         )
         .await,
         vec![1]
     );
     assert_eq!(
-        selected(
-            rows,
-            cross(exact.address().origin.clone()).predicate(&s).unwrap()
-        )
-        .await,
+        selected(rows, cross(exact.view().clone()).predicate(&s).unwrap()).await,
         vec![0, 1]
     );
 }

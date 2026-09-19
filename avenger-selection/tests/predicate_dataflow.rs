@@ -17,7 +17,7 @@ async fn three_views_bind_predicates_and_reuse_unchanged_results(
     let delay = interval("delay_hist", "delay");
     let distance = interval("distance_hist", "distance");
     let airlines = point("airlines", "carrier");
-    let filters = [&delay, &distance, &airlines].map(|p| cross(p.address().origin.clone()));
+    let filters = [&delay, &distance, &airlines].map(|p| cross(p.view().clone()));
     let s = state(Resolution::Intersect).apply_all([
         SelectionUpdate::set(&delay, between("delay", 10, 30)),
         SelectionUpdate::set(&distance, between("distance", 500, 1500)),
@@ -164,7 +164,7 @@ async fn canonical_updates_reuse_expression_bindings_and_errors_name_the_usage_s
 }
 
 #[tokio::test]
-async fn nested_facet_bindings_use_exact_instance_addresses(
+async fn nested_facet_bindings_use_chart_assigned_view_ids(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut b = DataflowBuilder::new();
     let data = flights();
@@ -199,14 +199,9 @@ async fn nested_facet_bindings_use_exact_instance_addresses(
     let prepared = Runtime::new(Default::default())?
         .prepare(&b.finish()?)
         .await?;
-    let origin = ViewAddress {
-        view: ViewId::new("hist")?,
-        scope: vec![
-            FacetKey::new(ScopeId::new("regions")?, vec!["East".into()])?,
-            FacetKey::new(ScopeId::new("carriers")?, vec!["AA".into()])?,
-        ],
-    };
-    let p = producer("brush", origin.clone(), SelectionKind::Interval, &["delay"]);
+    // The chart maps this ID to the East/AA nested dataflow instance below.
+    let origin = ViewId::new("east-aa-histogram")?;
+    let p = producer("brush", origin.clone(), &["delay"]);
     let s = state(Resolution::Intersect).set(&p, between("delay", 20, 40))?;
     let east_aa = regions
         .instance([ScalarValue::from("East")])?

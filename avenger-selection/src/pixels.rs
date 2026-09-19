@@ -441,9 +441,7 @@ pub(crate) fn effective_value(
     if producer.pixel_grids().next().is_none() {
         return Ok(None);
     }
-    let SelectionValue::Tuples(mut tuples) = value.clone() else {
-        unreachable!("pixel interval producer")
-    };
+    let mut tuples = value.tuples.clone();
     for tuple in &mut tuples {
         for (projection, test) in tuple {
             match (producer.pixel_grid(projection), &*test) {
@@ -453,15 +451,9 @@ pub(crate) fn effective_value(
                 (Some(_), _) => {
                     return Err(invalid("pixel-mapped projections require range terms"))
                 }
-                (None, ValueTest::Range { .. }) => {
-                    return Err(invalid(format!(
-                        "pixel interval needs a grid for range projection {}",
-                        projection
-                    )))
-                }
                 (None, _) => (),
             }
         }
     }
-    Ok(Some(SelectionValue::Tuples(tuples)))
+    Ok(Some(SelectionValue { tuples }))
 }

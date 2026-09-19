@@ -111,12 +111,7 @@ async fn histogram_category_and_mixed_measures_use_the_same_predicate_api() -> E
 #[tokio::test]
 async fn mapped_correlated_pixel_dimensions_and_inactive_match_none_can_warm() -> ExampleResult<()>
 {
-    let raw = producer(
-        "brush",
-        view("focus"),
-        SelectionKind::Interval,
-        &["x", "category"],
-    );
+    let raw = producer("brush", view("focus"), &["x", "category"]);
     let focus = raw.with_pixel_grids([(
         ProjectionId::new("x")?,
         PixelGrid::new(
@@ -132,19 +127,15 @@ async fn mapped_correlated_pixel_dimensions_and_inactive_match_none_can_warm() -
         view("target"),
         SelectionFilter::membership(&id(), EmptySelection::MatchNone),
     )
-    .with_projection(raw.address(), &ProjectionId::new("x")?, col("delay"))?
-    .with_projection(
-        raw.address(),
-        &ProjectionId::new("category")?,
-        col("carrier"),
-    )?;
+    .with_projection(&raw, &ProjectionId::new("x")?, col("delay"))?
+    .with_projection(&raw, &ProjectionId::new("category")?, col("carrier"))?;
 
     let inactive = state(Resolution::Intersect);
     let mut states = vec![inactive.clone()];
     for lower in [0, 10, 20] {
         states.push(inactive.set(
             &focus,
-            SelectionValue::Tuples(vec![
+            SelectionValue::tuples(vec![
                 vec![
                     term(
                         "x",
@@ -279,8 +270,9 @@ async fn unsupported_shapes_fall_back_and_immutable_fixed_udfs_preaggregate() ->
         }),
     );
     let other = ProducerDefinition::new(
-        address("other", view("other")),
-        SelectionKind::Point,
+        id(),
+        ProducerId::new("other").unwrap(),
+        view("other"),
         vec![Projection::new(
             ProjectionId::new("distance")?,
             udf.call(vec![col("distance")]),

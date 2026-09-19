@@ -13,16 +13,13 @@ use avenger_selection::*;
 use datafusion::logical_expr::{col, Expr};
 
 let selection = SelectionId::new("filters")?;
-let delay_view = ViewAddress::root(ViewId::new("delay_histogram")?);
+let delay_view = ViewId::new("delay_histogram")?;
 let delay_projection = ProjectionId::new("delay")?;
 let brush = ProducerDefinition::new(
-    ProducerAddress {
-        selection: selection.clone(),
-        producer: ProducerId::new("delay_brush")?,
-        origin: delay_view.clone(),
-    },
-    SelectionKind::Interval,
-    vec![Projection::new(delay_projection.clone(), col("delay"))?],
+    selection.clone(),
+    ProducerId::new("delay_brush")?,
+    delay_view,
+    [Projection::new(delay_projection.clone(), col("delay"))?],
 )?;
 
 let before = SelectionSet::new([(selection.clone(), Resolution::Intersect)])?;
@@ -32,7 +29,7 @@ let after = before.set(
 )?;
 
 let filter = ConsumerFilter::new(
-    ViewAddress::root(ViewId::new("distance_histogram")?),
+    ViewId::new("distance_histogram")?,
     SelectionFilter::cross_filter([&selection]),
 );
 let predicate: Expr = filter.predicate(&after)?;
@@ -51,8 +48,8 @@ typed bounds, and `effective_value()` exposes the comparisons used by predicates
 to the selection named by the producer. `clear_all(&selection_id)` clears that
 named selection. For event queues or atomic updates across producers and names,
 use `apply(update)` or `apply_all([update, ...])` with `SelectionUpdate` values.
-The updates carry their own destination. No separate snapshot or definition
-object is needed to create or inspect state.
+The updates carry their own destination. `SelectionUpdate::clear` takes a
+producer, just like `SelectionSet::clear`.
 
 The runnable example builds two histograms and categorical counts in a dataflow,
 applies three producers under one name, changes the delay brush, and verifies
@@ -65,22 +62,24 @@ cargo run -p avenger-selection --example direct_crossfilter
 ## Selection semantics
 
 - `SelectionId` identifies a shared name. Each declaration has a separate
-  `ProducerId`, and each contribution retains its full `ViewAddress`.
+  `ProducerId`, and each contribution retains its opaque `ViewId`.
+  A producer is identified by its selection, declaration, and view together.
+  Inspect them with `selection()`, `id()`, and `view()`.
 - `Resolution::Intersect` ANDs active producer predicates. `Union` ORs them.
-  A global `set` replaces all contributions. Global point toggles can retain
+  A global `set` replaces all contributions. Global toggles can retain
   tuples from multiple origins and compare projected meanings across producers.
 - Terms inside a tuple combine with AND. Tuples inside one producer combine
-  with OR, preserving correlations across dimensions. Interaction kind does
-  not determine comparison: a point may select bin bounds, and an interval may
-  select a categorical set.
+  with OR, preserving correlations across dimensions. Values define the
+  comparisons: equality, sets, or ranges. The chart owns the interaction kind.
 - `clear(&producer)` removes only that producer in every mode.
   `clear_all(&selection_id)` removes all contributions to that name. An absent contribution is inactive. An explicitly
   empty `set` remains active and matches no rows. Toggling the last tuple off
   removes that contribution.
 - Membership retains all producers. Cross-filtering excludes every producer
-  with the consuming view's exact address. Layers can share that address.
-  Sibling and nested facet instances have different addresses. An origin does
-  not implicitly add facet-key comparisons to the predicate.
+  with the consuming view's exact ID. The chart assigns distinct IDs to
+  distinct facet instances, including nested facets, and shares an ID across
+  layers that should exclude the same producers. Selection treats IDs as opaque.
+  The chart also supplies any required facet-key predicates.
 - Each use specifies behavior for an inactive selection. If active producers
   exist but all are excluded, that leaf is unrestricted even with
   `EmptySelection::MatchNone`. `All`, `Any`, and `Not` compose named uses without
@@ -117,7 +116,8 @@ let value = SelectionValue::tuples([
 ```
 
 Each tuple must include every projection declared by its producer exactly once.
-The `SelectionValue::Tuples` variant exposes these same nested pairs for inspection.
+`value.as_tuples()` exposes these same nested pairs for inspection.
+`SelectionValue::default()` contains no tuples and matches no rows when set.
 
 Values preserve Arrow scalar types, including integer widths, decimal precision
 and scale, and timestamp units and zones. Comparisons use DataFusion 54.1 type
@@ -133,22 +133,51 @@ non-null Boolean, including under `Not`.
 
 Selection values support flat Boolean, numeric, string, binary, date, time,
 timestamp, and duration scalars. Nested/list values are outside this model.
-Facet keys follow dataflow's supported partition types and retain composite key
-order and the complete ordered parent path. Create them with `FacetKey::new`.
 
 `ConsumerFilter::new(view, filter)` uses producer projections directly for a
-shared row relation. Use `with_projection(address, projection_id, expr)` for a
+shared row relation. Use `with_projection(&producer, &projection_id, expr)` for a
 compiler-verified mapping to renamed or transformed fields. Mapping keys include
-the producer address so local projection names cannot collide. The compiler
+the full producer identity so local projection names cannot collide. The compiler
 owns the proof that relations and projections have the same meaning.
 
-For row-ID selection, create `RowIdentity::new(data_type)`, declare a producer
-with `ProducerDefinition::row_ids`, and supply `RowIdSelection::new`. The
-consumer must supply `with_row_identity` using that same identity descriptor.
-Clones retain the lineage token. A fresh descriptor has a different lineage,
-even with the same type. Filtering can preserve identity. Joins, aggregates,
-and regenerated IDs require explicit lineage reasoning by the compiler.
-Row-ID updates use `set` and `clear`. Tuple toggles apply to projected points.
+Row IDs use ordinary projections and values:
+
+```rust
+# use avenger_selection::*;
+# use datafusion::logical_expr::col;
+let selection = SelectionId::new("picked_rows")?;
+let row_id = ProjectionId::new("row_id")?;
+let producer = ProducerDefinition::new(
+    selection.clone(),
+    ProducerId::new("points")?,
+    ViewId::new("scatter")?,
+    [Projection::new(row_id.clone(), col("id"))?],
+)?;
+let state = SelectionSet::new([(selection, Resolution::Union)])?.set(
+    &producer,
+    SelectionValue::tuples([2_i64, 5_i64].map(|id| [
+        (row_id.clone(), ValueTest::equal(id)),
+    ])),
+)?;
+let state = state.toggle(
+    &producer,
+    SelectionValue::tuple([(row_id, ValueTest::equal(5_i64))]),
+)?;
+// Only row ID 2 remains selected.
+# assert_eq!(state.contributions(producer.selection())?.next().unwrap().value().as_tuples().len(), 1);
+# Ok::<(), avenger_selection::Error>(())
+```
+
+The chart must verify that a row-ID projection identifies the same rows in every
+consumer. Use ordinary projection mappings when the ID column is renamed.
+Filtering can preserve identity. Joins, aggregates, and regenerated IDs require
+the chart to verify lineage before reusing a selection.
+
+`toggle` adds or removes whole normalized tuples, including ranges and sets.
+It compares original typed values and bounds before pixel mapping. Overlapping
+ranges remain separate tuples, and two different ranges can select the same
+pixel cells. Toggling one removes only that tuple. To toggle individual row IDs,
+use one tuple per ID, as above. A `one_of` comparison toggles as one whole set.
 
 Projection and mapping expressions must be immutable and row-local. Aggregates,
 windows, subqueries, placeholders, and stable/volatile functions are rejected.
@@ -164,7 +193,7 @@ coercion and Float32 output, then computes
 
 ```rust
 use std::{collections::HashMap, sync::Arc};
-use avenger_selection::{PixelGrid, IntervalPrecision};
+use avenger_selection::PixelGrid;
 use avenger_scales_datafusion::BuiltinScale;
 use datafusion::{arrow::array::Float32Array, logical_expr::col};
 
@@ -178,16 +207,17 @@ let grid = PixelGrid::new(
 )?;
 assert_eq!(grid.cell(&10.0_f64.into())?, Some(15));
 let cell_expression = grid.cell_expr(col("delay"));
-# let _ = (cell_expression, IntervalPrecision::Pixels { size: 2.0 });
+# let _ = cell_expression;
 # Ok::<(), avenger_selection::Error>(())
 ```
 
-Call `brush.with_pixel_grids([(projection_id, grid)])` to create an interval
-producer with `IntervalPrecision::Pixels { size }`. Grids must identify declared
-projections, use a common positive size, and have finite nondegenerate domains
-and ranges in the scale kernel's precision. Every range term needs a grid.
-Unmapped dimensions can use categorical equality or sets. Point producers keep
-exact membership.
+Call `brush.with_pixel_grids([(projection_id, grid)])` to configure pixel
+membership for a projection. Each grid must identify a declared projection,
+use a positive size, and have finite nondegenerate domains and ranges in the
+scale kernel's precision. Different projections can use different cell sizes.
+Gridded projections require range comparisons. Ungridded projections retain
+exact equality, set, or range comparisons. `with_pixel_grids([])` removes all
+grids from the returned definition.
 
 Pixel precision changes selected membership consistently. It is not an
 optimization hint. Included/excluded bounds apply to entire cells. On the grid
@@ -198,10 +228,10 @@ empty interval. Decreasing scales swap endpoint positions and flags. Unbounded
 ends preserve their data-space direction.
 
 `Contribution::value()` retains the original typed bounds.
-`Contribution::effective_value()` exposes checked cell bounds, and resolved
-projections expose both `raw_expr()` and the cell-mapped `expr()`. The predicate
-resolver uses the mapped expressions and effective bounds without evaluating
-brush endpoints again.
+`Contribution::effective_value()` exposes checked cell bounds. The predicate
+resolver uses mapped expressions and effective bounds without evaluating brush
+endpoints again. `predicates(...).split()` exposes the mapped interaction
+dimensions when a fixed/changing split is supported.
 
 A null, non-finite mapped coordinate, or unrepresentable cell becomes a null
 Int64 cell. Active intervals exclude null cells. The cell expression itself
@@ -223,8 +253,8 @@ Supported configuration:
   domain. Time does not support clamp or range offset in the current kernel.
 
 Changing a scale, range, origin, or cell size creates a new grid. Build a new
-producer with `with_pixel_grids` and apply `SelectionUpdate::set` with the old
-contribution's retained raw values. Old snapshots preserve the old membership.
+producer with `with_pixel_grids` and call `state.set` with the old contribution's
+retained raw values. Old snapshots preserve the old membership.
 Consumer mappings are applied before pixel mapping. Device pixel ratio is not
 an input: all coordinates are chart-local logical pixels.
 
@@ -273,8 +303,8 @@ is responsible for expressions being valid over the entire warm-up dataset.
 Intersecting producers and enclosing `All` branches support splitting. Focused
 union/global resolution, `Any`, and `Not` remain direct initially. Branches that
 do not use the focus can stay intact in `fixed`. An unused or self-excluded focus
-has no split. Row identities support direct membership but have no interaction
-dimensions in this API. Invalid names and mappings remain errors.
+has no split. Row-ID projections supply interaction dimensions just like other
+projections. Invalid names and mappings remain errors.
 
 An inactive focus still supplies dimensions for warm-up. Its changing predicate
 respects the empty policy, including match-none. A current focused contribution
