@@ -214,7 +214,7 @@ The three-view example supports pixel precision for both brushes:
 cargo run -p avenger-selection --example direct_crossfilter -- --pixels
 ```
 
-## Query families and count pre-aggregation
+## Query families and aggregate states
 
 Construct a query once with a callback over its selection-filtered relation:
 
@@ -248,27 +248,54 @@ Planning and binding read no data and invoke no projection functions.
 
 `query.logical_plan(selections)` returns the ordinary native plan with the full
 consumer predicate. `family.bind(selections)` returns a `BoundQuery` and strategy
-diagnostics. Compatible counts return `BoundQuery::Preaggregated`:
+diagnostics. Supported aggregates return `BoundQuery::Preaggregated`:
 
 - `materialization` applies fixed selections and groups by the target's display
-  keys plus the focused producer's interaction keys. Each cell stores counts.
+  keys plus the focused producer's interaction keys. Each aggregate uses one typed
+  state column from `avenger-datafusion-aggregate-state`.
 - `aggregate` is an `AggregateStep`. Its `over(materialized_relation)` method
-  filters those cells with the current focused selection, sums their counts,
-  restores the original count schema, and applies the query's original suffix.
+  filters those cells with the current focused selection, merges their states,
+  restores the original result schema, and applies the query's original suffix.
   `schema()` describes the required materialization fields. Relation qualifiers
   may differ. Field names, order, types, nullability, and metadata must match.
 
 Execute the materialization once and supply a scan of its result to `over`, or
 use the dataflow installation below to manage both stages. Passing the
 materialization plan itself to `over` produces one nested query without a reuse
-boundary. An empty ungrouped result is finalized as zero. Grouped queries retain
+boundary. An empty ungrouped count returns zero. Grouped queries retain
 only observed groups, including groups with a zero `COUNT(column)` value.
 
-The initial rewrite supports built-in `COUNT(*)` and `COUNT(column)`, including
-several counts in one aggregate. It accepts one selection site followed by an
-aggregate and optional projection, alias, sorting without a fetch limit, and
-post-aggregate filters such as `HAVING`. Fixed row filters may precede the
-aggregate. Source transformations can remain upstream of the selection site.
+The rewrite supports the pinned DataFusion built-ins and their aliases:
+
+| Aggregate | Materialization | Final aggregate |
+|---|---|---|
+| `COUNT(*)`, `COUNT(column)` | `countState` | `countMerge` |
+| `SUM` | `sumState` | `sumMerge` |
+| `MIN`, `MAX` | `minState`, `maxState` | `minMerge`, `maxMerge` |
+| `AVG` | `avgState` | `avgMerge` |
+| Sample/population variance | `varSampState`, `varPopState` | `varSampMerge`, `varPopMerge` |
+| Sample/population stddev | `stddevSampState`, `stddevPopState` | `stddevSampMerge`, `stddevPopMerge` |
+
+Several measures can share one query. Arguments are columns or literals, with
+native coercion and return types. Numeric families cover supported integers,
+floats, and decimals. Extrema also support flat ordered types such as strings
+and dates. Unsupported signatures use the direct path. The matcher checks
+built-in implementations, so a custom UDAF with the same name remains direct.
+
+The accepted shape has one selection site followed by an aggregate and optional
+projection, alias, sorting without a fetch limit, and post-aggregate filters
+such as `HAVING`. Fixed row filters may precede the aggregate. Source
+transformations can remain upstream of the selection site.
+
+Each state is an opaque Arrow struct, including count. Average and moment states
+retain their weights and other components inside that column. Selection uses
+`Merge` to produce final values and adds no separate finalizer. Obtain the
+intermediate schema from the materialization plan or `AggregateStep::schema()`.
+Preserve its nested field metadata when supplying batches or a relation to
+`over`. The final query retains its original field names, order, types,
+nullability, and metadata. Programmatic expressions carry their function
+implementations, so neither native nor installed execution needs caller UDF
+registration.
 
 The consumer predicate must factor into fixed and changing conjunctions after
 self-exclusion. An intersecting shared selection supports this split. Other
@@ -290,9 +317,11 @@ positive constant of the same numeric type. Other calculations and unknown UDFs
 fall back even when immutable. This avoids introducing errors such as division
 by zero in a group expression for an otherwise unselected row.
 
-Distinct counts, aggregate filters, calculated count arguments, other aggregates,
-unsupported query shapes, and stable/volatile computations also use the direct
-path with a specific reason. There is no retry that hides backend execution
+DISTINCT, aggregate FILTER/ORDER BY, explicit null-treatment modifiers,
+calculated aggregate arguments, unsupported aggregates/query shapes, and
+stable/volatile computations use the direct path with a specific reason.
+If one measure is unsupported, the whole target uses its direct query. Other
+targets can still optimize. There is no retry that hides backend execution
 failures. Invalid state and mappings remain errors.
 
 `QueryPolicy::Auto` is the default. `ForceDirect` reports
@@ -304,6 +333,34 @@ changes exact/pixel membership. A focus is optional and can name an inactive
 producer. A changed producer definition or grid selects direct execution until
 a compatible family is prepared. Changing bounds or fixed-selection values
 does not require a new family.
+
+### Numeric behavior
+
+The aggregate utility owns accumulation, state types, and merging through native
+DataFusion accumulators. Count returns zero for empty global input. Other
+aggregates return null for empty/all-null input. Observed groups remain present
+even when every measure value is null. For finite singleton input, population
+variance/stddev is zero and the sample versions are null.
+
+Regrouping can change floating rounding, overflow, and non-finite-value results.
+Automatic execution does not promise bitwise equality or identical overflow
+behavior with the original physical query shape. Tests require exact schemas,
+groups, ordinary null behavior, and exact-type results without overflow. Finite
+floating measures use absolute/relative tolerances. Known special-value cases
+are tested separately.
+
+DataFusion 54.1.0's grouped floating extrema start from finite bounds. For
+example, materializing an all-positive-infinity minimum cell can retain the
+largest finite value, while a direct global minimum can return infinity.
+Grouped and global population statistics can also differ for non-finite
+singletons. See the utility's [numeric contract](../avenger-datafusion-aggregate-state/README.md#numerical-behavior)
+for details. `ForceDirect` preserves the original query shape when those
+differences matter to the caller.
+
+Materialization evaluates all retained cells, including currently unselected
+ones. Aggregate failures propagate as query errors without an automatic retry.
+The conservative grouping and argument checks still protect row-expression
+evaluation. This is separate from the native aggregate's numeric behavior.
 
 ### Install once and bind through dataflow
 
@@ -386,7 +443,14 @@ and direct node names.
 cargo run -p avenger-selection --features dataflow --example query_families
 cargo run -p avenger-selection --features dataflow --example query_families -- --force-direct
 cargo run -p avenger-selection --features dataflow --example query_families -- --sql
+cargo run -p avenger-selection --features dataflow --example query_families -- --aggregates --sql
 ```
+
+The count-only default keeps the tables small. `--aggregates` adds fare measures
+to both receiver charts, with null values and unequal cell populations. It
+supports `--force-direct` and `--sql`. After the displayed request sequence, the
+example checks all results against the opposite policy. These validation queries
+do not contribute to the displayed cache reports.
 
 The example retains each `QueryFamily` beside its installation.
 `family.bind(&state)` exposes either a direct plan or both pre-aggregation stages.
@@ -412,15 +476,15 @@ associations, and lineage mappings. The controller owns events and immutable
 state updates. Dataflow owns execution, caching, shared in-progress work, and
 cancellation. Selection state contains no event queues or result cache.
 
-The core crate depends on DataFusion and the Avenger scale adapter. It has no
-chart controller dependency. The optional `dataflow` feature adds the runtime
-adapter for root installations. Root and scoped dataflow Expr inputs also accept
-the predicates directly. Dataflow is a development dependency for integration
+The core crate depends on DataFusion, the Avenger scale adapter, and the
+aggregate-state utility. It has no chart controller dependency. The optional
+`dataflow` feature adds the runtime adapter for root installations. Root and
+scoped dataflow Expr inputs also accept the predicates directly. Dataflow is a development dependency for integration
 tests and the direct example.
 
 The implementation covers typed state, direct predicates, pixel membership,
-count query families, and root/extension installation with optional warm-up.
-Aggregate recipes separate state expressions, merge expressions, and finalization
-from predicate factorization and grouping. Further aggregates can extend those
-recipes without changing the binding, installation, or cache lifecycle.
-Selection-state serialization is deferred.
+aggregate query families, and root/extension installation with optional warm-up.
+Selection owns query eligibility and state/merge expression construction. The
+utility owns state encoding and accumulator behavior. Dataflow owns execution
+and result reuse. Selection-state serialization and complete-dataflow UDF codecs
+are deferred. Arrow state transport alone does not serialize the functions.

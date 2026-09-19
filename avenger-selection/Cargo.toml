@@ -10,6 +10,7 @@ default = []
 dataflow = ["dep:avenger-datafusion-dataflow"]
 
 [dependencies]
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", optional = true }
 avenger-scales-datafusion = { path = "../avenger-scales-datafusion" }
 datafusion = { version = "=54.1.0", default-features = false }
@@ -17,8 +18,9 @@ thiserror = { workspace = true }
 half = "2"
 
 [dev-dependencies]
+async-trait = { workspace = true }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", features = ["sql"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [[example]]
 name = "query_families"

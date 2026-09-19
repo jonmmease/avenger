@@ -1,4 +1,4 @@
-//! Three cross-filtered counts through the same API for automatic and forced-direct queries.
+//! Three cross-filtered charts with optional aggregate-state measures.
 use std::{collections::HashMap, ops::Bound, sync::Arc};
 
 use avenger_datafusion_dataflow::{
@@ -7,12 +7,15 @@ use avenger_datafusion_dataflow::{
 use avenger_selection::*;
 use datafusion::{
     arrow::{
-        array::{Int64Array, StringArray},
+        array::{Float64Array, Int64Array, StringArray},
         compute::{concat_batches, sort_to_indices, take_record_batch},
         record_batch::RecordBatch,
         util::pretty::print_batches,
     },
-    functions_aggregate::expr_fn::count,
+    common::ScalarValue,
+    functions_aggregate::expr_fn::{
+        avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+    },
     logical_expr::{col, lit, LogicalPlanBuilder, LogicalTableSource},
 };
 
@@ -75,13 +78,45 @@ fn print_report(report: &EvaluationReport) {
     );
 }
 
-fn print_counts(label: &str, table: &TableSnapshot) -> datafusion::arrow::error::Result<()> {
+fn print_table(label: &str, table: &TableSnapshot) -> datafusion::arrow::error::Result<()> {
     // Aggregate row order is unspecified. Sort only the display for comparison.
     let batch = concat_batches(table.schema(), table.batches())?;
     let indices = sort_to_indices(batch.column(0), None, None)?;
     let sorted = take_record_batch(&batch, &indices)?;
     println!("\n  {label}");
     print_batches(&[sorted])
+}
+
+fn assert_same_table(
+    actual: &TableSnapshot,
+    expected: &TableSnapshot,
+) -> datafusion::common::Result<()> {
+    assert_eq!(actual.schema(), expected.schema());
+    let sorted = |table: &TableSnapshot| -> datafusion::arrow::error::Result<RecordBatch> {
+        let batch = concat_batches(table.schema(), table.batches())?;
+        let indices = sort_to_indices(batch.column(0), None, None)?;
+        take_record_batch(&batch, &indices)
+    };
+    let actual = sorted(actual)?;
+    let expected = sorted(expected)?;
+    assert_eq!(actual.num_rows(), expected.num_rows());
+    for row in 0..actual.num_rows() {
+        for column in 0..actual.num_columns() {
+            let a = ScalarValue::try_from_array(actual.column(column), row)?;
+            let e = ScalarValue::try_from_array(expected.column(column), row)?;
+            if column > 0 {
+                if let (ScalarValue::Float64(Some(a)), ScalarValue::Float64(Some(e))) = (&a, &e) {
+                    assert!(
+                        a.is_finite() && e.is_finite() && (a - e).abs() <= 1e-10 * (1.0 + e.abs()),
+                        "{a} != {e}"
+                    );
+                    continue;
+                }
+            }
+            assert_eq!(a, e);
+        }
+    }
+    Ok(())
 }
 
 fn print_sql_appendix(
@@ -141,21 +176,26 @@ fn print_sql_appendix(
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let force_direct = std::env::args().any(|a| a == "--force-direct");
+    let show_aggregates = std::env::args().any(|a| a == "--aggregates");
     let show_sql = std::env::args().any(|a| a == "--sql");
     let policy = if force_direct {
         QueryPolicy::ForceDirect
     } else {
         QueryPolicy::Auto
     };
-    println!("Cross-filtered counts | policy: {policy:?}");
+    println!("Cross-filtered charts | policy: {policy:?}");
     println!("Focus: delay. Only the delay brush changes during this run.");
     println!("The delay chart excludes its own brush; distance and airlines use it.");
     println!("Bounds [lower, upper) include lower and exclude upper.");
     println!("Display groups: delay / 20, distance / 500, and airline carrier.");
     println!("Requests run sequentially. Cache statistics below come from the runtime.");
+    if show_aggregates {
+        println!("Receiver measures: count, sum/min/max/average fare, and variance/stddev.");
+        println!("Fare includes nulls, and delay cells have unequal row counts.");
+    }
     println!("\nNode names:");
-    println!("  __materialization = reusable counts by display group and delay value");
-    println!("  __aggregate       = filter materialized counts by brush bounds, then sum");
+    println!("  __materialization = reusable aggregate states by display group and delay value");
+    println!("  __aggregate       = filter materialized states by brush bounds, then merge");
     println!("  __direct          = apply the full predicate to the original query");
     println!("\nPrepared chart strategies:");
     let name = SelectionId::new("filters")?;
@@ -185,20 +225,54 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let states = brush_states(focus)?;
     let inactive = &states[0].1;
 
-    let batch = RecordBatch::try_from_iter(vec![
-        (
-            "delay",
-            Arc::new(Int64Array::from(vec![0, 10, 20, 30, 40, 50])) as _,
-        ),
-        (
-            "distance",
-            Arc::new(Int64Array::from(vec![500, 500, 1000, 1000, 1500, 1500])) as _,
-        ),
-        (
-            "carrier",
-            Arc::new(StringArray::from(vec!["AA", "DL", "AA", "UA", "DL", "UA"])) as _,
-        ),
-    ])?;
+    let batch = if show_aggregates {
+        RecordBatch::try_from_iter(vec![
+            (
+                "delay",
+                Arc::new(Int64Array::from(vec![0, 10, 10, 10, 20, 30, 40, 50])) as _,
+            ),
+            (
+                "distance",
+                Arc::new(Int64Array::from(vec![
+                    500, 500, 500, 500, 1000, 1000, 1500, 1500,
+                ])) as _,
+            ),
+            (
+                "carrier",
+                Arc::new(StringArray::from(vec![
+                    "AA", "AA", "AA", "DL", "AA", "UA", "DL", "UA",
+                ])) as _,
+            ),
+            (
+                "fare",
+                Arc::new(Float64Array::from(vec![
+                    Some(5.),
+                    Some(2.),
+                    Some(4.),
+                    None,
+                    Some(12.),
+                    Some(18.),
+                    None,
+                    Some(32.),
+                ])) as _,
+            ),
+        ])?
+    } else {
+        RecordBatch::try_from_iter(vec![
+            (
+                "delay",
+                Arc::new(Int64Array::from(vec![0, 10, 20, 30, 40, 50])) as _,
+            ),
+            (
+                "distance",
+                Arc::new(Int64Array::from(vec![500, 500, 1000, 1000, 1500, 1500])) as _,
+            ),
+            (
+                "carrier",
+                Arc::new(StringArray::from(vec!["AA", "DL", "AA", "UA", "DL", "UA"])) as _,
+            ),
+        ])?
+    };
     let mut graph = DataflowBuilder::new();
     let source = graph.table_snapshot(
         "flights",
@@ -217,9 +291,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         (col("distance") / lit(500_i64)).alias("distance_bin"),
         col("carrier"),
     ]) {
+        let mut aggregates = vec![count(lit(1_i64)).alias("count")];
+        if show_aggregates && producer.address().origin.view.as_str() != "delay" {
+            aggregates.extend([
+                sum(col("fare")).alias("sum"),
+                min(col("fare")).alias("min"),
+                max(col("fare")).alias("max"),
+                avg(col("fare")).alias("mean"),
+                var_sample(col("fare")).alias("var_samp"),
+                var_pop(col("fare")).alias("var_pop"),
+                stddev(col("fare")).alias("stddev_samp"),
+                stddev_pop(col("fare")).alias("stddev_pop"),
+            ]);
+        }
         let query = filter.query(imported.plan_ref(), |rows| {
             LogicalPlanBuilder::from(rows)
-                .aggregate(vec![group], vec![count(lit(1_i64)).alias("count")])?
+                .aggregate(vec![group], aggregates)?
                 .build()
         })?;
         let family = query.plan(inactive).focus(focus).policy(policy).build()?;
@@ -244,7 +331,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if !warm_outputs.is_empty() {
         step_number += 1;
         println!("\n{step_number}. Hover over delay: warm-up before any selection");
-        println!("  Request: reusable counts for the other charts. No chart results requested.");
+        println!("  Request: reusable states for the other charts. No chart results requested.");
         let warm = extension
             .query(&warm_outputs, &[], &base_inputs, &warm_inputs.finish()?)
             .await?;
@@ -252,6 +339,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("\nWarm-up skipped: these bindings use direct execution.");
     }
+    let mut observed = Vec::new();
     for (step, state) in &states {
         step_number += 1;
         println!("\n{step_number}. {step}");
@@ -268,10 +356,37 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .await?;
         print_report(result.report());
         println!("  Chart results:");
+        let mut tables = Vec::new();
         for ((label, _, _), output) in installed.iter().zip(outputs) {
-            print_counts(label, result.table(&output)?)?;
+            let table = result.table(&output)?;
+            print_table(label, table)?;
+            tables.push(table.clone());
+        }
+        observed.push(tables);
+    }
+
+    // Run comparisons after the displayed sequence so verification cannot warm its cache.
+    let reference_policy = if force_direct {
+        QueryPolicy::Auto
+    } else {
+        QueryPolicy::ForceDirect
+    };
+    for ((_, state), tables) in states.iter().zip(observed) {
+        let mut inputs = extension.inputs();
+        let mut outputs = Vec::new();
+        for (_, _, panel) in &installed {
+            let binding = panel.bind_with_policy(state, reference_policy)?;
+            outputs.push(binding.output());
+            inputs = binding.apply(inputs)?;
+        }
+        let reference = extension
+            .query(&outputs, &[], &base_inputs, &inputs.finish()?)
+            .await?;
+        for (table, output) in tables.iter().zip(outputs) {
+            assert_same_table(table, reference.table(&output)?)?;
         }
     }
+    println!("\nVerified all displayed results against {reference_policy:?} (after the reported sequence).");
 
     if show_sql {
         print_sql_appendix(&additional, &installed, &states)?;
