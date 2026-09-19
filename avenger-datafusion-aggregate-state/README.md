@@ -153,3 +153,11 @@ cargo bench -p avenger-datafusion-aggregate-state --bench grouped
 The benchmark compares native cell aggregation with `State`, raw aggregation with `Merge`, filtered merges, batched numeric `Finalize`, extrema payload extraction, and grouped boolean accumulation through the native per-group fallback. It uses 200,000 rows, four partitions, and two group counts. Override `AGG_STATE_ROWS` and `AGG_STATE_ITERATIONS` to change the workload. Physical plans are prepared before timing; each measurement includes execution and collection. Materialization is performed outside merge timings. The result depends on how much the cell table reduces the raw data.
 
 The package uses standalone dependency declarations and has no Avenger dependencies. It requires Rust 1.88 or later, matching DataFusion 54.1.0.
+
+## Query planning
+
+[`avenger-datafusion-preaggregate`](../avenger-datafusion-preaggregate) is an
+optional consumer of these functions. It derives materialization and rollup
+logical plans from queries with changing filters, including per-aggregate
+filters and supported finishing operators. The state utility remains independent
+of that planner and of execution runtimes.

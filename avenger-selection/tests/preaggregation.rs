@@ -373,10 +373,6 @@ fn unsupported_recipes_and_query_shapes_keep_direct_execution() -> TestResult {
     for aggregate in [
         median(col("delay")),
         count(col("carrier")).distinct().build()?,
-        count(col("carrier"))
-            .filter(col("delay").gt(lit(0_i64)))
-            .build()?,
-        count(col("delay") + lit(1_i64)),
     ] {
         let query = membership().query(source(flights()), |rows| {
             LogicalPlanBuilder::from(rows)
@@ -670,7 +666,13 @@ async fn typed_measures_preserve_empty_groups_weights_and_moments() -> TestResul
                         .build()
                 })?;
                 let family = query.plan(&inactive).focus(&focus).build()?;
-                assert_eq!(family.explain().strategy, QueryStrategy::Preaggregated);
+                assert_eq!(
+                    family.explain().strategy,
+                    QueryStrategy::Preaggregated,
+                    "{:?}: {:?}",
+                    data.schema(),
+                    family.explain()
+                );
                 for state in &selections {
                     compare(&query, &family, state).await;
                 }

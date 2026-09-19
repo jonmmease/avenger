@@ -1,0 +1,16 @@
+[package]
+name = "avenger-datafusion-preaggregate"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Reusable materialization and rollup plans for DataFusion queries with changing filters"
+license = "BSD-3-Clause"
+readme = "README.md"
+
+[dependencies]
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
+datafusion = { version = "=54.1.0", default-features = false }
+
+[dev-dependencies]
+datafusion = { version = "=54.1.0", default-features = false, features = ["sql"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
