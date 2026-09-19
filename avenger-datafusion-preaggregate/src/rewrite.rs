@@ -2,7 +2,7 @@ use crate::{
     aggregates::AggregateRewrite,
     expressions,
     markers::{self, MaterializationSite},
-    DirectReason, Eligibility, ExpressionProperties, FilterQuery,
+    DirectReason, Eligibility, FilterQuery,
 };
 use datafusion::{
     common::{
@@ -25,11 +25,7 @@ pub(crate) struct Preaggregation {
     pub states: Vec<Expr>,
 }
 impl Preaggregation {
-    pub fn analyze(
-        query: &FilterQuery,
-        keys: &[Expr],
-        properties: &Arc<dyn ExpressionProperties>,
-    ) -> Result<Eligibility<Self>> {
+    pub fn analyze(query: &FilterQuery, keys: &[Expr]) -> Result<Eligibility<Self>> {
         let mut sites = 0;
         let mut immutable = true;
         query.plan.apply_with_subqueries(|p| {
@@ -58,8 +54,8 @@ impl Preaggregation {
                 LogicalPlan::Filter(f) => {
                     let predicate =
                         expressions::boolean(f.predicate.clone(), f.input.schema(), false)?;
-                    if !expressions::properties(&predicate, f.input.schema(), properties).total {
-                        return Ok(Err(DirectReason::UnsafeMovedExpression));
+                    if !expressions::row_expression(&predicate)? {
+                        return Ok(Err(DirectReason::UnsupportedExpression));
                     }
                     input = &f.input;
                 }
@@ -81,16 +77,17 @@ impl Preaggregation {
             .cloned()
             .map(|e| expressions::requalify(e, &query.source_schema, schema))
             .collect::<Result<Vec<_>>>()?;
-        if !grouping
-            .iter()
-            .chain(&keys)
-            .all(|e| expressions::properties(e, schema, properties).total)
-        {
-            return Ok(Err(DirectReason::UnsupportedGroupingExpression));
+        for expr in grouping.iter().chain(&keys) {
+            if !expressions::immutable(expr)? {
+                return Ok(Err(DirectReason::NonImmutableQuery));
+            }
+            if !expressions::row_expression(expr)? {
+                return Ok(Err(DirectReason::UnsupportedExpression));
+            }
         }
         let mut rewrites = Vec::new();
         for (i, expr) in original.aggr_expr.iter().enumerate() {
-            match AggregateRewrite::analyze(expr, i, schema, properties)? {
+            match AggregateRewrite::analyze(expr, i, schema)? {
                 Ok(r) => rewrites.push(r),
                 Err(r) => return Ok(Err(r)),
             }
@@ -188,14 +185,12 @@ impl Preaggregation {
             site: self.site,
         })
     }
-    pub fn predicate(
-        &self,
-        source: &Expr,
-        schema: &DFSchema,
-        policy: &Arc<dyn ExpressionProperties>,
-    ) -> Result<Eligibility<Expr>> {
+    pub fn predicate(&self, source: &Expr, schema: &DFSchema) -> Result<Eligibility<Expr>> {
         if !expressions::immutable(source)? {
             return Ok(Err(DirectReason::NonImmutableQuery));
+        }
+        if !expressions::row_expression(source)? {
+            return Ok(Err(DirectReason::UnsupportedExpression));
         }
         let source = expressions::canonical(source.clone(), schema)?;
         let mut missing = false;
@@ -213,10 +208,6 @@ impl Preaggregation {
         let retained = replace(source, &self.dimensions, &mut missing)?;
         if missing {
             return Ok(Err(DirectReason::PredicateNeedsUnretainedExpression));
-        }
-        let p = expressions::properties(&retained, self.materialization.schema(), policy);
-        if !p.total || !p.respects_grouping_equality {
-            return Ok(Err(DirectReason::UnsupportedPredicate));
         }
         Ok(Ok(retained))
     }
