@@ -1,8 +1,7 @@
 //! Deferred graph integration. Install templates once, then obtain both predicate
 //! forms from the same preparation's concrete binder for each request. Ordinary
 //! inputs already in the query retain their own validation and invalidation contract.
-//! In particular, a trusted expression wrapper must enforce its scalar properties
-//! on every supplied value before warm-up or reuse.
+//! Deferred expressions must remain immutable and valid over the entire warm-up dataset.
 
 use crate::{expressions, markers, PreparedQuery, RollupQuery};
 use datafusion::{
@@ -66,8 +65,8 @@ impl BoundPredicates {
 }
 impl PreparedQuery {
     /// Create deferred templates without claiming eligibility for future values.
-    /// Bind those values through this preparation, verify ownership, and enforce
-    /// property contracts for ordinary deferred inputs before requesting execution.
+    /// Bind those values through this preparation and verify ownership. Ordinary
+    /// deferred inputs must preserve immutability and the warm-up contract.
     pub fn parameterize(&self, parameters: ParameterExpressions) -> Result<ParameterizedFamily> {
         let source = expressions::boolean(parameters.source, &self.query.source_schema, false)?;
         let direct = markers::substitute(&self.query.plan, self.query.site, Some(source))?;

@@ -13,8 +13,7 @@ use datafusion::{
 };
 
 use crate::DirectReason;
-use crate::{expressions, Eligibility, ExpressionProperties};
-use std::sync::Arc;
+use crate::{expressions, Eligibility};
 
 /// One opaque state column and the aggregate that merges it into a final value.
 #[derive(Clone, Debug)]
@@ -24,12 +23,7 @@ pub(super) struct AggregateRewrite {
 }
 
 impl AggregateRewrite {
-    pub fn analyze(
-        expr: &Expr,
-        index: usize,
-        schema: &DFSchema,
-        properties: &Arc<dyn ExpressionProperties>,
-    ) -> Result<Eligibility<Self>> {
+    pub fn analyze(expr: &Expr, index: usize, schema: &DFSchema) -> Result<Eligibility<Self>> {
         let expr = match expr {
             Expr::Alias(a) => a.expr.as_ref(),
             expr => expr,
@@ -87,19 +81,18 @@ impl AggregateRewrite {
         };
         // The merge plan needs the coerced state type before execution-time analysis.
         let arg = arg.cast_to(&types[0], schema)?;
-        if !expressions::properties(&arg, schema, properties).total {
-            return Ok(Err(DirectReason::UnsafeMovedExpression));
+        if !expressions::row_expression(&arg)? {
+            return Ok(Err(DirectReason::UnsupportedExpression));
         }
         let filter = p
             .filter
             .as_ref()
             .map(|f| expressions::boolean(f.as_ref().clone(), schema, false))
             .transpose()?;
-        if filter
-            .as_ref()
-            .is_some_and(|f| !expressions::properties(f, schema, properties).total)
-        {
-            return Ok(Err(DirectReason::UnsafeMovedExpression));
+        if let Some(filter) = &filter {
+            if !expressions::row_expression(filter)? {
+                return Ok(Err(DirectReason::UnsupportedExpression));
+            }
         }
         let state_name = format!("__preagg_state_{index}");
         let state_expr = match filter {

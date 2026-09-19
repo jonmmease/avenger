@@ -86,6 +86,19 @@ async fn ownership_predicate_validation_and_runtime_bindings() -> Result<()> {
         ))
     };
     assert!(p.bind(parameter("$1")).is_err());
+    let q = query(&ctx, "SELECT COUNT(*) FROM rows").await?;
+    assert_eq!(
+        planner
+            .prepare(q, vec![parameter("$1")])?
+            .explain()
+            .direct_reason,
+        Some(DirectReason::UnsupportedExpression)
+    );
+    let q = query(&ctx, "SELECT SUM(CAST($1 AS BIGINT)) FROM rows").await?;
+    assert_eq!(
+        planner.prepare(q, vec![])?.explain().direct_reason,
+        Some(DirectReason::UnsupportedExpression)
+    );
     assert_eq!(
         p.bind(col("x").gt(lit(0.0)))?.diagnostics().direct_reason,
         Some(DirectReason::PredicateNeedsUnretainedExpression)
@@ -163,23 +176,12 @@ async fn computed_dimensions_alias_lineage_and_correlated_predicates() -> Result
 async fn preparation_never_invokes_udfs_and_matching_uses_implementation_identity() -> Result<()> {
     use datafusion::{
         arrow::datatypes::DataType,
-        common::DFSchema,
-        logical_expr::{create_udf, expr::ScalarFunction, Volatility},
+        logical_expr::{create_udf, Volatility},
     };
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-    #[derive(Debug)]
-    struct Trusted;
-    impl ExpressionProperties for Trusted {
-        fn scalar_function(&self, _: &ScalarFunction, _: &DFSchema) -> ScalarFunctionProperties {
-            ScalarFunctionProperties {
-                total: true,
-                respects_grouping_equality: true,
-            }
-        }
-    }
     let calls = Arc::new(AtomicUsize::new(0));
     let make = || {
         let calls = calls.clone();
@@ -205,7 +207,7 @@ async fn preparation_never_invokes_udfs_and_matching_uses_implementation_identit
             )?
             .build()
     })?;
-    let planner = PreaggregatePlanner::default().with_expression_properties(Arc::new(Trusted));
+    let planner = PreaggregatePlanner::default();
     let p = planner.prepare(q, vec![f.call(vec![col("cell")])])?;
     assert!(p.materialization_plan().is_some());
     for _ in 0..3 {
@@ -246,53 +248,50 @@ async fn preparation_never_invokes_udfs_and_matching_uses_implementation_identit
                 .direct_reason,
             Some(DirectReason::NonImmutableQuery)
         );
+        let q = query(&ctx, "SELECT COUNT(*) FROM rows").await?;
+        assert_eq!(
+            planner
+                .prepare(q.clone(), vec![f.call(vec![col("cell")])])?
+                .explain()
+                .direct_reason,
+            Some(DirectReason::NonImmutableQuery)
+        );
+        let prepared = planner.prepare(q, vec![col("cell")])?;
+        assert_eq!(
+            prepared
+                .bind(f.call(vec![col("cell")]).gt(lit(0_i32)))?
+                .diagnostics()
+                .direct_reason,
+            Some(DirectReason::NonImmutableQuery)
+        );
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn total_functions_need_a_separate_grouping_equality_contract() -> Result<()> {
+async fn immutable_udfs_execute_without_property_registration() -> Result<()> {
     use datafusion::{
         arrow::datatypes::DataType,
-        common::DFSchema,
-        logical_expr::{create_udf, expr::ScalarFunction, Volatility},
+        logical_expr::{create_udf, Volatility},
     };
     use std::sync::Arc;
-    #[derive(Debug)]
-    struct TotalOnly;
-    impl ExpressionProperties for TotalOnly {
-        fn scalar_function(&self, _: &ScalarFunction, _: &DFSchema) -> ScalarFunctionProperties {
-            ScalarFunctionProperties {
-                total: true,
-                respects_grouping_equality: false,
-            }
-        }
-    }
     let f = create_udf(
-        "sign_sensitive",
-        vec![DataType::Float64],
-        DataType::Boolean,
+        "identity",
+        vec![DataType::Int32],
+        DataType::Int32,
         Volatility::Immutable,
-        Arc::new(|_| panic!("preparation must not evaluate functions")),
+        Arc::new(|args| Ok(args[0].clone())),
     );
-    let ctx = context(1)?;
+    let ctx = context(4)?;
     let q = FilterQuery::new(ctx.table("t").await?.into_unoptimized_plan(), |rows| {
         LogicalPlanBuilder::from(rows)
-            .aggregate(vec![col("g")], vec![count(f.call(vec![col("x")]))])?
+            .filter(f.call(vec![col("cell")]).lt(lit(2_i32)))?
+            .aggregate(vec![col("g")], vec![count(f.call(vec![col("cell")]))])?
             .build()
     })?;
-    let p = PreaggregatePlanner::default()
-        .with_expression_properties(Arc::new(TotalOnly))
-        .prepare(q, vec![col("x")])?;
+    let p = PreaggregatePlanner::default().prepare(q, vec![col("cell")])?;
     assert!(p.materialization_plan().is_some());
-    assert_eq!(
-        p.bind(f.call(vec![col("x")]))?.diagnostics().direct_reason,
-        Some(DirectReason::UnsupportedPredicate)
-    );
-    assert_eq!(
-        p.bind(col("x").is_null())?.diagnostics().strategy,
-        QueryStrategy::Preaggregated
-    );
+    compare(&ctx, &p, f.call(vec![col("cell")]).eq(lit(1_i32))).await?;
     Ok(())
 }
 
@@ -358,5 +357,18 @@ async fn concrete_predicates_reject_parameters_inside_subqueries() -> Result<()>
         unreachable!()
     };
     assert!(p.bind(projection.expr[0].clone()).is_err());
+    let expression = ctx
+        .state()
+        .create_logical_plan("SELECT (SELECT 1) > 0 AS predicate")
+        .await?;
+    let datafusion::logical_expr::LogicalPlan::Projection(projection) = expression else {
+        unreachable!()
+    };
+    assert_eq!(
+        p.bind(projection.expr[0].clone())?
+            .diagnostics()
+            .direct_reason,
+        Some(DirectReason::UnsupportedExpression)
+    );
     Ok(())
 }

@@ -7,16 +7,12 @@ mod rewrite;
 pub mod runtime;
 
 use datafusion::{
-    common::{tree_node::TreeNodeRecursion, DFSchema, DFSchemaRef, Result},
+    common::{tree_node::TreeNodeRecursion, DFSchemaRef, Result},
     logical_expr::{Expr, LogicalPlan},
 };
-pub use expressions::{ExpressionProperties, ScalarFunctionProperties};
 use rewrite::Preaggregation;
 pub use rewrite::RollupQuery;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) type Eligibility<T> = std::result::Result<T, DirectReason>;
 fn fresh_id() -> u64 {
@@ -35,16 +31,12 @@ pub enum DirectReason {
     UnsupportedQueryShape,
     /// The nearest aggregate needs an unsupported state recipe or modifier.
     UnsupportedAggregate,
-    /// A grouping expression is not proved safe before the changing filter.
-    UnsupportedGroupingExpression,
     /// A visible expression is stable or volatile.
     NonImmutableQuery,
-    /// A moved measure argument or fixed filter may fail on newly included rows.
-    UnsafeMovedExpression,
+    /// A moved expression is not a resolved, row-local scalar expression.
+    UnsupportedExpression,
     /// The predicate needs row information absent from the stored dimensions.
     PredicateNeedsUnretainedExpression,
-    /// The predicate can distinguish values that DataFusion groups together.
-    UnsupportedPredicate,
 }
 
 /// Controls whether a binding may use the prepared materialization.
@@ -160,35 +152,10 @@ impl FilterQueryBuilder {
     }
 }
 
-/// Synchronous logical planning with conservative scalar safety checks.
-#[derive(Clone, Debug)]
-pub struct PreaggregatePlanner {
-    properties: Arc<dyn ExpressionProperties>,
-}
-impl Default for PreaggregatePlanner {
-    fn default() -> Self {
-        Self {
-            properties: Arc::new(expressions::ConservativeProperties),
-        }
-    }
-}
+/// Synchronous logical planning for expressions valid over the entire warm-up dataset.
+#[derive(Clone, Debug, Default)]
+pub struct PreaggregatePlanner {}
 impl PreaggregatePlanner {
-    /// Supply trusted properties for configured scalar UDFs. Volatility and children
-    /// remain independently checked. The hook must not evaluate functions.
-    pub fn with_expression_properties(mut self, properties: Arc<dyn ExpressionProperties>) -> Self {
-        self.properties = properties;
-        self
-    }
-    /// Check a deferred expression's properties after native coercion. Runtime
-    /// adapters use this before binding inputs whose wrappers carry trusted properties.
-    pub fn expression_properties(
-        &self,
-        expr: Expr,
-        schema: &DFSchema,
-    ) -> Result<ScalarFunctionProperties> {
-        let expr = expressions::coerce(expr, schema)?;
-        Ok(expressions::properties(&expr, schema, &self.properties))
-    }
     /// Analyze once without reading sources, evaluating functions, or planning execution.
     /// Explicit dimensions describe coverage for warm-up before a predicate exists.
     pub fn prepare(
@@ -205,7 +172,7 @@ impl PreaggregatePlanner {
             use datafusion::logical_expr::ExprSchemable;
             e.get_type(&query.source_schema)?;
         }
-        let analyzed = Preaggregation::analyze(&query, &retained_dimensions, &self.properties)?;
+        let analyzed = Preaggregation::analyze(&query, &retained_dimensions)?;
         let report = match &analyzed {
             Ok(p) => PreparationReport {
                 direct_reason: None,
@@ -229,7 +196,6 @@ impl PreaggregatePlanner {
             query,
             analyzed,
             report,
-            properties: self.properties.clone(),
         })
     }
 }
@@ -242,7 +208,6 @@ pub struct PreparedQuery {
     query: FilterQuery,
     analyzed: Eligibility<Preaggregation>,
     report: PreparationReport,
-    properties: Arc<dyn ExpressionProperties>,
 }
 impl PreparedQuery {
     /// Inspect eligibility, dimensions, states, and the numerical contract.
@@ -265,7 +230,7 @@ impl PreparedQuery {
             Err(DirectReason::Forced)
         } else {
             match &self.analyzed {
-                Ok(p) => p.predicate(&source, &self.query.source_schema, &self.properties)?,
+                Ok(p) => p.predicate(&source, &self.query.source_schema)?,
                 Err(reason) => Err(*reason),
             }
         };
