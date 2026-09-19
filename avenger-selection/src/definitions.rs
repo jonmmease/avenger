@@ -1,4 +1,7 @@
-use crate::{Error, PixelGrid, ProducerAddress, ProjectionId, Result};
+use crate::{
+    identity::ProducerAddress, Error, PixelGrid, ProducerId, ProjectionId, Result, SelectionId,
+    ViewId,
+};
 use datafusion::{
     arrow::datatypes::DataType,
     common::tree_node::{Transformed, TreeNode, TreeNodeRecursion},
@@ -6,10 +9,7 @@ use datafusion::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
 /// How active producer contributions combine for a named selection.
@@ -18,20 +18,6 @@ pub enum Resolution {
     Global,
     Union,
     Intersect,
-}
-
-/// Interaction kind, independent of equality, set, or range comparison.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SelectionKind {
-    Point,
-    Interval,
-}
-
-/// Comparison precision captured by a producer definition.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum IntervalPrecision {
-    Exact,
-    Pixels { size: f64 },
 }
 
 /// A checked deterministic row expression with a producer-local identity.
@@ -73,46 +59,22 @@ impl Projection {
     }
 }
 
-/// An opaque lineage and exact type for identity-preserving row IDs.
-/// Clone this descriptor when filtering or renaming IDs preserves identity.
-/// Create a fresh descriptor when IDs are regenerated or come from another relation.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RowIdentity {
-    lineage: u64,
-    data_type: DataType,
-}
-impl RowIdentity {
-    /// Allocate a fresh lineage token with an explicitly typed ID domain.
-    pub fn new(data_type: DataType) -> Result<Self> {
-        crate::values::validate_type(&data_type)?;
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let lineage = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-            .expect("row identity space exhausted");
-        Ok(Self { lineage, data_type })
-    }
-    /// Return the type of every ID in this lineage.
-    pub fn data_type(&self) -> &DataType {
-        &self.data_type
-    }
-}
-
 /// Immutable semantics captured by each active producer contribution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProducerDefinition {
     address: ProducerAddress,
-    kind: SelectionKind,
     projections: Vec<Projection>,
-    identity: Option<RowIdentity>,
     grids: BTreeMap<ProjectionId, PixelGrid>,
 }
 impl ProducerDefinition {
     /// Define a producer with unique, nonempty projected dimensions and exact precision.
     pub fn new(
-        address: ProducerAddress,
-        kind: SelectionKind,
-        mut projections: Vec<Projection>,
+        selection: SelectionId,
+        id: ProducerId,
+        view: ViewId,
+        projections: impl IntoIterator<Item = Projection>,
     ) -> Result<Self> {
+        let mut projections: Vec<_> = projections.into_iter().collect();
         if projections.is_empty() {
             return Err(Error::InvalidDefinition(
                 "tuple producers need at least one projection".into(),
@@ -129,59 +91,42 @@ impl ProducerDefinition {
         }
         projections.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(Self {
-            address,
-            kind,
+            address: ProducerAddress {
+                selection,
+                producer: id,
+                origin: view,
+            },
             projections,
-            identity: None,
             grids: BTreeMap::new(),
         })
     }
-    /// Define point selection by row IDs instead of projected tuples.
-    pub fn row_ids(address: ProducerAddress, identity: RowIdentity) -> Self {
-        Self {
-            address,
-            kind: SelectionKind::Point,
-            projections: vec![],
-            identity: Some(identity),
-            grids: BTreeMap::new(),
-        }
+    /// Return the shared selection receiving this producer's updates.
+    pub fn selection(&self) -> &SelectionId {
+        &self.address.selection
     }
-    /// Return the selection, declaration, and view instance.
-    pub fn address(&self) -> &ProducerAddress {
+    /// Return the declaration identity within its selection and view instance.
+    pub fn id(&self) -> &ProducerId {
+        &self.address.producer
+    }
+    /// Return the opaque view instance used for self-filter exclusion.
+    pub fn view(&self) -> &ViewId {
+        &self.address.origin
+    }
+    pub(crate) fn address(&self) -> &ProducerAddress {
         &self.address
-    }
-    /// Return the interaction kind.
-    pub fn kind(&self) -> SelectionKind {
-        self.kind
     }
     /// Return projections in canonical local-ID order.
     pub fn projections(&self) -> &[Projection] {
         &self.projections
     }
-    /// Return the required row lineage for an identity producer.
-    pub fn identity(&self) -> Option<&RowIdentity> {
-        self.identity.as_ref()
-    }
-    /// Return the membership precision captured by this definition.
-    pub fn precision(&self) -> IntervalPrecision {
-        match self.grids.values().next() {
-            Some(grid) => IntervalPrecision::Pixels { size: grid.size() },
-            None => IntervalPrecision::Exact,
-        }
-    }
     /// Capture a replacement set of pixel grids without modifying this definition.
-    /// All grids must refer to declared projections and use the same pixel size.
-    /// Only interval producers accept grids. Reapply retained raw values with `set`
-    /// to change an existing contribution's precision after a resize.
+    /// Each grid refers to a declared projection and can use its own pixel size.
+    /// Projections without grids keep exact comparisons. An empty set removes all grids.
+    /// Reapply retained raw values with `set` to update membership after a resize.
     pub fn with_pixel_grids(
         &self,
         grids: impl IntoIterator<Item = (ProjectionId, PixelGrid)>,
     ) -> Result<Self> {
-        if self.kind != SelectionKind::Interval {
-            return Err(Error::InvalidDefinition(
-                "pixel grids require an interval producer".into(),
-            ));
-        }
         let mut result = self.clone();
         result.grids.clear();
         for (id, grid) in grids {
@@ -190,25 +135,11 @@ impl ProducerDefinition {
                     "unknown pixel projection {id}"
                 )));
             }
-            if result
-                .grids
-                .values()
-                .any(|other| other.size() != grid.size())
-            {
-                return Err(Error::InvalidDefinition(
-                    "pixel grids must have the same cell size".into(),
-                ));
-            }
             if result.grids.insert(id.clone(), grid).is_some() {
                 return Err(Error::InvalidDefinition(format!(
                     "duplicate pixel grid for {id}"
                 )));
             }
-        }
-        if result.grids.is_empty() {
-            return Err(Error::InvalidDefinition(
-                "pixel precision requires at least one grid".into(),
-            ));
         }
         Ok(result)
     }

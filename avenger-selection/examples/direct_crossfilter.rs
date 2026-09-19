@@ -1,9 +1,9 @@
 use avenger_datafusion_dataflow::{DataflowBuilder, Runtime, TableSnapshot};
 use avenger_scales_datafusion::BuiltinScale;
 use avenger_selection::{
-    ConsumerFilter, PixelGrid, ProducerAddress, ProducerDefinition, ProducerId, Projection,
-    ProjectionId, Resolution, SelectionFilter, SelectionId, SelectionKind, SelectionSet,
-    SelectionUpdate, SelectionValue, ValueTest, ViewAddress, ViewId,
+    ConsumerFilter, PixelGrid, ProducerDefinition, ProducerId, Projection, ProjectionId,
+    Resolution, SelectionFilter, SelectionId, SelectionSet, SelectionUpdate, SelectionValue,
+    ValueTest, ViewId,
 };
 use datafusion::{
     arrow::{
@@ -24,16 +24,13 @@ struct Plot {
     projection: ProjectionId,
     filter: ConsumerFilter,
 }
-fn plot(selection: &SelectionId, view: &str, field: &str, kind: SelectionKind) -> Result<Plot> {
-    let origin = ViewAddress::root(ViewId::new(view)?);
+fn plot(selection: &SelectionId, view: &str, field: &str) -> Result<Plot> {
+    let origin = ViewId::new(view)?;
     let projection = ProjectionId::new(field)?;
     let producer = ProducerDefinition::new(
-        ProducerAddress {
-            selection: selection.clone(),
-            producer: ProducerId::new(view)?,
-            origin: origin.clone(),
-        },
-        kind,
+        selection.clone(),
+        ProducerId::new(view)?,
+        origin.clone(),
         vec![Projection::new(projection.clone(), col(field))?],
     )?;
     let filter = ConsumerFilter::new(origin, SelectionFilter::cross_filter([selection]));
@@ -87,19 +84,9 @@ fn flights() -> Result<TableSnapshot> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let selection = SelectionId::new("filters")?;
-    let mut delay = plot(
-        &selection,
-        "delay_histogram",
-        "delay",
-        SelectionKind::Interval,
-    )?;
-    let mut distance = plot(
-        &selection,
-        "distance_histogram",
-        "distance",
-        SelectionKind::Interval,
-    )?;
-    let airlines = plot(&selection, "airline_bars", "carrier", SelectionKind::Point)?;
+    let mut delay = plot(&selection, "delay_histogram", "delay")?;
+    let mut distance = plot(&selection, "distance_histogram", "distance")?;
+    let airlines = plot(&selection, "airline_bars", "carrier")?;
     if std::env::args().any(|arg| arg == "--pixels") {
         for (plot, domain) in [(&mut delay, [-20.0, 60.0]), (&mut distance, [0.0, 3000.0])] {
             let grid = PixelGrid::new(
@@ -134,7 +121,7 @@ async fn main() -> Result<()> {
         (&distance, "distance_bin"),
         (&airlines, "carrier"),
     ] {
-        let name = plot.producer.address().origin.view.as_str();
+        let name = plot.producer.view().as_str();
         let input = builder.expr_input(name, DataType::Boolean)?;
         let counts = builder.add_plan(
             format!("{name}_counts"),
@@ -162,7 +149,7 @@ async fn main() -> Result<()> {
             result.report().physical_plans
         );
         for (plot, _, output) in &panels {
-            println!("{}", plot.producer.address().origin.view);
+            println!("{}", plot.producer.view());
             print_batches(result.table(output)?.batches())?;
         }
         if step == 0 {
