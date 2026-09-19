@@ -235,7 +235,7 @@ impl QueryFamilyBuilder<'_> {
         self
     }
     /// Validate named selections and mappings, then derive sufficient state for
-    /// supported counts. Unsupported queries retain the direct recipe.
+    /// supported built-in aggregates. Unsupported queries retain the direct recipe.
     pub fn build(self) -> Result<QueryFamily> {
         let resolved = self.query.0.filter.resolve(self.selections)?;
         if let Some(focus) = &self.focus {

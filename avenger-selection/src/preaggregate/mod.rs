@@ -10,8 +10,8 @@ use datafusion::{
         DFSchemaRef, Result as DFResult,
     },
     logical_expr::{
-        col, Aggregate, Expr, Extension, LogicalPlan, LogicalPlanBuilder, Projection,
-        UserDefinedLogicalNodeCore, Volatility,
+        col, Aggregate, Expr, ExprSchemable, Extension, LogicalPlan, LogicalPlanBuilder,
+        Projection, UserDefinedLogicalNodeCore, Volatility,
     },
 };
 
@@ -19,7 +19,7 @@ use crate::{
     query::{selection_site, with_predicate, SelectionSite},
     DirectReason, Error, Result,
 };
-use aggregates::AggregateState;
+use aggregates::AggregateRewrite;
 
 pub(crate) type Eligibility<T> = std::result::Result<T, DirectReason>;
 
@@ -67,17 +67,16 @@ impl Preaggregation {
         {
             return Ok(Err(DirectReason::UnsupportedGroupingExpression));
         }
-        let states = match original
-            .aggr_expr
-            .iter()
-            .enumerate()
-            .map(|(i, e)| AggregateState::analyze(e, i))
-            .collect::<Eligibility<Vec<_>>>()
-        {
-            Ok(states) if !states.is_empty() => states,
-            Ok(_) => return Ok(Err(DirectReason::UnsupportedAggregate)),
-            Err(reason) => return Ok(Err(reason)),
-        };
+        let mut rewrites = Vec::with_capacity(original.aggr_expr.len());
+        for (i, expr) in original.aggr_expr.iter().enumerate() {
+            match AggregateRewrite::analyze(expr, i, original.input.schema())? {
+                Ok(rewrite) => rewrites.push(rewrite),
+                Err(reason) => return Ok(Err(reason)),
+            }
+        }
+        if rewrites.is_empty() {
+            return Ok(Err(DirectReason::UnsupportedAggregate));
+        }
         let display: Vec<_> = (0..original.group_expr.len())
             .map(|i| format!("__selection_display_{i}"))
             .collect();
@@ -95,9 +94,9 @@ impl Preaggregation {
         let materialization = LogicalPlanBuilder::from(original.input.as_ref().clone())
             .aggregate(
                 groups,
-                states
+                rewrites
                     .iter()
-                    .flat_map(AggregateState::state_expressions)
+                    .map(|rewrite| rewrite.state.clone())
                     .collect::<Vec<_>>(),
             )?
             .build()?;
@@ -116,16 +115,27 @@ impl Preaggregation {
         let merged = LogicalPlanBuilder::from(selected)
             .aggregate(
                 display.iter().map(col).collect::<Vec<_>>(),
-                states
+                rewrites
                     .iter()
-                    .flat_map(AggregateState::merge_expressions)
+                    .map(|rewrite| rewrite.merge.clone())
                     .collect::<Vec<_>>(),
             )?
             .build()?;
-        let exprs = display
+        let result_columns: Vec<_> = display
             .iter()
             .map(col)
-            .chain(states.iter().map(AggregateState::finalize))
+            .chain((0..rewrites.len()).map(|i| col(format!("__selection_merge_{i}"))))
+            .collect();
+        for (expr, (_, expected)) in result_columns.iter().zip(original.schema.iter()) {
+            let (_, actual) = expr.to_field(merged.schema())?;
+            if actual.data_type() != expected.data_type()
+                || actual.is_nullable() != expected.is_nullable()
+            {
+                return Ok(Err(DirectReason::UnsupportedAggregate));
+            }
+        }
+        let exprs = result_columns
+            .into_iter()
             .zip(original.schema.iter())
             .map(|(expr, (qualifier, field))| {
                 expr.alias_qualified(qualifier.cloned(), field.name())
@@ -158,7 +168,7 @@ impl Preaggregation {
     }
 }
 
-/// The final filter, state merge, finalization, and unchanged query suffix.
+/// The final filter, aggregate-state merge, and unchanged query suffix.
 /// Supply the materialization's relation with `over` to get an executable plan.
 #[derive(Clone, Debug)]
 pub struct AggregateStep {

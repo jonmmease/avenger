@@ -4,14 +4,18 @@ use avenger_selection::*;
 use common::*;
 use datafusion::{
     arrow::{
-        array::{Int64Array, StringArray},
+        array::{
+            ArrayRef, Date32Array, Decimal128Array, Float32Array, Float64Array, Int64Array,
+            StringArray, UInt64Array,
+        },
         datatypes::DataType,
         record_batch::RecordBatch,
     },
     common::ScalarValue,
-    functions_aggregate::expr_fn::{count, sum},
+    functions_aggregate::expr_fn::{avg, count, max, median, min},
     logical_expr::{
-        col, create_udf, lit, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Volatility,
+        col, create_udaf, create_udf, lit, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
+        Volatility,
     },
     prelude::SessionContext,
 };
@@ -85,7 +89,7 @@ async fn compare(query: &SelectionQuery, family: &QueryFamily, state: &Selection
     if let (Some(a), Some(e)) = (actual.first(), expected.first()) {
         assert_eq!(a.schema(), e.schema());
     }
-    assert_eq!(rows(&actual), rows(&expected));
+    assert_results(&actual, &expected, FLOAT_MEASURES);
 }
 
 #[tokio::test]
@@ -162,12 +166,16 @@ async fn fixed_predicates_and_suffix_preserve_original_group_names() -> TestResu
             .filter(col("region").eq(lit("East")))?
             .aggregate(
                 vec![(col("distance") / lit(500_i64)).alias("bin")],
-                vec![count(col("carrier")).alias("n")],
+                vec![
+                    count(col("carrier")).alias("n"),
+                    avg(col("distance")).alias("mean"),
+                ],
             )?
             .filter(col("n").gt(lit(0_i64)))?
             .project(vec![
                 col("bin").alias("bucket"),
                 (col("n") + lit(1_i64)).alias("display"),
+                col("mean"),
             ])?
             .sort(vec![col("bucket").sort(false, true)])?
             .alias("histogram")?
@@ -363,7 +371,7 @@ fn unsupported_recipes_and_query_shapes_keep_direct_execution() -> TestResult {
     let inactive = state(Resolution::Intersect);
     let focus = interval("brush", "delay");
     for aggregate in [
-        sum(col("delay")),
+        median(col("delay")),
         count(col("carrier")).distinct().build()?,
         count(col("carrier"))
             .filter(col("delay").gt(lit(0_i64)))
@@ -552,5 +560,330 @@ async fn exact_float_keys_preserve_nonfinite_null_and_signed_zero_membership() -
         compare(&query, &family, &selected).await;
     }
     compare(&query, &family, &inactive).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn typed_measures_preserve_empty_groups_weights_and_moments() -> TestResult {
+    let focus = interval("brush", "delay");
+    let inactive = state(Resolution::Intersect);
+    let mut selections = vec![inactive.clone()];
+    for (lower, upper) in [(0, 2), (1, 2), (2, 3), (3, 4), (10, 20)] {
+        selections.push(inactive.apply(
+            &id(),
+            SelectionUpdate::set(&focus, between("delay", lower, upper)),
+        )?);
+    }
+    selections.push(inactive.apply(&id(), SelectionUpdate::set(&focus, values("delay", [])))?);
+    let numeric: Vec<ArrayRef> = vec![
+        Arc::new(Int64Array::from(vec![
+            Some(2),
+            Some(4),
+            Some(12),
+            Some(14),
+            Some(18),
+            None,
+            Some(5),
+            None,
+        ])),
+        Arc::new(UInt64Array::from(vec![
+            Some(2),
+            Some(4),
+            Some(12),
+            Some(14),
+            Some(18),
+            None,
+            Some(5),
+            None,
+        ])),
+        Arc::new(Float32Array::from(vec![
+            Some(2.),
+            Some(4.),
+            Some(12.),
+            Some(14.),
+            Some(18.),
+            None,
+            Some(5.),
+            None,
+        ])),
+        Arc::new(Float64Array::from(vec![
+            Some(2.),
+            Some(4.),
+            Some(12.),
+            Some(14.),
+            Some(18.),
+            None,
+            Some(5.),
+            None,
+        ])),
+        Arc::new(
+            Decimal128Array::from(vec![
+                Some(200),
+                Some(400),
+                Some(1200),
+                Some(1400),
+                Some(1800),
+                None,
+                Some(500),
+                None,
+            ])
+            .with_precision_and_scale(12, 2)?,
+        ),
+    ];
+    for measure in numeric {
+        let data = batch(vec![
+            (
+                "delay",
+                Arc::new(Int64Array::from(vec![0, 0, 1, 1, 1, 2, 3, 2])),
+            ),
+            (
+                "carrier",
+                Arc::new(StringArray::from(vec![
+                    "AA", "AA", "AA", "AA", "AA", "AA", "DL", "UA",
+                ])),
+            ),
+            ("x", measure),
+        ]);
+        let fields = data
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                field
+                    .as_ref()
+                    .clone()
+                    .with_metadata(std::collections::HashMap::from([(
+                        "source".to_owned(),
+                        "selection-fixture".to_owned(),
+                    )]))
+            })
+            .collect::<Vec<_>>();
+        let data = RecordBatch::try_new(
+            Arc::new(datafusion::arrow::datatypes::Schema::new(fields)),
+            data.columns().to_vec(),
+        )?;
+        for data in [data.clone(), data.slice(0, 0)] {
+            for groups in [vec![], vec![col("carrier")]] {
+                let query = membership().query(source(data.clone()), |rows| {
+                    LogicalPlanBuilder::from(rows)
+                        .aggregate(groups, measures("x"))?
+                        .build()
+                })?;
+                let family = query.plan(&inactive).focus(&focus).build()?;
+                assert_eq!(family.explain().strategy, QueryStrategy::Preaggregated);
+                for state in &selections {
+                    compare(&query, &family, state).await;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn extrema_preserve_ordered_types_and_builtin_aliases() -> TestResult {
+    let focus = interval("brush", "delay");
+    let inactive = state(Resolution::Intersect);
+    let inputs: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from(vec![
+            Some("B"),
+            None,
+            Some("A"),
+            Some("Z"),
+        ])),
+        Arc::new(Date32Array::from(vec![
+            Some(100),
+            None,
+            Some(99),
+            Some(400),
+        ])),
+    ];
+    for input in inputs {
+        let data = batch(vec![
+            ("delay", Arc::new(Int64Array::from(vec![0, 0, 1, 2]))),
+            ("x", input),
+        ]);
+        let query = membership().query(source(data), |rows| {
+            LogicalPlanBuilder::from(rows)
+                .aggregate(
+                    Vec::<Expr>::new(),
+                    vec![min(col("x")).alias("min"), max(col("x")).alias("max")],
+                )?
+                .build()
+        })?;
+        let family = query.plan(&inactive).focus(&focus).build()?;
+        for (lower, upper) in [(0, 3), (1, 2), (10, 20)] {
+            compare(
+                &query,
+                &family,
+                &inactive.apply(
+                    &id(),
+                    SelectionUpdate::set(&focus, between("delay", lower, upper)),
+                )?,
+            )
+            .await;
+        }
+    }
+    let ctx = SessionContext::new();
+    let variance = ctx.state().aggregate_functions()["var_sample"].clone();
+    let query = membership().query(source(flights()), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(
+                Vec::<Expr>::new(),
+                vec![variance.call(vec![col("delay")]).alias("var_samp")],
+            )?
+            .build()
+    })?;
+    compare(
+        &query,
+        &query.plan(&inactive).focus(&focus).build()?,
+        &inactive,
+    )
+    .await;
+
+    let custom = create_udaf(
+        "sum",
+        vec![DataType::Int64],
+        Arc::new(DataType::Int64),
+        Volatility::Immutable,
+        Arc::new(|_| panic!("planning must not instantiate an accumulator")),
+        Arc::new(vec![DataType::Int64]),
+    );
+    let query = membership().query(source(flights()), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(Vec::<Expr>::new(), vec![custom.call(vec![col("delay")])])?
+            .build()
+    })?;
+    assert_eq!(
+        query
+            .plan(&inactive)
+            .focus(&focus)
+            .build()?
+            .explain()
+            .direct_reason,
+        Some(DirectReason::UnsupportedAggregate)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn global_extrema_document_native_grouped_infinity_bounds() -> TestResult {
+    let focus = interval("brush", "delay");
+    let inactive = state(Resolution::Intersect);
+    let data = batch(vec![
+        ("delay", Arc::new(Int64Array::from(vec![0]))),
+        ("x", Arc::new(Float64Array::from(vec![f64::INFINITY]))),
+    ]);
+    let query = membership().query(source(data), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(Vec::<Expr>::new(), vec![min(col("x")).alias("min")])?
+            .build()
+    })?;
+    let BoundQuery::Preaggregated {
+        materialization,
+        aggregate,
+    } = query
+        .plan(&inactive)
+        .focus(&focus)
+        .build()?
+        .bind(&inactive)?
+    else {
+        panic!("expected optimized extrema")
+    };
+    let batches = run(materialization).await;
+    let relation = source(batches[0].clone());
+    let actual = run(aggregate.over(relation)?).await;
+    let direct = run(query.logical_plan(&inactive)?).await;
+    assert_eq!(
+        ScalarValue::try_from_array(actual[0].column(0), 0)?,
+        ScalarValue::Float64(Some(f64::MAX))
+    );
+    assert_eq!(
+        ScalarValue::try_from_array(direct[0].column(0), 0)?,
+        ScalarValue::Float64(Some(f64::INFINITY))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn unsupported_nested_measure_uses_the_direct_query() -> TestResult {
+    use datafusion::arrow::{array::ListArray, datatypes::Int64Type};
+    let data = batch(vec![
+        ("delay", Arc::new(Int64Array::from(vec![0]))),
+        (
+            "x",
+            Arc::new(ListArray::from_iter_primitive::<Int64Type, _, _>([Some(
+                vec![Some(2), Some(1)],
+            )])),
+        ),
+    ]);
+    let inactive = state(Resolution::Intersect);
+    let focus = interval("brush", "delay");
+    let query = membership().query(source(data), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(Vec::<Expr>::new(), vec![min(col("x"))])?
+            .build()
+    })?;
+    let family = query.plan(&inactive).focus(&focus).build()?;
+    assert_eq!(
+        family.explain().direct_reason,
+        Some(DirectReason::UnsupportedAggregate)
+    );
+    let BoundQuery::Direct { plan, .. } = family.bind(&inactive)? else {
+        panic!("expected direct fallback")
+    };
+    assert_results(
+        &run(plan).await,
+        &run(query.logical_plan(&inactive)?).await,
+        &[],
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn decimal_average_overflow_is_a_query_error_without_a_retry() -> TestResult {
+    let huge = 10_i128.pow(38) - 1;
+    let data = batch(vec![
+        ("delay", Arc::new(Int64Array::from(vec![0, 1]))),
+        (
+            "x",
+            Arc::new(Decimal128Array::from(vec![1, huge]).with_precision_and_scale(38, 0)?),
+        ),
+    ]);
+    let inactive = state(Resolution::Intersect);
+    let focus = interval("brush", "delay");
+    let query = membership().query(source(data), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(Vec::<Expr>::new(), vec![avg(col("x")).alias("mean")])?
+            .build()
+    })?;
+    let family = query.plan(&inactive).focus(&focus).build()?;
+    let safe = inactive.apply(&id(), SelectionUpdate::set(&focus, between("delay", 0, 1)))?;
+    // The unselected huge cell is retained as state without premature finalization.
+    compare(&query, &family, &safe).await;
+    let overflowing =
+        inactive.apply(&id(), SelectionUpdate::set(&focus, between("delay", 1, 2)))?;
+    let BoundQuery::Preaggregated {
+        materialization,
+        aggregate,
+    } = family.bind(&overflowing)?
+    else {
+        panic!("expected average states")
+    };
+    let materialized = run(materialization).await;
+    let merged = aggregate.over(source(materialized[0].clone()))?;
+    let ctx = SessionContext::new();
+    for plan in [merged, query.logical_plan(&overflowing)?] {
+        let error = ctx
+            .execute_logical_plan(plan)
+            .await?
+            .collect()
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().to_lowercase().contains("overflow"),
+            "{error}"
+        );
+    }
     Ok(())
 }

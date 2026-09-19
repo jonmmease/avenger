@@ -281,7 +281,7 @@ async fn root_installation_checks_usage_contexts_handles_and_name_collisions() -
 }
 
 #[tokio::test]
-async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() -> TestResult {
+async fn warmup_reuses_typed_states_and_tracks_fixed_and_source_dependencies() -> TestResult {
     let focus = interval("delay", "delay");
     let fixed = point("airlines", "carrier");
     let inactive = state(Resolution::Intersect);
@@ -302,7 +302,7 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
         let source = graph.table_input("flights", flights().schema())?;
         let query = membership().query(source.plan_ref(), |rows| {
             LogicalPlanBuilder::from(rows)
-                .aggregate(vec![col("carrier")], vec![count(lit(1_i64)).alias("n")])?
+                .aggregate(vec![col("carrier")], measures("distance"))?
                 .sort(vec![col("carrier").sort(true, true)])?
                 .build()
         })?;
@@ -313,7 +313,7 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
             .policy(QueryPolicy::ForceDirect)
             .build()?;
         assert_eq!(family.explain().direct_reason, Some(DirectReason::Forced));
-        let installed = family.install(&mut graph, "counts")?;
+        let installed = family.install(&mut graph, "summary")?;
         let scatter = membership()
             .query(source.plan_ref(), Ok)?
             .plan(&inactive)
@@ -338,7 +338,7 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
         let warmed = prepared.query(&[materialization], &[], &inputs).await?;
         assert_eq!(
             warmed.report().executed_nodes,
-            vec!["counts__materialization"]
+            vec!["summary__materialization"]
         );
         assert!(inactive.get(&id())?.contributions().next().is_none());
 
@@ -361,6 +361,7 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
             (&brushed, snapshot.clone(), flights()),
             (&fixed_changed, snapshot.clone(), flights()),
             (&moved, snapshot.clone(), flights()),
+            (&moved, snapshot.clone(), flights()),
             (&moved, changed_source.clone(), replacement.clone()),
             (&inactive, changed_source.clone(), replacement.clone()),
         ]
@@ -380,15 +381,31 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
                 .report()
                 .executed_nodes
                 .iter()
-                .any(|n| n == "counts__materialization");
-            assert_eq!(mat_executed, !retained || matches!(index, 1 | 3 | 4));
+                .any(|n| n == "summary__materialization");
+            assert_eq!(mat_executed, !retained || matches!(index, 1 | 4 | 5));
+            if retained && index == 3 {
+                assert!(
+                    result.report().executed_nodes.is_empty(),
+                    "an identical request reuses final outputs"
+                );
+            }
+            let forced = installed.bind_with_policy(state, QueryPolicy::ForceDirect)?;
+            let forced_inputs = forced.apply(inputs.edit())?.finish()?;
+            let forced_result = prepared
+                .query(&[forced.output()], &[], &forced_inputs)
+                .await?;
+            assert_results(
+                result.table(&binding.output())?.batches(),
+                forced_result.table(&forced.output())?.batches(),
+                FLOAT_MEASURES,
+            );
             let recipe = membership().query(
                 SessionContext::new()
                     .read_batch(native)?
                     .into_unoptimized_plan(),
                 |rows| {
                     LogicalPlanBuilder::from(rows)
-                        .aggregate(vec![col("carrier")], vec![count(lit(1_i64)).alias("n")])?
+                        .aggregate(vec![col("carrier")], measures("distance"))?
                         .sort(vec![col("carrier").sort(true, true)])?
                         .build()
                 },
@@ -398,16 +415,17 @@ async fn warmup_reuses_count_state_and_tracks_fixed_and_source_dependencies() ->
                 .await?
                 .collect()
                 .await?;
-            assert_eq!(
-                rows(result.table(&binding.output())?.batches()),
-                rows(&expected)
+            assert_results(
+                result.table(&binding.output())?.batches(),
+                &expected,
+                FLOAT_MEASURES,
             );
         }
         prepared.clear_results();
         let result = prepared.query(&[materialization], &[], &inputs).await?;
         assert_eq!(
             result.report().executed_nodes,
-            vec!["counts__materialization"]
+            vec!["summary__materialization"]
         );
     }
     Ok(())
