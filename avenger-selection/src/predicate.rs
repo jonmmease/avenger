@@ -129,7 +129,7 @@ fn comparison(expr: Expr, test: &ValueTest) -> Expr {
 // The input schema is known only at the usage site. This immutable kernel
 // preserves the original numeric/temporal type while checking unbounded ranges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum NumberClass {
+pub(crate) enum NumberClass {
     Finite,
     Nan,
 }

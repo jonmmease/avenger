@@ -1,4 +1,5 @@
 use avenger_datafusion_dataflow::{DataflowBuilder, ExprInput, InputsBuilder, TableOutput};
+use avenger_datafusion_preaggregate::runtime::{ParameterExpressions, ParameterizedFamily};
 use datafusion::{
     arrow::datatypes::DataType,
     logical_expr::{lit, Expr},
@@ -18,6 +19,7 @@ pub struct InstalledSelectionQuery {
 
 #[derive(Clone, Debug)]
 struct InstalledPreaggregation {
+    templates: ParameterizedFamily,
     fixed: ExprInput,
     changing: ExprInput,
     materialization: TableOutput,
@@ -51,20 +53,24 @@ impl QueryFamily {
                     builder.expr_input(format!("{name}__selection_fixed"), DataType::Boolean)?;
                 let changing =
                     builder.expr_input(format!("{name}__selection_changing"), DataType::Boolean)?;
+                let templates = prepared.parameterize(ParameterExpressions {
+                    source: full_predicate.expr_ref(),
+                    retained: changing.expr_ref(),
+                })?;
+                let plans = templates.preaggregated.as_ref().expect("eligible template");
                 let materialized = builder.add_plan(
                     format!("{name}__materialization"),
-                    prepared.materialization(fixed.expr_ref())?,
+                    crate::preaggregate::with_fixed(&plans.materialization, fixed.expr_ref())?,
                 )?;
                 let materialization =
                     builder.table_output(format!("{name}__materialization"), &materialized)?;
                 let aggregate = builder.add_plan(
                     format!("{name}__aggregate"),
-                    prepared
-                        .aggregate(changing.expr_ref())?
-                        .over(materialized.plan_ref())?,
+                    plans.rollup.with_materialization(materialized.plan_ref())?,
                 )?;
                 let output = builder.table_output(format!("{name}__aggregate"), &aggregate)?;
                 Some(InstalledPreaggregation {
+                    templates,
                     fixed,
                     changing,
                     materialization,
@@ -103,7 +109,22 @@ impl InstalledSelectionQuery {
         let (output, materialization, diagnostics) = match (&self.preaggregation, split) {
             (Some(prepared), Ok(split)) => {
                 predicates.push((prepared.fixed.clone(), split.fixed));
-                predicates.push((prepared.changing.clone(), split.changing));
+                let binding = self
+                    .family
+                    .preaggregation
+                    .as_ref()
+                    .expect("eligible family")
+                    .prepared
+                    .bind(split.changing)?;
+                prepared.templates.check_binding(binding.predicates())?;
+                predicates.push((
+                    prepared.changing.clone(),
+                    binding
+                        .predicates()
+                        .retained()
+                        .expect("validated split")
+                        .clone(),
+                ));
                 (
                     prepared.output,
                     Some(prepared.materialization),

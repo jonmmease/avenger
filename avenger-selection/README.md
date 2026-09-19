@@ -276,16 +276,23 @@ The rewrite supports the pinned DataFusion built-ins and their aliases:
 | Sample/population variance | `varSampState`, `varPopState` | `varSampMerge`, `varPopMerge` |
 | Sample/population stddev | `stddevSampState`, `stddevPopState` | `stddevSampMerge`, `stddevPopMerge` |
 
-Several measures can share one query. Arguments are columns or literals, with
-native coercion and return types. Numeric families cover supported integers,
+Several measures can share one query. Arguments can include checked computed
+expressions, with native coercion and return types. Numeric families cover supported integers,
 floats, and decimals. Extrema also support flat ordered types such as strings
 and dates. Unsupported signatures use the direct path. The matcher checks
 built-in implementations, so a custom UDAF with the same name remains direct.
 
-The accepted shape has one selection site followed by an aggregate and optional
-projection, alias, sorting without a fetch limit, and post-aggregate filters
-such as `HAVING`. Fixed row filters may precede the aggregate. Source
-transformations can remain upstream of the selection site.
+The planner rewrites the nearest aggregate above the selection site. Fixed row
+filters and aliases may precede that aggregate. Projection, `HAVING`, aliases,
+sorting, top-k/offset, windows, and further aggregates can follow it in their
+original order. The target's complete schema is restored before those finishing
+operators run. Source transformations can remain upstream of the selection site.
+
+Each target aggregate can have its own `FILTER`, applied only during state
+construction. Groups remain present when all measure filters reject their rows.
+The filter does not need its columns retained as interaction keys. Its argument
+still requires an independent safety check because native grouped execution can
+evaluate arguments before applying aggregate filters.
 
 Each state is an opaque Arrow struct, including count. Average and moment states
 retain their weights and other components inside that column. Selection uses
@@ -310,16 +317,18 @@ by direct predicates. Multiple keys preserve tuple correlation. Without a pixel
 grid, exact values are retained. High-cardinality keys may provide little size
 reduction. There is no cardinality-based cost decision yet.
 
-Grouping expressions are checked because materialization also evaluates
-unselected rows. Initially, supported expressions are columns, literals, aliases,
-`TRY_CAST` over supported expressions, captured pixel cells, and division by a
-positive constant of the same numeric type. Other calculations and unknown UDFs
-fall back even when immutable. This avoids introducing errors such as division
-by zero in a group expression for an otherwise unselected row.
+Grouping expressions and measure arguments are checked because materialization
+also evaluates unselected rows. Supported forms include columns, literals,
+aliases, checked casts, floating arithmetic, independently safe `TRY_CAST` and
+`CASE` children, captured pixel cells, and division by a positive literal. Unknown
+UDFs, unproved integral/decimal overflow risks, and fallible children use direct
+execution even when immutable. Selection supplies trusted properties for its
+pixel and numeric-classification UDFs.
 
-DISTINCT, aggregate FILTER/ORDER BY, explicit null-treatment modifiers,
-calculated aggregate arguments, unsupported aggregates/query shapes, and
-stable/volatile computations use the direct path with a specific reason.
+Target DISTINCT/ORDER BY, explicit null-treatment modifiers, unsupported
+aggregates/query shapes, unsafe moved expressions, and stable/volatile
+computations use the direct path with a specific reason. Native-valid outer
+aggregates do not require the target's State/Merge recipe.
 If one measure is unsupported, the whole target uses its direct query. Other
 targets can still optimize. There is no retry that hides backend execution
 failures. Invalid state and mappings remain errors.
@@ -336,7 +345,9 @@ does not require a new family.
 
 ### Numeric behavior
 
-The aggregate utility owns accumulation, state types, and merging through native
+The generic [pre-aggregation planner](../avenger-datafusion-preaggregate) owns
+query recognition, predicate rewriting, and State/Merge plan construction. The
+aggregate utility owns accumulation, state types, and merging through native
 DataFusion accumulators. Count returns zero for empty global input. Other
 aggregates return null for empty/all-null input. Observed groups remain present
 even when every measure value is null. For finite singleton input, population
@@ -346,7 +357,9 @@ Regrouping can change floating rounding, overflow, and non-finite-value results.
 Automatic execution does not promise bitwise equality or identical overflow
 behavior with the original physical query shape. Tests require exact schemas,
 groups, ordinary null behavior, and exact-type results without overflow. Finite
-floating measures use absolute/relative tolerances. Known special-value cases
+floating measures use absolute/relative tolerances. Floating differences can
+also affect HAVING, ranks, and top-k membership near a numeric boundary.
+Known special-value cases
 are tested separately.
 
 DataFusion 54.1.0's grouped floating extrema start from finite bounds. For
@@ -422,7 +435,13 @@ change selections or render a chart. Overlapping queries share in-progress
 work through dataflow. Dropping a query detaches that consumer's interest.
 
 The materialization depends on the source, fixed predicate, and concrete plan.
-Focused bounds affect only the final node. A new source `TableSnapshot` or a
+Focused bounds and suffix-only parameters affect the final node. Inputs used by
+measure filters or arguments remain materialization dependencies. Unknown deferred
+expression inputs in moved expressions use the direct path. Ordinary scalar
+inputs can be resolved in an upstream source node and exposed as typed columns.
+Each binding checks the fixed selection predicate's safety before allowing
+warm-up, and validates its focused predicate through the generic planner.
+A new source `TableSnapshot` or a
 changed fixed predicate creates a new cache dependency. Externally mutable
 sources still need the dataflow's explicit refresh/version policy. Retention
 is subject to the runtime's LRU budget: eviction, `clear_results`, and disabled
@@ -477,14 +496,15 @@ state updates. Dataflow owns execution, caching, shared in-progress work, and
 cancellation. Selection state contains no event queues or result cache.
 
 The core crate depends on DataFusion, the Avenger scale adapter, and the
-aggregate-state utility. It has no chart controller dependency. The optional
+standalone pre-aggregation planner. It has no chart controller dependency. The optional
 `dataflow` feature adds the runtime adapter for root installations. Root and
 scoped dataflow Expr inputs also accept the predicates directly. Dataflow is a development dependency for integration
 tests and the direct example.
 
 The implementation covers typed state, direct predicates, pixel membership,
 aggregate query families, and root/extension installation with optional warm-up.
-Selection owns query eligibility and state/merge expression construction. The
-utility owns state encoding and accumulator behavior. Dataflow owns execution
+Selection owns focus, factorization, and interaction eligibility. The generic
+planner owns relational rewriting and State/Merge expression construction. The
+aggregate-state utility owns state encoding and accumulator behavior. Dataflow owns execution
 and result reuse. Selection-state serialization and complete-dataflow UDF codecs
 are deferred. Arrow state transport alone does not serialize the functions.

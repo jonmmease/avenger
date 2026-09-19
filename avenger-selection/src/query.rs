@@ -56,6 +56,7 @@ pub enum DirectReason {
     UnsupportedAggregate,
     UnsupportedGroupingExpression,
     NonImmutableQuery,
+    UnsafeMovedExpression,
 }
 impl fmt::Display for DirectReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -76,6 +77,9 @@ impl fmt::Display for DirectReason {
             Self::UnsupportedAggregate => "the query needs an unsupported aggregate state recipe",
             Self::UnsupportedGroupingExpression => {
                 "a grouping expression is not proved safe over unselected rows"
+            }
+            Self::UnsafeMovedExpression => {
+                "an expression is not proved safe before the changing filter"
             }
             Self::NonImmutableQuery => "the query contains stable or volatile computations",
         })
@@ -336,12 +340,16 @@ impl QueryFamily {
             Err(reason) => return Ok(Err(*reason)),
         };
         let resolved = self.query.0.filter.resolve(selections)?;
-        Ok(predicates::split(
+        let split = predicates::split(
             &resolved,
             self.focus.as_ref().expect("planned focus"),
             self.query.0.filter.consumer_view(),
             &prepared.interaction_keys,
-        ))
+        );
+        Ok(match split {
+            Ok(split) => prepared.validate(&split)?.map(|()| split),
+            Err(reason) => Err(reason),
+        })
     }
 }
 

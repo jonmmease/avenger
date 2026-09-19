@@ -9,11 +9,12 @@ use datafusion::{
         sum::Sum,
         variance::{VariancePopulation, VarianceSample},
     },
-    logical_expr::{col, lit, Expr, ExprSchemable},
+    logical_expr::{col, lit, Expr, ExprFunctionExt, ExprSchemable},
 };
 
-use super::Eligibility;
 use crate::DirectReason;
+use crate::{expressions, Eligibility, ExpressionProperties};
+use std::sync::Arc;
 
 /// One opaque state column and the aggregate that merges it into a final value.
 #[derive(Clone, Debug)]
@@ -23,7 +24,12 @@ pub(super) struct AggregateRewrite {
 }
 
 impl AggregateRewrite {
-    pub fn analyze(expr: &Expr, index: usize, schema: &DFSchema) -> Result<Eligibility<Self>> {
+    pub fn analyze(
+        expr: &Expr,
+        index: usize,
+        schema: &DFSchema,
+        properties: &Arc<dyn ExpressionProperties>,
+    ) -> Result<Eligibility<Self>> {
         let expr = match expr {
             Expr::Alias(a) => a.expr.as_ref(),
             expr => expr,
@@ -34,14 +40,9 @@ impl AggregateRewrite {
         let p = &agg.params;
         let count = agg.func.inner().is::<Count>();
         if p.distinct
-            || p.filter.is_some()
             || !p.order_by.is_empty()
             || p.null_treatment.is_some()
             || !(p.args.len() == 1 || count && p.args.is_empty())
-            || !p
-                .args
-                .iter()
-                .all(|arg| matches!(arg, Expr::Column(_) | Expr::Literal(..)))
         {
             return Ok(Err(DirectReason::UnsupportedAggregate));
         }
@@ -73,7 +74,10 @@ impl AggregateRewrite {
         } else {
             return Ok(Err(DirectReason::UnsupportedAggregate));
         };
-        let arg = p.args.first().cloned().unwrap_or_else(|| lit(1_i64));
+        let arg = expressions::coerce(
+            p.args.first().cloned().unwrap_or_else(|| lit(1_i64)),
+            schema,
+        )?;
         let types = match state.coerce_types(&[arg.get_type(schema)?]) {
             Ok(types) => types,
             Err(DataFusionError::Plan(_) | DataFusionError::NotImplemented(_)) => {
@@ -83,12 +87,30 @@ impl AggregateRewrite {
         };
         // The merge plan needs the coerced state type before execution-time analysis.
         let arg = arg.cast_to(&types[0], schema)?;
-        let state_name = format!("__selection_state_{index}");
+        if !expressions::properties(&arg, schema, properties).total {
+            return Ok(Err(DirectReason::UnsafeMovedExpression));
+        }
+        let filter = p
+            .filter
+            .as_ref()
+            .map(|f| expressions::boolean(f.as_ref().clone(), schema, false))
+            .transpose()?;
+        if filter
+            .as_ref()
+            .is_some_and(|f| !expressions::properties(f, schema, properties).total)
+        {
+            return Ok(Err(DirectReason::UnsafeMovedExpression));
+        }
+        let state_name = format!("__preagg_state_{index}");
+        let state_expr = match filter {
+            Some(filter) => state.call(vec![arg]).filter(filter).build()?,
+            None => state.call(vec![arg]),
+        };
         Ok(Ok(Self {
-            state: state.call(vec![arg]).alias(&state_name),
+            state: state_expr.alias(&state_name),
             merge: merge
                 .call(vec![col(state_name)])
-                .alias(format!("__selection_merge_{index}")),
+                .alias(format!("__preagg_merge_{index}")),
         }))
     }
 }

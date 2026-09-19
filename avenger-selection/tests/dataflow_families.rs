@@ -514,3 +514,204 @@ async fn installed_regridding_uses_direct_output_without_warming_an_incompatible
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn filtered_computed_measures_window_and_limit_reuse_materialization() -> TestResult {
+    use datafusion::{
+        functions_aggregate::expr_fn::avg,
+        functions_window::expr_fn::row_number,
+        logical_expr::{expr_fn::cast, Expr, ExprFunctionExt, Limit, LogicalPlan},
+    };
+    use std::sync::Arc;
+    let focus = interval("brush", "delay");
+    let inactive = state(Resolution::Intersect);
+    let mut graph = DataflowBuilder::new();
+    let source = graph.table_snapshot(
+        "flights",
+        TableSnapshot::from_batches(flights().schema(), vec![flights()])?,
+    )?;
+    let measure_limit = graph.scalar_input("measure_limit", DataType::Int64)?;
+    let final_limit = graph.scalar_input("final_limit", DataType::Int64)?;
+    // Resolve the ordinary scalar upstream. The measure filter receives a typed
+    // column, without an unchecked arbitrary-expression parameter in the rewrite.
+    let columns = source
+        .schema()
+        .columns()
+        .into_iter()
+        .map(Expr::Column)
+        .chain(std::iter::once(
+            measure_limit.expr_ref().alias("measure_limit"),
+        ))
+        .collect::<Vec<_>>();
+    let source = graph.add_plan(
+        "measure_rows",
+        LogicalPlanBuilder::from(source.plan_ref())
+            .project(columns)?
+            .build()?,
+    )?;
+    let query = membership().query(source.plan_ref(), |rows| {
+        let input = LogicalPlanBuilder::from(rows)
+            .aggregate(
+                vec![col("carrier")],
+                vec![
+                    count(lit(1_i64)).alias("n"),
+                    avg(cast(col("distance"), DataType::Float64) * lit(2.0))
+                        .filter(col("delay").lt(col("measure_limit")))
+                        .build()?
+                        .alias("mean"),
+                ],
+            )?
+            .window(vec![row_number()
+                .order_by(vec![
+                    col("n").sort(false, true),
+                    col("carrier").sort(true, true),
+                ])
+                .build()?
+                .alias("position")])?
+            .sort(vec![col("position").sort(true, true)])?
+            .build()?;
+        Ok(LogicalPlan::Limit(Limit {
+            skip: None,
+            fetch: Some(Box::new(final_limit.expr_ref())),
+            input: Arc::new(input),
+        }))
+    })?;
+    let installed = query
+        .plan(&inactive)
+        .focus(&focus)
+        .build()?
+        .install(&mut graph, "summary")?;
+    let flow = Runtime::new(Default::default())?
+        .prepare(&graph.finish()?)
+        .await?;
+    let warm = installed.bind(&inactive)?;
+    let inputs = warm
+        .apply(flow.inputs())?
+        .scalar(&measure_limit, 100_i64.into())?
+        .scalar(&final_limit, 3_i64.into())?
+        .finish()?;
+    let report = flow
+        .query(
+            &[warm.preaggregate_output().expect("eligible warmup")],
+            &[],
+            &inputs,
+        )
+        .await?;
+    assert!(report
+        .report()
+        .executed_nodes
+        .contains(&"summary__materialization".into()));
+    for (lower, upper, measure, limit, rebuild) in [
+        (0, 25, 100_i64, 3_i64, false),
+        (10, 31, 100, 3, false),
+        (10, 31, 100, 1, false),
+        (10, 31, 20, 1, true),
+    ] {
+        let selected = inactive.apply(
+            &id(),
+            SelectionUpdate::set(&focus, between("delay", lower, upper)),
+        )?;
+        let binding = installed.bind(&selected)?;
+        let inputs = binding
+            .apply(flow.inputs())?
+            .scalar(&measure_limit, measure.into())?
+            .scalar(&final_limit, limit.into())?
+            .finish()?;
+        let result = flow.query(&[binding.output()], &[], &inputs).await?;
+        assert_eq!(
+            result
+                .report()
+                .executed_nodes
+                .contains(&"summary__materialization".into()),
+            rebuild,
+            "{:?}",
+            result.report()
+        );
+        let direct = installed.bind_with_policy(&selected, QueryPolicy::ForceDirect)?;
+        let direct_inputs = direct.apply(inputs.edit())?.finish()?;
+        let expected = flow.query(&[direct.output()], &[], &direct_inputs).await?;
+        assert_results(
+            result.table(&binding.output())?.batches(),
+            expected.table(&direct.output())?.batches(),
+            &["mean"],
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn untrusted_deferred_inputs_and_new_fixed_expressions_cannot_warm_state() -> TestResult {
+    use datafusion::logical_expr::{create_udf, ExprFunctionExt, Volatility};
+    use std::sync::Arc;
+    let focus = interval("brush", "delay");
+    let inactive = state(Resolution::Intersect);
+    let mut graph = DataflowBuilder::new();
+    let source = graph.table_snapshot(
+        "flights",
+        TableSnapshot::from_batches(flights().schema(), vec![flights()])?,
+    )?;
+    let arbitrary = graph.expr_input("arbitrary", DataType::Boolean)?;
+    let query = membership().query(source.plan_ref(), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(
+                vec![col("carrier")],
+                vec![count(lit(1_i64))
+                    .filter(arbitrary.expr_ref())
+                    .build()?
+                    .alias("n")],
+            )?
+            .build()
+    })?;
+    let family = query.plan(&inactive).focus(&focus).build()?;
+    assert_eq!(
+        family.explain().direct_reason,
+        Some(DirectReason::UnsafeMovedExpression)
+    );
+    let direct = family.install(&mut graph, "direct")?;
+    let query = membership().query(source.plan_ref(), |rows| {
+        LogicalPlanBuilder::from(rows)
+            .aggregate(vec![col("carrier")], vec![count(lit(1_i64)).alias("n")])?
+            .build()
+    })?;
+    let family = query.plan(&inactive).focus(&focus).build()?;
+    let installed = family.install(&mut graph, "summary")?;
+    let udf = create_udf(
+        "untrusted",
+        vec![DataType::Int64],
+        DataType::Int64,
+        Volatility::Immutable,
+        Arc::new(|args| Ok(args[0].clone())),
+    );
+    let other = ProducerDefinition::new(
+        address("other", view("other")),
+        SelectionKind::Point,
+        vec![Projection::new(
+            ProjectionId::new("value")?,
+            udf.call(vec![col("delay")]),
+        )?],
+    )?;
+    let selected = inactive.apply(
+        &id(),
+        SelectionUpdate::set(&other, values("value", [10_i64.into()])),
+    )?;
+    let binding = installed.bind(&selected)?;
+    assert_eq!(
+        binding.explain().direct_reason,
+        Some(DirectReason::UnsafeMovedExpression)
+    );
+    assert!(binding.preaggregate_output().is_none());
+    let flow = Runtime::new(Default::default())?
+        .prepare(&graph.finish()?)
+        .await?;
+    let inputs = binding
+        .apply(direct.bind(&selected)?.apply(flow.inputs())?)?
+        .expr(&arbitrary, col("delay").gt(lit(0_i64)))?
+        .finish()?;
+    let result = flow.query(&[binding.output()], &[], &inputs).await?;
+    assert!(!result
+        .report()
+        .executed_nodes
+        .iter()
+        .any(|n| n.ends_with("__materialization")));
+    Ok(())
+}
