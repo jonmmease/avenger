@@ -2,40 +2,11 @@ use datafusion::{
     arrow::datatypes::DataType,
     common::{
         tree_node::{Transformed, TreeNode, TreeNodeRecursion},
-        Column, DFSchema, Result, ScalarValue,
+        Column, DFSchema, Result,
     },
-    logical_expr::{expr::ScalarFunction, Expr, ExprSchemable, Operator, Volatility},
+    logical_expr::{Expr, ExprSchemable, Volatility},
     optimizer::analyzer::type_coercion::TypeCoercionRewriter,
 };
-use std::{fmt::Debug, sync::Arc};
-
-/// Trusted properties of configured scalar functions. Child expressions and
-/// volatility are checked independently. Unknown functions should return defaults.
-pub trait ExpressionProperties: Debug + Send + Sync {
-    /// Describe this resolved invocation without evaluating it.
-    fn scalar_function(
-        &self,
-        function: &ScalarFunction,
-        input_schema: &DFSchema,
-    ) -> ScalarFunctionProperties;
-}
-
-/// Scalar properties needed when evaluation moves before a changing filter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ScalarFunctionProperties {
-    /// Evaluation cannot fail for any value admitted by the input types.
-    pub total: bool,
-    /// Grouping-equal arguments produce grouping-equal results, including NaNs and signed zero.
-    pub respects_grouping_equality: bool,
-}
-#[derive(Debug, Default)]
-pub(crate) struct ConservativeProperties;
-impl ExpressionProperties for ConservativeProperties {
-    fn scalar_function(&self, _: &ScalarFunction, _: &DFSchema) -> ScalarFunctionProperties {
-        ScalarFunctionProperties::default()
-    }
-}
-
 pub(crate) fn coerce(expr: Expr, schema: &DFSchema) -> Result<Expr> {
     // Some Boolean expressions have a known return type without inspecting
     // their children. Resolve columns explicitly, including ambiguity checks.
@@ -135,148 +106,33 @@ pub(crate) fn immutable(expr: &Expr) -> Result<bool> {
     Ok(result)
 }
 
-pub(crate) fn properties(
-    expr: &Expr,
-    schema: &DFSchema,
-    policy: &Arc<dyn ExpressionProperties>,
-) -> ScalarFunctionProperties {
-    let yes = ScalarFunctionProperties {
-        total: true,
-        respects_grouping_equality: true,
-    };
-    let no = ScalarFunctionProperties::default();
-    let child = |e: &Expr| properties(e, schema, policy);
-    let combine = |xs: Vec<ScalarFunctionProperties>| ScalarFunctionProperties {
-        total: xs.iter().all(|p| p.total),
-        respects_grouping_equality: xs.iter().all(|p| p.respects_grouping_equality),
-    };
-    match expr {
-        Expr::Column(_) | Expr::Literal(..) => yes,
-        Expr::Alias(a) => child(&a.expr),
-        Expr::ScalarFunction(f) if f.func.signature().volatility == Volatility::Immutable => {
-            let mut ps = f.args.iter().map(child).collect::<Vec<_>>();
-            ps.push(policy.scalar_function(f, schema));
-            combine(ps)
-        }
-        Expr::Cast(c)
-            if c.expr
-                .get_type(schema)
-                .is_ok_and(|from| total_cast(&from, c.field.data_type())) =>
-        {
-            child(&c.expr)
-        }
-        Expr::TryCast(c) => {
-            let mut p = child(&c.expr);
-            p.respects_grouping_equality &= c
-                .expr
-                .get_type(schema)
-                .is_ok_and(|t| !t.is_floating() || c.field.data_type().is_numeric());
-            p
-        }
-        Expr::BinaryExpr(b) => {
-            let supported = match b.op {
-                Operator::Eq
-                | Operator::NotEq
-                | Operator::Lt
-                | Operator::LtEq
-                | Operator::Gt
-                | Operator::GtEq
-                | Operator::And
-                | Operator::Or
-                | Operator::IsDistinctFrom
-                | Operator::IsNotDistinctFrom => true,
-                Operator::Plus | Operator::Minus | Operator::Multiply => expr
-                    .get_type(schema)
-                    .is_ok_and(|t| matches!(t, DataType::Float32 | DataType::Float64)),
-                Operator::Divide => {
-                    positive_literal(&b.right)
-                        && b.left.get_type(schema).ok() == b.right.get_type(schema).ok()
-                }
-                _ => false,
-            };
-            if supported {
-                combine(vec![child(&b.left), child(&b.right)])
-            } else {
-                no
-            }
-        }
-        Expr::Not(e)
-        | Expr::IsNull(e)
-        | Expr::IsNotNull(e)
-        | Expr::IsTrue(e)
-        | Expr::IsFalse(e)
-        | Expr::IsUnknown(e)
-        | Expr::IsNotTrue(e)
-        | Expr::IsNotFalse(e)
-        | Expr::IsNotUnknown(e) => child(e),
-        Expr::Between(b) => combine(vec![child(&b.expr), child(&b.low), child(&b.high)]),
-        Expr::InList(l) => combine(
-            std::iter::once(child(&l.expr))
-                .chain(l.list.iter().map(child))
-                .collect(),
-        ),
-        Expr::Case(c) => combine(
-            c.expr
-                .iter()
-                .map(|e| child(e))
-                .chain(
-                    c.when_then_expr
-                        .iter()
-                        .flat_map(|(w, t)| [child(w), child(t)]),
-                )
-                .chain(c.else_expr.iter().map(|e| child(e)))
-                .collect(),
-        ),
-        _ => no,
-    }
-}
-fn total_cast(from: &DataType, to: &DataType) -> bool {
-    if from == to || *from == DataType::Null {
-        return true;
-    }
-    // Native moment aggregates coerce decimal inputs to Float64. All Arrow
-    // decimal magnitudes fit its exponent range, although precision can be lost.
-    if matches!(
-        from,
-        DataType::Decimal32(..)
-            | DataType::Decimal64(..)
-            | DataType::Decimal128(..)
-            | DataType::Decimal256(..)
-    ) && *to == DataType::Float64
-    {
-        return true;
-    }
-    matches!(
-        (from, to),
-        (
-            DataType::Int8,
-            DataType::Int16 | DataType::Int32 | DataType::Int64
-        ) | (DataType::Int16, DataType::Int32 | DataType::Int64)
-            | (DataType::Int32, DataType::Int64)
-            | (
-                DataType::UInt8,
-                DataType::UInt16 | DataType::UInt32 | DataType::UInt64
-            )
-            | (DataType::UInt16, DataType::UInt32 | DataType::UInt64)
-            | (DataType::UInt32, DataType::UInt64)
-            | (DataType::Float32, DataType::Float64)
-    ) || (from.is_integer() && matches!(to, DataType::Float32 | DataType::Float64))
-}
-fn positive_literal(expr: &Expr) -> bool {
-    let Expr::Literal(value, _) = expr else {
-        return false;
-    };
-    match value {
-        ScalarValue::Int8(Some(v)) => *v > 0,
-        ScalarValue::Int16(Some(v)) => *v > 0,
-        ScalarValue::Int32(Some(v)) => *v > 0,
-        ScalarValue::Int64(Some(v)) => *v > 0,
-        ScalarValue::UInt8(Some(v)) => *v > 0,
-        ScalarValue::UInt16(Some(v)) => *v > 0,
-        ScalarValue::UInt32(Some(v)) => *v > 0,
-        ScalarValue::UInt64(Some(v)) => *v > 0,
-        ScalarValue::Float32(Some(v)) => *v > 0.0 && v.is_finite(),
-        ScalarValue::Float64(Some(v)) => *v > 0.0 && v.is_finite(),
-        _ => false,
-    }
+// Subqueries, unresolved parameters, and non-scalar operators need separate lineage analysis.
+pub(crate) fn row_expression(expr: &Expr) -> Result<bool> {
+    Ok(!expr.exists(|e| {
+        Ok(!matches!(
+            e,
+            Expr::Column(_)
+                | Expr::Literal(..)
+                | Expr::Alias(_)
+                | Expr::BinaryExpr(_)
+                | Expr::Like(_)
+                | Expr::SimilarTo(_)
+                | Expr::Not(_)
+                | Expr::IsNull(_)
+                | Expr::IsNotNull(_)
+                | Expr::IsTrue(_)
+                | Expr::IsFalse(_)
+                | Expr::IsUnknown(_)
+                | Expr::IsNotTrue(_)
+                | Expr::IsNotFalse(_)
+                | Expr::IsNotUnknown(_)
+                | Expr::Negative(_)
+                | Expr::Between(_)
+                | Expr::Case(_)
+                | Expr::Cast(_)
+                | Expr::TryCast(_)
+                | Expr::ScalarFunction(_)
+                | Expr::InList(_)
+        ))
+    })?)
 }

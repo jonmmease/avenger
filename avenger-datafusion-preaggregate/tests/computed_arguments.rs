@@ -7,7 +7,7 @@ use datafusion::{
 };
 
 #[tokio::test]
-async fn safe_native_coercions_case_and_try_cast() -> Result<()> {
+async fn native_scalar_expressions_match_direct_queries() -> Result<()> {
     for partitions in [1, 4] {
         let ctx = context(partitions)?;
         for expression in [
@@ -16,6 +16,12 @@ async fn safe_native_coercions_case_and_try_cast() -> Result<()> {
             "x * 2.0",
             "x + cell",
             "x / 2.0",
+            "cell + 1",
+            "cell * 2",
+            "-cell",
+            "CASE WHEN cell = 0 THEN 0 ELSE cell / cell END",
+            "CAST(x AS INT)",
+            "CAST(cell AS DECIMAL(10,2)) + CAST(cell AS DECIMAL(10,2))",
             "CAST(cell AS BIGINT)",
             "TRY_CAST(g AS DOUBLE)",
             "CASE WHEN keep THEN x * 2.0 ELSE x + 1.0 END",
@@ -42,36 +48,7 @@ async fn safe_native_coercions_case_and_try_cast() -> Result<()> {
 }
 
 #[tokio::test]
-async fn fallible_children_and_overflow_risks_remain_direct() -> Result<()> {
-    let ctx = context(1)?;
-    for expression in [
-        "CAST(g AS DOUBLE)",
-        "cell / cell",
-        "cell + 1",
-        "cell * 2",
-        "-cell",
-        "TRY_CAST(cell / cell AS DOUBLE)",
-        "CASE WHEN cell = 0 THEN 0 ELSE cell / cell END",
-        "CAST(x AS INT)",
-        "CAST(cell AS DECIMAL(10,2)) + CAST(cell AS DECIMAL(10,2))",
-    ] {
-        let sql = format!("SELECT COUNT({expression}) FILTER (WHERE cell > 0) AS n FROM rows");
-        let q = query(&ctx, &sql).await?;
-        let p = PreaggregatePlanner::default().prepare(q, vec![col("cell")])?;
-        assert!(
-            p.materialization_plan().is_none(),
-            "unexpected rewrite: {expression}"
-        );
-        assert_eq!(
-            p.bind(col("cell").gt(lit(0_i32)))?.diagnostics().strategy,
-            QueryStrategy::Direct
-        );
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn filter_does_not_prove_a_fallible_argument_safe() -> Result<()> {
+async fn warmup_requires_valid_expressions_on_rows_outside_the_current_selection() -> Result<()> {
     use datafusion::{
         arrow::{
             array::{BooleanArray, StringArray},
@@ -90,17 +67,16 @@ async fn filter_does_not_prove_a_fallible_argument_safe() -> Result<()> {
         "t",
         Arc::new(MemTable::try_new(data.schema(), vec![vec![data]])?),
     )?;
-    let q = query(
-        &ctx,
-        "SELECT SUM(CAST(text AS BIGINT)) FILTER (WHERE keep) AS s FROM rows",
-    )
-    .await?;
+    let q = query(&ctx, "SELECT SUM(CAST(text AS BIGINT)) AS s FROM rows").await?;
     let p = PreaggregatePlanner::default().prepare(q, vec![col("keep")])?;
+    assert!(p.materialization_plan().is_some());
     assert_eq!(
-        p.explain().direct_reason,
-        Some(DirectReason::UnsafeMovedExpression)
+        p.bind(col("keep"))?.diagnostics().strategy,
+        QueryStrategy::Preaggregated
     );
-    let BoundQuery::Direct { plan, .. } = p.bind(lit(true))? else {
+    let BoundQuery::Direct { plan, .. } =
+        p.bind_with_policy(col("keep"), QueryPolicy::ForceDirect)?
+    else {
         unreachable!()
     };
     let result = ctx.execute_logical_plan(plan).await?.collect().await?;
@@ -108,6 +84,18 @@ async fn filter_does_not_prove_a_fallible_argument_safe() -> Result<()> {
         rows(&result)?[0][0],
         datafusion::common::ScalarValue::Int64(Some(12))
     );
+    let materialization = p.materialization_plan().unwrap().clone();
+    let error = ctx
+        .execute_logical_plan(materialization)
+        .await?
+        .collect()
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("bad"), "{error}");
+
+    let q = query(&ctx, "SELECT SUM(TRY_CAST(text AS BIGINT)) AS s FROM rows").await?;
+    let p = PreaggregatePlanner::default().prepare(q, vec![col("keep")])?;
+    compare(&ctx, &p, col("keep")).await?;
     Ok(())
 }
 

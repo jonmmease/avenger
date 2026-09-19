@@ -62,11 +62,8 @@ async fn all_families_preserve_per_measure_filters_and_group_existence() -> Resu
         let p = PreaggregatePlanner::default().prepare(q, vec![col("cell")])?;
         compare(&ctx, &p, col("cell").eq(lit(1_i32))).await?;
         let q = query(&ctx,"SELECT g, SUM(CAST(cell AS DECIMAL(10,2))) FILTER (WHERE keep) AS s FROM rows GROUP BY g").await?;
-        // Integer-to-decimal casts are deliberately outside the initial total-cast allowlist.
-        assert!(PreaggregatePlanner::default()
-            .prepare(q, vec![col("cell")])?
-            .materialization_plan()
-            .is_none());
+        let p = PreaggregatePlanner::default().prepare(q, vec![col("cell")])?;
+        compare(&ctx, &p, col("cell").eq(lit(1_i32))).await?;
     }
     Ok(())
 }

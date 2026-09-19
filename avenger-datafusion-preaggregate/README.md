@@ -98,7 +98,7 @@ throughout the query must remain immutable.
 |---|---|
 | Target aggregates | Native `COUNT`, `SUM`, `MIN`, `MAX`, `AVG`, `VAR_SAMP`, `VAR_POP`, `STDDEV_SAMP`, `STDDEV_POP`, including native aliases |
 | Aggregate `FILTER` | A separate checked filter on each State call, without retaining filter-only columns |
-| Arguments and grouping expressions | Columns, literals, aliases, checked casts, safe floating arithmetic, positive-literal division, `TRY_CAST`, Boolean/null tests, checked `CASE`, and trusted total UDFs |
+| Arguments and grouping expressions | Resolved scalar expressions, including arithmetic, casts, `CASE`, and immutable UDFs, subject to the warm-up contract below |
 | After the target | Projection, `HAVING`/Filter, alias, Sort, top-k/fetch, Limit/offset, Window, further Aggregate, in their original order |
 | Outer aggregates | Native-valid immutable functions, including distinct count and median, without requiring a state recipe for that outer function |
 | Before the target | Joins, windows, projections, limits, repeated marker paths, and expression subqueries use direct execution |
@@ -129,27 +129,23 @@ null tests, comparisons, BETWEEN, IN, and correlated combinations when they can
 be evaluated from the stored dimensions. It performs no algebraic inversion or
 implicit bin rounding. Missing dimensions cause direct fallback for that binding.
 
-### Scalar safety
+### Warm-up expression contract
 
-Materialization can evaluate expressions on rows excluded by the current
-changing predicate. Immutability alone does not prove safety. The planner checks
-native type coercions and every child expression without executing functions.
+**Preaggregation requires expressions to be valid over the entire warm-up
+dataset.** Materialization removes the changing predicate, so it can evaluate
+expressions on rows excluded by the current selection. For example, casting a
+text column to a number can fail during warm-up if an unselected row contains
+invalid text, even when the direct query succeeds. Use `TRY_CAST` when a failed
+conversion should produce null. Casts, arithmetic, and UDFs retain their native
+execution behavior, and warm-up errors propagate to the caller.
 
-The initial arithmetic allowlist admits Float32/Float64 addition, subtraction,
-and multiplication, plus division by a positive literal of the same type. Casts
-include same-type/null casts, integer widening within signed or unsigned families,
-Float32 to Float64, integer-to-float, and decimal-to-Float64 conversions. Integral
-and decimal arithmetic with unproved overflow risks remains direct. The planner
-does not change overflow settings, infer bounds from a filter, or force measures
-to Float64 to make a query eligible.
-
-`TRY_CAST` and `CASE` require independently safe children. An aggregate `FILTER`
-cannot prove its argument safe: native grouped execution can evaluate arguments
-before applying that filter. Unknown UDFs remain direct unless the caller supplies
-`ExpressionProperties`. Its trusted properties distinguish total evaluation from
-preservation of DataFusion's grouping equality, including NaNs and signed zero.
-Neither property overrides volatility. Unresolved parameters in moved expressions
-remain conservative direct cases.
+The planner accepts immutable scalar UDFs without separate property registration.
+Functions must respect DataFusion's value-equality semantics: a predicate applied
+to a stored group must give the same membership result for every source row in
+that group. The planner checks volatility, native type coercions, expression
+structure, and predicate coverage. It does not prove that expressions cannot fail
+or that a UDF satisfies the equality contract. Unresolved parameters and
+subqueries in moved expressions use direct execution.
 
 Invalid columns, ambiguous references, non-Boolean changing predicates, foreign
 markers, and unresolved parameters in concrete bindings return DataFusion errors.
@@ -203,16 +199,16 @@ The public `runtime` module supports installing a preparation once in a graph:
   relation into the rollup. It must not manufacture unchecked retained predicates.
 
 Existing filters remain ordinary parts of the supplied query. They do not appear
-in `ParameterExpressions`. A deferred expression wrapper in such a filter needs
-a trusted property contract enforced for every value, including before warm-up.
-Cache invalidation alone does not establish expression safety. Adapters can use
-`PreaggregatePlanner::expression_properties()` to check concrete values. Unknown
-arbitrary expression inputs remain direct. Ordinary scalar inputs can be resolved
-in a source plan before the filter marker and exposed as typed columns.
-Suffix-only parameters remain finishing dependencies.
+in `ParameterExpressions`. A deferred expression wrapper must preserve the query's
+immutability and warm-up contract for every supplied value. The runtime must
+invalidate stored states when their source data or fixed inputs change. Ordinary
+scalar inputs can be resolved in a source plan before the filter marker and
+exposed as typed columns. Suffix-only parameters remain finishing dependencies.
 
-[`avenger-selection`](../avenger-selection) handles focus, self-exclusion,
-selection factorization, pixel dimensions, and its full-selection fallback. It
-uses this planner for query rewriting and validated runtime templates.
+[`avenger-selection`](../avenger-selection) supplies complete membership,
+consumer-specific factorization, and pixel interaction dimensions for a chart's
+chosen focus. Chart code composes those expressions with this planner and keeps
+a complete direct query for fallback. Selection itself has no query-planning or
+runtime dependency.
 [`avenger-datafusion-dataflow`](../avenger-datafusion-dataflow) owns execution,
 source versions, caching, in-progress work sharing, and cancellation.
