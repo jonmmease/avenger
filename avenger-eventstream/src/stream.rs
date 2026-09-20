@@ -42,6 +42,8 @@ impl EventStreamEventSnapshot {
 
 #[derive(Clone, Default, Debug)]
 pub struct EventStreamContext {
+    /// Ordinary delivery, or a terminal notification from an opted-in lifecycle.
+    pub phase: EventStreamPhase,
     pub mark_instance: Option<MarkInstance>,
     pub current_event: Option<EventStreamEventSnapshot>,
     pub start_event: Option<EventStreamEventSnapshot>,
@@ -56,12 +58,70 @@ impl EventStreamContext {
         previous_event: Option<EventStreamEventSnapshot>,
     ) -> Self {
         Self {
+            phase: EventStreamPhase::Update,
             mark_instance: mark_instance.cloned(),
             current_event,
             start_event,
             previous_event,
         }
     }
+
+    /// Position of the gesture's start snapshot, in logical window coordinates.
+    /// Returns None if the snapshot is absent or its event has no position.
+    pub fn start_position(&self) -> Option<[f32; 2]> {
+        self.start_event.as_ref()?.event.position()
+    }
+
+    /// Position of the delivered snapshot, including delayed event delivery.
+    /// Returns None for absent or nonpositional snapshots.
+    pub fn current_position(&self) -> Option<[f32; 2]> {
+        self.current_event.as_ref()?.event.position()
+    }
+
+    /// Position of the previous accepted event, in logical window coordinates.
+    /// Returns None for absent or nonpositional snapshots.
+    pub fn previous_position(&self) -> Option<[f32; 2]> {
+        self.previous_event.as_ref()?.event.position()
+    }
+
+    /// Current minus start position. Returns None if either position is absent.
+    pub fn delta_from_start(&self) -> Option<[f32; 2]> {
+        let [x, y] = self.current_position()?;
+        let [start_x, start_y] = self.start_position()?;
+        Some([x - start_x, y - start_y])
+    }
+
+    /// Current minus previous position. Returns None if either position is absent.
+    pub fn delta_from_previous(&self) -> Option<[f32; 2]> {
+        let [x, y] = self.current_position()?;
+        let [previous_x, previous_y] = self.previous_position()?;
+        Some([x - previous_x, y - previous_y])
+    }
+}
+
+/// The delivery phase of a stream event. Legacy streams always use Update.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EventStreamPhase {
+    /// An ordinary matching event, possibly delivered after debounce.
+    #[default]
+    Update,
+    /// The end trigger, delivered after flushing the last queued update.
+    Finish,
+    /// The cancellation trigger, delivered after discarding queued updates.
+    Cancel,
+}
+
+/// Opt-in finish/cancel behavior for an existing `between` stream.
+///
+/// Terminal notifications bypass update filtering, throttle, and debounce, and
+/// reach active streams even if another handler consumes their trigger. They
+/// preserve the start context, then clear gesture history and throttle state.
+/// Rejection or failure does not revive the session or its canceled timer.
+#[derive(Clone, Debug, Default)]
+pub struct BetweenLifecycle {
+    /// Optional cancellation condition, evaluated with the active start context.
+    /// Takes precedence over the end trigger. It does not undo application state.
+    pub cancel: Option<EventStreamFilter>,
 }
 
 type EventStreamFilterFn =
@@ -130,6 +190,11 @@ pub struct EventStreamConfig {
     /// If true, the matching between end event is emitted once with the frozen
     /// start event context before the between state is cleared.
     pub emit_between_end_event: bool,
+
+    /// Flush updates on finish and discard them on cancellation, then notify the
+    /// handler through `EventStreamContext::phase`. Overrides
+    /// `emit_between_end_event` when set. Has no effect without `between`.
+    pub between_lifecycle: Option<BetweenLifecycle>,
 
     /// If specified, only events associated with the specified mark paths will be included
     pub mark_paths: Option<Vec<Vec<usize>>>,
@@ -345,6 +410,56 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         self.debounce
             .as_mut()
             .map(|debounce| debounce.handle_wakeup(wake, now))
+    }
+
+    pub(crate) fn terminal_context(
+        &self,
+        event: &SceneGraphEvent,
+        mark_instance: Option<&MarkInstance>,
+        rtree: &SceneGraphRTree,
+        now: Instant,
+    ) -> Option<EventStreamContext> {
+        let lifecycle = self.config.between_lifecycle.as_ref()?;
+        let between = self.between_state.as_ref()?;
+        let mut context = EventStreamContext::new(
+            mark_instance,
+            Some(EventStreamEventSnapshot::new(event, mark_instance, now)),
+            Some(between.start_event.as_ref()?.clone()),
+            self.previous_event.clone(),
+        );
+        context.phase = if lifecycle
+            .cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.matches(event, &context, rtree))
+        {
+            EventStreamPhase::Cancel
+        } else if between.end_stream.matches_event(event, &context, rtree) {
+            EventStreamPhase::Finish
+        } else {
+            return None;
+        };
+        Some(context)
+    }
+
+    pub(crate) fn take_terminal_update(
+        &mut self,
+        phase: EventStreamPhase,
+    ) -> Option<DebouncedCommitUpdate<DebouncedEvent>> {
+        self.debounce.as_mut().map(|debounce| {
+            if phase == EventStreamPhase::Finish {
+                debounce.flush(&self.wake_key)
+            } else {
+                debounce.cancel(&self.wake_key)
+            }
+        })
+    }
+
+    pub(crate) fn reset_lifecycle(&mut self) {
+        if let Some(between) = &mut self.between_state {
+            between.start_event = None;
+        }
+        self.previous_event = None;
+        self.last_handled_time = None;
     }
 
     pub(crate) fn matches_and_update(
