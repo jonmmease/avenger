@@ -214,6 +214,22 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
         };
         let mut update = update;
         let completion = update.completion.take();
+        let attachment = match background::attach(
+            update.app.background_tasks(),
+            self.event_proxy.clone(),
+            update.generation,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.tokio_runtime.handle().clone(),
+        ) {
+            Ok(attachment) => attachment,
+            Err(error) => {
+                complete_host_update_sender(
+                    completion,
+                    HostUpdateInstallOutcome::Failed(error.to_string()),
+                );
+                return;
+            }
+        };
 
         let scene_graph = update.app.scene_graph_arc();
         let mut replacement_frame = update.canvas_frame.map(CanvasFrameState::new);
@@ -300,6 +316,9 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
             canvas.window().set_cursor(CursorIcon::Default);
         }
         self.installed_host_generation = update.generation;
+        self.background
+            .borrow_mut()
+            .install(update.generation, attachment);
         let installed_generation = update.generation;
 
         if let Some(hub) = self.render_invalidation_hub.as_ref() {

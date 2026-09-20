@@ -823,6 +823,7 @@ dependencies = [
  "avenger-typst-label",
  "avenger-wgpu",
  "cfg-if",
+ "futures",
  "image",
  "log",
  "notify",
