@@ -12,10 +12,10 @@ use avenger_datafusion_preaggregate::{
     FilterQuery, PreaggregatePlanner, PreparedQuery,
     runtime::{ParameterExpressions, ParameterizedFamily},
 };
+use avenger_transform::{self as transform, BinOptions, expr_fn};
 use datafusion::{
-    functions::math::expr_fn::floor,
-    functions_aggregate::expr_fn::count,
-    logical_expr::{LogicalPlan, LogicalPlanBuilder as LP, cast, col, lit},
+    functions::core::expr_fn::{greatest, least, named_struct},
+    logical_expr::{LogicalPlan, LogicalPlanBuilder as LP, cast, col, ident, lit},
     prelude::{ParquetReadOptions, SessionContext},
 };
 use std::{sync::Arc, time::Instant};
@@ -47,18 +47,31 @@ pub struct Evaluation {
     pub preaggregated: usize,
 }
 fn histogram(rows: LogicalPlan, plot: &Plot) -> datafusion::common::Result<LogicalPlan> {
-    LP::from(rows)
-        .aggregate(
-            vec![
-                cast(
-                    floor((col(plot.name) - lit(plot.domain[0] as f64)) / lit(plot.step as f64)),
-                    DataType::Int32,
-                )
-                .alias("bin"),
-            ],
-            vec![count(lit(1)).alias("count")],
-        )?
-        .build()
+    let parameters = transform::bin_parameters(
+        named_struct(vec![
+            lit("min"),
+            lit(plot.domain[0] as f64),
+            lit("max"),
+            lit(plot.domain[1] as f64),
+        ]),
+        BinOptions {
+            step: Some(lit(plot.step as f64)),
+            nice: Some(lit(false)),
+            ..Default::default()
+        },
+    )?;
+    let start = expr_fn::bin_start(col(plot.name), parameters);
+    transform::aggregate(
+        rows,
+        vec![
+            cast(
+                (start - lit(plot.domain[0] as f64)) / lit(plot.step as f64),
+                DataType::Int32,
+            )
+            .alias("bin"),
+        ],
+        vec![expr_fn::count().alias("count")],
+    )
 }
 fn output(
     b: &mut DataflowBuilder,
@@ -79,16 +92,21 @@ impl Engine {
                 ParquetReadOptions::default(),
             )
             .await?;
-        let source = context
-            .sql(
-                r#"
-            SELECT GREATEST(-60, LEAST("ARR_DELAY", 180))::DOUBLE AS delay,
-                   "DEP_TIME"::DOUBLE AS time, "DISTANCE"::DOUBLE AS distance
-            FROM source
-        "#,
-            )
-            .await?
-            .into_unoptimized_plan();
+        let source = transform::formula(
+            context.table("source").await?.into_unoptimized_plan(),
+            cast(
+                greatest(vec![lit(-60), least(vec![ident("ARR_DELAY"), lit(180)])]),
+                DataType::Float64,
+            ),
+            "delay",
+        )?;
+        let source = LP::from(source)
+            .project(vec![
+                col("delay"),
+                cast(ident("DEP_TIME"), DataType::Float64).alias("time"),
+                cast(ident("DISTANCE"), DataType::Float64).alias("distance"),
+            ])?
+            .build()?;
         let mut b = DataflowBuilder::new();
         let rows = b.add_plan("flights", source)?;
         let mut histograms = vec![];
@@ -98,12 +116,7 @@ impl Engine {
             let (_, direct) = output(
                 &mut b,
                 &format!("{}_direct", plot.name),
-                histogram(
-                    LP::from(rows.plan_ref())
-                        .filter(filter.expr_ref())?
-                        .build()?,
-                    plot,
-                )?,
+                histogram(transform::filter(rows.plan_ref(), filter.expr_ref())?, plot)?,
             )?;
             histograms.push(HistogramQuery {
                 filter,
@@ -125,9 +138,7 @@ impl Engine {
                 let split = predicates.split().map_err(|e| anyhow::anyhow!(e))?;
                 // Other brushes are ordinary inputs upstream of the aggregate states.
                 // Dataflow invalidates those states when their fixed predicate changes.
-                let source = LP::from(rows.plan_ref())
-                    .filter(fixed.expr_ref())?
-                    .build()?;
+                let source = transform::filter(rows.plan_ref(), fixed.expr_ref())?;
                 let query = FilterQuery::new(source, |rows| histogram(rows, plot))?;
                 let prepared =
                     PreaggregatePlanner::default().prepare(query, split.dimensions().to_vec())?;
