@@ -163,7 +163,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
     }
     marks.push(text(
         s.error.clone().unwrap_or_else(|| {
-            if s.pending {
+            if s.foreground.is_pending() {
                 "Updating…".into()
             } else {
                 format!(
@@ -178,7 +178,7 @@ pub fn build(s: &State) -> Result<SceneGraph> {
         SIZE[1] - 29.,
         11.,
     ));
-    marks.push(text(&s.warmup, 24., SIZE[1] - 12., 11.));
+    marks.push(text(&s.warmup_message, 24., SIZE[1] - 12., 11.));
     Ok(SceneGraph {
         width: SIZE[0],
         height: SIZE[1],
