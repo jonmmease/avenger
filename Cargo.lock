@@ -539,6 +539,7 @@ name = "avenger-datafusion-preaggregate"
 version = "0.1.0"
 dependencies = [
  "avenger-datafusion-aggregate-state",
+ "avenger-datafusion-dataflow",
  "datafusion",
  "tokio",
 ]

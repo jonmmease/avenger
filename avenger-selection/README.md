@@ -356,11 +356,12 @@ including rows outside the current selection. See the planner's
 [warm-up contract](../avenger-datafusion-preaggregate/README.md#warm-up-expression-contract).
 
 The example's small [composition helper](examples/support/composition.rs) is
-private chart-side code, not part of the selection library API. Its generic
-preparation validates bindings and rewrites them into retained-column space.
-It installs the materialization and rollup as ordinary dataflow nodes. The base
+private chart-side code, not part of the selection library API. It checks whether
+the fixed predicate and dimensions still match the focused preparation. The
+optional `avenger-datafusion-preaggregate::dataflow` adapter installs the plans,
+validates changing predicates, and applies their dataflow bindings. The base
 retains the complete direct query so fallback cannot inherit a stale fixed
-predicate.
+predicate. Selection has no normal dependency on this adapter.
 
 ```sh
 cargo run -p avenger-selection --example preaggregate_crossfilter

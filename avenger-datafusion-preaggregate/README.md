@@ -10,7 +10,8 @@ two stages:
 The crate returns logical plans. It does not execute queries or own a cache.
 It depends on DataFusion **54.1.0** and
 [`avenger-datafusion-aggregate-state`](../avenger-datafusion-aggregate-state),
-with no dependency on selection, charts, or dataflow.
+with no default dependency on selection, charts, or dataflow. The optional
+`dataflow` feature adds the adapter described below.
 
 ## Prepare, materialize, and bind
 
@@ -212,3 +213,116 @@ a complete direct query for fallback. Selection itself has no query-planning or
 runtime dependency.
 [`avenger-datafusion-dataflow`](../avenger-datafusion-dataflow) owns execution,
 source versions, caching, in-progress work sharing, and cancellation.
+
+
+## Dataflow adapter
+
+Enable the optional integration when using Avenger's dataflow runtime:
+
+```toml
+avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate", features = ["dataflow"] }
+```
+
+`dataflow::Query::install(&mut builder, name, prepared_query)` registers direct,
+materialization, and rollup plans from a `PreparedQuery`. An ineligible preparation
+registers only its direct path. Root and additional dataflows use the same method.
+`install_scoped` accepts a `ScopeBuilder`. Installation neither reads data nor
+executes functions, and binding does not reconstruct the installed logical plans.
+
+The adapter has two types:
+
+| Type | Responsibility |
+|---|---|
+| `dataflow::Query` | Own the immutable preparation and installed graph handles, bind predicates, and expose `explain()` |
+| `dataflow::Binding` | Apply checked input values, expose the selected `output()`, and report `diagnostics()` |
+
+Initialize private adapter inputs with `query.bind(lit(true))?.apply(inputs)?`.
+Do this for each installed query, including inactive queries, because dataflow
+requires complete root bindings. Supply all other ordinary inputs yourself.
+This is an explicit neutral binding, not a default attached to the graph.
+Subsequent bindings can apply to `Inputs::edit()` without changing unrelated values.
+A direct binding resets the unused retained predicate to true.
+
+This function accepts an already prepared flow and complete initial inputs:
+
+```rust,no_run
+# #[cfg(feature = "dataflow")]
+async fn update(
+    flow: &avenger_datafusion_dataflow::PreparedDataflow,
+    query: &avenger_datafusion_preaggregate::dataflow::Query,
+    previous: &avenger_datafusion_dataflow::Inputs,
+    changing: datafusion::logical_expr::Expr,
+) -> Result<avenger_datafusion_dataflow::TableSnapshot, Box<dyn std::error::Error>> {
+    let binding = query.bind(changing)?;
+    let inputs = binding.apply(previous.edit())?.finish()?;
+    let result = flow.query(&[binding.output()], &[], &inputs).await?;
+    println!("{:?}", result.report());
+    Ok(result.table(&binding.output())?.clone())
+}
+```
+
+For multiple receivers, apply their bindings to one input builder and collect
+their output handles into one query. Results and runtime reports use the ordinary
+dataflow API. SQL inspection also uses dataflow's existing output formatter.
+
+### Warm-up, inputs, and fallback
+
+`Query::materialization_output()` exposes preparation-level warm-up availability
+before a predicate exists. `Binding::materialization_output()` returns a handle
+only when that binding selects preaggregation. Query that handle to warm the
+states. A rollup arriving during warm-up can join the same calculation through
+dataflow's existing work sharing. Dropping either request releases only its
+interest. The adapter owns no cache, task, or readiness flag.
+
+`bind_with_policy(changing, QueryPolicy::ForceDirect)` selects the direct output
+and returns no binding-level warm-up handle. Force-direct preserves dataflow's
+ordinary cache policy. Invalid predicates remain errors. Unsupported valid
+predicates select direct execution, subject to dataflow's own supported-plan
+and immutable row-expression input contracts. Execution errors propagate without
+automatic retry through another strategy.
+
+Existing filters remain part of both paths. A direct binding replaces only the
+owned changing-filter location, so it cannot remove an obsolete fixed filter.
+Chart code still uses a complete direct query when selection factorization fails.
+The selection example demonstrates this boundary. Prefer ordinary upstream
+expression inputs for changing fixed selections when a compatible preparation
+should survive those changes. A changed fixed input invalidates the state node.
+A fixed predicate embedded as a literal instead requires a replacement preparation.
+Changes to retained dimensions or pixel-grid definitions also remain caller-owned
+preparation decisions. The binder checks every new changing predicate against
+the installed dimensions.
+
+### Extensions, scopes, and lifetime
+
+For an additional dataflow, import the base source, install the query, and call
+`base.prepare_extension`. Apply adapter bindings to the extension's inputs and
+supply base inputs through the existing separate query argument. This preserves
+the imported source's cache identity.
+
+For scoped installation, use `Binding::apply_scoped` inside `scope_defaults` or
+`at`. Root captures remain ordinary root bindings. Output requests cover all
+instances of a scope. Selecting different strategies per instance requires
+requesting both outputs, with the extra computation that entails, or selecting
+one strategy consistently. The adapter does not add conditional instance execution.
+
+Query clones share their preparation and handles. Bindings contain expressions
+and handles, not query results. Normal dataflow ownership checks reject applying
+a binding to a foreign graph or scope. Installed handles do not survive artifact
+serialization as adapter objects.
+
+Installation uses `{name}_source` and, when eligible, `{name}_retained` inputs,
+with `{name}_direct`, `{name}_states`, and `{name}_rollup` nodes and outputs.
+Dataflow reports name collisions. Discard the builder after an installation error
+because earlier registrations may remain. Physical planning, caching, source
+versioning, and scoped invalidation retain the runtime's existing behavior.
+The adapter does not change the warm-up expression or numerical contracts above.
+
+### Runnable example
+
+The [dataflow example](examples/dataflow.rs) starts with a small inline table,
+warms a query, applies a brush and drag, changes another selection, and forces
+direct execution. It prints pretty tables and actual execution reports.
+
+```sh
+cargo run -p avenger-datafusion-preaggregate --features dataflow --example dataflow
+```

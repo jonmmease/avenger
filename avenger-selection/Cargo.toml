@@ -13,7 +13,7 @@ half = "2"
 
 [dev-dependencies]
 datafusion = { version = "=54.1.0", default-features = false, features = ["sql"] }
-avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate" }
+avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate", features = ["dataflow"] }
 async-trait = { workspace = true }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", features = ["sql"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

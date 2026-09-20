@@ -68,16 +68,11 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
                 .expr(&full, membership().predicate(state).unwrap())?
                 .finish()
         };
-        let warm_inputs = extension
-            .inputs()
-            .expr(
-                &optimized.predicate,
-                optimized.bind(initial.split().unwrap())?.unwrap(),
-            )?
-            .finish()?;
+        let warm_binding = optimized.bind(initial.split().unwrap())?.unwrap();
+        let warm_inputs = warm_binding.apply(extension.inputs())?.finish()?;
         let warm = extension
             .query(
-                &[optimized.materialization],
+                &[warm_binding.materialization_output().unwrap()],
                 &[],
                 &base_inputs(&inactive, table.clone())?,
                 &warm_inputs,
@@ -92,16 +87,11 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
         for (lo, hi) in [(10, 30), (20, 40), (20, 40)] {
             let state = inactive.set(&focus, between("delay", lo, hi))?;
             let p = membership().predicates(&state, &focus)?;
-            let inputs = extension
-                .inputs()
-                .expr(
-                    &optimized.predicate,
-                    optimized.bind(p.split().unwrap())?.unwrap(),
-                )?
-                .finish()?;
+            let binding = optimized.bind(p.split().unwrap())?.unwrap();
+            let inputs = binding.apply(extension.inputs())?.finish()?;
             let result = extension
                 .query(
-                    &[optimized.output],
+                    &[binding.output()],
                     &[],
                     &base_inputs(&state, table.clone())?,
                     &inputs,
@@ -118,7 +108,7 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
                     assert!(result.report().executed_nodes.is_empty());
                 }
             }
-            observed.push((state, result.table(&optimized.output)?.clone()));
+            observed.push((state, result.table(&binding.output())?.clone()));
         }
         // Reference requests follow the measured sequence so they cannot warm it.
         for (state, expected) in &observed {
@@ -132,9 +122,10 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
             .set(&other, values("carrier", ["AA".into()]))?;
         let changed = membership().predicates(&fixed_changed, &focus)?;
         assert!(optimized.bind(changed.split().unwrap())?.is_none());
-        let neutral = extension
-            .inputs()
-            .expr(&optimized.predicate, lit(true))?
+        let neutral = optimized
+            .query
+            .bind(lit(true))?
+            .apply(extension.inputs())?
             .finish()?;
         let direct_result = extension
             .query(
@@ -155,23 +146,18 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
         )?
         .unwrap();
         let replacement = base.prepare_extension(&replacement.finish()?).await?;
-        let inputs = replacement
-            .inputs()
-            .expr(
-                &next.predicate,
-                next.bind(changed.split().unwrap())?.unwrap(),
-            )?
-            .finish()?;
+        let binding = next.bind(changed.split().unwrap())?.unwrap();
+        let inputs = binding.apply(replacement.inputs())?.finish()?;
         let result = replacement
             .query(
-                &[next.output],
+                &[binding.output()],
                 &[],
                 &base_inputs(&fixed_changed, table.clone())?,
                 &inputs,
             )
             .await?;
         assert_results(
-            result.table(&next.output)?.batches(),
+            result.table(&binding.output())?.batches(),
             direct_result.table(&fallback)?.batches(),
             &[],
         );
@@ -191,7 +177,7 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
             TableSnapshot::from_batches(flights().schema(), vec![flights().slice(0, 2)])?;
         let result = replacement
             .query(
-                &[next.output],
+                &[binding.output()],
                 &[],
                 &base_inputs(&fixed_changed, refreshed.clone())?,
                 &inputs,
@@ -201,7 +187,7 @@ async fn drag_reuses_states_fixed_changes_replace_preparation_and_source_changes
             .query(&[direct], &[], &base_inputs(&fixed_changed, refreshed)?)
             .await?;
         assert_results(
-            result.table(&next.output)?.batches(),
+            result.table(&binding.output())?.batches(),
             expected.table(&direct)?.batches(),
             &[],
         );
@@ -263,10 +249,10 @@ async fn changed_grid_or_union_uses_the_complete_current_direct_predicate() -> E
     for state in [&grid_state, &union] {
         let p = membership().predicates(state, &focus)?;
         assert!(p.split().is_err());
-        let inputs = flow
-            .inputs()
-            .expr(&full, p.full().clone())?
-            .expr(&optimized.predicate, lit(true))?
+        let inputs = optimized
+            .query
+            .bind(lit(true))?
+            .apply(flow.inputs().expr(&full, p.full().clone())?)?
             .finish()?;
         let result = flow.query(&[direct], &[], &inputs).await?;
         assert!(!result

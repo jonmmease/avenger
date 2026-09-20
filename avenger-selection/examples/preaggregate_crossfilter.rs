@@ -210,8 +210,8 @@ async fn prepare_focus(
     let mut targets = Vec::new();
     let mut fallbacks = Vec::new();
     for (plot, direct) in plots.iter().zip(direct) {
-        let fallback = additional.import_table(format!("{}_direct", plot.name), direct)?;
-        fallbacks.push(additional.table_output(format!("{}_direct", plot.name), &fallback)?);
+        let fallback = additional.import_table(format!("{}_fallback", plot.name), direct)?;
+        fallbacks.push(additional.table_output(format!("{}_fallback", plot.name), &fallback)?);
         let predicates = plot.filter.predicates(state, focus)?;
         let target = match predicates.split() {
             Ok(split) => {
@@ -258,7 +258,7 @@ fn bindings(
         base_inputs = base_inputs.expr(full, p.full().clone())?;
         let mut output = active.fallbacks[index];
         if let Some(target) = &active.targets[index] {
-            let retained = if force_direct {
+            let binding = if force_direct {
                 None
             } else {
                 match p.split() {
@@ -266,11 +266,13 @@ fn bindings(
                     Err(_) => None,
                 }
             };
-            if retained.is_some() {
-                output = target.output;
-                warm.push(target.materialization);
+            if let Some(binding) = binding {
+                output = binding.output();
+                warm.extend(binding.materialization_output());
+                inputs = binding.apply(inputs)?;
+            } else {
+                inputs = target.query.bind(lit(true))?.apply(inputs)?;
             }
-            inputs = inputs.expr(&target.predicate, retained.unwrap_or_else(|| lit(true)))?;
         }
         outputs.push(output);
     }
@@ -461,18 +463,22 @@ async fn main() -> ExampleResult<()> {
                     active
                         .definition
                         .sql()
-                        .table_output(&target.materialization)?
+                        .table_output(&target.query.materialization_output().unwrap())?
                 );
                 println!(
                     "Rollup template SQL:\n{}",
-                    active.definition.sql().table_output(&target.output)?
+                    active
+                        .definition
+                        .sql()
+                        .table_output(&target.query.bind(lit(true))?.output())?
                 );
                 let p = plot.filter.predicates(state, &active.producer)?;
                 if let Ok(split) = p.split() {
-                    if let Some(retained) = target.bind(split)? {
+                    if let Some(binding) = target.bind(split)? {
                         println!(
-                            "Retained-space binding: {}",
-                            active.definition.sql().expr(&retained)?
+                            "Changing predicate ({:?}): {}",
+                            binding.diagnostics().strategy,
+                            active.definition.sql().expr(split.changing())?
                         );
                     }
                 }
