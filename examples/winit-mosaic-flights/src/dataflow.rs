@@ -8,10 +8,7 @@ use arrow::{
     datatypes::{DataType, Int32Type, Int64Type},
 };
 use avenger_datafusion_dataflow::*;
-use avenger_datafusion_preaggregate::{
-    FilterQuery, PreaggregatePlanner, PreparedQuery,
-    runtime::{ParameterExpressions, ParameterizedFamily},
-};
+use avenger_datafusion_preaggregate::{FilterQuery, PreaggregatePlanner, dataflow::Query};
 use avenger_transform::{self as transform, BinOptions, expr_fn};
 use datafusion::{
     functions::core::expr_fn::{greatest, least, named_struct},
@@ -28,11 +25,7 @@ struct CrossFilterQuery {
     focus: usize,
     target: usize,
     fixed: ExprInput,
-    cells: ExprInput,
-    prepared: PreparedQuery,
-    templates: ParameterizedFamily,
-    states: TableOutput,
-    rollup: TableOutput,
+    query: Query,
 }
 pub struct Engine {
     prepared: PreparedDataflow,
@@ -73,15 +66,6 @@ fn histogram(rows: LogicalPlan, plot: &Plot) -> datafusion::common::Result<Logic
         vec![expr_fn::count().alias("count")],
     )
 }
-fn output(
-    b: &mut DataflowBuilder,
-    name: &str,
-    plan: LogicalPlan,
-) -> Result<(PlanNode, TableOutput)> {
-    let node = b.add_plan(name, plan)?;
-    let output = b.table_output(name, &node)?;
-    Ok((node, output))
-}
 impl Engine {
     pub async fn load(config: &Config, selections: &Selections) -> Result<Arc<Self>> {
         let context = SessionContext::new();
@@ -113,11 +97,12 @@ impl Engine {
         let mut crossfilters = vec![];
         for (target, plot) in PLOTS.iter().enumerate() {
             let filter = b.expr_input(format!("{}_filter", plot.name), DataType::Boolean)?;
-            let (_, direct) = output(
-                &mut b,
-                &format!("{}_direct", plot.name),
+            let name = format!("{}_direct", plot.name);
+            let node = b.add_plan(
+                &name,
                 histogram(transform::filter(rows.plan_ref(), filter.expr_ref())?, plot)?,
             )?;
+            let direct = b.table_output(name, &node)?;
             histograms.push(HistogramQuery {
                 filter,
                 output: direct,
@@ -131,7 +116,6 @@ impl Engine {
                 }
                 let name = format!("{}_to_{}", PLOTS[focus].name, plot.name);
                 let fixed = b.expr_input(format!("{name}_fixed"), DataType::Boolean)?;
-                let cells = b.expr_input(format!("{name}_cells"), DataType::Boolean)?;
                 let predicates = selections
                     .consumer(target)?
                     .predicates(&selections.state, producer)?;
@@ -142,35 +126,18 @@ impl Engine {
                 let query = FilterQuery::new(source, |rows| histogram(rows, plot))?;
                 let prepared =
                     PreaggregatePlanner::default().prepare(query, split.dimensions().to_vec())?;
-                let templates = prepared.parameterize(ParameterExpressions {
-                    source: lit(true),
-                    retained: cells.expr_ref(),
-                })?;
-                let plans = templates.preaggregated.as_ref().with_context(|| {
+                let query = Query::install(&mut b, name, prepared)?;
+                query.materialization_output().with_context(|| {
                     format!(
                         "histogram preaggregation: {:?}",
-                        prepared.explain().direct_reason
+                        query.explain().direct_reason
                     )
                 })?;
-                let (node, states) = output(
-                    &mut b,
-                    &format!("{name}_states"),
-                    plans.materialization.clone(),
-                )?;
-                let (_, rollup) = output(
-                    &mut b,
-                    &format!("{name}_rollup"),
-                    plans.rollup.with_materialization(node.plan_ref())?,
-                )?;
                 crossfilters.push(CrossFilterQuery {
                     focus,
                     target,
                     fixed,
-                    cells,
-                    prepared,
-                    templates,
-                    states,
-                    rollup,
+                    query,
                 });
             }
         }
@@ -194,9 +161,10 @@ impl Engine {
             defaults = defaults.expr(&h.filter, lit(true))?;
         }
         for pair in &crossfilters {
-            defaults = defaults
-                .expr(&pair.fixed, lit(true))?
-                .expr(&pair.cells, lit(true))?;
+            defaults = pair
+                .query
+                .bind(lit(true))?
+                .apply(defaults.expr(&pair.fixed, lit(true))?)?;
         }
         Ok(Arc::new(Self {
             defaults: defaults.finish()?,
@@ -230,14 +198,11 @@ impl Engine {
             let Ok(split) = predicates.split() else {
                 continue;
             };
-            let bound = pair.prepared.bind(split.changing().clone())?;
-            pair.templates.check_binding(bound.predicates())?;
-            if let Some(cells) = bound.predicates().retained() {
-                inputs = inputs
-                    .expr(&pair.fixed, split.fixed().clone())?
-                    .expr(&pair.cells, cells.clone())?;
-                outputs[pair.target] = pair.rollup;
-                states.push(pair.states);
+            let bound = pair.query.bind(split.changing().clone())?;
+            if let Some(materialization) = bound.materialization_output() {
+                inputs = bound.apply(inputs.expr(&pair.fixed, split.fixed().clone())?)?;
+                outputs[pair.target] = bound.output();
+                states.push(materialization);
                 preaggregated += 1;
             }
         }
