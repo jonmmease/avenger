@@ -1,0 +1,167 @@
+mod common;
+use avenger_datafusion_dataflow::{
+    DataflowBuilder, Result, Runtime, RuntimeConfig, SemanticConfig, TableSnapshot,
+};
+use avenger_scales_datafusion::{options_literal, scale_expr, BuiltinScale, ScaleExtensionCodec};
+use avenger_transform::{self as t, BinOptions, TransformExtensionCodec};
+use datafusion::{
+    arrow::datatypes::DataType,
+    common::ScalarValue,
+    functions_nested::expr_fn::make_array,
+    logical_expr::{col, lit, scalar_subquery, Expr, LogicalPlanBuilder},
+    prelude::SessionContext,
+};
+use datafusion_proto::logical_plan::{
+    from_proto::parse_expr, to_proto::serialize_expr, LogicalExtensionCodec,
+};
+use std::{collections::HashMap, sync::Arc};
+
+#[tokio::test]
+async fn transform_graph_decodes_in_fresh_runtime() -> Result<()> {
+    let mut b = DataflowBuilder::with_semantics(SemanticConfig {
+        function_versions: t::function_versions(),
+        ..Default::default()
+    });
+    let batch = common::batch(vec![
+        Some(0.0),
+        Some(1.0),
+        Some(2.0),
+        None,
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+    ]);
+    let rows = b.table_snapshot(
+        "rows",
+        TableSnapshot::from_batches(batch.schema(), vec![batch])?,
+    )?;
+    let selected = b.expr_input("selected", DataType::Boolean)?;
+    let step = b.scalar_input("step", DataType::Float64)?;
+    let finite = t::filter(rows.plan_ref(), col("x").lt(lit(f64::INFINITY)))?;
+    let extent = b.add_plan("extent", t::extent(finite, col("x"))?)?;
+    let params = b.add_scalar(
+        "parameters",
+        t::bin_parameters(
+            scalar_subquery(Arc::new(extent.plan_ref())),
+            BinOptions {
+                step: Some(step.expr_ref()),
+                ..Default::default()
+            },
+        )?,
+    )?;
+    let bins = t::bin(rows.plan_ref(), col("x"), params.expr_ref(), ["lo", "hi"])?;
+    let bins = t::formula(bins, t::expr_fn::truthy(col("x")), "truthy")?;
+    let output = b.add_plan(
+        "result",
+        LogicalPlanBuilder::from(t::aggregate(
+            t::filter(bins, selected.expr_ref())?,
+            vec![col("lo")],
+            common::measures(),
+        )?)
+        .sort(vec![col("lo").sort(true, true)])?
+        .build()?,
+    )?;
+    let output = b.table_output("result", &output)?;
+    let graph = b.finish()?;
+    let codec = Arc::new(TransformExtensionCodec::default());
+    let runtime = || {
+        Runtime::with_session_state_and_codec(
+            SessionContext::new().state(),
+            RuntimeConfig {
+                function_versions: t::function_versions(),
+                ..Default::default()
+            },
+            codec.clone(),
+        )
+    };
+    let prepared = runtime()?.prepare(&graph).await?;
+    let inputs = prepared
+        .inputs()
+        .scalar(&step, 1.0.into())?
+        .expr(&selected, col("x").lt(lit(10.0)))?
+        .finish()?;
+    let expected = prepared.query(&[output], &[], &inputs).await?;
+    let bytes = graph.to_bytes_with_codec(codec.clone())?;
+    let fresh = runtime()?;
+    let decoded = fresh.decode_dataflow(&bytes)?;
+    let interface = decoded.interface();
+    let root = interface.root();
+    let prepared = fresh.prepare(&decoded).await?;
+    let output2 = root.table_output("result")?;
+    let inputs = prepared
+        .inputs()
+        .scalar(&root.scalar_input("step")?, 1.0.into())?
+        .expr(&root.expr_input("selected")?, col("x").lt(lit(10.0)))?
+        .finish()?;
+    let actual = prepared.query(&[output2], &[], &inputs).await?;
+    let pretty = |b: &[datafusion::arrow::record_batch::RecordBatch]| {
+        datafusion::arrow::util::pretty::pretty_format_batches(b)
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        pretty(expected.table(&output)?.batches()),
+        pretty(actual.table(&output2)?.batches())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn delegates_scale_codec_and_preserves_nonfinite_literals() -> datafusion::common::Result<()>
+{
+    let ctx = SessionContext::new();
+    let codec = TransformExtensionCodec::with_fallback(Arc::new(ScaleExtensionCodec::default()));
+    let scale = scale_expr(
+        BuiltinScale::Linear,
+        make_array(vec![lit(0.0), lit(10.0)]),
+        make_array(vec![lit(0.0), lit(100.0)]),
+        options_literal(&HashMap::new())?,
+        lit(5.0),
+    )?;
+    for expr in [
+        t::expr_fn::truthy(scale),
+        t::expr_fn::truthy(lit(f64::NAN)),
+        t::expr_fn::bin_end(
+            lit(f64::INFINITY),
+            t::bin_parameters(common::extent(Some(0.0), Some(10.0)), BinOptions::default())?,
+        ),
+    ] {
+        let decoded = parse_expr(
+            &serialize_expr(&expr, &codec)?,
+            ctx.task_ctx().as_ref(),
+            &codec,
+        )?;
+        let a = common::evaluate(&ctx, expr).await?;
+        let b = common::evaluate(&ctx, decoded).await?;
+        assert_eq!(a, b);
+    }
+    Ok(())
+}
+
+#[test]
+fn rejects_unknown_version_and_does_not_claim_foreign_names() -> datafusion::common::Result<()> {
+    let codec = TransformExtensionCodec::default();
+    let Expr::ScalarFunction(f) = t::expr_fn::truthy(lit(1)) else {
+        unreachable!()
+    };
+    let mut bytes = vec![];
+    codec.try_encode_udf(&f.func, &mut bytes)?;
+    assert!(codec.try_decode_udf("other", &bytes).is_err());
+    let i = bytes.iter().position(|b| *b == b'/').unwrap() + 1;
+    bytes[i] = b'9';
+    assert!(codec.try_decode_udf(f.func.name(), &bytes).is_err());
+    let foreign = datafusion::logical_expr::create_udf(
+        "avenger_truthy",
+        vec![DataType::Boolean],
+        DataType::Boolean,
+        datafusion::logical_expr::Volatility::Volatile,
+        Arc::new(|_| {
+            Ok(datafusion::logical_expr::ColumnarValue::Scalar(
+                ScalarValue::Boolean(Some(true)),
+            ))
+        }),
+    );
+    let mut bytes = vec![];
+    codec.try_encode_udf(&foreign, &mut bytes)?;
+    assert!(!bytes.starts_with(b"AVENGER_TRANSFORM"));
+    Ok(())
+}
