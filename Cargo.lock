@@ -8968,6 +8968,7 @@ dependencies = [
  "avenger-scales-datafusion",
  "avenger-scenegraph",
  "avenger-selection",
+ "avenger-transform",
  "avenger-typst-label",
  "avenger-wgpu",
  "avenger-winit-wgpu",
