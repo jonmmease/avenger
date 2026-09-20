@@ -7964,6 +7964,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-selection",
  "avenger-text",
+ "avenger-transform",
  "avenger-wgpu",
  "avenger-winit-wgpu",
  "datafusion",

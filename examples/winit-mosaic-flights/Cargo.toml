@@ -28,5 +28,6 @@ avenger-scales-datafusion = { path = "../../avenger-scales-datafusion" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-selection = { path = "../../avenger-selection" }
 avenger-text = { path = "../../avenger-text" }
+avenger-transform = { path = "../../avenger-transform" }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["rayon"] }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
