@@ -3,12 +3,12 @@ use crate::{
     dataflow::{Engine, Evaluation},
     layout, scene,
     selection::{PLOTS, Selections},
-    worker::{Worker, completion_key},
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use avenger_app::{
     app::{AvengerApp, SceneGraphBuilder},
+    background::{BackgroundTask, BackgroundTasks},
     error::AvengerAppError,
 };
 use avenger_common::time::Instant;
@@ -34,23 +34,23 @@ pub struct State {
     pub rows: i64,
     pub preview: Option<(usize, [f64; 2])>,
     pub error: Option<String>,
-    pub pending: bool,
     pub preaggregate: bool,
-    pub warmup: String,
-    worker: Arc<Worker>,
+    pub warmup_message: String,
+    pub foreground: BackgroundTask<Evaluation>,
+    warmup: BackgroundTask<Evaluation>,
+    engine: Arc<Engine>,
     focus: Option<usize>,
-    generations: [u64; 2],
     drag: Option<usize>,
     commit: DebouncedCommit<(usize, [f64; 2])>,
 }
 impl State {
-    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, Arc<Worker>)> {
+    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
         let selections = Selections::new(plots[0].width)?;
         let engine = Engine::load(&config, &selections).await?;
         let result = Arc::new(engine.query(&selections, None, false).await?);
         let rows = result.bins[0].iter().map(|(_, n)| n).sum();
-        let worker = Worker::new(engine);
+        let tasks = BackgroundTasks::new();
         Ok((
             Self {
                 text,
@@ -61,12 +61,12 @@ impl State {
                 preaggregate: config.preaggregate,
                 preview: None,
                 error: None,
-                pending: false,
-                worker: worker.clone(),
+                foreground: tasks.task(),
+                warmup: tasks.task(),
+                engine,
                 focus: None,
-                generations: [0; 2],
                 drag: None,
-                warmup: if config.preaggregate {
+                warmup_message: if config.preaggregate {
                     "Hover a plot to warm its cross-filters"
                 } else {
                     "Direct mode"
@@ -78,40 +78,40 @@ impl State {
                     leading: false,
                 }),
             },
-            worker,
+            tasks,
         ))
     }
-    fn submit(&mut self) {
-        self.generations[0] += 1;
-        self.pending = true;
+    fn submit(&mut self) -> Result<()> {
         self.error = None;
-        self.worker.submit(
-            self.generations[0],
-            self.selections.clone(),
-            self.focus,
-            false,
-        );
+        let engine = self.engine.clone();
+        let selections = self.selections.clone();
+        let focus = self.focus;
+        self.foreground
+            .submit(async move { engine.query(&selections, focus, false).await })?;
+        Ok(())
     }
-    fn activate(&mut self, focus: Option<usize>) {
+    fn activate(&mut self, focus: Option<usize>) -> Result<()> {
         if focus == self.focus {
-            return;
+            return Ok(());
         }
         self.focus = focus;
-        self.generations[1] += 1;
-        self.worker.cancel(true);
+        self.warmup.cancel();
         if !self.preaggregate {
-            return;
+            return Ok(());
         }
-        self.warmup = "Hover a plot to warm its cross-filters".into();
+        self.warmup_message = "Hover a plot to warm its cross-filters".into();
         if let Some(i) = focus {
-            self.warmup = format!("Warming {}…", PLOTS[i].title);
-            self.worker
-                .submit(self.generations[1], self.selections.clone(), focus, true);
+            self.warmup_message = format!("Warming {}…", PLOTS[i].title);
+            let engine = self.engine.clone();
+            let selections = self.selections.clone();
+            self.warmup
+                .submit(async move { engine.query(&selections, focus, true).await })?;
         }
+        Ok(())
     }
     fn commit_brush(&mut self, (plot, bounds): (usize, [f64; 2])) -> Result<()> {
         self.selections.set(plot, Some(bounds))?;
-        self.submit();
+        self.submit()?;
         Ok(())
     }
     fn cancel_drag(&mut self, status: &mut UpdateStatus) {
@@ -164,32 +164,24 @@ impl EventStreamHandler<State> for Input {
 fn input(event: &SceneGraphEvent, s: &mut State) -> Result<UpdateStatus> {
     let mut status = UpdateStatus::default();
     match event {
-        SceneGraphEvent::RuntimeWake(wake)
-            if wake.key == completion_key(false) || wake.key == completion_key(true) =>
-        {
-            let warm = wake.key == completion_key(true);
-            if let Some((generation, result)) = s.worker.take(warm)
-                && generation == s.generations[usize::from(warm)]
-            {
-                if warm {
-                    s.warmup = match result {
-                        Ok(r) => format!("Warm-up ready · {:.0} ms", r.elapsed_ms),
-                        Err(e) => format!("Warm-up failed: {e}"),
-                    };
-                } else {
-                    s.pending = false;
-                    match result {
-                        Ok(r) => {
-                            s.result = Arc::new(r);
-                            s.error = None;
-                        }
-                        Err(e) => s.error = Some(e),
+        SceneGraphEvent::RuntimeWake(wake) => {
+            if let Some(result) = s.foreground.handle_wake(wake) {
+                match result {
+                    Ok(result) => {
+                        s.result = result;
+                        s.error = None;
                     }
+                    Err(error) => s.error = Some(error.to_string()),
                 }
                 status.rerender = true;
             }
-        }
-        SceneGraphEvent::RuntimeWake(wake) => {
+            if let Some(result) = s.warmup.handle_wake(wake) {
+                s.warmup_message = match result {
+                    Ok(result) => format!("Warm-up ready · {:.0} ms", result.elapsed_ms),
+                    Err(error) => format!("Warm-up failed: {error}"),
+                };
+                status.rerender = true;
+            }
             let update = s.commit.handle_wakeup(wake, Instant::now());
             status.commands.extend(update.commands);
             if let Some(value) = update.commit {
@@ -200,19 +192,19 @@ fn input(event: &SceneGraphEvent, s: &mut State) -> Result<UpdateStatus> {
         SceneGraphEvent::CursorMoved(e) if s.drag.is_none() => {
             let focus = s.hit(e.position);
             status.rerender = focus != s.focus;
-            s.activate(focus);
+            s.activate(focus)?;
         }
         SceneGraphEvent::MouseDown(e) => {
             if let Some(i) = s.hit(e.position) {
                 if e.button == MouseButton::Left {
                     s.drag = Some(i);
                     s.preview = None;
-                    s.activate(Some(i));
+                    s.activate(Some(i))?;
                     status.suppress_click = true;
                 } else if e.button == MouseButton::Right {
                     s.cancel_drag(&mut status);
                     s.selections.set(i, None)?;
-                    s.submit();
+                    s.submit()?;
                 }
                 status.rerender = true;
             }
@@ -222,15 +214,14 @@ fn input(event: &SceneGraphEvent, s: &mut State) -> Result<UpdateStatus> {
             for i in 0..PLOTS.len() {
                 s.selections.set(i, None)?;
             }
-            s.submit();
+            s.submit()?;
             status.rerender = true;
         }
         SceneGraphEvent::PointerCaptureLost | SceneGraphEvent::WindowFocused(false) => {
             s.cancel_drag(&mut status);
-            s.activate(None);
+            s.activate(None)?;
             status.rerender = true;
         }
-        SceneGraphEvent::WindowCloseRequested => s.worker.shutdown(),
         _ => {}
     }
     Ok(status)
@@ -272,7 +263,7 @@ impl EventStreamHandler<State> for Drag {
             if released && (end[0] - start[0]).abs() < 2. {
                 s.cancel_drag(&mut status);
                 s.selections.set(i, None)?;
-                s.submit();
+                s.submit()?;
             } else {
                 let r = s.plots[i];
                 let scale = PLOTS[i].scale(r.width);
@@ -331,7 +322,6 @@ pub async fn make_app(state: State) -> Result<AvengerApp<State>> {
                         SceneGraphEventType::RuntimeWake,
                         SceneGraphEventType::PointerCaptureLost,
                         SceneGraphEventType::WindowFocused,
-                        SceneGraphEventType::WindowCloseRequested,
                     ],
                     ..Default::default()
                 },
