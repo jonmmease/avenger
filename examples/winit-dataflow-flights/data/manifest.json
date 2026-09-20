@@ -1,0 +1,21 @@
+{
+  "dataset": "nycflights13",
+  "revision": "df98ef215aa8216fe0838a0b8ac5bada646d814c",
+  "sources": {
+    "flights": {
+      "url": "https://raw.githubusercontent.com/tidyverse/nycflights13/df98ef215aa8216fe0838a0b8ac5bada646d814c/data/flights.rda",
+      "sha256": "30252b3d787e832c1f7c9cb5adf270ea595f54e5dcb1d96778463a58ff79e714"
+    },
+    "airlines": {
+      "url": "https://raw.githubusercontent.com/tidyverse/nycflights13/df98ef215aa8216fe0838a0b8ac5bada646d814c/data/airlines.rda",
+      "sha256": "aa0eedd28acbbe85605c4a8a52d56f4b07968a513b25b4a71ace408b378e52aa"
+    }
+  },
+  "source_rows": 336776,
+  "eligible_rows": 327346,
+  "excluded_missing_delay": 9430,
+  "flight_id": "zero-based original source row",
+  "parquet_sha256": "bc6edfbf8fcad5e52042934a61b7d494f978d94022a90b7079ade7eabb5f8bfd",
+  "parquet_bytes": 3018728,
+  "arrow_bytes": 9850698
+}
