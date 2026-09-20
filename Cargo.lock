@@ -8512,7 +8512,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "winit-dataflow-flights"
+name = "winit-mosaic-flights"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -8524,6 +8524,8 @@ dependencies = [
  "avenger-datafusion-dataflow",
  "avenger-datafusion-preaggregate",
  "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
  "avenger-geometry",
  "avenger-guides",
  "avenger-layout",
@@ -8534,11 +8536,8 @@ dependencies = [
  "avenger-selection",
  "avenger-typst-label",
  "avenger-wgpu",
- "avenger-widgets",
  "avenger-winit-wgpu",
  "datafusion",
- "rstar 0.13.0",
- "serde_json",
  "tokio",
  "winit",
 ]
