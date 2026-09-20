@@ -36,7 +36,7 @@ The three panels are fixed at 600×200 pixels, including axes. Their display bin
 | [layout.rs](src/layout.rs) | Fixed panel arrangement through `avenger-layout` and `avenger-panels` |
 | [scene.rs](src/scene.rs) | Native `avenger-scales`, `avenger-guides` axes, bars, and brush overlays |
 
-The graph is prepared once. Hover primes the two relevant state tables and the focused histogram. Each materialization depends on an expression input containing the other active selections. Changes to that input invalidate its cached states. The changing brush is checked by `avenger-datafusion-preaggregate` and bound to the rollup's cell predicate. `avenger-datafusion-dataflow` owns caching, shared execution, and cancellation.
+The graph is prepared once. Hover primes the two relevant state tables and the focused histogram. Each materialization depends on an expression input containing the other active selections. Changes to that input invalidate its cached states. The optional `avenger-datafusion-preaggregate::dataflow` adapter installs each query family and binds the changing brush to its checked rollup predicate. The example keeps complete direct histograms available for fallback. `avenger-datafusion-dataflow` owns caching, shared execution, and cancellation.
 
 `avenger-transform` supplies the delay-clipping formula, filters, bin parameters, bin-start expressions, and count aggregates. Display bins use the fixed plot domains and steps. Bin configuration uses constant expressions so preaggregation can analyze the complete grouping expression. Extent inference is unnecessary for these fixed domains. The separate 1-pixel interaction grid remains in `avenger-selection`.
 

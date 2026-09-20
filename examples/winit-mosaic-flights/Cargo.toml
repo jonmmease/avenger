@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 anyhow.workspace = true
 async-trait.workspace = true
 arrow.workspace = true
@@ -17,7 +17,7 @@ avenger-app = { path = "../../avenger-app" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-datafusion-dataflow = { path = "../../avenger-datafusion-dataflow", features = ["sql"] }
-avenger-datafusion-preaggregate = { path = "../../avenger-datafusion-preaggregate" }
+avenger-datafusion-preaggregate = { path = "../../avenger-datafusion-preaggregate", features = ["dataflow"] }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-guides = { path = "../../avenger-guides" }
