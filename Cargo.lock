@@ -807,6 +807,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-wgpu",
  "cfg-if",
+ "futures",
  "image",
  "log",
  "notify",

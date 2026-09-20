@@ -10,7 +10,7 @@ use avenger_eventstream::{
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
 
-use crate::error::AvengerAppError;
+use crate::{background::BackgroundTasks, error::AvengerAppError};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -34,6 +34,7 @@ where
     rtree: SceneGraphRTree,
     scene_graph: Arc<SceneGraph>,
     text_engine: avenger_text::TextEngine,
+    background_tasks: Option<BackgroundTasks>,
 }
 
 impl<State> AvengerApp<State>
@@ -83,7 +84,19 @@ where
             rtree,
             scene_graph,
             text_engine,
+            background_tasks: None,
         })
+    }
+
+    /// Associate background work with this app's host lifetime.
+    pub fn with_background_tasks(mut self, tasks: BackgroundTasks) -> Self {
+        self.background_tasks = Some(tasks);
+        self
+    }
+
+    /// Return the optional task group for host attachment.
+    pub fn background_tasks(&self) -> Option<&BackgroundTasks> {
+        self.background_tasks.as_ref()
     }
 
     pub fn text_engine(&self) -> &avenger_text::TextEngine {
