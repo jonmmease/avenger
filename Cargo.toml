@@ -40,7 +40,7 @@ members = [
     "examples/winit-annotation-editor",
     "examples/winit-panels",
     "examples/winit-widgets",
-    "examples/winit-dataflow-flights",
+    "examples/winit-mosaic-flights",
 ]
 exclude = [
     "tools/upstream-typst-probe",
