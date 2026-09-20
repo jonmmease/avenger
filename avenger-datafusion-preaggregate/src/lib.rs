@@ -1,5 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(feature = "dataflow")]
+pub mod dataflow;
+
 mod aggregates;
 mod expressions;
 mod markers;
@@ -225,6 +228,35 @@ impl PreparedQuery {
     }
     /// Bind a predicate with an explicit policy. Invalid predicates remain errors.
     pub fn bind_with_policy(&self, changing: Expr, policy: QueryPolicy) -> Result<BoundQuery> {
+        let (diagnostics, predicates) = self.bind_predicates(changing, policy)?;
+        match &predicates.retained {
+            Some(retained) => {
+                let p = self.analyzed.as_ref().expect("eligible preparation");
+                Ok(BoundQuery::Preaggregated {
+                    materialization: p.materialization.clone(),
+                    rollup: p.rollup(retained.clone())?,
+                    diagnostics,
+                    predicates,
+                })
+            }
+            None => Ok(BoundQuery::Direct {
+                plan: markers::substitute(
+                    &self.query.plan,
+                    self.query.site,
+                    Some(predicates.source.clone()),
+                )?,
+                diagnostics,
+                predicates,
+            }),
+        }
+    }
+
+    // Graph bindings need the checked values without rebuilding concrete plans.
+    fn bind_predicates(
+        &self,
+        changing: Expr,
+        policy: QueryPolicy,
+    ) -> Result<(QueryDiagnostics, runtime::BoundPredicates)> {
         let source = expressions::boolean(changing, &self.query.source_schema, true)?;
         let eligible = if policy == QueryPolicy::ForceDirect {
             Err(DirectReason::Forced)
@@ -234,36 +266,30 @@ impl PreparedQuery {
                 Err(reason) => Err(*reason),
             }
         };
-        match eligible {
-            Ok(retained) => {
-                let p = self.analyzed.as_ref().expect("eligible preparation");
-                Ok(BoundQuery::Preaggregated {
-                    materialization: p.materialization.clone(),
-                    rollup: p.rollup(retained.clone())?,
-                    diagnostics: QueryDiagnostics {
-                        strategy: QueryStrategy::Preaggregated,
-                        direct_reason: None,
-                    },
-                    predicates: runtime::BoundPredicates {
-                        id: self.id,
-                        source,
-                        retained: Some(retained),
-                    },
-                })
-            }
-            Err(reason) => Ok(BoundQuery::Direct {
-                plan: markers::substitute(&self.query.plan, self.query.site, Some(source.clone()))?,
-                diagnostics: QueryDiagnostics {
+        let (retained, diagnostics) = match eligible {
+            Ok(retained) => (
+                Some(retained),
+                QueryDiagnostics {
+                    strategy: QueryStrategy::Preaggregated,
+                    direct_reason: None,
+                },
+            ),
+            Err(reason) => (
+                None,
+                QueryDiagnostics {
                     strategy: QueryStrategy::Direct,
                     direct_reason: Some(reason),
                 },
-                predicates: runtime::BoundPredicates {
-                    id: self.id,
-                    source,
-                    retained: None,
-                },
-            }),
-        }
+            ),
+        };
+        Ok((
+            diagnostics,
+            runtime::BoundPredicates {
+                id: self.id,
+                source,
+                retained,
+            },
+        ))
     }
 }
 /// Native plans for a single binding. Materialize state data before using the rollup.
