@@ -377,7 +377,58 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             }
         }
 
+        let mut consumed = false;
         for stream in &mut self.streams {
+            // Active sessions still finish or cancel when another stream consumes
+            // the trigger. Terminal cleanup is independent of handler admission.
+            if let Some(mut context) =
+                stream.terminal_context(event, mark_instance.as_ref(), rtree, instant)
+            {
+                if let Some(flushed) = stream.take_terminal_update(context.phase) {
+                    update_status.commands.extend(flushed.commands);
+                    if let Some(ready) = flushed.commit {
+                        let handled = stream
+                            .handler
+                            .handle_with_context(
+                                &ready.event,
+                                &ready.context,
+                                &mut self.state,
+                                rtree,
+                            )
+                            .await;
+                        if !matches!(
+                            handled.admission,
+                            Some(EventAdmission::Rejected | EventAdmission::Failed)
+                        ) {
+                            stream.mark_accepted(
+                                &ready.event,
+                                ready.context.mark_instance.as_ref(),
+                                instant,
+                            );
+                            consumed |= stream.config.consume || handled.consume;
+                        }
+                        update_status = update_status.merge(&handled);
+                    }
+                }
+                context.previous_event = stream.previous_event.clone();
+                let handled = stream
+                    .handler
+                    .handle_with_context(event, &context, &mut self.state, rtree)
+                    .await;
+                if !matches!(
+                    handled.admission,
+                    Some(EventAdmission::Rejected | EventAdmission::Failed)
+                ) {
+                    consumed |= stream.config.consume || handled.consume;
+                }
+                update_status = update_status.merge(&handled);
+                update_status.consume |= consumed;
+                stream.reset_lifecycle();
+                continue;
+            }
+            if consumed {
+                continue;
+            }
             let checkpoint = stream.admission_checkpoint();
             let Some(context) =
                 stream.matches_and_update(event, mark_instance.as_ref(), rtree, instant)
@@ -427,7 +478,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             // even when their handler runs later on the wake-up.
             if ((queued || committed) && stream.config.consume) || dynamically_consumed {
                 update_status.consume = true;
-                break;
+                consumed = true;
             }
         }
 
