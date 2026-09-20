@@ -33,7 +33,6 @@ The three panels are fixed at 600×200 pixels, including axes. Their display bin
 | [dataflow.rs](src/dataflow.rs) | Transform plans, three direct histogram queries, and six focus-to-target materialization/rollup pairs in one prepared graph |
 | [selection.rs](src/selection.rs) | Plot definitions and `avenger-selection` producers, cross-filter predicates, and pixel grids |
 | [controller.rs](src/controller.rs) | `avenger-eventstream` hover, drag, debounce, and result installation |
-| [worker.rs](src/worker.rs) | Background queries, cancellation, and native completion notifications |
 | [layout.rs](src/layout.rs) | Fixed panel arrangement through `avenger-layout` and `avenger-panels` |
 | [scene.rs](src/scene.rs) | Native `avenger-scales`, `avenger-guides` axes, bars, and brush overlays |
 
@@ -41,7 +40,7 @@ The graph is prepared once. Hover primes the two relevant state tables and the f
 
 `avenger-transform` supplies the delay-clipping formula, filters, bin parameters, bin-start expressions, and count aggregates. Display bins use the fixed plot domains and steps. Bin configuration uses constant expressions so preaggregation can analyze the complete grouping expression. Extent inference is unnecessary for these fixed domains. The separate 1-pixel interaction grid remains in `avenger-selection`.
 
-Queries return bin/count tables. Rendering applies native Avenger scales to the small results, using the same scales for axes and pointer inversion. Selection pixel cells use the DataFusion scale adapter. The example keeps the last completed histograms visible while a replacement query runs. New requests cancel superseded requests, and generation checks reject stale completions.
+Queries return bin/count tables. Rendering applies native Avenger scales to the small results, using the same scales for axes and pointer inversion. Selection pixel cells use the DataFusion scale adapter. The example keeps the last completed histograms visible while a replacement query runs. `avenger-app` background tasks run foreground queries and hover warm-up independently. New requests cancel superseded requests, and the helper rejects stale completions. The host owns task startup, event delivery, and shutdown.
 
 ## Diagnostics
 
