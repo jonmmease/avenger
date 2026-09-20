@@ -30,12 +30,7 @@ impl ParameterizedFamily {
     /// Reject predicate bindings produced by a different preparation.
     /// Callers must also select the output indicated by the binding diagnostics.
     pub fn check_binding(&self, values: &BoundPredicates) -> Result<()> {
-        if self.id != values.id {
-            return datafusion::common::plan_err!(
-                "predicate binding belongs to a different prepared query"
-            );
-        }
-        Ok(())
+        values.check_owner(self.id)
     }
 }
 /// State construction and deferred finishing plans for runtime installation.
@@ -54,6 +49,15 @@ pub struct BoundPredicates {
     pub(crate) retained: Option<Expr>,
 }
 impl BoundPredicates {
+    pub(crate) fn check_owner(&self, id: u64) -> Result<()> {
+        if self.id != id {
+            return datafusion::common::plan_err!(
+                "predicate binding belongs to a different prepared query"
+            );
+        }
+        Ok(())
+    }
+
     /// Return the concrete source-row predicate, including direct-only bindings.
     pub fn source(&self) -> &Expr {
         &self.source

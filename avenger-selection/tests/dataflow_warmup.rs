@@ -161,10 +161,11 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                     "preparation reads no source data"
                 );
 
-                let materialization = installed.materialization;
-                let warm_inputs = prepared
-                    .inputs()
-                    .expr(&installed.predicate, installed.bind(split)?.unwrap())?
+                let materialization = installed.query.materialization_output().unwrap();
+                let warm_inputs = installed
+                    .bind(split)?
+                    .unwrap()
+                    .apply(prepared.inputs())?
                     .finish()?;
                 let warm_prepared = prepared.clone();
                 let warm_task = tokio::spawn(async move {
@@ -177,14 +178,9 @@ fn brush_query_shares_pending_materialization_after_warmup_is_cancelled(
                     .expect("warm-up enters its materialization scan");
 
                 let brush = membership().predicates(&brushed, &focus)?;
-                let output = installed.output;
-                let brush_inputs = prepared
-                    .inputs()
-                    .expr(
-                        &installed.predicate,
-                        installed.bind(brush.split().unwrap())?.unwrap(),
-                    )?
-                    .finish()?;
+                let binding = installed.bind(brush.split().unwrap())?.unwrap();
+                let output = binding.output();
+                let brush_inputs = binding.apply(prepared.inputs())?.finish()?;
                 let brush_prepared = prepared.clone();
                 let brush_task = tokio::spawn(async move {
                     // Request only the final chart, so interest must reach its parent.
