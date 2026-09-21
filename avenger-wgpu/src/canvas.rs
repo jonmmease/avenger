@@ -288,8 +288,10 @@ pub trait Canvas {
                 &effective_clip,
             );
             let renderer = if let Some(renderer) = self.get_instanced_renderer(fingerprint) {
+                tracing::debug!(target: "avenger_wgpu::retained_symbols", mark = %mark.name, fingerprint, renderer = ?Arc::as_ptr(&renderer), "reused instanced symbol renderer");
                 renderer
             } else {
+                let _span = tracing::debug_span!(target: "avenger_wgpu::retained_symbols", "build_symbol_renderer", mark = %mark.name, fingerprint).entered();
                 let shader = Box::new(SymbolShader::from_symbol_mark(
                     mark,
                     self.dimensions(),
@@ -304,6 +306,7 @@ pub trait Canvas {
                     effective_clip,
                     self.dimensions().scale,
                 ));
+                tracing::debug!(target: "avenger_wgpu::retained_symbols", renderer = ?Arc::as_ptr(&renderer), "created instanced symbol renderer");
                 renderer
             };
 
@@ -1508,5 +1511,92 @@ mod tooltip_overlay_tests {
                 > 1_000,
             "tooltip overlay should render visible content"
         );
+    }
+}
+
+#[cfg(test)]
+mod retained_symbol_tests {
+    use super::*;
+    use avenger_common::value::ScalarOrArray;
+    use avenger_scenegraph::marks::group::SceneGroup;
+
+    #[test]
+    fn adjustments_reuse_buffers_and_match_fresh_positions() {
+        let dimensions = CanvasDimensions {
+            size: [128., 128.],
+            scale: 1.,
+        };
+        let clip = Clip::Rect {
+            x: 0.,
+            y: 0.,
+            width: 128.,
+            height: 128.,
+        };
+        let base = SceneSymbolMark {
+            len: 256,
+            x: ScalarOrArray::new_array((0..256).map(|i| 4. + (i % 16) as f32 * 7.).collect()),
+            y: ScalarOrArray::new_array((0..256).map(|i| 4. + (i / 16) as f32 * 7.).collect()),
+            size: ScalarOrArray::new_scalar(9.),
+            clip: true,
+            interactive: false,
+            ..Default::default()
+        };
+        let scene = |mark| SceneGraph {
+            width: 128.,
+            height: 128.,
+            origin: [0., 0.],
+            marks: vec![SceneMark::Group(SceneGroup {
+                clip: clip.clone(),
+                marks: vec![SceneMark::Symbol(mark)],
+                ..Default::default()
+            })],
+        };
+        let mut canvas =
+            pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default())).unwrap();
+        canvas.set_scene(&scene(base.clone())).unwrap();
+        let key = instanced_symbol_renderer_cache_key(&base, [0., 0.], dimensions, &clip);
+        let first = canvas.get_instanced_renderer(key).unwrap();
+        pollster::block_on(canvas.render()).unwrap();
+        let mut adjusted = base;
+        adjusted.x_adjustment = Some(LinearScaleAdjustment {
+            scale: 1.25,
+            offset: -11.,
+        });
+        adjusted.y_adjustment = Some(LinearScaleAdjustment {
+            scale: 0.75,
+            offset: 7.,
+        });
+        canvas.set_scene(&scene(adjusted.clone())).unwrap();
+        let second = canvas.get_instanced_renderer(key).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        let actual = pollster::block_on(canvas.render()).unwrap();
+        let mut fresh = adjusted.clone();
+        fresh.x = ScalarOrArray::new_array(adjusted.x_vec());
+        fresh.y = ScalarOrArray::new_array(adjusted.y_vec());
+        fresh.x_adjustment = None;
+        fresh.y_adjustment = None;
+        canvas.set_scene(&scene(fresh)).unwrap();
+        let expected = pollster::block_on(canvas.render()).unwrap();
+        assert_eq!(actual, expected);
+
+        // Viewport and scale-factor changes legitimately invalidate the cached renderer.
+        for dimensions in [
+            CanvasDimensions {
+                size: [160., 128.],
+                scale: 1.,
+            },
+            CanvasDimensions {
+                size: [128., 128.],
+                scale: 2.,
+            },
+        ] {
+            canvas.renderer.set_dimensions(dimensions);
+            canvas.set_scene(&scene(adjusted.clone())).unwrap();
+            let changed_key =
+                instanced_symbol_renderer_cache_key(&adjusted, [0., 0.], dimensions, &clip);
+            assert_ne!(changed_key, key);
+            let changed = canvas.get_instanced_renderer(changed_key).unwrap();
+            assert!(!Arc::ptr_eq(&first, &changed));
+        }
     }
 }

@@ -1,0 +1,44 @@
+[package]
+name = "avenger-chart"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Evaluate chart definitions, retain geometry, and render or host charts"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+avenger-chart-definition = { path = "../avenger-chart-definition" }
+avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow" }
+avenger-transform = { path = "../avenger-transform" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-guides = { path = "../avenger-guides" }
+avenger-layout = { path = "../avenger-layout" }
+avenger-panels = { path = "../avenger-panels" }
+avenger-common = { path = "../avenger-common" }
+avenger-color = { path = "../avenger-color" }
+avenger-text = { path = "../avenger-text" }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-app = { path = "../avenger-app" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-svg = { path = "../avenger-svg", optional = true }
+avenger-pdf = { path = "../avenger-pdf", optional = true }
+avenger-wgpu = { path = "../avenger-wgpu", optional = true }
+image = { workspace = true, optional = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+prost = "0.14.1"
+css-color-parser = { workspace = true }
+
+[features]
+default = ["svg", "pdf", "png"]
+svg = ["dep:avenger-svg"]
+pdf = ["dep:avenger-pdf"]
+png = ["dep:avenger-wgpu", "dep:image"]
+
+[dev-dependencies]
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+anyhow = { workspace = true }

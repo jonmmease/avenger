@@ -66,6 +66,15 @@ impl<State> AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
+    /// Attach a handler before passing this app to a host.
+    pub fn register_handler(
+        &mut self,
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+    ) {
+        self.event_stream_manager.register_handler(config, handler);
+    }
+
     /// Get a mutable reference to the app state
     pub fn app_state_mut(&mut self) -> &mut State {
         self.event_stream_manager.state_mut()
