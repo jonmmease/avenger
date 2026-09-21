@@ -1,11 +1,11 @@
-mod common;
+use super::common;
 use avenger_datafusion_dataflow::{
     DataflowBuilder, Result, Runtime, RuntimeConfig, SemanticConfig, TableSnapshot,
 };
 use avenger_scales_datafusion::{options_literal, scale_expr, BuiltinScale, ScaleExtensionCodec};
 use avenger_transform::{self as t, BinOptions, TransformExtensionCodec};
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::{compute::concat_batches, datatypes::DataType},
     common::ScalarValue,
     functions_nested::expr_fn::make_array,
     logical_expr::{col, lit, scalar_subquery, Expr, LogicalPlanBuilder},
@@ -93,14 +93,11 @@ async fn transform_graph_decodes_in_fresh_runtime() -> Result<()> {
         .expr(&root.expr_input("selected")?, col("x").lt(lit(10.0)))?
         .finish()?;
     let actual = prepared.query(&[output2], &[], &inputs).await?;
-    let pretty = |b: &[datafusion::arrow::record_batch::RecordBatch]| {
-        datafusion::arrow::util::pretty::pretty_format_batches(b)
-            .unwrap()
-            .to_string()
-    };
+    let expected = expected.table(&output)?;
+    let actual = actual.table(&output2)?;
     assert_eq!(
-        pretty(expected.table(&output)?.batches()),
-        pretty(actual.table(&output2)?.batches())
+        concat_batches(expected.schema(), expected.batches())?,
+        concat_batches(actual.schema(), actual.batches())?
     );
     Ok(())
 }
