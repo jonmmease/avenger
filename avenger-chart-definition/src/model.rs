@@ -8,11 +8,16 @@ pub struct ChartDefinition {
     pub(crate) dataflow: Dataflow,
     pub(crate) root: Group,
     pub(crate) parameters: Vec<Parameter>,
+    pub(crate) background: Option<String>,
 }
 impl ChartDefinition {
     /// Start direct construction around an already finished dataflow.
     pub fn builder(dataflow: Dataflow) -> ChartBuilder {
         ChartBuilder::new(dataflow)
+    }
+    /// Read the optional canvas background color.
+    pub fn background(&self) -> Option<&str> {
+        self.background.as_deref()
     }
     /// Return the native dataflow without preparing it.
     pub fn dataflow(&self) -> &Dataflow {
@@ -212,6 +217,8 @@ pub struct Plot {
     pub(crate) identity: u64,
     pub name: String,
     pub size: Size,
+    pub width_step: Option<StepDimension>,
+    pub height_step: Option<StepDimension>,
     pub clip: bool,
     pub scales: Vec<(String, Scale)>,
     pub marks: Vec<Mark>,
@@ -221,6 +228,13 @@ pub struct Plot {
 pub(crate) fn plot_identity() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Content size derived from a discrete scale's domain and padding.
+#[derive(Clone, Debug)]
+pub struct StepDimension {
+    pub scale: ScaleHandle,
+    pub step: f32,
 }
 
 /// A scale local to a particular plot template.
@@ -245,6 +259,14 @@ impl ScaleHandle {
     /// Map a scalar output through this scale.
     pub fn scalar(&self, output: &ScalarOutput) -> Value {
         Value::Scaled(self.clone(), Box::new(Value::Scalar(*output)))
+    }
+    /// Map a field at a fractional position within its band.
+    pub fn band_position(&self, field: impl Into<String>, fraction: f32) -> Value {
+        Value::BandPosition(self.clone(), Box::new(Value::Field(field.into())), fraction)
+    }
+    /// Map zero, clamped to this linear scale's domain.
+    pub fn baseline(&self) -> Value {
+        Value::Baseline(self.clone())
     }
     /// Read the configured band width in pixels.
     pub fn bandwidth(&self) -> Value {
@@ -287,12 +309,15 @@ impl Domain {
 pub enum ScaleKind {
     Linear,
     Band,
+    Point,
 }
 /// Scale range resolved against each plot's content rectangle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Range {
     PlotWidth,
     PlotHeightReversed,
+    /// Content height in top-to-bottom order, for categorical positions.
+    PlotHeight,
     Fixed(f32, f32),
 }
 /// Declarative scale configuration without live kernels or formatter objects.
@@ -306,6 +331,9 @@ pub struct Scale {
     pub clamp: bool,
     pub padding_inner: f32,
     pub padding_outer: f32,
+    pub include_null: bool,
+    /// Logical-pixel domain padding applied before numeric nice rounding.
+    pub pixel_padding: f32,
     pub empty_domain: [f64; 2],
     pub sharing: Option<(String, PanelScope)>,
 }
@@ -320,6 +348,8 @@ impl Scale {
             clamp: false,
             padding_inner: 0.0,
             padding_outer: 0.0,
+            include_null: false,
+            pixel_padding: 0.0,
             empty_domain: [0.0, 1.0],
             sharing: None,
         }
@@ -331,6 +361,20 @@ impl Scale {
     /// Define ordered categorical bands.
     pub fn band(domain: Domain, range: Range) -> Self {
         Self::new(ScaleKind::Band, domain, range)
+    }
+    /// Define evenly spaced categorical positions.
+    pub fn point(domain: Domain, range: Range) -> Self {
+        Self::new(ScaleKind::Point, domain, range)
+    }
+    /// Retain null as a distinct categorical value.
+    pub fn include_null(mut self, enabled: bool) -> Self {
+        self.include_null = enabled;
+        self
+    }
+    /// Expand a numeric domain to leave this many logical pixels at each end.
+    pub fn pixel_padding(mut self, pixels: f32) -> Self {
+        self.pixel_padding = pixels;
+        self
     }
     /// Include zero in a numeric domain.
     pub fn zero(mut self, value: bool) -> Self {
@@ -377,6 +421,8 @@ pub enum Value {
     Scalar(ScalarOutput),
     Scaled(ScaleHandle, Box<Value>),
     Bandwidth(ScaleHandle),
+    BandPosition(ScaleHandle, Box<Value>, f32),
+    Baseline(ScaleHandle),
     PlotWidth,
     PlotHeight,
 }
@@ -401,6 +447,14 @@ impl From<f32> for Value {
     }
 }
 
+/// Pixel adjustments applied after scaling and ordering a rectangle's endpoints.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SpanAdjustment {
+    pub spacing: f32,
+    pub minimum: f32,
+    pub offset: f32,
+}
+
 /// Rectangle position, size, and constant styling bindings.
 #[derive(Clone, Debug)]
 pub struct RectEncoding {
@@ -408,6 +462,10 @@ pub struct RectEncoding {
     pub y: Option<Value>,
     pub x2: Option<Value>,
     pub y2: Option<Value>,
+    pub xc: Option<Value>,
+    pub yc: Option<Value>,
+    pub x_span: SpanAdjustment,
+    pub y_span: SpanAdjustment,
     pub width: Option<Value>,
     pub height: Option<Value>,
     pub fill: String,
@@ -420,6 +478,10 @@ impl Default for RectEncoding {
             y: None,
             x2: None,
             y2: None,
+            xc: None,
+            yc: None,
+            x_span: SpanAdjustment::default(),
+            y_span: SpanAdjustment::default(),
             width: None,
             height: None,
             fill: "#4c78a8".into(),
@@ -445,11 +507,23 @@ impl RectEncoding {
     property!(y);
     property!(x2);
     property!(y2);
+    property!(xc);
+    property!(yc);
     property!(width);
     property!(height);
     /// Set a CSS fill color.
     pub fn fill(mut self, color: impl Into<String>) -> Self {
         self.fill = color.into();
+        self
+    }
+    /// Adjust the rectangle's horizontal pixel interval.
+    pub fn x_span(mut self, span: SpanAdjustment) -> Self {
+        self.x_span = span;
+        self
+    }
+    /// Adjust the rectangle's vertical pixel interval.
+    pub fn y_span(mut self, span: SpanAdjustment) -> Self {
+        self.y_span = span;
         self
     }
     /// Include the layer in app hit testing.
@@ -511,7 +585,7 @@ pub struct Mark {
 /// Supported mark descriptor variants.
 #[derive(Clone, Debug)]
 pub enum Encoding {
-    Rect(RectEncoding),
+    Rect(Box<RectEncoding>),
     Symbol(SymbolEncoding),
 }
 
@@ -523,6 +597,7 @@ pub struct Axis {
     pub title: String,
     pub format: Option<String>,
     pub tick_count: f32,
+    pub label_angle: Option<f32>,
     pub grid: bool,
     pub labels: LabelVisibility,
     pub sharing: PanelScope,
@@ -536,6 +611,7 @@ impl Axis {
             title: String::new(),
             format: None,
             tick_count: 5.0,
+            label_angle: None,
             grid: false,
             labels: LabelVisibility::All,
             sharing: PanelScope::Root,
@@ -571,6 +647,11 @@ impl Axis {
     /// Set the approximate tick count.
     pub fn tick_count(mut self, count: f32) -> Self {
         self.tick_count = count;
+        self
+    }
+    /// Rotate tick labels in degrees.
+    pub fn label_angle(mut self, angle: f32) -> Self {
+        self.label_angle = Some(angle);
         self
     }
     /// Draw grid lines across the plot.

@@ -17,10 +17,13 @@ use avenger_guides::axis::{
     continuous::make_continuous_axis_marks,
     guide_format, label_values,
     opts::{AxisConfig, AxisOrientation, AxisStyle},
+    point::make_point_axis_marks,
 };
 use avenger_layout::LayoutSolution;
 use avenger_panels::*;
-use avenger_scales::scales::{band::BandScale, linear::LinearScale, ConfiguredScale};
+use avenger_scales::scales::{
+    band::BandScale, linear::LinearScale, point::PointScale, ConfiguredScale,
+};
 use avenger_scenegraph::marks::group::SceneGroup;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -74,7 +77,7 @@ fn values(p: &PlotInstance, s: &Scale) -> Result<Vec<ScalarValue>> {
             let mut values = vec![];
             for i in 0..a.len() {
                 let v = ScalarValue::try_from_array(&a, i).map_err(error)?;
-                if !v.is_null() && seen.insert(v.clone()) {
+                if (!v.is_null() || s.include_null) && seen.insert(v.clone()) {
                     values.push(v)
                 }
             }
@@ -85,6 +88,7 @@ fn values(p: &PlotInstance, s: &Scale) -> Result<Vec<ScalarValue>> {
 fn configure_scale(s: &Scale, values: &[ScalarValue], size: Size) -> Result<ConfiguredScale> {
     let range = match s.range {
         Range::PlotWidth => (0.0, size.width),
+        Range::PlotHeight => (0.0, size.height),
         Range::PlotHeightReversed => (size.height, 0.0),
         Range::Fixed(a, b) => (a, b),
     };
@@ -129,20 +133,26 @@ fn configure_scale(s: &Scale, values: &[ScalarValue], size: Size) -> Result<Conf
             let configured = LinearScale::configured((lo as f32, hi as f32), range)
                 .with_domain(Arc::new(Float64Array::from(vec![lo, hi])))
                 .with_option("clamp", s.clamp)
+                .with_option("clip_padding_lower", s.pixel_padding)
+                .with_option("clip_padding_upper", s.pixel_padding)
                 .with_option("nice", s.nice);
             let domain = configured.normalized_domain().map_err(error)?;
-            let configured = configured.with_domain(domain).with_option("nice", false);
+            let configured = configured
+                .with_domain(domain)
+                .with_option("nice", false)
+                .with_option("clip_padding_lower", 0.0_f32)
+                .with_option("clip_padding_upper", 0.0_f32);
             let (lo, hi) = configured.numeric_interval_domain_f64().map_err(error)?;
             if !lo.is_finite() || !hi.is_finite() || lo == hi {
                 return Err(error("domain cannot be represented by the scale"));
             }
             Ok(configured)
         }
-        ScaleKind::Band => {
+        ScaleKind::Band | ScaleKind::Point => {
             let mut seen = HashSet::new();
             let ordered: Vec<_> = values
                 .iter()
-                .filter(|v| !v.is_null() && seen.insert((*v).clone()))
+                .filter(|v| (!v.is_null() || s.include_null) && seen.insert((*v).clone()))
                 .cloned()
                 .collect();
             let domain = if ordered.is_empty() {
@@ -150,9 +160,14 @@ fn configure_scale(s: &Scale, values: &[ScalarValue], size: Size) -> Result<Conf
             } else {
                 ScalarValue::iter_to_array(ordered).map_err(error)?
             };
-            Ok(BandScale::configured(domain, range)
-                .with_option("padding_inner", s.padding_inner)
-                .with_option("padding_outer", s.padding_outer))
+            let scale = if s.kind == ScaleKind::Point {
+                PointScale::configured(domain, range).with_option("padding", s.padding_outer)
+            } else {
+                BandScale::configured(domain, range)
+                    .with_option("padding_inner", s.padding_inner)
+                    .with_option("padding_outer", s.padding_outer)
+            };
+            Ok(scale.with_option("include_null", s.include_null))
         }
     }
 }
@@ -194,6 +209,8 @@ pub(crate) fn configure(
                 || s.zero != first.zero
                 || s.nice != first.nice
                 || s.empty_domain != first.empty_domain
+                || s.include_null != first.include_null
+                || s.pixel_padding != first.pixel_padding
             {
                 return Err(error("incompatible shared scales"));
             }
@@ -218,6 +235,38 @@ pub(crate) fn configure(
         }
     }
     for (pi, p) in plots.iter_mut().enumerate() {
+        let dimension = |d: &StepDimension| -> Result<f32> {
+            let (si, (_, scale)) = p
+                .plot
+                .scales
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == d.scale.name())
+                .unwrap();
+            let mut unique = HashSet::new();
+            let count = domains[pi][si]
+                .iter()
+                .filter(|v| (scale.include_null || !v.is_null()) && unique.insert((*v).clone()))
+                .count();
+            let inner = if scale.kind == ScaleKind::Point {
+                1.0
+            } else {
+                scale.padding_inner
+            };
+            let size = (count as f32 - inner + 2.0 * scale.padding_outer).max(1.0) * d.step;
+            if !size.is_finite() {
+                return Err(error("step dimension exceeds finite scene coordinates"));
+            }
+            Ok(size)
+        };
+        let width = p.plot.width_step.as_ref().map(&dimension).transpose()?;
+        let height = p.plot.height_step.as_ref().map(&dimension).transpose()?;
+        if let Some(width) = width {
+            p.plot.size.width = width;
+        }
+        if let Some(height) = height {
+            p.plot.size.height = height;
+        }
         for (si, (name, s)) in p.plot.scales.iter().enumerate() {
             let scale = configure_scale(s, &domains[pi][si], p.plot.size)?;
             p.scales.insert(name.clone(), scale);
@@ -275,7 +324,7 @@ fn equivalent(p: &PlotInstance, index: usize) -> Result<EquivalenceKey> {
         .plot
         .scales
         .iter()
-        .any(|(name, scale)| name == a.scale.name() && scale.kind == ScaleKind::Band);
+        .any(|(name, scale)| name == a.scale.name() && scale.kind != ScaleKind::Linear);
     let ticks = if band {
         s.domain().clone()
     } else {
@@ -288,13 +337,17 @@ fn equivalent(p: &PlotInstance, index: usize) -> Result<EquivalenceKey> {
         TickSpacing::Uniform
     };
     let labels = label_values(&ticks, &p.axis_formats[index], spacing).map_err(error)?;
-    let positions = if band {
-        s.clone().with_option("band", 0.5)
+    let positions = if ticks.is_empty() {
+        avenger_common::value::ScalarOrArray::new_array(Vec::<f32>::new())
     } else {
-        s.clone()
-    }
-    .scale_to_numeric(&ticks)
-    .map_err(error)?;
+        (if band {
+            s.clone().with_option("band", 0.5)
+        } else {
+            s.clone()
+        })
+        .scale_to_numeric(&ticks)
+        .map_err(error)?
+    };
     use prost::Message;
     let mut bytes = Vec::new();
     for array in [s.domain(), s.range(), &ticks] {
@@ -387,9 +440,10 @@ pub(crate) fn axes(
                     Side::Left => AxisOrientation::Left,
                     Side::Right => AxisOrientation::Right,
                 },
-                grid: a.grid,
+                grid: false,
                 format: p.axis_formats[i].clone(),
                 style: AxisStyle {
+                    label_angle: a.label_angle,
                     labels_visible: Some(labels),
                     title_visible: Some(title),
                     tick_count: Some(a.tick_count),
@@ -397,6 +451,9 @@ pub(crate) fn axes(
                 },
             };
             let s = &p.scales[a.scale.name()];
+            if s.config.domain.is_empty() {
+                return Ok(SceneGroup::default());
+            }
             let kind = p
                 .plot
                 .scales
@@ -409,8 +466,12 @@ pub(crate) fn axes(
                 ScaleKind::Linear => {
                     make_continuous_axis_marks(s, &a.title, [0.0, 0.0], &config, text)
                 }
+                ScaleKind::Point => {
+                    make_point_axis_marks(s.clone(), &a.title, [0.0, 0.0], &config, text)
+                }
                 ScaleKind::Band => make_band_axis_marks(s, &a.title, [0.0, 0.0], &config, text),
             }
+            .map(crate::marks::multiline_group)
             .map_err(error)
         })
         .collect()
@@ -519,4 +580,53 @@ pub(crate) fn reserve_titles(
         }
     }
     layout
+}
+
+pub(crate) fn grids(p: &PlotInstance) -> Result<Vec<SceneGroup>> {
+    p.plot
+        .axes
+        .iter()
+        .filter(|a| a.grid)
+        .map(|a| {
+            let orientation = match a.side {
+                Side::Top => AxisOrientation::Top,
+                Side::Bottom => AxisOrientation::Bottom,
+                Side::Left => AxisOrientation::Left,
+                Side::Right => AxisOrientation::Right,
+            };
+            let dimensions = [p.plot.size.width, p.plot.size.height];
+            let scale = &p.scales[a.scale.name()];
+            if scale.config.domain.is_empty() {
+                return Ok(SceneGroup::default());
+            }
+            let kind = p
+                .plot
+                .scales
+                .iter()
+                .find(|(n, _)| n == a.scale.name())
+                .unwrap()
+                .1
+                .kind;
+            if kind == ScaleKind::Linear {
+                avenger_guides::axis::continuous::make_tick_grid_marks(
+                    &scale.ticks(Some(a.tick_count)).map_err(error)?,
+                    scale,
+                    &orientation,
+                    &dimensions,
+                    None,
+                    None,
+                )
+                .map_err(error)
+            } else {
+                avenger_guides::axis::band::make_tick_grid_marks(
+                    &scale.clone().with_option("band", 0.5),
+                    &orientation,
+                    &dimensions,
+                    None,
+                    None,
+                )
+                .map_err(error)
+            }
+        })
+        .collect()
 }

@@ -13,7 +13,10 @@ pub use data::{Data, DataFormat, FormatType, InlineDataset};
 pub use error::SpecError;
 pub use presence::MissingNullOrValue;
 pub use spec::{
-    Axis, BarMark, Encoding, FieldType, Mark, MarkType, Orient, PositionFieldDef, Scale, ScaleType,
-    SecondaryFieldDef, SortOrder, Text, UnitSpec,
+    Axis, BarMark, Encoding, FieldType, Mark, MarkType, Orient, Parameter, PositionFieldDef, Scale,
+    ScaleType, SecondaryFieldDef, SortOrder, StackOffset, Text, UnitSpec,
 };
-pub use transform::{AggregateOp, AggregateTransform, AggregatedFieldDef, BinTransform, Transform};
+pub use transform::{
+    AggregateOp, AggregateTransform, AggregatedFieldDef, BinTransform, ExpressionReference,
+    FieldPredicate, FilterTransform, PredicateOperand, Transform,
+};

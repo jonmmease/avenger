@@ -28,18 +28,18 @@ Parsing does not read data sources or `$schema` URLs, infer field types, fill de
 
 | Area | Supported properties and alternatives |
 |---|---|
-| Root | Required `data` and `mark`. Optional `$schema`, `name`, `description`, string/array `title`, numeric `width` and `height`, `encoding`, `transform`, `datasets`, and object-valued `usermeta` |
+| Root | Required `data` and `mark`. Optional `$schema`, `name`, `description`, string/array `title`, numeric `width` and `height`, `encoding`, `transform`, `params`, `datasets`, and object-valued `usermeta` |
 | Data | `values` containing row objects, `url`, `name`, or explicit null. Inline and URL sources may also have a `name`. Optional `format` with a `type` of `json`, `csv`, or `tsv` |
 | Datasets | A map of names to arrays of row objects |
 | Mark | `"bar"` or `{ "type": "bar", ... }` with optional `orient`, string `color`, numeric `opacity`, and numeric `size` |
-| Primary encoding | `x` and `y` with `field`, `type`, `aggregate`, `bin`, `title`, `sort`, `axis`, and `scale`. Field type can be quantitative, ordinal, nominal, or temporal |
+| Primary encoding | `x` and `y` with `field`, `type`, `aggregate`, `bin`, `title`, `sort`, `axis`, `scale`, and `stack` (null or `"zero"`). Field type can be quantitative, ordinal, nominal, or temporal |
 | Secondary encoding | `x2` and `y2`, each with a `field` |
 | Axis | `title`, `format`, `labelAngle`, and `grid` |
 | Scale | `type` (linear, band, or point), Boolean `zero`, and Boolean `nice` |
 | Sort | Ascending, descending, or null |
-| Transforms | Ordered explicit bin and aggregate transforms |
+| Transforms | Ordered explicit bin, aggregate, and structured numeric `gte` filter transforms |
 
-Unknown properties and unsupported alternatives are errors. This release does not support other marks, color encodings, stacks, offsets, tooltips, selections, expression strings, filter/calculate transforms, time units, composition, config objects, or responsive dimensions. The version identifies the reference grammar, not full Vega-Lite compatibility.
+Unknown properties and unsupported alternatives are errors. This release does not support other marks, color encodings, other stack offsets, tooltips, selections, general expression strings, calculate transforms, time units, composition, config objects, or responsive dimensions. The version identifies the reference grammar, not full Vega-Lite compatibility.
 
 ### Aggregation
 
@@ -55,7 +55,7 @@ Encoding `aggregate` and explicit transform `op` accept `count`, `valid`, `missi
 }
 ```
 
-Explicit aggregate transforms require at least one measure and distinct output aliases. Missing and empty `groupby` stay distinct. Count accepts and preserves an optional field. Future compilation uses row count, and maps `mean` and `average` to `avenger-transform::expr_fn::mean`. The other operations map to the corresponding transform helpers.
+Explicit aggregate transforms require at least one measure and distinct output aliases. Missing and empty `groupby` stay distinct. Count accepts and preserves an optional field. Compilation uses row count, and maps `mean` and `average` to `avenger-transform::expr_fn::mean`. The other operations map to the corresponding transform helpers.
 
 ### Binning
 
@@ -92,3 +92,9 @@ cargo test -p avenger-vegalite-spec --doc
 ```
 
 The example parses and prints three specs without accessing source files. Tests run offline. Positive fixtures and serialized example output are audited against the [Vega-Lite v6.4.3 schema](https://vega.github.io/schema/vega-lite/v6.4.3.json). See [fixture provenance](tests/fixtures/README.md).
+
+### Numeric parameters and filters
+
+Root `params` accepts initialized numeric parameters, for example `[{"name":"minimum","value":0}]`. Names must be unique identifiers. Initial values must be finite. Structured filters accept `{"filter":{"field":"amount","gte":10}}` or `{"filter":{"field":"amount","gte":{"expr":"minimum"}}}`. The compiler resolves expression references to a declared parameter. These shapes serialize without default expansion.
+
+Use [avenger-vegalite-compiler](../avenger-vegalite-compiler/README.md) to lower this syntax into an Avenger chart definition. Parsing support and compilation support are documented separately.

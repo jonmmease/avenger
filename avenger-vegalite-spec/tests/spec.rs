@@ -211,7 +211,7 @@ fn object_dispatch_rejects_conflicting_or_missing_identifiers() {
         (
             json!({"data": null, "mark": "bar", "transform": [{}]}),
             "transform[0]",
-            "expected a bin or aggregate",
+            "expected a bin, aggregate, or filter",
         ),
         (
             json!({"data": null, "mark": "bar", "transform": [{"bin": true, "field": "x"}]}),
@@ -462,4 +462,35 @@ fn duplicate_fields_and_trailing_documents_are_rejected() {
     let error = UnitSpec::from_json(r#"{"data":null,"mark":"bar"} {}"#).unwrap_err();
     assert_eq!(error.path(), "$");
     assert!(error.message().contains("trailing"));
+}
+
+#[test]
+fn numeric_parameters_filters_and_stack_options_round_trip() {
+    let json = r#"{"data":null,"mark":"bar","params":[{"name":"cutoff","value":10.0}],"transform":[{"filter":{"field":"v","gte":{"expr":"cutoff"}}}],"encoding":{"y":{"field":"v","type":"quantitative","stack":null}}}"#;
+    let spec = avenger_vegalite_spec::UnitSpec::from_json(json).unwrap();
+    assert_eq!(
+        serde_json::to_value(&spec).unwrap(),
+        serde_json::from_str::<serde_json::Value>(json).unwrap()
+    );
+    for params in [
+        r#"[{"name":"a","value":0},{"name":"a","value":1}]"#,
+        r#"[{"name":"datum","value":1}]"#,
+        r#"[{"name":"a-b","value":1}]"#,
+        r#"[{"name":"a","expr":"2"}]"#,
+    ] {
+        assert!(avenger_vegalite_spec::UnitSpec::from_json(&format!(
+            r#"{{"data":null,"mark":"bar","params":{params}}}"#
+        ))
+        .is_err());
+    }
+    for filter in [
+        r#"{"field":"x","lt":1}"#,
+        r#"{"field":"x","gte":null}"#,
+        r#""datum.x > 1""#,
+    ] {
+        assert!(avenger_vegalite_spec::UnitSpec::from_json(&format!(
+            r#"{{"data":null,"mark":"bar","transform":[{{"filter":{filter}}}]}}"#
+        ))
+        .is_err());
+    }
 }

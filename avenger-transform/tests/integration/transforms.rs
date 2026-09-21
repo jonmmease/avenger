@@ -566,3 +566,63 @@ async fn bin_temporary_name_avoids_both_input_and_output_fields() -> Result<()> 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn zero_stack_preserves_rows_and_separates_signs() -> Result<()> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_from_iter([
+        (
+            "v",
+            Arc::new(Float64Array::from(vec![
+                Some(4.),
+                Some(-3.),
+                None,
+                Some(6.),
+                Some(-2.),
+                Some(f64::NAN),
+            ])) as ArrayRef,
+        ),
+        (
+            "order",
+            Arc::new(Int32Array::from(vec![0, 1, 2, 3, 4, 5])) as ArrayRef,
+        ),
+    ])?;
+    let input = ctx.read_batch(batch)?.into_unoptimized_plan();
+    let plan = t::stack_zero(
+        input.clone(),
+        vec![],
+        col("v"),
+        vec![col("order").sort(true, true)],
+        ["start", "end"],
+    )?;
+    let plan = LogicalPlanBuilder::from(plan)
+        .sort(vec![col("order").sort(true, true)])?
+        .build()?;
+    let b = collect(&ctx, plan).await?;
+    assert_eq!(
+        b.column_by_name("start")
+            .unwrap()
+            .as_primitive::<Float64Type>()
+            .values()
+            .as_ref(),
+        &[0., 0., 4., 4., -3., 10.]
+    );
+    assert_eq!(
+        b.column_by_name("end")
+            .unwrap()
+            .as_primitive::<Float64Type>()
+            .values()
+            .as_ref(),
+        &[4., -3., 4., 10., -5., 10.]
+    );
+    assert!(t::stack_zero(input.clone(), vec![], col("v"), vec![], ["start", "end"]).is_err());
+    assert!(t::stack_zero(
+        input,
+        vec![],
+        col("v"),
+        vec![col("order").sort(true, true)],
+        ["v", "end"]
+    )
+    .is_err());
+    Ok(())
+}

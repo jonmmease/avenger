@@ -58,7 +58,8 @@ impl ChartDefinition {
             })
             .collect::<Result<_>>()?;
         Ok(w::ChartArtifact {
-            version: 1,
+            version: 2,
+            background: self.background.clone(),
             dataflow: Some(flow),
             root: Some(e.group(&self.root)?),
             parameters,
@@ -68,7 +69,7 @@ impl ChartDefinition {
     /// Decode native descriptors and plans with the supplied dataflow runtime registry.
     pub fn from_bytes(bytes: &[u8], runtime: &Runtime) -> Result<Self> {
         let wire = w::ChartArtifact::decode(bytes).map_err(artifact)?;
-        if wire.version != 1 {
+        if !matches!(wire.version, 1 | 2) {
             return Err(artifact(format!(
                 "unsupported chart artifact version {}",
                 wire.version
@@ -90,6 +91,7 @@ impl ChartDefinition {
             .collect::<Result<_>>()?;
         let definition = Self {
             root: d.group(required(wire.root)?, None)?,
+            background: wire.background,
             dataflow,
             parameters,
         };
@@ -161,6 +163,14 @@ impl Encode {
                     scale: s.name.clone(),
                     input: Some(Box::new(self.value(x)?)),
                 })),
+                Value::Baseline(s) => w::value::Value::Baseline(s.name.clone()),
+                Value::BandPosition(s, x, fraction) => {
+                    w::value::Value::BandPosition(Box::new(w::BandPosition {
+                        scale: s.name.clone(),
+                        input: Some(Box::new(self.value(x)?)),
+                        fraction: *fraction,
+                    }))
+                }
                 Value::Bandwidth(s) => w::value::Value::Bandwidth(s.name.clone()),
                 Value::PlotWidth => w::value::Value::PlotWidth(true),
                 Value::PlotHeight => w::value::Value::PlotHeight(true),
@@ -175,6 +185,7 @@ impl Encode {
             kind: match s.kind {
                 ScaleKind::Linear => 0,
                 ScaleKind::Band => 1,
+                ScaleKind::Point => 2,
             },
             domain: Some(w::Domain {
                 domain: Some(match &s.domain {
@@ -193,6 +204,7 @@ impl Encode {
             range: Some(w::Range {
                 range: Some(match s.range {
                     Range::PlotWidth => w::range::Range::PlotWidth(true),
+                    Range::PlotHeight => w::range::Range::PlotHeight(true),
                     Range::PlotHeightReversed => w::range::Range::PlotHeightReversed(true),
                     Range::Fixed(start, end) => w::range::Range::Fixed(w::Interval { start, end }),
                 }),
@@ -202,6 +214,8 @@ impl Encode {
             clamp: s.clamp,
             padding_inner: s.padding_inner,
             padding_outer: s.padding_outer,
+            include_null: s.include_null,
+            pixel_padding: s.pixel_padding,
             empty_min: s.empty_domain[0],
             empty_max: s.empty_domain[1],
             sharing: s
@@ -220,6 +234,8 @@ impl Encode {
         Ok(w::Plot {
             name: p.name.clone(),
             width: p.size.width,
+            width_step: p.width_step.as_ref().map(step),
+            height_step: p.height_step.as_ref().map(step),
             height: p.size.height,
             clip: p.clip,
             scales: p
@@ -240,16 +256,20 @@ impl Encode {
                         name: m.name.clone(),
                         table: Some(self.table(&m.table)?),
                         encoding: Some(match &m.encoding {
-                            Encoding::Rect(r) => w::mark::Encoding::Rect(w::Rect {
+                            Encoding::Rect(r) => w::mark::Encoding::Rect(Box::new(w::Rect {
                                 x: self.optional_value(&r.x)?,
                                 y: self.optional_value(&r.y)?,
                                 x2: self.optional_value(&r.x2)?,
                                 y2: self.optional_value(&r.y2)?,
+                                xc: self.optional_value(&r.xc)?,
+                                yc: self.optional_value(&r.yc)?,
+                                x_span: Some(span(r.x_span)),
+                                y_span: Some(span(r.y_span)),
                                 width: self.optional_value(&r.width)?,
                                 height: self.optional_value(&r.height)?,
                                 fill: r.fill.clone(),
                                 interactive: r.interactive,
-                            }),
+                            })),
                             Encoding::Symbol(s) => w::mark::Encoding::Symbol(w::Symbol {
                                 x: self.optional_value(&s.x)?,
                                 y: self.optional_value(&s.y)?,
@@ -276,6 +296,7 @@ impl Encode {
                         title: a.title.clone(),
                         format: a.format.clone(),
                         tick_count: a.tick_count,
+                        label_angle: a.label_angle,
                         grid: a.grid,
                         labels: match a.labels {
                             LabelVisibility::All => 0,
@@ -370,6 +391,15 @@ impl Decode {
                 },
                 Box::new(self.value(*required(s.input)?, owner)?),
             ),
+            w::value::Value::Baseline(name) => Value::Baseline(ScaleHandle { owner, name }),
+            w::value::Value::BandPosition(s) => Value::BandPosition(
+                ScaleHandle {
+                    owner,
+                    name: s.scale,
+                },
+                Box::new(self.value(*required(s.input)?, owner)?),
+                s.fraction,
+            ),
             w::value::Value::Bandwidth(name) => Value::Bandwidth(ScaleHandle { owner, name }),
             w::value::Value::PlotWidth(_) => Value::PlotWidth,
             w::value::Value::PlotHeight(_) => Value::PlotHeight,
@@ -383,6 +413,7 @@ impl Decode {
             kind: match s.kind {
                 0 => ScaleKind::Linear,
                 1 => ScaleKind::Band,
+                2 => ScaleKind::Point,
                 _ => return Err(artifact("unknown scale kind")),
             },
             domain: match required(required(s.domain)?.domain)? {
@@ -398,6 +429,7 @@ impl Decode {
             },
             range: match required(required(s.range)?.range)? {
                 w::range::Range::PlotWidth(_) => Range::PlotWidth,
+                w::range::Range::PlotHeight(_) => Range::PlotHeight,
                 w::range::Range::PlotHeightReversed(_) => Range::PlotHeightReversed,
                 w::range::Range::Fixed(v) => Range::Fixed(v.start, v.end),
             },
@@ -406,6 +438,8 @@ impl Decode {
             clamp: s.clamp,
             padding_inner: s.padding_inner,
             padding_outer: s.padding_outer,
+            include_null: s.include_null,
+            pixel_padding: s.pixel_padding,
             empty_domain: [s.empty_min, s.empty_max],
             sharing: s
                 .sharing
@@ -419,6 +453,8 @@ impl Decode {
             identity: owner,
             name: p.name,
             size: Size::new(p.width, p.height),
+            width_step: p.width_step.map(|s| unstep(s, owner)),
+            height_step: p.height_step.map(|s| unstep(s, owner)),
             clip: p.clip,
             scales: p
                 .scales
@@ -433,16 +469,20 @@ impl Decode {
                         name: m.name,
                         table: self.table(required(m.table)?)?,
                         encoding: match required(m.encoding)? {
-                            w::mark::Encoding::Rect(r) => Encoding::Rect(RectEncoding {
+                            w::mark::Encoding::Rect(r) => Encoding::Rect(Box::new(RectEncoding {
                                 x: self.optional_value(r.x, owner)?,
                                 y: self.optional_value(r.y, owner)?,
                                 x2: self.optional_value(r.x2, owner)?,
                                 y2: self.optional_value(r.y2, owner)?,
+                                xc: self.optional_value(r.xc, owner)?,
+                                yc: self.optional_value(r.yc, owner)?,
+                                x_span: unspan(r.x_span),
+                                y_span: unspan(r.y_span),
                                 width: self.optional_value(r.width, owner)?,
                                 height: self.optional_value(r.height, owner)?,
                                 fill: r.fill,
                                 interactive: r.interactive,
-                            }),
+                            })),
                             w::mark::Encoding::Symbol(s) => Encoding::Symbol(SymbolEncoding {
                                 x: self.optional_value(s.x, owner)?,
                                 y: self.optional_value(s.y, owner)?,
@@ -473,6 +513,7 @@ impl Decode {
                         title: a.title,
                         format: a.format,
                         tick_count: a.tick_count,
+                        label_angle: a.label_angle,
                         grid: a.grid,
                         labels: match a.labels {
                             0 => LabelVisibility::All,
@@ -621,4 +662,35 @@ fn unarrangement(a: w::Arrangement) -> Result<Arrangement> {
         columns: tracks(a.columns)?,
         rows: tracks(a.rows)?,
     })
+}
+
+fn step(s: &StepDimension) -> w::StepDimension {
+    w::StepDimension {
+        scale: s.scale.name.clone(),
+        step: s.step,
+    }
+}
+fn unstep(s: w::StepDimension, owner: u64) -> StepDimension {
+    StepDimension {
+        scale: ScaleHandle {
+            owner,
+            name: s.scale,
+        },
+        step: s.step,
+    }
+}
+fn span(s: SpanAdjustment) -> w::SpanAdjustment {
+    w::SpanAdjustment {
+        spacing: s.spacing,
+        minimum: s.minimum,
+        offset: s.offset,
+    }
+}
+fn unspan(s: Option<w::SpanAdjustment>) -> SpanAdjustment {
+    s.map(|s| SpanAdjustment {
+        spacing: s.spacing,
+        minimum: s.minimum,
+        offset: s.offset,
+    })
+    .unwrap_or_default()
 }

@@ -60,17 +60,20 @@ pub struct BinTransform {
     pub as_: BinOutput,
 }
 
-/// An authored transform, applied in list order by a future compiler.
+/// An authored transform, applied in list order.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum Transform {
     Bin(BinTransform),
     Aggregate(AggregateTransform),
+    Filter(FilterTransform),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TransformFields {
+    #[serde(default, deserialize_with = "present")]
+    filter: Option<FieldPredicate>,
     #[serde(default, deserialize_with = "present")]
     bin: Option<Bin>,
     #[serde(default, deserialize_with = "present")]
@@ -86,6 +89,19 @@ struct TransformFields {
 impl<'de> Deserialize<'de> for Transform {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let fields = TransformFields::deserialize(deserializer)?;
+        if let Some(filter) = fields.filter {
+            if fields.bin.is_some()
+                || fields.aggregate.is_some()
+                || fields.field.is_some()
+                || fields.as_.is_some()
+                || fields.groupby.is_some()
+            {
+                return Err(de::Error::custom(
+                    "filter cannot be combined with another transform",
+                ));
+            }
+            return Ok(Self::Filter(FilterTransform { filter }));
+        }
         match (fields.bin, fields.aggregate) {
             (Some(_), Some(_)) => Err(de::Error::custom(
                 "a transform cannot contain both bin and aggregate",
@@ -115,7 +131,39 @@ impl<'de> Deserialize<'de> for Transform {
                     groupby: fields.groupby,
                 }))
             }
-            (None, None) => Err(de::Error::custom("expected a bin or aggregate transform")),
+            (None, None) => Err(de::Error::custom(
+                "expected a bin, aggregate, or filter transform",
+            )),
         }
     }
+}
+
+/// A structured numeric field comparison in authored transform order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilterTransform {
+    pub filter: FieldPredicate,
+}
+
+/// A greater-than-or-equal field predicate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldPredicate {
+    pub field: String,
+    pub gte: PredicateOperand,
+}
+
+/// A numeric literal or an expression reference resolved by the compiler.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PredicateOperand {
+    Number(f64),
+    Expr(ExpressionReference),
+}
+
+/// Authored expression text. The initial compiler accepts one parameter name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpressionReference {
+    pub expr: String,
 }
