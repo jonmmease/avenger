@@ -36,7 +36,7 @@ pub struct State {
     pub error: Option<String>,
     pub preaggregate: bool,
     pub warmup_message: String,
-    pub foreground: BackgroundTask<Evaluation>,
+    foreground: BackgroundTask<Evaluation>,
     warmup: BackgroundTask<Evaluation>,
     engine: Arc<Engine>,
     focus: Option<usize>,
@@ -67,9 +67,9 @@ impl State {
                 focus: None,
                 drag: None,
                 warmup_message: if config.preaggregate {
-                    "Hover a plot to warm its cross-filters"
+                    "Hover to warm cross-filters"
                 } else {
-                    "Direct mode"
+                    "Warm-up disabled in direct mode"
                 }
                 .into(),
                 commit: DebouncedCommit::new(DebounceConfig {
@@ -99,9 +99,7 @@ impl State {
         if !self.preaggregate {
             return Ok(());
         }
-        self.warmup_message = "Hover a plot to warm its cross-filters".into();
-        if let Some(i) = focus {
-            self.warmup_message = format!("Warming {}…", PLOTS[i].title);
+        if focus.is_some() {
             let engine = self.engine.clone();
             let selections = self.selections.clone();
             self.warmup
@@ -177,7 +175,7 @@ fn input(event: &SceneGraphEvent, s: &mut State) -> Result<UpdateStatus> {
             }
             if let Some(result) = s.warmup.handle_wake(wake) {
                 s.warmup_message = match result {
-                    Ok(result) => format!("Warm-up ready · {:.0} ms", result.elapsed_ms),
+                    Ok(result) => format!("Last warm-up: {:.0} ms", result.elapsed_ms),
                     Err(error) => format!("Warm-up failed: {error}"),
                 };
                 status.rerender = true;
