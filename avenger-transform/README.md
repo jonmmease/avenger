@@ -167,7 +167,9 @@ For preaggregation, put the changing-filter marker immediately before the visibl
 aggregate section using `FilterQuery::new(source, |rows| aggregate(...))`. Include
 fixed filters, formulas, and bins in the source section when their semantics
 permit it. Require expressions to be valid over the entire warm-up dataset.
-Register the planner's state and rollup plans in dataflow to reuse warm-up results.
+Use `avenger_datafusion_preaggregate::dataflow::Query::install` to register the
+planner's plans in dataflow and reuse warm-up results. Bind a changing predicate,
+apply its inputs, and query the binding's output, as in `preaggregate_histogram`.
 Unsupported queries or unretained predicate dimensions use the planner's direct
 fallback. No automatic graph rewrite or chart coordinator is introduced here.
 
@@ -203,7 +205,8 @@ cargo test -p avenger-transform --all-targets
 - `preaggregate_histogram`: hover warm-up, drag reuse, fixed-filter/bin invalidation,
   and an unretained-predicate fallback, with SQL and tables.
 
-Tests read checked-in fixtures from Vega **6.2.0**, commit
+One integration test binary covers transforms, dataflow reuse, preaggregation,
+and serialization. Tests read checked-in fixtures from Vega **6.2.0**, commit
 `4dea72921d25bf6ff6636a9f9cb6c63ff696932c`. Regeneration is optional:
 
 ```sh

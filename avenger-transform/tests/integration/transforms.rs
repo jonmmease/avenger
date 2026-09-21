@@ -1,10 +1,10 @@
-mod common;
+use super::common;
 use avenger_transform::{self as t, expr_fn as tf, BinOptions};
 use common::*;
 use datafusion::{
     arrow::{
-        array::{Array, ArrayRef, BooleanArray, Float64Array, Int32Array, StringArray},
-        datatypes::DataType,
+        array::{Array, ArrayRef, AsArray, BooleanArray, Float64Array, Int32Array, StringArray},
+        datatypes::{DataType, Float64Type, Int32Type},
         record_batch::RecordBatch,
     },
     common::{Column, Result, ScalarValue},
@@ -40,14 +40,7 @@ async fn formula_replaces_in_order_and_preserves_literal_names() -> Result<()> {
             .collect::<Vec<_>>(),
         ["x", "a.b", "z"]
     );
-    assert_eq!(
-        b.column(1)
-            .as_any()
-            .downcast_ref::<Int32Array>()
-            .unwrap()
-            .values(),
-        &[19, 32]
-    );
+    assert_eq!(b.column(1).as_primitive::<Int32Type>().values(), &[19, 32]);
     Ok(())
 }
 
@@ -120,7 +113,7 @@ async fn extent_empty_invalid_and_nonfinite() -> Result<()> {
 async fn vega_bin_fixtures() -> Result<()> {
     let ctx = SessionContext::new();
     let fixtures: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/vega-6.2.0.json")).unwrap();
+        serde_json::from_str(include_str!("../fixtures/vega-6.2.0.json")).unwrap();
     for case in fixtures["bins"].as_array().unwrap() {
         let o = &case["options"];
         let scalar = |key: &str| {
@@ -178,11 +171,7 @@ async fn vega_bin_fixtures() -> Result<()> {
         assert_eq!(result.num_columns(), 2);
         for (row, expected) in case["bounds"].as_array().unwrap().iter().enumerate() {
             for column in 0..2 {
-                let a = result
-                    .column(column)
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .unwrap();
+                let a = result.column(column).as_primitive::<Float64Type>();
                 assert_number(
                     (!a.is_null(row)).then(|| a.value(row)),
                     number(&expected[column]),
@@ -299,7 +288,7 @@ async fn bins_validate_options_and_empty_extents() -> Result<()> {
 async fn vega_aggregate_fixtures() -> Result<()> {
     let ctx = SessionContext::new();
     let fixtures: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/vega-6.2.0.json")).unwrap();
+        serde_json::from_str(include_str!("../fixtures/vega-6.2.0.json")).unwrap();
     for case in fixtures["aggregates"].as_array().unwrap() {
         let b = collect(
             &ctx,
@@ -324,7 +313,7 @@ async fn vega_aggregate_fixtures() -> Result<()> {
         }
         for (field, a) in b.schema().fields().iter().zip(b.columns()) {
             let a = datafusion::arrow::compute::cast(a, &DataType::Float64)?;
-            let a = a.as_any().downcast_ref::<Float64Array>().unwrap();
+            let a = a.as_primitive::<Float64Type>();
             assert_number(
                 (!a.is_null(0)).then(|| a.value(0)),
                 number(&case["rows"][0][field.name()]),
@@ -469,15 +458,8 @@ async fn uniform_array_configuration_and_vector_boundaries() -> Result<()> {
         4,
     )?;
     let result = result.into_array(4)?;
-    let result = result
-        .as_any()
-        .downcast_ref::<datafusion::arrow::array::StructArray>()
-        .unwrap();
-    let start = result
-        .column(0)
-        .as_any()
-        .downcast_ref::<Float64Array>()
-        .unwrap();
+    let result = result.as_struct();
+    let start = result.column(0).as_primitive::<Float64Type>();
     assert_eq!(
         start.iter().collect::<Vec<_>>(),
         vec![Some(5.0), Some(25.0), Some(f64::INFINITY), None]

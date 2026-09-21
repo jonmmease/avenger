@@ -157,96 +157,13 @@ pub(crate) fn calculate(extent: &ColumnarValue, options: &ColumnarValue) -> Resu
     let ScalarValue::Struct(options) = uniform(options, "options")? else {
         unreachable!()
     };
-    if options.is_null(0) {
-        return exec_err!("Bin options must be non-null");
-    }
-    let number = |name: &str| -> Result<Option<f64>> {
-        options
-            .column_by_name(name)
-            .map(|a| scalar_number(a, name))
-            .transpose()
-    };
-    let list = |name: &str| -> Result<Option<Vec<f64>>> {
-        options
-            .column_by_name(name)
-            .map(|a| {
-                let a = a.as_list::<i32>();
-                if a.is_null(0) {
-                    return exec_err!("Bin option {name} must be non-null");
-                }
-                let a = cast(&a.value(0), &DataType::Float64)?;
-                a.as_primitive::<Float64Type>()
-                    .iter()
-                    .map(|v| {
-                        v.filter(|v| v.is_finite()).ok_or_else(|| {
-                            datafusion::common::exec_datafusion_err!(
-                                "Bin option {name} requires finite non-null elements"
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()
-            })
-            .transpose()
-    };
-    let maxbins = number("maxbins")?.unwrap_or(20.0);
-    let base = number("base")?.unwrap_or(10.0);
-    let minstep = number("minstep")?.unwrap_or(0.0);
-    let step = number("step")?;
-    let span = number("span")?;
-    let anchor = number("anchor")?;
-    let divide = list("divide")?.unwrap_or_else(|| vec![5.0, 2.0]);
-    let steps = list("steps")?;
-    let nice = match options.column_by_name("nice") {
-        Some(a) if !a.is_null(0) => a.as_boolean().value(0),
-        Some(_) => return exec_err!("Bin option nice must be non-null"),
-        None => true,
-    };
-    if maxbins < 1.0
-        || base <= 1.0
-        || minstep < 0.0
-        || step.is_some_and(|x| x <= 0.0)
-        || span.is_some_and(|x| x <= 0.0)
-        || divide.is_empty()
-        || divide.iter().any(|x| *x <= 1.0)
-        || steps.as_ref().is_some_and(|s| {
-            s.is_empty() || s.iter().any(|x| *x <= 0.0) || s.windows(2).any(|w| w[0] >= w[1])
-        })
-    {
-        return exec_err!("Invalid bin options: maxbins >= 1, base/divide > 1, minstep >= 0, and positive step/span/increasing steps are required");
-    }
+    let options = ResolvedBinOptions::from_struct(&options)?;
     if extent.is_null(0) || extent.columns().iter().any(|a| a.is_null(0)) {
         return ScalarValue::try_from(&parameter_type());
     }
     let min = scalar_number(&extent.columns()[0], "extent.min")?;
     let max = scalar_number(&extent.columns()[1], "extent.max")?;
-    if min > max {
-        return exec_err!("Bin extent min must not exceed max");
-    }
-    let span = span.unwrap_or_else(|| {
-        if max != min {
-            max - min
-        } else if min != 0.0 {
-            min.abs()
-        } else {
-            1.0
-        }
-    });
-    if !span.is_finite() {
-        return exec_err!("Bin extent span is not finite");
-    }
-    let parameters = resolve(
-        min,
-        max,
-        maxbins,
-        base,
-        minstep,
-        step,
-        steps.as_deref(),
-        &divide,
-        span,
-        nice,
-        anchor,
-    )?;
+    let parameters = options.resolve(min, max)?;
     let DataType::Struct(fields) = parameter_type() else {
         unreachable!()
     };
@@ -268,75 +185,173 @@ fn scalar_number(array: &ArrayRef, name: &str) -> Result<f64> {
     Ok(array.value(0))
 }
 
-// Algorithm adapted from Vega v6.2.0. See LICENSE.vega and README references.
-#[allow(clippy::too_many_arguments)]
-fn resolve(
-    mut min: f64,
-    mut max: f64,
+struct ResolvedBinOptions {
     maxbins: f64,
     base: f64,
     minstep: f64,
     step: Option<f64>,
-    steps: Option<&[f64]>,
-    divide: &[f64],
-    span: f64,
-    nice: bool,
+    span: Option<f64>,
     anchor: Option<f64>,
-) -> Result<[f64; 4]> {
-    let logb = base.ln();
-    let step = if let Some(step) = step {
-        step
-    } else if let Some(steps) = steps {
-        let i = steps.partition_point(|v| *v < span / maxbins);
-        steps[i.saturating_sub(1)]
-    } else {
-        let level = (maxbins.ln() / logb).ceil();
-        // Math.round ties toward positive infinity, including negative values.
-        let rounded = (span.ln() / logb + 0.5).floor();
-        let mut step = minstep.max(base.powf(rounded - level));
-        if step <= 0.0 || !step.is_finite() {
-            return exec_err!("Bin step is not representable");
+    divide: Vec<f64>,
+    steps: Option<Vec<f64>>,
+    nice: bool,
+}
+
+impl ResolvedBinOptions {
+    fn from_struct(options: &StructArray) -> Result<Self> {
+        if options.is_null(0) {
+            return exec_err!("Bin options must be non-null");
         }
-        let mut refinements = 0;
-        while (span / step).ceil() > maxbins {
-            let next = step * base;
-            refinements += 1;
-            if next <= step || !next.is_finite() || refinements > 2048 {
-                return exec_err!("Bin step refinement exceeds finite arithmetic limits");
+        let number = |name: &str| -> Result<Option<f64>> {
+            options
+                .column_by_name(name)
+                .map(|a| scalar_number(a, name))
+                .transpose()
+        };
+        let list = |name: &str| -> Result<Option<Vec<f64>>> {
+            options
+                .column_by_name(name)
+                .map(|a| {
+                    let a = a.as_list::<i32>();
+                    if a.is_null(0) {
+                        return exec_err!("Bin option {name} must be non-null");
+                    }
+                    let a = cast(&a.value(0), &DataType::Float64)?;
+                    a.as_primitive::<Float64Type>()
+                        .iter()
+                        .map(|v| {
+                            v.filter(|v| v.is_finite()).ok_or_else(|| {
+                                datafusion::common::exec_datafusion_err!(
+                                    "Bin option {name} requires finite non-null elements"
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()
+                })
+                .transpose()
+        };
+        let maxbins = number("maxbins")?.unwrap_or(20.0);
+        let base = number("base")?.unwrap_or(10.0);
+        let minstep = number("minstep")?.unwrap_or(0.0);
+        let step = number("step")?;
+        let span = number("span")?;
+        let anchor = number("anchor")?;
+        let divide = list("divide")?.unwrap_or_else(|| vec![5.0, 2.0]);
+        let steps = list("steps")?;
+        let nice = match options.column_by_name("nice") {
+            Some(a) if !a.is_null(0) => a.as_boolean().value(0),
+            Some(_) => return exec_err!("Bin option nice must be non-null"),
+            None => true,
+        };
+        if maxbins < 1.0
+            || base <= 1.0
+            || minstep < 0.0
+            || step.is_some_and(|x| x <= 0.0)
+            || span.is_some_and(|x| x <= 0.0)
+            || divide.is_empty()
+            || divide.iter().any(|x| *x <= 1.0)
+            || steps.as_ref().is_some_and(|s| {
+                s.is_empty() || s.iter().any(|x| *x <= 0.0) || s.windows(2).any(|w| w[0] >= w[1])
+            })
+        {
+            return exec_err!("Invalid bin options: maxbins >= 1, base/divide > 1, minstep >= 0, and positive step/span/increasing steps are required");
+        }
+        Ok(Self {
+            maxbins,
+            base,
+            minstep,
+            step,
+            span,
+            anchor,
+            divide,
+            steps,
+            nice,
+        })
+    }
+
+    // Algorithm adapted from Vega v6.2.0. See LICENSE.vega and README references.
+    fn resolve(self, mut min: f64, mut max: f64) -> Result<[f64; 4]> {
+        let Self {
+            maxbins,
+            base,
+            minstep,
+            step,
+            span,
+            anchor,
+            divide,
+            steps,
+            nice,
+        } = self;
+        if min > max {
+            return exec_err!("Bin extent min must not exceed max");
+        }
+        let span = span.unwrap_or_else(|| {
+            if max != min {
+                max - min
+            } else if min != 0.0 {
+                min.abs()
+            } else {
+                1.0
             }
-            step = next;
+        });
+        if !span.is_finite() {
+            return exec_err!("Bin extent span is not finite");
         }
-        for div in divide {
-            let v = step / div;
-            if v >= minstep && span / v <= maxbins {
-                step = v;
+        let logb = base.ln();
+        let step = if let Some(step) = step {
+            step
+        } else if let Some(steps) = steps {
+            let i = steps.partition_point(|v| *v < span / maxbins);
+            steps[i.saturating_sub(1)]
+        } else {
+            let level = (maxbins.ln() / logb).ceil();
+            // Math.round ties toward positive infinity, including negative values.
+            let rounded = (span.ln() / logb + 0.5).floor();
+            let mut step = minstep.max(base.powf(rounded - level));
+            if step <= 0.0 || !step.is_finite() {
+                return exec_err!("Bin step is not representable");
             }
+            let mut refinements = 0;
+            while (span / step).ceil() > maxbins {
+                let next = step * base;
+                refinements += 1;
+                if next <= step || !next.is_finite() || refinements > 2048 {
+                    return exec_err!("Bin step refinement exceeds finite arithmetic limits");
+                }
+                step = next;
+            }
+            for div in divide {
+                let v = step / div;
+                if v >= minstep && span / v <= maxbins {
+                    step = v;
+                }
+            }
+            step
+        };
+        let log = step.ln();
+        let precision = if log >= 0.0 {
+            0.0
+        } else {
+            (-log / logb).trunc() + 1.0
+        };
+        let epsilon = base.powf(-precision - 1.0);
+        if nice {
+            let v = (min / step + epsilon).floor() * step;
+            min = if min < v { v - step } else { v };
+            max = (max / step).ceil() * step;
         }
-        step
-    };
-    let log = step.ln();
-    let precision = if log >= 0.0 {
-        0.0
-    } else {
-        (-log / logb).trunc() + 1.0
-    };
-    let epsilon = base.powf(-precision - 1.0);
-    if nice {
-        let v = (min / step + epsilon).floor() * step;
-        min = if min < v { v - step } else { v };
-        max = (max / step).ceil() * step;
+        let stop = if max == min { min + step } else { max };
+        let mut upper = min + ((stop - min) / step).ceil() * step;
+        if let Some(anchor) = anchor {
+            let delta = anchor - (min + step * ((anchor - min) / step).floor());
+            min += delta;
+            upper += delta;
+        }
+        if ![min, stop, step, upper].iter().all(|x| x.is_finite()) || step <= 0.0 || upper <= min {
+            return exec_err!("Bin boundaries or step are not representable");
+        }
+        Ok([min, stop, step, upper])
     }
-    let stop = if max == min { min + step } else { max };
-    let mut upper = min + ((stop - min) / step).ceil() * step;
-    if let Some(anchor) = anchor {
-        let delta = anchor - (min + step * ((anchor - min) / step).floor());
-        min += delta;
-        upper += delta;
-    }
-    if ![min, stop, step, upper].iter().all(|x| x.is_finite()) || step <= 0.0 || upper <= min {
-        return exec_err!("Bin boundaries or step are not representable");
-    }
-    Ok([min, stop, step, upper])
 }
 
 pub(crate) fn apply(values: &ArrayRef, parameters: &ColumnarValue) -> Result<ArrayRef> {
