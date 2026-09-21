@@ -161,24 +161,44 @@ pub fn build(s: &State) -> Result<SceneGraph> {
             marks.push(SceneGroup::default().into());
         }
     }
-    marks.push(text(
-        s.error.clone().unwrap_or_else(|| {
-            if s.foreground.is_pending() {
-                "Updating…".into()
+    for (value, x, y, font) in [
+        (
+            format!("{:.0} ms", s.result.elapsed_ms),
+            24.,
+            SIZE[1] - 29.,
+            "monospace",
+        ),
+        (
+            if s.preaggregate {
+                format!("auto · {}/3 preaggregated", s.result.preaggregated)
             } else {
-                format!(
-                    "{} · {:.0} ms · {}/3 targets use preaggregation",
-                    if s.preaggregate { "auto" } else { "off" },
-                    s.result.elapsed_ms,
-                    s.result.preaggregated
-                )
+                "direct · preaggregation off".into()
+            },
+            96.,
+            SIZE[1] - 29.,
+            "sans-serif",
+        ),
+        (
+            s.error.as_ref().unwrap_or(&s.warmup_message).clone(),
+            24.,
+            SIZE[1] - 12.,
+            "sans-serif",
+        ),
+    ] {
+        marks.push(
+            SceneTextMark {
+                text: value.into(),
+                x: x.into(),
+                y: y.into(),
+                font: font.to_string().into(),
+                font_size: 11_f32.into(),
+                color: ColorOrGradient::Color([0.42, 0.45, 0.49, 1.]).into(),
+                interactive: false,
+                ..Default::default()
             }
-        }),
-        24.,
-        SIZE[1] - 29.,
-        11.,
-    ));
-    marks.push(text(&s.warmup_message, 24., SIZE[1] - 12., 11.));
+            .into(),
+        );
+    }
     Ok(SceneGraph {
         width: SIZE[0],
         height: SIZE[1],
