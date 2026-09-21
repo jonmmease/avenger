@@ -88,3 +88,5 @@ RUST_LOG=avenger_chart=debug,avenger_wgpu::retained_symbols=debug \
 ```
 
 The definition library has no chart-runtime or renderer dependency. Those dependencies are used only by its examples and tests.
+
+Version 2 artifacts add point scales, numeric pixel padding, optional null-category membership, discrete step dimensions, centered rectangle positions, band positions, clamped-zero baselines, span adjustments, axis label angles, top-to-bottom height ranges, and an optional background. Readers accept version 1 with the original defaults. These are native chart descriptors and do not depend on Vega-Lite. The [Vega-Lite compiler](../avenger-vegalite-compiler/README.md) supplies frontend defaults explicitly.

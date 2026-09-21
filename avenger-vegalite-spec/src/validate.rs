@@ -43,9 +43,45 @@ impl UnitSpec {
                 }
             }
         }
+        let mut names = HashSet::new();
+        for (i, parameter) in self.params.iter().flatten().enumerate() {
+            let name = &parameter.name;
+            let mut chars = name.chars();
+            let valid = chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                && !matches!(name.as_str(), "datum" | "event" | "item" | "parent");
+            require(
+                valid,
+                &format!("params[{i}].name"),
+                "expected a valid parameter name",
+            )?;
+            require(
+                names.insert(name),
+                &format!("params[{i}].name"),
+                "duplicate parameter name",
+            )?;
+            number(
+                Some(parameter.value),
+                &format!("params[{i}].value"),
+                |_| true,
+                "expected a finite number",
+            )?;
+        }
         for (i, transform) in self.transform.iter().flatten().enumerate() {
             let path = format!("transform[{i}]");
             match transform {
+                Transform::Filter(t) => {
+                    if let crate::PredicateOperand::Number(n) = t.filter.gte {
+                        number(
+                            Some(n),
+                            &format!("{path}.filter.gte"),
+                            |_| true,
+                            "expected a finite number",
+                        )?;
+                    }
+                }
                 Transform::Bin(transform) => {
                     require(
                         matches!(transform.bin, Bin::Bool(true) | Bin::Params(_)),

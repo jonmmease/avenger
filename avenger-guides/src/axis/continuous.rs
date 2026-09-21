@@ -9,7 +9,7 @@ use avenger_typst_label::{LabelEngine, LabelValue};
 
 use super::{
     format_values,
-    marks::{make_axis, AxisParts, TickLabels},
+    marks::{make_axis, make_grid, AxisParts, TickLabels},
     opts::{AxisConfig, AxisOrientation, AxisTickInterval},
     pixel_range, tick_label_text,
 };
@@ -30,19 +30,7 @@ pub fn make_continuous_axis_marks(
     config: &AxisConfig,
     text_engine: &LabelEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    // For scales with a band option, make sure ticks end up centered in the band.
-    // Other scales reject unknown options.
-    let has_band = scale
-        .scale_impl
-        .option_definitions()
-        .iter()
-        .any(|option| option.name == "band");
-    let scale = if has_band {
-        scale.clone().with_option("band", 0.5)
-    } else {
-        scale.clone()
-    };
-
+    let scale = tick_scale(scale);
     let tick_count = tick_count(config, text_engine);
     let (ticks, label_ticks) = axis_ticks(&scale, config, tick_count)?;
     let positions = |ticks: &ArrayRef| -> Result<Vec<f32>, AvengerGuidesError> {
@@ -69,6 +57,33 @@ pub fn make_continuous_axis_marks(
         title_margin: TITLE_MARGIN,
     };
     make_axis(parts, origin, config, text_engine)
+}
+
+/// Grid lines at the axis's ticks, for a chart that draws them apart from the axis.
+pub fn make_continuous_grid_marks(
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+    text_engine: &LabelEngine,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    let scale = tick_scale(scale);
+    let (ticks, _) = axis_ticks(&scale, config, tick_count(config, text_engine))?;
+    let positions = scale.scale_to_numeric(&ticks)?.as_vec(ticks.len(), None);
+    Ok(make_grid(&positions, config))
+}
+
+/// The scale that places ticks: for scales with a band option, ticks end up centered in the
+/// band. Other scales reject unknown options.
+fn tick_scale(scale: &ConfiguredScale) -> ConfiguredScale {
+    let has_band = scale
+        .scale_impl
+        .option_definitions()
+        .iter()
+        .any(|option| option.name == "band");
+    if has_band {
+        scale.clone().with_option("band", 0.5)
+    } else {
+        scale.clone()
+    }
 }
 
 /// The axis's tick count, or one fitted to the axis length.

@@ -1,0 +1,860 @@
+{
+  "vega_lite": "6.4.3",
+  "vega": "6.4.0",
+  "cases": [
+    {
+      "name": "unaggregated",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 4
+            },
+            {
+              "c": "A",
+              "v": 6
+            },
+            {
+              "c": "B",
+              "v": -3
+            },
+            {
+              "c": "B",
+              "v": -2
+            },
+            {
+              "c": null,
+              "v": 2
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "c",
+            "type": "nominal"
+          },
+          "y": {
+            "field": "v",
+            "type": "quantitative"
+          }
+        }
+      },
+      "width": 60,
+      "height": 300,
+      "domains": {
+        "x": [
+          null,
+          "A",
+          "B"
+        ],
+        "y": [
+          -6,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 21,
+          "y": 112.5,
+          "width": 18,
+          "height": 75
+        },
+        {
+          "x": 21,
+          "y": 0,
+          "width": 18,
+          "height": 112.5
+        },
+        {
+          "x": 41,
+          "y": 187.5,
+          "width": 18,
+          "height": 56.25
+        },
+        {
+          "x": 41,
+          "y": 243.75,
+          "width": 18,
+          "height": 37.5
+        },
+        {
+          "x": 1,
+          "y": 150,
+          "width": 18,
+          "height": 37.5
+        }
+      ]
+    },
+    {
+      "name": "unstacked",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 4
+            },
+            {
+              "c": "A",
+              "v": 6
+            },
+            {
+              "c": "B",
+              "v": -3
+            },
+            {
+              "c": "B",
+              "v": -2
+            },
+            {
+              "c": null,
+              "v": 2
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "c",
+            "type": "nominal"
+          },
+          "y": {
+            "field": "v",
+            "type": "quantitative",
+            "stack": null
+          }
+        }
+      },
+      "width": 60,
+      "height": 300,
+      "domains": {
+        "x": [
+          null,
+          "A",
+          "B"
+        ],
+        "y": [
+          -3,
+          6
+        ]
+      },
+      "rects": [
+        {
+          "x": 21,
+          "y": 66.66666666666666,
+          "width": 18,
+          "height": 133.33333333333337
+        },
+        {
+          "x": 21,
+          "y": 0,
+          "width": 18,
+          "height": 200.00000000000003
+        },
+        {
+          "x": 41,
+          "y": 200.00000000000003,
+          "width": 18,
+          "height": 99.99999999999997
+        },
+        {
+          "x": 41,
+          "y": 200.00000000000003,
+          "width": 18,
+          "height": 66.6666666666666
+        },
+        {
+          "x": 1,
+          "y": 133.33333333333331,
+          "width": 18,
+          "height": 66.66666666666671
+        }
+      ]
+    },
+    {
+      "name": "aggregate",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 4
+            },
+            {
+              "c": "A",
+              "v": 6
+            },
+            {
+              "c": "B",
+              "v": -3
+            },
+            {
+              "c": "B",
+              "v": -2
+            },
+            {
+              "c": null,
+              "v": 2
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "c",
+            "type": "nominal"
+          },
+          "y": {
+            "field": "v",
+            "aggregate": "sum",
+            "type": "quantitative"
+          }
+        }
+      },
+      "width": 60,
+      "height": 300,
+      "domains": {
+        "x": [
+          null,
+          "A",
+          "B"
+        ],
+        "y": [
+          -6,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 21,
+          "y": 0,
+          "width": 18,
+          "height": 187.5
+        },
+        {
+          "x": 41,
+          "y": 187.5,
+          "width": 18,
+          "height": 93.75
+        },
+        {
+          "x": 1,
+          "y": 150,
+          "width": 18,
+          "height": 37.5
+        }
+      ]
+    },
+    {
+      "name": "fixed-size",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 4
+            },
+            {
+              "c": "A",
+              "v": 6
+            },
+            {
+              "c": "B",
+              "v": -3
+            },
+            {
+              "c": "B",
+              "v": -2
+            },
+            {
+              "c": null,
+              "v": 2
+            }
+          ]
+        },
+        "mark": {
+          "type": "bar",
+          "size": 6
+        },
+        "encoding": {
+          "x": {
+            "field": "c",
+            "type": "nominal"
+          },
+          "y": {
+            "field": "v",
+            "aggregate": "sum",
+            "type": "quantitative"
+          }
+        }
+      },
+      "width": 60,
+      "height": 300,
+      "domains": {
+        "x": [
+          null,
+          "A",
+          "B"
+        ],
+        "y": [
+          -6,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 27,
+          "y": 0,
+          "width": 6,
+          "height": 187.5
+        },
+        {
+          "x": 47,
+          "y": 187.5,
+          "width": 6,
+          "height": 93.75
+        },
+        {
+          "x": 7,
+          "y": 150,
+          "width": 6,
+          "height": 37.5
+        }
+      ]
+    },
+    {
+      "name": "point",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 4
+            },
+            {
+              "c": "A",
+              "v": 6
+            },
+            {
+              "c": "B",
+              "v": -3
+            },
+            {
+              "c": "B",
+              "v": -2
+            },
+            {
+              "c": null,
+              "v": 2
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "c",
+            "type": "nominal",
+            "scale": {
+              "type": "point"
+            }
+          },
+          "y": {
+            "field": "v",
+            "aggregate": "sum",
+            "type": "quantitative"
+          }
+        }
+      },
+      "width": 60,
+      "height": 300,
+      "domains": {
+        "x": [
+          null,
+          "A",
+          "B"
+        ],
+        "y": [
+          -6,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 21,
+          "y": 0,
+          "width": 18,
+          "height": 187.5
+        },
+        {
+          "x": 41,
+          "y": 187.5,
+          "width": 18,
+          "height": 93.75
+        },
+        {
+          "x": 1,
+          "y": 150,
+          "width": 18,
+          "height": 37.5
+        }
+      ]
+    },
+    {
+      "name": "histogram",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "v": 0
+            },
+            {
+              "v": 5
+            },
+            {
+              "v": 10
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "v",
+            "type": "quantitative",
+            "bin": {
+              "step": 5
+            }
+          },
+          "y": {
+            "aggregate": "count",
+            "type": "quantitative"
+          }
+        }
+      },
+      "width": 300,
+      "height": 300,
+      "domains": {
+        "x": [
+          0,
+          10
+        ],
+        "y": [
+          0,
+          2
+        ]
+      },
+      "rects": [
+        {
+          "x": 1,
+          "y": 150,
+          "width": 149,
+          "height": 150
+        },
+        {
+          "x": 151,
+          "y": 0,
+          "width": 149,
+          "height": 300
+        }
+      ]
+    },
+    {
+      "name": "horizontal",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "B",
+              "v": 2
+            },
+            {
+              "c": "A",
+              "v": 4
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "y": {
+            "field": "c"
+          },
+          "x": {
+            "field": "v",
+            "aggregate": "sum"
+          }
+        }
+      },
+      "width": 300,
+      "height": 40,
+      "domains": {
+        "x": [
+          0,
+          4
+        ],
+        "y": [
+          "A",
+          "B"
+        ]
+      },
+      "rects": [
+        {
+          "x": 0,
+          "y": 21,
+          "width": 150,
+          "height": 18
+        },
+        {
+          "x": 0,
+          "y": 1,
+          "width": 300,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "ranged",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "lo": 5,
+              "hi": 9
+            },
+            {
+              "c": "B",
+              "lo": 8,
+              "hi": 2
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "y": {
+            "field": "c"
+          },
+          "x": {
+            "field": "lo",
+            "type": "quantitative"
+          },
+          "x2": {
+            "field": "hi"
+          }
+        }
+      },
+      "width": 300,
+      "height": 40,
+      "domains": {
+        "x": [
+          0,
+          9
+        ],
+        "y": [
+          "A",
+          "B"
+        ]
+      },
+      "rects": [
+        {
+          "x": 166.66666666666669,
+          "y": 1,
+          "width": 133.33333333333331,
+          "height": 18
+        },
+        {
+          "x": 66.66666666666666,
+          "y": 21,
+          "width": 199.99999999999997,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "no-zero",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "c": "A",
+              "v": 5
+            },
+            {
+              "c": "B",
+              "v": 10
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "c"
+          },
+          "y": {
+            "field": "v",
+            "aggregate": "sum",
+            "scale": {
+              "zero": false,
+              "nice": false
+            }
+          }
+        }
+      },
+      "width": 40,
+      "height": 300,
+      "domains": {
+        "x": [
+          "A",
+          "B"
+        ],
+        "y": [
+          5,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 1,
+          "y": 300,
+          "width": 18,
+          "height": 0
+        },
+        {
+          "x": 21,
+          "y": 0,
+          "width": 18,
+          "height": 300
+        }
+      ]
+    },
+    {
+      "name": "prebinned-step",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "lo": 0,
+              "n": 2
+            },
+            {
+              "lo": 5,
+              "n": 3
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "lo",
+            "type": "quantitative",
+            "bin": {
+              "binned": true,
+              "step": 5
+            }
+          },
+          "y": {
+            "field": "n",
+            "type": "quantitative",
+            "stack": null
+          }
+        }
+      },
+      "width": 300,
+      "height": 300,
+      "domains": {
+        "x": [
+          0,
+          5
+        ],
+        "y": [
+          0,
+          3
+        ]
+      },
+      "rects": [
+        {
+          "x": 1,
+          "y": 100.00000000000001,
+          "width": 299,
+          "height": 200
+        },
+        {
+          "x": 301,
+          "y": 0,
+          "width": 299,
+          "height": 300
+        }
+      ]
+    },
+    {
+      "name": "horizontal-histogram",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "v": 0
+            },
+            {
+              "v": 5
+            },
+            {
+              "v": 10
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "y": {
+            "field": "v",
+            "type": "quantitative",
+            "bin": {
+              "step": 5
+            }
+          },
+          "x": {
+            "aggregate": "count"
+          }
+        }
+      },
+      "width": 300,
+      "height": 300,
+      "domains": {
+        "x": [
+          0,
+          2
+        ],
+        "y": [
+          0,
+          10
+        ]
+      },
+      "rects": [
+        {
+          "x": 0,
+          "y": 151,
+          "width": 150,
+          "height": 149
+        },
+        {
+          "x": 0,
+          "y": 1,
+          "width": 300,
+          "height": 149
+        }
+      ]
+    },
+    {
+      "name": "continuous",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "x": 1,
+              "y": 2
+            },
+            {
+              "x": 5,
+              "y": 4
+            }
+          ]
+        },
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "x",
+            "type": "quantitative"
+          },
+          "y": {
+            "field": "y",
+            "type": "quantitative",
+            "stack": null
+          }
+        }
+      },
+      "width": 300,
+      "height": 300,
+      "domains": {
+        "x": [
+          0.5,
+          5.5
+        ],
+        "y": [
+          0,
+          4
+        ]
+      },
+      "rects": [
+        {
+          "x": 27.5,
+          "y": 150,
+          "width": 5,
+          "height": 150
+        },
+        {
+          "x": 267.5,
+          "y": 0,
+          "width": 5,
+          "height": 300
+        }
+      ]
+    },
+    {
+      "name": "narrow-bins",
+      "spec": {
+        "data": {
+          "values": [
+            {
+              "v": 0
+            },
+            {
+              "v": 5
+            },
+            {
+              "v": 10
+            }
+          ]
+        },
+        "width": 0.2,
+        "mark": "bar",
+        "encoding": {
+          "x": {
+            "field": "v",
+            "type": "quantitative",
+            "bin": {
+              "step": 5
+            }
+          },
+          "y": {
+            "aggregate": "count"
+          }
+        }
+      },
+      "width": 0.2,
+      "height": 300,
+      "domains": {
+        "x": [
+          0,
+          10
+        ],
+        "y": [
+          0,
+          2
+        ]
+      },
+      "rects": [
+        {
+          "x": 0.425,
+          "y": 150,
+          "width": 0.24999999999999994,
+          "height": 150
+        },
+        {
+          "x": 0.525,
+          "y": 0,
+          "width": 0.2499999999999999,
+          "height": 300
+        }
+      ]
+    }
+  ]
+}

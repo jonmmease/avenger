@@ -1,0 +1,11 @@
+{
+  "data": {"values": [{"delay":0},{"delay":5},{"delay":8},{"delay":14},{"delay":18},{"delay":22},{"delay":25},{"delay":29}]},
+  "title": "Delay distribution",
+  "params": [{"name":"minimum","value":0}],
+  "transform": [{"filter":{"field":"delay","gte":{"expr":"minimum"}}}],
+  "mark": "bar",
+  "encoding": {
+    "x": {"field":"delay","type":"quantitative","bin":{"step":5},"title":"Delay (minutes)"},
+    "y": {"aggregate":"count","type":"quantitative"}
+  }
+}
