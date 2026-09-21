@@ -1,0 +1,13 @@
+{
+  "data": {"url": "flights.csv", "format": {"type": "csv"}},
+  "mark": {"type": "bar", "color": "steelblue"},
+  "encoding": {
+    "x": {
+      "field": "delay",
+      "type": "quantitative",
+      "bin": {"step": 10, "extent": [-60, 180]},
+      "title": "Arrival delay (minutes)"
+    },
+    "y": {"aggregate": "count", "type": "quantitative"}
+  }
+}

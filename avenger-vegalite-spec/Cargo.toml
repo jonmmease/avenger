@@ -1,0 +1,13 @@
+[package]
+name = "avenger-vegalite-spec"
+version = "0.1.0"
+edition = "2021"
+description = "Handwritten Serde types for a subset of Vega-Lite specifications"
+license = "BSD-3-Clause"
+readme = "README.md"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_path_to_error = "0.1"
+thiserror = { workspace = true }
