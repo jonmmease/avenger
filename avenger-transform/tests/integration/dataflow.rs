@@ -1,4 +1,4 @@
-mod common;
+use super::common;
 use avenger_datafusion_dataflow::{
     CacheConfig, CachePolicy, DataflowBuilder, Result, Runtime, RuntimeConfig, TableSnapshot,
 };

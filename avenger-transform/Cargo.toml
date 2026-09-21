@@ -14,7 +14,7 @@ datafusion-proto = { version = "=54.1.0", default-features = false }
 [dev-dependencies]
 datafusion = { version = "=54.1.0", default-features = false, features = ["nested_expressions", "sql"] }
 avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow", features = ["sql"] }
-avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate" }
+avenger-datafusion-preaggregate = { path = "../avenger-datafusion-preaggregate", features = ["dataflow"] }
 avenger-scales-datafusion = { path = "../avenger-scales-datafusion" }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

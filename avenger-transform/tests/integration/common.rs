@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float64Array, StructArray},

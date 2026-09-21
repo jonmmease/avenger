@@ -2,9 +2,7 @@
 use avenger_datafusion_dataflow::{
     CacheConfig, CachePolicy, DataflowBuilder, Result, Runtime, RuntimeConfig, TableSnapshot,
 };
-use avenger_datafusion_preaggregate::{
-    runtime::ParameterExpressions, BoundQuery, FilterQuery, PreaggregatePlanner,
-};
+use avenger_datafusion_preaggregate::{dataflow::Query, FilterQuery, PreaggregatePlanner};
 use avenger_transform::{self as transform, expr_fn, BinOptions};
 use datafusion::{
     arrow::{
@@ -37,8 +35,6 @@ async fn main() -> Result<()> {
         TableSnapshot::from_batches(batch.schema(), vec![batch])?,
     )?;
     let fixed = flow.expr_input("fixed_filter", DataType::Boolean)?;
-    let selection = flow.expr_input("selection", DataType::Boolean)?;
-    let cells = flow.expr_input("selected_cells", DataType::Boolean)?;
     let step = flow.scalar_input("distance_step", DataType::Float64)?;
     let extent = flow.add_plan(
         "distance_extent",
@@ -82,26 +78,17 @@ async fn main() -> Result<()> {
         },
     )?;
     let family = PreaggregatePlanner::default().prepare(query, vec![col("delay")])?;
-    let templates = family.parameterize(ParameterExpressions {
-        source: selection.expr_ref(),
-        retained: cells.expr_ref(),
-    })?;
-    let preagg = templates
-        .preaggregated
-        .as_ref()
+    let histogram = Query::install(&mut flow, "histogram", family)?;
+    let warmup = histogram
+        .materialization_output()
         .expect("count and mean are eligible");
-    let states = flow.add_plan("states", preagg.materialization.clone())?;
-    let rollup = flow.add_plan(
-        "rollup",
-        preagg.rollup.with_materialization(states.plan_ref())?,
-    )?;
-    let direct = flow.add_plan("direct", templates.direct.clone())?;
-    let warmup = flow.table_output("warmup", &states)?;
-    let rollup_output = flow.table_output("rollup", &rollup)?;
-    let direct_output = flow.table_output("direct", &direct)?;
+    let idle = histogram.bind(lit(true))?;
     let dataflow = flow.finish()?;
-    println!("Warm-up SQL:\n{}\n", dataflow.sql().table(&states)?);
-    println!("Rollup SQL:\n{}\n", dataflow.sql().table(&rollup)?);
+    println!("Warm-up SQL:\n{}\n", dataflow.sql().table_output(&warmup)?);
+    println!(
+        "Rollup SQL:\n{}\n",
+        dataflow.sql().table_output(&idle.output())?
+    );
     let prepared = Runtime::new(RuntimeConfig {
         cache: CachePolicy::Lru(CacheConfig {
             max_bytes: 16 * 1024 * 1024,
@@ -111,12 +98,13 @@ async fn main() -> Result<()> {
     })?
     .prepare(&dataflow)
     .await?;
-    let inputs = prepared
-        .inputs()
-        .scalar(&step, 200.0.into())?
-        .expr(&fixed, lit(true))?
-        .expr(&selection, lit(true))?
-        .expr(&cells, lit(true))?
+    let inputs = idle
+        .apply(
+            prepared
+                .inputs()
+                .scalar(&step, 200.0.into())?
+                .expr(&fixed, lit(true))?,
+        )?
         .finish()?;
     let warm = prepared.query(&[warmup], &[], &inputs).await?;
     println!(
@@ -158,32 +146,20 @@ async fn main() -> Result<()> {
             200.0,
         ),
     ] {
-        let bound = family.bind(predicate)?;
-        templates.check_binding(bound.predicates())?;
-        let output = if matches!(&bound, BoundQuery::Preaggregated { .. }) {
-            rollup_output
-        } else {
-            direct_output
-        };
-        let inputs = inputs
-            .edit()
-            .scalar(&step, width.into())?
-            .expr(&fixed, fixed_filter)?
-            .expr(&selection, bound.predicates().source().clone())?
-            .expr(
-                &cells,
-                bound
-                    .predicates()
-                    .retained()
-                    .cloned()
-                    .unwrap_or_else(|| lit(true)),
+        let binding = histogram.bind(predicate)?;
+        let inputs = binding
+            .apply(
+                inputs
+                    .edit()
+                    .scalar(&step, width.into())?
+                    .expr(&fixed, fixed_filter)?,
             )?
             .finish()?;
-        let result = prepared.query(&[output], &[], &inputs).await?;
+        let result = prepared.query(&[binding.output()], &[], &inputs).await?;
         println!(
             "{label}: {:?}\n{}",
-            bound.diagnostics(),
-            pretty_format_batches(result.table(&output)?.batches())?
+            binding.diagnostics(),
+            pretty_format_batches(result.table(&binding.output())?.batches())?
         );
         println!(
             "Executed nodes: {:?}\nCache hits: {}\n",
