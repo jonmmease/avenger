@@ -12,6 +12,7 @@ members = [
     "avenger-format-datetime-icu",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
+    "avenger-vegalite-spec",
     "avenger-chart-definition",
     "avenger-chart",
     "avenger-wgpu",

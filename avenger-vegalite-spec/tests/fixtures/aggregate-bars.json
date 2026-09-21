@@ -1,0 +1,15 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.4.3.json",
+  "data": {
+    "values": [
+      {"airline": "AA", "delay": 5},
+      {"airline": "AA", "delay": 15},
+      {"airline": "DL", "delay": 8}
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "airline", "type": "nominal"},
+    "y": {"field": "delay", "aggregate": "mean", "type": "quantitative"}
+  }
+}
