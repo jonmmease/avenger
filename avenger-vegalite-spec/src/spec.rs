@@ -70,6 +70,12 @@ pub struct UnitSpec {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    pub params: Option<Vec<Parameter>>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub datasets: Option<BTreeMap<String, InlineDataset>>,
     #[serde(
         default,
@@ -231,6 +237,8 @@ pub struct PositionFieldDef {
     pub axis: MissingNullOrValue<Axis>,
     #[serde(default, skip_serializing_if = "MissingNullOrValue::is_missing")]
     pub scale: MissingNullOrValue<Scale>,
+    #[serde(default, skip_serializing_if = "MissingNullOrValue::is_missing")]
+    pub stack: MissingNullOrValue<StackOffset>,
 }
 
 /// A secondary boundary field. Primary-channel options do not apply here.
@@ -350,4 +358,19 @@ impl<'de> Deserialize<'de> for Mark {
         }
         deserializer.deserialize_any(MarkVisitor)
     }
+}
+
+/// An initialized numeric variable parameter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Parameter {
+    pub name: String,
+    pub value: f64,
+}
+
+/// The supported stack offset. Explicit null disables stacking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StackOffset {
+    Zero,
 }

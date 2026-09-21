@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::error::AvengerScaleError;
 use arrow::{
@@ -139,6 +139,7 @@ impl ScaleImpl for BandScale {
                 OptionDefinition::optional("padding_outer", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("padding_outer_px", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("include_null", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
                 OptionDefinition::optional(
                     "clip_padding_lower",
@@ -166,7 +167,12 @@ impl ScaleImpl for BandScale {
         let ordinal_config = ScaleConfig {
             domain: config.domain.clone(),
             range: range_array,
-            options: HashMap::new(),
+            options: [(
+                "include_null".to_string(),
+                config.option_boolean("include_null", false).into(),
+            )]
+            .into_iter()
+            .collect(),
             context: config.context.clone(),
         };
 

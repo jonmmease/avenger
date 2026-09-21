@@ -2,6 +2,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/chart.proto");
     println!("cargo:rerun-if-changed=../avenger-datafusion-dataflow/proto");
     prost_build::Config::new()
+        .boxed(".avenger.chart.Mark.encoding.rect")
         .protoc_executable(protoc_bin_vendored::protoc_bin_path()?)
         .extern_path(
             ".avenger.dataflow",

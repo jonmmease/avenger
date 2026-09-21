@@ -1033,6 +1033,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-vegalite-compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-definition",
+ "avenger-common",
+ "avenger-datafusion-dataflow",
+ "avenger-eventstream",
+ "avenger-format-number-d3",
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "avenger-text",
+ "avenger-transform",
+ "avenger-vegalite-spec",
+ "avenger-winit-wgpu",
+ "css-color-parser",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "url",
+ "winit",
+]
+
+[[package]]
 name = "avenger-vegalite-spec"
 version = "0.1.0"
 dependencies = [

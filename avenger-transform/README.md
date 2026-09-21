@@ -224,3 +224,5 @@ The bin algorithm is adapted from Vega under its BSD license. See
 - [Bin parameter selection](https://github.com/vega/vega/blob/4dea72921d25bf6ff6636a9f9cb6c63ff696932c/packages/vega-statistics/src/bin.js) and [bin assignment](https://github.com/vega/vega/blob/4dea72921d25bf6ff6636a9f9cb6c63ff696932c/packages/vega-transforms/src/Bin.js)
 - [Aggregate value rules](https://github.com/vega/vega/blob/4dea72921d25bf6ff6636a9f9cb6c63ff696932c/packages/vega-transforms/src/util/AggregateOps.js)
 - [Filter](https://github.com/vega/vega/blob/4dea72921d25bf6ff6636a9f9cb6c63ff696932c/packages/vega-transforms/src/Filter.js) and [Formula](https://github.com/vega/vega/blob/4dea72921d25bf6ff6636a9f9cb6c63ff696932c/packages/vega-transforms/src/Formula.js)
+
+`stack_zero` appends start/end columns using separate positive and negative window sums. Supply partition expressions and an explicit stable row order. The compiler decides when stacking applies. Null and NaN contribute zero.

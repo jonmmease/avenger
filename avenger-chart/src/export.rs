@@ -1,4 +1,6 @@
-use crate::{error, RenderedChart, Result};
+use crate::RenderedChart;
+#[cfg(any(feature = "svg", feature = "pdf", feature = "png"))]
+use crate::{error, Result};
 impl RenderedChart {
     /// Export this frame as SVG with its measurement text engine.
     #[cfg(feature = "svg")]

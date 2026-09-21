@@ -232,7 +232,8 @@ fn make_tick_marks(
     })
 }
 
-fn make_tick_grid_marks(
+/// Construct grid lines separately from foreground axis marks.
+pub fn make_tick_grid_marks(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
