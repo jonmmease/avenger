@@ -12,6 +12,8 @@ members = [
     "avenger-format-datetime-icu",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
+    "avenger-chart-definition",
+    "avenger-chart",
     "avenger-wgpu",
     "avenger-scales",
     "avenger-scales-datafusion",
