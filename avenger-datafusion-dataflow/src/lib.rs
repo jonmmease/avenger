@@ -41,7 +41,7 @@ pub use graph::{
     ScopeBuilder, TableInput, TableOutput,
 };
 pub use inputs::{InputOverrides, Inputs, InputsBuilder, ScopedBindingsBuilder};
-pub use interface::{DataflowInterface, InputHandle, Reference, ScopeInterface};
+pub use interface::{DataflowInterface, InputHandle, OutputMetadata, Reference, ScopeInterface};
 pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
 pub use result::{DataflowResult, ScopeResult, ScopeResults};
 pub use runtime::{ExecutionConfig, PreparedDataflow, PreparedExtension, Runtime, RuntimeConfig};
@@ -61,3 +61,10 @@ fn fresh_id() -> u64 {
 
 #[cfg(feature = "json")]
 pub mod json;
+
+/// Native dataflow wire messages and their canonical imported types.
+pub mod protobuf {
+    pub use crate::serialization::wire::*;
+    pub use datafusion_proto::protobuf as datafusion;
+    pub use datafusion_proto_common as common;
+}

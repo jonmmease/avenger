@@ -40,7 +40,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-mod wire {
+pub mod wire {
     include!(concat!(env!("OUT_DIR"), "/avenger.dataflow.rs"));
 }
 const ENGINE: &str = "54.1.0";
@@ -454,6 +454,19 @@ impl Dataflow {
         &self,
         application: Arc<dyn LogicalExtensionCodec>,
     ) -> Result<Vec<u8>> {
+        Ok(self.to_proto_with_codec(application)?.encode_to_vec())
+    }
+
+    /// Build the artifact message without an intermediate encode/decode.
+    pub fn to_proto(&self) -> Result<wire::DataflowArtifact> {
+        self.to_proto_with_codec(Arc::new(DefaultLogicalExtensionCodec {}))
+    }
+
+    /// Build an artifact using the supplied extension codec.
+    pub fn to_proto_with_codec(
+        &self,
+        application: Arc<dyn LogicalExtensionCodec>,
+    ) -> Result<wire::DataflowArtifact> {
         let graph = &self.inner;
         if graph.base.is_some() {
             return Err(invalid("external imports are not serializable"));
@@ -585,14 +598,18 @@ impl Dataflow {
                 .into_values()
                 .collect(),
         };
-        Ok(artifact.encode_to_vec())
+        Ok(artifact)
     }
 }
 
 impl Runtime {
     /// Decode an artifact into native plans and expressions using this runtime's registry and codecs.
     pub fn decode_dataflow(&self, bytes: &[u8]) -> Result<Dataflow> {
-        let artifact = wire::DataflowArtifact::decode(bytes).map_err(invalid)?;
+        self.decode_dataflow_proto(wire::DataflowArtifact::decode(bytes).map_err(invalid)?)
+    }
+
+    /// Reconstruct native plans from an artifact embedded in another protocol.
+    pub fn decode_dataflow_proto(&self, artifact: wire::DataflowArtifact) -> Result<Dataflow> {
         if artifact.version != 1 || artifact.datafusion_version != ENGINE {
             return Err(invalid("unsupported artifact or DataFusion version"));
         }
