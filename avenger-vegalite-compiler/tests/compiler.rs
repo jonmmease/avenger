@@ -122,6 +122,175 @@ async fn pinned_bar_cases_compile_and_render() -> anyhow::Result<()> {
 }
 use anyhow::Context;
 
+fn input_batch(
+    categories: Vec<&str>,
+    amounts: Vec<f64>,
+) -> anyhow::Result<avenger_datafusion_dataflow::arrow::record_batch::RecordBatch> {
+    use avenger_datafusion_dataflow::arrow::{
+        array::{ArrayRef, Float64Array, StringArray},
+        record_batch::RecordBatch,
+    };
+    Ok(RecordBatch::try_from_iter([
+        (
+            "category",
+            Arc::new(StringArray::from(categories)) as ArrayRef,
+        ),
+        ("amount", Arc::new(Float64Array::from(amounts)) as ArrayRef),
+    ])?)
+}
+
+#[tokio::test]
+async fn input_backed_charts_rebind_after_serialization_with_stable_order() -> anyhow::Result<()> {
+    use avenger_datafusion_dataflow::{arrow::compute::concat_batches, TableStore};
+    use avenger_vegalite_compiler::compile_vegalite_with_input;
+    let first = input_batch(vec!["B", "A", "B"], vec![2., 4., 6.])?;
+    let store = TableStore::new(TableSnapshot::from_batches(first.schema(), vec![first])?);
+    let before = store.snapshot();
+    let after = store.append_batch(input_batch(vec!["C", "A"], vec![8., -3.])?)?;
+    let empty = TableSnapshot::empty(before.schema().clone());
+    for encoding in [
+        json!({"x":{"field":"category","type":"nominal","sort":null},"y":{"field":"amount","type":"quantitative"}}),
+        json!({"x":{"field":"category","type":"nominal","sort":null},"y":{"field":"amount","aggregate":"sum","type":"quantitative"}}),
+        json!({"x":{"field":"amount","bin":true,"type":"quantitative"},"y":{"aggregate":"count","type":"quantitative"}}),
+    ] {
+        let spec = UnitSpec::from_json(
+            &json!({"data":{"name":"flights"},"mark":"bar","encoding":encoding}).to_string(),
+        )?;
+        let definition = compile_vegalite_with_input(&spec, before.schema().clone())?;
+        let bytes = definition.to_bytes_with_codec(Arc::new(
+            avenger_transform::TransformExtensionCodec::default(),
+        ))?;
+        let decoded = ChartDefinition::from_bytes(&bytes, &runtime()?)?;
+        let input = decoded
+            .dataflow()
+            .interface()
+            .root()
+            .table_input("flights")?;
+        assert_eq!(input.schema().as_arrow(), before.schema().as_ref());
+        let chart = Chart::prepare(decoded.clone(), chart_options()).await?;
+        assert!(chart.render(Default::default()).await.is_err());
+        let prepared = runtime()?.prepare(decoded.dataflow()).await?;
+        let output = decoded.dataflow().interface().root().table_output("rows")?;
+        for snapshot in [&before, &after, &empty, &before] {
+            let inputs = chart.inputs()?.table(&input, snapshot.clone())?.finish()?;
+            assert_eq!(inputs.table_value(&input)?.id(), snapshot.id());
+            let actual = prepared.query(&[output], &[], &inputs).await?;
+            let actual = actual.table(&output)?;
+            let captured = compile_vegalite(
+                &spec,
+                &BTreeMap::from([("flights".into(), snapshot.clone())]),
+                Path::new("."),
+            )
+            .await?;
+            let expected = rows(&captured).await?;
+            assert_eq!(
+                concat_batches(actual.schema(), actual.batches())?,
+                concat_batches(expected.schema(), expected.batches())?
+            );
+            let frame = chart
+                .render(RenderOptions::default().inputs(inputs.clone()))
+                .await?;
+            let reference = Chart::prepare(captured, chart_options())
+                .await?
+                .render(Default::default())
+                .await?;
+            let mut actual = vec![];
+            let mut expected = vec![];
+            rectangles(&frame.scenegraph().marks, &mut actual);
+            rectangles(&reference.scenegraph().marks, &mut expected);
+            assert_eq!(actual, expected);
+            let reused = prepared.query(&[output], &[], &inputs).await?;
+            assert!(reused.report().executed_nodes.is_empty());
+        }
+        let wrong =
+            avenger_datafusion_dataflow::arrow::record_batch::RecordBatch::try_from_iter([(
+                "amount",
+                Arc::new(avenger_datafusion_dataflow::arrow::array::Int64Array::from(
+                    vec![1],
+                )) as _,
+            )])?;
+        assert!(chart
+            .inputs()?
+            .table(
+                &input,
+                TableSnapshot::from_batches(wrong.schema(), vec![wrong])?
+            )
+            .is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn replaceable_inputs_require_named_data_and_declared_fields() -> anyhow::Result<()> {
+    use avenger_vegalite_compiler::compile_vegalite_with_input;
+    let schema = input_batch(vec![], vec![])?.schema();
+    let inline = UnitSpec::from_json(r#"{"data":{"values":[]},"mark":"bar"}"#)?;
+    assert_eq!(
+        compile_vegalite_with_input(&inline, schema.clone())
+            .err()
+            .unwrap()
+            .path(),
+        "data"
+    );
+    let missing = UnitSpec::from_json(
+        r#"{"data":{"name":"rows"},"mark":"bar","encoding":{"x":{"field":"missing"}}}"#,
+    )?;
+    assert_eq!(
+        compile_vegalite_with_input(&missing, schema)
+            .err()
+            .unwrap()
+            .path(),
+        "encoding.x.field"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn parameter_changes_reuse_the_indexed_source() -> anyhow::Result<()> {
+    use avenger_vegalite_compiler::compile_vegalite_with_input;
+    let batch = input_batch(vec!["B", "A"], vec![2., 4.])?;
+    let table = TableSnapshot::from_batches(batch.schema(), vec![batch])?;
+    let spec = UnitSpec::from_json(
+        r#"{
+        "data":{"name":"sales"}, "mark":"bar",
+        "params":[{"name":"minimum","value":0}],
+        "transform":[{"filter":{"field":"amount","gte":{"expr":"minimum"}}}],
+        "encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":"amount","type":"quantitative"}}
+    }"#,
+    )?;
+    let definition = compile_vegalite_with_input(&spec, table.schema().clone())?;
+    let input = definition
+        .dataflow()
+        .interface()
+        .root()
+        .table_input("sales")?;
+    let chart = Chart::prepare(definition, chart_options()).await?;
+    let inputs = chart.inputs()?.table(&input, table)?.finish()?;
+    let before = chart
+        .render(RenderOptions::default().inputs(inputs.clone()))
+        .await?;
+    assert!(before.report().executed_nodes.iter().any(|n| n == "source"));
+    let filtered = chart
+        .render(
+            RenderOptions::default()
+                .inputs(inputs)
+                .parameter("minimum", 3.0.into()),
+        )
+        .await?;
+    assert!(!filtered
+        .report()
+        .executed_nodes
+        .iter()
+        .any(|n| n == "source"));
+    let mut a = vec![];
+    let mut b = vec![];
+    rectangles(&before.scenegraph().marks, &mut a);
+    rectangles(&filtered.scenegraph().marks, &mut b);
+    assert_eq!(a.len(), 2);
+    assert_eq!(b.len(), 1);
+    Ok(())
+}
+
 #[tokio::test]
 async fn repeated_categories_stack_positive_and_negative_independently() -> anyhow::Result<()> {
     let d=compile(&json!({"data":{"values":[{"c":"A","v":4},{"c":"A","v":6},{"c":"A","v":-3},{"c":"A","v":-2}]},"mark":"bar","encoding":{"x":{"field":"c","type":"nominal"},"y":{"field":"v","type":"quantitative"}}})).await?;
