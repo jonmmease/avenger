@@ -23,6 +23,7 @@ use tokio::sync::Semaphore;
 
 mod cache_aware;
 mod execution_lifetime;
+pub(crate) mod warming;
 
 use crate::{
     diagnostics::{
@@ -65,7 +66,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) state: SessionState,
     pub(crate) config: RuntimeConfig,
     queries: Semaphore,
-    warming: Semaphore,
+    warming: Arc<warming::Scheduler>,
     active_bytes: AtomicUsize,
     pub(crate) cache: Mutex<crate::cache::Cache>,
     pub(crate) codec: Arc<dyn crate::LogicalExtensionCodec>,
@@ -140,7 +141,7 @@ impl Runtime {
         Ok(Self {
             inner: Arc::new(RuntimeInner {
                 queries: Semaphore::new(config.execution.max_active_queries),
-                warming: Semaphore::new(1),
+                warming: Arc::new(warming::Scheduler::default()),
                 state,
                 codec: Arc::new(crate::DefaultLogicalExtensionCodec {}),
                 cache: Mutex::new(crate::cache::Cache::new(config.cache.clone())),

@@ -56,7 +56,7 @@ pub struct CacheAwareOptions {
     /// Required cache hits and the endpoint of optional background work.
     pub targets: CacheTargets,
     /// Eagerly schedule target evaluation on the current Tokio runtime.
-    /// Retain the returned query while that background work is wanted.
+    /// Dropping the query cancels queued work. Admitted work finishes independently.
     pub start_latest: bool,
 }
 
@@ -71,16 +71,16 @@ pub enum CacheRead {
 
 /// Captured candidates and ownership of optional background target work.
 ///
-/// Reads borrow this query. Dropping it releases background interest, including
-/// queued work. Other consumers keep shared calculations alive. New requests
-/// do not supersede older requests automatically.
-#[must_use = "retain the query while its background work is wanted"]
+/// Reads borrow this query. Dropping it removes queued background work. Once
+/// admitted, a warm-up runs to completion or failure even after the query is dropped.
+/// Retained queries remain eligible and do not supersede each other automatically.
+#[must_use = "retain the query while its queued background work is wanted"]
 pub struct CacheAwareQuery {
     pub(crate) prepared: PreparedDataflow,
     pub(crate) inputs: QueryInputs,
     pub(crate) requested: Vec<bool>,
     pub(crate) targets: Vec<usize>,
-    pub(crate) _background: Option<tokio::sync::oneshot::Sender<()>>,
+    pub(crate) _background: Option<crate::runtime::warming::Interest>,
 }
 
 /// Requested values and the complete bindings used to produce them.

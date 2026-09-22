@@ -84,14 +84,12 @@ impl PreparedDataflow {
             let executor = tokio::runtime::Handle::try_current().map_err(|_| {
                 Error::InvalidConfig("background warming requires an active Tokio runtime".into())
             })?;
-            let (interest, cancelled) = tokio::sync::oneshot::channel();
-            let prepared = self.clone();
-            let preferred = inputs.candidates[0].clone();
-            let targets = targets.clone();
-            executor.spawn(async move {
-                prepared.warm_targets(preferred, targets, cancelled).await;
-            });
-            Some(interest)
+            Some(self.inner.runtime.warming.enqueue(
+                self,
+                inputs.candidates[0].clone(),
+                targets.clone(),
+                executor,
+            ))
         } else {
             None
         };
@@ -135,31 +133,7 @@ impl PreparedDataflow {
         }
     }
 
-    async fn warm_targets(
-        &self,
-        inputs: Inputs,
-        targets: Vec<usize>,
-        mut cancelled: tokio::sync::oneshot::Receiver<()>,
-    ) {
-        let runtime = &self.inner.runtime;
-        let permits = async {
-            let warming = runtime
-                .warming
-                .acquire()
-                .await
-                .expect("private semaphore stays open");
-            let execution = runtime
-                .queries
-                .acquire()
-                .await
-                .expect("private semaphore stays open");
-            (warming, execution)
-        };
-        let (_warming, _execution) = tokio::select! {
-            biased;
-            _ = &mut cancelled => return,
-            permits = permits => permits,
-        };
+    pub(super) async fn warm_targets(&self, inputs: Inputs, targets: Vec<usize>) {
         let mut evaluation = Evaluation::root(
             self.inner.clone(),
             inputs,
@@ -172,18 +146,16 @@ impl PreparedDataflow {
                 }
                 Ok::<_, Error>(())
             };
-            tokio::select! {
-                biased;
-                _ = &mut cancelled => None,
-                outcome = std::panic::AssertUnwindSafe(calculation).catch_unwind() => Some(outcome),
-            }
+            std::panic::AssertUnwindSafe(calculation)
+                .catch_unwind()
+                .await
         };
         evaluation.settle_execution().await;
         match outcome {
-            Some(Ok(Err(error))) => {
+            Ok(Err(error)) => {
                 tracing::warn!(namespace = self.inner.namespace, ?targets, %error, "background cache warming failed")
             }
-            Some(Err(_)) => tracing::warn!(
+            Err(_) => tracing::warn!(
                 namespace = self.inner.namespace,
                 ?targets,
                 "background cache warming panicked"
@@ -338,4 +310,4 @@ impl Evaluation {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
