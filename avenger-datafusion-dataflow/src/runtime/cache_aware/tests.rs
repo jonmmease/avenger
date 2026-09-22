@@ -9,18 +9,18 @@ use datafusion::{
 };
 use std::time::Duration;
 
-struct Fixture {
-    source: Arc<ControlledSource>,
-    flow: PreparedDataflow,
-    version: ScalarInput,
-    brush: ScalarInput,
-    target: crate::PlanNode,
-    total: TableOutput,
-    output: TableOutput,
+pub(in crate::runtime) struct Fixture {
+    pub(in crate::runtime) source: Arc<ControlledSource>,
+    pub(in crate::runtime) flow: PreparedDataflow,
+    pub(in crate::runtime) version: ScalarInput,
+    pub(in crate::runtime) brush: ScalarInput,
+    pub(in crate::runtime) target: crate::PlanNode,
+    pub(in crate::runtime) total: TableOutput,
+    pub(in crate::runtime) output: TableOutput,
 }
 
 impl Fixture {
-    async fn new(runtime: &Runtime) -> Result<Self> {
+    pub(in crate::runtime) async fn new(runtime: &Runtime) -> Result<Self> {
         let source = Arc::new(ControlledSource::new(&common::snapshot(&[1, 2, 3]))?);
         let mut b = DataflowBuilder::new();
         let version = b.scalar_input("version", DataType::Int64)?;
@@ -57,7 +57,7 @@ impl Fixture {
         })
     }
 
-    fn inputs(&self, version: i64, brush: i64) -> Result<Inputs> {
+    pub(in crate::runtime) fn inputs(&self, version: i64, brush: i64) -> Result<Inputs> {
         self.flow
             .inputs()
             .scalar(&self.version, version.into())?
@@ -65,7 +65,12 @@ impl Fixture {
             .finish()
     }
 
-    fn query(&self, version: i64, brush: i64, start_latest: bool) -> Result<CacheAwareQuery> {
+    pub(in crate::runtime) fn query(
+        &self,
+        version: i64,
+        brush: i64,
+        start_latest: bool,
+    ) -> Result<CacheAwareQuery> {
         self.flow.cache_aware_query(
             &[self.output],
             &[],
@@ -77,13 +82,13 @@ impl Fixture {
         )
     }
 
-    async fn entered(&self) {
+    pub(in crate::runtime) async fn entered(&self) {
         tokio::time::timeout(Duration::from_secs(10), self.source.entered.notified())
             .await
             .unwrap();
     }
 
-    async fn warmed(&self, version: i64) {
+    pub(in crate::runtime) async fn warmed(&self, version: i64) {
         let q = self
             .flow
             .cache_aware_query(
@@ -246,7 +251,7 @@ async fn one_background_slot_leaves_room_for_brushing_across_preparations() -> R
 }
 
 #[tokio::test]
-async fn dropping_queries_cancels_queued_and_running_unshared_jobs() -> Result<()> {
+async fn dropping_queries_cancels_only_queued_jobs() -> Result<()> {
     let runtime = Runtime::new(Default::default())?;
     let f = Fixture::new(&runtime).await?;
     f.source.gated.store(true, Ordering::SeqCst);
@@ -255,15 +260,32 @@ async fn dropping_queries_cancels_queued_and_running_unshared_jobs() -> Result<(
     let queued = f.query(2, 0, true)?;
     drop(queued);
     drop(active);
+    assert!(!runtime.inner.warming.is_idle());
+    f.source.release.notify_one();
+    f.warmed(1).await;
     idle(&runtime).await;
-    until(|| runtime.inner.warming.available_permits() == 1).await;
+    until(|| runtime.inner.warming.is_idle()).await;
     assert_eq!(f.source.scans.load(Ordering::SeqCst), 1);
 
     let permit = runtime.inner.queries.acquire_many(4).await.unwrap();
-    let queued = f.query(3, 0, true)?;
-    until(|| runtime.inner.warming.available_permits() == 0).await;
+    let queued = f.flow.cache_aware_query(
+        &[f.total],
+        &[],
+        QueryInputs::new(f.inputs(3, 0)?).fallbacks([f
+            .flow
+            .inputs()
+            .scalar(&f.version, 1_i64.into())?
+            .finish_overrides()?])?,
+        CacheAwareOptions {
+            start_latest: true,
+            ..Default::default()
+        },
+    )?;
+    let result = queued.read(CacheRead::CachedOnly).await?;
+    until(|| !runtime.inner.warming.is_idle()).await;
     drop(queued);
-    until(|| runtime.inner.warming.available_permits() == 1).await;
+    until(|| runtime.inner.warming.is_idle()).await;
+    assert_eq!(common::values(result.result().table(&f.total)?), [6]);
     drop(permit);
     assert_eq!(f.source.scans.load(Ordering::SeqCst), 1);
     Ok(())
@@ -282,7 +304,7 @@ async fn dropping_warming_preserves_an_ordinary_subscriber() -> Result<()> {
     let subscriber = tokio::spawn(async move { flow.query(&[total], &[], &inputs).await });
     watching(&f.flow, f.total, 2).await;
     drop(warming);
-    watching(&f.flow, f.total, 1).await;
+    watching(&f.flow, f.total, 2).await;
     f.source.release.notify_one();
     subscriber.await.unwrap()?;
     idle(&runtime).await;
@@ -333,7 +355,7 @@ async fn retained_queries_do_not_pin_completed_values_or_restart_bypassed_work()
         f.entered().await;
         f.source.release.notify_one();
         idle(&runtime).await;
-        until(|| runtime.inner.warming.available_permits() == 1).await;
+        until(|| runtime.inner.warming.is_idle()).await;
         assert_eq!(runtime.cache_stats().entries, 0);
         assert!(matches!(
             query.read(CacheRead::CachedOnly).await,
@@ -349,7 +371,7 @@ async fn retained_queries_do_not_pin_completed_values_or_restart_bypassed_work()
 }
 
 #[tokio::test]
-async fn default_targets_warm_requested_outputs_and_reads_do_not_keep_jobs_alive() -> Result<()> {
+async fn default_targets_finish_after_query_drop() -> Result<()> {
     let runtime = Runtime::new(Default::default())?;
     let f = Fixture::new(&runtime).await?;
     f.flow.query(&[f.output], &[], &f.inputs(1, 0)?).await?;
@@ -373,8 +395,10 @@ async fn default_targets_warm_requested_outputs_and_reads_do_not_keep_jobs_alive
     assert_eq!(result.candidate_index(), 1);
     let read = query.read(CacheRead::FromCachedTargets);
     drop(read);
-    assert_eq!(runtime.inner.warming.available_permits(), 0);
+    assert!(!runtime.inner.warming.is_idle());
     drop(query);
+    f.source.release.notify_one();
+    f.warmed(2).await;
     idle(&runtime).await;
     assert_eq!(result.result().table(&f.output)?.num_rows(), 1);
 
@@ -456,7 +480,7 @@ async fn background_failure_preserves_cached_fallback_and_does_not_retry() -> Re
     assert_eq!(before.candidate_index(), 1);
     source.release.notify_one();
     idle(&runtime).await;
-    until(|| runtime.inner.warming.available_permits() == 1).await;
+    until(|| runtime.inner.warming.is_idle()).await;
     assert_eq!(
         query.read(CacheRead::CachedOnly).await?.candidate_index(),
         1
@@ -512,7 +536,7 @@ async fn clearing_during_warming_prevents_stale_publication() -> Result<()> {
     f.flow.clear_results();
     f.source.release.notify_one();
     idle(&runtime).await;
-    until(|| runtime.inner.warming.available_permits() == 1).await;
+    until(|| runtime.inner.warming.is_idle()).await;
     assert_eq!(runtime.cache_stats().entries, 0);
     assert!(matches!(
         warming.read(CacheRead::FromCachedTargets).await,

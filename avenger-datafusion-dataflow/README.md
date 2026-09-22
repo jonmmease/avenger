@@ -102,7 +102,7 @@ let fallback = flow.inputs()
     .scalar(&weight, previous_weight)?
     .finish_overrides()?;
 let targets = CacheTargets::Nodes(vec![CacheNode::Plan(preaggregation)]);
-let warming = flow.cache_aware_query(
+let mut warming = flow.cache_aware_query(
     &[output],
     &[],
     QueryInputs::new(latest_inputs.clone()).fallbacks([fallback.clone()])?,
@@ -141,9 +141,23 @@ Both modes return `Error::CacheMiss` when no candidate qualifies. Its `missing` 
 
 `CacheAwareResult::inputs()` returns the complete selected bindings. `candidate_index()` is zero for the preferred inputs captured by that request, one for the first fallback, and so on. It does not claim that the source is still globally latest when the read finishes. Save the selected table and any related scalar or expression bindings together as a fallback for future requests. Omit interaction inputs that should inherit future values. Captured snapshots do not pin derived cache entries.
 
-`start_latest` defaults to `false`. Setting it to `true` eagerly spawns finite work on the caller's active Tokio runtime, independently of reads and fallback selection. The job evaluates only the preferred targets and their dependencies. It does not compute downstream chart outputs unless they are targets. Retain the query in application state while warming is wanted. Dropping a read or its result does not stop that work, but dropping the query releases background interest. Shared node calculations remain alive while another consumer needs them. Completed jobs release their execution resources even when the query remains retained.
+`start_latest` defaults to `false`. Setting it to `true` eagerly queues finite work on the caller's active Tokio runtime, independently of reads and fallback selection. The job evaluates only the preferred targets and their dependencies. It does not compute downstream chart outputs unless they are targets. Dropping a read or its result does not affect the job. Dropping the query removes its queued work, including while execution admission is saturated. Once admitted, the warm-up finishes or fails independently of query lifetime, and releases its execution resources after worker cleanup. Closing a chart can leave the one active warm-up finishing in the background. The Tokio executor must remain running for work to progress.
 
-Each dataflow runtime permits one background warming job, including its entire dependency evaluation. That job acquires the warming permit before a shared execution permit, so queued jobs do not consume foreground slots. The default four execution slots leave three available to foreground queries. At least two total slots are needed for warming and downstream brush computation to overlap. This limits jobs, not DataFusion worker threads, and does not guarantee brush latency under CPU contention. New requests do not automatically cancel or replace older requests.
+The runtime automatically groups pending requests by preparation and resolved cache target set. Different spellings or ordering of the same targets share a group. Input values and requested output aliases do not affect grouping. Groups receive FIFO turns, with one request per turn. Retained requests within a group stay in submission order, so independent consumers can request different versions of the same targets. Existing cache keys and node flights still share matching calculations.
+
+For a streaming view, keep one warming query in application state and replace it when the target's input dependencies change. Construct the replacement before dropping the previous query. Removing the old pending request then preserves the group's queue position, and any admitted work keeps running. The usual pattern leaves one active job plus the newest pending request for that view. Retaining every query handle keeps every request eligible and can grow the queue.
+
+```rust,ignore
+let replacement = flow.cache_aware_query(
+    &[output],
+    &[],
+    QueryInputs::new(next_inputs).fallbacks([fallback])?,
+    CacheAwareOptions { targets: targets.clone(), start_latest: true },
+)?;
+warming = replacement;
+```
+
+Each dataflow runtime has one warming dispatcher and at most one active warming job, including its entire dependency evaluation. Pending requests are queue entries, not separately spawned waiting tasks. Only the dispatcher waits for a shared execution permit, and updating the queue preserves that waiter's admission position. The default four execution slots leave three available to foreground queries. At least two total slots are needed for warming and downstream brush computation to overlap. This limits jobs, not DataFusion worker threads, and does not guarantee brush latency under CPU contention. Ordinary query cancellation is unchanged. No new scheduling configuration is required.
 
 Background failures produce `tracing` diagnostics and release resources. They do not invalidate a successful foreground result or implicitly retry. Later interactions or regular refresh queries discover newly retained targets. Warming completion does not trigger an application redraw, and there is no public background wait or completion API. The example uses bounded timer refreshes while applying the current brush on every read.
 

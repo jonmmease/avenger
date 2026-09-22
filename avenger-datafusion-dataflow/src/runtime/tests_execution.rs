@@ -216,8 +216,7 @@ async fn warming_slot_stays_occupied_until_synchronous_worker_teardown() -> Resu
         },
     )?;
     drop(warming);
-    super::tests::until(|| runtime.inner.cache.lock().unwrap().stopping()).await;
-    assert_eq!(runtime.inner.warming.available_permits(), 0);
+    assert!(!runtime.inner.warming.is_idle());
     assert_eq!(second_gate.executions.load(Ordering::SeqCst), 0);
     assert!(runtime.inner.active_bytes.load(Ordering::Relaxed) > 0);
     first_gate.release();
