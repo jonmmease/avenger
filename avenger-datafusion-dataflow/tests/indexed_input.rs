@@ -55,6 +55,7 @@ async fn indexed_inputs_preserve_order_across_appends_filters_and_serialization(
     let plain = b.add_plan("plain", input.plan_ref())?;
     b.table_output("plain", &plain)?;
     let graph = b.finish()?;
+    assert_eq!(graph.to_proto()?.version, 1);
     for partitions in [1, 4] {
         let runtime = Runtime::with_session_state(
             SessionContext::new_with_config(
@@ -107,25 +108,6 @@ async fn indexed_inputs_preserve_order_across_appends_filters_and_serialization(
             0
         );
     }
-    Ok(())
-}
-
-#[tokio::test]
-async fn legacy_artifacts_still_decode() -> Result<()> {
-    let mut b = DataflowBuilder::new();
-    let rows = b.table_snapshot(
-        "source",
-        TableSnapshot::from_batches(batch(vec![1]).schema(), vec![batch(vec![1])])?,
-    )?;
-    b.table_output("rows", &rows)?;
-    let mut artifact = b.finish()?.to_proto()?;
-    artifact.version = 1;
-    let runtime = Runtime::new(RuntimeConfig::default())?;
-    let graph = runtime.decode_dataflow_proto(artifact)?;
-    let flow = runtime.prepare(&graph).await?;
-    let output = flow.interface().root().table_output("rows")?;
-    let result = flow.query(&[output], &[], &flow.inputs().finish()?).await?;
-    assert_eq!(values(result.table(&output)?, "x"), vec![1]);
     Ok(())
 }
 

@@ -485,7 +485,7 @@ let marks = names.table_output("marks")?;
 let prepared = destination_runtime.prepare(&loaded).await?;
 ```
 
-The version 2 protobuf envelope imports DataFusion **54.1.0** logical-plan and expression messages. It includes declarations, scopes, outputs, semantic requirements, optional input row indices, and Arrow IPC streams for fixed assets. Version-1 artifacts remain readable. A narrow side table covers IN/EXISTS subqueries, outer references, and set comparisons absent from DataFusion's expression format. Generated DataFusion types are reused through Prost `extern_path`. Vendored upstream `.proto` imports and a vendored build-time `protoc` keep code generation reproducible.
+The version 1 protobuf envelope imports DataFusion **54.1.0** logical-plan and expression messages. It includes declarations, scopes, outputs, semantic requirements, optional input row indices, and Arrow IPC streams for fixed assets. A narrow side table covers IN/EXISTS subqueries, outer references, and set comparisons absent from DataFusion's expression format. Generated DataFusion types are reused through Prost `extern_path`. Vendored upstream `.proto` imports and a vendored build-time `protoc` keep code generation reproducible.
 
 Decoding resolves functions immediately and produces the same native `Dataflow` used by Rust builders. Loading allocates fresh graph and snapshot identities; recover typed handles through `interface().root()`, `.scope(name)`, and the input/output lookup methods. Interfaces and immutable bindings do not retain source lineage or graph-owned assets.
 
