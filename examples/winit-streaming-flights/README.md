@@ -34,6 +34,8 @@ The header shows ingested rows and rows represented by the displayed results. Th
 
 Arrival delay is clipped only for histogram display. Carrier mean and sample standard deviation use the original delay in minutes. Scheduled departure time is converted from minutes since midnight to hours. Selection uses the same 1-pixel grid and 5 ms debounce as the non-streaming Mosaic example.
 
+Histogram domains are fixed. Values outside a domain, such as distances above 5,000 miles, have no visible bin in that histogram. Those flights remain available to the other histograms and carrier summary, subject to the current brushes. A value exactly at the upper boundary belongs to the last bin.
+
 ## Query flow
 
 The graph is prepared once over a native table input. Each focus has pre-aggregation state nodes for the other histograms and the carrier summary. The focused histogram is itself a cache target because its result is unchanged by its own brush. Any direct-query fallback is also a required target. Every expensive path is therefore included in background warming.
