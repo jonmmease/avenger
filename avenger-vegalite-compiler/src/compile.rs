@@ -1,4 +1,8 @@
-use crate::{error, source::Source, spec as vl, CompileError, Result};
+use crate::{
+    error,
+    source::{Source, SourceTable},
+    spec as vl, CompileError, Result,
+};
 use avenger_chart_definition as chart;
 use avenger_datafusion_dataflow::{
     datafusion::{
@@ -486,11 +490,16 @@ pub(crate) fn compile(spec: &vl::UnitSpec, source: Source) -> Result<chart::Char
             c.flow.scalar_input(&p.name, DataType::Float64)?,
         );
     }
-    let source = c.flow.table_snapshot("source", source.snapshot)?;
-    let plan = c.authored(
-        source.plan_ref(),
-        spec.transform.as_deref().unwrap_or_default(),
-    )?;
+    let source = match source.table {
+        SourceTable::Input { name, schema } => {
+            let input = c.flow.table_input(name, schema)?;
+            c.flow
+                .add_plan("source", input.plan_ref_with_row_index(&c.ordinal)?)?
+                .plan_ref()
+        }
+        SourceTable::Snapshot(snapshot) => c.flow.table_snapshot("source", snapshot)?.plan_ref(),
+    };
+    let plan = c.authored(source, spec.transform.as_deref().unwrap_or_default())?;
     let enc = spec.encoding.clone().unwrap_or_default();
     for (axis, primary, secondary) in [("x", &enc.x, &enc.x2), ("y", &enc.y, &enc.y2)] {
         if secondary.is_some() && primary.is_none() {
