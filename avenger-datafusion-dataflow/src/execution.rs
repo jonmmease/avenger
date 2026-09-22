@@ -7,6 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use datafusion::{
+    arrow::{array::UInt64Array, record_batch::RecordBatch},
     common::{
         metadata::FieldMetadata,
         tree_node::{Transformed, TreeNode},
@@ -113,9 +114,34 @@ impl ExtensionPlanner for SnapshotPlanner {
         let Some(table) = node.as_any().downcast_ref::<BoundTable>() else {
             return Ok(None);
         };
+        let (schema, batches) = if table.read.row_index.is_some() {
+            let schema = Arc::new(table.read.schema.as_arrow().clone());
+            let mut offset = 0u64;
+            let batches = table
+                .snapshot
+                .batch_iter()
+                .map(|batch| {
+                    let end = offset.checked_add(batch.num_rows() as u64).ok_or_else(|| {
+                        datafusion::common::DataFusionError::Execution(
+                            "Row index exceeds UInt64".into(),
+                        )
+                    })?;
+                    let mut columns = batch.columns().to_vec();
+                    columns.push(Arc::new(UInt64Array::from_iter_values(offset..end)));
+                    offset = end;
+                    Ok(RecordBatch::try_new(schema.clone(), columns)?)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            (schema, batches)
+        } else {
+            (
+                table.snapshot.schema().clone(),
+                table.snapshot.batches().to_vec(),
+            )
+        };
         Ok(Some(MemorySourceConfig::try_new_exec(
-            &[table.snapshot.batches().to_vec()],
-            table.snapshot.schema().clone(),
+            &[batches],
+            schema,
             None,
         )?))
     }
