@@ -1,12 +1,17 @@
 #![doc = include_str!("../README.md")]
 
 mod aggregate;
+mod codec;
 mod families;
 mod finalize;
 mod state;
 
 pub mod expr_fn;
 pub mod functions;
+
+pub use codec::{
+    function_versions, AggregateStateExtensionCodec, AGGREGATE_STATE_FUNCTION_VERSION,
+};
 
 use aggregate::{Operation, StateAggregate};
 use datafusion::{
