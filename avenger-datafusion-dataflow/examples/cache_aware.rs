@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
         .table(&source, previous)?
         .scalar(&weight, 1_i64.into())?
         .finish_overrides()?;
-    let latest_inputs = previous_inputs
+    let mut latest_inputs = previous_inputs
         .edit()
         .table(&source, latest)?
         .scalar(&weight, 2_i64.into())?
@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
     ));
 
     let targets = CacheTargets::Nodes(vec![CacheNode::Plan(histogram)]);
-    let warming = flow.cache_aware_query(
+    let mut warming = flow.cache_aware_query(
         &[output],
         &[],
         QueryInputs::new(latest_inputs.clone()).fallbacks([fallback.clone()])?,
@@ -106,6 +106,23 @@ async fn main() -> Result<()> {
     let mut ticks = tokio::time::interval(Duration::from_millis(20));
     for tick in 0..100 {
         ticks.tick().await;
+        if tick == 1 {
+            latest_inputs = latest_inputs
+                .edit()
+                .table(&source, snapshot(&schema, &[1, 1, 1, 2, 3, 4, 5])?)?
+                .finish()?;
+            // Constructing the replacement first preserves a pending group's queue position.
+            let replacement = flow.cache_aware_query(
+                &[output],
+                &[],
+                QueryInputs::new(latest_inputs.clone()).fallbacks([fallback.clone()])?,
+                CacheAwareOptions {
+                    targets: targets.clone(),
+                    start_latest: true,
+                },
+            )?;
+            warming = replacement;
+        }
         let current_brush = if tick == 0 { 2_i64 } else { 3_i64 };
         let current_inputs = latest_inputs
             .edit()
@@ -123,7 +140,7 @@ async fn main() -> Result<()> {
         let result = interaction.read(CacheRead::FromCachedTargets).await?;
         assert_eq!(result.inputs().scalar_value(&brush)?, &current_brush.into());
         println!(
-            "Brush {current_brush}: candidate {}, {} rows, {} physical plans",
+            "Brush {current_brush}: candidate {}, rows: {}, physical plans: {}",
             result.candidate_index(),
             result.result().table(&output)?.num_rows(),
             result.result().report().physical_plans
@@ -150,6 +167,7 @@ async fn main() -> Result<()> {
                     .candidate_index(),
                 0
             );
+            drop(warming);
             return Ok(());
         }
     }
