@@ -10,7 +10,7 @@ use avenger_transform::{self as transform, BinOptions, expr_fn};
 use datafusion::{
     functions::core::expr_fn::{greatest, least, named_struct},
     functions_aggregate::expr_fn::{avg, stddev},
-    logical_expr::{LogicalPlan, LogicalPlanBuilder as LP, cast, col, lit},
+    logical_expr::{LogicalPlan, LogicalPlanBuilder as LP, cast, col, lit, try_cast},
     prelude::{SessionConfig, SessionContext},
 };
 use std::{sync::Arc, time::Instant};
@@ -116,7 +116,9 @@ fn histogram(rows: LogicalPlan, plot: &Plot) -> datafusion::common::Result<Logic
     transform::aggregate(
         rows,
         vec![
-            cast(
+            // Binning emits infinity outside the plot domain. Null bin keys are
+            // omitted by decoding, without removing rows from the other charts.
+            try_cast(
                 (start - lit(plot.domain[0] as f64)) / lit(plot.step as f64),
                 DataType::Int32,
             )

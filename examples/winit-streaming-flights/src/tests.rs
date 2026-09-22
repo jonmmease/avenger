@@ -147,3 +147,46 @@ async fn empty_and_fully_filtered_snapshots_preserve_empty_charts() -> Result<()
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn distances_outside_the_plot_domain_do_not_fail_materialization() -> Result<()> {
+    let selections = Selections::new(505.)?;
+    let engine = Engine::new(replay::schema(), &selections, false).await?;
+    let distances = vec![0, 4999, 5000, -1, 5001, 10000, i32::MIN, i32::MAX];
+    let count = distances.len();
+    let rows = RecordBatch::try_new(
+        replay::schema(),
+        vec![
+            Arc::new(Int32Array::from(vec![10; count])),
+            Arc::new(Int32Array::from(distances)),
+            Arc::new(UInt16Array::from(vec![600; count])),
+            Arc::new(StringArray::from(vec!["AA"; count])),
+        ],
+    )?;
+    let store = TableStore::new(TableSnapshot::empty(replay::schema()));
+    store.append_batch(rows.slice(0, 3))?;
+    let snapshot = store.append_batch(rows.slice(3, count - 3))?;
+    let direct = engine.direct(&selections, snapshot.clone()).await?;
+    assert_eq!(direct.bins[2], vec![(0, 1), (24, 2)]);
+    assert_eq!(direct.carriers[0].count, count as i64);
+    assert_eq!(
+        direct.bins[0].iter().map(|(_, n)| n).sum::<i64>(),
+        count as i64
+    );
+    assert_eq!(
+        direct.bins[1].iter().map(|(_, n)| n).sum::<i64>(),
+        count as i64
+    );
+
+    for focus in 0..3 {
+        engine.clear();
+        ready(&engine.warm(&selections, focus, snapshot.clone())?).await?;
+        let actual = engine
+            .read(&selections, focus, snapshot.clone(), &[])
+            .await?
+            .unwrap();
+        assert!(actual.executed.iter().all(|name| name.ends_with("_rollup")));
+        same(&actual, &direct);
+    }
+    Ok(())
+}
