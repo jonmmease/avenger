@@ -159,6 +159,7 @@ impl DataflowBuilder {
             ..ScopeDef::root()
         });
         let automatic_read = GraphRead {
+            row_index: None,
             graph: self.def.id,
             source: TableRef::Rows(index),
             schema: input.schema().clone(),
