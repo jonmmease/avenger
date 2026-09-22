@@ -280,6 +280,18 @@ cargo run -p avenger-datafusion-dataflow --features sql --example parameterized_
 
 `TableStore` optionally owns the current snapshot. Its clones share that owner. Replacing its snapshot validates the schema and atomically publishes the new data and identity. Republishing an old snapshot preserves the old identity.
 
+`append_batch(batch)` and `append_batches(batches)` atomically publish a complete snapshot containing the current rows followed by the supplied rows. They return the exact snapshot committed by the call, even when other producers share the store. Every batch schema must match, including zero-row batches. Schema mismatch or row-count overflow leaves the store unchanged. Valid zero-row batches are discarded, and an empty commit preserves the current identity. Every nonempty commit gets a fresh identity. Retrying a successful append adds those rows again.
+
+Append does not execute a query or change existing input bindings. Bind the returned snapshot and use the ordinary query API to request complete results. Execution currently recomputes affected nodes for each new snapshot, with existing result caching for repeated queries of the same captured inputs. The public input and query APIs do not select an incremental execution mode.
+
+Snapshot capture and cloning share the batch collection. `batch_iter()` visits batches in order without copying handles or data, and `batches()` retains its slice interface. Query outputs need not preserve input batch boundaries. Each nonempty append currently clones the existing batch handles while sharing Arrow buffers. Repeated single-batch appends therefore accumulate quadratic metadata work as the batch list grows. Persistent batch storage and incremental execution remain future work. The store retains complete source data, and applications control ingestion and retained snapshot lifetimes.
+
+The [append example](examples/appending_batches.rs) binds successive snapshots to the same prepared aggregate and queries the original inputs again after more data arrives:
+
+```sh
+cargo run -p avenger-datafusion-dataflow --example appending_batches
+```
+
 `InputsBuilder::finish()` requires every declared root input, including root inputs irrelevant to the requested output subset. It validates supplied scoped bindings, while queries require effective scoped values only for discovered instances and demanded computations that read them. Scalar types and table schemas must match exactly. Typed scalar nulls are supported. `Inputs` captures its snapshots, so changing a store does not change existing bindings. Capturing several stores separately does not provide a transaction across them.
 
 ### Scoped sub-dataflows
