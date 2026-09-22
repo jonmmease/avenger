@@ -310,6 +310,15 @@ and handles, not query results. Normal dataflow ownership checks reject applying
 a binding to a foreign graph or scope. Installed handles do not survive artifact
 serialization as adapter objects.
 
+Generated State/Merge plans can be serialized with
+`avenger_datafusion_aggregate_state::AggregateStateExtensionCodec`. Include
+`avenger_datafusion_aggregate_state::function_versions()` in both the graph's
+semantic configuration and the destination runtime. Compose the codec with any
+other function codecs used by the source or finishing plans. After decoding,
+recover the generated input and output handles by name. Source and retained
+predicates still need the same checked translation described above. Serializing
+the plans does not serialize the planner or reconstruct its `Query` adapter.
+
 Installation uses `{name}_source` and, when eligible, `{name}_retained` inputs,
 with `{name}_direct`, `{name}_states`, and `{name}_rollup` nodes and outputs.
 Dataflow reports name collisions. Discard the builder after an installation error
