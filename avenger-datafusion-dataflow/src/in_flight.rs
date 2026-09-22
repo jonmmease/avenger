@@ -30,10 +30,12 @@ enum Outcome {
 }
 
 type Completion = Shared<BoxFuture<'static, Outcome>>;
+type Settlement = Shared<BoxFuture<'static, ()>>;
 
 pub(crate) struct Flight {
     id: u64,
     completion: Completion,
+    settlement: Settlement,
     interest: Weak<Interest>,
     unwatched: watch::Sender<bool>,
     stopping: bool,
@@ -68,10 +70,16 @@ pub(crate) enum Lookup {
 
 pub(crate) struct Pending {
     completion: Completion,
+    settlement: Settlement,
     interest: Arc<Interest>,
 }
 
 impl Pending {
+    /// Observe teardown without keeping consumer interest alive.
+    pub(crate) fn cleanup(&self) -> BoxFuture<'static, ()> {
+        self.settlement.clone().boxed()
+    }
+
     pub(crate) fn track(&self, task: JoinHandle<()>) {
         let Some(runtime) = self.interest.runtime.upgrade() else {
             return;
@@ -102,6 +110,8 @@ pub(crate) struct Reservation {
     id: u64,
     sender: Option<oneshot::Sender<Outcome>>,
     unwatched: watch::Receiver<bool>,
+    // Cleanup observers do not retain the delivered value or change error ownership.
+    _settlement: oneshot::Sender<()>,
 }
 
 impl Cache {
@@ -133,6 +143,7 @@ impl Cache {
                 });
                 Lookup::Pending(Pending {
                     completion: flight.completion.clone(),
+                    settlement: flight.settlement.clone(),
                     interest,
                 })
             }
@@ -144,6 +155,12 @@ impl Cache {
                     id,
                 });
                 let (sender, receiver) = oneshot::channel();
+                let (settled, settlement) = oneshot::channel();
+                let settlement = async move {
+                    let _ = settlement.await;
+                }
+                .boxed()
+                .shared();
                 let completion = async move {
                     receiver.await.unwrap_or_else(|_| {
                         Outcome::Failed(Arc::new(Error::Execution {
@@ -160,6 +177,7 @@ impl Cache {
                 entry.insert(Flight {
                     id,
                     completion: completion.clone(),
+                    settlement: settlement.clone(),
                     interest: Arc::downgrade(&interest),
                     unwatched: unwatched_sender,
                     stopping: false,
@@ -172,9 +190,11 @@ impl Cache {
                         id,
                         sender: Some(sender),
                         unwatched,
+                        _settlement: settled,
                     },
                     Pending {
                         completion,
+                        settlement,
                         interest,
                     },
                 )

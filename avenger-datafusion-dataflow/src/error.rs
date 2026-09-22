@@ -5,6 +5,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// No supplied candidate has every required retained computation.
+    #[error("cache miss after checking {candidates_checked} input candidates: {missing:?}")]
+    CacheMiss {
+        /// Missing computations for the preferred candidate.
+        missing: Vec<crate::Reference>,
+        candidates_checked: usize,
+    },
     /// A calculation failure shared by concurrent consumers.
     #[error("{0}")]
     Shared(#[source] std::sync::Arc<Error>),

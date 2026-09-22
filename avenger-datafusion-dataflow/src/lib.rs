@@ -7,6 +7,7 @@ pub use datafusion;
 pub use datafusion::arrow;
 
 mod cache;
+mod cache_aware;
 mod diagnostics;
 mod error;
 mod execution;
@@ -25,6 +26,10 @@ mod sql;
 mod table;
 
 pub use cache::{CacheConfig, CachePolicy, CacheStats};
+pub use cache_aware::{
+    CacheAwareOptions, CacheAwareQuery, CacheAwareResult, CacheNode, CacheRead, CacheTargets,
+    QueryInputs,
+};
 pub use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, LogicalExtensionCodec};
 pub use diagnostics::{
     EvaluationReport, ImportReport, NodeReport, PrepareReport, ReuseScope, ScopeEvaluationReport,
@@ -35,8 +40,8 @@ pub use graph::{
     Dataflow, DataflowBuilder, ExprInput, PlanNode, ScalarInput, ScalarNode, ScalarOutput,
     ScopeBuilder, TableInput, TableOutput,
 };
-pub use inputs::{Inputs, InputsBuilder, ScopedBindingsBuilder};
-pub use interface::{DataflowInterface, InputHandle, ScopeInterface};
+pub use inputs::{InputOverrides, Inputs, InputsBuilder, ScopedBindingsBuilder};
+pub use interface::{DataflowInterface, InputHandle, Reference, ScopeInterface};
 pub use partition::{PartitionKey, ScopeHandle, ScopeInstance};
 pub use result::{DataflowResult, ScopeResult, ScopeResults};
 pub use runtime::{ExecutionConfig, PreparedDataflow, PreparedExtension, Runtime, RuntimeConfig};

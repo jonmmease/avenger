@@ -172,3 +172,59 @@ async fn cancellation_waits_for_datafusion_worker_teardown_before_replacement_an
     super::tests::idle(&runtime).await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn warming_slot_stays_occupied_until_synchronous_worker_teardown() -> Result<()> {
+    use crate::{CacheAwareOptions, QueryInputs};
+    let runtime = Runtime::new(Default::default())?;
+    let first_gate = Arc::new(Gate::default());
+    first_gate.enabled.store(true, Ordering::SeqCst);
+    let second_gate = Arc::new(Gate::default());
+    let mut queries = Vec::new();
+    for gate in [&first_gate, &second_gate] {
+        let mut builder = crate::DataflowBuilder::new();
+        let plan = LogicalPlanBuilder::scan(
+            "source",
+            provider_as_source(Arc::new(Source(gate.clone()))),
+            None,
+        )?
+        .build()?;
+        let node = builder.add_plan("source", plan)?;
+        let output = builder.table_output("rows", &node)?;
+        let flow = runtime.prepare(&builder.finish()?).await?;
+        queries.push((flow, output));
+    }
+    let (first, first_output) = &queries[0];
+    let warming = first.cache_aware_query(
+        &[*first_output],
+        &[],
+        QueryInputs::new(first.inputs().finish()?),
+        CacheAwareOptions {
+            start_latest: true,
+            ..Default::default()
+        },
+    )?;
+    first_gate.entered.notified().await;
+    let (second, second_output) = &queries[1];
+    let queued = second.cache_aware_query(
+        &[*second_output],
+        &[],
+        QueryInputs::new(second.inputs().finish()?),
+        CacheAwareOptions {
+            start_latest: true,
+            ..Default::default()
+        },
+    )?;
+    drop(warming);
+    super::tests::until(|| runtime.inner.cache.lock().unwrap().stopping()).await;
+    assert_eq!(runtime.inner.warming.available_permits(), 0);
+    assert_eq!(second_gate.executions.load(Ordering::SeqCst), 0);
+    assert!(runtime.inner.active_bytes.load(Ordering::Relaxed) > 0);
+    first_gate.release();
+    super::tests::until(|| second_gate.executions.load(Ordering::SeqCst) == 2).await;
+    super::tests::idle(&runtime).await;
+    assert_eq!(first_gate.streams.load(Ordering::SeqCst), 0);
+    assert_eq!(second_gate.streams.load(Ordering::SeqCst), 0);
+    drop(queued);
+    Ok(())
+}
