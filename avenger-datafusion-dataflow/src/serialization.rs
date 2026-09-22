@@ -577,7 +577,7 @@ impl Dataflow {
             })
             .collect::<Result<_>>()?;
         let artifact = wire::DataflowArtifact {
-            version: 2,
+            version: 1,
             datafusion_version: ENGINE.into(),
             inputs,
             nodes,
@@ -612,7 +612,7 @@ impl Runtime {
 
     /// Reconstruct native plans from an artifact embedded in another protocol.
     pub fn decode_dataflow_proto(&self, artifact: wire::DataflowArtifact) -> Result<Dataflow> {
-        if !matches!(artifact.version, 1 | 2) || artifact.datafusion_version != ENGINE {
+        if artifact.version != 1 || artifact.datafusion_version != ENGINE {
             return Err(invalid("unsupported artifact or DataFusion version"));
         }
         let mut requirements = HashMap::new();
