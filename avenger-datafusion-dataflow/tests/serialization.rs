@@ -276,7 +276,7 @@ async fn dictionary_multibatch_empty_assets_and_typed_nulls_round_trip() -> Resu
             record_batch::RecordBatch,
         },
         datafusion::logical_expr::lit,
-        TableSnapshot,
+        TableSnapshot, TableStore,
     };
     use std::sync::Arc;
     let mut dictionary = StringDictionaryBuilder::<Int8Type>::new();
@@ -291,8 +291,11 @@ async fn dictionary_multibatch_empty_assets_and_typed_nulls_round_trip() -> Resu
         true,
     )]));
     let batch = RecordBatch::try_new(schema.clone(), vec![array])?;
-    let asset =
-        TableSnapshot::from_batches(schema.clone(), vec![batch.slice(0, 1), batch.slice(1, 2)])?;
+    let store = TableStore::new(TableSnapshot::from_batches(
+        schema.clone(),
+        vec![batch.slice(0, 1)],
+    )?);
+    let asset = store.append_batch(batch.slice(1, 2))?;
     let mut builder = DataflowBuilder::new();
     let first = builder.table_snapshot("first", asset.clone())?;
     let second = builder.table_snapshot("second", asset)?;
