@@ -21,6 +21,7 @@ use futures::{future::BoxFuture, FutureExt, TryStreamExt};
 
 use tokio::sync::Semaphore;
 
+mod cache_aware;
 mod execution_lifetime;
 
 use crate::{
@@ -64,6 +65,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) state: SessionState,
     pub(crate) config: RuntimeConfig,
     queries: Semaphore,
+    warming: Semaphore,
     active_bytes: AtomicUsize,
     pub(crate) cache: Mutex<crate::cache::Cache>,
     pub(crate) codec: Arc<dyn crate::LogicalExtensionCodec>,
@@ -138,6 +140,7 @@ impl Runtime {
         Ok(Self {
             inner: Arc::new(RuntimeInner {
                 queries: Semaphore::new(config.execution.max_active_queries),
+                warming: Semaphore::new(1),
                 state,
                 codec: Arc::new(crate::DefaultLogicalExtensionCodec {}),
                 cache: Mutex::new(crate::cache::Cache::new(config.cache.clone())),
@@ -627,34 +630,7 @@ impl PreparedDataflow {
         }
         let (_, scope_needed) = demand(graph, &requested);
         let runtime = &self.inner.runtime;
-        let mut report = EvaluationReport {
-            evaluation_id: fresh_id(),
-            query_start_time: Utc::now(),
-            executed_nodes: vec![],
-            physical_plans: 0,
-            cache_hits: 0,
-            in_flight_hits: 0,
-            cache_misses: 0,
-            cache_bypasses: 0,
-            source_executions: 0,
-            retained_bytes: 0,
-            materialized_bytes: 0,
-            scopes: graph
-                .scopes
-                .iter()
-                .enumerate()
-                .map(|(scope, _)| ScopeEvaluationReport {
-                    name: if base.is_some() {
-                        format!("additional::{}", graph.scope_name(scope))
-                    } else {
-                        graph.scope_name(scope)
-                    },
-                    instances: 0,
-                    executed_nodes: 0,
-                    partitioned_rows: 0,
-                })
-                .collect(),
-        };
+        let mut report = evaluation_report(graph, base.is_some());
         if !requested.iter().any(|requested| *requested) {
             return Ok(DataflowResult {
                 graph: graph.id,
@@ -726,6 +702,37 @@ impl PreparedDataflow {
     }
 }
 
+fn evaluation_report(graph: &GraphDef, additional: bool) -> EvaluationReport {
+    EvaluationReport {
+        evaluation_id: fresh_id(),
+        query_start_time: Utc::now(),
+        executed_nodes: vec![],
+        physical_plans: 0,
+        cache_hits: 0,
+        in_flight_hits: 0,
+        cache_misses: 0,
+        cache_bypasses: 0,
+        source_executions: 0,
+        retained_bytes: 0,
+        materialized_bytes: 0,
+        scopes: graph
+            .scopes
+            .iter()
+            .enumerate()
+            .map(|(scope, _)| ScopeEvaluationReport {
+                name: if additional {
+                    format!("additional::{}", graph.scope_name(scope))
+                } else {
+                    graph.scope_name(scope)
+                },
+                instances: 0,
+                executed_nodes: 0,
+                partitioned_rows: 0,
+            })
+            .collect(),
+    }
+}
+
 fn demand(graph: &GraphDef, requested: &[bool]) -> (Vec<bool>, Vec<bool>) {
     let mut nodes = vec![false; graph.nodes.len()];
     let mut scopes = vec![false; graph.scopes.len()];
@@ -791,7 +798,7 @@ struct BaseEvaluation {
 }
 
 struct Evaluation {
-    cleanup: Vec<tokio::sync::oneshot::Receiver<()>>,
+    cleanup: Vec<BoxFuture<'static, ()>>,
     base: Option<BaseEvaluation>,
     prepared: Arc<PreparedInner>,
     inputs: Inputs,
@@ -1084,6 +1091,41 @@ impl Evaluation {
         Ok(keys)
     }
 
+    fn value_key(
+        &mut self,
+        origin: Origin,
+        index: usize,
+    ) -> Result<Option<crate::cache::ValueKey>> {
+        let graph = self.program(origin).graph.clone();
+        let node = &graph.nodes[index];
+        let frame = self.frame_index(origin, node.scope);
+        let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable;
+        Ok(if eligible {
+            let inputs = self.input_keys(origin, &node.analysis.inputs)?;
+            let base_inputs = if node.analysis.base_inputs.is_empty() {
+                Vec::new()
+            } else {
+                self.input_keys(Origin::Base, &node.analysis.base_inputs)?
+            };
+            let upstream = if node.analysis.base_outputs.is_empty() {
+                None
+            } else {
+                let base = self.base.as_ref().expect("attached base");
+                Some((base.prepared.namespace, base.epoch))
+            };
+            Some(crate::cache::ValueKey {
+                namespace: self.program(origin).namespace,
+                node: index,
+                instance: self.frames[frame].instance.clone(),
+                inputs,
+                base_inputs,
+                upstream,
+            })
+        } else {
+            None
+        })
+    }
+
     fn node(&mut self, origin: Origin, index: usize) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
             let graph = self.program(origin).graph.clone();
@@ -1139,31 +1181,7 @@ impl Evaluation {
             if !node.analysis.base_inputs.is_empty() {
                 self.load_inputs(Origin::Base, &node.analysis.base_inputs)?;
             }
-            let eligible = node.analysis.reuse_scope == crate::ReuseScope::Reusable;
-            let key = if eligible {
-                let inputs = self.input_keys(origin, &node.analysis.inputs)?;
-                let base_inputs = if node.analysis.base_inputs.is_empty() {
-                    Vec::new()
-                } else {
-                    self.input_keys(Origin::Base, &node.analysis.base_inputs)?
-                };
-                let upstream = if node.analysis.base_outputs.is_empty() {
-                    None
-                } else {
-                    let base = self.base.as_ref().expect("attached base");
-                    Some((base.prepared.namespace, base.epoch))
-                };
-                Some(crate::cache::ValueKey {
-                    namespace: self.program(origin).namespace,
-                    node: index,
-                    instance: self.frames[frame].instance.clone(),
-                    inputs,
-                    base_inputs,
-                    upstream,
-                })
-            } else {
-                None
-            };
+            let key = self.value_key(origin, index)?;
             if let Some(key) = key {
                 self.reservation.charge(key.size())?;
                 loop {
@@ -1183,6 +1201,7 @@ impl Evaluation {
                             return Ok(());
                         }
                         crate::in_flight::Lookup::Pending(pending) => {
+                            self.cleanup.push(pending.cleanup());
                             {
                                 let mut work = self.work.lock().expect("work lock");
                                 work.in_flight_hits += 1;
@@ -1199,6 +1218,7 @@ impl Evaluation {
                             }
                         }
                         crate::in_flight::Lookup::Reserved(reservation, pending) => {
+                            self.cleanup.push(pending.cleanup());
                             if self.program(origin).report.cache_enabled {
                                 self.work.lock().expect("work lock").cache_misses += 1;
                             }
@@ -1432,7 +1452,7 @@ impl Evaluation {
 
     async fn settle_execution(&mut self) {
         while let Some(completion) = self.cleanup.last_mut() {
-            // Sender drop means every tracked physical plan and stream has released its lease.
+            // Admission remains held until workers and detached dependency jobs settle.
             let _ = completion.await;
             self.cleanup.pop();
         }
@@ -1500,7 +1520,12 @@ impl Evaluation {
         }
         let (physical, completion) =
             execution_lifetime::track(physical, self.reservation.clone(), owners)?;
-        self.cleanup.push(completion);
+        self.cleanup.push(
+            async move {
+                let _ = completion.await;
+            }
+            .boxed(),
+        );
         let mut stream = execute_stream(physical, state.task_ctx())
             .map_err(|source| self.execution_error(origin, index, source))?;
         let mut batches = vec![];

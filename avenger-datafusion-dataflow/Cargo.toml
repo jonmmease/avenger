@@ -17,6 +17,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros"] }
 
 datafusion-proto = { version = "=54.1.0", default-features = false }

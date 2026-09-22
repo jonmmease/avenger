@@ -151,6 +151,10 @@ impl Cache {
         entry.used = self.tick;
         Some(entry.value.clone())
     }
+    /// Probe without changing recency. The caller holds the cache lock through acquisition.
+    pub fn contains(&self, key: &ValueKey, epoch: u64) -> bool {
+        self.current(key, epoch) && self.entries.contains_key(key)
+    }
     pub fn insert(&mut self, key: ValueKey, epoch: u64, value: MaterializedValue) -> bool {
         let CachePolicy::Lru(config) = &self.policy else {
             return false;

@@ -92,6 +92,61 @@ assert_eq!(next.table(&rows)?.num_rows(), 1);
 # runtime.block_on(example()).unwrap();
 ```
 
+### Cache-aware inputs and background warming
+
+Use `PreparedDataflow::cache_aware_query` when an interaction can use an older input version whose expensive computations are already cached. Ordinary `query` remains exact. Cache-aware queries accept a complete preferred `Inputs` and ordered, partial `InputOverrides`. Each fallback inherits omitted values directly from the preferred inputs, so source versions can change while the current brush stays fixed.
+
+```rust,ignore
+let fallback = flow.inputs()
+    .table(&source, previous_snapshot)?
+    .scalar(&weight, previous_weight)?
+    .finish_overrides()?;
+let targets = CacheTargets::Nodes(vec![CacheNode::Plan(preaggregation)]);
+let warming = flow.cache_aware_query(
+    &[output],
+    &[],
+    QueryInputs::new(latest_inputs.clone()).fallbacks([fallback.clone()])?,
+    CacheAwareOptions { targets: targets.clone(), start_latest: true },
+)?;
+
+// Store warming in application state while its background work is wanted.
+let current_inputs = latest_inputs.edit().scalar(&brush, current_brush)?.finish()?;
+let interaction = flow.cache_aware_query(
+    &[output],
+    &[],
+    QueryInputs::new(current_inputs).fallbacks([fallback])?,
+    CacheAwareOptions { targets, start_latest: false },
+)?;
+let served = interaction.read(CacheRead::FromCachedTargets).await?;
+let selected_source = served.inputs().table_value(&source)?.clone();
+let used_preferred_inputs = served.candidate_index() == 0;
+```
+
+The fragment assumes existing graph handles and inputs. Run the self-contained [cache-aware example](examples/cache_aware.rs) for the complete setup:
+
+```sh
+cargo run -p avenger-datafusion-dataflow --example cache_aware
+```
+
+`finish_overrides()` captures every root binding present in its builder. Start with `flow.inputs()` for sparse overrides. Starting with `existing_inputs.edit()` captures all existing root bindings, including interaction values. A typed null, empty table, or null-valued expression is an explicit replacement. Root completeness remains required by ordinary `finish()`. Scoped overrides and scoped cache-aware requests are not supported.
+
+The runtime checks candidate zero first, then each fallback in order. It selects one complete binding set for the entire result. Every target must be retained for that candidate. Targets default to requested output producers, or can name reusable internal ancestors with `CacheNode::Plan`, `CacheNode::Scalar`, or `CacheNode::Named(Reference { scope: vec![], name: "preaggregation".into() })`. Named targets refer to computation names, not public output aliases. Explicit target lists cannot be empty.
+
+| Read mode | Required cache entries | Foreground work |
+|---|---|---|
+| `CacheRead::CachedOnly` | Every target and requested output producer | Assemble retained results without an execution slot |
+| `CacheRead::FromCachedTargets` | Every target | Execute remaining outputs with the selected inputs |
+
+Both modes return `Error::CacheMiss` when no candidate qualifies. Its `missing` references describe the preferred candidate and contain no input values. Neither mode waits for missing targets. Acquired targets remain usable for that read after eviction or clearing, and the existing clear epochs prevent stale publication. Validation and resource errors remain distinct from cache misses.
+
+`CacheAwareResult::inputs()` returns the complete selected bindings. `candidate_index()` is zero for the preferred inputs captured by that request, one for the first fallback, and so on. It does not claim that the source is still globally latest when the read finishes. Save the selected table and any related scalar or expression bindings together as a fallback for future requests. Omit interaction inputs that should inherit future values. Captured snapshots do not pin derived cache entries.
+
+`start_latest` defaults to `false`. Setting it to `true` eagerly spawns finite work on the caller's active Tokio runtime, independently of reads and fallback selection. The job evaluates only the preferred targets and their dependencies. It does not compute downstream chart outputs unless they are targets. Retain the query in application state while warming is wanted. Dropping a read or its result does not stop that work, but dropping the query releases background interest. Shared node calculations remain alive while another consumer needs them. Completed jobs release their execution resources even when the query remains retained.
+
+Each dataflow runtime permits one background warming job, including its entire dependency evaluation. That job acquires the warming permit before a shared execution permit, so queued jobs do not consume foreground slots. The default four execution slots leave three available to foreground queries. At least two total slots are needed for warming and downstream brush computation to overlap. This limits jobs, not DataFusion worker threads, and does not guarantee brush latency under CPU contention. New requests do not automatically cancel or replace older requests.
+
+Background failures produce `tracing` diagnostics and release resources. They do not invalidate a successful foreground result or implicitly retry. Later interactions or regular refresh queries discover newly retained targets. Warming completion does not trigger an application redraw, and there is no public background wait or completion API. The example uses bounded timer refreshes while applying the current brush on every read.
+
 ### Expression inputs and scalar computations
 
 `scalar_input(name, type)` accepts one value per scope instance. `add_scalar(name, expr)` registers a named `ScalarNode` that computes one value per scope instance. `expr_input(name, type)` accepts a caller-supplied DataFusion `Expr` that runs in each consuming operation's row context. It can be a filter predicate, a projected value, or an argument to an aggregate already in the definition.
