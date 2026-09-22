@@ -38,7 +38,7 @@ The semantic reference is Vega-Lite **6.4.3**, with Vega **6.4.0**. This is a su
 | Guides | Axis enable/title/format/labelAngle/grid, multiline chart titles, explicit dimensions, or category-count step sizing |
 | Style | Constant CSS color, opacity, and bar thickness |
 | Parameters | Initialized numeric root parameters, referenced by a structured `gte` predicate |
-| Sources | Inline scalar row objects, root datasets, named Arrow snapshots, local CSV/TSV/JSON, and `data: null` |
+| Sources | Inline scalar row objects, root datasets, named Arrow snapshots or replaceable inputs, local CSV/TSV/JSON, and `data: null` |
 
 Temporal encodings parse in the spec crate but are rejected by this compiler. Other marks, composition/facet syntax, color encodings, selection parameters, tooltips, arbitrary expressions, and network loading are deferred. Unsupported combinations return errors.
 
@@ -50,7 +50,43 @@ Explicit transforms precede encoding-generated transforms. Extent, bin parameter
 
 Named caller bindings take precedence over root datasets. Inline and URL sources remain their own sources even if they have a name. Resolve relative file paths against `VegaLiteOptions::base_dir`, or the `base_dir` argument to compile-only construction. CSV/TSV require headers and infer a schema. JSON files contain row objects. Explicit format wins over the extension.
 
-Source data is captured once, with local file I/O on a blocking worker. The definition owns its immutable source snapshot. Subsequent renders do not reopen files, and result-cache eviction does not release the source. Bind a `TableSnapshot` for empty data requiring a schema or for data loaded by the application. Referenced JSON columns must have consistent scalar types. Unreferenced structured columns are ignored.
+`compile_vegalite` and `Chart::from_vegalite` capture source data once, with local file I/O on a blocking worker. The definition owns its immutable source snapshot. Subsequent renders do not reopen files, and result-cache eviction does not release the source. Supply a named `TableSnapshot` for empty data requiring a schema or for data loaded by the application. Referenced JSON columns must have consistent scalar types. Unreferenced structured columns are ignored.
+
+For changing data, use `compile_vegalite_with_input(&spec, schema)`. The spec must
+use `data.name`, which becomes the name of a required root table input. This
+entry point reads no data and ignores any matching root `datasets` entry.
+Supply a snapshot with the declared raw schema for each render. No private
+ordinal column is required. A cached source node assigns ordinals in snapshot
+batch order before other transforms, preserving stack and first-seen category
+order as batches arrive.
+
+```rust,no_run
+use avenger_chart::{Chart, RenderOptions};
+use avenger_datafusion_dataflow::{TableSnapshot, TableStore};
+use avenger_vegalite_compiler::{compile_vegalite_with_input, spec::UnitSpec};
+
+# async fn example(spec: UnitSpec, first: TableSnapshot,
+#     batch: avenger_datafusion_dataflow::arrow::record_batch::RecordBatch)
+#     -> Result<(), Box<dyn std::error::Error>> {
+// The spec uses {"data": {"name": "sales"}}.
+let store = TableStore::new(first);
+let first_snapshot = store.snapshot();
+let definition = compile_vegalite_with_input(&spec, first_snapshot.schema().clone())?;
+let sales = definition.dataflow().interface().root().table_input("sales")?;
+let chart = Chart::prepare(definition, Default::default()).await?;
+let inputs = chart.inputs()?.table(&sales, first_snapshot)?.finish()?;
+let first_frame = chart.render(RenderOptions::default().inputs(inputs.clone())).await?;
+
+let second_snapshot = store.append_batch(batch)?;
+let next = inputs.edit().table(&sales, second_snapshot)?.finish()?;
+let second_frame = chart.render(RenderOptions::default().inputs(next)).await?;
+# Ok(()) }
+```
+
+The earlier inputs and frame remain immutable. New snapshots use ordinary
+recomputation, and repeated bindings reuse the dataflow cache. A missing input
+or a schema mismatch returns an error. Source replacement can change values,
+row counts, and row order, but changing the declared schema requires recompiling.
 
 ## Parameters, apps, and serialization
 
@@ -67,7 +103,7 @@ Each parameter becomes a dataflow scalar input and a chart initial value. Overri
 
 The `gte` predicate accepts a numeric column and either a number or one declared parameter identifier. Numeric null compares as zero, NaN never matches, and infinities retain their numeric ordering. General expression strings are not parsed.
 
-Serialize with `ChartDefinition::to_bytes_with_codec` and `avenger_transform::TransformExtensionCodec`. Decode with a dataflow runtime configured with that codec and `avenger_transform::function_versions()`. The artifact contains native plans, visual descriptors, initial parameters, and source snapshots. It requires neither the original spec nor the source files. It contains no warm cache. Chart artifacts emit version 2 and retain version-1 read support.
+Serialize with `ChartDefinition::to_bytes_with_codec` and `avenger_transform::TransformExtensionCodec`. Decode with a dataflow runtime configured with that codec and `avenger_transform::function_versions()`. The artifact contains native plans, visual descriptors, initial parameters, and either captured source snapshots or input declarations. After decoding an input-backed chart, recover the table handle by name and bind a snapshot. It requires neither the original spec nor the source files. It contains no warm cache. Chart artifacts emit version 2 and retain version-1 read support.
 
 Default Cargo features are `svg`, `pdf`, and `png`, forwarded to `avenger-chart`. Disable default features for compilation without export backends. The caller owns Tokio and the native event loop. Window-host dependencies belong only to examples.
 
@@ -78,6 +114,7 @@ cargo run -p avenger-vegalite-compiler --example export_bars -- /tmp/vegalite-ba
 # Optional final argument: a spec file. Relative sources use its directory.
 cargo run -p avenger-vegalite-compiler --example export_bars -- /tmp/histogram avenger-vegalite-compiler/examples/histogram.json
 cargo run -p avenger-vegalite-compiler --example serialized_bars -- /tmp/restored-bars.svg
+cargo run -p avenger-vegalite-compiler --example streaming_bars -- /tmp/streaming-bars
 cargo run -p avenger-vegalite-compiler --example bar_app
 ```
 
