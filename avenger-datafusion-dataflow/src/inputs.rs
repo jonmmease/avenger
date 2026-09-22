@@ -86,6 +86,24 @@ pub struct Inputs {
 }
 
 impl Inputs {
+    /// Read a captured root table binding without executing the dataflow.
+    pub fn table_value(&self, input: &TableInput) -> Result<&TableSnapshot> {
+        let index = table_index(&self.graph, 0, input)?;
+        match self.values[index].as_ref() {
+            Some(InputBinding::Value(MaterializedValue::Table(value))) => Ok(value),
+            _ => Err(Error::MissingInput(input.name().into())),
+        }
+    }
+
+    /// Read a captured root scalar binding without executing the dataflow.
+    pub fn scalar_value(&self, input: &ScalarInput) -> Result<&ScalarValue> {
+        let index = scalar_index(&self.graph, 0, input)?;
+        match self.values[index].as_ref() {
+            Some(InputBinding::Value(MaterializedValue::Scalar(value))) => Ok(value),
+            _ => Err(Error::MissingInput(input.name().into())),
+        }
+    }
+
     /// Edit individual entries while preserving other defaults and overrides.
     pub fn edit(&self) -> InputsBuilder {
         InputsBuilder {
@@ -116,6 +134,28 @@ impl Inputs {
     }
 }
 
+/// Partial root bindings applied independently to a query's preferred inputs.
+#[derive(Clone, Debug)]
+pub struct InputOverrides {
+    graph: u64,
+    values: Arc<[Option<InputBinding>]>,
+}
+
+impl InputOverrides {
+    pub(crate) fn apply(&self, preferred: &Inputs) -> Result<Inputs> {
+        if self.graph != preferred.graph.id {
+            return Err(Error::ForeignHandle);
+        }
+        let mut builder = preferred.edit();
+        for (index, value) in self.values.iter().enumerate() {
+            if let Some(value) = value {
+                builder.values[index] = Some(value.clone());
+            }
+        }
+        builder.finish()
+    }
+}
+
 /// Builds one immutable binding set with complete root inputs.
 #[derive(Debug)]
 pub struct InputsBuilder {
@@ -126,6 +166,22 @@ pub struct InputsBuilder {
 }
 
 impl InputsBuilder {
+    /// Capture every root binding present in this builder as a partial override.
+    ///
+    /// Use a fresh builder for sparse overrides. A builder from `Inputs::edit`
+    /// includes all original root bindings. Scoped bindings return an error.
+    pub fn finish_overrides(self) -> Result<InputOverrides> {
+        if !self.defaults.is_empty() || !self.overrides.is_empty() {
+            return Err(Error::OutOfScope(
+                "input fallbacks support root bindings only".into(),
+            ));
+        }
+        Ok(InputOverrides {
+            graph: self.graph.id,
+            values: self.values.into(),
+        })
+    }
+
     pub(crate) fn new(graph: Arc<BindingMetadata>) -> Self {
         Self {
             values: vec![None; graph.inputs.len()],

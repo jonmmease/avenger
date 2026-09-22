@@ -231,3 +231,12 @@ fn kind_error(name: &str, expected: &'static str, kind: &InputKind) -> Error {
         },
     }
 }
+
+/// Portable address of a named input, computation, or output.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Reference {
+    /// Scope path. An empty path denotes the root.
+    pub scope: Vec<String>,
+    /// Name within the addressed scope and namespace.
+    pub name: String,
+}
