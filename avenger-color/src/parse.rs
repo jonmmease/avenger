@@ -35,6 +35,8 @@ impl std::error::Error for ColorParseError {}
 /// alpha forms are handled here because css-color-parser 0.1.2 accepts
 /// `#rgb`/`#rrggbb` but not `#rgba`/`#rrggbbaa`.
 pub fn parse_color_string(color_str: &str) -> Option<[f32; 4]> {
+    let color_str = color_str.trim();
+
     // Special case for rebeccapurple which isn't in css-color-parser 0.1.2
     // but is an official CSS color (added in CSS Color Module Level 4)
     if color_str.eq_ignore_ascii_case("rebeccapurple") {
@@ -112,6 +114,20 @@ mod tests {
     fn invalid_unicode_hex_returns_error() {
         for input in ["#aébcdef", "#abcédef", "#abécdef", "#éab", "#💚abcd"] {
             assert!(parse_color_string_strict(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_accepted_for_extended_colors() {
+        for (input, expected) in [
+            (" \t#f0a8\n", [1.0, 0.0, 170.0 / 255.0, 136.0 / 255.0]),
+            ("\n#ff00aa80 \t", [1.0, 0.0, 170.0 / 255.0, 128.0 / 255.0]),
+            (
+                "\tRebeccaPurple \n",
+                [102.0 / 255.0, 51.0 / 255.0, 153.0 / 255.0, 1.0],
+            ),
+        ] {
+            assert_eq!(parse_color_string_strict(input), Ok(expected), "{input:?}");
         }
     }
 
