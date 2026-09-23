@@ -11,8 +11,9 @@ use lyon_path::Winding;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum Clip {
+    #[default]
     None,
     Rect {
         x: f32,
@@ -75,12 +76,6 @@ impl PartialEq for Clip {
             }
             _ => false,
         }
-    }
-}
-
-impl Default for Clip {
-    fn default() -> Self {
-        Self::None
     }
 }
 

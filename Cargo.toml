@@ -22,6 +22,43 @@ exclude = [
 
 resolver = "2"
 
+[profile.dev]
+# Keep edit-build cycles fast without emitting full DWARF for every crate.
+debug = "line-tables-only"
+
+[profile.dev.build-override]
+debug = 0
+
+[profile.test]
+debug = 0
+strip = "symbols"
+
+[profile.test.build-override]
+debug = 0
+
+[profile.release]
+opt-level = 1
+codegen-units = 256
+debug = 0
+strip = "symbols"
+incremental = true
+
+[profile.release-perf]
+inherits = "release"
+opt-level = 3
+codegen-units = 16
+strip = "symbols"
+incremental = false
+
+[profile.release-size]
+inherits = "release"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = "symbols"
+incremental = false
+
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
@@ -46,7 +83,7 @@ chrono-tz = "0.10.3"
 geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
-rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
+rstar = "0.13.0"
 cosmic-text = "0.14.2"
 geo-svg = "0.7.3"
 indexmap = "2.9.0"

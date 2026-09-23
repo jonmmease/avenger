@@ -26,7 +26,7 @@ pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
     }
 
     // JS: const n = i2 - i1 + 1
-    let n = ((i2 - i1 + 1.0) as usize).max(0);
+    let n = (i2 - i1 + 1.0) as usize;
     let mut ticks = Vec::with_capacity(n);
 
     // JS: if (reverse) {

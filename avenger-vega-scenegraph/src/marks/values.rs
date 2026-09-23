@@ -13,7 +13,7 @@ pub enum StrokeDashSpec {
 }
 
 impl StrokeDashSpec {
-    pub fn to_array(&self) -> Result<Cow<Vec<f32>>, AvengerVegaError> {
+    pub fn to_array(&self) -> Result<Cow<'_, Vec<f32>>, AvengerVegaError> {
         match self {
             StrokeDashSpec::Array(a) => Ok(Cow::Borrowed(a)),
             StrokeDashSpec::String(s) => {

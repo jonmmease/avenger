@@ -138,7 +138,7 @@ impl SceneGraphRTree {
     }
 
     /// Returns an iterator over all elements contained in the tree
-    pub fn iter(&self) -> RTreeIterator<GeometryInstance> {
+    pub fn iter(&self) -> RTreeIterator<'_, GeometryInstance> {
         self.rtree.iter()
     }
 
@@ -147,7 +147,7 @@ impl SceneGraphRTree {
     /// If multiple marks or mark instances contain the given point, the top-most one is returned.
     pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&MarkInstance> {
         let mut candidate_instance: Option<&GeometryInstance> = None;
-        for next_instance in self.rtree.locate_all_at_point(point) {
+        for next_instance in self.rtree.locate_all_at_point(*point) {
             if let Some(inner_candidate_instance) = candidate_instance {
                 if next_instance.mark_instance.mark_path
                     == inner_candidate_instance.mark_instance.mark_path
@@ -173,43 +173,43 @@ impl SceneGraphRTree {
     ///
     /// If multiple elements contain the given point, any of them is returned.
     pub fn locate_at_point(&self, point: &[f32; 2]) -> Option<&GeometryInstance> {
-        self.rtree.locate_at_point(point)
+        self.rtree.locate_at_point(*point)
     }
 
     /// Returns a mutable reference to the object that covers a given point.
     ///
     /// If multiple elements contain the given point, any of them is returned.
-    pub fn locate_all_at_point(&self, point: &[f32; 2]) -> LocateAllAtPoint<GeometryInstance> {
-        self.rtree.locate_all_at_point(point)
+    pub fn locate_all_at_point(&self, point: &[f32; 2]) -> LocateAllAtPoint<'_, GeometryInstance> {
+        self.rtree.locate_all_at_point(*point)
     }
 
     /// Returns all elements contained in an envelope
     pub fn locate_in_envelope(
         &self,
         envelope: &AABB<[f32; 2]>,
-    ) -> LocateInEnvelope<GeometryInstance> {
-        self.rtree.locate_in_envelope(envelope)
+    ) -> LocateInEnvelope<'_, GeometryInstance> {
+        self.rtree.locate_in_envelope(*envelope)
     }
 
     /// Returns all elements whose envelope intersects a given envelope
     pub fn locate_in_envelope_intersecting(
         &self,
         envelope: &AABB<[f32; 2]>,
-    ) -> LocateInEnvelopeIntersecting<GeometryInstance> {
-        self.rtree.locate_in_envelope_intersecting(envelope)
+    ) -> LocateInEnvelopeIntersecting<'_, GeometryInstance> {
+        self.rtree.locate_in_envelope_intersecting(*envelope)
     }
 
     /// Returns the nearest neighbor for a given point
     pub fn nearest_neighbor(&self, query_point: &[f32; 2]) -> Option<&GeometryInstance> {
-        self.rtree.nearest_neighbor(query_point)
+        self.rtree.nearest_neighbor(*query_point)
     }
 
     /// Returns all elements of the tree sorted by their distance to a given point
     pub fn nearest_neighbor_iter(
         &self,
         query_point: &[f32; 2],
-    ) -> NearestNeighborIterator<GeometryInstance> {
-        self.rtree.nearest_neighbor_iter(query_point)
+    ) -> NearestNeighborIterator<'_, GeometryInstance> {
+        self.rtree.nearest_neighbor_iter(*query_point)
     }
 
     /// Returns all elements of the tree within a certain distance
@@ -217,7 +217,7 @@ impl SceneGraphRTree {
         &self,
         query_point: [f32; 2],
         max_squared_radius: f32,
-    ) -> LocateWithinDistanceIterator<GeometryInstance> {
+    ) -> LocateWithinDistanceIterator<'_, GeometryInstance> {
         self.rtree
             .locate_within_distance(query_point, max_squared_radius)
     }
@@ -226,9 +226,9 @@ impl SceneGraphRTree {
     pub fn nearest_neighbor_iter_with_distance_2(
         &self,
         query_point: &[f32; 2],
-    ) -> NearestNeighborDistance2Iterator<GeometryInstance> {
+    ) -> NearestNeighborDistance2Iterator<'_, GeometryInstance> {
         self.rtree
-            .nearest_neighbor_iter_with_distance_2(query_point)
+            .nearest_neighbor_iter_with_distance_2(*query_point)
     }
 
     /// Returns all nearest neighbors that have exactly the same distance
