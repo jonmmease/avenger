@@ -441,6 +441,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-format-datetime-d3"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "avenger-format-number-d3"
 version = "0.1.0"
 dependencies = [
