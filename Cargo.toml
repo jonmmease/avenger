@@ -83,7 +83,7 @@ chrono-tz = "0.10.3"
 geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
-rstar = { git = "https://github.com/georust/rstar.git", rev = "c1b704de7606676fbc871badfde66bf10fd10536" }
+rstar = "0.13.0"
 cosmic-text = "0.14.2"
 geo-svg = "0.7.3"
 indexmap = "2.9.0"
