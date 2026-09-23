@@ -19,7 +19,6 @@ use super::instanced_mark::InstancedMarkFingerprint;
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
 
-#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolUniform {
@@ -40,7 +39,6 @@ impl SymbolUniform {
     }
 }
 
-#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolVertex {
@@ -67,7 +65,6 @@ impl SymbolVertex {
     }
 }
 
-#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolInstance {
