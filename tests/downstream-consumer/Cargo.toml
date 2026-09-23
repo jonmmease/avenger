@@ -1,0 +1,11 @@
+[package]
+name = "avenger-downstream-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Resolve as an independent consumer without the repository's lockfile.
+[workspace]
+
+[dependencies]
+avenger-geometry = { path = "../../avenger-geometry" }
