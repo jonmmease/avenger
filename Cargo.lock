@@ -394,9 +394,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-color"
+version = "0.1.0"
+dependencies = [
+ "css-color-parser",
+ "ordered-float 5.0.0",
+ "palette",
+ "serde",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-image",
  "avenger-text",
  "lyon_extra",
@@ -442,6 +453,7 @@ name = "avenger-guides"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-scales",
@@ -475,6 +487,7 @@ name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-image",
  "avenger-text",
@@ -501,6 +514,7 @@ dependencies = [
 name = "avenger-scenegraph"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-image",
@@ -540,6 +554,7 @@ dependencies = [
 name = "avenger-vega-scenegraph"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-image",
  "avenger-scenegraph",
@@ -565,6 +580,7 @@ dependencies = [
 name = "avenger-wgpu"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-scenegraph",
  "avenger-text",
@@ -2227,6 +2243,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-app",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -5333,6 +5350,7 @@ name = "wgpu-scales"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",

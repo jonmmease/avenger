@@ -1,7 +1,6 @@
 use crate::error::AvengerVegaError;
-use avenger_common::types::{
-    ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
-};
+use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Cow;
 

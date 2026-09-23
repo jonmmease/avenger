@@ -11,10 +11,11 @@ use arrow::{
     compute::kernels::cast,
     datatypes::{DataType, Field},
 };
+use avenger_color::ColorOrGradient;
 use avenger_common::types::{
     AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin, SymbolShape,
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::value::ScalarOrArray;
 use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
@@ -719,7 +720,8 @@ mod tests {
     use arrow::array::{Float32Array, ListArray, StringArray};
     use arrow::buffer::OffsetBuffer;
     use arrow::datatypes::Field;
-    use avenger_common::types::ColorOrGradient;
+    use avenger_color::ColorOrGradient;
+
     use svgtypes::Transform;
 
     fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {

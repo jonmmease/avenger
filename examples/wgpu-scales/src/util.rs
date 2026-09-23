@@ -1,6 +1,7 @@
 use arrow::array::{ArrayRef, Float32Array, StringArray};
+use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::ColorOrGradient;
+
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;

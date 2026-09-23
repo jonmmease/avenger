@@ -1,6 +1,7 @@
 use super::mark::SceneMark;
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin};
+use avenger_common::types::{PathTransform, StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
