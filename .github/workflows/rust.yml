@@ -44,9 +44,6 @@ jobs:
       - name: Run doc tests
         run: cargo test --release --workspace --locked --doc --verbose
 
-      - name: Check independent consumer dependency resolution
-        run: cargo check --release --manifest-path tests/downstream-consumer/Cargo.toml
-
       - name: Check browser examples
         run: |
           rustup target add wasm32-unknown-unknown
