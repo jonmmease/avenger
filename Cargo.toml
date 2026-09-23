@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "avenger-color",
+    "avenger-format-number",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
     "avenger-wgpu",
