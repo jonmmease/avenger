@@ -101,13 +101,15 @@ pub enum HueInterpolationMethod {
 
 /// Mix two colors in a specified color space
 ///
+/// Weights are normalized by their sum. A zero sum uses equal weights.
+///
 /// # Arguments
 ///
 /// * `interpolation_space` - The color space to perform mixing in
 /// * `left_color` - The first color to mix
-/// * `left_weight` - Weight for the first color (0.0-1.0)
+/// * `left_weight` - Nonnegative relative weight for the first color
 /// * `right_color` - The second color to mix
-/// * `right_weight` - Weight for the second color (0.0-1.0)
+/// * `right_weight` - Nonnegative relative weight for the second color
 /// * `hue_method` - How to interpolate hue in polar color spaces
 ///
 /// # Returns
@@ -343,13 +345,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "one weight per key color")]
-    fn oklab_mixer_rejects_mismatched_weights() {
-        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
-        mixer.mix(&[1.0]);
-    }
-
-    #[test]
     fn mixing_identical_colors_preserves_alpha() {
         for alpha in [0.0004, 0.123456, 128.0 / 255.0, 0.999995] {
             let color = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, alpha);
@@ -366,173 +361,171 @@ mod tests {
     }
 
     #[test]
-    fn test_oklab_mixer_pure_weight_reproduces_key_color() {
-        let keys = [
-            [0.9, 0.2, 0.1, 1.0_f32],
-            [0.1, 0.5, 0.8, 1.0],
-            [0.2, 0.7, 0.3, 1.0],
-        ];
-        let mixer = OklabMixer::new(&keys);
-        for (index, key) in keys.iter().enumerate() {
-            let mut weights = [0.0_f32; 3];
-            weights[index] = 7.5; // un-normalized on purpose
-            let mixed = mixer.mix(&weights).expect("nonzero weight");
-            for channel in 0..3 {
-                assert!(
-                    (mixed[channel] - key[channel]).abs() <= 1.5 / 255.0,
-                    "key {index} channel {channel}: {} vs {}",
-                    mixed[channel],
-                    key[channel]
+    fn mixing_normalizes_weights_and_premultiplies_alpha() {
+        for (left_alpha, right_alpha, weights, expected) in [
+            (1.0, 1.0, [1.0, 3.0], [0.25, 0.0, 0.75, 1.0]),
+            (1.0, 1.0, [0.0, 0.0], [0.5, 0.0, 0.5, 1.0]),
+            (0.5, 1.0, [1.0, 1.0], [1.0 / 3.0, 0.0, 2.0 / 3.0, 0.75]),
+            (0.0, 1.0, [1.0, 1.0], [0.0, 0.0, 1.0, 0.5]),
+            (1.0, 0.0, [1.0, 1.0], [1.0, 0.0, 0.0, 0.5]),
+            (0.0, 0.0, [1.0, 1.0], [0.0, 0.0, 0.0, 0.0]),
+        ] {
+            let left = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, left_alpha);
+            let right = AbsoluteColor::from_srgb(0.0, 0.0, 1.0, right_alpha);
+            let actual = mix_colors(
+                ColorSpace::Srgb,
+                &left,
+                weights[0],
+                &right,
+                weights[1],
+                HueInterpolationMethod::Shorter,
+            );
+            assert_eq!(actual, AbsoluteColor::from_rgba(expected));
+        }
+    }
+
+    #[test]
+    fn public_mixing_obeys_hue_methods_and_missing_hues() {
+        use HueInterpolationMethod::*;
+        for (space, index, components) in [
+            (ColorSpace::Hsl, 0, [0.0, 80.0, 50.0]),
+            (ColorSpace::Hwb, 0, [0.0, 10.0, 20.0]),
+            (ColorSpace::Lch, 2, [50.0, 30.0, 0.0]),
+            (ColorSpace::Oklch, 2, [0.5, 0.1, 0.0]),
+        ] {
+            for (method, left_hue, right_hue, expected) in [
+                (Shorter, 10.0, 350.0, 0.0),
+                (Shorter, 350.0, 10.0, 0.0),
+                (Longer, 10.0, 20.0, 195.0),
+                (Longer, 20.0, 10.0, 195.0),
+                (Increasing, 350.0, 10.0, 0.0),
+                (Increasing, 10.0, 350.0, 180.0),
+                (Decreasing, 10.0, 350.0, 0.0),
+                (Decreasing, 350.0, 10.0, 180.0),
+                (Specified, 10.0, 350.0, 180.0),
+                (Specified, -90.0, 450.0, 180.0),
+                (Shorter, -90.0, 450.0, 180.0),
+                (Shorter, f32::NAN, 40.0, 40.0),
+                (Shorter, 40.0, f32::NAN, 40.0),
+                (Shorter, f32::NAN, f32::NAN, 0.0),
+            ] {
+                let mut left = AbsoluteColor {
+                    components,
+                    alpha: 0.25,
+                    color_space: space,
+                };
+                let mut right = AbsoluteColor {
+                    alpha: 0.75,
+                    ..left
+                };
+                left.components[index] = left_hue;
+                right.components[index] = right_hue;
+                let actual = mix_colors(space, &left, 1.0, &right, 1.0, method);
+                let mut expected_color = AbsoluteColor {
+                    components,
+                    alpha: 0.5,
+                    color_space: space,
+                };
+                expected_color.components[index] = expected;
+                assert_eq!(
+                    actual, expected_color,
+                    "{space:?} {method:?}: {left_hue} -> {right_hue}"
                 );
             }
         }
     }
 
     #[test]
-    fn test_oklab_mixer_matches_independent_oklab_average() {
-        let black = [0.0_f32, 0.0, 0.0, 1.0];
-        let white = [1.0_f32, 1.0, 1.0, 1.0];
-        let mixer = OklabMixer::new(&[black, white]);
-        let mixed = mixer.mix(&[1.0, 1.0]).expect("nonzero weights");
-
-        // Independent computation through the public conversion API.
-        let lab_black = convert_color_space(&[0.0, 0.0, 0.0], ColorSpace::Srgb, ColorSpace::Oklab);
-        let lab_white = convert_color_space(&[1.0, 1.0, 1.0], ColorSpace::Srgb, ColorSpace::Oklab);
-        let lab_mid = [
-            (lab_black[0] + lab_white[0]) / 2.0,
-            (lab_black[1] + lab_white[1]) / 2.0,
-            (lab_black[2] + lab_white[2]) / 2.0,
-        ];
-        let expected = convert_color_space(&lab_mid, ColorSpace::Oklab, ColorSpace::Srgb);
-        for channel in 0..3 {
-            assert!((mixed[channel] - expected[channel]).abs() < 1e-4);
-        }
-        // And it is measurably NOT the naive gamma-sRGB average (0.5): the
-        // Oklab half-lightness gray encodes near 0.389 in sRGB.
-        assert!(
-            (mixed[0] - 0.5).abs() > 0.05,
-            "Oklab mid-gray should differ from the naive sRGB average, got {}",
-            mixed[0]
-        );
-    }
-
-    #[test]
-    fn test_oklab_mixer_blue_yellow_not_naive_gray() {
-        let blue = [0.0_f32, 0.0, 1.0, 1.0];
-        let yellow = [1.0_f32, 1.0, 0.0, 1.0];
-        let mixer = OklabMixer::new(&[blue, yellow]);
-        let mixed = mixer.mix(&[0.5, 0.5]).expect("nonzero weights");
-        // Naive gamma-sRGB averaging collapses to exactly (0.5, 0.5, 0.5).
-        let max_dev_from_gray = mixed
-            .iter()
-            .map(|c| (c - 0.5_f32).abs())
-            .fold(0.0_f32, f32::max);
-        assert!(
-            max_dev_from_gray > 0.05,
-            "Oklab blue/yellow mix should not collapse to the muddy sRGB gray, got {mixed:?}"
-        );
-        // Convexity + clamp: all channels in range.
-        assert!(mixed.iter().all(|c| (0.0..=1.0).contains(c)));
-    }
-
-    #[test]
-    fn test_oklab_mixer_degenerate_weights() {
-        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]);
-        assert!(mixer.mix(&[0.0, 0.0]).is_none());
-        assert!(mixer.mix(&[f32::NAN, 0.0]).is_none());
-        // Negative and NaN weights are ignored, not propagated.
-        let mixed = mixer.mix(&[-3.0, 2.0]).expect("one usable weight");
-        assert!((mixed[1] - 1.0).abs() <= 1.5 / 255.0);
-        assert!(mixed[0].abs() <= 1.5 / 255.0);
-    }
-
-    #[test]
-    fn test_adjust_hue_shorter() {
-        let mut left = 10.0;
-        let mut right = 350.0;
-        adjust_hue(&mut left, &mut right, HueInterpolationMethod::Shorter);
-        // Should adjust right to -10 (350 -> 350, but effective as -10 for shorter path)
-        // Actually normalizes first, so right stays 350, left becomes 370
-        assert_eq!(left, 370.0);
-        assert_eq!(right, 350.0);
-    }
-
-    #[test]
-    fn test_adjust_hue_longer() {
-        let mut left = 10.0;
-        let mut right = 20.0;
-        adjust_hue(&mut left, &mut right, HueInterpolationMethod::Longer);
-        // Delta is 10 (< 180), so left should be increased by 360
-        assert_eq!(left, 370.0);
-        assert_eq!(right, 20.0);
-    }
-
-    #[test]
-    fn test_mix_srgb() {
+    fn mixing_converts_inputs_to_the_requested_space() {
         let red = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, 1.0);
         let blue = AbsoluteColor::from_srgb(0.0, 0.0, 1.0, 1.0);
-
-        let purple = mix_colors(
-            ColorSpace::Srgb,
+        let actual = mix_colors(
+            ColorSpace::Oklab,
             &red,
-            0.5,
+            1.0,
             &blue,
-            0.5,
+            1.0,
             HueInterpolationMethod::Shorter,
         );
-
-        // Should be roughly purple (0.5, 0, 0.5)
-        assert!((purple.components[0] - 0.5).abs() < 0.01);
-        assert!((purple.components[1] - 0.0).abs() < 0.01);
-        assert!((purple.components[2] - 0.5).abs() < 0.01);
-        assert_eq!(purple.alpha, 1.0);
-    }
-
-    #[test]
-    fn test_mix_with_alpha() {
-        let red_half = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, 0.5);
-        let blue_full = AbsoluteColor::from_srgb(0.0, 0.0, 1.0, 1.0);
-
-        let mix = mix_colors(
-            ColorSpace::Srgb,
-            &red_half,
-            0.5,
-            &blue_full,
-            0.5,
-            HueInterpolationMethod::Shorter,
-        );
-
-        // Alpha should be (0.5 * 0.5 + 1.0 * 0.5) = 0.75
-        assert!((mix.alpha - 0.75).abs() < 0.01);
-        for (actual, expected) in mix.components.into_iter().zip([1.0 / 3.0, 0.0, 2.0 / 3.0]) {
+        // CSS Color 4 sample conversions, averaged in Oklab outside this crate.
+        assert_eq!(actual.color_space, ColorSpace::Oklab);
+        assert_eq!(actual.alpha, 1.0);
+        for (actual, expected) in
+            actual
+                .components
+                .into_iter()
+                .zip([0.5399845, 0.09620305, -0.09284094])
+        {
             assert!((actual - expected).abs() < 1e-6);
         }
     }
 
     #[test]
-    fn test_mix_in_oklab() {
-        let red = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, 1.0);
-        let blue = AbsoluteColor::from_srgb(0.0, 0.0, 1.0, 1.0);
+    fn oklab_mixer_matches_reference_weighted_means() {
+        // Expected sRGB values from CSS Color 4's f64 conversion sample code:
+        // https://www.w3.org/TR/css-color-4/#color-conversion-code
+        // Key alpha is deliberately varied: OklabMixer ignores it.
+        let keys = [
+            [0.9, 0.2, 0.1, 0.0],
+            [0.1, 0.5, 0.8, 0.5],
+            [0.2, 0.7, 0.3, 1.0],
+        ];
+        for (palette, weights, expected) in [
+            (
+                &keys[..],
+                &[1.0, 2.0, 4.0][..],
+                [0.3791198, 0.6063569, 0.4623209],
+            ),
+            (&keys[..], &[1.0, 0.0, 0.0][..], [0.9, 0.2, 0.1]),
+            (&keys[..], &[0.0, 1.0, 0.0][..], [0.1, 0.5, 0.8]),
+            (&keys[..], &[0.0, 0.0, 1.0][..], [0.2, 0.7, 0.3]),
+            (
+                &[[0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]][..],
+                &[1.0, 1.0][..],
+                [0.3885729; 3],
+            ),
+            (
+                &[[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 1.0]][..],
+                &[1.0, 1.0][..],
+                [0.4225514, 0.6723662, 0.7805431],
+            ),
+        ] {
+            let mixer = OklabMixer::new(palette);
+            assert_eq!(mixer.len(), palette.len());
+            assert!(!mixer.is_empty());
+            for scale in [1.0, 7.5] {
+                let scaled: Vec<_> = weights.iter().map(|w| w * scale).collect();
+                let actual = mixer.mix(&scaled).unwrap();
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    assert!(
+                        (actual - expected).abs() < 1e-5,
+                        "{weights:?}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
 
-        // Mix in Oklab space (perceptually uniform)
-        let mix = mix_colors(
-            ColorSpace::Oklab,
-            &red,
-            0.5,
-            &blue,
-            0.5,
-            HueInterpolationMethod::Shorter,
-        );
+    #[test]
+    fn oklab_mixer_ignores_unusable_weights_and_handles_empty_palettes() {
+        let empty = OklabMixer::new(&[]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.mix(&[]), None);
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]);
+        for invalid in [0.0, -3.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(mixer.mix(&[invalid, 0.0]), None);
+            let actual = mixer.mix(&[invalid, 2.0]).unwrap();
+            for (actual, expected) in actual.into_iter().zip([0.0, 1.0, 0.0]) {
+                assert!((actual - expected).abs() < 1e-5, "{invalid}: {actual}");
+            }
+        }
+    }
 
-        // Result should be in Oklab space
-        assert_eq!(mix.color_space, ColorSpace::Oklab);
-
-        // Convert back to sRGB to verify it's different from sRGB mixing
-        let srgb = mix.to_color_space(ColorSpace::Srgb);
-
-        // In Oklab, the mix should be different from simple RGB average
-        // This is a perceptual color space, so the result will differ
-        assert!(srgb.components[0] > 0.0 && srgb.components[0] < 1.0);
-        assert!(srgb.components[2] > 0.0 && srgb.components[2] < 1.0);
+    #[test]
+    #[should_panic(expected = "one weight per key color")]
+    fn oklab_mixer_rejects_mismatched_weights() {
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
+        mixer.mix(&[1.0]);
     }
 }

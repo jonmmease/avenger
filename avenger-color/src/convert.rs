@@ -606,6 +606,69 @@ pub mod hsl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AbsoluteColor;
+
+    #[test]
+    fn conversions_match_independent_reference_vectors() {
+        // CSS Color 4 sample code, evaluated in f64 outside this crate:
+        // https://www.w3.org/TR/css-color-4/#color-conversion-code
+        // Each row describes the same color; check every direct source/target pair.
+        for components in [
+            [
+                [0.5, 0.3, 0.8],
+                [264.0, 55.55556, 55.0],
+                [264.0, 30.0, 20.0],
+                [43.76037, 42.2445, -59.30758],
+                [43.76037, 72.81474, 305.4621],
+                [0.5417581, 0.0894513, -0.1665469],
+                [0.5417581, 0.1890487, 298.23996],
+            ],
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 100.0, 50.0],
+                [0.0, 0.0, 0.0],
+                [54.29054, 80.80493, 69.89096],
+                [54.29054, 106.83718, 40.85766],
+                [0.6279554, 0.2248631, 0.1258463],
+                [0.6279554, 0.2576833, 29.23388],
+            ],
+        ] {
+            let spaces = [
+                ColorSpace::Srgb,
+                ColorSpace::Hsl,
+                ColorSpace::Hwb,
+                ColorSpace::Lab,
+                ColorSpace::Lch,
+                ColorSpace::Oklab,
+                ColorSpace::Oklch,
+            ];
+            for (source, input) in spaces.into_iter().zip(components) {
+                let color = AbsoluteColor::new(source, input[0], input[1], input[2], 0.37);
+                for (target, expected) in spaces.into_iter().zip(components) {
+                    let actual = color.to_color_space(target);
+                    assert_eq!(actual.color_space, target);
+                    assert_eq!(actual.alpha, color.alpha);
+                    for (i, expected) in expected.into_iter().enumerate() {
+                        let difference = (actual.components[i] - expected).abs();
+                        let difference = if target.hue_index() == Some(i) {
+                            difference.min((difference - 360.0).abs())
+                        } else {
+                            difference
+                        };
+                        let tolerance = if matches!(target, ColorSpace::Srgb | ColorSpace::Oklab) {
+                            1e-5
+                        } else {
+                            5e-4
+                        };
+                        assert!(
+                            difference < tolerance,
+                            "{source:?} -> {target:?}: {actual:?}, expected {expected} at {i}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn lab_d50_preserves_neutral_colors() {
@@ -624,12 +687,26 @@ mod tests {
     }
 
     #[test]
-    fn lab_and_lch_roundtrips_preserve_srgb() {
-        for srgb in [[1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [0.5, 0.3, 0.8]] {
-            for space in [ColorSpace::Lab, ColorSpace::Lch] {
-                let converted = convert_color_space(&srgb, ColorSpace::Srgb, space);
-                let actual = convert_color_space(&converted, space, ColorSpace::Srgb);
-                for (actual, expected) in actual.into_iter().zip(srgb) {
+    fn public_roundtrips_preserve_srgb_and_alpha() {
+        for rgba in [
+            [1.0, 1.0, 1.0, 0.37],
+            [1.0, 0.0, 0.0, 0.0004],
+            [0.5, 0.3, 0.8, 0.999995],
+        ] {
+            let original = AbsoluteColor::from_rgba(rgba);
+            for space in [
+                ColorSpace::Hsl,
+                ColorSpace::Hwb,
+                ColorSpace::Lab,
+                ColorSpace::Lch,
+                ColorSpace::Oklab,
+                ColorSpace::Oklch,
+            ] {
+                let actual = original
+                    .to_color_space(space)
+                    .to_color_space(ColorSpace::Srgb);
+                assert_eq!(actual.alpha, original.alpha);
+                for (actual, expected) in actual.components.into_iter().zip(original.components) {
                     assert!(
                         (actual - expected).abs() < 1e-5,
                         "{space:?}: {actual} != {expected}"
@@ -640,55 +717,16 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_hue() {
-        assert_eq!(normalize_hue(0.0), 0.0);
-        assert_eq!(normalize_hue(180.0), 180.0);
-        assert_eq!(normalize_hue(360.0), 0.0);
-        assert_eq!(normalize_hue(450.0), 90.0);
-        assert_eq!(normalize_hue(-90.0), 270.0);
-    }
-
-    #[test]
-    fn test_polar_orthogonal_roundtrip() {
-        let ortho = [50.0, 25.0, -30.0];
-        let polar = orthogonal_to_polar(&ortho, 0.0001);
-        let back = polar_to_orthogonal(&polar);
-
-        assert!((ortho[0] - back[0]).abs() < 0.01);
-        assert!((ortho[1] - back[1]).abs() < 0.01);
-        assert!((ortho[2] - back[2]).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_srgb_xyz_roundtrip() {
-        let srgb = [0.5, 0.3, 0.8];
-        let xyz = srgb_to_xyz(&srgb);
-        let back = xyz_to_srgb(&xyz);
-
-        assert!((srgb[0] - back[0]).abs() < 0.001);
-        assert!((srgb[1] - back[1]).abs() < 0.001);
-        assert!((srgb[2] - back[2]).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_oklab_xyz_roundtrip() {
-        let oklab = [0.5, 0.1, -0.1];
-        let xyz = oklab_to_xyz(&oklab);
-        let back = xyz_to_oklab(&xyz);
-
-        assert!((oklab[0] - back[0]).abs() < 0.001);
-        assert!((oklab[1] - back[1]).abs() < 0.001);
-        assert!((oklab[2] - back[2]).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_srgb_to_oklab() {
-        // Red in sRGB should convert to Oklab
-        let red_srgb = [1.0, 0.0, 0.0];
-        let oklab = convert_color_space(&red_srgb, ColorSpace::Srgb, ColorSpace::Oklab);
-        // Oklab red is approximately [0.628, 0.225, 0.126]
-        assert!((oklab[0] - 0.628).abs() < 0.01);
-        assert!((oklab[1] - 0.225).abs() < 0.01);
-        assert!((oklab[2] - 0.126).abs() < 0.01);
+    fn hwb_normalizes_whiteness_and_blackness_to_gray() {
+        for (white, black, gray) in [(25.0, 75.0, 0.25), (80.0, 40.0, 2.0 / 3.0)] {
+            for hue in [0.0, 240.0] {
+                let color = AbsoluteColor::new(ColorSpace::Hwb, hue, white, black, 0.37);
+                let actual = color.to_color_space(ColorSpace::Srgb);
+                assert_eq!(actual.alpha, 0.37);
+                for channel in actual.components {
+                    assert!((channel - gray).abs() < 1e-6, "{color:?}: {actual:?}");
+                }
+            }
+        }
     }
 }

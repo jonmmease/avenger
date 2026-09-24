@@ -191,6 +191,8 @@ impl AbsoluteColor {
     }
 
     /// Convert to u8 sRGB components `[r, g, b, a]`.
+    ///
+    /// Clips channels to [0, 1], scales by 255, then truncates fractional bytes.
     pub fn to_rgba8(&self) -> [u8; 4] {
         let [r, g, b, a] = self.to_rgba();
         [
@@ -285,56 +287,93 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_color_space_is_polar() {
-        assert!(ColorSpace::Hsl.is_polar());
-        assert!(ColorSpace::Hwb.is_polar());
-        assert!(ColorSpace::Lch.is_polar());
-        assert!(ColorSpace::Oklch.is_polar());
-        assert!(!ColorSpace::Srgb.is_polar());
-        assert!(!ColorSpace::Lab.is_polar());
-        assert!(!ColorSpace::Oklab.is_polar());
+    fn color_space_metadata() {
+        for (space, hue) in [
+            (ColorSpace::Srgb, None),
+            (ColorSpace::Lab, None),
+            (ColorSpace::Oklab, None),
+            (ColorSpace::Hsl, Some(0)),
+            (ColorSpace::Hwb, Some(0)),
+            (ColorSpace::Lch, Some(2)),
+            (ColorSpace::Oklch, Some(2)),
+        ] {
+            assert_eq!(space.hue_index(), hue);
+            assert_eq!(space.is_polar(), hue.is_some());
+            assert_eq!(space.is_rectangular(), hue.is_none());
+        }
     }
 
     #[test]
-    fn test_color_space_hue_index() {
-        assert_eq!(ColorSpace::Hsl.hue_index(), Some(0));
-        assert_eq!(ColorSpace::Hwb.hue_index(), Some(0));
-        assert_eq!(ColorSpace::Lch.hue_index(), Some(2));
-        assert_eq!(ColorSpace::Oklch.hue_index(), Some(2));
-        assert_eq!(ColorSpace::Srgb.hue_index(), None);
-        assert_eq!(ColorSpace::Lab.hue_index(), None);
+    fn rgba_bytes_scale_clip_and_truncate() {
+        for bytes in [[0, 127, 255, 64], [255, 128, 1, 192]] {
+            let color = AbsoluteColor::from_rgba8(bytes);
+            assert_eq!(color.color_space, ColorSpace::Srgb);
+            assert_eq!(color.to_rgba(), bytes.map(|v| v as f32 / 255.0));
+            assert_eq!(color.to_rgba8(), bytes);
+        }
+        for (rgba, clipped, bytes) in [
+            (
+                [0.5, 0.25, 0.75, 0.5],
+                [0.5, 0.25, 0.75, 0.5],
+                [127, 63, 191, 127],
+            ),
+            (
+                [-0.1, 1.1, 0.5, 1.5],
+                [0.0, 1.0, 0.5, 1.0],
+                [0, 255, 127, 255],
+            ),
+            ([1.0, 0.0, 0.0, -0.5], [1.0, 0.0, 0.0, 0.0], [255, 0, 0, 0]),
+        ] {
+            let color = AbsoluteColor::from_rgba(rgba);
+            assert_eq!(color.to_rgba(), clipped);
+            assert_eq!(color.to_rgba8(), bytes);
+        }
     }
 
     #[test]
-    fn test_from_rgba8() {
-        let color = AbsoluteColor::from_rgba8([255, 0, 0, 255]);
-        assert_eq!(color.components[0], 1.0);
-        assert_eq!(color.components[1], 0.0);
-        assert_eq!(color.components[2], 0.0);
-        assert_eq!(color.alpha, 1.0);
-        assert_eq!(color.color_space, ColorSpace::Srgb);
-    }
-
-    #[test]
-    fn test_to_rgba8() {
-        let color = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, 1.0);
-        let rgba = color.to_rgba8();
-        assert_eq!(rgba, [255, 0, 0, 255]);
-    }
-
-    #[test]
-    fn test_color_channel_contextual_parsing() {
+    fn channel_names_extract_components_in_their_color_space() {
+        for (space, names) in [
+            (ColorSpace::Srgb, ["r", "g", "b"]),
+            (ColorSpace::Hsl, ["h", "s", "l"]),
+            (ColorSpace::Hwb, ["h", "w", "b"]),
+            (ColorSpace::Lab, ["l", "a", "b"]),
+            (ColorSpace::Lch, ["l", "c", "h"]),
+            (ColorSpace::Oklab, ["l", "a", "b"]),
+            (ColorSpace::Oklch, ["l", "c", "h"]),
+        ] {
+            let color = AbsoluteColor::new(space, 0.2, 0.4, 0.6, 0.37);
+            for (name, expected) in names
+                .into_iter()
+                .zip(color.components)
+                .chain([("alpha", color.alpha)])
+            {
+                for ident in [name.to_owned(), name.to_uppercase()] {
+                    let channel =
+                        ColorChannel::from_ident_with_color_space(&ident, Some(space)).unwrap();
+                    assert_eq!(
+                        color.get_component_by_channel_keyword(channel),
+                        Ok(expected),
+                        "{space:?} {ident}"
+                    );
+                }
+            }
+            if !matches!(space, ColorSpace::Lab | ColorSpace::Oklab) {
+                assert_eq!(
+                    color.get_component_by_channel_keyword(ColorChannel::A),
+                    Ok(color.alpha)
+                );
+            }
+            let invalid = if space == ColorSpace::Srgb {
+                ColorChannel::L
+            } else {
+                ColorChannel::R
+            };
+            assert!(color.get_component_by_channel_keyword(invalid).is_err());
+        }
         assert_eq!(
-            ColorChannel::from_ident_with_color_space("b", Some(ColorSpace::Srgb)),
+            ColorChannel::from_ident_with_color_space("B", None),
             Some(ColorChannel::B)
         );
-        assert_eq!(
-            ColorChannel::from_ident_with_color_space("b", Some(ColorSpace::Lab)),
-            Some(ColorChannel::LabB)
-        );
-        assert_eq!(
-            ColorChannel::from_ident_with_color_space("b", Some(ColorSpace::Hwb)),
-            Some(ColorChannel::BlacknessB)
-        );
+        assert_eq!(ColorChannel::from_ident("unknown"), None);
     }
 }
