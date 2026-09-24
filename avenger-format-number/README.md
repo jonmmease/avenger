@@ -6,20 +6,20 @@
 use avenger_format_number::{NumberLocaleRegistry, PreparedNumberFormat};
 
 fn main() -> Result<(), avenger_format_number::FormatError> {
-    let locale = NumberLocaleRegistry::with_builtins().resolve("de-DE")?;
+    let locale = NumberLocaleRegistry::with_builtins().resolve("en-US")?;
     let formatter = PreparedNumberFormat::new(
         Some("$,.2f"),
         Default::default(),
         &locale,
     )?;
-    assert_eq!(formatter.format(1234.5).text, "1.234,50 €");
+    assert_eq!(formatter.format(1234.5).text, "$1,234.50");
     Ok(())
 }
 ```
 
 Prepare a formatter once and reuse it for binary64 values. Decimal conversion uses exact integer arithmetic for ECMAScript rounding and `ryu-js` for shortest strings. Keep original `f64` values until formatting. Casting a value through `f32` can change its label.
 
-Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. Register upstream definitions directly through `NumberLocaleRegistry`. The bundled definitions cover `en-US`, `de-DE`, `fr-FR`, and `ja-JP`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
+Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The crate bundles `en-US`. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
 
 `NumberFormatOverrides` replaces fields from a format string before defaults and zero padding are applied. For nullable fields, `Some(None)` clears the parsed value. D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
 

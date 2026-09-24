@@ -7,9 +7,11 @@ use avenger_format_number::{
 
 #[test]
 fn exponent_parts_match_localized_text() {
-    let locale = NumberLocaleRegistry::with_builtins()
-        .resolve("de-DE")
+    let mut registry = NumberLocaleRegistry::with_builtins();
+    registry
+        .register_custom_locale_json("de-DE", include_str!("fixtures/locales/de-DE.json"))
         .unwrap();
+    let locale = registry.resolve("de-DE").unwrap();
     let formatter = PreparedNumberFormat::new(Some("+.3~e"), Default::default(), &locale).unwrap();
     for (value, text, mantissa) in [(1200.0, "+1,2e+3", "+1,2"), (-1200.0, "−1,2e+3", "−1,2")] {
         let result = formatter.format(value);

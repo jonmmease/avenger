@@ -4,8 +4,12 @@ import {locale as vegaLocale} from 'vega-format';
 
 const root = new URL('../../', import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path, root)));
-const builtin = name => read(`avenger-format-number/locales/${name}.json`);
-const numberLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, builtin(name)]));
+const numberLocales = {
+  'en-US': read('avenger-format-number/locales/en-US.json'),
+  ...Object.fromEntries(['de-DE', 'fr-FR', 'ja-JP'].map(name => [
+    name, read(`avenger-format-number/tests/fixtures/locales/${name}.json`)
+  ]))
+};
 numberLocales.custom = {
   decimal: '·', thousands: '_', grouping: [3, 2], currency: ['¤', ' coins'],
   minus: 'MINUS', percent: 'pct', nan: 'missing',

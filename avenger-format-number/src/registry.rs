@@ -7,20 +7,11 @@ pub struct NumberLocaleRegistry {
     locales: BTreeMap<String, ResolvedNumberLocale>,
 }
 impl NumberLocaleRegistry {
-    /// Load the bundled D3 number definitions.
+    /// Create a registry containing the bundled U.S. English locale.
     pub fn with_builtins() -> Self {
-        let mut registry = Self::default();
-        for (id, json) in [
-            ("en-US", include_str!("../locales/en-US.json")),
-            ("de-DE", include_str!("../locales/de-DE.json")),
-            ("fr-FR", include_str!("../locales/fr-FR.json")),
-            ("ja-JP", include_str!("../locales/ja-JP.json")),
-        ] {
-            registry
-                .register_custom_locale_json(id, json)
-                .expect("bundled D3 number locale");
+        Self {
+            locales: BTreeMap::from([("en-US".into(), ResolvedNumberLocale::en_us())]),
         }
-        registry
     }
     /// Register a D3 definition after validation.
     pub fn register_custom_locale(
