@@ -9,5 +9,7 @@ ordered-float = { workspace = true }
 palette = { workspace = true }
 serde = { workspace = true }
 
+
 [dev-dependencies]
 serde_json = { workspace = true }
+png = "0.18.1"
