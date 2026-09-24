@@ -1,3 +1,4 @@
+/// A localized label with optional parts for scientific notation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormattedNumber {
     pub text: String,
@@ -5,6 +6,7 @@ pub struct FormattedNumber {
 }
 
 impl FormattedNumber {
+    /// Construct a label without scientific notation parts.
     pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -13,17 +15,9 @@ impl FormattedNumber {
     }
 }
 
+/// Decimal scientific notation parts when the label has no affixes, padding, or custom numerals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumberTypesetting {
     Plain,
-    Exponent {
-        mantissa: String,
-        exponent: i32,
-        marker: ExponentMarker,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExponentMarker {
-    LowerE,
+    Exponent { mantissa: String, exponent: i32 },
 }

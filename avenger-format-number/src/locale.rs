@@ -2,7 +2,7 @@ use crate::error::FormatError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// A locale name resolved within an Avenger formatting context.
+/// A name used to register and resolve a number locale.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct LocaleId(pub String);
 impl LocaleId {

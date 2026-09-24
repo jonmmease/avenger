@@ -1,38 +1,9 @@
 use crate::{
     decimal,
     format::{resolve_number_format, PreparedNumberFormat, SI_PREFIXES},
-    parse_number_spec, DigitSpec, FormatError, FormatType, NumberFormatContext,
-    NumberFormatOverrides,
+    parse_number_spec, DigitSpec, FormatError, FormatType, NumberFormatOverrides,
+    ResolvedNumberLocale,
 };
-
-/// A prepared number formatter with a scale shared by an entire tick set.
-pub type PreparedNumberTickFormat = PreparedNumberFormat;
-
-/// Prepare labels from an existing tick set using its extent and interval count.
-pub fn prepare_number_tick_format(
-    values: &[f64],
-    spec: Option<&str>,
-    overrides: NumberFormatOverrides,
-    context: NumberFormatContext<'_>,
-) -> Result<PreparedNumberTickFormat, FormatError> {
-    let mut values: Vec<_> = values
-        .iter()
-        .copied()
-        .filter(|value| value.is_finite())
-        .collect();
-    values.sort_by(f64::total_cmp);
-    values.dedup();
-    let start = values.first().copied().unwrap_or(0.0);
-    let stop = values.last().copied().unwrap_or(start);
-    prepare_number_span_format(
-        start,
-        stop,
-        values.len().saturating_sub(1) as f64,
-        spec,
-        overrides,
-        context,
-    )
-}
 
 /// Prepare Vega's formatSpan behavior from the scale domain and requested tick count.
 pub fn prepare_number_span_format(
@@ -41,9 +12,9 @@ pub fn prepare_number_span_format(
     count: f64,
     spec: Option<&str>,
     overrides: NumberFormatOverrides,
-    context: NumberFormatContext<'_>,
+    locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
-    let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), overrides, context)?;
+    let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), overrides, locale)?;
     let step = tick_step(start, stop, count).abs();
     let value = start.abs().max(stop.abs());
     if prepared.resolved.digit_spec == DigitSpec::Auto {
@@ -97,44 +68,38 @@ pub fn prepare_number_span_format(
 pub fn prepare_number_prefix_format(
     spec: &str,
     value: f64,
-    context: NumberFormatContext<'_>,
+    locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
     let mut parsed = parse_number_spec(spec)?;
     parsed.format_type = Some(FormatType::Fixed);
-    let resolved = resolve_number_format(parsed, NumberFormatOverrides::default())?;
+    let resolved = resolve_number_format(parsed, NumberFormatOverrides::default());
     let exponent = decimal::exponent(value)
         .unwrap_or(0)
         .div_euclid(3)
         .clamp(-8, 8)
         * 3;
-    let mut prepared =
-        PreparedNumberFormat::new(Some("f"), NumberFormatOverrides::default(), context)?;
-    prepared.resolved = resolved;
+    let mut prepared = PreparedNumberFormat::from_resolved(resolved, locale);
     prepared.scale = 10_f64.powi(-exponent);
     prepared.suffix = SI_PREFIXES[(exponent / 3 + 8) as usize].into();
     Ok(prepared)
 }
 
-/// Prepare Vega's formatFloat, retaining explicit precision when supplied.
+/// Prepare automatic floating-point labels, retaining explicit precision when supplied.
+/// Trimming precedes localization and padding so custom numerals and field widths are preserved.
 pub fn prepare_number_float_format(
     spec: Option<&str>,
-    context: NumberFormatContext<'_>,
+    locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
     let spec = spec.filter(|value| !value.is_empty()).unwrap_or(",");
     let mut prepared =
-        PreparedNumberFormat::new(Some(spec), NumberFormatOverrides::default(), context)?;
+        PreparedNumberFormat::new(Some(spec), NumberFormatOverrides::default(), locale)?;
     if prepared.resolved.digit_spec == DigitSpec::Auto {
         prepared.resolved.digit_spec = DigitSpec::Precision(match prepared.resolved.format_type {
             Some(FormatType::Percent) => 10,
             Some(FormatType::Exponent) => 11,
             _ => 12,
         });
-        prepared.trim_float =
-            PreparedNumberFormat::new(Some(".1f"), NumberFormatOverrides::default(), context)?
-                .format(1.0)
-                .text
-                .encode_utf16()
-                .nth(1);
+        prepared.resolved.trim = true;
     }
     Ok(prepared)
 }
@@ -160,10 +125,27 @@ fn tick_step(start: f64, stop: f64, count: f64) -> f64 {
     } else {
         10_f64.powf(power) * factor
     };
+    // Compare reconstructed ticks to retain endpoints despite multiplication rounding.
     let (first, last) = if increment < 0.0 {
-        ((start * -increment).ceil(), (stop * -increment).floor())
+        let mut first = (start * -increment).round();
+        let mut last = (stop * -increment).round();
+        if first / -increment < start {
+            first += 1.0;
+        }
+        if last / -increment > stop {
+            last -= 1.0;
+        }
+        (first, last)
     } else {
-        ((start / increment).ceil(), (stop / increment).floor())
+        let mut first = (start / increment).round();
+        let mut last = (stop / increment).round();
+        if first * increment < start {
+            first += 1.0;
+        }
+        if last * increment > stop {
+            last -= 1.0;
+        }
+        (first, last)
     };
     if last < first && (0.5..2.0).contains(&count) {
         return tick_step(start, stop, count * 2.0);

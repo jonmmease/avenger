@@ -1,6 +1,6 @@
 use avenger_format_number::{
     prepare_number_float_format, prepare_number_prefix_format, prepare_number_span_format,
-    NumberFormatContext, NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
+    NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -30,14 +30,12 @@ fn matches_d3_and_vega_number_formats() {
     let mut failures = Vec::new();
     for case in fixtures.cases {
         let value = f64::from_bits(u64::from_str_radix(&case.bits, 16).unwrap());
-        let context = NumberFormatContext::new(&locales[&case.locale]);
+        let locale = &locales[&case.locale];
         let format = match case.mode.as_str() {
-            "format" => {
-                PreparedNumberFormat::new(case.spec.as_deref(), Default::default(), context)
-            }
-            "float" => prepare_number_float_format(case.spec.as_deref(), context),
+            "format" => PreparedNumberFormat::new(case.spec.as_deref(), Default::default(), locale),
+            "float" => prepare_number_float_format(case.spec.as_deref(), locale),
             "prefix" => {
-                prepare_number_prefix_format(case.spec.as_deref().unwrap(), case.args[0], context)
+                prepare_number_prefix_format(case.spec.as_deref().unwrap(), case.args[0], locale)
             }
             "span" => prepare_number_span_format(
                 case.args[0],
@@ -45,7 +43,7 @@ fn matches_d3_and_vega_number_formats() {
                 case.args[2],
                 case.spec.as_deref(),
                 Default::default(),
-                context,
+                locale,
             ),
             _ => unreachable!(),
         }

@@ -5,74 +5,59 @@ use crate::{
     locale::ResolvedNumberLocale,
     parser::parse_number_spec,
     spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol},
-    typesetting::{ExponentMarker, FormattedNumber, NumberTypesetting},
+    typesetting::{FormattedNumber, NumberTypesetting},
 };
 
 pub(crate) const SI_PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
 ];
 
-/// A resolved number locale owned by the caller.
-#[derive(Debug, Clone, Copy)]
-pub struct NumberFormatContext<'a> {
-    pub locale: &'a ResolvedNumberLocale,
-}
-impl<'a> NumberFormatContext<'a> {
-    /// Use a locale already resolved at context construction.
-    pub fn new(locale: &'a ResolvedNumberLocale) -> Self {
-        Self { locale }
-    }
-}
-
 /// A parsed number format and locale reusable across values.
 #[derive(Debug, Clone)]
 pub struct PreparedNumberFormat {
     pub(crate) resolved: ResolvedNumberFormat,
-    pub(crate) locale: ResolvedNumberLocale,
+    locale: ResolvedNumberLocale,
     pub(crate) scale: f64,
-    pub(crate) prefix: String,
     pub(crate) suffix: String,
-    pub(crate) trim_float: Option<u16>,
 }
 impl PreparedNumberFormat {
     /// Parse and resolve a number format before formatting a batch.
     pub fn new(
         spec: Option<&str>,
         overrides: NumberFormatOverrides,
-        context: NumberFormatContext<'_>,
+        locale: &ResolvedNumberLocale,
     ) -> Result<Self, FormatError> {
-        Ok(Self {
-            resolved: resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides)?,
-            locale: context.locale.clone(),
-            scale: 1.0,
-            prefix: String::new(),
-            suffix: String::new(),
-            trim_float: None,
-        })
+        Ok(Self::from_resolved(
+            resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides),
+            locale,
+        ))
     }
+
+    pub(crate) fn from_resolved(
+        resolved: ResolvedNumberFormat,
+        locale: &ResolvedNumberLocale,
+    ) -> Self {
+        Self {
+            resolved,
+            locale: locale.clone(),
+            scale: 1.0,
+            suffix: String::new(),
+        }
+    }
+
     /// Format a binary64 value with the prepared locale and specifier.
     pub fn format(&self, value: f64) -> FormattedNumber {
-        let mut formatted = render_number(
+        render_number(
             value * self.scale,
             &self.resolved,
             &self.locale,
-            &self.prefix,
             &self.suffix,
-        );
-        if let Some(decimal) = self.trim_float {
-            formatted.text = trim_float(&formatted.text, decimal);
-            if let NumberTypesetting::Exponent { mantissa, .. } = &mut formatted.typesetting {
-                if let Some((text, _)) = formatted.text.rsplit_once('e') {
-                    *mantissa = text.into();
-                } else {
-                    formatted.typesetting = NumberTypesetting::Plain;
-                }
-            }
-        }
-        formatted
+        )
     }
 }
 
+/// Field overrides applied to the parsed specifier before defaults and zero padding.
+/// For nullable fields, `Some(None)` clears the value from the specifier.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NumberFormatOverrides {
     pub format_type: Option<FormatType>,
@@ -88,24 +73,15 @@ pub struct NumberFormatOverrides {
 }
 
 impl NumberFormatOverrides {
+    /// Set D3 precision, whose meaning depends on the format type.
     pub fn with_precision(mut self, precision: u8) -> Self {
         self.digit_spec = Some(DigitSpec::Precision(precision));
-        self
-    }
-
-    pub fn with_fraction_digits(mut self, fraction_digits: u8) -> Self {
-        self.digit_spec = Some(DigitSpec::Fraction(fraction_digits));
-        self
-    }
-
-    pub fn with_significant_digits(mut self, significant_digits: u8) -> Self {
-        self.digit_spec = Some(DigitSpec::Significant(significant_digits));
         self
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedNumberFormat {
+pub(crate) struct ResolvedNumberFormat {
     pub fill: char,
     pub align: Align,
     pub sign: SignPolicy,
@@ -117,47 +93,38 @@ pub struct ResolvedNumberFormat {
     pub format_type: Option<FormatType>,
 }
 
+/// Format one value without retaining a prepared formatter.
 pub fn format_number(
     value: f64,
     spec: Option<&str>,
     overrides: NumberFormatOverrides,
-    context: NumberFormatContext<'_>,
+    locale: &ResolvedNumberLocale,
 ) -> Result<FormattedNumber, FormatError> {
-    Ok(PreparedNumberFormat::new(spec, overrides, context)?.format(value))
+    Ok(PreparedNumberFormat::new(spec, overrides, locale)?.format(value))
 }
 
-pub fn resolve_number_format(
+pub(crate) fn resolve_number_format(
     spec: NumberFormatSpec,
     overrides: NumberFormatOverrides,
-) -> Result<ResolvedNumberFormat, FormatError> {
-    let mut fill = spec.fill.unwrap_or(' ');
-    let mut align = spec.align.unwrap_or(Align::Right);
+) -> ResolvedNumberFormat {
+    let mut fill = overrides.fill.unwrap_or(spec.fill).unwrap_or(' ');
+    let mut align = overrides
+        .align
+        .unwrap_or(spec.align)
+        .unwrap_or(Align::Right);
+    let format_type = overrides.format_type.or(spec.format_type);
     let sign = overrides.sign.or(spec.sign).unwrap_or(SignPolicy::Minus);
-    let symbol = match overrides.symbol {
-        Some(symbol) => symbol,
-        None => spec.symbol,
-    };
-    let width = match overrides.width {
-        Some(width) => width,
-        None => spec.width,
-    };
-    let group = overrides.group.or(spec.group).unwrap_or(matches!(
-        overrides.format_type.or(spec.format_type),
-        Some(FormatType::LocaleDefault)
-    ));
+    let symbol = overrides.symbol.unwrap_or(spec.symbol);
+    let width = overrides.width.unwrap_or(spec.width);
+    let group = overrides
+        .group
+        .or(spec.group)
+        .unwrap_or(format_type == Some(FormatType::LocaleDefault));
     let trim = overrides
         .trim
         .or(spec.trim)
-        .unwrap_or(overrides.format_type.or(spec.format_type).is_none());
+        .unwrap_or(format_type.is_none());
     let zero = overrides.zero.unwrap_or(spec.zero);
-    let format_type = overrides.format_type.or(spec.format_type);
-
-    if let Some(fill_override) = overrides.fill {
-        fill = fill_override.unwrap_or(' ');
-    }
-    if let Some(align_override) = overrides.align {
-        align = align_override.unwrap_or(Align::Right);
-    }
 
     if zero {
         fill = '0';
@@ -168,7 +135,7 @@ pub fn resolve_number_format(
         .digit_spec
         .unwrap_or_else(|| spec.precision.map(DigitSpec::Precision).unwrap_or_default());
 
-    let resolved = ResolvedNumberFormat {
+    ResolvedNumberFormat {
         fill,
         align,
         sign,
@@ -178,27 +145,24 @@ pub fn resolve_number_format(
         digit_spec,
         trim,
         format_type,
-    };
-
-    Ok(resolved)
+    }
 }
 
 fn render_number(
     value: f64,
     format: &ResolvedNumberFormat,
     locale: &ResolvedNumberLocale,
-    extra_prefix: &str,
     extra_suffix: &str,
 ) -> FormattedNumber {
     let kind = format.format_type.unwrap_or(FormatType::General);
     let default_precision = if format.format_type.is_none() { 12 } else { 6 };
     let precision = match format.digit_spec {
         DigitSpec::Auto => default_precision,
-        DigitSpec::Precision(p) | DigitSpec::Fraction(p) | DigitSpec::Significant(p) => p as usize,
+        DigitSpec::Precision(p) => p as usize,
     };
     let significant = precision.clamp(1, 21);
     let fraction = precision.min(20);
-    let mut prefix = extra_prefix.to_owned();
+    let mut prefix = String::new();
     let mut suffix = String::new();
     match format.symbol {
         Some(Symbol::CurrencyCompat) => {
@@ -275,9 +239,11 @@ fn render_number(
     if parentheses {
         suffix.push(')');
     }
-    let typesetting = if value.is_finite()
+    let typesetting = if matches!(
+        kind,
+        FormatType::Exponent | FormatType::Fixed | FormatType::General | FormatType::LocaleDefault
+    ) && value.is_finite()
         && locale.numerals.is_none()
-        && extra_prefix.is_empty()
         && extra_suffix.is_empty()
         && format.symbol.is_none()
         && suffix.is_empty()
@@ -289,12 +255,8 @@ fn render_number(
             .and_then(|(m, e)| e.parse::<i32>().ok().map(|e| (m, e)))
         {
             NumberTypesetting::Exponent {
-                mantissa: substitute_digits(
-                    &format!("{}{}", prefix, mantissa.replace('.', &locale.decimal)),
-                    locale,
-                ),
+                mantissa: format!("{}{}", prefix, mantissa.replace('.', &locale.decimal)),
                 exponent,
-                marker: ExponentMarker::LowerE,
             }
         } else {
             NumberTypesetting::Plain
@@ -443,44 +405,4 @@ pub(crate) fn trim_number_text(text: &str) -> String {
     } else {
         body.to_owned()
     }
-}
-
-fn trim_float(text: &str, decimal: u16) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    let Some(start) = units.iter().position(|ch| *ch == decimal) else {
-        return text.to_owned();
-    };
-    let Some(end) = units
-        .iter()
-        .rposition(|ch| *ch == b'e' as u16)
-        .filter(|index| *index > 0)
-        .or_else(|| {
-            units
-                .iter()
-                .enumerate()
-                .rfind(|(index, ch)| *index > start && (48..=57).contains(*ch))
-                .map(|(index, _)| index + 1)
-        })
-    else {
-        return String::new();
-    };
-    let mut index = end as isize - 1;
-    while index > start as isize {
-        if units[index as usize] != b'0' as u16 {
-            index += 1;
-            break;
-        }
-        index -= 1;
-    }
-    let index = if index < 0 {
-        (units.len() as isize + index).max(0) as usize
-    } else {
-        index as usize
-    };
-    let output: Vec<_> = units[..index]
-        .iter()
-        .chain(&units[end..])
-        .copied()
-        .collect();
-    String::from_utf16_lossy(&output)
 }

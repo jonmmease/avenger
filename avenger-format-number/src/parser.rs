@@ -3,6 +3,7 @@ use crate::{
     spec::{Align, FormatType, NumberFormatSpec, SignPolicy, Symbol},
 };
 
+/// Parse a D3 specifier, reporting invalid input at its UTF-8 byte offset.
 pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
     let chars: Vec<(usize, char)> = spec.char_indices().collect();
     let mut i = 0;
@@ -35,8 +36,6 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
 
     if let Some((_, '0')) = chars.get(i) {
         parsed.zero = true;
-        parsed.fill = Some('0');
-        parsed.align = Some(Align::AfterSign);
         i += 1;
     }
 
@@ -114,7 +113,7 @@ mod tests {
     #[test]
     fn parses_all_d3_fields() {
         let spec = parse_number_spec(".=+08,.2~f").unwrap();
-        assert_eq!(spec.fill, Some('0'));
+        assert_eq!(spec.fill, Some('.'));
         assert_eq!(spec.align, Some(Align::AfterSign));
         assert_eq!(spec.sign, Some(SignPolicy::Plus));
         assert!(spec.zero);

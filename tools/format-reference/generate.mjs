@@ -4,8 +4,8 @@ import {locale as vegaLocale} from 'vega-format';
 
 const root = new URL('../../', import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path, root)));
-const builtin = (kind, name) => read(`avenger-format-${kind}/locales/${name}.json`);
-const numberLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, builtin('number', name)]));
+const builtin = name => read(`avenger-format-number/locales/${name}.json`);
+const numberLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, builtin(name)]));
 numberLocales.custom = {
   decimal: '·', thousands: '_', grouping: [3, 2], currency: ['¤', ' coins'],
   minus: 'MINUS', percent: 'pct', nan: 'missing',
@@ -30,7 +30,7 @@ function numberCases() {
     }
   };
   for (const type of ['', 'n', 'b', 'o', 'd', 'x', 'X', 'c', 'e', 'f', 'g', 'r', 's', '%', 'p']) {
-    add(type, [0, '-0', 1.25, -1.25, 65, 1234.5]);
+    add(type, [0, '-0', 1.25, -1.25, 65, 1234.5, 'NaN', 'Infinity', '-Infinity']);
     add(`+012,.2${type}`, [-0.001, 12.5, -1234.5]);
   }
   for (const spec of ['.0f', '.1f', '.2f', '.20f', '.0g', '.1g', '.3g', '.21g', '.30g', '.300f', '.0e', '.2e', '.20e', '.3r', '.2s', '.3~s', '.2%', '.3p', '.2', '~g']) {
@@ -41,13 +41,26 @@ function numberCases() {
       add(spec, [-1234.5, 123456789.5], locale);
     }
     for (const spec of ['+12f', '($12,.2f', '012d', '.2s', 'c']) add(spec, ['NaN', 'Infinity', '-Infinity'], locale);
-    for (const spec of [null, '', ',', '.2f', '%', 'e']) add(spec, [0.1, 1.23, 1200, -0.0001], locale, 'float');
-    for (const spec of [null, '', 'f', '.2f', 's', '.2s', '%', 'e', 'g']) {
-      add(spec, [0, 0.1, 0.3, 1], locale, 'span', [0, 1, 10]);
-      add(spec, [900000, 1000000, 1100000], locale, 'span', [900000, 1100000, 4]);
-    }
     add(',.1', [0, 900000, 1100000], locale, 'prefix', [1100000]);
   }
+  for (const locale of ['en-US', 'de-DE']) {
+    for (const spec of [null, '', ',', '.2f', '%', 'e']) {
+      add(spec, [0.1, 1.23, 1200, -0.0001], locale, 'float');
+    }
+  }
+  for (const spec of [null, '', 'f', '.2f', 's', '.2s', '%', 'e', 'g']) {
+    add(spec, [0, 0.1, 0.3, 1], 'en-US', 'span', [0, 1, 10]);
+    add(spec, [900000, 1000000, 1100000], 'en-US', 'span', [900000, 1100000, 4]);
+  }
+  for (const locale of ['de-DE', 'fr-FR', 'ja-JP', 'custom']) {
+    add('$,f', [1234.5], locale, 'span', [1200, 1300, 4]);
+    add('%', [0.3], locale, 'span', [0, 1, 10]);
+    add('s', [900000], locale, 'span', [900000, 1100000, 4]);
+  }
+  for (const args of [[0.571, 0.58, 1], [0.58, 0.571, 1], [-0.58, -0.571, 1], [0.575, 0.58, 0.5], [57.1, 58, 1], [1, 1, 10]]) {
+    for (const spec of ['f', 'e', 'g']) add(spec, [args[0], args[1]], 'en-US', 'span', args);
+  }
+  for (const spec of ['.2e', '.2g', '.2s', '.1r']) add(spec, [1e-323, 1e-7, 1e21, 1e23]);
   add('d', [1e21, 1e23, 1000000000000000100]);
   add('x', [2 ** 64, 1e100]);
   let state = 0x123456789abcdefn;

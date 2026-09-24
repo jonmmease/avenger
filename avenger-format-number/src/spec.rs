@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// Placement of padding around a formatted value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Align {
     Left,
@@ -9,6 +10,7 @@ pub enum Align {
 }
 
 impl Align {
+    /// Decode `<`, `>`, `^`, or `=`.
     pub fn from_char(value: char) -> Option<Self> {
         match value {
             '<' => Some(Self::Left),
@@ -20,6 +22,7 @@ impl Align {
     }
 }
 
+/// Sign treatment for positive, negative, and rounded-zero values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignPolicy {
     Minus,
@@ -29,6 +32,7 @@ pub enum SignPolicy {
 }
 
 impl SignPolicy {
+    /// Decode `-`, `+`, a space, or `(`.
     pub fn from_char(value: char) -> Option<Self> {
         match value {
             '-' => Some(Self::Minus),
@@ -40,6 +44,7 @@ impl SignPolicy {
     }
 }
 
+/// Locale currency affixes (`$`) or a radix prefix (`#`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Symbol {
     CurrencyCompat,
@@ -47,6 +52,7 @@ pub enum Symbol {
 }
 
 impl Symbol {
+    /// Decode `$` or `#`.
     pub fn from_char(value: char) -> Option<Self> {
         match value {
             '$' => Some(Self::CurrencyCompat),
@@ -56,6 +62,7 @@ impl Symbol {
     }
 }
 
+/// Numeric notation selected by a D3 type character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormatType {
     Exponent,
@@ -75,6 +82,7 @@ pub enum FormatType {
 }
 
 impl FormatType {
+    /// Decode a supported D3 number format type.
     pub fn from_char(value: char) -> Option<Self> {
         match value {
             'e' => Some(Self::Exponent),
@@ -95,6 +103,7 @@ impl FormatType {
         }
     }
 
+    /// Return the D3 type character.
     pub fn as_char(self) -> char {
         match self {
             Self::Exponent => 'e',
@@ -115,15 +124,17 @@ impl FormatType {
     }
 }
 
+/// Caller-supplied precision or the formatter default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DigitSpec {
+    /// Use the formatter or tick adapter default.
     #[default]
     Auto,
+    /// Fraction digits for `f`, `e`, and `%`, significant digits for `g`, `r`, `s`, and `p`.
     Precision(u8),
-    Fraction(u8),
-    Significant(u8),
 }
 
+/// Parsed D3 fields before defaults and overrides are applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct NumberFormatSpec {
     pub fill: Option<char>,
@@ -136,10 +147,4 @@ pub struct NumberFormatSpec {
     pub precision: Option<u8>,
     pub trim: Option<bool>,
     pub format_type: Option<FormatType>,
-}
-
-impl NumberFormatSpec {
-    pub fn format_type_or_default(&self) -> Option<FormatType> {
-        self.format_type
-    }
 }
