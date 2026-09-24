@@ -6,10 +6,8 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{
-    types::ColorOrGradient,
-    value::{ScalarOrArray, ScalarOrArrayValue},
-};
+use avenger_color::ColorOrGradient;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use lazy_static::lazy_static;
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};

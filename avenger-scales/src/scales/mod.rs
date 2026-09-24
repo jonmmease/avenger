@@ -24,10 +24,10 @@ use arrow::{
     compute::cast,
     datatypes::{DataType, Float32Type},
 };
+use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
     types::{
-        AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
-        LinearScaleAdjustment, StrokeCap, StrokeJoin,
+        AreaOrientation, ImageAlign, ImageBaseline, LinearScaleAdjustment, StrokeCap, StrokeJoin,
     },
     value::ScalarOrArray,
 };

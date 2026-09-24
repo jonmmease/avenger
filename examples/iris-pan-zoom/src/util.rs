@@ -1,6 +1,7 @@
 use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
-use avenger_common::types::{ColorOrGradient, SymbolShape};
+use avenger_color::ColorOrGradient;
+use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};

@@ -2,8 +2,9 @@ use std::hash::{DefaultHasher, Hasher};
 
 use crate::marks::mark::SceneMark;
 use crate::marks::path::ScenePathMark;
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
+use avenger_common::types::PathTransform;
 use avenger_common::value::ScalarOrArray;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;

@@ -1,7 +1,8 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin, SymbolShape};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::types::{StrokeCap, StrokeJoin, SymbolShape};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::SceneLineMark;
