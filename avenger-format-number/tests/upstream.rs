@@ -1,5 +1,5 @@
 use avenger_format_number::{
-    prepare_number_float_format, prepare_number_prefix_format, prepare_number_span_format,
+    prepare_number_float_format, prepare_number_prefix_format, prepare_number_step_format,
     NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
 };
 use serde::Deserialize;
@@ -37,10 +37,9 @@ fn matches_d3_and_vega_number_formats() {
             "prefix" => {
                 prepare_number_prefix_format(case.spec.as_deref().unwrap(), case.args[0], locale)
             }
-            "span" => prepare_number_span_format(
+            "step" => prepare_number_step_format(
                 case.args[0],
                 case.args[1],
-                case.args[2],
                 case.spec.as_deref(),
                 Default::default(),
                 locale,

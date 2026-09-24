@@ -1,6 +1,6 @@
 use avenger_format_number::{
     format_number, prepare_number_float_format, prepare_number_prefix_format,
-    prepare_number_span_format, DigitSpec, FormatError, NumberFormatOverrides,
+    prepare_number_step_format, DigitSpec, FormatError, NumberFormatOverrides,
     NumberLocaleRegistry, NumberLocaleSpec, NumberTypesetting, PreparedNumberFormat,
     ResolvedNumberLocale,
 };
@@ -96,10 +96,9 @@ fn overrides_apply_before_defaults_and_zero_padding() {
         .unwrap();
         assert_eq!(result.text, expected);
     }
-    let format = prepare_number_span_format(
-        0.0,
+    let format = prepare_number_step_format(
+        0.1,
         1.0,
-        10.0,
         Some(".3f"),
         NumberFormatOverrides {
             digit_spec: Some(DigitSpec::Auto),
@@ -109,6 +108,37 @@ fn overrides_apply_before_defaults_and_zero_padding() {
     )
     .unwrap();
     assert_eq!(format.format(0.3).text, "0.3");
+}
+
+#[test]
+fn step_format_selects_precision_and_shared_si_units() {
+    let locale = ResolvedNumberLocale::en_us();
+    for (step, reference, spec, value, expected) in [
+        (0.01, 1.0, None, 0.3, "0.30"),
+        (0.1, 1.0, None, 0.3, "0.3"),
+        (-0.01, -1.0, Some("g"), 0.3, "0.30"),
+        (0.1, 1.0, Some(".3f"), 0.3, "0.300"),
+        (50_000.0, 1_100_000.0, Some("s"), 900_000.0, "0.90M"),
+        (50_000.0, 1_100_000.0, Some("s"), 1_100_000.0, "1.10M"),
+    ] {
+        let format =
+            prepare_number_step_format(step, reference, spec, Default::default(), &locale).unwrap();
+        assert_eq!(
+            format.format(value).text,
+            expected,
+            "step={step}, spec={spec:?}"
+        );
+    }
+}
+
+#[test]
+fn undefined_step_preserves_default_precision() {
+    let locale = ResolvedNumberLocale::en_us();
+    for step in [0.0, f64::NAN, f64::INFINITY] {
+        let format =
+            prepare_number_step_format(step, 1.0, Some("f"), Default::default(), &locale).unwrap();
+        assert_eq!(format.format(0.3).text, "0.300000");
+    }
 }
 
 #[test]
@@ -195,6 +225,6 @@ fn undefined_prefix_reference_uses_no_si_multiplier() {
         assert_eq!(format.format(1.2).text, "1.2");
     }
     let format =
-        prepare_number_span_format(0.0, 0.0, 10.0, Some("s"), Default::default(), &locale).unwrap();
+        prepare_number_step_format(0.0, 0.0, Some("s"), Default::default(), &locale).unwrap();
     assert_eq!(format.format(0.0).text, "0.000000");
 }

@@ -21,7 +21,7 @@ pub struct PreparedNumberFormat {
     locale: ResolvedNumberLocale,
     /// Multiplier applied before formatting to fix an SI unit across values.
     pub(crate) scale: f64,
-    /// SI prefix appended to labels by the span and prefix adapters.
+    /// SI prefix appended to labels by the step and prefix adapters.
     pub(crate) suffix: String,
 }
 impl PreparedNumberFormat {

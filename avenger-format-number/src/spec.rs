@@ -150,7 +150,7 @@ impl FormatType {
 /// Caller-supplied precision or the formatter default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DigitSpec {
-    /// Use the formatter or tick adapter default.
+    /// Use the formatter's default or automatic precision selection.
     #[default]
     Auto,
     /// Fraction digits for `f`, `e`, and `%`, significant digits for `g`, `r`, `s`, and `p`.

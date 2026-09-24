@@ -5,20 +5,21 @@ use crate::{
     ResolvedNumberLocale,
 };
 
-/// Select precision from a domain and target tick count using Vega's rules.
-/// `None` uses `,f`. Explicit precision is preserved, while automatic `s` formatting
-/// selects one SI unit for the domain.
-pub fn prepare_number_span_format(
-    start: f64,
-    stop: f64,
-    count: f64,
+/// Select precision from a supplied step's decimal order using D3's rules.
+/// `reference_value` is typically the value with the largest magnitude to format.
+/// Both arguments use absolute values. `None` uses `,f`. Explicit precision is preserved.
+/// Automatic `s` formatting selects one SI unit from the reference value.
+/// A zero or non-finite step leaves precision at the format default.
+pub fn prepare_number_step_format(
+    step: f64,
+    reference_value: f64,
     spec: Option<&str>,
     overrides: NumberFormatOverrides,
     locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
     let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), overrides, locale)?;
-    let step = tick_step(start, stop, count).abs();
-    let value = start.abs().max(stop.abs());
+    let step = step.abs();
+    let value = reference_value.abs();
     if prepared.resolved.digit_spec == DigitSpec::Auto {
         let kind = prepared.resolved.format_type;
         let precision = match kind {
@@ -107,58 +108,4 @@ pub fn prepare_number_float_format(
         prepared.resolved.trim = true;
     }
     Ok(prepared)
-}
-
-/// D3's signed tick interval, chosen from 1, 2, and 5 times powers of ten.
-fn tick_step(start: f64, stop: f64, count: f64) -> f64 {
-    if stop < start {
-        return -tick_step(stop, start, count);
-    }
-    let step = (stop - start) / count.max(0.0);
-    let power = step.log10().floor();
-    let error = step / 10_f64.powf(power);
-    let factor = if error >= 50_f64.sqrt() {
-        10.0
-    } else if error >= 10_f64.sqrt() {
-        5.0
-    } else if error >= 2_f64.sqrt() {
-        2.0
-    } else {
-        1.0
-    };
-    let increment = if power < 0.0 {
-        -(10_f64.powf(-power) / factor)
-    } else {
-        10_f64.powf(power) * factor
-    };
-    // Compare reconstructed ticks to retain endpoints despite multiplication rounding.
-    let (first, last) = if increment < 0.0 {
-        let mut first = (start * -increment).round();
-        let mut last = (stop * -increment).round();
-        if first / -increment < start {
-            first += 1.0;
-        }
-        if last / -increment > stop {
-            last -= 1.0;
-        }
-        (first, last)
-    } else {
-        let mut first = (start / increment).round();
-        let mut last = (stop / increment).round();
-        if first * increment < start {
-            first += 1.0;
-        }
-        if last * increment > stop {
-            last -= 1.0;
-        }
-        (first, last)
-    };
-    if last < first && (0.5..2.0).contains(&count) {
-        return tick_step(start, stop, count * 2.0);
-    }
-    if increment < 0.0 {
-        1.0 / -increment
-    } else {
-        increment
-    }
 }

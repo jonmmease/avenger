@@ -1,4 +1,5 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
+import {tickStep} from 'd3-array';
 import {formatLocale} from 'd3-format';
 import {locale as vegaLocale} from 'vega-format';
 
@@ -26,11 +27,15 @@ function numberCases() {
       : mode === 'prefix' ? d3.formatPrefix(spec, args[0])
       : mode === 'float' ? vega.formatFloat(spec)
       : vega.formatSpan(...args, spec);
+    const fixtureMode = mode === 'span' ? 'step' : mode;
+    const fixtureArgs = mode === 'span'
+      ? [tickStep(...args), Math.max(Math.abs(args[0]), Math.abs(args[1]))]
+      : args;
     for (const value of values) {
       const number = numberValue(value);
       const buffer = Buffer.alloc(8);
       buffer.writeDoubleBE(number);
-      cases.push({locale, mode, spec, args, value, bits: buffer.toString('hex'), expected: f(number)});
+      cases.push({locale, mode: fixtureMode, spec, args: fixtureArgs, value, bits: buffer.toString('hex'), expected: f(number)});
     }
   };
   for (const type of ['', 'n', 'b', 'o', 'd', 'x', 'X', 'c', 'e', 'f', 'g', 'r', 's', '%', 'p']) {
@@ -61,7 +66,7 @@ function numberCases() {
     add('%', [0.3], locale, 'span', [0, 1, 10]);
     add('s', [900000], locale, 'span', [900000, 1100000, 4]);
   }
-  for (const args of [[0.571, 0.58, 1], [0.58, 0.571, 1], [-0.58, -0.571, 1], [0.575, 0.58, 0.5], [57.1, 58, 1], [1, 1, 10]]) {
+  for (const args of [[0.571, 0.58, 1], [57.1, 58, 1]]) {
     for (const spec of ['f', 'e', 'g']) add(spec, [args[0], args[1]], 'en-US', 'span', args);
   }
   for (const spec of ['.2e', '.2g', '.2s', '.1r']) add(spec, [1e-323, 1e-7, 1e21, 1e23]);
