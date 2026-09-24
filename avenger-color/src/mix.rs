@@ -51,8 +51,12 @@ impl OklabMixer {
     /// Weighted convex mix of the key colors; returns sRGB components in
     /// [0, 1]. `None` when the usable weights sum to zero (rasters render
     /// such pixels fully transparent).
+    ///
+    /// # Panics
+    ///
+    /// Panics unless there is exactly one weight per key color.
     pub fn mix(&self, weights: &[f32]) -> Option<[f32; 3]> {
-        debug_assert_eq!(weights.len(), self.labs.len());
+        assert_eq!(weights.len(), self.labs.len(), "one weight per key color");
         let mut acc = [0.0_f32; 3];
         let mut total = 0.0_f32;
         for (lab, &weight) in self.labs.iter().zip(weights) {
@@ -314,6 +318,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lch_mixing_with_neutral_colors_preserves_the_chromatic_hue() {
+        let red = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, 1.0);
+        // CSS D50 LCH hue of sRGB red.
+        let expected_hue = 40.85767;
+        for gray in [0.0, 0.5, 1.0] {
+            let neutral = AbsoluteColor::from_srgb(gray, gray, gray, 1.0);
+            assert!(neutral.to_color_space(ColorSpace::Lch).components[2].is_nan());
+            for (left, right) in [(neutral, red), (red, neutral)] {
+                let mixed = mix_colors(
+                    ColorSpace::Lch,
+                    &left,
+                    0.5,
+                    &right,
+                    0.5,
+                    HueInterpolationMethod::Shorter,
+                );
+                assert!(
+                    (mixed.components[2] - expected_hue).abs() < 1e-3,
+                    "{mixed:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "one weight per key color")]
+    fn oklab_mixer_rejects_mismatched_weights() {
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
+        mixer.mix(&[1.0]);
+    }
+
+    #[test]
     fn mixing_identical_colors_preserves_alpha() {
         for alpha in [0.0004, 0.123456, 128.0 / 255.0, 0.999995] {
             let color = AbsoluteColor::from_srgb(1.0, 0.0, 0.0, alpha);
@@ -468,6 +504,9 @@ mod tests {
 
         // Alpha should be (0.5 * 0.5 + 1.0 * 0.5) = 0.75
         assert!((mix.alpha - 0.75).abs() < 0.01);
+        for (actual, expected) in mix.components.into_iter().zip([1.0 / 3.0, 0.0, 2.0 / 3.0]) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
     }
 
     #[test]

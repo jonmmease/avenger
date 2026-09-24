@@ -327,8 +327,9 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
 const LAB_KAPPA: f32 = 24389.0 / 27.0; // 903.3
 const LAB_EPSILON: f32 = 216.0 / 24389.0; // 0.008856
 
-/// D50 white point
-const D50_WHITE: [f32; 3] = [0.9642, 1.0, 0.8251];
+/// CSS D50 white point, consistent with the Bradford adaptation matrices below.
+/// https://drafts.csswg.org/css-color-4/#color-conversion-code
+const D50_WHITE: [f32; 3] = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
 
 /// Convert Lab to XYZ-D50
 fn lab_to_xyz(lab: &[f32; 3]) -> [f32; 3] {
@@ -405,7 +406,7 @@ const XYZ_D65_TO_D50: [[f32; 3]; 3] = [
 /// XYZ-D50 to XYZ-D65 chromatic adaptation
 const XYZ_D50_TO_D65: [[f32; 3]; 3] = [
     [0.955_473_4, -0.023_098_538, 0.063_259_31],
-    [-0.028_369_706, 1.009_995_5, 0.020_507_697],
+    [-0.028_369_706, 1.009_995_5, 0.021_041_442],
     [0.012_314_002, -0.020_507_697, 1.330_365_9],
 ];
 
@@ -605,6 +606,38 @@ pub mod hsl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lab_d50_preserves_neutral_colors() {
+        // CSS D50 Lab reference values: L*=50 encodes as this sRGB gray.
+        for (lightness, gray) in [(0.0, 0.0), (50.0, 0.4663266), (100.0, 1.0)] {
+            let lab = convert_color_space(&[gray; 3], ColorSpace::Srgb, ColorSpace::Lab);
+            for (actual, expected) in lab.into_iter().zip([lightness, 0.0, 0.0]) {
+                assert!((actual - expected).abs() < 1e-4, "{lab:?}");
+            }
+            let srgb =
+                convert_color_space(&[lightness, 0.0, 0.0], ColorSpace::Lab, ColorSpace::Srgb);
+            for actual in srgb {
+                assert!((actual - gray).abs() < 1e-5, "{srgb:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn lab_and_lch_roundtrips_preserve_srgb() {
+        for srgb in [[1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [0.5, 0.3, 0.8]] {
+            for space in [ColorSpace::Lab, ColorSpace::Lch] {
+                let converted = convert_color_space(&srgb, ColorSpace::Srgb, space);
+                let actual = convert_color_space(&converted, space, ColorSpace::Srgb);
+                for (actual, expected) in actual.into_iter().zip(srgb) {
+                    assert!(
+                        (actual - expected).abs() < 1e-5,
+                        "{space:?}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_normalize_hue() {

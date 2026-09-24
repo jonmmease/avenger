@@ -8,7 +8,6 @@
 //!
 //! - [WCAG 2.1 Contrast Ratio Definition](https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio)
 //! - [WCAG 2.1 Relative Luminance](https://www.w3.org/TR/WCAG21/#dfn-relative-luminance)
-//! - [CSS Color Module Level 6 - contrast-color()](https://drafts.csswg.org/css-color-6/)
 //!
 //! # Algorithm
 //!
@@ -36,7 +35,7 @@
 //!
 //! # Examples
 //!
-//! ```ignore
+//! ```
 //! use avenger_color::contrast::{contrast_ratio, choose_contrast_color};
 //! use avenger_color::AbsoluteColor;
 //!
@@ -44,7 +43,7 @@
 //! let black = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
 //! let white = AbsoluteColor::from_srgb(1.0, 1.0, 1.0, 1.0);
 //! let ratio = contrast_ratio(&black, &white);
-//! assert_eq!(ratio, 21.0); // Maximum contrast
+//! assert!((ratio - 21.0).abs() < 1e-5); // Maximum contrast
 //!
 //! // Choose contrasting color for a dark background
 //! let dark_bg = AbsoluteColor::from_srgb(0.1, 0.1, 0.1, 1.0);
@@ -120,12 +119,12 @@ fn srgb_to_linear(component: f32) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
 /// use avenger_color::contrast::relative_luminance_srgb;
 ///
 /// // Pure white has maximum luminance
 /// let white_lum = relative_luminance_srgb(1.0, 1.0, 1.0);
-/// assert_eq!(white_lum, 1.0);
+/// assert!((white_lum - 1.0).abs() < 1e-6);
 ///
 /// // Pure black has zero luminance
 /// let black_lum = relative_luminance_srgb(0.0, 0.0, 0.0);
@@ -148,6 +147,9 @@ pub fn relative_luminance_srgb(r: f32, g: f32, b: f32) -> f32 {
 ///
 /// The contrast ratio is a measure of the difference in perceived brightness
 /// between two colors. It's used to ensure text is readable against its background.
+///
+/// Uses the clipped sRGB channels returned by [`AbsoluteColor::to_rgba`].
+/// Alpha is ignored; composite translucent colors against their background first.
 ///
 /// # Algorithm
 ///
@@ -177,7 +179,7 @@ pub fn relative_luminance_srgb(r: f32, g: f32, b: f32) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
 /// use avenger_color::contrast::contrast_ratio;
 /// use avenger_color::AbsoluteColor;
 ///
@@ -186,38 +188,17 @@ pub fn relative_luminance_srgb(r: f32, g: f32, b: f32) -> f32 {
 ///
 /// // Maximum contrast between black and white
 /// let ratio = contrast_ratio(&white, &black);
-/// assert_eq!(ratio, 21.0);
+/// assert!((ratio - 21.0).abs() < 1e-5);
 ///
 /// // Order doesn't matter
 /// let ratio_reversed = contrast_ratio(&black, &white);
-/// assert_eq!(ratio_reversed, 21.0);
+/// assert!((ratio_reversed - 21.0).abs() < 1e-5);
 /// ```
 pub fn contrast_ratio(color1: &AbsoluteColor, color2: &AbsoluteColor) -> f32 {
-    // Convert both colors to sRGB if needed
-    let srgb1 = if color1.color_space == ColorSpace::Srgb {
-        *color1
-    } else {
-        color1.to_color_space(ColorSpace::Srgb)
-    };
-
-    let srgb2 = if color2.color_space == ColorSpace::Srgb {
-        *color2
-    } else {
-        color2.to_color_space(ColorSpace::Srgb)
-    };
-
-    // Calculate relative luminance for each color
-    let l1 = relative_luminance_srgb(
-        srgb1.components[0],
-        srgb1.components[1],
-        srgb1.components[2],
-    );
-
-    let l2 = relative_luminance_srgb(
-        srgb2.components[0],
-        srgb2.components[1],
-        srgb2.components[2],
-    );
+    let [r1, g1, b1, _] = color1.to_rgba();
+    let [r2, g2, b2, _] = color2.to_rgba();
+    let l1 = relative_luminance_srgb(r1, g1, b1);
+    let l2 = relative_luminance_srgb(r2, g2, b2);
 
     // Apply contrast formula: (lighter + 0.05) / (darker + 0.05)
     let lighter = l1.max(l2);
@@ -228,9 +209,9 @@ pub fn contrast_ratio(color1: &AbsoluteColor, color2: &AbsoluteColor) -> f32 {
 
 /// Choose contrasting color (black or white) using WCAG 2.1 algorithm
 ///
-/// This function implements the basic `contrast-color()` CSS function behavior,
-/// which selects either black or white based on which provides better contrast
-/// against the base color.
+/// Selects either black or white based on which provides the higher
+/// [`contrast_ratio`] against the base color. Alpha is ignored; composite
+/// translucent colors before calling this function.
 ///
 /// # Algorithm
 ///
@@ -258,7 +239,7 @@ pub fn contrast_ratio(color1: &AbsoluteColor, color2: &AbsoluteColor) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
 /// use avenger_color::contrast::choose_contrast_color;
 /// use avenger_color::AbsoluteColor;
 ///
@@ -300,15 +281,14 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
 
 /// Choose best contrasting color from a list of candidates
 ///
-/// This implements the extended `contrast-color()` syntax from CSS Color Module Level 6:
-/// ```css
-/// contrast-color(<color>, <color-list>)
-/// ```
+/// Selects the highest WCAG contrast ratio that meets `min_ratio`.
+/// Ties retain the first candidate.
+/// Alpha is ignored; composite translucent colors before calling this function.
 ///
 /// # Algorithm
 ///
 /// 1. Calculate contrast ratio of base color with each candidate
-/// 2. Filter candidates that meet minimum contrast threshold (default 4.5:1 for WCAG AA)
+/// 2. Filter candidates that meet the minimum contrast threshold
 /// 3. Return the candidate with the **highest** contrast ratio
 /// 4. If no candidate meets threshold, fall back to black or white (whichever is better)
 ///
@@ -316,7 +296,7 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
 ///
 /// * `base_color` - The background color to contrast against
 /// * `candidates` - List of candidate colors to choose from
-/// * `min_ratio` - Minimum acceptable contrast ratio (default 4.5:1 for WCAG AA)
+/// * `min_ratio` - Minimum acceptable contrast ratio (for example, 4.5 for WCAG AA normal text)
 ///
 /// # Returns
 ///
@@ -324,11 +304,11 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
 /// use avenger_color::contrast::choose_best_contrast;
 /// use avenger_color::AbsoluteColor;
 ///
-/// let bg = AbsoluteColor::from_srgb(0.5, 0.5, 0.5, 1.0);
+/// let bg = AbsoluteColor::from_srgb(0.2, 0.2, 0.2, 1.0);
 /// let candidates = vec![
 ///     AbsoluteColor::from_srgb(0.13, 0.13, 0.13, 1.0), // #222
 ///     AbsoluteColor::from_srgb(0.93, 0.93, 0.93, 1.0), // #eee
@@ -336,7 +316,7 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
 ///
 /// // Choose best contrast with AA threshold (4.5:1)
 /// let best = choose_best_contrast(&bg, &candidates, 4.5);
-/// // Returns #eee (higher contrast than #222)
+/// assert_eq!(best, candidates[1]);
 /// ```
 pub fn choose_best_contrast(
     base_color: &AbsoluteColor,
@@ -367,6 +347,33 @@ pub fn choose_best_contrast(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contrast_uses_clipped_srgb_for_ratios_and_selection() {
+        let black = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
+        let white = AbsoluteColor::from_srgb(1.0, 1.0, 1.0, 1.0);
+        let background = AbsoluteColor::new(ColorSpace::Oklch, 0.5, 0.4, 0.0, 1.0);
+        let displayed = AbsoluteColor::from_rgba(background.to_rgba());
+        for (text, expected) in [(black, 4.84695), (white, 4.33262)] {
+            let ratio = contrast_ratio(&background, &text);
+            assert!((ratio - expected).abs() < 1e-4, "{ratio}");
+            assert_eq!(ratio, contrast_ratio(&displayed, &text));
+            assert_eq!(ratio, contrast_ratio(&text, &background));
+        }
+        assert_eq!(choose_contrast_color(&background), black);
+        assert_eq!(
+            choose_best_contrast(&background, &[white, black], 4.5),
+            black
+        );
+
+        // Direct sRGB inputs use the same clipping and ignore alpha.
+        let overbright = AbsoluteColor::from_srgb(2.0, 2.0, 2.0, 0.25);
+        let negative = AbsoluteColor::from_srgb(-1.0, -1.0, -1.0, 0.75);
+        assert_eq!(
+            contrast_ratio(&overbright, &negative),
+            contrast_ratio(&white, &black)
+        );
+    }
 
     /// Helper for floating point comparison
     fn approx_eq(a: f32, b: f32, epsilon: f32) -> bool {

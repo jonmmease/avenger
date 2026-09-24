@@ -14,9 +14,9 @@ pub enum ColorSpace {
     Hsl,
     /// HWB (Hue-Whiteness-Blackness) in sRGB
     Hwb,
-    /// Lab color space (CIE L*a*b*)
+    /// CIE L*a*b* with the CSS D50 white point
     Lab,
-    /// LCH (Lightness-Chroma-Hue) - cylindrical Lab
+    /// LCH (Lightness-Chroma-Hue) - cylindrical D50 Lab
     Lch,
     /// Oklab color space (improved Lab)
     Oklab,
