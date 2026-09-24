@@ -4,6 +4,7 @@ use crate::{
 };
 
 /// Parse a D3 specifier, reporting invalid input at its UTF-8 byte offset.
+/// Defaults and zero-padding normalization are applied during formatter preparation.
 pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
     let chars: Vec<(usize, char)> = spec.char_indices().collect();
     let mut i = 0;

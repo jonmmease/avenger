@@ -8,20 +8,25 @@ use crate::{
     typesetting::{FormattedNumber, NumberTypesetting},
 };
 
+/// Prefixes for powers of ten from -24 to 24 in steps of three.
 pub(crate) const SI_PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
 ];
 
 /// A parsed number format and locale reusable across values.
+/// The retained locale is unaffected by later registry updates.
 #[derive(Debug, Clone)]
 pub struct PreparedNumberFormat {
     pub(crate) resolved: ResolvedNumberFormat,
     locale: ResolvedNumberLocale,
+    /// Multiplier applied before formatting to fix an SI unit across values.
     pub(crate) scale: f64,
+    /// SI prefix appended to labels by the span and prefix adapters.
     pub(crate) suffix: String,
 }
 impl PreparedNumberFormat {
     /// Parse and resolve a number format before formatting a batch.
+    /// `None` is equivalent to an empty specifier, which starts with D3's `.12~g` defaults.
     pub fn new(
         spec: Option<&str>,
         overrides: NumberFormatOverrides,
@@ -33,6 +38,7 @@ impl PreparedNumberFormat {
         ))
     }
 
+    /// Build an unscaled formatter from resolved fields.
     pub(crate) fn from_resolved(
         resolved: ResolvedNumberFormat,
         locale: &ResolvedNumberLocale,
@@ -57,18 +63,26 @@ impl PreparedNumberFormat {
 }
 
 /// Field overrides applied to the parsed specifier before defaults and zero padding.
-/// For nullable fields, `Some(None)` clears the value from the specifier.
+/// `None` preserves a parsed field. For nullable fields, `Some(None)` clears it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NumberFormatOverrides {
     pub format_type: Option<FormatType>,
+    /// Replace parsed precision, or use `Some(DigitSpec::Auto)` to restore automatic selection.
     pub digit_spec: Option<DigitSpec>,
+    /// Enable or disable locale grouping, including the grouping implied by `n`.
     pub group: Option<bool>,
+    /// Enable or disable removal of trailing fractional zeros before localization.
     pub trim: Option<bool>,
     pub sign: Option<SignPolicy>,
+    /// `Some(None)` removes currency affixes or a radix prefix requested by the specifier.
     pub symbol: Option<Option<Symbol>>,
+    /// Minimum UTF-16 field width before numeral substitution, or `Some(None)` for no padding.
     pub width: Option<Option<usize>>,
+    /// `Some(None)` restores a space, subject to the final zero-padding flag.
     pub fill: Option<Option<char>>,
+    /// `Some(None)` restores right alignment, subject to the final zero-padding flag.
     pub align: Option<Option<Align>>,
+    /// Override the zero-padding flag. An explicit `0=` fill and alignment still take effect.
     pub zero: Option<bool>,
 }
 
@@ -80,6 +94,7 @@ impl NumberFormatOverrides {
     }
 }
 
+/// Merged format fields with defaults applied, retaining automatic precision for the adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedNumberFormat {
     pub fill: char,
@@ -103,6 +118,7 @@ pub fn format_number(
     Ok(PreparedNumberFormat::new(spec, overrides, locale)?.format(value))
 }
 
+/// Merge overrides and defaults, then apply the zero-padding flag to fill and alignment.
 pub(crate) fn resolve_number_format(
     spec: NumberFormatSpec,
     overrides: NumberFormatOverrides,
@@ -148,6 +164,7 @@ pub(crate) fn resolve_number_format(
     }
 }
 
+/// Derive localized text and exponent parts from the same rounded numeric body.
 fn render_number(
     value: f64,
     format: &ResolvedNumberFormat,
@@ -296,6 +313,7 @@ fn render_number(
     }
 }
 
+/// Group and pad the numeric parts before substituting locale numerals.
 fn assemble(
     integer: &str,
     prefix: &str,
@@ -341,6 +359,8 @@ fn assemble(
     substitute_digits(&text, locale)
 }
 
+/// Apply cyclic group sizes from right to left.
+/// A width budget limits zero-padded grouping, counting each separator as one unit as D3 does.
 fn group(value: &str, width: Option<usize>, locale: &ResolvedNumberLocale) -> String {
     if locale.grouping.is_empty() {
         return value.to_owned();
@@ -370,6 +390,7 @@ fn group(value: &str, width: Option<usize>, locale: &ResolvedNumberLocale) -> St
     groups.join(&locale.thousands)
 }
 
+/// Round to significant digits and select an SI prefix from the rounded exponent.
 fn format_si(value: f64, precision: usize) -> (String, &'static str) {
     if value == 0.0 || !value.is_finite() {
         return (decimal::precision(value, precision), "");
@@ -391,6 +412,8 @@ fn format_si(value: f64, precision: usize) -> (String, &'static str) {
     (body, SI_PREFIXES[(prefix / 3 + 8) as usize])
 }
 
+/// Remove trailing fractional zeros and an empty decimal point from unlocalized text.
+/// An exponent suffix is preserved.
 pub(crate) fn trim_number_text(text: &str) -> String {
     let (body, exponent) = text
         .split_once('e')

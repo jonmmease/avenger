@@ -1,10 +1,13 @@
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 
+/// ECMAScript number-to-string conversion, including zero and non-finite values.
 pub(crate) fn shortest(value: f64) -> String {
     ryu_js::Buffer::new().format(value).to_owned()
 }
 
+/// Exact numerator and denominator for `value * 10^decimal_places`.
+/// Requires a finite, nonnegative value.
 fn scaled_ratio(value: f64, decimal_places: i32) -> (BigUint, BigUint) {
     let bits = value.to_bits();
     let encoded_exponent = ((bits >> 52) & 0x7ff) as i32;
@@ -34,7 +37,8 @@ fn scaled_ratio(value: f64, decimal_places: i32) -> (BigUint, BigUint) {
     (numerator, denominator)
 }
 
-// Binary64 values are exact ratios. ECMAScript decimal rounding chooses the larger integer at a tie.
+/// Round `value * 10^decimal_places` to an integer using ECMAScript's upward tie rule.
+/// Requires a finite, nonnegative value.
 fn rounded_scaled(value: f64, decimal_places: i32) -> BigUint {
     let (numerator, denominator) = scaled_ratio(value, decimal_places);
     let quotient = &numerator / &denominator;
@@ -45,6 +49,8 @@ fn rounded_scaled(value: f64, decimal_places: i32) -> BigUint {
     }
 }
 
+/// Shortest coefficient digits and scientific exponent, such as `("1234", 2)` for `123.4`.
+/// Requires a finite, nonnegative value.
 pub(crate) fn shortest_parts(value: f64) -> (String, i32) {
     let text = shortest(value);
     let (body, power) = text
@@ -61,10 +67,14 @@ pub(crate) fn shortest_parts(value: f64) -> (String, i32) {
     (coefficient, decimal - zeros as i32 - 1 + power)
 }
 
+/// Exponent of the shortest decimal representation of the magnitude.
+/// Zero and non-finite values have no exponent.
 pub(crate) fn exponent(value: f64) -> Option<i32> {
     (value.is_finite() && value != 0.0).then(|| shortest_parts(value.abs()).1)
 }
 
+/// Rounded coefficient digits and scientific exponent for a finite, nonnegative value.
+/// `precision` is a positive count of significant digits.
 pub(crate) fn parts(value: f64, precision: usize) -> (String, i32) {
     if value == 0.0 {
         return ("0".repeat(precision), 0);
@@ -83,6 +93,7 @@ pub(crate) fn parts(value: f64, precision: usize) -> (String, i32) {
     (digits, exponent)
 }
 
+/// Fixed fraction digits for a nonnegative magnitude, using shortest notation at `1e21` and above.
 pub(crate) fn fixed(value: f64, precision: usize) -> String {
     if !value.is_finite() || value >= 1e21 {
         return shortest(value);
@@ -101,6 +112,7 @@ pub(crate) fn fixed(value: f64, precision: usize) -> String {
     }
 }
 
+/// Scientific notation for a nonnegative magnitude, with `precision` digits after the decimal point.
 pub(crate) fn exponential(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         return shortest(value);
@@ -114,6 +126,7 @@ pub(crate) fn exponential(value: f64, precision: usize) -> String {
     format!("{mantissa}e{exponent:+}")
 }
 
+/// Significant digits for a nonnegative magnitude, selecting fixed or scientific notation.
 pub(crate) fn precision(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         return shortest(value);
@@ -131,6 +144,7 @@ pub(crate) fn precision(value: f64, precision: usize) -> String {
     }
 }
 
+/// Significant-digit rounding without an exponent. Zero renders as `0`.
 pub(crate) fn rounded(value: f64, precision: usize) -> String {
     if !value.is_finite() || value == 0.0 {
         return shortest(value);
@@ -139,6 +153,7 @@ pub(crate) fn rounded(value: f64, precision: usize) -> String {
     place_decimal(&digits, exponent + 1)
 }
 
+/// Place the decimal point after `index` digits, adding zeros when it lies outside the coefficient.
 pub(crate) fn place_decimal(digits: &str, index: i32) -> String {
     if index <= 0 {
         format!("0.{}{}", "0".repeat((-index) as usize), digits)
@@ -153,6 +168,8 @@ pub(crate) fn place_decimal(digits: &str, index: i32) -> String {
     }
 }
 
+/// Round a nonnegative magnitude and render in `radix`, expanding decimal exponents.
+/// Decimal infinity uses `∞`.
 pub(crate) fn integer(value: f64, radix: u32, upper: bool) -> String {
     if radix == 10 && value.is_infinite() {
         return "∞".into();

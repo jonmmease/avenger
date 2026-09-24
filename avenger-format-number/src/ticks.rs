@@ -5,7 +5,9 @@ use crate::{
     ResolvedNumberLocale,
 };
 
-/// Prepare Vega's formatSpan behavior from the scale domain and requested tick count.
+/// Select precision from a domain and target tick count using Vega's rules.
+/// `None` uses `,f`. Explicit precision is preserved, while automatic `s` formatting
+/// selects one SI unit for the domain.
 pub fn prepare_number_span_format(
     start: f64,
     stop: f64,
@@ -64,7 +66,9 @@ pub fn prepare_number_span_format(
     Ok(prepared)
 }
 
-/// Prepare D3 formatPrefix with a reference value that fixes the SI unit.
+/// Fix an SI unit from a reference value using D3's formatPrefix rules.
+/// The specifier's type is replaced with `f`, so precision counts fraction digits.
+/// A zero or non-finite reference selects no prefix.
 pub fn prepare_number_prefix_format(
     spec: &str,
     value: f64,
@@ -84,8 +88,9 @@ pub fn prepare_number_prefix_format(
     Ok(prepared)
 }
 
-/// Prepare automatic floating-point labels, retaining explicit precision when supplied.
-/// Trimming precedes localization and padding so custom numerals and field widths are preserved.
+/// Prepare labels with Vega's automatic precision rules. `None` or an empty specifier uses `,`.
+/// Explicit precision disables automatic trimming. Otherwise, trimming precedes localization
+/// and padding so custom numerals and field widths are preserved.
 pub fn prepare_number_float_format(
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
@@ -104,6 +109,7 @@ pub fn prepare_number_float_format(
     Ok(prepared)
 }
 
+/// D3's signed tick interval, chosen from 1, 2, and 5 times powers of ten.
 fn tick_step(start: f64, stop: f64, count: f64) -> f64 {
     if stop < start {
         return -tick_step(stop, start, count);

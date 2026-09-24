@@ -1,9 +1,15 @@
 use thiserror::Error;
 
+/// A rejected D3 format specifier, with its location in the original input.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
+    /// Invalid syntax, an unsupported type, or an unrepresentable field width.
     #[error("invalid number format specifier at byte {position}: {message}")]
-    Invalid { position: usize, message: String },
+    Invalid {
+        /// Zero-based UTF-8 byte offset in the specifier.
+        position: usize,
+        message: String,
+    },
 }
 
 impl ParseError {
@@ -15,14 +21,17 @@ impl ParseError {
     }
 }
 
+/// Failure to prepare a formatter or register or resolve a locale.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FormatError {
     #[error(transparent)]
     Parse(#[from] ParseError),
 
+    /// The requested locale name has no registry entry.
     #[error("locale `{0}` was not found")]
     LocaleNotFound(String),
 
+    /// Locale JSON could not be decoded, or its grouping contains a zero size.
     #[error("invalid locale data: {0}")]
     InvalidLocaleData(String),
 }
