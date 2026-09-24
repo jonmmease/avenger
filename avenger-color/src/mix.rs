@@ -1,31 +1,24 @@
-//! Color mixing and interpolation
-//!
-//! Ported from Mozilla Stylo's style/color/mix.rs
-//! https://searchfox.org/mozilla-central/source/servo/components/style/color/mix.rs
+//! Weighted color mixing with premultiplied alpha and polar hue interpolation.
+
+// Ported from Mozilla Stylo's style/color/mix.rs
+// https://searchfox.org/mozilla-central/source/servo/components/style/color/mix.rs
 
 use super::{
     convert::{convert_color_space, normalize_hue},
     types::{AbsoluteColor, ColorSpace},
 };
 
-/// Convex K-way mixer over a fixed set of key colors in Oklab.
+/// Weighted Oklab mixing over a fixed palette of sRGB colors.
 ///
-/// Built for categorical raster shading: the key colors (one per category)
-/// are converted to Oklab once at construction, then each pixel's weighted
-/// mean costs three multiply-adds per category plus a single Oklab → sRGB
-/// conversion. The mean is convex, so results stay inside the convex hull
-/// of the key colors in Oklab; the final per-channel clamp handles the rare
-/// sub-percent gamut excursion after conversion.
-///
-/// Key-color alpha is ignored — for density-shaded rasters the output alpha
-/// is supplied separately by the caller (an opacity scale over the total).
-/// Non-finite or negative weights count as zero.
+/// Palette colors are converted to Oklab once at construction and reused by each
+/// call to [`Self::mix`]. Alpha is ignored. Mixing returns RGB only.
 #[derive(Clone, Debug)]
 pub struct OklabMixer {
     labs: Vec<[f32; 3]>,
 }
 
 impl OklabMixer {
+    /// Cache Oklab components for sRGB `[r, g, b, a]` palette entries.
     pub fn new(key_colors: &[[f32; 4]]) -> Self {
         let labs = key_colors
             .iter()
@@ -40,21 +33,25 @@ impl OklabMixer {
         Self { labs }
     }
 
+    /// Number of palette entries, and the required number of weights.
     pub fn len(&self) -> usize {
         self.labs.len()
     }
 
+    /// Whether the palette contains no colors.
     pub fn is_empty(&self) -> bool {
         self.labs.is_empty()
     }
 
-    /// Weighted convex mix of the key colors; returns sRGB components in
-    /// [0, 1]. `None` when the usable weights sum to zero (rasters render
-    /// such pixels fully transparent).
+    /// Return the weighted Oklab mean as sRGB components clipped to [0, 1].
+    ///
+    /// Weights correspond to palette entries in order and are normalized by their
+    /// sum. Non-finite and nonpositive weights are ignored. Returns `None` when
+    /// there are no positive finite weights, including for an empty palette.
     ///
     /// # Panics
     ///
-    /// Panics unless there is exactly one weight per key color.
+    /// Panics unless there is exactly one weight per palette entry.
     pub fn mix(&self, weights: &[f32]) -> Option<[f32; 3]> {
         assert_eq!(weights.len(), self.labs.len(), "one weight per key color");
         let mut acc = [0.0_f32; 3];
@@ -81,40 +78,34 @@ impl OklabMixer {
     }
 }
 
-/// Hue interpolation method for polar color spaces
+/// Hue interpolation for polar color spaces in [`mix_colors`].
 ///
-/// See: https://drafts.csswg.org/css-color-4/#typedef-hue-interpolation-method
+/// `Shorter`, `Longer`, `Increasing`, and `Decreasing` follow
+/// [CSS hue interpolation](https://drafts.csswg.org/css-color-4/#hue-interpolation).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum HueInterpolationMethod {
-    /// Angles are adjusted so the hue difference is <= 180deg (default)
+    /// Follow the shorter arc, with an angular difference of at most 180 degrees.
     Shorter = 0,
-    /// Angles are adjusted so the hue difference is >= 180deg
+    /// Follow the longer arc, with an angular difference of at least 180 degrees.
     Longer,
-    /// Hue values increase from left to right
+    /// Interpolate toward increasing hue angles.
     Increasing,
-    /// Hue values decrease from left to right
+    /// Interpolate toward decreasing hue angles.
     Decreasing,
-    /// Angles are not adjusted (interpolate as-is)
+    /// Interpolate the supplied angles directly, without choosing an arc.
     Specified,
 }
 
-/// Mix two colors in a specified color space
+/// Convert two colors to `interpolation_space` and mix them with premultiplied alpha.
 ///
-/// Weights are normalized by their sum. A zero sum uses equal weights.
+/// Weights must be finite and nonnegative, with a finite sum. They are normalized
+/// by their sum. A zero sum uses equal weights. Input alpha is clipped to [0, 1].
 ///
-/// # Arguments
-///
-/// * `interpolation_space` - The color space to perform mixing in
-/// * `left_color` - The first color to mix
-/// * `left_weight` - Nonnegative relative weight for the first color
-/// * `right_color` - The second color to mix
-/// * `right_weight` - Nonnegative relative weight for the second color
-/// * `hue_method` - How to interpolate hue in polar color spaces
-///
-/// # Returns
-///
-/// A new color representing the mix of the two input colors
+/// Hue uses `hue_method` without alpha premultiplication and is normalized to
+/// [0, 360) degrees. An undefined hue (`NaN`) takes the other color's hue. Two
+/// undefined hues are treated as zero before applying the interpolation method.
+/// The result retains `interpolation_space`.
 pub fn mix_colors(
     interpolation_space: ColorSpace,
     left_color: &AbsoluteColor,
@@ -123,7 +114,6 @@ pub fn mix_colors(
     right_weight: f32,
     hue_method: HueInterpolationMethod,
 ) -> AbsoluteColor {
-    // Normalize weights to sum to 1.0
     let total = left_weight + right_weight;
     let lw = if total != 0.0 {
         left_weight / total
@@ -136,11 +126,9 @@ pub fn mix_colors(
         0.5
     };
 
-    // Convert both colors to the interpolation space
     let left = left_color.to_color_space(interpolation_space);
     let right = right_color.to_color_space(interpolation_space);
 
-    // Prepare components with alpha for premultiplied interpolation
     let left_components = [
         left.components[0],
         left.components[1],
@@ -154,7 +142,6 @@ pub fn mix_colors(
         right.alpha,
     ];
 
-    // Interpolate with premultiplied alpha
     let result = interpolate_premultiplied(
         &left_components,
         lw,
@@ -173,11 +160,10 @@ pub fn mix_colors(
     )
 }
 
-/// Adjust hue angles for interpolation according to the specified method
+/// Resolve undefined hues and select the interpolation arc.
 ///
-/// See: https://drafts.csswg.org/css-color-4/#hue-interpolation
+/// <https://drafts.csswg.org/css-color-4/#hue-interpolation>
 fn adjust_hue(left: &mut f32, right: &mut f32, method: HueInterpolationMethod) {
-    // If both hues are NaN, set to 0
     if left.is_nan() {
         if right.is_nan() {
             *left = 0.0;
@@ -189,12 +175,10 @@ fn adjust_hue(left: &mut f32, right: &mut f32, method: HueInterpolationMethod) {
         *right = *left;
     }
 
-    // For "specified" method, no adjustment needed
     if method == HueInterpolationMethod::Specified {
         return;
     }
 
-    // Normalize to [0, 360)
     *left = normalize_hue(*left);
     *right = normalize_hue(*right);
 
@@ -247,7 +231,7 @@ fn interpolate_hue(
 
 /// Interpolate a component using premultiplied alpha
 ///
-/// See: https://drafts.csswg.org/css-color-4/#interpolation-alpha
+/// <https://drafts.csswg.org/css-color-4/#interpolation-alpha>
 fn interpolate_premultiplied_component(
     left: f32,
     left_weight: f32,
@@ -259,10 +243,9 @@ fn interpolate_premultiplied_component(
     left * left_weight * left_alpha + right * right_weight * right_alpha
 }
 
-/// Interpolate all components with premultiplied alpha
+/// Interpolate components with premultiplied alpha, except for hue.
 ///
-/// This implements the color mixing algorithm from CSS Color 4:
-/// https://drafts.csswg.org/css-color-4/#interpolation
+/// <https://drafts.csswg.org/css-color-4/#interpolation-alpha>
 fn interpolate_premultiplied(
     left: &[f32; 4], // [c0, c1, c2, alpha]
     left_weight: f32,
@@ -271,19 +254,16 @@ fn interpolate_premultiplied(
     hue_index: Option<usize>,
     hue_method: HueInterpolationMethod,
 ) -> [f32; 4] {
-    // Interpolate alpha first
     let left_alpha = left[3].clamp(0.0, 1.0);
     let right_alpha = right[3].clamp(0.0, 1.0);
     let alpha = (left_alpha * left_weight + right_alpha * right_weight).clamp(0.0, 1.0);
 
     let mut result = [0.0; 4];
 
-    // Interpolate each color component
     for i in 0..3 {
         let is_hue = hue_index == Some(i);
 
         result[i] = if is_hue {
-            // Hue components use special interpolation
             normalize_hue(interpolate_hue(
                 left[i],
                 left_weight,
@@ -292,7 +272,6 @@ fn interpolate_premultiplied(
                 hue_method,
             ))
         } else {
-            // Non-hue components use premultiplied alpha
             let interpolated = interpolate_premultiplied_component(
                 left[i],
                 left_weight,
@@ -302,7 +281,6 @@ fn interpolate_premultiplied(
                 right_alpha,
             );
 
-            // Un-premultiply
             if alpha == 0.0 {
                 interpolated
             } else {

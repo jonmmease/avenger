@@ -1,39 +1,29 @@
-//! Color space conversion functions
+//! Conversions between the supported [`ColorSpace`] variants.
 //!
-//! Ported from Mozilla Stylo's style/color/convert.rs
-//! https://searchfox.org/mozilla-central/source/servo/components/style/color/convert.rs
+//! Lab and LCH use D50. Conversions through XYZ use D65, with Bradford adaptation
+//! between the two white points. Component values are not clipped.
+
+// Ported from Mozilla Stylo's style/color/convert.rs
+// https://searchfox.org/mozilla-central/source/servo/components/style/color/convert.rs
 
 use super::types::ColorSpace;
 
-/// Normalize hue into [0, 360) range
+/// Normalize a hue in degrees to [0, 360). Non-finite inputs produce `NaN`.
 #[inline]
-pub fn normalize_hue(hue: f32) -> f32 {
+pub(super) fn normalize_hue(hue: f32) -> f32 {
     hue - 360.0 * (hue / 360.0).floor()
 }
 
-/// Convert from orthogonal (rectangular) to polar (cylindrical) coordinates
+/// Convert Lab or Oklab `[L, a, b]` to cylindrical `[L, C, H]`.
 ///
-/// Used for Lab -> LCH and Oklab -> Oklch conversions
-///
-/// # Arguments
-/// * `components` - [L, a, b] in orthogonal space
-/// * `epsilon` - Small value for checking if chroma is effectively zero
-///
-/// # Returns
-/// [L, C, H] where:
-/// - L: lightness (unchanged)
-/// - C: chroma (calculated from a and b)
-/// - H: hue in degrees (NaN if chroma is near zero)
-pub fn orthogonal_to_polar(components: &[f32; 3], epsilon: f32) -> [f32; 3] {
+/// Lightness is unchanged and hue is in degrees. Hue is `NaN` when both `a` and
+/// `b` have absolute values below `epsilon`, or chroma is below `epsilon`.
+fn orthogonal_to_polar(components: &[f32; 3], epsilon: f32) -> [f32; 3] {
     let [lightness, a, b] = *components;
 
     let chroma = (a * a + b * b).sqrt();
 
-    let hue = if a.abs() < epsilon && b.abs() < epsilon {
-        // For extremely small values of a and b, hue is undefined
-        f32::NAN
-    } else if chroma.abs() < epsilon {
-        // Very small chroma makes hue meaningless
+    let hue = if (a.abs() < epsilon && b.abs() < epsilon) || chroma.abs() < epsilon {
         f32::NAN
     } else {
         normalize_hue(b.atan2(a).to_degrees())
@@ -42,20 +32,13 @@ pub fn orthogonal_to_polar(components: &[f32; 3], epsilon: f32) -> [f32; 3] {
     [lightness, chroma, hue]
 }
 
-/// Convert from polar (cylindrical) to orthogonal (rectangular) coordinates
+/// Convert LCH or Oklch `[L, C, H]` to rectangular `[L, a, b]`.
 ///
-/// Used for LCH -> Lab and Oklch -> Oklab conversions
-///
-/// # Arguments
-/// * `components` - [L, C, H] in polar space where H is in degrees
-///
-/// # Returns
-/// [L, a, b] in orthogonal space
+/// Hue is in degrees. A `NaN` hue produces `[L, 0, 0]`.
 #[inline]
-pub fn polar_to_orthogonal(components: &[f32; 3]) -> [f32; 3] {
+fn polar_to_orthogonal(components: &[f32; 3]) -> [f32; 3] {
     let [lightness, chroma, hue] = *components;
 
-    // A missing hue (NaN) results in an achromatic color
     if hue.is_nan() {
         return [lightness, 0.0, 0.0];
     }
@@ -67,9 +50,7 @@ pub fn polar_to_orthogonal(components: &[f32; 3]) -> [f32; 3] {
     [lightness, a, b]
 }
 
-/// 3x3 matrix multiplication for color space conversions
-///
-/// This replaces the dependency on the `euclid` crate's Transform3D
+/// Multiply a 3×3 color-conversion matrix by a three-component vector.
 #[inline]
 fn matrix_multiply(matrix: &[[f32; 3]; 3], vector: &[f32; 3]) -> [f32; 3] {
     [
@@ -83,14 +64,14 @@ fn matrix_multiply(matrix: &[[f32; 3]; 3], vector: &[f32; 3]) -> [f32; 3] {
 // sRGB <-> XYZ Conversion
 // ============================================================================
 
-/// sRGB to XYZ-D65 transformation matrix
+/// Linear sRGB to XYZ-D65 transformation matrix.
 const SRGB_TO_XYZ: [[f32; 3]; 3] = [
     [0.412_390_8, 0.357_584_33, 0.180_480_8],
     [0.212_639, 0.715_168_65, 0.072_192_32],
     [0.019_330_818, 0.119_194_78, 0.950_532_14],
 ];
 
-/// XYZ-D65 to sRGB transformation matrix
+/// XYZ-D65 to linear sRGB transformation matrix.
 const XYZ_TO_SRGB: [[f32; 3]; 3] = [
     [3.240_97, -1.537_383_2, -0.498_610_76],
     [-0.969_243_65, 1.875_967_5, 0.041_555_06],
@@ -121,23 +102,19 @@ fn gamma_to_linear(value: f32) -> f32 {
 
 /// Convert sRGB to XYZ-D65
 fn srgb_to_xyz(srgb: &[f32; 3]) -> [f32; 3] {
-    // First convert to linear light
     let linear = [
         gamma_to_linear(srgb[0]),
         gamma_to_linear(srgb[1]),
         gamma_to_linear(srgb[2]),
     ];
 
-    // Then apply matrix transform
     matrix_multiply(&SRGB_TO_XYZ, &linear)
 }
 
 /// Convert XYZ-D65 to sRGB
 fn xyz_to_srgb(xyz: &[f32; 3]) -> [f32; 3] {
-    // Apply matrix transform
     let linear = matrix_multiply(&XYZ_TO_SRGB, xyz);
 
-    // Then convert to gamma-corrected
     [
         linear_to_gamma(linear[0]),
         linear_to_gamma(linear[1]),
@@ -179,25 +156,19 @@ const OKLAB_TO_LMS: [[f32; 3]; 3] = [
 
 /// Convert Oklab to XYZ-D65
 fn oklab_to_xyz(oklab: &[f32; 3]) -> [f32; 3] {
-    // Oklab -> LMS
     let lms = matrix_multiply(&OKLAB_TO_LMS, oklab);
 
-    // Cube each component
     let lms = [lms[0].powi(3), lms[1].powi(3), lms[2].powi(3)];
 
-    // LMS -> XYZ
     matrix_multiply(&LMS_TO_XYZ, &lms)
 }
 
 /// Convert XYZ-D65 to Oklab
 fn xyz_to_oklab(xyz: &[f32; 3]) -> [f32; 3] {
-    // XYZ -> LMS
     let lms = matrix_multiply(&XYZ_TO_LMS, xyz);
 
-    // Cube root each component
     let lms = [lms[0].cbrt(), lms[1].cbrt(), lms[2].cbrt()];
 
-    // LMS -> Oklab
     matrix_multiply(&LMS_TO_OKLAB, &lms)
 }
 
@@ -205,9 +176,11 @@ fn xyz_to_oklab(xyz: &[f32; 3]) -> [f32; 3] {
 // High-level color space conversion
 // ============================================================================
 
-/// Convert color components from one color space to another
+/// Convert three components from `from` to `to` without clipping.
 ///
-/// This is the main entry point for color space conversions
+/// Component order and units are defined by [`ColorSpace`]. Identical source and
+/// target spaces return the input unchanged. For colors with alpha, use
+/// [`AbsoluteColor::to_color_space`](crate::AbsoluteColor::to_color_space).
 pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpace) -> [f32; 3] {
     if from == to {
         return *components;
@@ -315,7 +288,7 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
             }
         }
 
-        // Catch-all for identity (should be unreachable due to early return)
+        // Equal source and target spaces return before the match.
         _ => *components,
     }
 }
@@ -328,10 +301,10 @@ const LAB_KAPPA: f32 = 24389.0 / 27.0; // 903.3
 const LAB_EPSILON: f32 = 216.0 / 24389.0; // 0.008856
 
 /// CSS D50 white point, consistent with the Bradford adaptation matrices below.
-/// https://drafts.csswg.org/css-color-4/#color-conversion-code
+/// <https://drafts.csswg.org/css-color-4/#color-conversion-code>
 const D50_WHITE: [f32; 3] = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
 
-/// Convert Lab to XYZ-D50
+/// Convert D50 Lab to XYZ-D65, including chromatic adaptation.
 fn lab_to_xyz(lab: &[f32; 3]) -> [f32; 3] {
     let [l, a, b] = *lab;
 
@@ -357,14 +330,12 @@ fn lab_to_xyz(lab: &[f32; 3]) -> [f32; 3] {
         (116.0 * fz - 16.0) / LAB_KAPPA
     };
 
-    // Convert from D50 to D65
     let xyz_d50 = [xr * D50_WHITE[0], yr * D50_WHITE[1], zr * D50_WHITE[2]];
     xyz_d50_to_d65(&xyz_d50)
 }
 
-/// Convert XYZ-D50 to Lab
+/// Convert XYZ-D65 to D50 Lab, including chromatic adaptation.
 fn xyz_to_lab(xyz_d65: &[f32; 3]) -> [f32; 3] {
-    // Convert from D65 to D50
     let xyz = xyz_d65_to_d50(xyz_d65);
 
     let xr = xyz[0] / D50_WHITE[0];
@@ -424,35 +395,32 @@ fn xyz_d50_to_d65(xyz: &[f32; 3]) -> [f32; 3] {
 
 /// Convert sRGB to HWB
 fn rgb_to_hwb(rgb: &[f32; 3]) -> [f32; 3] {
-    // First convert to HSL to get hue
     let (hue, _, _) = rgb_to_hsl(rgb[0], rgb[1], rgb[2]);
 
-    // Whiteness is the minimum component
     let whiteness = rgb[0].min(rgb[1]).min(rgb[2]);
 
-    // Blackness is 1 - maximum component
     let blackness = 1.0 - rgb[0].max(rgb[1]).max(rgb[2]);
 
     [hue, whiteness * 100.0, blackness * 100.0]
 }
 
-/// Convert HWB to sRGB
-pub fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
+/// Convert `[hue, whiteness, blackness]` to sRGB `[r, g, b]`.
+///
+/// Hue is in degrees and whiteness and blackness are percentages. When their sum
+/// is at least 100, the result is gray with value `whiteness / (whiteness + blackness)`.
+fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
     let [hue, whiteness, blackness] = *hwb;
     let w = whiteness / 100.0;
     let b = blackness / 100.0;
 
-    // If whiteness + blackness >= 1, result is gray
     if w + b >= 1.0 {
         let gray = w / (w + b);
         return [gray, gray, gray];
     }
 
-    // Convert via HSL
     let (r, g, b_comp) = hsl_to_rgb(hue, 100.0, 50.0); // Full saturation, mid lightness
     let mut rgb = [r, g, b_comp];
 
-    // Apply whiteness and blackness
     for component in &mut rgb {
         *component = *component * (1.0 - w - b) + w;
     }
@@ -464,16 +432,9 @@ pub fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
 // HSL <-> sRGB Conversion
 // ============================================================================
 
-/// Calculate the hue from RGB components and return it along with the min and max RGB values.
+/// Return hue in degrees and the minimum and maximum RGB components.
 ///
-/// This is a helper function used by both rgb_to_hsl and rgb_to_hwb.
-///
-/// # Returns
-///
-/// (hue, min, max) where:
-/// - hue is in degrees [0, 360) or NaN if undefined (for achromatic colors)
-/// - min is the minimum of (red, green, blue)
-/// - max is the maximum of (red, green, blue)
+/// Achromatic colors have `NaN` hue.
 #[inline]
 fn rgb_to_hue_min_max(red: f32, green: f32, blue: f32) -> (f32, f32, f32) {
     let max = red.max(green).max(blue);
@@ -490,31 +451,21 @@ fn rgb_to_hue_min_max(red: f32, green: f32, blue: f32) -> (f32, f32, f32) {
             (red - green) / delta + 4.0
         }
     } else {
-        // Achromatic color - hue is undefined, represented as NaN
         f32::NAN
     };
 
     (hue, min, max)
 }
 
-/// Convert from HSL notation to RGB notation.
+/// Convert HSL to sRGB `(red, green, blue)`.
 ///
-/// # Arguments
+/// Hue is in degrees and is normalized to [0, 360). A `NaN` hue is treated as zero.
+/// Saturation and lightness are percentages. Inputs in [0, 100] produce RGB
+/// components in [0, 1].
 ///
-/// * `hue` - Hue in degrees [0, 360]. Values outside this range will be normalized.
-/// * `saturation` - Saturation as a percentage [0, 100]
-/// * `lightness` - Lightness as a percentage [0, 100]
-///
-/// # Returns
-///
-/// (red, green, blue) where each component is in the range [0.0, 1.0]
-///
-/// # Reference
-///
-/// https://drafts.csswg.org/css-color-4/#hsl-to-rgb
+/// <https://drafts.csswg.org/css-color-4/#hsl-to-rgb>
 #[inline]
-pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) {
-    /// Helper function for HSL to RGB conversion
+fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) {
     fn hue_to_rgb(t1: f32, t2: f32, hue: f32) -> f32 {
         let hue = normalize_hue(hue);
 
@@ -529,10 +480,8 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
         }
     }
 
-    // Normalize hue (handle NaN by converting to 0.0)
     let hue = if hue.is_nan() { 0.0 } else { hue };
 
-    // Convert saturation and lightness from percentage to [0, 1]
     let saturation = saturation / 100.0;
     let lightness = lightness / 100.0;
 
@@ -550,26 +499,14 @@ pub fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (f32, f32, f32) 
     )
 }
 
-/// Convert from RGB notation to HSL notation.
+/// Convert sRGB components in [0, 1] to `(hue, saturation, lightness)`.
 ///
-/// # Arguments
+/// Hue is in [0, 360) degrees, or `NaN` for achromatic colors. Saturation and
+/// lightness are percentages.
 ///
-/// * `red` - Red component in the range [0.0, 1.0]
-/// * `green` - Green component in the range [0.0, 1.0]
-/// * `blue` - Blue component in the range [0.0, 1.0]
-///
-/// # Returns
-///
-/// (hue, saturation, lightness) where:
-/// - hue is in degrees [0, 360) or NaN for achromatic colors
-/// - saturation is a percentage [0, 100]
-/// - lightness is a percentage [0, 100]
-///
-/// # Reference
-///
-/// https://drafts.csswg.org/css-color-4/#rgb-to-hsl
+/// <https://drafts.csswg.org/css-color-4/#rgb-to-hsl>
 #[inline]
-pub fn rgb_to_hsl(red: f32, green: f32, blue: f32) -> (f32, f32, f32) {
+fn rgb_to_hsl(red: f32, green: f32, blue: f32) -> (f32, f32, f32) {
     let (hue, min, max) = rgb_to_hue_min_max(red, green, blue);
 
     let lightness = (min + max) / 2.0;
@@ -588,16 +525,16 @@ pub fn rgb_to_hsl(red: f32, green: f32, blue: f32) -> (f32, f32, f32) {
     (hue, saturation * 100.0, lightness * 100.0)
 }
 
-/// HSL color space conversions with array-based interface.
-pub mod hsl {
-    /// Convert HSL to RGB (array version)
-    pub fn hsl_to_rgb(hsl: &[f32; 3]) -> [f32; 3] {
+/// Array interfaces for HSL and sRGB conversion.
+mod hsl {
+    /// Array form of [`super::hsl_to_rgb`], with the same units and hue handling.
+    pub(super) fn hsl_to_rgb(hsl: &[f32; 3]) -> [f32; 3] {
         let (r, g, b) = super::hsl_to_rgb(hsl[0], hsl[1], hsl[2]);
         [r, g, b]
     }
 
-    /// Convert RGB to HSL (array version)
-    pub fn rgb_to_hsl(rgb: &[f32; 3]) -> [f32; 3] {
+    /// Array form of [`super::rgb_to_hsl`], with the same units and undefined hue handling.
+    pub(super) fn rgb_to_hsl(rgb: &[f32; 3]) -> [f32; 3] {
         let (h, s, l) = super::rgb_to_hsl(rgb[0], rgb[1], rgb[2]);
         [h, s, l]
     }
@@ -612,7 +549,7 @@ mod tests {
     fn conversions_match_independent_reference_vectors() {
         // CSS Color 4 sample code, evaluated in f64 outside this crate:
         // https://www.w3.org/TR/css-color-4/#color-conversion-code
-        // Each row describes the same color; check every direct source/target pair.
+        // Each fixture represents one color in every space, covering all source/target pairs.
         for components in [
             [
                 [0.5, 0.3, 0.8],
