@@ -401,6 +401,7 @@ dependencies = [
  "ordered-float 5.0.0",
  "palette",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

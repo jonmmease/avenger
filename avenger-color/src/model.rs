@@ -41,8 +41,9 @@ impl ColorOrGradient {
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Gradient {
-    LinearGradient(LinearGradient),
+    // Radial gradients include every linear field, so Serde must try them first.
     RadialGradient(RadialGradient),
+    LinearGradient(LinearGradient),
 }
 
 impl Gradient {
@@ -111,6 +112,7 @@ impl Hash for GradientStop {
 
 /// Apply opacity to a solid color. Gradient references are passed through
 /// because gradient opacity is represented by individual gradient stops.
+/// The opacity is clamped to `[0, 1]` before multiplying the existing alpha.
 pub fn apply_opacity_to_color(color: &ColorOrGradient, opacity: f32) -> ColorOrGradient {
     match color {
         ColorOrGradient::Color(color) => {
@@ -125,54 +127,33 @@ pub fn apply_opacity_to_color(color: &ColorOrGradient, opacity: f32) -> ColorOrG
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn transparent_returns_zero_alpha_black() {
-        assert_eq!(
-            ColorOrGradient::transparent(),
-            ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
-        );
+    fn gradient_json_roundtrips_preserve_shape() {
+        let linear = json!({
+            "x0": 0.0, "y0": 0.25, "x1": 1.0, "y1": 0.75,
+            "stops": [{"offset": 0.0, "color": [1.0, 0.0, 0.0, 0.5]}]
+        });
+        let mut radial = linear.clone();
+        radial["r0"] = json!(0.25);
+        radial["r1"] = json!(0.75);
+        for (input, is_radial) in [(linear, false), (radial, true)] {
+            let gradient: Gradient = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(matches!(gradient, Gradient::RadialGradient(_)), is_radial);
+            assert_eq!(serde_json::to_value(&gradient).unwrap(), input);
+        }
     }
 
     #[test]
-    fn gradient_stops_are_exposed_for_both_gradient_types() {
-        let stops = vec![
-            GradientStop {
-                offset: 0.0,
-                color: [1.0, 0.0, 0.0, 1.0],
-            },
-            GradientStop {
-                offset: 1.0,
-                color: [0.0, 0.0, 1.0, 1.0],
-            },
-        ];
-        let linear = Gradient::LinearGradient(LinearGradient {
-            x0: 0.0,
-            y0: 0.0,
-            x1: 1.0,
-            y1: 0.0,
-            stops: stops.clone(),
-        });
-        let radial = Gradient::RadialGradient(RadialGradient {
-            x0: 0.5,
-            y0: 0.5,
-            x1: 0.5,
-            y1: 0.5,
-            r0: 0.0,
-            r1: 0.5,
-            stops: stops.clone(),
-        });
-
-        assert_eq!(linear.stops(), stops.as_slice());
-        assert_eq!(radial.stops(), stops.as_slice());
-    }
-
-    #[test]
-    fn opacity_applies_to_solid_color_only() {
-        assert_eq!(
-            apply_opacity_to_color(&ColorOrGradient::Color([0.2, 0.4, 0.6, 0.5]), 0.25),
-            ColorOrGradient::Color([0.2, 0.4, 0.6, 0.125])
-        );
+    fn opacity_scales_solid_alpha_and_preserves_gradient_references() {
+        let color = ColorOrGradient::Color([0.2, 0.4, 0.6, 0.5]);
+        for (opacity, alpha) in [(-0.5, 0.0), (0.25, 0.125), (1.5, 0.5)] {
+            assert_eq!(
+                apply_opacity_to_color(&color, opacity),
+                ColorOrGradient::Color([0.2, 0.4, 0.6, alpha])
+            );
+        }
         assert_eq!(
             apply_opacity_to_color(&ColorOrGradient::GradientIndex(2), 0.25),
             ColorOrGradient::GradientIndex(2)

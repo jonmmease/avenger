@@ -8,3 +8,6 @@ css-color-parser = { workspace = true }
 ordered-float = { workspace = true }
 palette = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
