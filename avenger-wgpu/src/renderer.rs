@@ -902,7 +902,6 @@ impl AvengerRendererCore {
         let align = TextAlign::Left;
         let baseline = TextBaseline::Top;
         let font = style.font_family.to_string();
-        let number_locale_specs = avenger_text::NumberLocaleSpecs::default();
         for line in &overlay.lines {
             let color = line.color;
             let font_weight = FontWeight::Number(style.font_weight);
@@ -921,8 +920,7 @@ impl AvengerRendererCore {
                 limit: f32::INFINITY,
                 syntax_mode: TextSyntaxMode::Plain,
                 params: avenger_text::empty_label_params(),
-                number_locale: None,
-                number_locale_specs: &number_locale_specs,
+                number_format: None,
                 datetime_format: None,
                 use_nearest_filter: true,
             };
