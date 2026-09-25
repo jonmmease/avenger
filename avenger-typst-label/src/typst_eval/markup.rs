@@ -339,7 +339,6 @@ fn lower_numfmt_call(
     let Some(value) = value else {
         return Err(unsupported(range.start, "numfmt expects a value argument"));
     };
-    let spec = spec.unwrap_or_default();
     let config = number_format.config.ok_or_else(|| {
         numfmt_engine_error(range.clone(), "number formatting is not configured".into())
     })?;
@@ -350,7 +349,7 @@ fn lower_numfmt_call(
         )
     })?;
     let request = NumberFormatRequest {
-        spec,
+        spec: spec.unwrap_or_default(),
         options: overrides,
     };
     let formatted = if let Some(cache) = number_format.cache {
