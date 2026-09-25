@@ -13,7 +13,7 @@ use avenger_format_datetime_d3::{
     PreparedTimeMultiFormat,
 };
 use avenger_format_number_d3::{
-    prepare_number_float_format, NumberFormatContext, NumberLocaleRegistry, PreparedNumberFormat,
+    prepare_number_float_format, NumberLocaleRegistry, PreparedNumberFormat,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
@@ -35,11 +35,10 @@ impl DefaultFormatter {
             .clone()
             .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()));
         let locale = registry.resolve(self.number_locale.as_deref().unwrap_or("en-US"))?;
-        let context = NumberFormatContext::new(&locale);
         if let Some(spec) = &self.format_str {
-            PreparedNumberFormat::new(Some(spec), Default::default(), context)
+            PreparedNumberFormat::new(Some(spec), Default::default(), &locale)
         } else {
-            prepare_number_float_format(None, context)
+            prepare_number_float_format(None, &locale)
         }
         .map_err(AvengerScaleError::from)
     }
