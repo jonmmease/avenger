@@ -1,9 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, DateTimeFormatRequest,
-    NaiveDateTimeInput, PreparedCivilDateTimeFormatter, PreparedInstantFormatter,
-    ZonedDateTimeInput,
+    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
+    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
 };
 use chrono::{
     format::{DelayedFormat, Item, Numeric, StrftimeItems},
@@ -20,14 +19,9 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
     fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-        if request.timezone.is_some() {
-            return Err(error(
-                "civil datetime formatting cannot override the timezone",
-            ));
-        }
-        let pattern = Pattern::new(config, request)?;
+        let pattern = Pattern::new(config, spec)?;
         // Chrono assumes UTC for naive timestamps. Civil values have no implied instant.
         if pattern
             .items
@@ -48,18 +42,14 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
     fn prepare_zoned(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
-        let name = request
-            .timezone
-            .as_deref()
-            .or(config.timezone.as_deref())
-            .unwrap_or("UTC");
+        let name = config.timezone.as_deref().unwrap_or("UTC");
         let timezone = name
             .parse::<Tz>()
             .map_err(|_| error(format!("invalid IANA timezone `{name}`")))?;
         let formatter = ZonedFormat {
-            pattern: Pattern::new(config, request)?,
+            pattern: Pattern::new(config, spec)?,
             timezone,
         };
         // Chrono parses some directives, such as %#z, that it cannot use for formatting.
@@ -80,13 +70,8 @@ struct Pattern {
 impl Pattern {
     fn new(
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Self, DateTimeFormatError> {
-        if let Some(name) = request.options.keys().next() {
-            return Err(error(format!(
-                "unsupported Chrono datetime format option `{name}`"
-            )));
-        }
         if !config.locales.is_empty() {
             return Err(error(
                 "Chrono datetime formatting does not accept custom locale definitions",
@@ -99,8 +84,7 @@ impl Pattern {
                 .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
             None => Locale::POSIX,
         };
-        let spec = request
-            .spec
+        let spec = spec
             .as_str()
             .ok_or_else(|| error("Chrono datetime specification must be a string"))?;
         let items = StrftimeItems::new_with_locale(spec, locale)

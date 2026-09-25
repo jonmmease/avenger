@@ -1,11 +1,10 @@
 use crate::{
-    parse_datetime_timezone, DateTimeFormatContext as D3Context, DateTimeFormatOverrides,
-    DateTimeLocaleSpec, PreparedDateTimeFormat, PreparedTimeMultiFormat, ResolvedDateTimeLocale,
+    parse_datetime_timezone, DateTimeFormatContext as D3Context, DateTimeLocaleSpec,
+    PreparedDateTimeFormat, PreparedTimeMultiFormat, ResolvedDateTimeLocale,
 };
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, DateTimeFormatRequest,
-    NaiveDateTimeInput, PreparedCivilDateTimeFormatter, PreparedInstantFormatter,
-    ZonedDateTimeInput,
+    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
+    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
 };
 use std::sync::Arc;
 
@@ -16,12 +15,9 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
     fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-        if request.timezone.is_some() {
-            return Err(error(crate::DateTimeFormatError::TimezoneOverrideForNaive));
-        }
-        let prepared = PreparedFormat::new(config, request)?;
+        let prepared = PreparedFormat::new(config, spec)?;
         match &prepared {
             PreparedFormat::Scalar(format) => format.validate_naive(),
             PreparedFormat::Multi(format) => format.validate_naive(),
@@ -33,9 +29,9 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
     fn prepare_zoned(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(PreparedFormat::new(config, request)?))
+        Ok(Arc::new(PreparedFormat::new(config, spec)?))
     }
 }
 
@@ -47,13 +43,8 @@ enum PreparedFormat {
 impl PreparedFormat {
     fn new(
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Self, DateTimeFormatError> {
-        if let Some(name) = request.options.keys().next() {
-            return Err(DateTimeFormatError(format!(
-                "unsupported D3 datetime format option `{name}`"
-            )));
-        }
         let id = config.locale.as_deref().unwrap_or("en-US");
         let normalized = id.replace('_', "-");
         let data = config.locales.get(id).or_else(|| {
@@ -74,41 +65,21 @@ impl PreparedFormat {
         let timezone =
             parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
         let context = D3Context::new(&locale, timezone);
-        let multi_spec = match &request.spec {
+        match spec {
             serde_json::Value::Object(_) => {
-                Some(serde_json::from_value(request.spec.clone()).map_err(|err| {
+                let spec = serde_json::from_value(spec.clone()).map_err(|err| {
                     DateTimeFormatError(format!("invalid D3 time multi-format: {err}"))
-                })?)
-            }
-            serde_json::Value::String(_) => None,
-            _ => {
-                return Err(DateTimeFormatError(
-                    "D3 datetime specifier must be a string or object".into(),
+                })?;
+                Ok(Self::Multi(
+                    PreparedTimeMultiFormat::new(&spec, context).map_err(error)?,
                 ))
             }
-        };
-        if let Some(spec) = multi_spec {
-            let timezone = request
-                .timezone
-                .as_deref()
-                .map(parse_datetime_timezone)
-                .transpose()
-                .map_err(error)?
-                .unwrap_or(timezone);
-            let prepared = PreparedTimeMultiFormat::new(&spec, D3Context::new(&locale, timezone))
-                .map_err(error)?;
-            Ok(Self::Multi(prepared))
-        } else {
-            Ok(Self::Scalar(
-                PreparedDateTimeFormat::new(
-                    request.spec.as_str(),
-                    DateTimeFormatOverrides {
-                        timezone: request.timezone.clone(),
-                    },
-                    context,
-                )
-                .map_err(error)?,
-            ))
+            serde_json::Value::String(spec) => Ok(Self::Scalar(
+                PreparedDateTimeFormat::new(Some(spec), context).map_err(error)?,
+            )),
+            _ => Err(DateTimeFormatError(
+                "D3 datetime specifier must be a string or object".into(),
+            )),
         }
     }
 }

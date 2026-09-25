@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
-/// Named options interpreted and validated by the selected datetime provider.
-pub type DateTimeFormatOptions = BTreeMap<String, serde_json::Value>;
 /// Locale definitions in the selected provider's format, keyed by locale name.
 pub type DateTimeLocaleData = BTreeMap<String, serde_json::Value>;
 
@@ -53,27 +51,6 @@ impl DateTimeFormatConfig {
     }
 }
 
-/// Preparation input. Pattern syntax and named options belong to the provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DateTimeFormatRequest {
-    /// A provider-specific pattern or structured specification.
-    pub spec: serde_json::Value,
-    pub options: DateTimeFormatOptions,
-    /// Explicit per-call timezone override. Invalid for civil input.
-    pub timezone: Option<String>,
-}
-
-impl DateTimeFormatRequest {
-    /// Supply a format specification with no options or timezone override.
-    pub fn new(spec: impl Into<serde_json::Value>) -> Self {
-        Self {
-            spec: spec.into(),
-            options: BTreeMap::new(),
-            timezone: None,
-        }
-    }
-}
-
 /// Civil calendar fields without an instant or display offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NaiveDateTimeInput {
@@ -97,26 +74,26 @@ pub type ZonedDateTimeInput = chrono::DateTime<chrono::Utc>;
 #[error("{0}")]
 pub struct DateTimeFormatError(pub String);
 
-/// Resolve syntax, options, and locale data once for a sequence of labels.
+/// Resolve a string or structured specification and locale data for a sequence of labels.
 /// Registered providers must preserve their behavior throughout a registry snapshot.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
-    /// Prepare for civil dates and datetimes, rejecting options or fields that require an instant.
+    /// Prepare for civil dates and datetimes, rejecting fields that require an instant.
     fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError>;
 
     /// Prepare for instants displayed in the configured timezone.
     fn prepare_zoned(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError>;
 }
 
 /// Immutable, deterministic formatting of civil calendar fields.
-/// Preparation validates the specification; formatting can still reject unsupported values.
+/// Preparation validates the specification. Formatting can still reject unsupported values.
 pub trait PreparedCivilDateTimeFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError>;
 }
@@ -161,18 +138,18 @@ impl DateTimeFormatRegistry {
     pub fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: impl Into<serde_json::Value>,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-        self.provider(config)?.prepare_naive(config, request)
+        self.provider(config)?.prepare_naive(config, &spec.into())
     }
 
     /// Prepare an instant formatter through the explicitly selected provider.
     pub fn prepare_zoned(
         &self,
         config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
+        spec: impl Into<serde_json::Value>,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
-        self.provider(config)?.prepare_zoned(config, request)
+        self.provider(config)?.prepare_zoned(config, &spec.into())
     }
 
     fn provider(

@@ -1,6 +1,5 @@
 use crate::{
     locale::expand,
-    parse_datetime_timezone,
     parser::{parse_datetime_spec, Pattern, PatternToken},
     DateTimeFormatError, DateTimeLocaleSpec, ResolvedDateTimeLocale,
 };
@@ -9,11 +8,6 @@ use chrono_tz::Tz;
 use std::sync::Arc;
 
 pub use avenger_format::{NaiveDateTimeInput, ZonedDateTimeInput};
-/// An explicit display-zone override. Civil inputs cannot use this option.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DateTimeFormatOverrides {
-    pub timezone: Option<String>,
-}
 /// Locale and concrete timezone resolved by the caller.
 #[derive(Debug, Clone, Copy)]
 pub struct DateTimeFormatContext<'a> {
@@ -34,13 +28,11 @@ pub struct PreparedDateTimeFormat {
     locale: Arc<DateTimeLocaleSpec>,
     timezone: Tz,
     instant_directive: Option<char>,
-    timezone_override: bool,
 }
 impl PreparedDateTimeFormat {
     /// Prepare a D3 pattern. An omitted scalar pattern uses locale `%c`.
     pub fn new(
         spec: Option<&str>,
-        overrides: DateTimeFormatOverrides,
         context: DateTimeFormatContext<'_>,
     ) -> Result<Self, DateTimeFormatError> {
         let pattern = expand(
@@ -55,25 +47,15 @@ impl PreparedDateTimeFormat {
             } => Some(*code),
             _ => None,
         });
-        let timezone = overrides
-            .timezone
-            .as_deref()
-            .map(parse_datetime_timezone)
-            .transpose()?
-            .unwrap_or(context.timezone);
         Ok(Self {
             pattern,
             locale: Arc::clone(&context.locale.definition),
-            timezone,
+            timezone: context.timezone,
             instant_directive,
-            timezone_override: overrides.timezone.is_some(),
         })
     }
     /// Check civil-input compatibility before formatting a batch.
     pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        if self.timezone_override {
-            return Err(DateTimeFormatError::TimezoneOverrideForNaive);
-        }
         if let Some(code) = self.instant_directive {
             return Err(DateTimeFormatError::TimezoneFieldForNaive(format!(
                 "%{code}"
@@ -198,19 +180,17 @@ impl PreparedDateTimeFormat {
 pub fn format_naive_datetime(
     value: NaiveDateTimeInput,
     spec: Option<&str>,
-    overrides: DateTimeFormatOverrides,
     context: DateTimeFormatContext<'_>,
 ) -> Result<String, DateTimeFormatError> {
-    PreparedDateTimeFormat::new(spec, overrides, context)?.format_naive(value)
+    PreparedDateTimeFormat::new(spec, context)?.format_naive(value)
 }
 /// Format an instant with a D3 pattern and an explicit display zone.
 pub fn format_zoned_datetime(
     value: ZonedDateTimeInput,
     spec: Option<&str>,
-    overrides: DateTimeFormatOverrides,
     context: DateTimeFormatContext<'_>,
 ) -> Result<String, DateTimeFormatError> {
-    PreparedDateTimeFormat::new(spec, overrides, context)?.format_zoned(value)
+    PreparedDateTimeFormat::new(spec, context)?.format_zoned(value)
 }
 
 // JavaScript Date clips fractional epoch milliseconds toward zero.

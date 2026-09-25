@@ -11,8 +11,8 @@ mod timezone;
 
 pub use error::{DateTimeFormatError, DateTimeParseError};
 pub use format::{
-    format_naive_datetime, format_zoned_datetime, DateTimeFormatContext, DateTimeFormatOverrides,
-    NaiveDateTimeInput, PreparedDateTimeFormat, ZonedDateTimeInput,
+    format_naive_datetime, format_zoned_datetime, DateTimeFormatContext, NaiveDateTimeInput,
+    PreparedDateTimeFormat, ZonedDateTimeInput,
 };
 pub use locale::{DateTimeLocaleSpec, LocaleId, ResolvedDateTimeLocale};
 pub use provider::D3DateTimeFormatProvider;

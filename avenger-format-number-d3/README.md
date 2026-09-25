@@ -3,15 +3,15 @@
 `avenger-format-number-d3` implements valid D3 number formats with D3 locale definitions.
 
 ```rust
-use avenger_format_number_d3::{NumberLocaleRegistry, PreparedNumberFormat};
+use avenger_format::{NumberFormatConfig, NumberFormatRegistry};
+use avenger_format_number_d3::D3NumberFormatProvider;
+use std::sync::Arc;
 
-fn main() -> Result<(), avenger_format_number_d3::FormatError> {
-    let locale = NumberLocaleRegistry::with_builtins().resolve("en-US")?;
-    let formatter = PreparedNumberFormat::new(
-        Some("$,.2f"),
-        Default::default(),
-        &locale,
-    )?;
+fn main() -> Result<(), avenger_format::NumberFormatError> {
+    let mut registry = NumberFormatRegistry::default();
+    registry.register("d3", Arc::new(D3NumberFormatProvider));
+    let config = NumberFormatConfig::new("d3").with_locale("en-US");
+    let formatter = registry.prepare(&config, "$,.2f")?;
     assert_eq!(formatter.format(1234.5).text, "$1,234.50");
     Ok(())
 }
@@ -37,6 +37,8 @@ The supported grammar is the documented [D3 number format](https://d3js.org/d3-f
 
 The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
 
-`D3NumberFormatProvider` implements the provider interface in `avenger-format`. Register it explicitly in a `NumberFormatRegistry` and select that name with `NumberFormatConfig::new("d3")`. Every request supplies an explicit D3 specifier. Named options are `type` (or `style`), `precision`, `group`, `trim`, `sign`, `symbol`, `width`, `fill`, `align`, and `zero`. Their meanings match D3 specifier fields. Null restores automatic precision or clears an optional padding or symbol field. Other options are rejected.
+`D3NumberFormatProvider` implements the provider interface in `avenger-format`. Register it explicitly in a `NumberFormatRegistry` and select that name with `NumberFormatConfig::new("d3")`. Pass a format string directly to `prepare()`, or pass a `NumberFormatRequest` with named options. Owned and borrowed requests are accepted. Named options are `type` (or `style`), `precision`, `group`, `trim`, `sign`, `symbol`, `width`, `fill`, `align`, and `zero`. Their meanings match D3 specifier fields. Null restores automatic precision or clears an optional padding or symbol field. Other options are rejected.
 
-The provider also accepts `auto_precision: true` to choose Vega's precision and trimming when precision is unspecified. Alternatively, `step` and `reference_value` together infer precision from numeric spacing and coordinate SI units. Explicit precision is preserved in either case. These options cannot be combined. The caller chooses the format string, including defaults such as `,`, `c`, or `,f`; the shared interface has no scale or tick context.
+Use `with_locale()` and `with_custom_locale()` to configure the selected locale and custom definitions. The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
+
+The provider also accepts `auto_precision: true` to choose Vega's precision and trimming when precision is unspecified. Alternatively, `step` and `reference_value` together infer precision from numeric spacing and coordinate SI units. Explicit precision is preserved in either case. These options cannot be combined. The caller chooses the format string, including defaults such as `,`, `c`, or `,f`. The shared interface has no scale or tick context.

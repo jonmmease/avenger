@@ -9,7 +9,7 @@ fn unknown_provider_is_rejected() {
     let registry = NumberFormatRegistry::default();
     let config = NumberFormatConfig::new("missing");
     assert!(registry
-        .prepare(&config, &NumberFormatRequest::new(""))
+        .prepare(&config, "")
         .unwrap_err()
         .to_string()
         .contains("missing"));
@@ -38,30 +38,25 @@ impl PreparedNumberFormatter for Literal {
 fn providers_are_replaceable_without_changing_prepared_formatters() {
     let mut registry = NumberFormatRegistry::default();
     registry.register("literal", Arc::new(Literal("first")));
-    let config = NumberFormatConfig {
-        locale: Some("custom".into()),
-        ..NumberFormatConfig::new("literal")
-    };
+    let config = NumberFormatConfig::new("literal").with_locale("custom");
     let request = NumberFormatRequest::new("provider-specific syntax");
     let old_registry = registry.clone();
-    let prepared = registry.prepare(&config, &request).unwrap();
+    let prepared = registry
+        .prepare(&config, "provider-specific syntax")
+        .unwrap();
     registry.register("literal", Arc::new(Literal("second")));
     assert_ne!(registry.cache_id(), old_registry.cache_id());
     assert_eq!(prepared.format(1.0).text, "first");
     assert_eq!(
         old_registry
-            .prepare(&config, &request)
+            .prepare(&config, request.spec.clone())
             .unwrap()
             .format(1.0)
             .text,
         "first"
     );
     assert_eq!(
-        registry
-            .prepare(&config, &request)
-            .unwrap()
-            .format(1.0)
-            .text,
+        registry.prepare(&config, request).unwrap().format(1.0).text,
         "second"
     );
 }
@@ -79,23 +74,23 @@ impl avenger_format::DateTimeFormatProvider for DateLiteral {
     fn prepare_naive(
         &self,
         _: &avenger_format::DateTimeFormatConfig,
-        request: &avenger_format::DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<
         Arc<dyn avenger_format::PreparedCivilDateTimeFormatter>,
         avenger_format::DateTimeFormatError,
     > {
-        assert_eq!(request.spec, serde_json::json!({"calendar": "custom"}));
+        assert_eq!(*spec, serde_json::json!({"calendar": "custom"}));
         Ok(Arc::new(DateLiteral(self.0)))
     }
     fn prepare_zoned(
         &self,
         _: &avenger_format::DateTimeFormatConfig,
-        request: &avenger_format::DateTimeFormatRequest,
+        spec: &serde_json::Value,
     ) -> Result<
         Arc<dyn avenger_format::PreparedInstantFormatter>,
         avenger_format::DateTimeFormatError,
     > {
-        assert_eq!(request.spec, serde_json::json!({"calendar": "custom"}));
+        assert_eq!(*spec, serde_json::json!({"calendar": "custom"}));
         Ok(Arc::new(DateLiteral(self.0)))
     }
 }
@@ -118,21 +113,21 @@ impl avenger_format::PreparedInstantFormatter for DateLiteral {
 
 #[test]
 fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
-    use avenger_format::{DateTimeFormatConfig, DateTimeFormatRegistry, DateTimeFormatRequest};
+    use avenger_format::{DateTimeFormatConfig, DateTimeFormatRegistry};
     assert!(serde_json::from_str::<DateTimeFormatConfig>("{}").is_err());
     let config: DateTimeFormatConfig = serde_json::from_str(r#"{"provider":"custom"}"#).unwrap();
     assert_eq!(config, DateTimeFormatConfig::new("custom"));
-    let request = DateTimeFormatRequest::new(serde_json::json!({"calendar": "custom"}));
+    let spec = serde_json::json!({"calendar": "custom"});
     let mut registry = DateTimeFormatRegistry::default();
     assert!(registry
-        .prepare_zoned(&config, &request)
+        .prepare_zoned(&config, spec.clone())
         .unwrap_err()
         .to_string()
         .contains("custom"));
     registry.register("custom", Arc::new(DateLiteral("first")));
     let snapshot = registry.clone();
-    let prepared = registry.prepare_zoned(&config, &request).unwrap();
-    let civil = registry.prepare_naive(&config, &request).unwrap();
+    let prepared = registry.prepare_zoned(&config, spec.clone()).unwrap();
+    let civil = registry.prepare_naive(&config, spec.clone()).unwrap();
     assert_eq!(registry.cache_id(), snapshot.cache_id());
     registry.register("custom", Arc::new(DateLiteral("second")));
     assert_ne!(registry.cache_id(), snapshot.cache_id());
@@ -141,7 +136,7 @@ fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
     assert_eq!(civil.format(date).unwrap(), "first");
     assert_eq!(
         registry
-            .prepare_naive(&config, &request)
+            .prepare_naive(&config, spec.clone())
             .unwrap()
             .format(date)
             .unwrap(),
@@ -150,7 +145,7 @@ fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
     assert_eq!(prepared.format(instant).unwrap(), "first");
     assert_eq!(
         snapshot
-            .prepare_zoned(&config, &request)
+            .prepare_zoned(&config, spec.clone())
             .unwrap()
             .format(instant)
             .unwrap(),
@@ -158,7 +153,7 @@ fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
     );
     assert_eq!(
         registry
-            .prepare_zoned(&config, &request)
+            .prepare_zoned(&config, spec.clone())
             .unwrap()
             .format(instant)
             .unwrap(),

@@ -21,11 +21,18 @@ impl NumberFormatProvider for D3NumberFormatProvider {
         request: &NumberFormatRequest,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
         let id = config.locale.as_deref().unwrap_or("en-US");
-        let locale = if let Some(data) = config.locales.get(id) {
+        let normalized = id.replace('_', "-");
+        let data = config.locales.get(id).or_else(|| {
+            config
+                .locales
+                .iter()
+                .find_map(|(name, data)| (name.replace('_', "-") == normalized).then_some(data))
+        });
+        let locale = if let Some(data) = data {
             let spec: NumberLocaleSpec = serde_json::from_value(data.clone())
                 .map_err(|err| NumberFormatError(format!("invalid D3 locale `{id}`: {err}")))?;
             ResolvedNumberLocale::new(id, spec)
-        } else if id == "en-US" {
+        } else if normalized == "en-US" {
             Ok(ResolvedNumberLocale::en_us())
         } else {
             Err(crate::FormatError::LocaleNotFound(id.into()))

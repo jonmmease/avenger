@@ -1,7 +1,7 @@
 use avenger_format_datetime_d3::{
-    DateTimeFormatContext, DateTimeFormatError, DateTimeFormatOverrides, DateTimeLocaleRegistry,
-    DateTimeLocaleSpec, DateTimeParseError, NaiveDateTimeInput, PreparedDateTimeFormat,
-    PreparedTimeMultiFormat, ResolvedDateTimeLocale, TimeMultiFormatSpec,
+    DateTimeFormatContext, DateTimeFormatError, DateTimeLocaleRegistry, DateTimeLocaleSpec,
+    DateTimeParseError, NaiveDateTimeInput, PreparedDateTimeFormat, PreparedTimeMultiFormat,
+    ResolvedDateTimeLocale, TimeMultiFormatSpec,
 };
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::{America::New_York, Asia::Tokyo, UTC};
@@ -10,9 +10,7 @@ use chrono_tz::{America::New_York, Asia::Tokyo, UTC};
 fn civil_values_preserve_fields_and_select_calendar_formats() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, New_York);
-    let scalar =
-        PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M:%S.%L %f"), Default::default(), context)
-            .unwrap();
+    let scalar = PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M:%S.%L %f"), context).unwrap();
     let date = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
     assert_eq!(
         scalar.format_naive(NaiveDateTimeInput::Date(date)).unwrap(),
@@ -51,7 +49,7 @@ fn civil_values_preserve_fields_and_select_calendar_formats() {
 
 #[test]
 fn civil_preparation_rejects_instant_fields_including_locale_expansions() {
-    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
+    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider};
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%Z", "%Q", "%s"] {
         let config = DateTimeFormatConfig::new("d3")
@@ -69,46 +67,25 @@ fn civil_preparation_rejects_instant_fields_including_locale_expansions() {
             serde_json::json!("%c"),
             serde_json::json!({"month": "%c"}),
         ] {
-            let request = DateTimeFormatRequest::new(spec);
             assert!(provider
-                .prepare_naive(&config, &request)
+                .prepare_naive(&config, &spec)
                 .unwrap_err()
                 .to_string()
                 .contains(directive));
-            assert!(provider.prepare_zoned(&config, &request).is_ok());
+            assert!(provider.prepare_zoned(&config, &spec).is_ok());
         }
     }
 }
 
 #[test]
-fn timezone_overrides_preserve_epoch_and_reject_civil_inputs() {
+fn display_timezone_preserves_epoch() {
     let locale = ResolvedDateTimeLocale::en_us();
-    let context = DateTimeFormatContext::new(&locale, New_York);
-    let overrides = DateTimeFormatOverrides {
-        timezone: Some("Asia/Tokyo".into()),
-    };
-    let format =
-        PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M %Z %Q %s"), overrides.clone(), context)
-            .unwrap();
+    let context = DateTimeFormatContext::new(&locale, Tokyo);
+    let format = PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M %Z %Q %s"), context).unwrap();
     assert_eq!(
-        format
-            .format_zoned(DateTime::from_timestamp_millis(0).unwrap())
-            .unwrap(),
+        format.format_zoned(DateTime::UNIX_EPOCH).unwrap(),
         "1970-01-01 09:00 +0900 0 0"
     );
-    let civil = PreparedDateTimeFormat::new(Some("%Y"), overrides, context).unwrap();
-    assert_eq!(
-        civil.format_naive(NaiveDateTimeInput::Date(NaiveDate::MIN)),
-        Err(DateTimeFormatError::TimezoneOverrideForNaive)
-    );
-    assert!(matches!(
-        PreparedDateTimeFormat::new(
-            None,
-            DateTimeFormatOverrides { timezone: Some("invalid/zone".into()) },
-            context
-        ),
-        Err(DateTimeFormatError::InvalidTimezone(zone)) if zone == "invalid/zone"
-    ));
 }
 
 #[test]
@@ -123,12 +100,7 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
         .unwrap();
     let locale = registry.resolve("fr-FR").unwrap();
     let prepare = |locale: &ResolvedDateTimeLocale| {
-        PreparedDateTimeFormat::new(
-            Some("%B %x"),
-            Default::default(),
-            DateTimeFormatContext::new(locale, UTC),
-        )
-        .unwrap()
+        PreparedDateTimeFormat::new(Some("%B %x"), DateTimeFormatContext::new(locale, UTC)).unwrap()
     };
     let original = prepare(&locale);
     let mut replacement = locale.definition().clone();
@@ -181,7 +153,7 @@ fn malformed_patterns_report_byte_positions() {
     let context = DateTimeFormatContext::new(&locale, UTC);
     for (pattern, expected_position) in [("%", 0), ("%_", 0), ("%k", 0), ("é%k", 2)] {
         assert!(matches!(
-            PreparedDateTimeFormat::new(Some(pattern), Default::default(), context),
+            PreparedDateTimeFormat::new(Some(pattern), context),
             Err(DateTimeFormatError::Parse(DateTimeParseError::Invalid { position, .. }))
                 if position == expected_position
         ));
@@ -189,7 +161,7 @@ fn malformed_patterns_report_byte_positions() {
     let date = NaiveDateTimeInput::Date(NaiveDate::MIN);
     for pattern in ["", "literal é"] {
         assert_eq!(
-            PreparedDateTimeFormat::new(Some(pattern), Default::default(), context)
+            PreparedDateTimeFormat::new(Some(pattern), context)
                 .unwrap()
                 .format_naive(date)
                 .unwrap(),
@@ -243,8 +215,7 @@ fn out_of_range_display_dates_return_errors() {
         (last_leap, UTC),
     ] {
         let context = DateTimeFormatContext::new(&locale, zone);
-        let scalar =
-            PreparedDateTimeFormat::new(Some("%Y-%m-%d"), Default::default(), context).unwrap();
+        let scalar = PreparedDateTimeFormat::new(Some("%Y-%m-%d"), context).unwrap();
         let multi = PreparedTimeMultiFormat::new(&Default::default(), context).unwrap();
         assert_eq!(
             scalar.format_zoned(value),
@@ -276,8 +247,7 @@ fn out_of_range_display_dates_return_errors() {
 fn civil_leap_seconds_are_rejected() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, UTC);
-    let scalar =
-        PreparedDateTimeFormat::new(Some("%H:%M:%S.%L"), Default::default(), context).unwrap();
+    let scalar = PreparedDateTimeFormat::new(Some("%H:%M:%S.%L"), context).unwrap();
     let multi = PreparedTimeMultiFormat::new(&Default::default(), context).unwrap();
     let value = NaiveDateTimeInput::DateTime(
         NaiveDate::from_ymd_opt(2016, 12, 31)
@@ -299,8 +269,7 @@ fn civil_leap_seconds_are_rejected() {
 fn submillisecond_instants_use_javascript_date_precision() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, UTC);
-    let format =
-        PreparedDateTimeFormat::new(Some("%Q %s %L %f"), Default::default(), context).unwrap();
+    let format = PreparedDateTimeFormat::new(Some("%Q %s %L %f"), context).unwrap();
     let just_before_epoch = DateTime::from_timestamp(-1, 999_500_000).unwrap();
     for (value, expected) in [
         (just_before_epoch, "0 0 000 000000"),
@@ -327,8 +296,7 @@ fn submillisecond_instants_use_javascript_date_precision() {
 fn ordinal_uses_calendar_date_after_midnight_offset_change() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, chrono_tz::Asia::Kathmandu);
-    let format =
-        PreparedDateTimeFormat::new(Some("%Y-%m-%d %j"), Default::default(), context).unwrap();
+    let format = PreparedDateTimeFormat::new(Some("%Y-%m-%d %j"), context).unwrap();
     // D3's elapsed-day calculation gives 001 after the January 1, 1986 midnight gap.
     let value = "1986-01-02T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
     assert_eq!(format.format_zoned(value).unwrap(), "1986-01-02 002");
@@ -336,7 +304,7 @@ fn ordinal_uses_calendar_date_after_midnight_offset_change() {
 
 #[test]
 fn provider_accepts_explicit_patterns_and_multi_formats() {
-    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
+    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider};
     use serde_json::json;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     let config = DateTimeFormatConfig::new("d3").with_timezone("America/New_York");
@@ -357,32 +325,19 @@ fn provider_accepts_explicit_patterns_and_multi_formats() {
         ),
         (json!(""), "", ""),
     ] {
-        let request = DateTimeFormatRequest::new(spec);
-        let prepared = provider.prepare_naive(&config, &request).unwrap();
+        let prepared = provider.prepare_naive(&config, &spec).unwrap();
         assert_eq!(
             prepared.format(NaiveDateTimeInput::Date(date)).unwrap(),
             civil
         );
         assert_eq!(
             provider
-                .prepare_zoned(&config, &request)
+                .prepare_zoned(&config, &spec)
                 .unwrap()
                 .format(instant)
                 .unwrap(),
             zoned
         );
-    }
-    for spec in [json!("%c"), json!({})] {
-        let request = DateTimeFormatRequest {
-            timezone: Some("UTC".into()),
-            ..DateTimeFormatRequest::new(spec)
-        };
-        assert!(provider.prepare_naive(&config, &request).is_err());
-        assert!(provider
-            .prepare_zoned(&config, &request)
-            .unwrap()
-            .format(instant)
-            .is_ok());
     }
     // An invalid branch is rejected even if the first value would choose a different branch.
     for spec in [
@@ -391,35 +346,25 @@ fn provider_accepts_explicit_patterns_and_multi_formats() {
         json!("%s"),
         json!({"year":"%Y", "month":"%Q"}),
     ] {
-        let request = DateTimeFormatRequest::new(spec);
-        assert!(provider.prepare_naive(&config, &request).is_err());
-        assert!(provider.prepare_zoned(&config, &request).is_ok());
+        assert!(provider.prepare_naive(&config, &spec).is_err());
+        assert!(provider.prepare_zoned(&config, &spec).is_ok());
     }
-    for request in [
-        DateTimeFormatRequest::new(json!(null)),
-        DateTimeFormatRequest::new(json!(42)),
-        DateTimeFormatRequest {
-            options: [("calendar".into(), "unsupported".into())].into(),
-            ..DateTimeFormatRequest::new("%c")
-        },
-        DateTimeFormatRequest {
-            timezone: Some("local".into()),
-            ..DateTimeFormatRequest::new("%c")
-        },
-    ] {
-        assert!(provider.prepare_naive(&config, &request).is_err());
-        assert!(provider.prepare_zoned(&config, &request).is_err());
+    for spec in [json!(null), json!(42)] {
+        assert!(provider.prepare_naive(&config, &spec).is_err());
+        assert!(provider.prepare_zoned(&config, &spec).is_err());
     }
+    let config = config.with_timezone("local");
+    assert!(provider.prepare_zoned(&config, &json!("%c")).is_err());
 }
 
 #[test]
 fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
-    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
+    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider};
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    let request = DateTimeFormatRequest::new("%x");
+    let spec = serde_json::json!("%x");
     for (registered, selected) in [("fr-FR", "fr_FR"), ("fr_FR", "fr-FR")] {
         let mut config = DateTimeFormatConfig::new("d3").with_locale(selected);
-        assert!(provider.prepare_naive(&config, &request).is_err());
+        assert!(provider.prepare_naive(&config, &spec).is_err());
         config.locales.insert(
             registered.into(),
             serde_json::to_value(DateTimeLocaleSpec {
@@ -428,7 +373,7 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
             })
             .unwrap(),
         );
-        let formatter = provider.prepare_naive(&config, &request).unwrap();
+        let formatter = provider.prepare_naive(&config, &spec).unwrap();
         assert_eq!(
             formatter
                 .format(NaiveDateTimeInput::Date(
@@ -441,6 +386,6 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
         config
             .locales
             .insert(selected.into(), serde_json::json!({"months": []}));
-        assert!(provider.prepare_naive(&config, &request).is_err());
+        assert!(provider.prepare_naive(&config, &spec).is_err());
     }
 }

@@ -35,9 +35,6 @@ pub enum DateTimeFormatError {
     #[error("invalid timezone `{0}`")]
     InvalidTimezone(String),
 
-    #[error("timezone override is invalid for naive datetime formatting")]
-    TimezoneOverrideForNaive,
-
     #[error("datetime format field `{0}` requires timezone-aware input")]
     TimezoneFieldForNaive(String),
 }

@@ -8,9 +8,16 @@ fn provider_prepares_explicit_d3_specs_and_options() {
         "d3",
         std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
     );
-    let config = NumberFormatConfig::new("d3");
+    let config = NumberFormatConfig::new("d3").with_locale("en_US");
+    assert_eq!(
+        registry
+            .prepare(&config, ",.2f")
+            .unwrap()
+            .format(1234.5)
+            .text,
+        "1,234.50"
+    );
     for (spec, options, value, expected) in [
-        (",.2f", json!({}), 1234.5, "1,234.50"),
         (",", json!({"auto_precision":true}), 0.0012, "0.0012"),
         ("", json!({"auto_precision":true}), 1234.5, "1234.5"),
         ("c", json!({}), 1234.5, "1234.5"),
@@ -41,14 +48,6 @@ fn provider_prepares_explicit_d3_specs_and_options() {
             expected
         );
     }
-    let mut config = NumberFormatConfig {
-        locale: Some("custom".into()),
-        ..NumberFormatConfig::new("d3")
-    };
-    config.locales.insert(
-        "custom".into(),
-        json!({"decimal": ",", "thousands": ".", "grouping": [3]}),
-    );
     let request = NumberFormatRequest {
         spec: "08,.2f".into(),
         options: [
@@ -58,16 +57,27 @@ fn provider_prepares_explicit_d3_specs_and_options() {
         ]
         .into(),
     };
-    let config: NumberFormatConfig =
-        serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
-    assert_eq!(
-        registry
-            .prepare(&config, &request)
-            .unwrap()
-            .format(1234.5)
-            .text,
-        "1.234,5"
-    );
+    for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
+        let config = NumberFormatConfig::new("d3")
+            .with_locale(selected)
+            .with_custom_locale(
+                registered,
+                json!({"decimal": ",", "thousands": ".", "grouping": [3]}),
+            );
+        let config: NumberFormatConfig =
+            serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(
+            registry
+                .prepare(&config, &request)
+                .unwrap()
+                .format(1234.5)
+                .text,
+            "1.234,5"
+        );
+        // An exact custom name takes precedence even when its definition is invalid.
+        let config = config.with_custom_locale(selected, json!({"grouping": "invalid"}));
+        assert!(registry.prepare(&config, &request).is_err());
+    }
     for (name, value) in [
         ("precision", json!(-1)),
         ("align", json!("?")),

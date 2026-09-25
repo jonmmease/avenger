@@ -1,6 +1,6 @@
 use avenger_format_datetime_d3::{
-    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleSpec, PreparedDateTimeFormat,
-    PreparedTimeMultiFormat, ResolvedDateTimeLocale,
+    DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, PreparedTimeMultiFormat,
+    ResolvedDateTimeLocale,
 };
 use chrono::DateTime;
 use serde::Deserialize;
@@ -44,14 +44,10 @@ fn matches_d3_time_format() {
                 .format_zoned(value)
                 .unwrap()
         } else {
-            PreparedDateTimeFormat::new(
-                case.spec.as_str(),
-                DateTimeFormatOverrides::default(),
-                context,
-            )
-            .unwrap()
-            .format_zoned(value)
-            .unwrap()
+            PreparedDateTimeFormat::new(case.spec.as_str(), context)
+                .unwrap()
+                .format_zoned(value)
+                .unwrap()
         };
         assert_eq!(
             actual, case.expected,

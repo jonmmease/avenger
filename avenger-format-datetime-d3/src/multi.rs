@@ -65,7 +65,6 @@ impl PreparedTimeMultiFormat {
                             .filter(|value| !value.is_empty())
                             .unwrap_or(default),
                     ),
-                    Default::default(),
                     context,
                 )
             })

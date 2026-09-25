@@ -2,9 +2,9 @@
 
 mod datetime;
 pub use datetime::{
-    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatOptions, DateTimeFormatProvider,
-    DateTimeFormatRegistry, DateTimeFormatRequest, DateTimeLocaleData, NaiveDateTimeInput,
-    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
+    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, DateTimeFormatRegistry,
+    DateTimeLocaleData, NaiveDateTimeInput, PreparedCivilDateTimeFormatter,
+    PreparedInstantFormatter, ZonedDateTimeInput,
 };
 
 mod formatted_number;
@@ -44,6 +44,22 @@ impl NumberFormatConfig {
             locales: BTreeMap::new(),
         }
     }
+
+    /// Select a locale understood by the provider.
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = Some(locale.into());
+        self
+    }
+
+    /// Add or replace a provider-specific locale definition without selecting it.
+    pub fn with_custom_locale(
+        mut self,
+        name: impl Into<String>,
+        definition: serde_json::Value,
+    ) -> Self {
+        self.locales.insert(name.into(), definition);
+        self
+    }
 }
 
 /// Input to preparation. Specifier syntax and named options belong to the provider.
@@ -61,6 +77,24 @@ impl NumberFormatRequest {
             spec: spec.into(),
             options: BTreeMap::new(),
         }
+    }
+}
+
+impl From<&str> for NumberFormatRequest {
+    fn from(spec: &str) -> Self {
+        Self::new(spec)
+    }
+}
+
+impl From<String> for NumberFormatRequest {
+    fn from(spec: String) -> Self {
+        Self::new(spec)
+    }
+}
+
+impl From<&NumberFormatRequest> for NumberFormatRequest {
+    fn from(request: &NumberFormatRequest) -> Self {
+        request.clone()
     }
 }
 
@@ -120,10 +154,11 @@ impl NumberFormatRegistry {
     pub fn cache_id(&self) -> usize {
         self.cache_id
     }
+    /// Prepare from a format string or a request with provider-specific options.
     pub fn prepare(
         &self,
         config: &NumberFormatConfig,
-        request: &NumberFormatRequest,
+        request: impl Into<NumberFormatRequest>,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
         self.providers
             .get(&config.provider)
@@ -133,6 +168,6 @@ impl NumberFormatRegistry {
                     config.provider
                 ))
             })?
-            .prepare(config, request)
+            .prepare(config, &request.into())
     }
 }
