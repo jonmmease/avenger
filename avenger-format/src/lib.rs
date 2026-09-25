@@ -2,9 +2,9 @@
 
 mod datetime;
 pub use datetime::{
-    DateTimeFormatConfig, DateTimeFormatContext, DateTimeFormatError, DateTimeFormatOptions,
-    DateTimeFormatProvider, DateTimeFormatRegistry, DateTimeFormatRequest, DateTimeLocaleData,
-    NaiveDateTimeInput, PreparedDateTimeFormatter, ZonedDateTimeInput,
+    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatOptions, DateTimeFormatProvider,
+    DateTimeFormatRegistry, DateTimeFormatRequest, DateTimeLocaleData, NaiveDateTimeInput,
+    PreparedDateTimeFormatter, ZonedDateTimeInput,
 };
 
 mod formatted_number;
@@ -46,32 +46,22 @@ impl NumberFormatConfig {
     }
 }
 
-/// Numeric context supplied by the caller, without selecting or generating ticks.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum NumberFormatContext {
-    /// Format an individual value using the provider's ordinary defaults.
-    #[default]
-    Scalar,
-    /// Choose automatic precision for unrelated or unevenly spaced numeric values.
-    Continuous,
-    /// Preserve numeric category identities unless an explicit format is supplied.
-    Discrete,
-    /// Coordinate precision and units for a set of labels.
-    Step {
-        /// Selected spacing between ticks. Zero or non-finite spacing uses default precision.
-        step: f64,
-        /// Typically the label with the largest absolute magnitude.
-        reference_value: f64,
-    },
+/// Input to preparation. Specifier syntax and named options belong to the provider.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumberFormatRequest {
+    /// Explicit provider-specific specifier.
+    pub spec: String,
+    pub options: NumberFormatOptions,
 }
 
-/// Input to preparation. Specifier syntax and named options belong to the provider.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct NumberFormatRequest {
-    /// Provider-specific specifier; `None` selects its default.
-    pub spec: Option<String>,
-    pub options: NumberFormatOptions,
-    pub context: NumberFormatContext,
+impl NumberFormatRequest {
+    /// Supply a format specification with no additional options.
+    pub fn new(spec: impl Into<String>) -> Self {
+        Self {
+            spec: spec.into(),
+            options: BTreeMap::new(),
+        }
+    }
 }
 
 /// A configuration error detected before rendering values.

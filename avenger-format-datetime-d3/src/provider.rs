@@ -3,8 +3,8 @@ use crate::{
     DateTimeLocaleSpec, PreparedDateTimeFormat, PreparedTimeMultiFormat, ResolvedDateTimeLocale,
 };
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatContext, DateTimeFormatError, DateTimeFormatProvider,
-    DateTimeFormatRequest, NaiveDateTimeInput, PreparedDateTimeFormatter, ZonedDateTimeInput,
+    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, DateTimeFormatRequest,
+    NaiveDateTimeInput, PreparedDateTimeFormatter, ZonedDateTimeInput,
 };
 use std::sync::Arc;
 
@@ -35,32 +35,14 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         let timezone =
             parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
         let context = D3Context::new(&locale, timezone);
-        if request.spec.is_none() && request.context == DateTimeFormatContext::Data {
-            let prepare = |spec| {
-                PreparedDateTimeFormat::new(
-                    Some(spec),
-                    DateTimeFormatOverrides {
-                        timezone: request.timezone.clone(),
-                    },
-                    context,
-                )
-                .map_err(error)
-            };
-            return Ok(Arc::new(PreparedData {
-                date: prepare("%Y-%m-%d")?,
-                datetime: prepare("%Y-%m-%d %H:%M:%S")?,
-                instant: prepare("%Y-%m-%d %H:%M:%S %Z")?,
-            }));
-        }
         let multi_spec = match &request.spec {
-            None if request.context == DateTimeFormatContext::Tick => Some(Default::default()),
-            Some(value) if value.is_object() => {
-                Some(serde_json::from_value(value.clone()).map_err(|err| {
+            serde_json::Value::Object(_) => {
+                Some(serde_json::from_value(request.spec.clone()).map_err(|err| {
                     DateTimeFormatError(format!("invalid D3 time multi-format: {err}"))
                 })?)
             }
-            None | Some(serde_json::Value::String(_)) => None,
-            Some(_) => {
+            serde_json::Value::String(_) => None,
+            _ => {
                 return Err(DateTimeFormatError(
                     "D3 datetime specifier must be a string or object".into(),
                 ))
@@ -84,7 +66,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         } else {
             Ok(Arc::new(
                 PreparedDateTimeFormat::new(
-                    request.spec.as_ref().and_then(serde_json::Value::as_str),
+                    request.spec.as_str(),
                     DateTimeFormatOverrides {
                         timezone: request.timezone.clone(),
                     },
@@ -131,28 +113,5 @@ impl PreparedDateTimeFormatter for PreparedMulti {
     }
     fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.prepared.format_zoned(value).map_err(error)
-    }
-}
-
-/// Data labels retain enough calendar fields to distinguish individual values.
-#[derive(Debug)]
-struct PreparedData {
-    date: PreparedDateTimeFormat,
-    datetime: PreparedDateTimeFormat,
-    instant: PreparedDateTimeFormat,
-}
-impl PreparedDateTimeFormatter for PreparedData {
-    fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        self.datetime.validate_naive().map_err(error)
-    }
-    fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
-        match value {
-            NaiveDateTimeInput::Date(_) => self.date.format_naive(value),
-            NaiveDateTimeInput::DateTime(_) => self.datetime.format_naive(value),
-        }
-        .map_err(error)
-    }
-    fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
-        self.instant.format_zoned(value).map_err(error)
     }
 }

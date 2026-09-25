@@ -31,27 +31,25 @@ impl DateTimeFormatConfig {
     }
 }
 
-/// The caller's purpose, without choosing datetime patterns or generating ticks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DateTimeFormatContext {
-    /// Format an individual value using the provider's ordinary pattern.
-    #[default]
-    Scalar,
-    /// Format data values with patterns appropriate to dates, civil datetimes, or instants.
-    Data,
-    /// Let the provider choose labels for calendar tick boundaries.
-    Tick,
-}
-
 /// Preparation input. Pattern syntax and named options belong to the provider.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateTimeFormatRequest {
     /// A provider-specific pattern or structured specification.
-    pub spec: Option<serde_json::Value>,
+    pub spec: serde_json::Value,
     pub options: DateTimeFormatOptions,
-    pub context: DateTimeFormatContext,
     /// Explicit per-call timezone override. Invalid for civil input.
     pub timezone: Option<String>,
+}
+
+impl DateTimeFormatRequest {
+    /// Supply a format specification with no options or timezone override.
+    pub fn new(spec: impl Into<serde_json::Value>) -> Self {
+        Self {
+            spec: spec.into(),
+            options: BTreeMap::new(),
+            timezone: None,
+        }
+    }
 }
 
 /// Civil calendar fields without an instant or display offset.

@@ -354,11 +354,9 @@ fn ordinal_uses_calendar_date_after_midnight_offset_change() {
 }
 
 #[test]
-fn provider_selects_scalar_data_and_tick_formats_and_validates_requests() {
-    use avenger_format::{
-        DateTimeFormatConfig, DateTimeFormatContext as Context, DateTimeFormatProvider,
-        DateTimeFormatRequest,
-    };
+fn provider_accepts_explicit_patterns_and_multi_formats() {
+    use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
+    use serde_json::json;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     let config = DateTimeFormatConfig {
         timezone: Some("America/New_York".into()),
@@ -366,37 +364,23 @@ fn provider_selects_scalar_data_and_tick_formats_and_validates_requests() {
     };
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let instant = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-    for (context, spec, civil, zoned) in [
+    for (spec, civil, zoned) in [
         (
-            Context::Scalar,
-            None,
+            json!("%c"),
             "1/1/2024, 12:00:00 AM",
             "12/31/2023, 7:00:00 PM",
         ),
+        (json!("%Y-%m-%d"), "2024-01-01", "2023-12-31"),
+        (json!({}), "2024", "07 PM"),
         (
-            Context::Data,
-            None,
-            "2024-01-01",
-            "2023-12-31 19:00:00 -0500",
-        ),
-        (Context::Tick, None, "2024", "07 PM"),
-        (Context::Tick, Some(serde_json::json!("%Y")), "2024", "2023"),
-        (
-            Context::Tick,
-            Some(serde_json::json!({"year":"year %Y", "hours":"hour %H"})),
+            json!({"year":"year %Y", "hours":"hour %H"}),
             "year 2024",
             "hour 19",
         ),
+        (json!(""), "", ""),
     ] {
         let prepared = provider
-            .prepare(
-                &config,
-                &DateTimeFormatRequest {
-                    context,
-                    spec,
-                    ..Default::default()
-                },
-            )
+            .prepare(&config, &DateTimeFormatRequest::new(spec))
             .unwrap();
         assert_eq!(
             prepared
@@ -406,14 +390,13 @@ fn provider_selects_scalar_data_and_tick_formats_and_validates_requests() {
         );
         assert_eq!(prepared.format_zoned(instant).unwrap(), zoned);
     }
-    for context in [Context::Scalar, Context::Data, Context::Tick] {
+    for spec in [json!("%c"), json!({})] {
         let prepared = provider
             .prepare(
                 &config,
                 &DateTimeFormatRequest {
-                    context,
                     timezone: Some("UTC".into()),
-                    ..Default::default()
+                    ..DateTimeFormatRequest::new(spec)
                 },
             )
             .unwrap();
@@ -424,17 +407,15 @@ fn provider_selects_scalar_data_and_tick_formats_and_validates_requests() {
         assert!(prepared.format_zoned(instant).is_ok());
     }
     for request in [
-        DateTimeFormatRequest {
-            spec: Some(serde_json::json!(42)),
-            ..Default::default()
-        },
+        DateTimeFormatRequest::new(json!(null)),
+        DateTimeFormatRequest::new(json!(42)),
         DateTimeFormatRequest {
             options: [("calendar".into(), "unsupported".into())].into(),
-            ..Default::default()
+            ..DateTimeFormatRequest::new("%c")
         },
         DateTimeFormatRequest {
             timezone: Some("local".into()),
-            ..Default::default()
+            ..DateTimeFormatRequest::new("%c")
         },
     ] {
         assert!(provider.prepare(&config, &request).is_err());
@@ -449,10 +430,7 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
         locale: Some("custom".into()),
         ..DateTimeFormatConfig::new("d3")
     };
-    let request = DateTimeFormatRequest {
-        spec: Some("%x".into()),
-        ..Default::default()
-    };
+    let request = DateTimeFormatRequest::new("%x");
     assert!(provider.prepare(&config, &request).is_err());
     config.locales.insert(
         "custom".into(),

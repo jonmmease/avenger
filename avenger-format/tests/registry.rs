@@ -9,7 +9,7 @@ fn unknown_provider_is_rejected() {
     let registry = NumberFormatRegistry::default();
     let config = NumberFormatConfig::new("missing");
     assert!(registry
-        .prepare(&config, &Default::default())
+        .prepare(&config, &NumberFormatRequest::new(""))
         .unwrap_err()
         .to_string()
         .contains("missing"));
@@ -24,7 +24,7 @@ impl NumberFormatProvider for Literal {
         request: &NumberFormatRequest,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
         assert_eq!(config.locale.as_deref(), Some("custom"));
-        assert_eq!(request.spec.as_deref(), Some("provider-specific syntax"));
+        assert_eq!(request.spec, "provider-specific syntax");
         Ok(Arc::new(Literal(self.0)))
     }
 }
@@ -42,10 +42,7 @@ fn providers_are_replaceable_without_changing_prepared_formatters() {
         locale: Some("custom".into()),
         ..NumberFormatConfig::new("literal")
     };
-    let request = NumberFormatRequest {
-        spec: Some("provider-specific syntax".into()),
-        ..Default::default()
-    };
+    let request = NumberFormatRequest::new("provider-specific syntax");
     let old_registry = registry.clone();
     let prepared = registry.prepare(&config, &request).unwrap();
     registry.register("literal", Arc::new(Literal("second")));
@@ -87,10 +84,7 @@ impl avenger_format::DateTimeFormatProvider for DateLiteral {
         Arc<dyn avenger_format::PreparedDateTimeFormatter>,
         avenger_format::DateTimeFormatError,
     > {
-        assert_eq!(
-            request.spec,
-            Some(serde_json::json!({"calendar": "custom"}))
-        );
+        assert_eq!(request.spec, serde_json::json!({"calendar": "custom"}));
         Ok(Arc::new(DateLiteral(self.0)))
     }
 }
@@ -118,10 +112,7 @@ fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
     assert!(serde_json::from_str::<DateTimeFormatConfig>("{}").is_err());
     let config: DateTimeFormatConfig = serde_json::from_str(r#"{"provider":"custom"}"#).unwrap();
     assert_eq!(config, DateTimeFormatConfig::new("custom"));
-    let request = DateTimeFormatRequest {
-        spec: Some(serde_json::json!({"calendar": "custom"})),
-        ..Default::default()
-    };
+    let request = DateTimeFormatRequest::new(serde_json::json!({"calendar": "custom"}));
     let mut registry = DateTimeFormatRegistry::default();
     assert!(registry
         .prepare(&config, &request)

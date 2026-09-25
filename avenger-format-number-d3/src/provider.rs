@@ -1,11 +1,11 @@
 use crate::{
-    adapters::prepare_number_float_format_with_overrides, prepare_number_step_format, Align,
-    DigitSpec, FormatType, NumberFormatOverrides, NumberLocaleSpec, PreparedNumberFormat,
-    ResolvedNumberLocale, SignPolicy, Symbol,
+    adapters::apply_float_precision, prepare_number_step_format, Align, DigitSpec, FormatType,
+    NumberFormatOverrides, NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
+    SignPolicy, Symbol,
 };
 use avenger_format::{
-    FormattedNumber, NumberFormatConfig, NumberFormatContext, NumberFormatError,
-    NumberFormatOptions, NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
+    FormattedNumber, NumberFormatConfig, NumberFormatError, NumberFormatOptions,
+    NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -31,22 +31,31 @@ impl NumberFormatProvider for D3NumberFormatProvider {
             Err(crate::FormatError::LocaleNotFound(id.into()))
         }
         .map_err(|err| NumberFormatError(err.to_string()))?;
-        let overrides = parse_options(&request.options)?;
-        let spec = request.spec.as_deref();
-        let prepared = match request.context {
-            NumberFormatContext::Scalar => PreparedNumberFormat::new(spec, overrides, &locale),
-            NumberFormatContext::Continuous => {
-                prepare_number_float_format_with_overrides(spec, overrides, &locale)
-            }
-            NumberFormatContext::Discrete => PreparedNumberFormat::new(
-                Some(spec.filter(|s| !s.is_empty()).unwrap_or("c")),
-                overrides,
-                &locale,
-            ),
-            NumberFormatContext::Step {
-                step,
-                reference_value,
-            } => prepare_number_step_format(step, reference_value, spec, overrides, &locale),
+        let mut options = request.options.clone();
+        let auto_precision = options
+            .remove("auto_precision")
+            .map(|value| {
+                value
+                    .as_bool()
+                    .ok_or_else(|| invalid_option("auto_precision"))
+            })
+            .transpose()?
+            .unwrap_or(false);
+        let step = numeric_option(&mut options, "step")?;
+        let reference = numeric_option(&mut options, "reference_value")?;
+        let overrides = parse_options(&options)?;
+        let spec = Some(request.spec.as_str());
+        let prepared = match (step, reference, auto_precision) {
+            (Some(step), Some(reference), false) =>
+                prepare_number_step_format(step, reference, spec, overrides, &locale),
+            (None, None, true) => PreparedNumberFormat::new(spec, overrides, &locale).map(|mut prepared| {
+                apply_float_precision(&mut prepared);
+                prepared
+            }),
+            (None, None, false) => PreparedNumberFormat::new(spec, overrides, &locale),
+            _ => return Err(NumberFormatError(
+                "D3 step formatting requires both `step` and `reference_value`, without `auto_precision`".into()
+            )),
         }
         .map_err(|err| NumberFormatError(err.to_string()))?;
         Ok(Arc::new(prepared))
@@ -57,6 +66,21 @@ impl PreparedNumberFormatter for PreparedNumberFormat {
     fn format(&self, value: f64) -> FormattedNumber {
         self.format(value)
     }
+}
+
+fn numeric_option(
+    options: &mut NumberFormatOptions,
+    name: &str,
+) -> Result<Option<f64>, NumberFormatError> {
+    options
+        .remove(name)
+        .map(|value| {
+            value
+                .as_f64()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| invalid_option(name))
+        })
+        .transpose()
 }
 
 fn invalid_option(name: &str) -> NumberFormatError {
