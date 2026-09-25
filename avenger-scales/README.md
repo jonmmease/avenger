@@ -220,17 +220,24 @@ let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 
 ## Number Formatting
 
-Number labels use prepared D3 formatters and preserve binary64 values through formatting.
+Number labels require an explicitly prepared formatter and preserve binary64 values through formatting. The example selects D3.
 
 ```rust
-use avenger_scales::formatter::{DefaultFormatter, NumberFormatter};
+use avenger_scales::formatter::DefaultFormatter;
+use avenger_format::{NumberFormatConfig, NumberFormatRegistry};
+use avenger_format_number_d3::D3NumberFormatProvider;
+use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut registry = NumberFormatRegistry::default();
+    registry.register("d3", Arc::new(D3NumberFormatProvider));
     let formatter = DefaultFormatter {
+        number_format: Some(NumberFormatConfig::new("d3")),
+        number_formatters: Arc::new(registry),
         format_str: Some(".2f".into()),
         ..Default::default()
     }.prepare_number()?;
-    assert_eq!(NumberFormatter::format(&formatter, &[Some(3.14159)], None), ["3.14"]);
+    assert_eq!(formatter.format(3.14159).text, "3.14");
     Ok(())
 }
 ```

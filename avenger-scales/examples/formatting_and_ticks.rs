@@ -10,7 +10,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Numeric Formatting
     println!("1. Number Formatting:");
 
-    let scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
+    let mut scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
+
+    let mut registry = avenger_format::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    scale.config.context.formatters.number = Some(registry.prepare(
+        &avenger_format::NumberFormatConfig::new("d3"),
+        &avenger_format::NumberFormatRequest::new(""),
+    )?);
 
     let numbers = vec![0.0, 123.456, 1000.0, 10000.0, 0.00123];
     let number_array = Arc::new(Float32Array::from(numbers.clone())) as ArrayRef;
@@ -30,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
         Some(std::f64::consts::SQRT_2),
     ];
-    let formatted_precision = scale.format_numbers(&precision_numbers);
+    let formatted_precision = scale.format_numbers(&precision_numbers)?;
     let precision_strings = formatted_precision.as_vec(precision_numbers.len(), None);
 
     println!("\nNumber formatting with Some/None values:");

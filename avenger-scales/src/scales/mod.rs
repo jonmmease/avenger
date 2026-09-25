@@ -1430,8 +1430,15 @@ impl ConfiguredScale {
         self.config.context.formatters.format(values, None)
     }
 
-    pub fn format_numbers(&self, values: &[Option<f64>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.config.context.formatters.number.format(values, None))
+    pub fn format_numbers(
+        &self,
+        values: &[Option<f64>],
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        Ok(ScalarOrArray::new_array(crate::formatter::format_numbers(
+            self.config.context.formatters.number()?,
+            values,
+            None,
+        )))
     }
 
     pub fn format_dates(

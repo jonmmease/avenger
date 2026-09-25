@@ -7,7 +7,7 @@ use crate::scalar::Scalar;
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
     #[error(transparent)]
-    NumberFormatError(#[from] avenger_format_number_d3::FormatError),
+    NumberFormatError(#[from] avenger_format::NumberFormatError),
     #[error("Internal error: {0}")]
     InternalError(String),
 
