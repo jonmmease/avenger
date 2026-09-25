@@ -217,11 +217,8 @@ pub fn text_config() -> TextMeasurementConfig<'static> {
         font_style: FontStyle::Normal,
         syntax_mode: TextSyntaxMode::Plain,
         params: PARAMS.get_or_init(Default::default),
-        number_locale: None,
-        number_locale_specs: None,
-        datetime_locale: None,
-        datetime_timezone: None,
-        datetime_locale_specs: None,
+        number_format: None,
+        datetime_format: None,
     }
 }
 
