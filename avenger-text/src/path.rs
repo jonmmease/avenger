@@ -30,11 +30,8 @@ pub struct TextPathExtractionConfig<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
-    pub number_locale: Option<&'a str>,
-    pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
-    pub datetime_locale: Option<&'a str>,
-    pub datetime_timezone: Option<&'a str>,
-    pub datetime_locale_specs: Option<&'a crate::DateTimeLocaleSpecs>,
+    pub number_format: Option<&'a crate::NumberFormatConfig>,
+    pub datetime_format: Option<&'a crate::DateTimeFormatConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,11 +184,8 @@ impl TextPathExtractorImpl {
                     font_style: config.font_style,
                     syntax_mode: config.syntax_mode,
                     params: config.params,
-                    number_locale: config.number_locale,
-                    number_locale_specs: config.number_locale_specs,
-                    datetime_locale: config.datetime_locale,
-                    datetime_timezone: config.datetime_timezone,
-                    datetime_locale_specs: config.datetime_locale_specs,
+                    number_format: config.number_format,
+                    datetime_format: config.datetime_format,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -207,11 +201,8 @@ impl TextPathExtractorImpl {
             config.font_style,
             config.color,
             config.params,
-            config.number_locale,
-            config.number_locale_specs,
-            config.datetime_locale,
-            config.datetime_timezone,
-            config.datetime_locale_specs,
+            config.number_format,
+            config.datetime_format,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let mut bounds = bounds_from_metrics(
@@ -538,11 +529,8 @@ mod tests {
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
-            number_locale: None,
-            number_locale_specs: None,
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_specs: None,
+            number_format: None,
+            datetime_format: None,
         }
     }
 

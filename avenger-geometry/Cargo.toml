@@ -18,4 +18,6 @@ itertools = { workspace = true }
 ordered-float = { workspace = true }
 
 [dev-dependencies]
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+serde_json = { workspace = true }
 float-cmp = "0.10.0"

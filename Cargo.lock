@@ -500,6 +500,7 @@ name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
  "avenger-common",
+ "avenger-format-number-d3",
  "avenger-scenegraph",
  "avenger-text",
  "float-cmp 0.10.0",
@@ -512,6 +513,7 @@ dependencies = [
  "lyon_tessellation",
  "ordered-float 5.0.0",
  "rstar 0.13.0",
+ "serde_json",
 ]
 
 [[package]]
@@ -604,6 +606,7 @@ name = "avenger-text"
 version = "0.0.8"
 dependencies = [
  "avenger-fonts",
+ "avenger-format",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-typst-label",
