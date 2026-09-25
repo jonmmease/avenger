@@ -36,3 +36,5 @@ Resolved locales expose borrowed definitions. To customize a locale, clone `defi
 The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.
 
 The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
+
+`D3NumberFormatProvider` implements the provider interface in `avenger-format`. `default_number_format_registry()` supplies a shared registry with the `d3` provider. Named options are `type` (or `style`), `precision`, `group`, `trim`, `sign`, `symbol`, `width`, `fill`, `align`, and `zero`. Their meanings match D3 specifier fields. Null restores automatic precision or clears an optional padding or symbol field. Other options are rejected.

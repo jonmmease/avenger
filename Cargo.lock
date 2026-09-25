@@ -432,9 +432,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-format"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "avenger-format-number"
 version = "0.1.0"
 dependencies = [
+ "avenger-format",
  "num-bigint",
  "num-traits",
  "ryu-js",

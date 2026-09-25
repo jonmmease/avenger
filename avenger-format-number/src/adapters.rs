@@ -96,9 +96,16 @@ pub fn prepare_number_float_format(
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
+    prepare_number_float_format_with_overrides(spec, NumberFormatOverrides::default(), locale)
+}
+
+pub(crate) fn prepare_number_float_format_with_overrides(
+    spec: Option<&str>,
+    overrides: NumberFormatOverrides,
+    locale: &ResolvedNumberLocale,
+) -> Result<PreparedNumberFormat, FormatError> {
     let spec = spec.filter(|value| !value.is_empty()).unwrap_or(",");
-    let mut prepared =
-        PreparedNumberFormat::new(Some(spec), NumberFormatOverrides::default(), locale)?;
+    let mut prepared = PreparedNumberFormat::new(Some(spec), overrides, locale)?;
     if prepared.resolved.digit_spec == DigitSpec::Auto {
         prepared.resolved.digit_spec = DigitSpec::Precision(match prepared.resolved.format_type {
             Some(FormatType::Percent) => 10,

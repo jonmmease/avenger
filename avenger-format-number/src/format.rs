@@ -2,10 +2,10 @@ use crate::{
     decimal,
     digits::substitute_digits,
     error::FormatError,
-    formatted_number::{FormattedNumber, NumberTypesetting},
     locale::ResolvedNumberLocale,
     parser::parse_number_spec,
     spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol},
+    FormattedNumber, NumberTypesetting,
 };
 
 /// Prefixes for powers of ten from -24 to 24 in steps of three.
