@@ -70,11 +70,8 @@ pub(crate) fn shape_line(
         config.font_style,
         [0.0, 0.0, 0.0, 1.0],
         config.params,
-        config.number_locale,
-        config.number_locale_specs,
-        config.datetime_locale,
-        config.datetime_timezone,
-        config.datetime_locale_specs,
+        config.number_format,
+        config.datetime_format,
     )?;
     let bounds = bounds_from_metrics(result.label.metrics, config.font_size, false);
     let mut runs = Vec::new();
@@ -444,11 +441,8 @@ mod tests {
             font_style: FontStyle::default(),
             syntax_mode: TextSyntaxMode::Plain,
             params: empty_label_params(),
-            number_locale: None,
-            number_locale_specs: None,
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_specs: None,
+            number_format: None,
+            datetime_format: None,
         }
     }
 

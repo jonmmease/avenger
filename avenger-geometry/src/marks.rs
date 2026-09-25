@@ -419,11 +419,8 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_style: *font_style,
                         syntax_mode: self.text_syntax,
                         params: &self.text_params,
-                        number_locale: self.number_locale.as_deref(),
-                        number_locale_specs: Some(&self.number_locale_specs),
-                        datetime_locale: self.datetime_locale.as_deref(),
-                        datetime_timezone: self.datetime_timezone.as_deref(),
-                        datetime_locale_specs: Some(&self.datetime_locale_specs),
+                        number_format: self.number_format.as_ref(),
+                        datetime_format: self.datetime_format.as_ref(),
                     };
 
                     let text_bounds = measurer.measure_bounds_with_limit_or_approx(&config, *limit);

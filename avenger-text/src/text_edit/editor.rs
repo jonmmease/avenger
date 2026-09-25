@@ -526,11 +526,8 @@ mod tests {
             font_style: FontStyle::default(),
             syntax_mode: TextSyntaxMode::Plain,
             params: empty_label_params(),
-            number_locale: None,
-            number_locale_specs: None,
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_specs: None,
+            number_format: None,
+            datetime_format: None,
         }
     }
 

@@ -1211,8 +1211,7 @@ impl MultiMarkRenderer {
                     limit: *limit,
                     syntax_mode: mark.text_syntax,
                     params: &mark.text_params,
-                    number_locale: mark.number_locale.as_deref(),
-                    number_locale_specs: &mark.number_locale_specs,
+                    number_format: mark.number_format.as_ref(),
                     datetime_format: mark.datetime_format.as_ref(),
                     use_nearest_filter: is_axis_aligned_angle(*angle),
                 };

@@ -21,7 +21,7 @@ ordered-float = { workspace = true }
 fontdb = { workspace = true }
 brotli = { workspace = true }
 avenger-fonts = { path = "../avenger-fonts" }
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format = { path = "../avenger-format" }
 
 [dependencies.avenger-typst-label]
 path = "../avenger-typst-label"
@@ -33,4 +33,5 @@ web-sys = "0.3.77"
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 ttf-parser = { workspace = true }

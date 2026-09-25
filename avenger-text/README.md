@@ -17,6 +17,12 @@ The active backend is the Typst-style text engine in `avenger-typst-label`.
 Plain text is the default. Select `TextSyntaxMode::TypstMarkup` to enable
 markup and `$...$` math fragments.
 
+## Number formatting
+
+Call `TextEngine::with_number_formatting(config, registry)` to select a provider
+for numeric labels. Measurement and rendering share this selection. Per-label
+configuration overrides it. A new engine has no number formatter configured.
+
 ## Usage by Other Crates
 
 - `avenger-scenegraph`: Uses font types in the scene graph text mark

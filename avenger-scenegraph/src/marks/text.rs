@@ -24,15 +24,9 @@ pub struct SceneTextMark {
     #[serde(default, skip_serializing_if = "text_params_is_empty")]
     pub text_params: avenger_text::LabelParams,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub number_locale: Option<String>,
-    #[serde(default, skip_serializing_if = "number_locale_specs_is_empty")]
-    pub number_locale_specs: avenger_text::NumberLocaleSpecs,
+    pub number_format: Option<avenger_text::NumberFormatConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub datetime_locale: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub datetime_timezone: Option<String>,
-    #[serde(default, skip_serializing_if = "datetime_locale_specs_is_empty")]
-    pub datetime_locale_specs: avenger_text::DateTimeLocaleSpecs,
+    pub datetime_format: Option<avenger_text::DateTimeFormatConfig>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub align: ScalarOrArray<TextAlign>,
@@ -56,11 +50,14 @@ impl Hash for SceneTextMark {
         self.text.hash(state);
         self.text_syntax.hash(state);
         avenger_text::label_params_fingerprint(&self.text_params).hash(state);
-        self.number_locale.hash(state);
-        avenger_text::number_locale_specs_fingerprint(&self.number_locale_specs).hash(state);
-        self.datetime_locale.hash(state);
-        self.datetime_timezone.hash(state);
-        avenger_text::datetime_locale_specs_fingerprint(&self.datetime_locale_specs).hash(state);
+        self.number_format
+            .as_ref()
+            .map(avenger_text::number_format_fingerprint)
+            .hash(state);
+        self.datetime_format
+            .as_ref()
+            .map(avenger_text::datetime_format_fingerprint)
+            .hash(state);
         self.x.hash(state);
         self.y.hash(state);
         self.align.hash(state);
@@ -137,11 +134,8 @@ impl Default for SceneTextMark {
             text: ScalarOrArray::new_scalar(String::new()),
             text_syntax: TextSyntaxMode::Plain,
             text_params: avenger_text::LabelParams::default(),
-            number_locale: None,
-            number_locale_specs: avenger_text::NumberLocaleSpecs::default(),
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
+            number_format: Default::default(),
+            datetime_format: None,
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             align: ScalarOrArray::new_scalar(TextAlign::Left),
@@ -167,12 +161,4 @@ impl From<SceneTextMark> for SceneMark {
 
 fn text_params_is_empty(params: &avenger_text::LabelParams) -> bool {
     params.is_empty()
-}
-
-fn number_locale_specs_is_empty(specs: &avenger_text::NumberLocaleSpecs) -> bool {
-    specs.is_empty()
-}
-
-fn datetime_locale_specs_is_empty(specs: &avenger_text::DateTimeLocaleSpecs) -> bool {
-    specs.is_empty()
 }
