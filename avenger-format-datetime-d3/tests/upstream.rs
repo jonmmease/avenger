@@ -1,6 +1,5 @@
 use avenger_format_datetime_d3::{
-    DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, PreparedTimeMultiFormat,
-    ResolvedDateTimeLocale,
+    DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use chrono::DateTime;
 use serde::Deserialize;
@@ -15,8 +14,7 @@ struct Fixtures {
 struct Case {
     locale: String,
     zone: String,
-    mode: String,
-    spec: serde_json::Value,
+    spec: String,
     value: i64,
     expected: String,
 }
@@ -33,22 +31,10 @@ fn matches_d3_time_format() {
         let context =
             DateTimeFormatContext::new(&locales[&case.locale], case.zone.parse().unwrap());
         let value = DateTime::from_timestamp_millis(case.value).unwrap();
-        let actual = if case.mode == "multi" {
-            let spec = if case.spec.is_null() {
-                Default::default()
-            } else {
-                serde_json::from_value(case.spec.clone()).unwrap()
-            };
-            PreparedTimeMultiFormat::new(&spec, context)
-                .unwrap()
-                .format_zoned(value)
-                .unwrap()
-        } else {
-            PreparedDateTimeFormat::new(case.spec.as_str(), context)
-                .unwrap()
-                .format_zoned(value)
-                .unwrap()
-        };
+        let actual = PreparedDateTimeFormat::new(Some(&case.spec), context)
+            .unwrap()
+            .format_zoned(value)
+            .unwrap();
         assert_eq!(
             actual, case.expected,
             "{} {} {} {}",

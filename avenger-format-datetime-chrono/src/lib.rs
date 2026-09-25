@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
+    DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
     PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
 };
 use chrono::{
@@ -9,19 +9,51 @@ use chrono::{
     DateTime, Locale, Offset,
 };
 use chrono_tz::Tz;
+use serde::{Deserialize, Serialize};
 use std::{slice, sync::Arc};
+
+/// Built-in locale and display timezone for preparing Chrono datetime patterns.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChronoDateTimeFormatConfig {
+    /// Chrono locale name. An omitted name selects `POSIX`.
+    pub locale: Option<String>,
+    /// IANA display timezone for instants. An omitted name selects UTC.
+    pub timezone: Option<String>,
+}
+
+impl ChronoDateTimeFormatConfig {
+    /// Use the POSIX locale and UTC for instant display.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Select a built-in locale, accepting hyphens or underscores in its name.
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = Some(locale.into());
+        self
+    }
+
+    /// Set the IANA display timezone for instants. Civil fields are unchanged.
+    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = Some(timezone.into());
+        self
+    }
+}
 
 /// Chrono patterns, built-in locales, and IANA display timezones through the shared interface.
 #[derive(Debug, Default)]
 pub struct ChronoDateTimeFormatProvider;
 
 impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
+    type Config = ChronoDateTimeFormatConfig;
+
     fn prepare_naive(
         &self,
-        config: &DateTimeFormatConfig,
-        spec: &serde_json::Value,
+        config: &ChronoDateTimeFormatConfig,
+        pattern: &str,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-        let pattern = Pattern::new(config, spec)?;
+        let pattern = Pattern::new(config, pattern)?;
         // Chrono assumes UTC for naive timestamps. Civil values have no implied instant.
         if pattern
             .items
@@ -41,15 +73,15 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
 
     fn prepare_zoned(
         &self,
-        config: &DateTimeFormatConfig,
-        spec: &serde_json::Value,
+        config: &ChronoDateTimeFormatConfig,
+        pattern: &str,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
         let name = config.timezone.as_deref().unwrap_or("UTC");
         let timezone = name
             .parse::<Tz>()
             .map_err(|_| error(format!("invalid IANA timezone `{name}`")))?;
         let formatter = ZonedFormat {
-            pattern: Pattern::new(config, spec)?,
+            pattern: Pattern::new(config, pattern)?,
             timezone,
         };
         // Chrono parses some directives, such as %#z, that it cannot use for formatting.
@@ -69,14 +101,9 @@ struct Pattern {
 
 impl Pattern {
     fn new(
-        config: &DateTimeFormatConfig,
-        spec: &serde_json::Value,
+        config: &ChronoDateTimeFormatConfig,
+        pattern: &str,
     ) -> Result<Self, DateTimeFormatError> {
-        if !config.locales.is_empty() {
-            return Err(error(
-                "Chrono datetime formatting does not accept custom locale definitions",
-            ));
-        }
         let locale = match config.locale.as_deref() {
             Some(name) => name
                 .replace('-', "_")
@@ -84,10 +111,7 @@ impl Pattern {
                 .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
             None => Locale::POSIX,
         };
-        let spec = spec
-            .as_str()
-            .ok_or_else(|| error("Chrono datetime specification must be a string"))?;
-        let items = StrftimeItems::new_with_locale(spec, locale)
+        let items = StrftimeItems::new_with_locale(pattern, locale)
             .parse_to_owned()
             .map_err(|err| error(format!("invalid Chrono datetime pattern: {err}")))?;
         Ok(Self { items, locale })

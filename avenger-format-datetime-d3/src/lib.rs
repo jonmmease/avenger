@@ -3,7 +3,6 @@
 mod error;
 mod format;
 mod locale;
-mod multi;
 mod parser;
 mod provider;
 mod registry;
@@ -15,8 +14,6 @@ pub use format::{
     PreparedDateTimeFormat, ZonedDateTimeInput,
 };
 pub use locale::{DateTimeLocaleSpec, LocaleId, ResolvedDateTimeLocale};
-pub use provider::D3DateTimeFormatProvider;
+pub use provider::{D3DateTimeFormatConfig, D3DateTimeFormatProvider};
 pub use registry::DateTimeLocaleRegistry;
 pub use timezone::parse_datetime_timezone;
-
-pub use multi::{PreparedTimeMultiFormat, TimeMultiFormatSpec};
