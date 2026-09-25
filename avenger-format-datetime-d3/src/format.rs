@@ -70,7 +70,7 @@ impl PreparedDateTimeFormat {
         })
     }
     /// Check civil-input compatibility before formatting a batch.
-    pub fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
+    pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
         if self.timezone_override {
             return Err(DateTimeFormatError::TimezoneOverrideForNaive);
         }

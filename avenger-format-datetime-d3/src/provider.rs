@@ -4,7 +4,8 @@ use crate::{
 };
 use avenger_format::{
     DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider, DateTimeFormatRequest,
-    NaiveDateTimeInput, PreparedDateTimeFormatter, ZonedDateTimeInput,
+    NaiveDateTimeInput, PreparedCivilDateTimeFormatter, PreparedInstantFormatter,
+    ZonedDateTimeInput,
 };
 use std::sync::Arc;
 
@@ -12,11 +13,42 @@ use std::sync::Arc;
 #[derive(Debug, Default)]
 pub struct D3DateTimeFormatProvider;
 impl DateTimeFormatProvider for D3DateTimeFormatProvider {
-    fn prepare(
+    fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
         request: &DateTimeFormatRequest,
-    ) -> Result<Arc<dyn PreparedDateTimeFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+        if request.timezone.is_some() {
+            return Err(error(crate::DateTimeFormatError::TimezoneOverrideForNaive));
+        }
+        let prepared = PreparedFormat::new(config, request)?;
+        match &prepared {
+            PreparedFormat::Scalar(format) => format.validate_naive(),
+            PreparedFormat::Multi(format) => format.validate_naive(),
+        }
+        .map_err(error)?;
+        Ok(Arc::new(prepared))
+    }
+
+    fn prepare_zoned(
+        &self,
+        config: &DateTimeFormatConfig,
+        request: &DateTimeFormatRequest,
+    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+        Ok(Arc::new(PreparedFormat::new(config, request)?))
+    }
+}
+
+#[derive(Debug)]
+enum PreparedFormat {
+    Scalar(PreparedDateTimeFormat),
+    Multi(PreparedTimeMultiFormat),
+}
+impl PreparedFormat {
+    fn new(
+        config: &DateTimeFormatConfig,
+        request: &DateTimeFormatRequest,
+    ) -> Result<Self, DateTimeFormatError> {
         if let Some(name) = request.options.keys().next() {
             return Err(DateTimeFormatError(format!(
                 "unsupported D3 datetime format option `{name}`"
@@ -49,7 +81,6 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
             }
         };
         if let Some(spec) = multi_spec {
-            // The per-call override remains explicit so civil preflight rejects it.
             let timezone = request
                 .timezone
                 .as_deref()
@@ -59,12 +90,9 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
                 .unwrap_or(timezone);
             let prepared = PreparedTimeMultiFormat::new(&spec, D3Context::new(&locale, timezone))
                 .map_err(error)?;
-            Ok(Arc::new(PreparedMulti {
-                prepared,
-                timezone_override: request.timezone.is_some(),
-            }))
+            Ok(Self::Multi(prepared))
         } else {
-            Ok(Arc::new(
+            Ok(Self::Scalar(
                 PreparedDateTimeFormat::new(
                     request.spec.as_str(),
                     DateTimeFormatOverrides {
@@ -81,37 +109,21 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
 fn error(error: crate::DateTimeFormatError) -> DateTimeFormatError {
     DateTimeFormatError(error.to_string())
 }
-impl PreparedDateTimeFormatter for PreparedDateTimeFormat {
-    fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        self.validate_naive().map_err(error)
-    }
-    fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
-        self.format_naive(value).map_err(error)
-    }
-    fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
-        self.format_zoned(value).map_err(error)
+impl PreparedCivilDateTimeFormatter for PreparedFormat {
+    fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
+        match self {
+            Self::Scalar(format) => format.format_naive(value),
+            Self::Multi(format) => format.format_naive(value),
+        }
+        .map_err(error)
     }
 }
-
-#[derive(Debug)]
-struct PreparedMulti {
-    prepared: PreparedTimeMultiFormat,
-    timezone_override: bool,
-}
-impl PreparedDateTimeFormatter for PreparedMulti {
-    fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        if self.timezone_override {
-            return Err(error(crate::DateTimeFormatError::TimezoneOverrideForNaive));
+impl PreparedInstantFormatter for PreparedFormat {
+    fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+        match self {
+            Self::Scalar(format) => format.format_zoned(value),
+            Self::Multi(format) => format.format_zoned(value),
         }
-        self.prepared.validate_naive().map_err(error)
-    }
-    fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
-        if self.timezone_override {
-            return Err(error(crate::DateTimeFormatError::TimezoneOverrideForNaive));
-        }
-        self.prepared.format_naive(value).map_err(error)
-    }
-    fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
-        self.prepared.format_zoned(value).map_err(error)
+        .map_err(error)
     }
 }

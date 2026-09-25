@@ -78,22 +78,31 @@ pub struct DateTimeFormatError(pub String);
 /// Resolve syntax, options, and locale data once for a sequence of labels.
 /// Registered providers must preserve their behavior throughout a registry snapshot.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
-    /// Validate the request and retain the configuration needed to format values.
-    fn prepare(
+    /// Prepare for civil dates and datetimes, rejecting options or fields that require an instant.
+    fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
         request: &DateTimeFormatRequest,
-    ) -> Result<Arc<dyn PreparedDateTimeFormatter>, DateTimeFormatError>;
+    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError>;
+
+    /// Prepare for instants displayed in the configured timezone.
+    fn prepare_zoned(
+        &self,
+        config: &DateTimeFormatConfig,
+        request: &DateTimeFormatRequest,
+    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError>;
 }
 
-/// Immutable, deterministic formatting of civil fields and instants.
-pub trait PreparedDateTimeFormatter: Debug + Send + Sync + 'static {
-    /// Check pattern compatibility with civil inputs before formatting a batch.
-    fn validate_naive(&self) -> Result<(), DateTimeFormatError>;
-    /// Preserve civil calendar fields; reject explicit per-call timezone overrides.
-    fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError>;
-    /// Display an instant in the configured timezone, reporting unrepresentable values.
-    fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError>;
+/// Immutable, deterministic formatting of civil calendar fields.
+/// Preparation validates the specification; formatting can still reject unsupported values.
+pub trait PreparedCivilDateTimeFormatter: Debug + Send + Sync + 'static {
+    fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError>;
+}
+
+/// Immutable, deterministic formatting of instants in a resolved display timezone.
+/// Formatting reports values whose display date is outside the supported range.
+pub trait PreparedInstantFormatter: Debug + Send + Sync + 'static {
+    fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError>;
 }
 
 /// An immutable snapshot when shared through `Arc`. Provider replacement gives a new cache identity.
@@ -126,20 +135,36 @@ impl DateTimeFormatRegistry {
     pub fn cache_id(&self) -> usize {
         self.cache_id
     }
-    /// Prepare through the explicitly selected provider.
-    pub fn prepare(
+    /// Prepare a civil formatter through the explicitly selected provider.
+    pub fn prepare_naive(
         &self,
         config: &DateTimeFormatConfig,
         request: &DateTimeFormatRequest,
-    ) -> Result<Arc<dyn PreparedDateTimeFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+        self.provider(config)?.prepare_naive(config, request)
+    }
+
+    /// Prepare an instant formatter through the explicitly selected provider.
+    pub fn prepare_zoned(
+        &self,
+        config: &DateTimeFormatConfig,
+        request: &DateTimeFormatRequest,
+    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+        self.provider(config)?.prepare_zoned(config, request)
+    }
+
+    fn provider(
+        &self,
+        config: &DateTimeFormatConfig,
+    ) -> Result<&dyn DateTimeFormatProvider, DateTimeFormatError> {
         self.providers
             .get(&config.provider)
+            .map(Arc::as_ref)
             .ok_or_else(|| {
                 DateTimeFormatError(format!(
                     "datetime format provider `{}` was not found",
                     config.provider
                 ))
-            })?
-            .prepare(config, request)
+            })
     }
 }

@@ -23,7 +23,7 @@ fn main() -> Result<(), avenger_format_datetime_d3::DateTimeFormatError> {
 
 Prepare a formatter once and reuse it. An omitted scalar pattern uses the locale's `%c` pattern. Both formatting methods return `Result<String, DateTimeFormatError>`:
 
-- `format_naive` preserves civil calendar fields. It rejects leap seconds, `%Q`, `%s`, `%Z`, and explicit timezone overrides. `validate_naive` checks pattern compatibility before a batch.
+- `format_naive` preserves civil calendar fields. It rejects leap seconds, `%Q`, `%s`, `%Z`, and explicit timezone overrides.
 - `format_zoned` accepts an instant represented in UTC. It uses the display zone for calendar fields and offsets, preserving the epoch value for `%Q` and `%s`. It returns an error if the display date exceeds Chrono's range. Fractional epoch milliseconds are clipped toward zero to match JavaScript Date. `%f` formats milliseconds followed by three zeros.
 
 `DateTimeLocaleRegistry::with_builtins()` contains U.S. English (`en-US`). Register other complete D3 definitions with `register_custom_locale` or `register_custom_locale_json`. Locale JSON uses `dateTime`, `date`, `time`, `periods`, `days`, `shortDays`, `months`, and `shortMonths`. Array lengths and recursive `%c`/`%x`/`%X` expansions are validated. To customize a resolved locale, clone `definition()`, edit it, and register it. Existing prepared formatters retain their locale data.
@@ -39,3 +39,5 @@ The [reference generator](../tools/format-reference/README.md) pins D3 and Vega 
 `D3DateTimeFormatProvider` adapts these formats to the shared `avenger-format` traits. Register it explicitly in a `DateTimeFormatRegistry`; the shared crate does not select a provider. Configuration carries a locale name, complete custom D3 locale definitions, and a display timezone.
 
 Every request supplies an explicit specification: a string for a D3 pattern, or an object for `TimeMultiFormatSpec`. An empty object selects Vega's calendar-sensitive patterns; an empty string produces empty labels. Callers choose ordinary patterns such as `%c` or `%Y-%m-%d`. Named options are rejected; timezone overrides use the shared request's `timezone` field. Errors from preparation or individual values propagate through the shared error type.
+
+Use `prepare_naive` for dates and civil datetimes, or `prepare_zoned` for UTC instants. They return separate formatter traits, each with a `format` method for its input type. Civil preparation rejects timezone overrides and instant-only directives, including those in locale expansions or any multi-format branch. Formatting can still report value-dependent errors such as leap seconds or dates outside the supported range.

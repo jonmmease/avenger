@@ -76,29 +76,39 @@ fn serialized_configuration_requires_provider_selection() {
 #[derive(Debug)]
 struct DateLiteral(&'static str);
 impl avenger_format::DateTimeFormatProvider for DateLiteral {
-    fn prepare(
+    fn prepare_naive(
         &self,
         _: &avenger_format::DateTimeFormatConfig,
         request: &avenger_format::DateTimeFormatRequest,
     ) -> Result<
-        Arc<dyn avenger_format::PreparedDateTimeFormatter>,
+        Arc<dyn avenger_format::PreparedCivilDateTimeFormatter>,
+        avenger_format::DateTimeFormatError,
+    > {
+        assert_eq!(request.spec, serde_json::json!({"calendar": "custom"}));
+        Ok(Arc::new(DateLiteral(self.0)))
+    }
+    fn prepare_zoned(
+        &self,
+        _: &avenger_format::DateTimeFormatConfig,
+        request: &avenger_format::DateTimeFormatRequest,
+    ) -> Result<
+        Arc<dyn avenger_format::PreparedInstantFormatter>,
         avenger_format::DateTimeFormatError,
     > {
         assert_eq!(request.spec, serde_json::json!({"calendar": "custom"}));
         Ok(Arc::new(DateLiteral(self.0)))
     }
 }
-impl avenger_format::PreparedDateTimeFormatter for DateLiteral {
-    fn validate_naive(&self) -> Result<(), avenger_format::DateTimeFormatError> {
-        Ok(())
-    }
-    fn format_naive(
+impl avenger_format::PreparedCivilDateTimeFormatter for DateLiteral {
+    fn format(
         &self,
         _: avenger_format::NaiveDateTimeInput,
     ) -> Result<String, avenger_format::DateTimeFormatError> {
         Ok(self.0.into())
     }
-    fn format_zoned(
+}
+impl avenger_format::PreparedInstantFormatter for DateLiteral {
+    fn format(
         &self,
         _: avenger_format::ZonedDateTimeInput,
     ) -> Result<String, avenger_format::DateTimeFormatError> {
@@ -115,31 +125,42 @@ fn datetime_providers_require_selection_and_preserve_registry_snapshots() {
     let request = DateTimeFormatRequest::new(serde_json::json!({"calendar": "custom"}));
     let mut registry = DateTimeFormatRegistry::default();
     assert!(registry
-        .prepare(&config, &request)
+        .prepare_zoned(&config, &request)
         .unwrap_err()
         .to_string()
         .contains("custom"));
     registry.register("custom", Arc::new(DateLiteral("first")));
     let snapshot = registry.clone();
-    let prepared = registry.prepare(&config, &request).unwrap();
+    let prepared = registry.prepare_zoned(&config, &request).unwrap();
+    let civil = registry.prepare_naive(&config, &request).unwrap();
     assert_eq!(registry.cache_id(), snapshot.cache_id());
     registry.register("custom", Arc::new(DateLiteral("second")));
     assert_ne!(registry.cache_id(), snapshot.cache_id());
     let instant = chrono::DateTime::UNIX_EPOCH;
-    assert_eq!(prepared.format_zoned(instant).unwrap(), "first");
+    let date = avenger_format::NaiveDateTimeInput::Date(instant.date_naive());
+    assert_eq!(civil.format(date).unwrap(), "first");
+    assert_eq!(
+        registry
+            .prepare_naive(&config, &request)
+            .unwrap()
+            .format(date)
+            .unwrap(),
+        "second"
+    );
+    assert_eq!(prepared.format(instant).unwrap(), "first");
     assert_eq!(
         snapshot
-            .prepare(&config, &request)
+            .prepare_zoned(&config, &request)
             .unwrap()
-            .format_zoned(instant)
+            .format(instant)
             .unwrap(),
         "first"
     );
     assert_eq!(
         registry
-            .prepare(&config, &request)
+            .prepare_zoned(&config, &request)
             .unwrap()
-            .format_zoned(instant)
+            .format(instant)
             .unwrap(),
         "second"
     );

@@ -4,7 +4,7 @@ mod datetime;
 pub use datetime::{
     DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatOptions, DateTimeFormatProvider,
     DateTimeFormatRegistry, DateTimeFormatRequest, DateTimeLocaleData, NaiveDateTimeInput,
-    PreparedDateTimeFormatter, ZonedDateTimeInput,
+    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
 };
 
 mod formatted_number;

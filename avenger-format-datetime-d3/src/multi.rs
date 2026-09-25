@@ -76,7 +76,7 @@ impl PreparedTimeMultiFormat {
         })
     }
     /// Validate every selectable pattern for civil inputs at batch setup.
-    pub fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
+    pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
         for format in &self.formats {
             format.validate_naive()?;
         }
