@@ -32,18 +32,14 @@ fn matches_d3_and_vega_number_formats() {
         let value = f64::from_bits(u64::from_str_radix(&case.bits, 16).unwrap());
         let locale = &locales[&case.locale];
         let format = match case.mode.as_str() {
-            "format" => PreparedNumberFormat::new(case.spec.as_deref(), Default::default(), locale),
+            "format" => PreparedNumberFormat::new(case.spec.as_deref(), locale),
             "float" => prepare_number_float_format(case.spec.as_deref(), locale),
             "prefix" => {
                 prepare_number_prefix_format(case.spec.as_deref().unwrap(), case.args[0], locale)
             }
-            "step" => prepare_number_step_format(
-                case.args[0],
-                case.args[1],
-                case.spec.as_deref(),
-                Default::default(),
-                locale,
-            ),
+            "step" => {
+                prepare_number_step_format(case.args[0], case.args[1], case.spec.as_deref(), locale)
+            }
             _ => unreachable!(),
         }
         .unwrap();

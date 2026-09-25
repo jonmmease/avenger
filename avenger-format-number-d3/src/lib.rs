@@ -16,7 +16,7 @@ pub use adapters::{
 };
 pub use avenger_format::{FormattedNumber, NumberTypesetting};
 pub use error::{FormatError, ParseError};
-pub use format::{format_number, NumberFormatOverrides, PreparedNumberFormat};
+pub use format::{format_number, PreparedNumberFormat};
 pub use locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale};
 pub use parser::parse_number_spec;
 pub use provider::D3NumberFormatProvider;

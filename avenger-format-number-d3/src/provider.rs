@@ -1,13 +1,11 @@
 use crate::{
-    adapters::apply_float_precision, prepare_number_step_format, Align, DigitSpec, FormatType,
-    NumberFormatOverrides, NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
-    SignPolicy, Symbol,
+    adapters::apply_float_precision, prepare_number_step_format, NumberLocaleSpec,
+    PreparedNumberFormat, ResolvedNumberLocale,
 };
 use avenger_format::{
     FormattedNumber, NumberFormatConfig, NumberFormatError, NumberFormatOptions,
     NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
 };
-use serde_json::Value;
 use std::sync::Arc;
 
 /// D3 specifiers and locale definitions exposed through the shared formatting interface.
@@ -50,16 +48,20 @@ impl NumberFormatProvider for D3NumberFormatProvider {
             .unwrap_or(false);
         let step = numeric_option(&mut options, "step")?;
         let reference = numeric_option(&mut options, "reference_value")?;
-        let overrides = parse_options(&options)?;
+        if let Some(name) = options.keys().next() {
+            return Err(NumberFormatError(format!(
+                "unsupported D3 number format option `{name}`"
+            )));
+        }
         let spec = Some(request.spec.as_str());
         let prepared = match (step, reference, auto_precision) {
             (Some(step), Some(reference), false) =>
-                prepare_number_step_format(step, reference, spec, overrides, &locale),
-            (None, None, true) => PreparedNumberFormat::new(spec, overrides, &locale).map(|mut prepared| {
+                prepare_number_step_format(step, reference, spec, &locale),
+            (None, None, true) => PreparedNumberFormat::new(spec, &locale).map(|mut prepared| {
                 apply_float_precision(&mut prepared);
                 prepared
             }),
-            (None, None, false) => PreparedNumberFormat::new(spec, overrides, &locale),
+            (None, None, false) => PreparedNumberFormat::new(spec, &locale),
             _ => return Err(NumberFormatError(
                 "D3 step formatting requires both `step` and `reference_value`, without `auto_precision`".into()
             )),
@@ -92,101 +94,4 @@ fn numeric_option(
 
 fn invalid_option(name: &str) -> NumberFormatError {
     NumberFormatError(format!("invalid D3 number format option `{name}`"))
-}
-
-fn character(value: &Value, name: &str) -> Result<char, NumberFormatError> {
-    let mut chars = value.as_str().ok_or_else(|| invalid_option(name))?.chars();
-    let ch = chars.next().ok_or_else(|| invalid_option(name))?;
-    if chars.next().is_some() {
-        return Err(invalid_option(name));
-    }
-    Ok(ch)
-}
-
-/// Named arguments share the specifier's field semantics. Null clears optional
-/// padding fields and restores automatic precision for `precision`.
-fn parse_options(
-    options: &NumberFormatOptions,
-) -> Result<NumberFormatOverrides, NumberFormatError> {
-    let mut result = NumberFormatOverrides::default();
-    for (name, value) in options {
-        match name.as_str() {
-            "type" | "style" => {
-                if result.format_type.is_some() {
-                    return Err(NumberFormatError(
-                        "D3 number format accepts only one type option".into(),
-                    ));
-                }
-                result.format_type = Some(
-                    FormatType::from_char(character(value, name)?)
-                        .ok_or_else(|| invalid_option(name))?,
-                );
-            }
-            "precision" => {
-                result.digit_spec = Some(if value.is_null() {
-                    DigitSpec::Auto
-                } else {
-                    DigitSpec::Precision(
-                        value
-                            .as_u64()
-                            .and_then(|v| u8::try_from(v).ok())
-                            .ok_or_else(|| invalid_option(name))?,
-                    )
-                });
-            }
-            "group" => result.group = Some(value.as_bool().ok_or_else(|| invalid_option(name))?),
-            "trim" => result.trim = Some(value.as_bool().ok_or_else(|| invalid_option(name))?),
-            "zero" => result.zero = Some(value.as_bool().ok_or_else(|| invalid_option(name))?),
-            "sign" => {
-                result.sign = Some(
-                    SignPolicy::from_char(character(value, name)?)
-                        .ok_or_else(|| invalid_option(name))?,
-                )
-            }
-            "symbol" => {
-                result.symbol = Some(match value.as_str() {
-                    Some("$") => Some(Symbol::CurrencyCompat),
-                    Some("#") => Some(Symbol::Alternate),
-                    Some("none") => None,
-                    _ if value.is_null() => None,
-                    _ => return Err(invalid_option(name)),
-                })
-            }
-            "width" => {
-                result.width = Some(if value.is_null() {
-                    None
-                } else {
-                    Some(
-                        value
-                            .as_u64()
-                            .and_then(|v| usize::try_from(v).ok())
-                            .ok_or_else(|| invalid_option(name))?,
-                    )
-                })
-            }
-            "fill" => {
-                result.fill = Some(if value.is_null() {
-                    None
-                } else {
-                    Some(character(value, name)?)
-                })
-            }
-            "align" => {
-                result.align = Some(if value.is_null() {
-                    None
-                } else {
-                    Some(
-                        Align::from_char(character(value, name)?)
-                            .ok_or_else(|| invalid_option(name))?,
-                    )
-                })
-            }
-            _ => {
-                return Err(NumberFormatError(format!(
-                    "unsupported D3 number format option `{name}`"
-                )))
-            }
-        }
-    }
-    Ok(result)
 }

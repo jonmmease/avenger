@@ -48,15 +48,6 @@ fn provider_prepares_explicit_d3_specs_and_options() {
             expected
         );
     }
-    let request = NumberFormatRequest {
-        spec: "08,.2f".into(),
-        options: [
-            ("precision".into(), json!(1)),
-            ("width".into(), json!(null)),
-            ("zero".into(), json!(false)),
-        ]
-        .into(),
-    };
     for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
         let config = NumberFormatConfig::new("d3")
             .with_locale(selected)
@@ -68,7 +59,7 @@ fn provider_prepares_explicit_d3_specs_and_options() {
             serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
         assert_eq!(
             registry
-                .prepare(&config, &request)
+                .prepare(&config, ",.1f")
                 .unwrap()
                 .format(1234.5)
                 .text,
@@ -76,11 +67,11 @@ fn provider_prepares_explicit_d3_specs_and_options() {
         );
         // An exact custom name takes precedence even when its definition is invalid.
         let config = config.with_custom_locale(selected, json!({"grouping": "invalid"}));
-        assert!(registry.prepare(&config, &request).is_err());
+        assert!(registry.prepare(&config, ",.1f").is_err());
     }
     for (name, value) in [
-        ("precision", json!(-1)),
-        ("align", json!("?")),
+        ("precision", json!(1)),
+        ("width", json!(5)),
         ("unknown", json!(true)),
         ("auto_precision", json!("yes")),
         ("step", json!(null)),
