@@ -1,0 +1,71 @@
+{
+  "de-DE": {
+    "currency": {
+      "standard": {
+        "positive_prefix": "",
+        "positive_suffix": " ¤",
+        "negative_prefix": "-",
+        "negative_suffix": " ¤"
+      },
+      "accounting": {
+        "positive_prefix": "",
+        "positive_suffix": " ¤",
+        "negative_prefix": "-",
+        "negative_suffix": " ¤"
+      }
+    },
+    "currency_symbols": {
+      "USD": {
+        "symbol": "$"
+      },
+      "EUR": {
+        "symbol": "€"
+      },
+      "JPY": {
+        "symbol": "¥"
+      }
+    }
+  },
+  "fr-FR": {
+    "currency": {
+      "standard": {
+        "positive_prefix": "",
+        "positive_suffix": " ¤",
+        "negative_prefix": "-",
+        "negative_suffix": " ¤"
+      },
+      "accounting": {
+        "positive_prefix": "",
+        "positive_suffix": " ¤",
+        "negative_prefix": "(",
+        "negative_suffix": " ¤)"
+      }
+    },
+    "currency_symbols": {
+      "USD": {
+        "symbol": "$US",
+        "narrow_symbol": "$"
+      },
+      "EUR": {
+        "symbol": "€"
+      },
+      "JPY": {
+        "symbol": "JPY",
+        "narrow_symbol": "¥"
+      }
+    }
+  },
+  "ja-JP": {
+    "currency_symbols": {
+      "USD": {
+        "symbol": "$"
+      },
+      "EUR": {
+        "symbol": "€"
+      },
+      "JPY": {
+        "symbol": "￥"
+      }
+    }
+  }
+}

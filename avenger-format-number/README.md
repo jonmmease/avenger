@@ -35,6 +35,10 @@ Resolved locales expose borrowed definitions. To customize a locale, clone `defi
 
 `NumberLocaleExtensions` registers compact tiers independently of D3 definitions. Only `en-US` includes built-in patterns. Custom locales start with empty metadata and format unscaled numbers until extensions are registered. Tier exponents must be unique and in `1..=308`. Patterns contain one `{0}` placeholder, except an exact-one pattern can omit it. The plural rule is explicit: always `other`, integer one without fraction digits, or an integer part of zero or one. These rules cover the supplied English, German, French, and Japanese examples, not every CLDR plural category.
 
+`C[CODE]` formats a currency using CLDR 48 default fraction digits, including historical and common-use codes. For example, `C[JPY]` rounds to whole yen, while `.2C[JPY]` explicitly requests two fraction digits. These are display defaults, not cash-rounding rules. `CurrencyDisplay` selects a symbol, narrow symbol, or code. Unknown symbols fall back to the code, with locale spacing between alphabetic affixes and digits. Currency names are unsupported.
+
+Currency patterns in `NumberLocaleExtensions` use `¤` for the symbol or code and `-` for the locale minus. Each positive and negative prefix/suffix pair requires one `¤`. A `(` sign policy selects the accounting pattern. Currency metadata does not change D3's `$` format. Invalid codes, missing codes, and conflicting symbol options fail when preparing the formatter.
+
 `FormattedNumber` contains plain text and optional mantissa and exponent parts for scientific notation. Those parts use the same locale, signs, precision, and trimming as the text. Formats with affixes, padding, or custom numerals retain their plain representation.
 
 The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.

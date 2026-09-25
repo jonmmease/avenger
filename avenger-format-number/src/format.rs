@@ -1,5 +1,6 @@
 use crate::{
     compact::{self, SharedCompact},
+    currency::{self, CurrencyDisplay},
     decimal,
     digits::substitute_digits,
     error::FormatError,
@@ -88,9 +89,19 @@ pub struct NumberFormatOverrides {
     pub align: Option<Option<Align>>,
     /// Override the zero-padding flag. An explicit `0=` fill and alignment still take effect.
     pub zero: Option<bool>,
+    /// Uppercase currency code for type `C`.
+    pub currency: Option<String>,
+    /// Symbol or code presentation for type `C`.
+    pub currency_display: Option<CurrencyDisplay>,
 }
 
 impl NumberFormatOverrides {
+    /// Set the currency code for type `C`.
+    pub fn with_currency(mut self, currency: impl Into<String>) -> Self {
+        self.currency = Some(currency.into());
+        self
+    }
+
     /// Set D3 precision, whose meaning depends on the format type.
     pub fn with_precision(mut self, precision: u8) -> Self {
         self.digit_spec = Some(DigitSpec::Precision(precision));
@@ -110,6 +121,8 @@ pub(crate) struct ResolvedNumberFormat {
     pub digit_spec: DigitSpec,
     pub trim: bool,
     pub format_type: Option<FormatType>,
+    pub currency: Option<String>,
+    pub currency_display: CurrencyDisplay,
 }
 
 /// Format one value without retaining a prepared formatter.
@@ -151,7 +164,7 @@ pub(crate) fn resolve_number_format(
         align = Align::AfterSign;
     }
 
-    let digit_spec = overrides
+    let mut digit_spec = overrides
         .digit_spec
         .unwrap_or_else(|| spec.precision.map(DigitSpec::Precision).unwrap_or_default());
 
@@ -164,6 +177,27 @@ pub(crate) fn resolve_number_format(
             "`#` cannot be combined with compact formats".into(),
         ));
     }
+    let currency = overrides.currency.or(spec.currency);
+    let currency_display = overrides.currency_display.unwrap_or_default();
+    if format_type == Some(FormatType::Currency) {
+        let code = currency
+            .as_deref()
+            .ok_or(FormatError::MissingCurrencyCode)?;
+        let digits = currency::fraction_digits(code)
+            .ok_or_else(|| FormatError::InvalidCurrencyCode(code.into()))?;
+        if symbol.is_some() {
+            return Err(FormatError::InvalidFormat(
+                "symbols cannot be combined with currency type `C`".into(),
+            ));
+        }
+        if digit_spec == DigitSpec::Auto {
+            digit_spec = DigitSpec::Precision(digits);
+        }
+    } else if currency.is_some() || overrides.currency_display.is_some() {
+        return Err(FormatError::InvalidFormat(
+            "currency options require type `C`".into(),
+        ));
+    }
     Ok(ResolvedNumberFormat {
         fill,
         align,
@@ -174,6 +208,8 @@ pub(crate) fn resolve_number_format(
         digit_spec,
         trim,
         format_type,
+        currency,
+        currency_display,
     })
 }
 
@@ -248,6 +284,7 @@ fn render_number(
                 suffix.insert_str(0, &after);
                 body
             }
+            FormatType::Currency => decimal::fixed(magnitude, fraction),
             FormatType::Character => unreachable!(),
         }
     };
@@ -257,25 +294,32 @@ fn render_number(
     let negative = value.is_sign_negative()
         && !value.is_nan()
         && (raw.parse::<f64>().ok() != Some(0.0) || format.sign == SignPolicy::Plus);
-    let parentheses = negative && format.sign == SignPolicy::Parentheses;
-    prefix.insert_str(
-        0,
-        if negative {
-            if parentheses {
-                "("
+    let parentheses =
+        negative && format.sign == SignPolicy::Parentheses && kind != FormatType::Currency;
+    if kind == FormatType::Currency {
+        let (before, after) = currency::affixes(format, locale, negative, &raw);
+        prefix.push_str(&before);
+        suffix.insert_str(0, &after);
+    } else {
+        prefix.insert_str(
+            0,
+            if negative {
+                if parentheses {
+                    "("
+                } else {
+                    &locale.minus
+                }
             } else {
-                &locale.minus
-            }
-        } else {
-            match format.sign {
-                SignPolicy::Plus => "+",
-                SignPolicy::Space => " ",
-                _ => "",
-            }
-        },
-    );
-    if parentheses {
-        suffix.push(')');
+                match format.sign {
+                    SignPolicy::Plus => "+",
+                    SignPolicy::Space => " ",
+                    _ => "",
+                }
+            },
+        );
+        if parentheses {
+            suffix.push(')');
+        }
     }
     let typesetting = if matches!(
         kind,
@@ -315,6 +359,7 @@ fn render_number(
             | FormatType::Si
             | FormatType::CompactShort
             | FormatType::CompactLong
+            | FormatType::Currency
     );
     let integer = if split_suffix {
         let index = raw

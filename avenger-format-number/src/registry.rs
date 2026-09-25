@@ -48,6 +48,7 @@ impl NumberLocaleRegistry {
     ) -> Result<(), FormatError> {
         validate_tiers(&mut extensions.compact_short)?;
         validate_tiers(&mut extensions.compact_long)?;
+        crate::currency::validate_metadata(&extensions)?;
         let locale = self
             .locales
             .get_mut(id)

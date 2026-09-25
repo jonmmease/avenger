@@ -2,6 +2,8 @@
 
 mod adapters;
 mod compact;
+mod currency;
+mod currency_data;
 mod decimal;
 mod digits;
 mod error;
@@ -16,6 +18,7 @@ pub use adapters::{
     prepare_number_float_format, prepare_number_prefix_format, prepare_number_step_format,
 };
 pub use compact::{CompactPluralRule, CompactTier};
+pub use currency::{CurrencyDisplay, CurrencyFormat, CurrencyPattern, CurrencySymbols};
 pub use error::{FormatError, ParseError};
 pub use format::{format_number, NumberFormatOverrides, PreparedNumberFormat};
 pub use formatted_number::{FormattedNumber, NumberTypesetting};
