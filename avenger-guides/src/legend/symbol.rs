@@ -203,11 +203,8 @@ pub fn make_symbol_legend_itemized_with_text_engine(
             font_style: FontStyle::Normal,
             syntax_mode: config.title_syntax_mode,
             params: &config.title_text_params,
-            number_locale: None,
-            number_locale_specs: None,
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_specs: None,
+            number_format: None,
+            datetime_format: None,
         };
         let title_bounds = text_engine.measure_bounds(&title_config)?;
 
