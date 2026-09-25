@@ -55,11 +55,18 @@ impl PreparedFormat {
             )));
         }
         let id = config.locale.as_deref().unwrap_or("en-US");
-        let locale = if let Some(data) = config.locales.get(id) {
+        let normalized = id.replace('_', "-");
+        let data = config.locales.get(id).or_else(|| {
+            config
+                .locales
+                .iter()
+                .find_map(|(name, data)| (name.replace('_', "-") == normalized).then_some(data))
+        });
+        let locale = if let Some(data) = data {
             let definition: DateTimeLocaleSpec = serde_json::from_value(data.clone())
                 .map_err(|err| DateTimeFormatError(format!("invalid D3 locale `{id}`: {err}")))?;
             ResolvedDateTimeLocale::new(id, definition).map_err(error)?
-        } else if id == "en-US" {
+        } else if normalized == "en-US" {
             ResolvedDateTimeLocale::en_us()
         } else {
             return Err(DateTimeFormatError(format!("locale `{id}` was not found")));

@@ -416,31 +416,31 @@ fn provider_accepts_explicit_patterns_and_multi_formats() {
 fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
     use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    let mut config = DateTimeFormatConfig {
-        locale: Some("custom".into()),
-        ..DateTimeFormatConfig::new("d3")
-    };
     let request = DateTimeFormatRequest::new("%x");
-    assert!(provider.prepare_naive(&config, &request).is_err());
-    config.locales.insert(
-        "custom".into(),
-        serde_json::to_value(avenger_format_datetime_d3::DateTimeLocaleSpec {
-            date: "%d~%m~%Y".into(),
-            ..Default::default()
-        })
-        .unwrap(),
-    );
-    let formatter = provider.prepare_naive(&config, &request).unwrap();
-    assert_eq!(
-        formatter
-            .format(NaiveDateTimeInput::Date(
-                NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()
-            ))
+    for (registered, selected) in [("fr-FR", "fr_FR"), ("fr_FR", "fr-FR")] {
+        let mut config = DateTimeFormatConfig::new("d3").with_locale(selected);
+        assert!(provider.prepare_naive(&config, &request).is_err());
+        config.locales.insert(
+            registered.into(),
+            serde_json::to_value(DateTimeLocaleSpec {
+                date: "%d~%m~%Y".into(),
+                ..Default::default()
+            })
             .unwrap(),
-        "05~01~2024"
-    );
-    config
-        .locales
-        .insert("custom".into(), serde_json::json!({"months": []}));
-    assert!(provider.prepare_naive(&config, &request).is_err());
+        );
+        let formatter = provider.prepare_naive(&config, &request).unwrap();
+        assert_eq!(
+            formatter
+                .format(NaiveDateTimeInput::Date(
+                    NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()
+                ))
+                .unwrap(),
+            "05~01~2024"
+        );
+        // An exact custom name takes precedence even when its definition is invalid.
+        config
+            .locales
+            .insert(selected.into(), serde_json::json!({"months": []}));
+        assert!(provider.prepare_naive(&config, &request).is_err());
+    }
 }

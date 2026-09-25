@@ -94,6 +94,7 @@ impl Pattern {
         }
         let locale = match config.locale.as_deref() {
             Some(name) => name
+                .replace('-', "_")
                 .parse::<Locale>()
                 .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
             None => Locale::POSIX,

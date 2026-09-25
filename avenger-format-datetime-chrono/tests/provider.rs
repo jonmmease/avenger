@@ -19,8 +19,12 @@ fn registry_selects_both_providers_without_changing_the_consumer() {
     let registry = registry();
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let instant = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
-    for (provider, fraction) in [("chrono", "123456789"), ("d3", "123000")] {
-        let config = DateTimeFormatConfig::new(provider).with_timezone("America/New_York");
+    for (provider, locale, fraction) in
+        [("chrono", "en-US", "123456789"), ("d3", "en_US", "123000")]
+    {
+        let config = DateTimeFormatConfig::new(provider)
+            .with_locale(locale)
+            .with_timezone("America/New_York");
         let request = DateTimeFormatRequest::new("%Y-%m-%d");
         let civil = registry.prepare_naive(&config, &request).unwrap();
         let zoned = registry.prepare_zoned(&config, &request).unwrap();
@@ -55,16 +59,18 @@ fn preparation_rejects_patterns_for_the_wrong_input_type() {
 #[test]
 fn uses_chrono_locales_and_validates_expanded_patterns() {
     let registry = registry();
-    let config = DateTimeFormatConfig::new("chrono").with_locale("fr_FR");
     let request = DateTimeFormatRequest::new("%B");
     let instant = DateTime::UNIX_EPOCH;
-    let civil = registry.prepare_naive(&config, &request).unwrap();
-    let zoned = registry.prepare_zoned(&config, &request).unwrap();
     let value = NaiveDateTimeInput::DateTime(instant.naive_utc());
-    assert_eq!(civil.format(value).unwrap(), "janvier");
-    assert_eq!(zoned.format(instant).unwrap(), "janvier");
+    for locale in ["fr-FR", "fr_FR"] {
+        let config = DateTimeFormatConfig::new("chrono").with_locale(locale);
+        let civil = registry.prepare_naive(&config, &request).unwrap();
+        let zoned = registry.prepare_zoned(&config, &request).unwrap();
+        assert_eq!(civil.format(value).unwrap(), "janvier");
+        assert_eq!(zoned.format(instant).unwrap(), "janvier");
+    }
 
-    let config = config.with_locale("en_US");
+    let config = DateTimeFormatConfig::new("chrono").with_locale("en_US");
     let request = DateTimeFormatRequest::new("%c");
     assert!(registry.prepare_naive(&config, &request).is_err());
     assert!(registry.prepare_zoned(&config, &request).is_ok());
