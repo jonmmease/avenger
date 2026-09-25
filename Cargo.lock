@@ -441,7 +441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "avenger-format-number"
+name = "avenger-format-number-d3"
 version = "0.1.0"
 dependencies = [
  "avenger-format",

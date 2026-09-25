@@ -2,7 +2,7 @@
 members = [
     "avenger-color",
     "avenger-format",
-    "avenger-format-number",
+    "avenger-format-number-d3",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
     "avenger-wgpu",

@@ -1,11 +1,11 @@
 # Number formatting
 
-`avenger-format-number` implements valid D3 number formats with D3 locale definitions.
+`avenger-format-number-d3` implements valid D3 number formats with D3 locale definitions.
 
 ```rust
-use avenger_format_number::{NumberLocaleRegistry, PreparedNumberFormat};
+use avenger_format_number_d3::{NumberLocaleRegistry, PreparedNumberFormat};
 
-fn main() -> Result<(), avenger_format_number::FormatError> {
+fn main() -> Result<(), avenger_format_number_d3::FormatError> {
     let locale = NumberLocaleRegistry::with_builtins().resolve("en-US")?;
     let formatter = PreparedNumberFormat::new(
         Some("$,.2f"),

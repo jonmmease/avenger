@@ -2,7 +2,7 @@ use avenger_format::{
     FormattedNumber, NumberFormatConfig, NumberFormatContext, NumberFormatError,
     NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
 };
-use avenger_format_number::default_number_format_registry;
+use avenger_format_number_d3::default_number_format_registry;
 use serde_json::json;
 use std::sync::Arc;
 

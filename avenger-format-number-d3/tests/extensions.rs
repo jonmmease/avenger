@@ -1,4 +1,4 @@
-use avenger_format_number::{
+use avenger_format_number_d3::{
     format_number, prepare_number_float_format, prepare_number_prefix_format,
     prepare_number_step_format, DigitSpec, FormatError, NumberFormatOverrides,
     NumberLocaleRegistry, NumberLocaleSpec, NumberTypesetting, PreparedNumberFormat,
