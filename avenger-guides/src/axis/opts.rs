@@ -1,8 +1,4 @@
-use std::sync::Arc;
-
-use avenger_format_datetime_d3::DateTimeLocaleRegistry;
-use avenger_format_number_d3::NumberLocaleRegistry;
-use avenger_text::{types::TextSyntaxMode, DateTimeLocaleSpecs, LabelParams, NumberLocaleSpecs};
+use avenger_text::{types::TextSyntaxMode, LabelParams};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AxisOrientation {
@@ -20,13 +16,10 @@ pub struct AxisConfig {
     pub format_number: Option<String>,
     pub format_datetime: Option<String>,
     pub tick_label: Option<String>,
-    pub number_locale: Option<String>,
-    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
-    pub number_locale_specs: NumberLocaleSpecs,
-    pub datetime_locale: Option<String>,
-    pub datetime_timezone: Option<String>,
-    pub datetime_locale_registry: Option<Arc<DateTimeLocaleRegistry>>,
-    pub datetime_locale_specs: DateTimeLocaleSpecs,
+    /// Override the text engine’s number format for tick labels and titles.
+    pub number_format: Option<avenger_format::NumberFormatConfig>,
+    /// Override the text engine’s datetime format for tick labels and titles.
+    pub datetime_format: Option<avenger_format::DateTimeFormatConfig>,
     pub title_font_size: Option<f32>,
     // Theming
     pub domain_color: Option<[f32; 4]>,
@@ -73,13 +66,8 @@ impl Default for AxisConfig {
             format_number: None,
             format_datetime: None,
             tick_label: None,
-            number_locale: None,
-            number_locale_registry: None,
-            number_locale_specs: NumberLocaleSpecs::default(),
-            datetime_locale: None,
-            datetime_timezone: None,
-            datetime_locale_registry: None,
-            datetime_locale_specs: DateTimeLocaleSpecs::default(),
+            number_format: Default::default(),
+            datetime_format: None,
             title_font_size: None,
             domain_color: None,
             tick_color: None,

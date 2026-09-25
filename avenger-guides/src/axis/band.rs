@@ -119,7 +119,7 @@ pub fn make_band_axis_marks_with_text_engine(
     if config.labels_visible.unwrap_or(true) {
         axis_elements_group
             .marks
-            .push(make_tick_labels(&scale, config)?.into());
+            .push(make_tick_labels(&scale, config, text_engine)?.into());
     }
 
     // Add title if visible and non-empty
@@ -284,7 +284,32 @@ fn make_tick_grid_marks(
 fn make_tick_labels(
     scale: &ConfiguredScale,
     config: &AxisConfig,
+    text_engine: &avenger_text::TextEngine,
 ) -> Result<SceneTextMark, AvengerScaleError> {
+    let text = if scale.domain().data_type().is_numeric() {
+        let number_config = config
+            .number_format
+            .as_ref()
+            .or(text_engine.number_format_config())
+            .ok_or_else(|| {
+                avenger_format::NumberFormatError("number formatting is not configured".into())
+            })?;
+        let formatter = text_engine.number_formatters().prepare(
+            number_config,
+            &avenger_format::NumberFormatRequest::new(
+                config
+                    .format_number
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("c"),
+            ),
+        )?;
+        let mut scale = scale.clone();
+        scale.config.context.formatters.number = Some(formatter);
+        scale.format(scale.domain())?
+    } else {
+        scale.format(scale.domain())?
+    };
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
     let label_angle = config.label_angle.unwrap_or(0.0);
 
@@ -331,7 +356,7 @@ fn make_tick_labels(
     Ok(SceneTextMark {
         clip: false,
         len: scale.domain().len() as u32,
-        text: scale.format(scale.domain())?,
+        text,
         x,
         y,
         align: align.into(),
@@ -372,11 +397,8 @@ fn make_title(
         font_style: FontStyle::Normal,
         syntax_mode: config.title_syntax_mode,
         params: &config.title_text_params,
-        number_locale: config.number_locale.as_deref(),
-        number_locale_specs: Some(&config.number_locale_specs),
-        datetime_locale: config.datetime_locale.as_deref(),
-        datetime_timezone: config.datetime_timezone.as_deref(),
-        datetime_locale_specs: Some(&config.datetime_locale_specs),
+        number_format: config.number_format.as_ref(),
+        datetime_format: config.datetime_format.as_ref(),
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -445,11 +467,8 @@ fn make_title(
         font: title_font_family.into(),
         text_syntax: config.title_syntax_mode,
         text_params: config.title_text_params.clone(),
-        number_locale: config.number_locale.clone(),
-        number_locale_specs: config.number_locale_specs.clone(),
-        datetime_locale: config.datetime_locale.clone(),
-        datetime_timezone: config.datetime_timezone.clone(),
-        datetime_locale_specs: config.datetime_locale_specs.clone(),
+        number_format: config.number_format.clone(),
+        datetime_format: config.datetime_format.clone(),
         ..Default::default()
     })
 }
@@ -464,6 +483,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn numeric_categories_use_the_explicit_engine_provider() {
+        let domain = Arc::new(arrow::array::Float64Array::from(vec![1.25, 2.5])) as ArrayRef;
+        let scale = BandScale::configured(domain, (0.0, 100.0));
+        let config = AxisConfig {
+            format_number: Some(".2f".into()),
+            ..Default::default()
+        };
+        let engine = avenger_text::default_text_engine();
+        assert!(make_tick_labels(&scale, &config, &engine)
+            .unwrap_err()
+            .to_string()
+            .contains("number formatting is not configured"));
+        let mut registry = avenger_format::NumberFormatRegistry::default();
+        registry.register(
+            "d3",
+            Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+        );
+        let engine = engine.with_number_formatting(
+            avenger_format::NumberFormatConfig::new("d3"),
+            Arc::new(registry),
+        );
+        assert_eq!(
+            make_tick_labels(&scale, &config, &engine)
+                .unwrap()
+                .text
+                .as_vec(2, None),
+            ["1.25", "2.50"]
+        );
+    }
+
+    #[test]
     fn band_axis_tick_labels_honor_configured_angle() {
         let domain = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
         let scale = BandScale::configured(domain, (0.0, 100.0));
@@ -473,6 +523,7 @@ mod tests {
                 label_angle: Some(-90.0),
                 ..Default::default()
             },
+            &avenger_text::default_text_engine(),
         )
         .expect("tick labels");
 

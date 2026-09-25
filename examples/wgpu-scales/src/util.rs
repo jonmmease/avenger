@@ -4,9 +4,11 @@ use avenger_common::canvas::CanvasDimensions;
 
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
+use avenger_guides::legend::colorbar::{
+    make_colorbar_marks_with_text_engine, ColorbarConfig, ColorbarOrientation,
+};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -251,7 +253,7 @@ pub async fn run() {
     };
 
     // Make y-axis
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_numeric_axis_marks_with_text_engine(
         &y_scale,
         "My Long Y-Axis Label",
         [0.0, 0.0],
@@ -261,6 +263,7 @@ pub async fn run() {
             grid: true,
             ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -319,7 +322,7 @@ pub async fn run() {
     // .unwrap();
 
     // Make colorbar
-    let colorbar = make_colorbar_marks(
+    let colorbar = make_colorbar_marks_with_text_engine(
         &color_scale,
         "My Colorbar",
         [0.0, 0.0],
@@ -327,6 +330,7 @@ pub async fn run() {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -373,4 +377,28 @@ pub async fn run() {
     event_loop
         .run_app(&mut app)
         .expect("Failed to run event loop");
+}
+
+fn d3_text_engine() -> avenger_text::TextEngine {
+    let mut registry = avenger_text::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    avenger_text::default_text_engine()
+        .with_number_formatting(
+            avenger_text::NumberFormatConfig::new("d3"),
+            std::sync::Arc::new(registry),
+        )
+        .with_datetime_formatting(
+            avenger_text::DateTimeFormatConfig::new("d3"),
+            std::sync::Arc::new({
+                let mut registry = avenger_text::DateTimeFormatRegistry::default();
+                registry.register(
+                    "d3",
+                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+                );
+                registry
+            }),
+        )
 }

@@ -5,6 +5,11 @@ use avenger_text::{FontResolutionOptions, TextEngine};
 
 #[test]
 fn guide_bounds_use_the_supplied_font_context() {
+    let mut registry = avenger_text::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
     let context = |family: &str| {
         TextEngine::with_font_resolution(&FontResolutionOptions {
             load_system_fonts: false,
@@ -12,6 +17,10 @@ fn guide_bounds_use_the_supplied_font_context() {
             ..avenger_text::default_font_resolution()
         })
         .unwrap()
+        .with_number_formatting(
+            avenger_text::NumberFormatConfig::new("d3"),
+            std::sync::Arc::new(registry.clone()),
+        )
     };
     let proportional = context("Lato");
     let monospace = context("DejaVu Sans Mono");

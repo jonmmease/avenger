@@ -10,15 +10,11 @@ use arrow::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_format_datetime_d3::{
-    parse_datetime_timezone, DateTimeFormatContext, DateTimeFormatOverrides,
-    DateTimeLocaleRegistry, NaiveDateTimeInput, PreparedDateTimeFormat, PreparedTimeMultiFormat,
-    ResolvedDateTimeLocale,
-};
-use avenger_format_number_d3::{
-    prepare_number_step_format, Align, CurrencyDisplay, DigitSpec, FormatType, FormattedNumber,
-    NumberFormatOverrides, NumberLocaleRegistry, NumberTypesetting, PreparedNumberFormat,
-    ResolvedNumberLocale, SignPolicy, Symbol,
+use avenger_format::{
+    DateTimeFormatConfig, DateTimeFormatRegistry, DateTimeFormatRequest, FormattedNumber,
+    NaiveDateTimeInput, NumberFormatConfig, NumberFormatOptions, NumberFormatRegistry,
+    NumberFormatRequest, NumberTypesetting, PreparedCivilDateTimeFormatter,
+    PreparedInstantFormatter, PreparedNumberFormatter,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -30,7 +26,6 @@ use avenger_text::{
     TextEngine,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use chrono_tz::Tz;
 use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation, AxisTickSpacing};
@@ -66,6 +61,14 @@ pub fn make_numeric_axis_marks_with_text_engine(
     text_engine: &TextEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     let mut resolved_config = config.clone();
+    resolved_config.number_format = config
+        .number_format
+        .clone()
+        .or_else(|| text_engine.number_format_config().cloned());
+    resolved_config.datetime_format = config
+        .datetime_format
+        .clone()
+        .or_else(|| text_engine.datetime_format_config().cloned());
     resolved_config.tick_count = config
         .tick_count
         .or_else(|| adaptive_tick_count(config, text_engine));
@@ -181,7 +184,7 @@ pub fn make_numeric_axis_marks_with_text_engine(
     if config.labels_visible.unwrap_or(true) {
         axis_elements_group
             .marks
-            .push(make_tick_labels(&label_ticks, &scale, config)?.into());
+            .push(make_tick_labels(&label_ticks, &scale, config, text_engine)?.into());
     }
 
     // Add title if visible and non-empty
@@ -352,7 +355,64 @@ fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &TextEngine) -
 mod tests {
     use super::*;
     use arrow::array::Float64Array;
-    use avenger_format_number_d3::NumberLocaleSpec;
+    use avenger_format::{
+        DateTimeFormatError, DateTimeFormatProvider, NumberFormatError, NumberFormatProvider,
+        ZonedDateTimeInput,
+    };
+    fn make_numeric_axis_marks(
+        scale: &ConfiguredScale,
+        title: &str,
+        origin: [f32; 2],
+        config: &AxisConfig,
+    ) -> Result<SceneGroup, AvengerGuidesError> {
+        make_numeric_axis_marks_with_text_engine(scale, title, origin, config, &d3_engine())
+    }
+    fn d3_registry() -> NumberFormatRegistry {
+        let mut registry = avenger_format::NumberFormatRegistry::default();
+        registry.register(
+            "d3",
+            std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+        );
+        registry
+    }
+    fn d3_engine() -> TextEngine {
+        avenger_text::default_text_engine()
+            .with_number_formatting(NumberFormatConfig::new("d3"), Arc::new(d3_registry()))
+            .with_datetime_formatting(
+                DateTimeFormatConfig::new("d3"),
+                Arc::new({
+                    let mut registry = avenger_format::DateTimeFormatRegistry::default();
+                    registry.register(
+                        "d3",
+                        std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+                    );
+                    registry
+                }),
+            )
+    }
+
+    fn make_tick_label_text(
+        ticks: &ArrayRef,
+        scale: &ConfiguredScale,
+        config: &AxisConfig,
+    ) -> Result<TickLabelText, AvengerGuidesError> {
+        let mut config = config.clone();
+        config
+            .number_format
+            .get_or_insert_with(|| NumberFormatConfig::new("d3"));
+        super::make_tick_label_text(ticks, scale, &config, &d3_engine())
+    }
+    fn make_tick_labels(
+        ticks: &ArrayRef,
+        scale: &ConfiguredScale,
+        config: &AxisConfig,
+    ) -> Result<SceneTextMark, AvengerGuidesError> {
+        let mut config = config.clone();
+        config
+            .number_format
+            .get_or_insert_with(|| NumberFormatConfig::new("d3"));
+        super::make_tick_labels(ticks, scale, &config, &d3_engine())
+    }
     use avenger_geometry::rtree::SceneGraphRTree;
     use avenger_scales::scales::linear::LinearScale;
     use avenger_scales::scales::log::LogScale;
@@ -366,6 +426,178 @@ mod tests {
             .iter()
             .copied()
             .collect()
+    }
+
+    #[test]
+    fn temporal_axes_and_scales_use_the_selected_provider() {
+        #[derive(Debug)]
+        struct Provider;
+        #[derive(Debug)]
+        struct Prepared(String);
+        impl Provider {
+            fn prepare(
+                &self,
+                config: &DateTimeFormatConfig,
+                request: &DateTimeFormatRequest,
+            ) -> Arc<Prepared> {
+                assert_eq!(config.locale.as_deref(), Some("custom-locale"));
+                assert_eq!(config.timezone.as_deref(), Some("America/New_York"));
+                let text = if request.spec == serde_json::json!({}) {
+                    "automatic"
+                } else {
+                    assert_eq!(request.spec, serde_json::json!("custom syntax"));
+                    if !request.options.is_empty() {
+                        assert_eq!(request.options["calendar"], "custom");
+                    }
+                    "explicit"
+                };
+                Arc::new(Prepared(text.into()))
+            }
+        }
+        impl DateTimeFormatProvider for Provider {
+            fn prepare_naive(
+                &self,
+                config: &DateTimeFormatConfig,
+                request: &DateTimeFormatRequest,
+            ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+                Ok(self.prepare(config, request))
+            }
+            fn prepare_zoned(
+                &self,
+                config: &DateTimeFormatConfig,
+                request: &DateTimeFormatRequest,
+            ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+                Ok(self.prepare(config, request))
+            }
+        }
+        impl PreparedCivilDateTimeFormatter for Prepared {
+            fn format(&self, _: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
+                Ok(format!("civil {}", self.0))
+            }
+        }
+        impl PreparedInstantFormatter for Prepared {
+            fn format(&self, _: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+                Ok(format!("instant {}", self.0))
+            }
+        }
+        let config = DateTimeFormatConfig {
+            locale: Some("custom-locale".into()),
+            timezone: Some("America/New_York".into()),
+            ..DateTimeFormatConfig::new("custom")
+        };
+        let mut registry = DateTimeFormatRegistry::default();
+        registry.register("custom", Arc::new(Provider));
+        let engine = avenger_text::default_text_engine()
+            .with_datetime_formatting(config.clone(), Arc::new(registry.clone()));
+        let civil = Arc::new(arrow::array::Date32Array::from(vec![Some(19723), None])) as ArrayRef;
+        let instant =
+            Arc::new(TimestampMillisecondArray::from(vec![Some(0), None]).with_timezone("UTC"))
+                as ArrayRef;
+        let mut scale = TimeScale::configured((civil.slice(0, 1), civil.slice(0, 1)), (0.0, 100.0));
+        for (values, kind) in [(&civil, "civil"), (&instant, "instant")] {
+            let mut axis = AxisConfig::default();
+            let labels = super::make_tick_label_text(values, &scale, &axis, &engine).unwrap();
+            assert_eq!(
+                labels.text.as_vec(2, None),
+                [format!("{kind} automatic"), String::new()]
+            );
+            axis.format_datetime = Some("custom syntax".into());
+            let labels = super::make_tick_label_text(values, &scale, &axis, &engine).unwrap();
+            assert_eq!(
+                labels.text.as_vec(2, None),
+                [format!("{kind} explicit"), String::new()]
+            );
+            axis.tick_label =
+                Some(r#"#datefmt(value, "custom syntax", calendar: "custom")"#.into());
+            let labels = super::make_tick_label_text(values, &scale, &axis, &engine).unwrap();
+            assert_eq!(
+                labels.text.as_vec(2, None),
+                [format!("{kind} explicit"), String::new()]
+            );
+        }
+        scale.config.context.formatters.instant = Some(
+            registry
+                .prepare_zoned(
+                    &config,
+                    &avenger_format::DateTimeFormatRequest::new(serde_json::json!({})),
+                )
+                .unwrap(),
+        );
+        assert_eq!(
+            scale.scale_to_string(&instant).unwrap().as_vec(2, None),
+            ["instant automatic", ""]
+        );
+        assert!(super::make_tick_label_text(
+            &instant,
+            &scale,
+            &AxisConfig::default(),
+            &avenger_text::default_text_engine()
+        )
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("datetime formatting is not configured"));
+    }
+
+    #[test]
+    fn axes_use_text_engine_providers_and_pass_format_options() {
+        #[derive(Debug)]
+        struct Provider;
+        impl NumberFormatProvider for Provider {
+            fn prepare(
+                &self,
+                _: &NumberFormatConfig,
+                request: &NumberFormatRequest,
+            ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
+                assert_eq!(request.spec, "custom");
+                assert_eq!(request.options["step"], 0.5);
+                assert_eq!(request.options["reference_value"], 2.0);
+                assert!(request
+                    .options
+                    .get("language")
+                    .is_none_or(|value| value == "test"));
+                Ok(Arc::new(Provider))
+            }
+        }
+        impl PreparedNumberFormatter for Provider {
+            fn format(&self, value: f64) -> FormattedNumber {
+                FormattedNumber::plain(format!("custom:{value}"))
+            }
+        }
+        let mut registry = NumberFormatRegistry::default();
+        registry.register("custom", Arc::new(Provider));
+        let engine = avenger_text::default_text_engine()
+            .with_number_formatting(NumberFormatConfig::new("custom"), Arc::new(registry));
+        let scale = LinearScale::configured((0.0, 2.0), (0.0, 200.0));
+        let mut config = AxisConfig {
+            number_format: Some(NumberFormatConfig::new("custom")),
+            format_number: Some("custom".into()),
+            tick_start_step: Some(AxisTickSpacing::Numeric {
+                start: 0.0,
+                step: 0.5,
+            }),
+            ..Default::default()
+        };
+        for template in [
+            None,
+            Some("#numfmt(value, \"custom\", language: \"test\")".into()),
+        ] {
+            config.tick_label = template;
+            let group =
+                make_numeric_axis_marks_with_text_engine(&scale, "", [0.0, 0.0], &config, &engine)
+                    .unwrap();
+            let marks = collect_text_marks(&group);
+            assert!(marks
+                .iter()
+                .any(|mark| mark.text.as_vec(mark.len as usize, None)
+                    == [
+                        "custom:0",
+                        "custom:0.5",
+                        "custom:1",
+                        "custom:1.5",
+                        "custom:2"
+                    ]));
+        }
     }
 
     #[test]
@@ -613,7 +845,10 @@ mod tests {
             &scale,
             &AxisConfig {
                 format_number: Some(",.1f".to_string()),
-                number_locale: Some("en-US".to_string()),
+                number_format: Some(NumberFormatConfig {
+                    locale: Some("en-US".into()),
+                    ..NumberFormatConfig::new("d3")
+                }),
                 ..Default::default()
             },
         )
@@ -624,54 +859,25 @@ mod tests {
     }
 
     #[test]
-    fn bare_tick_format_uses_custom_locale_registry() {
-        let mut registry = NumberLocaleRegistry::with_builtins();
-        registry
-            .register_custom_locale_json(
-                "tick-test",
-                r#"{ "decimal": "~", "thousands": "_", "grouping": [3] }"#,
-            )
-            .expect("custom locale");
-        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
-        let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
-        let labels = make_tick_label_text(
-            &ticks,
-            &scale,
-            &AxisConfig {
-                format_number: Some(",.1f".to_string()),
-                number_locale: Some("tick-test".to_string()),
-                number_locale_registry: Some(Arc::new(registry)),
-                ..Default::default()
-            },
-        )
-        .expect("labels");
-
-        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
-        assert_eq!(labels.text.as_vec(1, None), vec!["1_234~5"]);
-    }
-
-    #[test]
     fn bare_tick_format_uses_custom_locale_specs() {
         let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
-        let mut number_locale_specs = avenger_text::NumberLocaleSpecs::default();
-        number_locale_specs.insert(
-            "tick-test".to_string(),
-            NumberLocaleSpec {
-                decimal: "~".to_string(),
-                thousands: "_".to_string(),
-                grouping: vec![3],
-                ..Default::default()
-            },
-        );
+        let number_format = NumberFormatConfig {
+            locale: Some("tick-test".into()),
+            locales: [(
+                "tick-test".into(),
+                serde_json::json!({"decimal":"~", "thousands":"_", "grouping":[3]}),
+            )]
+            .into(),
+            ..NumberFormatConfig::new("d3")
+        };
 
         let labels = make_tick_label_text(
             &ticks,
             &scale,
             &AxisConfig {
                 format_number: Some(",.1f".to_string()),
-                number_locale: Some("tick-test".to_string()),
-                number_locale_specs,
+                number_format: Some(number_format),
                 ..Default::default()
             },
         )
@@ -774,27 +980,57 @@ mod tests {
     }
 
     #[test]
+    fn civil_axis_patterns_are_validated_without_non_null_values() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let scale = TimeScale::configured((start.clone(), start), (0.0, 100.0));
+        let engine = d3_engine();
+        for len in [0, 2] {
+            let civil = Arc::new(arrow::array::Date32Array::new_null(len)) as ArrayRef;
+            let instant =
+                Arc::new(TimestampMillisecondArray::new_null(len).with_timezone("UTC")) as ArrayRef;
+            for config in [
+                AxisConfig {
+                    format_datetime: Some("%Z".into()),
+                    ..Default::default()
+                },
+                AxisConfig {
+                    tick_label: Some("#datefmt(value, \"%Z\")".into()),
+                    ..Default::default()
+                },
+            ] {
+                let error = super::make_tick_label_text(&civil, &scale, &config, &engine)
+                    .err()
+                    .unwrap();
+                assert!(error.to_string().contains("%Z"));
+                assert!(super::make_tick_label_text(&instant, &scale, &config, &engine).is_ok());
+            }
+        }
+    }
+
+    #[test]
     fn datefmt_tick_fragment_uses_configured_locale_specs() {
         let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
         let scale = TimeScale::configured((start, end), (0.0, 100.0));
         let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
-        let mut datetime_locale_specs = avenger_text::DateTimeLocaleSpecs::default();
-        datetime_locale_specs.insert(
-            "tick-date".to_string(),
-            avenger_text::DateTimeLocaleSpec {
-                date: "%Y~%m~%d".to_string(),
+        let mut datetime_format = DateTimeFormatConfig::new("d3");
+        datetime_format.locales.insert(
+            "tick-date".into(),
+            serde_json::to_value(avenger_format_datetime_d3::DateTimeLocaleSpec {
+                date: "%Y~%m~%d".into(),
                 ..Default::default()
-            },
+            })
+            .unwrap(),
         );
-
         let labels = make_tick_label_text(
             &ticks,
             &scale,
             &AxisConfig {
                 tick_label: Some("#datefmt(value, \"%x\")".to_string()),
-                datetime_locale: Some("tick-date".to_string()),
-                datetime_locale_specs,
+                datetime_format: Some(DateTimeFormatConfig {
+                    locale: Some("tick-date".into()),
+                    ..datetime_format
+                }),
                 ..Default::default()
             },
         )
@@ -810,21 +1046,21 @@ mod tests {
         let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
         let scale = TimeScale::configured((start, end), (0.0, 100.0));
         let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
-        let mut datetime_locale_specs = avenger_text::DateTimeLocaleSpecs::default();
-        datetime_locale_specs.insert(
-            "tick-date".to_string(),
-            avenger_text::DateTimeLocaleSpec {
-                date: "%Y~%m~%d".to_string(),
+        let mut datetime_format = DateTimeFormatConfig::new("d3");
+        datetime_format.locales.insert(
+            "tick-date".into(),
+            serde_json::to_value(avenger_format_datetime_d3::DateTimeLocaleSpec {
+                date: "%Y~%m~%d".into(),
                 ..Default::default()
-            },
+            })
+            .unwrap(),
         );
-
         let labels = make_tick_label_text(
             &ticks,
             &scale,
             &AxisConfig {
                 tick_label: Some("#datefmt(value, \"%x\", locale: \"tick-date\")".to_string()),
-                datetime_locale_specs,
+                datetime_format: Some(datetime_format),
                 ..Default::default()
             },
         )
@@ -936,8 +1172,11 @@ mod tests {
             &ticks,
             &scale,
             &AxisConfig {
-                format_number: Some("#numfmt(value, \".2S\")".to_string()),
-                number_locale: Some("en-US".to_string()),
+                format_number: Some("#numfmt(value, \".2~s\")".to_string()),
+                number_format: Some(NumberFormatConfig {
+                    locale: Some("en-US".into()),
+                    ..NumberFormatConfig::new("d3")
+                }),
                 ..Default::default()
             },
         )
@@ -978,7 +1217,7 @@ mod tests {
             &scale,
             &AxisConfig {
                 format_number: Some(
-                    "#numfmt(value, \"C[USD]\", currency: \"EUR\", currency_display: \"code\", fraction_digits: 0, group: false)"
+                    "#numfmt(value, \"$,.2f\", symbol: \"none\", precision: 0, group: false)"
                         .to_string(),
                 ),
                 ..Default::default()
@@ -987,7 +1226,7 @@ mod tests {
         .expect("labels");
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
-        assert_eq!(labels.text.as_vec(1, None), vec!["EUR\u{a0}1235"]);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1235"]);
     }
 
     #[test]
@@ -1031,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn numfmt_tick_fragment_rejects_duplicate_digit_options() {
+    fn numfmt_tick_fragment_rejects_duplicate_options() {
         let scale = LinearScale::configured((0.0, 100.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![42.0])) as ArrayRef;
         let result = make_tick_label_text(
@@ -1039,19 +1278,19 @@ mod tests {
             &scale,
             &AxisConfig {
                 format_number: Some(
-                    "#numfmt(value, \".0f\", precision: 1, fraction_digits: 2)".to_string(),
+                    "#numfmt(value, \".0f\", precision: 1, precision: 2)".to_string(),
                 ),
                 ..Default::default()
             },
         );
         let Err(err) = result else {
-            panic!("duplicate digit options should error");
+            panic!("duplicate options should error");
         };
 
         assert!(matches!(
             err,
             AvengerGuidesError::InvalidAxisLabelFormat(message)
-                if message == "axis numfmt accepts only one digit-control option"
+                if message == "duplicate axis numfmt option `precision`"
         ));
     }
 
@@ -1218,8 +1457,9 @@ fn make_tick_labels(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
     config: &AxisConfig,
+    text_engine: &TextEngine,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let tick_labels = make_tick_label_text(ticks, scale, config)?;
+    let tick_labels = make_tick_label_text(ticks, scale, config, text_engine)?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     // Adjust y position slightly for font metrics
@@ -1296,18 +1536,27 @@ pub(crate) fn make_tick_label_text(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
     config: &AxisConfig,
+    text_engine: &TextEngine,
 ) -> Result<TickLabelText, AvengerGuidesError> {
+    let environment = NumberFormatEnvironment {
+        config: config
+            .number_format
+            .as_ref()
+            .or(text_engine.number_format_config()),
+        registry: text_engine.number_formatters(),
+    };
     if let Some(template) = config.tick_label.as_ref() {
         if ticks.data_type().is_numeric() {
             let values = cast(ticks, &DataType::Float64)
                 .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
             let values = values.as_primitive::<Float64Type>();
             let nums: Vec<Option<f64>> = values.iter().collect();
-            let format_env = NumberFormatEnvironment::from_axis_config(config)?;
-            return format_numfmt_tick_fragment(template, &nums, format_env.context());
+            let format_env = &environment;
+            return format_numfmt_tick_fragment(template, &nums, format_env);
         }
         if let Some(values) = temporal_tick_values(ticks)? {
-            let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
+            let format_env =
+                DateTimeFormatEnvironment::from_axis_config(config, scale, text_engine, ticks)?;
             return format_datefmt_tick_fragment(template, &values, &format_env);
         }
         return Err(AvengerGuidesError::InvalidAxisLabelFormat(
@@ -1317,8 +1566,9 @@ pub(crate) fn make_tick_label_text(
 
     if let Some(spec) = config.format_datetime.as_ref() {
         if let Some(values) = temporal_tick_values(ticks)? {
-            let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
-            return format_datetime_ticks(spec, &values, format_env.context());
+            let format_env =
+                DateTimeFormatEnvironment::from_axis_config(config, scale, text_engine, ticks)?;
+            return format_datetime_ticks(spec, &values, &format_env);
         }
         return Err(AvengerGuidesError::InvalidAxisLabelFormat(
             "datetime_format is only supported for temporal ticks".to_string(),
@@ -1327,7 +1577,7 @@ pub(crate) fn make_tick_label_text(
 
     let Some(pattern) = config.format_number.as_ref() else {
         return Ok(TickLabelText {
-            text: format_default_tick_values(ticks, scale, config)?,
+            text: format_default_tick_values(ticks, scale, config, &environment, text_engine)?,
             syntax_mode: TextSyntaxMode::Plain,
         });
     };
@@ -1335,12 +1585,13 @@ pub(crate) fn make_tick_label_text(
     if !ticks.data_type().is_numeric() {
         if pattern.contains("#datefmt") {
             if let Some(values) = temporal_tick_values(ticks)? {
-                let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
+                let format_env =
+                    DateTimeFormatEnvironment::from_axis_config(config, scale, text_engine, ticks)?;
                 return format_datefmt_tick_fragment(pattern, &values, &format_env);
             }
         }
         return Ok(TickLabelText {
-            text: format_default_tick_values(ticks, scale, config)?,
+            text: format_default_tick_values(ticks, scale, config, &environment, text_engine)?,
             syntax_mode: TextSyntaxMode::Plain,
         });
     }
@@ -1349,8 +1600,8 @@ pub(crate) fn make_tick_label_text(
         .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
     let values = values.as_primitive::<Float64Type>();
     let nums: Vec<Option<f64>> = values.iter().collect();
-    let format_env = NumberFormatEnvironment::from_axis_config(config)?;
-    let context = format_env.context();
+    let format_env = &environment;
+    let context = format_env;
 
     if pattern.contains("#numfmt") {
         format_numfmt_tick_fragment(pattern, &nums, context)
@@ -1363,36 +1614,35 @@ fn format_default_tick_values(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
     config: &AxisConfig,
+    number_environment: &NumberFormatEnvironment,
+    text_engine: &TextEngine,
 ) -> Result<ScalarOrArray<String>, AvengerGuidesError> {
     if let Some(values) = temporal_tick_values(ticks)? {
-        let environment = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
-        let prepared = PreparedTimeMultiFormat::new(&Default::default(), environment.context())
-            .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
+        let environment =
+            DateTimeFormatEnvironment::from_axis_config(config, scale, text_engine, ticks)?;
+        let prepared = environment.prepare(
+            &avenger_format::DateTimeFormatRequest::new(serde_json::json!({})),
+            None,
+        )?;
         let labels = values
             .into_iter()
-            .map(|value| match value {
-                Some(DatefmtTickValue::Date(value)) => prepared
-                    .format_naive(NaiveDateTimeInput::Date(value))
-                    .map(|value| value.text),
-                Some(DatefmtTickValue::DateTime(value)) => prepared
-                    .format_naive(NaiveDateTimeInput::DateTime(value))
-                    .map(|value| value.text),
-                Some(DatefmtTickValue::UtcDateTime(value)) => Ok(prepared.format_zoned(value).text),
-                None => Ok(String::new()),
+            .map(|value| {
+                value.map_or_else(
+                    || Ok(String::new()),
+                    |value| format_datetime_tick_value(value, &prepared),
+                )
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ScalarOrArray::new_array(labels))
     } else if ticks.data_type().is_numeric() {
         let values = cast(ticks, &DataType::Float64)
             .map_err(|error| AvengerGuidesError::InvalidScale(error.into()))?;
-        let environment = NumberFormatEnvironment::from_axis_config(config)?;
+        let environment = number_environment;
         let numbers = values
             .as_primitive::<Float64Type>()
             .iter()
             .collect::<Vec<_>>();
-        let prepared =
-            prepare_axis_number_format(&numbers, scale, config, None, environment.context())?;
+        let prepared = prepare_axis_number_format(&numbers, scale, config, None, environment)?;
         Ok(ScalarOrArray::new_array(
             values
                 .as_primitive::<Float64Type>()
@@ -1405,81 +1655,85 @@ fn format_default_tick_values(
     }
 }
 
-struct NumberFormatEnvironment {
-    locale: ResolvedNumberLocale,
+struct NumberFormatEnvironment<'a> {
+    config: Option<&'a NumberFormatConfig>,
+    registry: &'a NumberFormatRegistry,
 }
 
-impl NumberFormatEnvironment {
-    fn from_axis_config(config: &AxisConfig) -> Result<Self, AvengerGuidesError> {
-        let registry = if let Some(registry) = &config.number_locale_registry {
-            registry.clone()
-        } else {
-            avenger_text::number_locale_registry_from_specs(Some(&config.number_locale_specs))
-                .map_err(AvengerGuidesError::InvalidAxisLabelFormat)?
-                .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()))
-        };
-        let locale_id = config.number_locale.as_deref().unwrap_or("en-US");
-        let locale = registry
-            .resolve(locale_id)
-            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-        Ok(Self { locale })
-    }
-
-    fn context(&self) -> &ResolvedNumberLocale {
-        &self.locale
+impl NumberFormatEnvironment<'_> {
+    fn prepare(
+        &self,
+        request: NumberFormatRequest,
+    ) -> Result<Arc<dyn PreparedNumberFormatter>, AvengerGuidesError> {
+        self.registry
+            .prepare(
+                self.config.ok_or_else(|| {
+                    invalid_axis_label_format("number formatting is not configured")
+                })?,
+                &request,
+            )
+            .map_err(|error| invalid_axis_label_format(error.to_string()))
     }
 }
 
-struct DateTimeFormatEnvironment {
-    registry: Arc<DateTimeLocaleRegistry>,
-    locale: ResolvedDateTimeLocale,
-    timezone: Tz,
+struct DateTimeFormatEnvironment<'a> {
+    config: DateTimeFormatConfig,
+    registry: &'a DateTimeFormatRegistry,
+    is_instant: bool,
 }
 
-impl DateTimeFormatEnvironment {
+enum DatefmtTickFormatter {
+    Civil(Arc<dyn PreparedCivilDateTimeFormatter>),
+    Instant(Arc<dyn PreparedInstantFormatter>),
+}
+
+impl<'a> DateTimeFormatEnvironment<'a> {
     fn from_axis_config(
         config: &AxisConfig,
         scale: &ConfiguredScale,
+        text_engine: &'a TextEngine,
+        ticks: &ArrayRef,
     ) -> Result<Self, AvengerGuidesError> {
-        let registry = if let Some(registry) = &config.datetime_locale_registry {
-            registry.clone()
-        } else {
-            avenger_text::datetime_locale_registry_from_specs(Some(&config.datetime_locale_specs))
-                .map_err(AvengerGuidesError::InvalidAxisLabelFormat)?
-                .unwrap_or_else(|| Arc::new(DateTimeLocaleRegistry::with_builtins()))
-        };
-        let scale_locale = scale.option_string("locale", "en-US");
-        let locale_id = if scale_locale == "en-US" {
-            config
-                .datetime_locale
-                .clone()
-                .unwrap_or_else(|| scale_locale.clone())
-        } else {
-            scale_locale
-        };
-        let locale = registry
-            .resolve(&locale_id)
-            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-        let scale_timezone = scale.option_string("timezone", "UTC");
-        let timezone_id = if scale_timezone == "UTC" {
-            config
-                .datetime_timezone
-                .clone()
-                .unwrap_or_else(|| scale_timezone.clone())
-        } else {
-            scale_timezone
-        };
-        let timezone = parse_datetime_timezone(&timezone_id)
-            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        let mut format = config
+            .datetime_format
+            .as_ref()
+            .or(text_engine.datetime_format_config())
+            .cloned()
+            .ok_or_else(|| invalid_axis_label_format("datetime formatting is not configured"))?;
+        let locale = scale.option_string("locale", "en-US");
+        if locale != "en-US" {
+            format.locale = Some(locale);
+        }
+        let timezone = scale.option_string("timezone", "UTC");
+        if timezone != "UTC" {
+            format.timezone = Some(timezone);
+        }
         Ok(Self {
-            registry,
-            locale,
-            timezone,
+            config: format,
+            registry: text_engine.datetime_formatters(),
+            is_instant: matches!(ticks.data_type(), DataType::Timestamp(_, Some(_))),
         })
     }
 
-    fn context(&self) -> DateTimeFormatContext<'_> {
-        DateTimeFormatContext::new(&self.locale, self.timezone)
+    fn prepare(
+        &self,
+        request: &DateTimeFormatRequest,
+        locale: Option<&str>,
+    ) -> Result<DatefmtTickFormatter, AvengerGuidesError> {
+        let mut config = self.config.clone();
+        if let Some(locale) = locale {
+            config.locale = Some(locale.into());
+        }
+        if self.is_instant {
+            self.registry
+                .prepare_zoned(&config, request)
+                .map(DatefmtTickFormatter::Instant)
+        } else {
+            self.registry
+                .prepare_naive(&config, request)
+                .map(DatefmtTickFormatter::Civil)
+        }
+        .map_err(|error| invalid_axis_label_format(error.to_string()))
     }
 }
 
@@ -1497,7 +1751,12 @@ fn temporal_tick_values(
         DataType::Date32 => {
             let values = ticks.as_primitive::<Date32Type>();
             (0..values.len())
-                .map(|i| values.value_as_date(i).map(DatefmtTickValue::Date))
+                .map(|i| {
+                    (!values.is_null(i))
+                        .then(|| values.value_as_date(i))
+                        .flatten()
+                        .map(DatefmtTickValue::Date)
+                })
                 .collect()
         }
         DataType::Date64 => {
@@ -1614,21 +1873,20 @@ fn datetime_from_timestamp_parts(value: i64, unit: TimeUnit) -> Option<DateTime<
 fn prepare_tick_number_format(
     values: &[f64],
     spec: Option<&str>,
-    overrides: NumberFormatOverrides,
-    locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, avenger_format_number_d3::FormatError> {
+    options: NumberFormatOptions,
+    environment: &NumberFormatEnvironment,
+) -> Result<Arc<dyn PreparedNumberFormatter>, AvengerGuidesError> {
     let mut values: Vec<_> = values.iter().copied().filter(|v| v.is_finite()).collect();
     values.sort_by(f64::total_cmp);
     values.dedup();
     let start = values.first().copied().unwrap_or(0.0);
     let stop = values.last().copied().unwrap_or(start);
-    prepare_number_step_format(
+    environment.prepare(avenger_scales::formatter::d3_step_number_request(
+        spec,
+        options,
         avenger_scales::array::tick_step(start, stop, values.len().saturating_sub(1) as f64),
         start.abs().max(stop.abs()),
-        spec,
-        overrides,
-        locale,
-    )
+    ))
 }
 
 fn prepare_axis_number_format(
@@ -1636,39 +1894,31 @@ fn prepare_axis_number_format(
     scale: &ConfiguredScale,
     config: &AxisConfig,
     spec: Option<&str>,
-    context: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, AvengerGuidesError> {
-    let parsed = avenger_format_number_d3::parse_number_spec(spec.unwrap_or(""))
-        .map_err(|error| invalid_axis_label_format(error.to_string()))?;
-    let prepared = if let Some(AxisTickSpacing::Numeric { step, .. }) = config.tick_start_step {
-        let reference = values
+    environment: &NumberFormatEnvironment,
+) -> Result<Arc<dyn PreparedNumberFormatter>, AvengerGuidesError> {
+    let request = if let Some(AxisTickSpacing::Numeric { step, .. }) = config.tick_start_step {
+        let reference_value = values
             .iter()
             .flatten()
             .copied()
             .filter(|v| v.is_finite())
             .map(f64::abs)
             .fold(0.0, f64::max);
-        // Preserve the f32 step's decimal spelling: casting 0.01 directly to f64
-        // moves it below the precision boundary and adds an unwanted fraction digit.
+        // Preserve the f32 step's decimal spelling at precision boundaries.
         let step = step.to_string().parse::<f64>().expect("numeric tick step");
-        prepare_number_step_format(step, reference, spec, Default::default(), context)
-    } else if matches!(
-        parsed.format_type,
-        Some(FormatType::CompactShort | FormatType::CompactLong | FormatType::Currency)
-    ) {
-        let ticks = values.iter().flatten().copied().collect::<Vec<_>>();
-        prepare_tick_number_format(&ticks, spec, Default::default(), context)
+        avenger_scales::formatter::d3_step_number_request(
+            spec,
+            Default::default(),
+            step,
+            reference_value,
+        )
     } else if scale.scale_impl.scale_type() == "log" {
-        avenger_format_number_d3::prepare_number_float_format(spec, context)
+        avenger_scales::formatter::d3_continuous_number_request(spec, Default::default())
     } else if matches!(
         scale.scale_impl.scale_type(),
         "band" | "nested_band" | "point" | "ordinal" | "quantile" | "threshold"
     ) {
-        avenger_format_number_d3::PreparedNumberFormat::new(
-            Some(spec.filter(|spec| !spec.is_empty()).unwrap_or("c")),
-            Default::default(),
-            context,
-        )
+        NumberFormatRequest::new(spec.filter(|s| !s.is_empty()).unwrap_or("c"))
     } else {
         let domain = cast(&scale.config.domain, &DataType::Float64)
             .map_err(|error| AvengerGuidesError::InvalidScale(error.into()))?;
@@ -1678,19 +1928,18 @@ fn prepare_axis_number_format(
         } else {
             (0.0, 0.0)
         };
-        prepare_number_step_format(
+        avenger_scales::formatter::d3_step_number_request(
+            spec,
+            Default::default(),
             avenger_scales::array::tick_step(
                 start,
                 stop,
                 config.tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT) as f64,
             ),
             start.abs().max(stop.abs()),
-            spec,
-            Default::default(),
-            context,
         )
     };
-    prepared.map_err(|error| invalid_axis_label_format(error.to_string()))
+    environment.prepare(request)
 }
 
 fn format_bare_number_ticks(
@@ -1698,7 +1947,7 @@ fn format_bare_number_ticks(
     values: &[Option<f64>],
     scale: &ConfiguredScale,
     config: &AxisConfig,
-    context: &ResolvedNumberLocale,
+    context: &NumberFormatEnvironment,
 ) -> Result<TickLabelText, AvengerGuidesError> {
     let prepared = prepare_axis_number_format(values, scale, config, Some(spec), context)?;
     let labels = values
@@ -1734,7 +1983,7 @@ fn format_bare_number_ticks(
 fn format_numfmt_tick_fragment(
     template: &str,
     values: &[Option<f64>],
-    context: &ResolvedNumberLocale,
+    context: &NumberFormatEnvironment,
 ) -> Result<TickLabelText, AvengerGuidesError> {
     let finite_values: Vec<f64> = values
         .iter()
@@ -1761,18 +2010,18 @@ struct NumfmtTickTemplate {
 
 enum NumfmtTickPiece {
     Literal(String),
-    Call(PreparedNumberFormat),
+    Call(Arc<dyn PreparedNumberFormatter>),
 }
 
 struct NumfmtTickCall {
     spec: String,
-    overrides: NumberFormatOverrides,
+    overrides: NumberFormatOptions,
 }
 
 fn parse_numfmt_tick_template(
     template: &str,
     values: &[f64],
-    context: &ResolvedNumberLocale,
+    context: &NumberFormatEnvironment,
 ) -> Result<NumfmtTickTemplate, AvengerGuidesError> {
     let mut pieces = Vec::new();
     let mut cursor = 0;
@@ -1834,10 +2083,9 @@ fn format_datefmt_tick_fragment(
 fn format_datetime_ticks(
     spec: &str,
     values: &[Option<DatefmtTickValue>],
-    context: DateTimeFormatContext<'_>,
+    environment: &DateTimeFormatEnvironment,
 ) -> Result<TickLabelText, AvengerGuidesError> {
-    let prepared = PreparedDateTimeFormat::new(Some(spec), Default::default(), context)
-        .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
+    let prepared = environment.prepare(&DateTimeFormatRequest::new(spec), None)?;
     let text = values
         .iter()
         .map(|value| {
@@ -1859,12 +2107,12 @@ struct DatefmtTickTemplate {
 
 enum DatefmtTickPiece {
     Literal(String),
-    Call(PreparedDateTimeFormat),
+    Call(DatefmtTickFormatter),
 }
 
 struct DatefmtTickCall {
     spec: String,
-    overrides: DateTimeFormatOverrides,
+    overrides: DateTimeFormatRequest,
     locale: Option<String>,
 }
 
@@ -1882,18 +2130,13 @@ fn parse_datefmt_tick_template(
             )));
         }
         let (end, call) = parse_datefmt_tick_call(template, start)?;
-        let locale = call
-            .locale
-            .as_deref()
-            .map(|id| environment.registry.resolve(id))
-            .transpose()
-            .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
-        let context = DateTimeFormatContext::new(
-            locale.as_ref().unwrap_or(&environment.locale),
-            environment.timezone,
-        );
-        let prepared = PreparedDateTimeFormat::new(Some(&call.spec), call.overrides, context)
-            .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
+        let prepared = environment.prepare(
+            &DateTimeFormatRequest {
+                spec: call.spec.into(),
+                ..call.overrides
+            },
+            call.locale.as_deref(),
+        )?;
         pieces.push(DatefmtTickPiece::Call(prepared));
         cursor = end;
     }
@@ -1923,17 +2166,25 @@ fn format_datefmt_tick_fragment_value(
 
 fn format_datetime_tick_value(
     value: DatefmtTickValue,
-    prepared: &PreparedDateTimeFormat,
+    prepared: &DatefmtTickFormatter,
 ) -> Result<String, AvengerGuidesError> {
-    let formatted = match value {
-        DatefmtTickValue::Date(value) => prepared.format_naive(NaiveDateTimeInput::Date(value)),
-        DatefmtTickValue::DateTime(value) => {
-            prepared.format_naive(NaiveDateTimeInput::DateTime(value))
+    match (value, prepared) {
+        (DatefmtTickValue::Date(value), DatefmtTickFormatter::Civil(format)) => {
+            format.format(NaiveDateTimeInput::Date(value))
         }
-        DatefmtTickValue::UtcDateTime(value) => Ok(prepared.format_zoned(value)),
+        (DatefmtTickValue::DateTime(value), DatefmtTickFormatter::Civil(format)) => {
+            format.format(NaiveDateTimeInput::DateTime(value))
+        }
+        (DatefmtTickValue::UtcDateTime(value), DatefmtTickFormatter::Instant(format)) => {
+            format.format(value)
+        }
+        _ => {
+            return Err(invalid_axis_label_format(
+                "datetime formatter does not match the tick type",
+            ))
+        }
     }
-    .map_err(|error| AvengerGuidesError::InvalidAxisLabelFormat(error.to_string()))?;
-    Ok(formatted.text)
+    .map_err(|error| invalid_axis_label_format(error.to_string()))
 }
 
 fn parse_numfmt_tick_call(
@@ -2040,115 +2291,65 @@ fn parse_datefmt_tick_args(args: &str) -> Result<DatefmtTickCall, AvengerGuidesE
     })
 }
 
-fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, AvengerGuidesError> {
+fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOptions, AvengerGuidesError> {
     let mut rest = raw.trim();
-    let mut overrides = NumberFormatOverrides::default();
+    let mut options = NumberFormatOptions::new();
     while !rest.is_empty() {
-        let Some(after_comma) = rest.strip_prefix(',') else {
-            return Err(invalid_axis_label_format(
-                "axis numfmt options must be comma-separated named arguments",
-            ));
-        };
-        rest = after_comma.trim_start();
-        let Some((name, after_name)) = parse_identifier(rest) else {
-            return Err(invalid_axis_label_format(
-                "axis numfmt option must start with an identifier",
-            ));
-        };
-        let Some(after_colon) = after_name.trim_start().strip_prefix(':') else {
+        let after_comma = rest.strip_prefix(',').ok_or_else(|| {
+            invalid_axis_label_format("axis numfmt options must be comma-separated named arguments")
+        })?;
+        let (name, after_name) = parse_identifier(after_comma.trim_start()).ok_or_else(|| {
+            invalid_axis_label_format("axis numfmt option must start with an identifier")
+        })?;
+        let value = after_name
+            .trim_start()
+            .strip_prefix(':')
+            .ok_or_else(|| {
+                invalid_axis_label_format(format!("axis numfmt option `{name}` must use `:`"))
+            })?
+            .trim_start();
+        let (value, after_value) = parse_format_option_value(value, name)?;
+        if options.insert(name.to_owned(), value).is_some() {
             return Err(invalid_axis_label_format(format!(
-                "axis numfmt option `{name}` must use `:`"
+                "duplicate axis numfmt option `{name}`"
             )));
-        };
-        let value = after_colon.trim_start();
-        rest = match name {
-            "style" | "type" => {
-                let (format_type, after_value) = parse_axis_format_type_arg(value)?;
-                overrides.format_type = Some(format_type);
-                after_value
-            }
-            "precision" => {
-                let (digit_spec, after_value) = parse_axis_precision_arg(value)?;
-                set_axis_digit_spec(&mut overrides, digit_spec)?;
-                after_value
-            }
-            "fraction_digits" => {
-                let (fraction_digits, after_value) = parse_axis_u8_arg(value, "fraction_digits")?;
-                set_axis_digit_spec(&mut overrides, DigitSpec::Precision(fraction_digits))?;
-                after_value
-            }
-            "significant_digits" => {
-                let (significant_digits, after_value) =
-                    parse_axis_u8_arg(value, "significant_digits")?;
-                set_axis_digit_spec(&mut overrides, DigitSpec::Precision(significant_digits))?;
-                after_value
-            }
-            "width" => {
-                let (width, after_value) = parse_axis_optional_usize_arg(value, "width")?;
-                overrides.width = Some(width);
-                after_value
-            }
-            "fill" => {
-                let (fill, after_value) = parse_axis_optional_char_arg(value, "fill")?;
-                overrides.fill = Some(fill);
-                after_value
-            }
-            "align" => {
-                let (align, after_value) = parse_axis_optional_align_arg(value)?;
-                overrides.align = Some(align);
-                after_value
-            }
-            "group" => {
-                let (group, after_value) = parse_axis_bool_arg(value, "group")?;
-                overrides.group = Some(group);
-                after_value
-            }
-            "trim" => {
-                let (trim, after_value) = parse_axis_bool_arg(value, "trim")?;
-                overrides.trim = Some(trim);
-                after_value
-            }
-            "zero" => {
-                let (zero, after_value) = parse_axis_bool_arg(value, "zero")?;
-                overrides.zero = Some(zero);
-                after_value
-            }
-            "currency" => {
-                let (currency, after_value) = parse_axis_string_arg(value, "currency")?;
-                overrides.currency = Some(currency);
-                after_value
-            }
-            "currency_display" => {
-                let (display, after_value) = parse_axis_currency_display_arg(value)?;
-                overrides.currency_display = Some(display);
-                after_value
-            }
-            "sign" => {
-                let (sign, after_value) = parse_axis_sign_arg(value)?;
-                overrides.sign = Some(sign);
-                after_value
-            }
-            "symbol" => {
-                let (symbol, after_value) = parse_axis_symbol_arg(value)?;
-                overrides.symbol = Some(symbol);
-                after_value
-            }
-            _ => {
-                return Err(invalid_axis_label_format(format!(
-                    "unsupported axis numfmt option `{name}`"
-                )));
-            }
         }
-        .trim_start();
+        rest = after_value.trim_start();
     }
-    Ok(overrides)
+    Ok(options)
+}
+
+fn parse_format_option_value<'a>(
+    value: &'a str,
+    name: &str,
+) -> Result<(serde_json::Value, &'a str), AvengerGuidesError> {
+    Ok(if value.starts_with('"') {
+        let (value, rest) = parse_quoted_string(value)?;
+        (serde_json::Value::String(value), rest)
+    } else {
+        let end = value.find(',').unwrap_or(value.len());
+        let token = value[..end].trim();
+        let parsed = if token == "none" || (name == "precision" && token == "precision") {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_str::<serde_json::Value>(token)
+                .ok()
+                .filter(|v| v.is_number() || v.is_boolean())
+                .ok_or_else(|| {
+                    invalid_axis_label_format(format!(
+                        "axis format option `{name}` must be a scalar literal"
+                    ))
+                })?
+        };
+        (parsed, &value[end..])
+    })
 }
 
 fn parse_datefmt_tick_overrides(
     raw: &str,
-) -> Result<(DateTimeFormatOverrides, Option<String>), AvengerGuidesError> {
+) -> Result<(DateTimeFormatRequest, Option<String>), AvengerGuidesError> {
     let mut rest = raw.trim();
-    let mut overrides = DateTimeFormatOverrides::default();
+    let mut overrides = DateTimeFormatRequest::new("");
     let mut locale = None;
     while !rest.is_empty() {
         let Some(after_comma) = rest.strip_prefix(',') else {
@@ -2180,27 +2381,16 @@ fn parse_datefmt_tick_overrides(
                 after_value
             }
             _ => {
-                return Err(invalid_axis_label_format(format!(
-                    "unsupported axis datefmt option `{name}`"
-                )));
+                let (value, after_value) = parse_format_option_value(value, name)?;
+                if overrides.options.insert(name.into(), value).is_some() {
+                    return Err(invalid_axis_label_format("duplicate axis datefmt option"));
+                }
+                after_value
             }
         }
         .trim_start();
     }
     Ok((overrides, locale))
-}
-
-fn set_axis_digit_spec(
-    overrides: &mut NumberFormatOverrides,
-    digit_spec: DigitSpec,
-) -> Result<(), AvengerGuidesError> {
-    if overrides.digit_spec.is_some() {
-        return Err(invalid_axis_label_format(
-            "axis numfmt accepts only one digit-control option",
-        ));
-    }
-    overrides.digit_spec = Some(digit_spec);
-    Ok(())
 }
 
 fn parse_identifier(input: &str) -> Option<(&str, &str)> {
@@ -2220,141 +2410,6 @@ fn parse_identifier(input: &str) -> Option<(&str, &str)> {
     Some((&input[..end], &input[end..]))
 }
 
-fn strip_identifier<'a>(input: &'a str, ident: &str) -> Option<&'a str> {
-    let rest = input.strip_prefix(ident)?;
-    let next = rest.chars().next();
-    if next
-        .map(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-        .unwrap_or(false)
-    {
-        return None;
-    }
-    Some(rest)
-}
-
-fn parse_axis_precision_arg(raw: &str) -> Result<(DigitSpec, &str), AvengerGuidesError> {
-    if let Some(rest) = strip_identifier(raw, "precision") {
-        return Ok((DigitSpec::Auto, rest));
-    }
-    let (precision, rest) = parse_axis_u8_arg(raw, "precision")?;
-    Ok((DigitSpec::Precision(precision), rest))
-}
-
-fn parse_axis_format_type_arg(raw: &str) -> Result<(FormatType, &str), AvengerGuidesError> {
-    let (value, rest) = parse_axis_string_arg(raw, "type")?;
-    let mut chars = value.chars();
-    let Some(ch) = chars.next() else {
-        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
-    };
-    if chars.next().is_some() {
-        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
-    }
-    let Some(format_type) = FormatType::from_char(ch) else {
-        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
-    };
-    Ok((format_type, rest))
-}
-
-fn parse_axis_currency_display_arg(
-    raw: &str,
-) -> Result<(CurrencyDisplay, &str), AvengerGuidesError> {
-    let (value, rest) = parse_axis_string_arg(raw, "currency_display")?;
-    let display = match value.as_str() {
-        "symbol" => CurrencyDisplay::Symbol,
-        "code" => CurrencyDisplay::Code,
-        "narrow-symbol" | "narrow_symbol" => CurrencyDisplay::NarrowSymbol,
-        _ => {
-            return Err(invalid_axis_label_format(
-                "unsupported axis numfmt currency_display",
-            ));
-        }
-    };
-    Ok((display, rest))
-}
-
-fn parse_axis_sign_arg(raw: &str) -> Result<(SignPolicy, &str), AvengerGuidesError> {
-    let (value, rest) = parse_axis_string_arg(raw, "sign")?;
-    let mut chars = value.chars();
-    let Some(ch) = chars.next() else {
-        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
-    };
-    if chars.next().is_some() {
-        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
-    }
-    let Some(sign) = SignPolicy::from_char(ch) else {
-        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
-    };
-    Ok((sign, rest))
-}
-
-fn parse_axis_symbol_arg(raw: &str) -> Result<(Option<Symbol>, &str), AvengerGuidesError> {
-    let (value, rest) = parse_axis_string_arg(raw, "symbol")?;
-    let symbol = match value.as_str() {
-        "$" => Some(Symbol::CurrencyCompat),
-        "#" => Some(Symbol::Alternate),
-        "none" => None,
-        _ => return Err(invalid_axis_label_format("unsupported axis numfmt symbol")),
-    };
-    Ok((symbol, rest))
-}
-
-fn parse_axis_optional_usize_arg<'a>(
-    raw: &'a str,
-    option: &str,
-) -> Result<(Option<usize>, &'a str), AvengerGuidesError> {
-    if let Some(rest) = strip_identifier(raw, "none") {
-        return Ok((None, rest));
-    }
-    let (width, rest) = parse_axis_usize_arg(raw, option)?;
-    Ok((Some(width), rest))
-}
-
-fn parse_axis_optional_char_arg<'a>(
-    raw: &'a str,
-    option: &str,
-) -> Result<(Option<char>, &'a str), AvengerGuidesError> {
-    if let Some(rest) = strip_identifier(raw, "none") {
-        return Ok((None, rest));
-    }
-    let (value, rest) = parse_axis_string_arg(raw, option)?;
-    let mut chars = value.chars();
-    let Some(ch) = chars.next() else {
-        return Err(invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be one character or none"
-        )));
-    };
-    if chars.next().is_some() {
-        return Err(invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be one character or none"
-        )));
-    }
-    Ok((Some(ch), rest))
-}
-
-fn parse_axis_optional_align_arg(raw: &str) -> Result<(Option<Align>, &str), AvengerGuidesError> {
-    if let Some(rest) = strip_identifier(raw, "none") {
-        return Ok((None, rest));
-    }
-    let (value, rest) = parse_axis_string_arg(raw, "align")?;
-    let mut chars = value.chars();
-    let Some(ch) = chars.next() else {
-        return Err(invalid_axis_label_format(
-            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
-        ));
-    };
-    if chars.next().is_some() {
-        return Err(invalid_axis_label_format(
-            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
-        ));
-    }
-    let Some(align) = Align::from_char(ch) else {
-        return Err(invalid_axis_label_format(
-            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
-        ));
-    };
-    Ok((Some(align), rest))
-}
-
 fn parse_axis_string_arg<'a>(
     raw: &'a str,
     option: &str,
@@ -2364,64 +2419,6 @@ fn parse_axis_string_arg<'a>(
             "axis format option `{option}` must be a string literal"
         ))
     })
-}
-
-fn parse_axis_bool_arg<'a>(
-    raw: &'a str,
-    option: &str,
-) -> Result<(bool, &'a str), AvengerGuidesError> {
-    if let Some(rest) = strip_identifier(raw, "true") {
-        return Ok((true, rest));
-    }
-    if let Some(rest) = strip_identifier(raw, "false") {
-        return Ok((false, rest));
-    }
-    Err(invalid_axis_label_format(format!(
-        "axis numfmt option `{option}` must be true or false"
-    )))
-}
-
-fn parse_axis_u8_arg<'a>(raw: &'a str, option: &str) -> Result<(u8, &'a str), AvengerGuidesError> {
-    let end = raw
-        .char_indices()
-        .take_while(|(_, ch)| ch.is_ascii_digit())
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .last()
-        .unwrap_or(0);
-    if end == 0 {
-        return Err(invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be an integer from 0 to 255"
-        )));
-    }
-    let value = raw[..end].parse::<u8>().map_err(|_| {
-        invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be an integer from 0 to 255"
-        ))
-    })?;
-    Ok((value, &raw[end..]))
-}
-
-fn parse_axis_usize_arg<'a>(
-    raw: &'a str,
-    option: &str,
-) -> Result<(usize, &'a str), AvengerGuidesError> {
-    let end = raw
-        .char_indices()
-        .take_while(|(_, ch)| ch.is_ascii_digit())
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .last()
-        .unwrap_or(0);
-    if end == 0 {
-        return Err(invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be a nonnegative integer"
-        )));
-    }
-    let value = raw[..end].parse::<usize>().map_err(|_| {
-        invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be a nonnegative integer"
-        ))
-    })?;
-    Ok((value, &raw[end..]))
 }
 
 fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> {
@@ -2500,11 +2497,8 @@ fn make_title(
         font_style: FontStyle::Normal,
         syntax_mode: config.title_syntax_mode,
         params: &config.title_text_params,
-        number_locale: config.number_locale.as_deref(),
-        number_locale_specs: Some(&config.number_locale_specs),
-        datetime_locale: config.datetime_locale.as_deref(),
-        datetime_timezone: config.datetime_timezone.as_deref(),
-        datetime_locale_specs: Some(&config.datetime_locale_specs),
+        number_format: config.number_format.as_ref(),
+        datetime_format: config.datetime_format.as_ref(),
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -2573,11 +2567,8 @@ fn make_title(
         font: title_font_family.into(),
         text_syntax: config.title_syntax_mode,
         text_params: config.title_text_params.clone(),
-        number_locale: config.number_locale.clone(),
-        number_locale_specs: config.number_locale_specs.clone(),
-        datetime_locale: config.datetime_locale.clone(),
-        datetime_timezone: config.datetime_timezone.clone(),
-        datetime_locale_specs: config.datetime_locale_specs.clone(),
+        number_format: config.number_format.clone(),
+        datetime_format: config.datetime_format.clone(),
         ..Default::default()
     })
 }

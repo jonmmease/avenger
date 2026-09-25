@@ -7,7 +7,7 @@ use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
 use avenger_scales::scales::linear::LinearScale;
@@ -279,7 +279,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     };
 
     // Make y-axis
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_numeric_axis_marks_with_text_engine(
         &y_scale,
         "Sepal Width",
         [0.0, 0.0],
@@ -289,11 +289,12 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
     // Make x-axis
-    let x_axis = make_numeric_axis_marks(
+    let x_axis = make_numeric_axis_marks_with_text_engine(
         &x_scale,
         "Sepal Length",
         [0.0, 0.0],
@@ -303,6 +304,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -604,4 +606,28 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             rebuild_geometry: false,
         }
     }
+}
+
+fn d3_text_engine() -> avenger_text::TextEngine {
+    let mut registry = avenger_text::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    avenger_text::default_text_engine()
+        .with_number_formatting(
+            avenger_text::NumberFormatConfig::new("d3"),
+            std::sync::Arc::new(registry),
+        )
+        .with_datetime_formatting(
+            avenger_text::DateTimeFormatConfig::new("d3"),
+            std::sync::Arc::new({
+                let mut registry = avenger_text::DateTimeFormatRegistry::default();
+                registry.register(
+                    "d3",
+                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+                );
+                registry
+            }),
+        )
 }
