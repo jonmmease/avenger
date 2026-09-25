@@ -53,6 +53,14 @@ The crate intentionally excludes full Typst document features:
 - No compatibility promise for unsupported Typst syntax beyond returning clear
   errors.
 
+## Number formatting
+
+`LabelEngine::new` does not register or select a number formatter. Call
+`with_number_formatting(config, registry)` to configure `#numfmt` for the engine.
+`LabelOptions::number_format` can override that configuration for one label.
+Plain text and math do not require a number formatter. Numeric markup reports an
+error when no configuration or matching provider is available.
+
 ## Public API Shape
 
 The public API is frame-first: compile Typst label markup into one positioned

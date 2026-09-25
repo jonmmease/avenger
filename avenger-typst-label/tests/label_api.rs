@@ -10,7 +10,29 @@ use indexmap::IndexMap;
 use avenger_typst_label::{RasterOptions, rasterize};
 
 fn engine() -> LabelEngine {
-    LabelEngine::new(common::engine_options()).unwrap()
+    let mut registry = avenger_format::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    let datetime_registry = {
+        let mut registry = avenger_format::DateTimeFormatRegistry::default();
+        registry.register(
+            "d3",
+            std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+        );
+        registry
+    };
+    LabelEngine::new(common::engine_options())
+        .unwrap()
+        .with_number_formatting(
+            avenger_format::NumberFormatConfig::new("d3"),
+            std::sync::Arc::new(registry),
+        )
+        .with_datetime_formatting(
+            avenger_format::DateTimeFormatConfig::new("d3"),
+            std::sync::Arc::new(datetime_registry),
+        )
 }
 
 fn assert_same_literal_rendering(text: &str) {
@@ -270,16 +292,19 @@ fn compile_errors_for_unknown_text_param() {
 
 #[test]
 fn compile_numfmt_uses_number_locale_context() {
-    let mut registry = avenger_format_number_d3::NumberLocaleRegistry::with_builtins();
-    registry
-        .register_custom_locale_json(
-            "de-DE",
-            include_str!("../../avenger-format-number-d3/tests/fixtures/locales/de-DE.json"),
-        )
-        .unwrap();
     let mut options = LabelOptions {
-        number_locale: Some("de-DE".to_string()),
-        number_locale_registry: Some(std::sync::Arc::new(registry)),
+        number_format: Some(avenger_format::NumberFormatConfig {
+            locale: Some("de-DE".into()),
+            locales: [(
+                "de-DE".into(),
+                serde_json::from_str(include_str!(
+                    "../../avenger-format-number-d3/tests/fixtures/locales/de-DE.json"
+                ))
+                .unwrap(),
+            )]
+            .into(),
+            ..avenger_format::NumberFormatConfig::new("d3")
+        }),
         ..Default::default()
     };
     options
@@ -596,9 +621,51 @@ fn raster_lowerer_consumes_compiled_label() {
 }
 
 #[test]
-fn repeated_labels_follow_pattern_locale_and_timezone_changes() {
+fn datefmt_reports_value_errors_through_label_compilation() {
     let engine = engine();
-    let mut options = LabelOptions::default();
+    let mut options = LabelOptions {
+        datetime_format: Some(avenger_format::DateTimeFormatConfig {
+            timezone: Some("Asia/Tokyo".into()),
+            ..avenger_format::DateTimeFormatConfig::new("d3")
+        }),
+        ..Default::default()
+    };
+    let leap = chrono::NaiveDate::from_ymd_opt(2016, 12, 31)
+        .unwrap()
+        .and_hms_milli_opt(23, 59, 59, 1500)
+        .unwrap();
+    for (value, expected) in [
+        (
+            LabelParamValue::UtcDateTime(chrono::DateTime::<chrono::Utc>::MAX_UTC),
+            "calendar range",
+        ),
+        (LabelParamValue::DateTime(leap), "leap seconds"),
+    ] {
+        options.params.insert("value".into(), value);
+        assert!(matches!(
+            engine.compile("#datefmt(value, \"%Y\")", &options),
+            Err(LabelError::Engine { message, .. }) if message.contains(expected)
+        ));
+    }
+}
+
+#[test]
+fn datetime_cache_tracks_request_configuration_and_input_type() {
+    let engine = engine();
+    let mut options = LabelOptions {
+        datetime_format: Some(avenger_format::DateTimeFormatConfig {
+            locales: [(
+                "fr-FR".into(),
+                serde_json::from_str(include_str!(
+                    "../../avenger-format-datetime-d3/tests/fixtures/locales/fr-FR.json"
+                ))
+                .unwrap(),
+            )]
+            .into(),
+            ..avenger_format::DateTimeFormatConfig::new("d3")
+        }),
+        ..Default::default()
+    };
     options.params.insert(
         "value".into(),
         LabelParamValue::UtcDateTime(
@@ -621,8 +688,8 @@ fn repeated_labels_follow_pattern_locale_and_timezone_changes() {
         options
             .params
             .insert("pattern".into(), LabelParamValue::Str(pattern.into()));
-        options.datetime_locale = Some(locale.into());
-        options.datetime_timezone = Some(timezone.into());
+        options.datetime_format.as_mut().unwrap().locale = Some(locale.into());
+        options.datetime_format.as_mut().unwrap().timezone = Some(timezone.into());
         assert_eq!(
             engine
                 .compile("#datefmt(value, pattern)", &options)
@@ -631,4 +698,173 @@ fn repeated_labels_follow_pattern_locale_and_timezone_changes() {
             expected
         );
     }
+    options
+        .params
+        .insert("pattern".into(), LabelParamValue::Str("%Y".into()));
+    let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for (value, expected) in [
+        (LabelParamValue::Date(date), "2024"),
+        (
+            LabelParamValue::UtcDateTime(date.and_hms_opt(0, 0, 0).unwrap().and_utc()),
+            "2023",
+        ),
+        (
+            LabelParamValue::DateTime(date.and_hms_opt(0, 0, 0).unwrap()),
+            "2024",
+        ),
+    ] {
+        options.params.insert("value".into(), value);
+        assert_eq!(
+            engine
+                .compile("#datefmt(value, pattern)", &options)
+                .unwrap()
+                .semantic_text(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn numfmt_uses_custom_providers_and_separates_registry_caches() {
+    use avenger_format::{
+        FormattedNumber, NumberFormatConfig, NumberFormatError, NumberFormatProvider,
+        NumberFormatRequest, PreparedNumberFormatter,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[derive(Debug)]
+    struct Provider {
+        prefix: &'static str,
+        calls: Arc<AtomicUsize>,
+    }
+    #[derive(Debug)]
+    struct Prepared(String);
+    impl NumberFormatProvider for Provider {
+        fn prepare(
+            &self,
+            _: &NumberFormatConfig,
+            request: &NumberFormatRequest,
+        ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(request.spec, "custom syntax");
+            Ok(Arc::new(Prepared(format!(
+                "{} {}",
+                self.prefix,
+                request.options["unit"].as_str().unwrap()
+            ))))
+        }
+    }
+    impl PreparedNumberFormatter for Prepared {
+        fn format(&self, value: f64) -> FormattedNumber {
+            FormattedNumber::plain(format!("{}: {value}", self.0))
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut registry = avenger_format::NumberFormatRegistry::default();
+    registry.register(
+        "custom",
+        Arc::new(Provider {
+            prefix: "first",
+            calls: calls.clone(),
+        }),
+    );
+    let first = engine().with_number_formatting(
+        NumberFormatConfig::new("custom"),
+        Arc::new(registry.clone()),
+    );
+    let options = LabelOptions {
+        number_format: Some(NumberFormatConfig::new("custom")),
+        ..Default::default()
+    };
+    let source = "#numfmt(2, \"custom syntax\", unit: \"items\")";
+    assert_eq!(
+        first.compile(source, &options).unwrap().semantic_text(),
+        "first items: 2"
+    );
+    assert_eq!(
+        first.compile(source, &options).unwrap().semantic_text(),
+        "first items: 2"
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    registry.register(
+        "custom",
+        Arc::new(Provider {
+            prefix: "second",
+            calls: calls.clone(),
+        }),
+    );
+    let second = first
+        .clone()
+        .with_number_formatting(NumberFormatConfig::new("custom"), Arc::new(registry));
+    assert_eq!(
+        second.compile(source, &options).unwrap().semantic_text(),
+        "second items: 2"
+    );
+    assert_eq!(
+        first.compile(source, &options).unwrap().semantic_text(),
+        "first items: 2"
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn numeric_markup_requires_explicit_formatting_but_plain_text_does_not() {
+    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let options = LabelOptions::default();
+    assert_eq!(
+        engine.compile("Revenue", &options).unwrap().semantic_text(),
+        "Revenue"
+    );
+    assert!(
+        engine
+            .compile("#numfmt(42)", &options)
+            .unwrap_err()
+            .to_string()
+            .contains("number formatting is not configured")
+    );
+    let options = LabelOptions {
+        number_format: Some(avenger_format::NumberFormatConfig::new("d3")),
+        ..Default::default()
+    };
+    assert!(
+        engine
+            .compile("#numfmt(42)", &options)
+            .unwrap_err()
+            .to_string()
+            .contains("provider `d3` was not found")
+    );
+}
+
+#[test]
+fn temporal_markup_requires_explicit_provider_selection() {
+    let engine = LabelEngine::new(common::engine_options()).unwrap();
+    let mut options = LabelOptions {
+        params: [(
+            "value".into(),
+            LabelParamValue::UtcDateTime(chrono::DateTime::UNIX_EPOCH),
+        )]
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        engine.compile("Date", &options).unwrap().semantic_text(),
+        "Date"
+    );
+    assert!(
+        engine
+            .compile("#datefmt(value, \"%Y\")", &options)
+            .unwrap_err()
+            .to_string()
+            .contains("datetime formatting is not configured")
+    );
+    options.datetime_format = Some(avenger_format::DateTimeFormatConfig::new("d3"));
+    assert!(
+        engine
+            .compile("#datefmt(value, \"%Y\")", &options)
+            .unwrap_err()
+            .to_string()
+            .contains("provider `d3` was not found")
+    );
 }

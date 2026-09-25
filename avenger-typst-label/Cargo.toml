@@ -19,7 +19,8 @@ name = "typst-label-math-svg-probe"
 path = "src/bin/typst_label_math_svg_probe.rs"
 
 [dependencies]
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format = { path = "../avenger-format" }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
@@ -47,6 +48,7 @@ unscanny = "0.1.0"
 
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-fonts = { path = "../avenger-fonts" }
 brotli = { workspace = true }
 
