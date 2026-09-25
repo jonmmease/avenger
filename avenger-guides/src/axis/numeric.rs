@@ -16,9 +16,9 @@ use avenger_format_datetime_d3::{
     ResolvedDateTimeLocale,
 };
 use avenger_format_number_d3::{
-    prepare_number_tick_format, Align, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
-    FormattedNumber, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
-    NumberTypesetting, PreparedNumberTickFormat, ResolvedNumberLocale, SignPolicy, Symbol,
+    prepare_number_step_format, Align, CurrencyDisplay, DigitSpec, FormatType, FormattedNumber,
+    NumberFormatOverrides, NumberLocaleRegistry, NumberTypesetting, PreparedNumberFormat,
+    ResolvedNumberLocale, SignPolicy, Symbol,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -613,14 +613,14 @@ mod tests {
             &scale,
             &AxisConfig {
                 format_number: Some(",.1f".to_string()),
-                number_locale: Some("de-DE".to_string()),
+                number_locale: Some("en-US".to_string()),
                 ..Default::default()
             },
         )
         .expect("labels");
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
-        assert_eq!(labels.text.as_vec(1, None), vec!["1.234,5"]);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1,234.5"]);
     }
 
     #[test]
@@ -936,15 +936,15 @@ mod tests {
             &ticks,
             &scale,
             &AxisConfig {
-                format_number: Some("#numfmt(value, \".1S\")".to_string()),
-                number_locale: Some("de-DE".to_string()),
+                format_number: Some("#numfmt(value, \".2S\")".to_string()),
+                number_locale: Some("en-US".to_string()),
                 ..Default::default()
             },
         )
         .expect("labels");
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
-        assert_eq!(labels.text.as_vec(1, None), vec!["1,2\u{a0}Mio."]);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1.2M"]);
     }
 
     #[test]
@@ -987,7 +987,7 @@ mod tests {
         .expect("labels");
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
-        assert_eq!(labels.text.as_vec(1, None), vec!["EUR1235"]);
+        assert_eq!(labels.text.as_vec(1, None), vec!["EUR\u{a0}1235"]);
     }
 
     #[test]
@@ -1425,8 +1425,8 @@ impl NumberFormatEnvironment {
         Ok(Self { locale })
     }
 
-    fn context(&self) -> NumberFormatContext<'_> {
-        NumberFormatContext::new(&self.locale)
+    fn context(&self) -> &ResolvedNumberLocale {
+        &self.locale
     }
 }
 
@@ -1610,22 +1610,54 @@ fn datetime_from_timestamp_parts(value: i64, unit: TimeUnit) -> Option<DateTime<
     DateTime::from_timestamp(seconds, nanos)
 }
 
+/// Use one unit and precision for the finite tick set, including descending ticks.
+fn prepare_tick_number_format(
+    values: &[f64],
+    spec: Option<&str>,
+    overrides: NumberFormatOverrides,
+    locale: &ResolvedNumberLocale,
+) -> Result<PreparedNumberFormat, avenger_format_number_d3::FormatError> {
+    let mut values: Vec<_> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    values.sort_by(f64::total_cmp);
+    values.dedup();
+    let start = values.first().copied().unwrap_or(0.0);
+    let stop = values.last().copied().unwrap_or(start);
+    prepare_number_step_format(
+        avenger_scales::array::tick_step(start, stop, values.len().saturating_sub(1) as f64),
+        start.abs().max(stop.abs()),
+        spec,
+        overrides,
+        locale,
+    )
+}
+
 fn prepare_axis_number_format(
     values: &[Option<f64>],
     scale: &ConfiguredScale,
     config: &AxisConfig,
     spec: Option<&str>,
-    context: NumberFormatContext<'_>,
-) -> Result<PreparedNumberTickFormat, AvengerGuidesError> {
+    context: &ResolvedNumberLocale,
+) -> Result<PreparedNumberFormat, AvengerGuidesError> {
     let parsed = avenger_format_number_d3::parse_number_spec(spec.unwrap_or(""))
         .map_err(|error| invalid_axis_label_format(error.to_string()))?;
-    let prepared = if config.tick_start_step.is_some()
-        || matches!(
-            parsed.format_type,
-            Some(FormatType::CompactShort | FormatType::CompactLong | FormatType::Currency)
-        ) {
+    let prepared = if let Some(AxisTickSpacing::Numeric { step, .. }) = config.tick_start_step {
+        let reference = values
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|v| v.is_finite())
+            .map(f64::abs)
+            .fold(0.0, f64::max);
+        // Preserve the f32 step's decimal spelling: casting 0.01 directly to f64
+        // moves it below the precision boundary and adds an unwanted fraction digit.
+        let step = step.to_string().parse::<f64>().expect("numeric tick step");
+        prepare_number_step_format(step, reference, spec, Default::default(), context)
+    } else if matches!(
+        parsed.format_type,
+        Some(FormatType::CompactShort | FormatType::CompactLong | FormatType::Currency)
+    ) {
         let ticks = values.iter().flatten().copied().collect::<Vec<_>>();
-        prepare_number_tick_format(&ticks, spec, Default::default(), context)
+        prepare_tick_number_format(&ticks, spec, Default::default(), context)
     } else if scale.scale_impl.scale_type() == "log" {
         avenger_format_number_d3::prepare_number_float_format(spec, context)
     } else if matches!(
@@ -1646,10 +1678,13 @@ fn prepare_axis_number_format(
         } else {
             (0.0, 0.0)
         };
-        avenger_format_number_d3::prepare_number_span_format(
-            start,
-            stop,
-            config.tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT) as f64,
+        prepare_number_step_format(
+            avenger_scales::array::tick_step(
+                start,
+                stop,
+                config.tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT) as f64,
+            ),
+            start.abs().max(stop.abs()),
             spec,
             Default::default(),
             context,
@@ -1663,7 +1698,7 @@ fn format_bare_number_ticks(
     values: &[Option<f64>],
     scale: &ConfiguredScale,
     config: &AxisConfig,
-    context: NumberFormatContext<'_>,
+    context: &ResolvedNumberLocale,
 ) -> Result<TickLabelText, AvengerGuidesError> {
     let prepared = prepare_axis_number_format(values, scale, config, Some(spec), context)?;
     let labels = values
@@ -1699,7 +1734,7 @@ fn format_bare_number_ticks(
 fn format_numfmt_tick_fragment(
     template: &str,
     values: &[Option<f64>],
-    context: NumberFormatContext<'_>,
+    context: &ResolvedNumberLocale,
 ) -> Result<TickLabelText, AvengerGuidesError> {
     let finite_values: Vec<f64> = values
         .iter()
@@ -1726,7 +1761,7 @@ struct NumfmtTickTemplate {
 
 enum NumfmtTickPiece {
     Literal(String),
-    Call(PreparedNumberTickFormat),
+    Call(PreparedNumberFormat),
 }
 
 struct NumfmtTickCall {
@@ -1737,7 +1772,7 @@ struct NumfmtTickCall {
 fn parse_numfmt_tick_template(
     template: &str,
     values: &[f64],
-    context: NumberFormatContext<'_>,
+    context: &ResolvedNumberLocale,
 ) -> Result<NumfmtTickTemplate, AvengerGuidesError> {
     let mut pieces = Vec::new();
     let mut cursor = 0;
@@ -1750,7 +1785,7 @@ fn parse_numfmt_tick_template(
         }
         let (end, call) = parse_numfmt_tick_call(template, start)?;
         let prepared =
-            prepare_number_tick_format(values, Some(&call.spec), call.overrides, context)
+            prepare_tick_number_format(values, Some(&call.spec), call.overrides, context)
                 .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
         pieces.push(NumfmtTickPiece::Call(prepared));
         cursor = end;
@@ -2039,13 +2074,13 @@ fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, Aveng
             }
             "fraction_digits" => {
                 let (fraction_digits, after_value) = parse_axis_u8_arg(value, "fraction_digits")?;
-                set_axis_digit_spec(&mut overrides, DigitSpec::Fraction(fraction_digits))?;
+                set_axis_digit_spec(&mut overrides, DigitSpec::Precision(fraction_digits))?;
                 after_value
             }
             "significant_digits" => {
                 let (significant_digits, after_value) =
                     parse_axis_u8_arg(value, "significant_digits")?;
-                set_axis_digit_spec(&mut overrides, DigitSpec::Significant(significant_digits))?;
+                set_axis_digit_spec(&mut overrides, DigitSpec::Precision(significant_digits))?;
                 after_value
             }
             "width" => {
@@ -2227,7 +2262,6 @@ fn parse_axis_currency_display_arg(
     let display = match value.as_str() {
         "symbol" => CurrencyDisplay::Symbol,
         "code" => CurrencyDisplay::Code,
-        "name" => CurrencyDisplay::Name,
         "narrow-symbol" | "narrow_symbol" => CurrencyDisplay::NarrowSymbol,
         _ => {
             return Err(invalid_axis_label_format(
@@ -2419,11 +2453,9 @@ fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> 
 fn formatted_number_to_typst(formatted: &FormattedNumber) -> String {
     match &formatted.typesetting {
         NumberTypesetting::Plain => escape_typst_markup_text(&formatted.text),
-        NumberTypesetting::Exponent {
-            mantissa,
-            exponent,
-            marker: ExponentMarker::LowerE,
-        } => format!("${} times 10^({})$", mantissa, exponent),
+        NumberTypesetting::Exponent { mantissa, exponent } => {
+            format!("${} times 10^({})$", mantissa, exponent)
+        }
     }
 }
 
