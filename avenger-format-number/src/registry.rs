@@ -1,5 +1,8 @@
-use crate::{FormatError, NumberLocaleSpec, ResolvedNumberLocale};
-use std::collections::BTreeMap;
+use crate::{
+    compact::validate_tiers, FormatError, NumberLocaleExtensions, NumberLocaleSpec,
+    ResolvedNumberLocale,
+};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Named D3 number locales. [`Self::default`] creates an empty registry.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -37,6 +40,22 @@ impl NumberLocaleRegistry {
                 .map_err(|error| FormatError::InvalidLocaleData(error.to_string()))?,
         )
     }
+    /// Replace extension metadata after validation, preserving resolved locales and D3 output.
+    pub fn register_extensions(
+        &mut self,
+        id: &str,
+        mut extensions: NumberLocaleExtensions,
+    ) -> Result<(), FormatError> {
+        validate_tiers(&mut extensions.compact_short)?;
+        validate_tiers(&mut extensions.compact_long)?;
+        let locale = self
+            .locales
+            .get_mut(id)
+            .ok_or_else(|| FormatError::LocaleNotFound(id.into()))?;
+        locale.extensions = Arc::new(extensions);
+        Ok(())
+    }
+
     /// Resolve an exact, case-sensitive name, sharing its validated definition.
     /// Unknown names return [`FormatError::LocaleNotFound`] without a fallback.
     pub fn resolve(&self, id: &str) -> Result<ResolvedNumberLocale, FormatError> {

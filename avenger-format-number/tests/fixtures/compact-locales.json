@@ -1,0 +1,122 @@
+{
+  "de-DE": {
+    "compact_short": [
+      {
+        "exponent": 6,
+        "other": "{0} Mio."
+      },
+      {
+        "exponent": 9,
+        "other": "{0} Mrd."
+      },
+      {
+        "exponent": 12,
+        "other": "{0} Bio."
+      }
+    ],
+    "compact_long": [
+      {
+        "exponent": 3,
+        "other": "{0} Tausend"
+      },
+      {
+        "exponent": 6,
+        "other": "{0} Millionen",
+        "one": "{0} Million"
+      },
+      {
+        "exponent": 9,
+        "other": "{0} Milliarden",
+        "one": "{0} Milliarde"
+      },
+      {
+        "exponent": 12,
+        "other": "{0} Billionen",
+        "one": "{0} Billion"
+      }
+    ],
+    "compact_plural_rule": "IntegerOne"
+  },
+  "fr-FR": {
+    "compact_short": [
+      {
+        "exponent": 3,
+        "other": "{0} k"
+      },
+      {
+        "exponent": 6,
+        "other": "{0} M"
+      },
+      {
+        "exponent": 9,
+        "other": "{0} Md"
+      },
+      {
+        "exponent": 12,
+        "other": "{0} Bn"
+      }
+    ],
+    "compact_long": [
+      {
+        "exponent": 3,
+        "other": "{0} mille",
+        "one": "{0} millier",
+        "exact_one": "mille"
+      },
+      {
+        "exponent": 6,
+        "other": "{0} millions",
+        "one": "{0} million"
+      },
+      {
+        "exponent": 9,
+        "other": "{0} milliards",
+        "one": "{0} milliard"
+      },
+      {
+        "exponent": 12,
+        "other": "{0} billions",
+        "one": "{0} billion"
+      }
+    ],
+    "compact_plural_rule": "ZeroOrOneIntegerPart"
+  },
+  "ja-JP": {
+    "compact_short": [
+      {
+        "exponent": 4,
+        "other": "{0}万"
+      },
+      {
+        "exponent": 8,
+        "other": "{0}億"
+      },
+      {
+        "exponent": 12,
+        "other": "{0}兆"
+      },
+      {
+        "exponent": 16,
+        "other": "{0}京"
+      }
+    ],
+    "compact_long": [
+      {
+        "exponent": 4,
+        "other": "{0}万"
+      },
+      {
+        "exponent": 8,
+        "other": "{0}億"
+      },
+      {
+        "exponent": 12,
+        "other": "{0}兆"
+      },
+      {
+        "exponent": 16,
+        "other": "{0}京"
+      }
+    ]
+  }
+}

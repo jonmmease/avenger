@@ -102,6 +102,10 @@ pub enum FormatType {
     Character,
     /// General notation with locale grouping enabled by default (`n`, equivalent to `,g`).
     LocaleDefault,
+    /// Compact short labels. Precision counts significant digits.
+    CompactShort,
+    /// Compact words. Precision counts significant digits.
+    CompactLong,
 }
 
 impl FormatType {
@@ -122,6 +126,8 @@ impl FormatType {
             'X' => Some(Self::HexUpper),
             'c' => Some(Self::Character),
             'n' => Some(Self::LocaleDefault),
+            'S' => Some(Self::CompactShort),
+            'L' => Some(Self::CompactLong),
             _ => None,
         }
     }
@@ -143,6 +149,8 @@ impl FormatType {
             Self::HexUpper => 'X',
             Self::Character => 'c',
             Self::LocaleDefault => 'n',
+            Self::CompactShort => 'S',
+            Self::CompactLong => 'L',
         }
     }
 }

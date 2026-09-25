@@ -1,4 +1,7 @@
-use crate::error::FormatError;
+use crate::{
+    compact::{CompactPluralRule, CompactTier},
+    error::FormatError,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -65,11 +68,44 @@ impl NumberLocaleSpec {
             .expect("bundled D3 number locale")
     }
 }
+/// Compact metadata registered separately from the D3 number definition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NumberLocaleExtensions {
+    pub compact_short: Vec<CompactTier>,
+    pub compact_long: Vec<CompactTier>,
+    /// Selects the `one` pattern from the rounded coefficient.
+    pub compact_plural_rule: CompactPluralRule,
+}
+impl NumberLocaleExtensions {
+    /// English compact suffixes for powers of a thousand.
+    pub fn en_us() -> Self {
+        fn tiers(suffixes: [&str; 4]) -> Vec<CompactTier> {
+            [3, 6, 9, 12]
+                .into_iter()
+                .zip(suffixes)
+                .map(|(exponent, suffix)| CompactTier {
+                    exponent,
+                    other: format!("{{0}}{suffix}"),
+                    one: None,
+                    exact_one: None,
+                })
+                .collect()
+        }
+        Self {
+            compact_short: tiers(["K", "M", "B", "T"]),
+            compact_long: tiers([" thousand", " million", " billion", " trillion"]),
+            compact_plural_rule: CompactPluralRule::IntegerOne,
+        }
+    }
+}
+
 /// A validated locale with an immutable definition shared across clones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedNumberLocale {
     id: LocaleId,
     definition: Arc<NumberLocaleSpec>,
+    pub(crate) extensions: Arc<NumberLocaleExtensions>,
 }
 impl std::ops::Deref for ResolvedNumberLocale {
     type Target = NumberLocaleSpec;
@@ -88,6 +124,11 @@ impl ResolvedNumberLocale {
         &self.definition
     }
 
+    /// Borrow compact metadata associated with this definition.
+    pub fn extensions(&self) -> &NumberLocaleExtensions {
+        &self.extensions
+    }
+
     /// Retain a named locale definition, rejecting zero-sized digit groups.
     pub fn new(id: impl Into<String>, definition: NumberLocaleSpec) -> Result<Self, FormatError> {
         if definition.grouping.contains(&0) {
@@ -98,10 +139,14 @@ impl ResolvedNumberLocale {
         Ok(Self {
             id: LocaleId::new(id),
             definition: Arc::new(definition),
+            extensions: Arc::new(NumberLocaleExtensions::default()),
         })
     }
     /// Resolve the bundled U.S. English locale.
     pub fn en_us() -> Self {
-        Self::new("en-US", NumberLocaleSpec::en_us()).expect("bundled D3 number locale")
+        let mut locale =
+            Self::new("en-US", NumberLocaleSpec::en_us()).expect("bundled D3 number locale");
+        locale.extensions = Arc::new(NumberLocaleExtensions::en_us());
+        locale
     }
 }
