@@ -27,11 +27,15 @@ pub enum FormatError {
     #[error(transparent)]
     Parse(#[from] ParseError),
 
+    /// Parsed fields and overrides form an unsupported combination.
+    #[error("invalid number format: {0}")]
+    InvalidFormat(String),
+
     /// The requested locale name has no registry entry.
     #[error("locale `{0}` was not found")]
     LocaleNotFound(String),
 
-    /// Locale JSON could not be decoded, or its grouping contains a zero size.
+    /// Locale data contains invalid grouping, compact exponents, or patterns.
     #[error("invalid locale data: {0}")]
     InvalidLocaleData(String),
 }

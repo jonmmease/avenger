@@ -31,6 +31,10 @@ Resolved locales expose borrowed definitions. To customize a locale, clone `defi
 
 `prepare_number_float_format` uses Vega's automatic precision rules. It intentionally trims the numeric significand before localization and padding. This preserves custom numerals, locale affixes, and field widths instead of reproducing Vega 2.1.3's trimming of the completed label, which can return blank labels for custom numerals. Explicit precision disables automatic trimming.
 
+`S` and `L` select compact short and long patterns. Their precision counts significant digits, as in `.3~S` (`999500` becomes `1M`). The step formatter fixes a tier from the reference magnitude. It preserves explicit significant precision and otherwise chooses fraction digits from the step. Each label selects its own plural pattern.
+
+`NumberLocaleExtensions` registers compact tiers independently of D3 definitions. Only `en-US` includes built-in patterns. Custom locales start with empty metadata and format unscaled numbers until extensions are registered. Tier exponents must be unique and in `1..=308`. Patterns contain one `{0}` placeholder, except an exact-one pattern can omit it. The plural rule is explicit: always `other`, integer one without fraction digits, or an integer part of zero or one. These rules cover the supplied English, German, French, and Japanese examples, not every CLDR plural category.
+
 `FormattedNumber` contains plain text and optional mantissa and exponent parts for scientific notation. Those parts use the same locale, signs, precision, and trimming as the text. Formats with affixes, padding, or custom numerals retain their plain representation.
 
 The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.

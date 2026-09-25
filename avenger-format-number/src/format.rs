@@ -1,4 +1,5 @@
 use crate::{
+    compact::{self, SharedCompact},
     decimal,
     digits::substitute_digits,
     error::FormatError,
@@ -23,6 +24,7 @@ pub struct PreparedNumberFormat {
     pub(crate) scale: f64,
     /// SI prefix appended to labels by the step and prefix adapters.
     pub(crate) suffix: String,
+    pub(crate) compact: Option<SharedCompact>,
 }
 impl PreparedNumberFormat {
     /// Parse and resolve a number format before formatting a batch.
@@ -33,7 +35,7 @@ impl PreparedNumberFormat {
         locale: &ResolvedNumberLocale,
     ) -> Result<Self, FormatError> {
         Ok(Self::from_resolved(
-            resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides),
+            resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides)?,
             locale,
         ))
     }
@@ -48,6 +50,7 @@ impl PreparedNumberFormat {
             locale: locale.clone(),
             scale: 1.0,
             suffix: String::new(),
+            compact: None,
         }
     }
 
@@ -58,6 +61,7 @@ impl PreparedNumberFormat {
             &self.resolved,
             &self.locale,
             &self.suffix,
+            self.compact.as_ref(),
         )
     }
 }
@@ -122,7 +126,7 @@ pub fn format_number(
 pub(crate) fn resolve_number_format(
     spec: NumberFormatSpec,
     overrides: NumberFormatOverrides,
-) -> ResolvedNumberFormat {
+) -> Result<ResolvedNumberFormat, FormatError> {
     let mut fill = overrides.fill.unwrap_or(spec.fill).unwrap_or(' ');
     let mut align = overrides
         .align
@@ -151,7 +155,16 @@ pub(crate) fn resolve_number_format(
         .digit_spec
         .unwrap_or_else(|| spec.precision.map(DigitSpec::Precision).unwrap_or_default());
 
-    ResolvedNumberFormat {
+    if matches!(
+        format_type,
+        Some(FormatType::CompactShort | FormatType::CompactLong)
+    ) && symbol == Some(Symbol::Alternate)
+    {
+        return Err(FormatError::InvalidFormat(
+            "`#` cannot be combined with compact formats".into(),
+        ));
+    }
+    Ok(ResolvedNumberFormat {
         fill,
         align,
         sign,
@@ -161,7 +174,7 @@ pub(crate) fn resolve_number_format(
         digit_spec,
         trim,
         format_type,
-    }
+    })
 }
 
 /// Derive localized text and exponent parts from the same rounded numeric body.
@@ -170,6 +183,7 @@ fn render_number(
     format: &ResolvedNumberFormat,
     locale: &ResolvedNumberLocale,
     extra_suffix: &str,
+    shared_compact: Option<&SharedCompact>,
 ) -> FormattedNumber {
     let kind = format.format_type.unwrap_or(FormatType::General);
     let default_precision = if format.format_type.is_none() { 12 } else { 6 };
@@ -227,10 +241,17 @@ fn render_number(
             FormatType::DecimalInteger => decimal::integer(magnitude, 10, false),
             FormatType::HexLower => decimal::integer(magnitude, 16, false),
             FormatType::HexUpper => decimal::integer(magnitude, 16, true),
+            FormatType::CompactShort | FormatType::CompactLong => {
+                let (body, before, after) =
+                    compact::render(magnitude, format, locale, shared_compact);
+                prefix.push_str(&before);
+                suffix.insert_str(0, &after);
+                body
+            }
             FormatType::Character => unreachable!(),
         }
     };
-    if format.trim {
+    if format.trim && !matches!(kind, FormatType::CompactShort | FormatType::CompactLong) {
         raw = trim_number_text(&raw);
     }
     let negative = value.is_sign_negative()
@@ -292,6 +313,8 @@ fn render_number(
             | FormatType::Percent
             | FormatType::PercentRounded
             | FormatType::Si
+            | FormatType::CompactShort
+            | FormatType::CompactLong
     );
     let integer = if split_suffix {
         let index = raw

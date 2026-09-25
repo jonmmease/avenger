@@ -9,6 +9,8 @@ use crate::{
 /// `reference_value` is typically the value with the largest magnitude to format.
 /// Both arguments use absolute values. `None` uses `,f`. Explicit precision is preserved.
 /// Automatic `s` formatting selects one SI unit from the reference value.
+/// `S` and `L` share a compact tier, preserving explicit significant precision.
+/// Without explicit precision, compact fraction digits follow the supplied step.
 /// A zero or non-finite step leaves precision at the format default.
 pub fn prepare_number_step_format(
     step: f64,
@@ -20,6 +22,18 @@ pub fn prepare_number_step_format(
     let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), overrides, locale)?;
     let step = step.abs();
     let value = reference_value.abs();
+    if matches!(
+        prepared.resolved.format_type,
+        Some(FormatType::CompactShort | FormatType::CompactLong)
+    ) {
+        prepared.compact = Some(crate::compact::prepare_shared(
+            step,
+            value,
+            &prepared.resolved,
+            locale,
+        ));
+        return Ok(prepared);
+    }
     if prepared.resolved.digit_spec == DigitSpec::Auto {
         let kind = prepared.resolved.format_type;
         let precision = match kind {
@@ -77,7 +91,7 @@ pub fn prepare_number_prefix_format(
 ) -> Result<PreparedNumberFormat, FormatError> {
     let mut parsed = parse_number_spec(spec)?;
     parsed.format_type = Some(FormatType::Fixed);
-    let resolved = resolve_number_format(parsed, NumberFormatOverrides::default());
+    let resolved = resolve_number_format(parsed, NumberFormatOverrides::default())?;
     let exponent = decimal::exponent(value)
         .unwrap_or(0)
         .div_euclid(3)
