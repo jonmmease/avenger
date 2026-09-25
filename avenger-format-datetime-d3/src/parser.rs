@@ -1,10 +1,17 @@
-use crate::{
-    error::DateTimeParseError,
-    fields::{Pattern, PatternToken},
-};
+use crate::error::DateTimeParseError;
+
+/// A parsed D3 datetime pattern. Locale directives expand during preparation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Pattern(pub(crate) Vec<PatternToken>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PatternToken {
+    Literal(String),
+    Directive { code: char, padding: Option<char> },
+}
 
 /// Parse documented D3 datetime directives and their padding modifiers.
-pub fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseError> {
+pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseError> {
     let mut tokens = Vec::new();
     let mut literal = String::new();
     let mut chars = spec.char_indices();

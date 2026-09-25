@@ -20,8 +20,11 @@ pub enum DateTimeFormatError {
     #[error(transparent)]
     Parse(#[from] DateTimeParseError),
 
-    #[error("invalid datetime format: {0}")]
-    InvalidFormat(String),
+    #[error("datetime exceeds the supported calendar range")]
+    DateTimeOutOfRange,
+
+    #[error("leap seconds are unsupported for civil datetime formatting")]
+    LeapSecondForNaive,
 
     #[error("locale `{0}` was not found")]
     LocaleNotFound(String),

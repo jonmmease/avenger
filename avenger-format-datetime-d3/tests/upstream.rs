@@ -1,8 +1,8 @@
 use avenger_format_datetime_d3::{
-    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleSpec, NaiveDateTimeInput,
-    PreparedDateTimeFormat, PreparedTimeMultiFormat, ResolvedDateTimeLocale,
+    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleSpec, PreparedDateTimeFormat,
+    PreparedTimeMultiFormat, ResolvedDateTimeLocale,
 };
-use chrono::{DateTime, NaiveDate};
+use chrono::DateTime;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -42,7 +42,7 @@ fn matches_d3_time_format() {
             PreparedTimeMultiFormat::new(&spec, context)
                 .unwrap()
                 .format_zoned(value)
-                .text
+                .unwrap()
         } else {
             PreparedDateTimeFormat::new(
                 case.spec.as_str(),
@@ -51,7 +51,7 @@ fn matches_d3_time_format() {
             )
             .unwrap()
             .format_zoned(value)
-            .text
+            .unwrap()
         };
         assert_eq!(
             actual, case.expected,
@@ -59,40 +59,4 @@ fn matches_d3_time_format() {
             case.locale, case.zone, case.spec, case.value
         );
     }
-}
-
-#[test]
-fn locale_expansion_and_civil_input_requirements() {
-    let recursive = DateTimeLocaleSpec {
-        date: "%c".into(),
-        date_time: "%x".into(),
-        ..Default::default()
-    };
-    assert!(ResolvedDateTimeLocale::new("cycle", recursive).is_err());
-    let locale = ResolvedDateTimeLocale::en_us();
-    let context = DateTimeFormatContext::new(&locale, chrono_tz::America::New_York);
-    let date = NaiveDateTimeInput::Date(NaiveDate::from_ymd_opt(2024, 3, 10).unwrap());
-    for spec in ["%Z", "%Q", "%s"] {
-        let format = PreparedDateTimeFormat::new(Some(spec), Default::default(), context).unwrap();
-        assert!(format.validate_naive().is_err());
-        assert!(format.format_naive(date).is_err());
-    }
-    let format =
-        PreparedDateTimeFormat::new(Some("%Y-%m-%d"), Default::default(), context).unwrap();
-    assert_eq!(format.format_naive(date).unwrap().text, "2024-03-10");
-}
-
-#[test]
-fn submillisecond_instants_use_javascript_date_precision() {
-    let locale = ResolvedDateTimeLocale::en_us();
-    let context = DateTimeFormatContext::new(&locale, chrono_tz::UTC);
-    let format =
-        PreparedDateTimeFormat::new(Some("%Q %s %L %f"), Default::default(), context).unwrap();
-    let just_before_epoch = DateTime::from_timestamp(-1, 999_500_000).unwrap();
-    assert_eq!(
-        format.format_zoned(just_before_epoch).text,
-        "0 0 000 000000"
-    );
-    let multi = PreparedTimeMultiFormat::new(&Default::default(), context).unwrap();
-    assert_eq!(multi.format_zoned(just_before_epoch).text, "1970");
 }

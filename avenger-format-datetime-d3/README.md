@@ -1,33 +1,41 @@
 # Datetime formatting
 
-`avenger-format-datetime-d3` formats civil dates and instants with D3 datetime patterns and D3 locale definitions. It accepts concrete IANA display timezones independently of locale. It has no chart or Typst dependency.
+`avenger-format-datetime-d3` formats civil dates and instants with D3 datetime patterns and locale definitions. Display timezones are explicit IANA names, independent of locale.
 
 ```rust
 use avenger_format_datetime_d3::{
-    DateTimeFormatContext, DateTimeLocaleRegistry, PreparedDateTimeFormat,
+    DateTimeFormatContext, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 
 fn main() -> Result<(), avenger_format_datetime_d3::DateTimeFormatError> {
-    let locale = DateTimeLocaleRegistry::with_builtins().resolve("fr-FR")?;
+    let locale = ResolvedDateTimeLocale::en_us();
     let formatter = PreparedDateTimeFormat::new(
         Some("%A %-d %B %Y %H:%M %Z"),
         Default::default(),
-        DateTimeFormatContext::new(&locale, chrono_tz::Europe::Paris),
+        DateTimeFormatContext::new(&locale, chrono_tz::America::New_York),
     )?;
     let instant = chrono::DateTime::from_timestamp(1_704_067_200, 0).unwrap();
-    let text = formatter.format_zoned(instant).text;
+    let text = formatter.format_zoned(instant)?;
+    assert_eq!(text, "Sunday 31 December 2023 19:00 -0500");
     Ok(())
 }
 ```
 
-Prepare a formatter once and reuse it for labels or tooltip values. `format_naive` preserves civil calendar fields and rejects `%Q`, `%s`, `%Z`, or an explicit timezone override. `validate_naive` checks that constraint before a batch. Zoned formatting preserves the original instant for epoch directives and uses the selected zone for calendar fields and offsets. Fractional epoch milliseconds are clipped toward zero to match JavaScript Date. `%f` formats milliseconds followed by three zeros.
+Prepare a formatter once and reuse it. An omitted scalar pattern uses the locale's `%c` pattern. Both formatting methods return `Result<String, DateTimeFormatError>`:
 
-Locale JSON uses D3's `dateTime`, `date`, `time`, `periods`, `days`, `shortDays`, `months`, and `shortMonths` properties. The registry includes `en-US`, `de-DE`, `fr-FR`, and `ja-JP`. Register a complete custom definition with `register_custom_locale` or `register_custom_locale_json`. Locale arrays and recursive `%c`/`%x`/`%X` expansions are validated at construction. Locales do not infer timezones.
+- `format_naive` preserves civil calendar fields. It rejects leap seconds, `%Q`, `%s`, `%Z`, and explicit timezone overrides. `validate_naive` checks pattern compatibility before a batch.
+- `format_zoned` accepts an instant represented in UTC. It uses the display zone for calendar fields and offsets, preserving the epoch value for `%Q` and `%s`. It returns an error if the display date exceeds Chrono's range. Fractional epoch milliseconds are clipped toward zero to match JavaScript Date. `%f` formats milliseconds followed by three zeros.
 
-`PreparedTimeMultiFormat` implements Vega's automatic calendar-sensitive label selection and object-valued format overrides. Explicit scalar patterns remain separate from those defaults. The host resolves local time to a concrete IANA name before constructing the context.
+`DateTimeLocaleRegistry::with_builtins()` contains U.S. English (`en-US`). Register other complete D3 definitions with `register_custom_locale` or `register_custom_locale_json`. Locale JSON uses `dateTime`, `date`, `time`, `periods`, `days`, `shortDays`, `months`, and `shortMonths`. Array lengths and recursive `%c`/`%x`/`%X` expansions are validated. To customize a resolved locale, clone `definition()`, edit it, and register it. Existing prepared formatters retain their locale data.
 
-Resolved locale definitions are read-only. To customize a locale, clone `definition()`, edit the clone, and register it so its patterns are validated and compiled together. Existing prepared formatters retain their resolved locale.
+`PreparedTimeMultiFormat` implements Vega's automatic calendar-sensitive label selection. `TimeMultiFormatSpec` overrides individual unit patterns, with empty strings using the defaults. A nonempty `date` pattern takes precedence over its `day` alias. Civil formatting selects by calendar fields. Zoned formatting accounts for repeated and skipped midnight boundaries, returning an error if a required boundary is outside Chrono's range.
 
-The supported grammar is the documented [D3 datetime directive set](https://d3js.org/d3-time-format). LDML patterns and style lengths are removed. For example, use `%Y-%m-%d` for an ISO date, `%b %-d` for an abbreviated month and day, `%x` for the locale date pattern, and `%Z` for an offset. A pattern without directives is literal text. The crate formats existing values and does not implement temporal data parsing.
+Patterns use the documented [D3 datetime directives](https://d3js.org/d3-time-format). For example, `%Y-%m-%d` formats an ISO date, `%b %-d` an abbreviated month and day, `%x` the locale date, and `%Z` the offset. Plain text is literal. The crate formats existing values and does not parse date strings.
 
-The [reference generator](../tools/format-reference/README.md) pins the upstream packages and generates the Rust test fixtures. The locale files include the upstream license.
+Two behaviors intentionally differ from D3: unknown directives and incomplete `%` sequences produce errors, and `%j` always uses the calendar day of the year. D3's elapsed-day calculation can be one day behind after a midnight offset change, such as January 1, 1986 in Kathmandu.
+
+The [reference generator](../tools/format-reference/README.md) pins D3 and Vega to generate compatibility fixtures. Additional locale definitions live in test fixtures. The locale files include the upstream license.
+
+`D3DateTimeFormatProvider` adapts these formats to the shared `avenger-format` traits. Register it explicitly in a `DateTimeFormatRegistry`; the shared crate does not select a provider. Configuration carries a locale name, complete custom D3 locale definitions, and a display timezone.
+
+A string request uses a scalar D3 pattern. An object request uses `TimeMultiFormatSpec`. Without a specification, `Scalar` uses `%c`, `Tick` uses Vega automatic selection, and `Data` uses `%Y-%m-%d` for dates, `%Y-%m-%d %H:%M:%S` for civil datetimes, and `%Y-%m-%d %H:%M:%S %Z` for instants. Named options are rejected; timezone overrides use the shared request’s `timezone` field. Errors from preparation or individual values propagate through the shared error type.

@@ -19,7 +19,12 @@ numberLocales.custom = {
   minus: 'MINUS', percent: 'pct', nan: 'missing',
   numerals: ['⓪', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 };
-const timeLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, read(`avenger-format-datetime-d3/locales/${name}.json`)]));
+const timeLocales = {
+  'en-US': read('avenger-format-datetime-d3/locales/en-US.json'),
+  ...Object.fromEntries(['de-DE', 'fr-FR', 'ja-JP'].map(name => [
+    name, read(`avenger-format-datetime-d3/tests/fixtures/locales/${name}.json`)
+  ]))
+};
 timeLocales.custom = {...timeLocales['en-US'], dateTime: '%x at %X', date: '%Y/%-m/%-d', time: '%Hh%M', periods: ['morning', 'evening']};
 const numberValue = value => typeof value === 'string' ? Number(value) : value;
 
@@ -98,20 +103,38 @@ function timeCases(zone) {
     for (const value of values) cases.push({locale, zone, mode, spec, value, expected: f(new Date(value))});
   };
   const dates = [Date.parse('2024-02-29T13:05:06.007Z'), -1, Date.parse('0001-01-01T00:00:00Z'), Date.parse('-000001-01-01T00:00:00Z')];
-  for (const directive of 'aAbBcdefgGHIjLmMpqQsSuUVwWxXyYZ%') {
-    add(`%${directive}|%-${directive}|%_${directive}|%0${directive}`, dates);
+  if (zone === 'UTC') {
+    for (const directive of 'aAbBcdefgGHIjLmMpqQsSuUVwWxXyYZ%') {
+      add(`%${directive}|%-${directive}|%_${directive}|%0${directive}`, dates);
+    }
+    const boundaries = ['2015-12-31', '2016-01-01', '2016-01-03', '2016-01-04', '2017-01-01', '2020-12-31', '2021-01-01', '2021-01-04'].map(date => Date.parse(`${date}T12:00:00Z`));
+    add('%Y-%m-%d %j %u %w %U %W %V %g %G', boundaries);
+    for (const locale of Object.keys(timeLocales)) {
+      add('%c | %x | %X | %A %B %p | 100%%', dates.slice(0, 2), locale);
+      if (locale !== 'en-US') {
+        add(null, ['2024-05-01T00:00:00Z', '2024-05-06T13:00:00Z'].map(Date.parse), locale, 'multi');
+      }
+    }
   }
-  const boundaries = ['2015-12-31', '2016-01-01', '2016-01-03', '2016-01-04', '2017-01-01', '2020-12-31', '2021-01-01', '2021-01-04'].map(date => Date.parse(`${date}T12:00:00Z`));
-  add('%Y-%m-%d %j %u %w %U %W %V %g %G', boundaries);
-  const transitions = ['2024-03-10T06:59:59.999Z', '2024-03-10T07:00:00Z', '2024-11-03T05:30:00Z', '2024-11-03T06:30:00Z', '2024-04-06T14:59:59Z', '2024-04-06T15:00:00Z'].map(Date.parse);
-  add('%Y-%m-%d %H:%M:%S.%L %Z %Q %s', transitions);
-  for (const locale of Object.keys(timeLocales)) {
-    add('%c | %x | %X | %A %B %p | 100%%', dates.slice(0, 2), locale);
-    const values = ['2024-01-01T00:00:00Z', '2024-04-01T00:00:00Z', '2024-05-01T00:00:00Z', '2024-05-05T00:00:00Z', '2024-05-06T00:00:00Z', '2024-05-06T01:00:00Z', '2024-05-06T01:02:00Z', '2024-05-06T01:02:03Z', '2024-05-06T01:02:03.004Z'].map(Date.parse);
-    add(null, values, locale, 'multi');
-    add({year: 'Y%Y', quarter: 'Q%q', month: '%b', date: '%-d', hours: '%Hh', milliseconds: '%f'}, values, locale, 'multi');
+  add('%Y-%m-%d %H:%M:%S.%L %Z %Q %s %j %U %W %V %g %G', dates);
+
+  // Local calendar boundaries exercise every selection branch in each display zone.
+  const boundaries = ['2024-01-01T00:00:00', '2024-04-01T00:00:00', '2024-05-01T00:00:00', '2024-05-05T00:00:00', '2024-05-06T00:00:00', '2024-05-06T01:00:00', '2024-05-06T01:02:00', '2024-05-06T01:02:03', '2024-05-06T01:02:03.004'].map(Date.parse);
+  const overrides = {year: 'Y%Y', quarter: 'Q%q', month: '%b', week: 'W%U', date: '%-d', hours: '%Hh', minutes: '%Mmin', seconds: '%Ssec', milliseconds: '%f'};
+  add(null, boundaries, 'en-US', 'multi');
+  add(overrides, boundaries, 'en-US', 'multi');
+
+  const transitions = {
+    'America/New_York': ['2024-03-10T06:59:59.999Z', '2024-03-10T07:00:00Z', '2024-11-03T05:30:00Z', '2024-11-03T06:30:00Z'],
+    'Australia/Lord_Howe': ['2024-04-06T14:59:59Z', '2024-04-06T15:00:00Z', '2024-10-05T15:29:59.999Z', '2024-10-05T15:30:00Z'],
+    'America/Sao_Paulo': ['2018-11-04T02:59:59Z', '2018-11-04T03:00:00Z', '2018-11-04T04:00:00Z'],
+    'America/Havana': ['2024-11-03T04:00:00Z', '2024-11-03T04:30:00Z', '2024-11-03T05:00:00Z', '2024-11-03T05:30:00Z', '2024-03-10T04:59:59.999Z', '2024-03-10T05:00:00Z'],
+    'Asia/Kathmandu': ['1985-12-31T18:29:59.999Z', '1985-12-31T18:30:00Z']
+  }[zone] || [];
+  if (transitions.length) {
+    add('%Y-%m-%d %H:%M:%S.%L %Z %Q %s', transitions.map(Date.parse));
+    add(null, transitions.map(Date.parse), 'en-US', 'multi');
   }
-  add(null, ['2018-11-04T02:59:59Z', '2018-11-04T03:00:00Z', '2018-11-04T04:00:00Z', '2024-11-03T04:00:00Z', '2024-11-03T05:00:00Z', '2024-03-10T05:00:00Z'].map(Date.parse), 'en-US', 'multi');
   return cases;
 }
 

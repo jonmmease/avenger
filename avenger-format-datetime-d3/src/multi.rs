@@ -1,11 +1,12 @@
 use crate::{
-    DateTimeFormatContext, DateTimeFormatError, FormattedDateTime, NaiveDateTimeInput,
-    PreparedDateTimeFormat, ZonedDateTimeInput,
+    format::{local_datetime, normalize_instant},
+    DateTimeFormatContext, DateTimeFormatError, NaiveDateTimeInput, PreparedDateTimeFormat,
+    ZonedDateTimeInput,
 };
 use chrono::{Datelike, NaiveDate, NaiveDateTime, Offset, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 
-/// Vega time multi-format overrides keyed by calendar unit.
+/// Vega time multi-format overrides keyed by calendar unit. Empty patterns use defaults.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TimeMultiFormatSpec {
@@ -13,8 +14,11 @@ pub struct TimeMultiFormatSpec {
     pub seconds: Option<String>,
     pub minutes: Option<String>,
     pub hours: Option<String>,
+    /// Daily labels. A nonempty pattern takes precedence over `day`.
     pub date: Option<String>,
+    /// Alias for `date`, used when `date` is absent or empty.
     pub day: Option<String>,
+    /// Labels at Sunday week boundaries.
     pub week: Option<String>,
     pub month: Option<String>,
     pub quarter: Option<String>,
@@ -78,49 +82,48 @@ impl PreparedTimeMultiFormat {
         }
         Ok(())
     }
-    /// Select a pattern from the instant's calendar fields in the display zone.
-    pub fn format_zoned(&self, value: ZonedDateTimeInput) -> FormattedDateTime {
-        let value = crate::format::normalize_instant(value);
-        self.formats[self.select_zoned(value)].format_zoned(value)
+    /// Select a pattern in the display zone, returning an error for out-of-range dates.
+    pub fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+        let value = normalize_instant(value)?;
+        self.formats[self.select_zoned(value)?].format_zoned(value)
     }
-    fn select_zoned(&self, value: ZonedDateTimeInput) -> usize {
-        let local = value.with_timezone(&self.timezone).naive_local();
+    fn select_zoned(&self, value: ZonedDateTimeInput) -> Result<usize, DateTimeFormatError> {
+        let local = local_datetime(value.with_timezone(&self.timezone))?;
         if local.nanosecond() != 0 {
-            return 0;
+            return Ok(0);
         }
         if local.second() != 0 {
-            return 1;
+            return Ok(1);
         }
         if local.minute() != 0 {
-            return 2;
+            return Ok(2);
         }
         let date = local.date();
-        let past_boundary = |date| midnight_millis(date, self.timezone) < value.timestamp_millis();
-        if past_boundary(date) {
-            return 3;
+        let past_boundary = |date| {
+            midnight_millis(date, self.timezone).map(|boundary| boundary < value.timestamp_millis())
+        };
+        if past_boundary(date)? {
+            return Ok(3);
         }
-        if past_boundary(date.with_day(1).unwrap()) {
-            return if date.weekday() == chrono::Weekday::Sun {
+        if past_boundary(date.with_day(1).unwrap())? {
+            return Ok(if date.weekday() == chrono::Weekday::Sun {
                 5
             } else {
                 4
-            };
+            });
         }
-        if past_boundary(date.with_ordinal(1).unwrap()) {
+        if past_boundary(date.with_ordinal(1).unwrap())? {
             let quarter = date
                 .with_month(date.month0() / 3 * 3 + 1)
                 .unwrap()
                 .with_day(1)
                 .unwrap();
-            return if past_boundary(quarter) { 6 } else { 7 };
+            return Ok(if past_boundary(quarter)? { 6 } else { 7 });
         }
-        8
+        Ok(8)
     }
     /// Select a pattern from civil calendar fields without inventing an instant.
-    pub fn format_naive(
-        &self,
-        value: NaiveDateTimeInput,
-    ) -> Result<FormattedDateTime, DateTimeFormatError> {
+    pub fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.formats[select(value.datetime())].format_naive(value)
     }
 }
@@ -153,13 +156,17 @@ fn select(value: NaiveDateTime) -> usize {
 // JavaScript calendar setters choose the earlier instant in a fold and move a
 // nonexistent time forward by the gap. A midnight DST transition can therefore
 // make 01:00 the start of a day.
-fn midnight_millis(date: NaiveDate, timezone: chrono_tz::Tz) -> i64 {
+fn midnight_millis(date: NaiveDate, timezone: chrono_tz::Tz) -> Result<i64, DateTimeFormatError> {
     let midnight = date.and_hms_opt(0, 0, 0).unwrap();
     if let Some(value) = timezone.from_local_datetime(&midnight).earliest() {
-        value.timestamp_millis()
+        Ok(value.timestamp_millis())
     } else {
-        let gap = chrono_tz::GapInfo::new(&midnight, &timezone).expect("timezone gap");
-        let (_, offset) = gap.begin.expect("offset before timezone gap");
-        midnight.and_utc().timestamp_millis() - i64::from(offset.fix().local_minus_utc()) * 1000
+        let (_, offset) = chrono_tz::GapInfo::new(&midnight, &timezone)
+            .and_then(|gap| gap.begin)
+            .ok_or(DateTimeFormatError::DateTimeOutOfRange)?;
+        Ok(
+            midnight.and_utc().timestamp_millis()
+                - i64::from(offset.fix().local_minus_utc()) * 1000,
+        )
     }
 }

@@ -1,32 +1,14 @@
 use crate::{
-    fields::{Pattern, PatternToken},
     locale::expand,
-    parse_datetime_spec, parse_datetime_timezone, DateTimeFormatError, ResolvedDateTimeLocale,
+    parse_datetime_timezone,
+    parser::{parse_datetime_spec, Pattern, PatternToken},
+    DateTimeFormatError, DateTimeLocaleSpec, ResolvedDateTimeLocale,
 };
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Offset, Timelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDateTime, Offset, Timelike};
 use chrono_tz::Tz;
+use std::sync::Arc;
 
-/// Civil values have calendar fields without an instant or display offset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NaiveDateTimeInput {
-    Date(NaiveDate),
-    DateTime(NaiveDateTime),
-}
-impl NaiveDateTimeInput {
-    pub(crate) fn datetime(self) -> NaiveDateTime {
-        match self {
-            Self::Date(date) => date.and_time(chrono::NaiveTime::MIN),
-            Self::DateTime(value) => value,
-        }
-    }
-}
-/// An instant whose display zone is selected by the formatter.
-pub type ZonedDateTimeInput = DateTime<Utc>;
-/// Plain datetime label text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormattedDateTime {
-    pub text: String,
-}
+pub use avenger_format::{NaiveDateTimeInput, ZonedDateTimeInput};
 /// An explicit display-zone override. Civil inputs cannot use this option.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DateTimeFormatOverrides {
@@ -49,7 +31,7 @@ impl<'a> DateTimeFormatContext<'a> {
 #[derive(Debug, Clone)]
 pub struct PreparedDateTimeFormat {
     pattern: Pattern,
-    locale: ResolvedDateTimeLocale,
+    locale: Arc<DateTimeLocaleSpec>,
     timezone: Tz,
     instant_directive: Option<char>,
     timezone_override: bool,
@@ -81,7 +63,7 @@ impl PreparedDateTimeFormat {
             .unwrap_or(context.timezone);
         Ok(Self {
             pattern,
-            locale: context.locale.clone(),
+            locale: Arc::clone(&context.locale.definition),
             timezone,
             instant_directive,
             timezone_override: overrides.timezone.is_some(),
@@ -99,27 +81,28 @@ impl PreparedDateTimeFormat {
         }
         Ok(())
     }
-    /// Format civil calendar fields, rejecting directives that require an instant.
-    pub fn format_naive(
-        &self,
-        value: NaiveDateTimeInput,
-    ) -> Result<FormattedDateTime, DateTimeFormatError> {
+    /// Format civil fields, rejecting leap seconds and directives that require an instant.
+    pub fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.validate_naive()?;
-        Ok(self.render(value.datetime(), 0, 0))
+        let date = value.datetime();
+        if date.nanosecond() >= 1_000_000_000 {
+            return Err(DateTimeFormatError::LeapSecondForNaive);
+        }
+        Ok(self.render(date, 0, 0))
     }
-    /// Format an instant without changing its epoch identity.
-    pub fn format_zoned(&self, value: ZonedDateTimeInput) -> FormattedDateTime {
-        let value = normalize_instant(value);
+    /// Format an instant, returning an error if its display date exceeds Chrono's range.
+    pub fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+        let value = normalize_instant(value)?;
         let millis = value.timestamp_millis();
         let display = value.with_timezone(&self.timezone);
-        self.render(
-            display.naive_local(),
+        Ok(self.render(
+            local_datetime(display)?,
             millis,
             display.offset().fix().local_minus_utc() / 60,
-        )
+        ))
     }
-    fn render(&self, date: NaiveDateTime, millis: i64, offset_minutes: i32) -> FormattedDateTime {
-        let locale = self.locale.definition();
+    fn render(&self, date: NaiveDateTime, millis: i64, offset_minutes: i32) -> String {
+        let locale = &self.locale;
         let mut text = String::new();
         for token in &self.pattern.0 {
             let PatternToken::Directive { code, padding } = token else {
@@ -207,7 +190,7 @@ impl PreparedDateTimeFormat {
                 text.push_str("000");
             }
         }
-        FormattedDateTime { text }
+        text
     }
 }
 
@@ -217,7 +200,7 @@ pub fn format_naive_datetime(
     spec: Option<&str>,
     overrides: DateTimeFormatOverrides,
     context: DateTimeFormatContext<'_>,
-) -> Result<FormattedDateTime, DateTimeFormatError> {
+) -> Result<String, DateTimeFormatError> {
     PreparedDateTimeFormat::new(spec, overrides, context)?.format_naive(value)
 }
 /// Format an instant with a D3 pattern and an explicit display zone.
@@ -226,16 +209,24 @@ pub fn format_zoned_datetime(
     spec: Option<&str>,
     overrides: DateTimeFormatOverrides,
     context: DateTimeFormatContext<'_>,
-) -> Result<FormattedDateTime, DateTimeFormatError> {
-    Ok(PreparedDateTimeFormat::new(spec, overrides, context)?.format_zoned(value))
+) -> Result<String, DateTimeFormatError> {
+    PreparedDateTimeFormat::new(spec, overrides, context)?.format_zoned(value)
 }
 
 // JavaScript Date clips fractional epoch milliseconds toward zero.
-pub(crate) fn normalize_instant(value: ZonedDateTimeInput) -> ZonedDateTimeInput {
-    let millis = value.timestamp_millis()
-        + i64::from(
-            value.timestamp() < 0 && !value.timestamp_subsec_nanos().is_multiple_of(1_000_000),
-        );
-    DateTime::from_timestamp_millis(millis)
-        .expect("millisecond truncation preserves the datetime range")
+pub(crate) fn normalize_instant(
+    value: ZonedDateTimeInput,
+) -> Result<ZonedDateTimeInput, DateTimeFormatError> {
+    let millis = value.timestamp_millis();
+    let millis =
+        millis + i64::from(millis < 0 && !value.timestamp_subsec_nanos().is_multiple_of(1_000_000));
+    DateTime::from_timestamp_millis(millis).ok_or(DateTimeFormatError::DateTimeOutOfRange)
+}
+
+/// Convert display fields without overflowing Chrono's civil date range.
+pub(crate) fn local_datetime(value: DateTime<Tz>) -> Result<NaiveDateTime, DateTimeFormatError> {
+    value
+        .naive_utc()
+        .checked_add_offset(value.offset().fix())
+        .ok_or(DateTimeFormatError::DateTimeOutOfRange)
 }

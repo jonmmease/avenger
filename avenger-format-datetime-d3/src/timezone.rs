@@ -2,6 +2,7 @@ use chrono_tz::Tz;
 
 use crate::error::DateTimeFormatError;
 
+/// Parse UTC or an IANA name. The caller must resolve `local` to a concrete name.
 pub fn parse_datetime_timezone(value: &str) -> Result<Tz, DateTimeFormatError> {
     match value {
         "UTC" | "utc" => Ok(Tz::UTC),

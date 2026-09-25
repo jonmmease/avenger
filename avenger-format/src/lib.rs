@@ -1,4 +1,11 @@
-//! Provider interfaces for preparing and rendering localized number labels.
+//! Provider interfaces for preparing and rendering localized number and datetime labels.
+
+mod datetime;
+pub use datetime::{
+    DateTimeFormatConfig, DateTimeFormatContext, DateTimeFormatError, DateTimeFormatOptions,
+    DateTimeFormatProvider, DateTimeFormatRegistry, DateTimeFormatRequest, DateTimeLocaleData,
+    NaiveDateTimeInput, PreparedDateTimeFormatter, ZonedDateTimeInput,
+};
 
 mod formatted_number;
 pub use formatted_number::{FormattedNumber, NumberTypesetting};

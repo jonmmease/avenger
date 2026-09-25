@@ -1,7 +1,6 @@
 use crate::{
     error::DateTimeFormatError,
-    fields::{Pattern, PatternToken},
-    parser::parse_datetime_spec,
+    parser::{parse_datetime_spec, Pattern, PatternToken},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -49,7 +48,7 @@ impl Default for DateTimeLocaleSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDateTimeLocale {
     id: LocaleId,
-    definition: Arc<DateTimeLocaleSpec>,
+    pub(crate) definition: Arc<DateTimeLocaleSpec>,
     pub(crate) patterns: [Pattern; 3],
 }
 impl ResolvedDateTimeLocale {

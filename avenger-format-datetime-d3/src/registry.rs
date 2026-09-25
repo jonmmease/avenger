@@ -7,19 +7,12 @@ pub struct DateTimeLocaleRegistry {
     locales: BTreeMap<String, ResolvedDateTimeLocale>,
 }
 impl DateTimeLocaleRegistry {
-    /// Load the bundled D3 locale definitions.
+    /// Load the bundled U.S. English locale.
     pub fn with_builtins() -> Self {
         let mut registry = Self::default();
-        for (id, json) in [
-            ("en-US", include_str!("../locales/en-US.json")),
-            ("de-DE", include_str!("../locales/de-DE.json")),
-            ("fr-FR", include_str!("../locales/fr-FR.json")),
-            ("ja-JP", include_str!("../locales/ja-JP.json")),
-        ] {
-            registry
-                .register_custom_locale_json(id, json)
-                .expect("bundled D3 time locale");
-        }
+        registry
+            .register_custom_locale("en-US", DateTimeLocaleSpec::default())
+            .expect("bundled D3 time locale");
         registry
     }
     /// Register a definition after validating its locale expansions.
