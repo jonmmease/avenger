@@ -1,5 +1,5 @@
 [package]
-name = "avenger-format-number"
+name = "avenger-format"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,3 @@ edition = "2021"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-num-bigint = "0.4.6"
-num-traits = "0.2.19"
-ryu-js = "1.0.3"

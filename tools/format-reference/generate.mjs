@@ -6,9 +6,9 @@ import {locale as vegaLocale} from 'vega-format';
 const root = new URL('../../', import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path, root)));
 const numberLocales = {
-  'en-US': read('avenger-format-number/locales/en-US.json'),
+  'en-US': read('avenger-format-number-d3/locales/en-US.json'),
   ...Object.fromEntries(['de-DE', 'fr-FR', 'ja-JP'].map(name => [
-    name, read(`avenger-format-number/tests/fixtures/locales/${name}.json`)
+    name, read(`avenger-format-number-d3/tests/fixtures/locales/${name}.json`)
   ]))
 };
 numberLocales.custom = {
@@ -85,7 +85,7 @@ function numberCases() {
 }
 
 const fixture = numberCases();
-const dir = new URL('avenger-format-number/tests/fixtures/', root);
+const dir = new URL('avenger-format-number-d3/tests/fixtures/', root);
 mkdirSync(dir, {recursive: true});
 writeFileSync(new URL('upstream.json', dir), `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
 console.log(`Generated ${fixture.cases.length} number cases with ${process.version}.`);
