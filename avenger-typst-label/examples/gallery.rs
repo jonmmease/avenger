@@ -40,7 +40,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "typst-labels.png".into());
-    let engine = LabelEngine::new(engine_options())?;
+    let mut registry = avenger_format::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    let engine = LabelEngine::new(engine_options())?.with_number_formatting(
+        avenger_format::NumberFormatConfig::new("d3"),
+        std::sync::Arc::new(registry),
+    );
     let mut options = LabelOptions::default();
     options.text.font_size = 24.0;
     options.math.font_size = 24.0;

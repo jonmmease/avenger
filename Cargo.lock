@@ -620,6 +620,7 @@ name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
  "avenger-fonts",
+ "avenger-format",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "brotli",
@@ -634,6 +635,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "rustybuzz 0.20.1",
  "serde",
+ "serde_json",
  "siphasher 1.0.3",
  "smallvec",
  "thiserror 2.0.12",

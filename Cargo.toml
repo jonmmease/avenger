@@ -118,7 +118,8 @@ base64 = "0.22.1"
 urlencoding = "2.1.3"
 
 pixelmatch = "0.1"
-rstest = "0.25.0"png = "0.18.1"
+rstest = "0.25.0"
+png = "0.18.1"
 
 fontdb = "0.23.0"
 

@@ -18,8 +18,8 @@ use std::{
     sync::Arc,
 };
 
-use avenger_format_datetime_d3::DateTimeLocaleRegistry;
-use avenger_format_number_d3::NumberLocaleRegistry;
+use avenger_format::{DateTimeFormatConfig, DateTimeFormatRegistry};
+use avenger_format::{NumberFormatConfig, NumberFormatRegistry};
 use indexmap::IndexMap;
 
 use crate::typst_eval::markup::{
@@ -158,13 +158,10 @@ pub struct LabelOptions {
     pub text: TextStyle,
     pub math: MathStyle,
     pub params: LabelParams,
-    pub number_locale: Option<String>,
-    #[cfg_attr(feature = "serde", serde(skip, default))]
-    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
-    pub datetime_locale: Option<String>,
-    pub datetime_timezone: Option<String>,
-    #[cfg_attr(feature = "serde", serde(skip, default))]
-    pub datetime_locale_registry: Option<Arc<DateTimeLocaleRegistry>>,
+    /// Override the engine’s number format for `#numfmt` in this label.
+    pub number_format: Option<NumberFormatConfig>,
+    /// Override the engine’s datetime format for `#datefmt` in this label.
+    pub datetime_format: Option<DateTimeFormatConfig>,
     pub limits: LabelLimits,
 }
 
@@ -212,6 +209,10 @@ impl Hash for LabelParamValue {
 #[derive(Debug, Clone)]
 pub struct LabelEngine {
     inner: TypstEngineCore,
+    number_formatters: Arc<NumberFormatRegistry>,
+    number_format: Option<NumberFormatConfig>,
+    datetime_formatters: Arc<DateTimeFormatRegistry>,
+    datetime_format: Option<DateTimeFormatConfig>,
     formatting_cache: std::sync::Arc<crate::typst_eval::format_cache::FormattingCache>,
 }
 
@@ -219,8 +220,54 @@ impl LabelEngine {
     pub fn new(options: EngineOptions) -> Result<Self, LabelInitError> {
         Ok(Self {
             inner: TypstEngineCore::new(&options)?,
+            number_formatters: Arc::new(NumberFormatRegistry::default()),
+            number_format: None,
+            datetime_formatters: Arc::new(DateTimeFormatRegistry::default()),
+            datetime_format: None,
             formatting_cache: Default::default(),
         })
+    }
+
+    /// Select a number format and its registered providers for compiled labels.
+    pub fn with_number_formatting(
+        mut self,
+        config: NumberFormatConfig,
+        registry: Arc<NumberFormatRegistry>,
+    ) -> Self {
+        self.number_format = Some(config);
+        self.number_formatters = registry;
+        self.formatting_cache = Default::default();
+        self
+    }
+
+    /// Configuration used when a label does not supply its own.
+    pub fn number_format_config(&self) -> Option<&NumberFormatConfig> {
+        self.number_format.as_ref()
+    }
+
+    pub fn number_formatters(&self) -> &Arc<NumberFormatRegistry> {
+        &self.number_formatters
+    }
+
+    /// Select a datetime format and its registered providers for compiled labels.
+    pub fn with_datetime_formatting(
+        mut self,
+        config: DateTimeFormatConfig,
+        registry: Arc<DateTimeFormatRegistry>,
+    ) -> Self {
+        self.datetime_format = Some(config);
+        self.datetime_formatters = registry;
+        self.formatting_cache = Default::default();
+        self
+    }
+
+    /// Configuration used when a label does not supply its own.
+    pub fn datetime_format_config(&self) -> Option<&DateTimeFormatConfig> {
+        self.datetime_format.as_ref()
+    }
+
+    pub fn datetime_formatters(&self) -> &Arc<DateTimeFormatRegistry> {
+        &self.datetime_formatters
     }
 
     pub fn compile(
@@ -236,14 +283,19 @@ impl LabelEngine {
             &layout_options.params,
             MarkupFormatContext {
                 number: NumberFormatMarkupContext {
-                    locale_id: options.number_locale.as_deref(),
-                    registry: options.number_locale_registry.as_deref(),
+                    config: options
+                        .number_format
+                        .as_ref()
+                        .or(self.number_format.as_ref()),
+                    registry: Some(&self.number_formatters),
                     cache: Some(&self.formatting_cache),
                 },
                 datetime: DateTimeFormatMarkupContext {
-                    locale_id: options.datetime_locale.as_deref(),
-                    timezone: options.datetime_timezone.as_deref(),
-                    registry: options.datetime_locale_registry.as_deref(),
+                    config: options
+                        .datetime_format
+                        .as_ref()
+                        .or(self.datetime_format.as_ref()),
+                    registry: Some(&self.datetime_formatters),
                     cache: Some(&self.formatting_cache),
                 },
             },
