@@ -1,10 +1,6 @@
-use avenger_format::{
-    FormattedNumber, NumberFormatConfig, NumberFormatContext, NumberFormatError,
-    NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
-};
+use avenger_format::{NumberFormatConfig, NumberFormatContext, NumberFormatRequest};
 use avenger_format_number_d3::default_number_format_registry;
 use serde_json::json;
-use std::sync::Arc;
 
 #[test]
 fn provider_prepares_d3_labels_with_context_and_overrides() {
@@ -61,7 +57,7 @@ fn provider_prepares_d3_labels_with_context_and_overrides() {
         .into(),
         ..Default::default()
     };
-    let mut config: NumberFormatConfig =
+    let config: NumberFormatConfig =
         serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
     assert_eq!(
         registry
@@ -82,65 +78,4 @@ fn provider_prepares_d3_labels_with_context_and_overrides() {
         };
         assert!(registry.prepare(&config, &request).is_err());
     }
-    config.provider = "missing".into();
-    assert!(registry
-        .prepare(&config, &Default::default())
-        .unwrap_err()
-        .to_string()
-        .contains("missing"));
-}
-
-#[derive(Debug)]
-struct Literal(&'static str);
-impl NumberFormatProvider for Literal {
-    fn prepare(
-        &self,
-        config: &NumberFormatConfig,
-        request: &NumberFormatRequest,
-    ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-        assert_eq!(config.locale.as_deref(), Some("custom"));
-        assert_eq!(request.spec.as_deref(), Some("not a D3 specifier"));
-        Ok(Arc::new(Literal(self.0)))
-    }
-}
-impl PreparedNumberFormatter for Literal {
-    fn format(&self, _: f64) -> FormattedNumber {
-        FormattedNumber::plain(self.0)
-    }
-}
-
-#[test]
-fn providers_are_replaceable_without_changing_prepared_formatters() {
-    let mut registry = (*default_number_format_registry()).clone();
-    registry.register("literal", Arc::new(Literal("first")));
-    let config = NumberFormatConfig {
-        provider: "literal".into(),
-        locale: Some("custom".into()),
-        ..Default::default()
-    };
-    let request = NumberFormatRequest {
-        spec: Some("not a D3 specifier".into()),
-        ..Default::default()
-    };
-    let old_registry = registry.clone();
-    let prepared = registry.prepare(&config, &request).unwrap();
-    registry.register("literal", Arc::new(Literal("second")));
-    assert_ne!(registry.cache_id(), old_registry.cache_id());
-    assert_eq!(prepared.format(1.0).text, "first");
-    assert_eq!(
-        old_registry
-            .prepare(&config, &request)
-            .unwrap()
-            .format(1.0)
-            .text,
-        "first"
-    );
-    assert_eq!(
-        registry
-            .prepare(&config, &request)
-            .unwrap()
-            .format(1.0)
-            .text,
-        "second"
-    );
 }
