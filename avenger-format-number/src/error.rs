@@ -31,6 +31,14 @@ pub enum FormatError {
     #[error("invalid number format: {0}")]
     InvalidFormat(String),
 
+    /// A currency code is absent from the pinned currency metadata.
+    #[error("invalid currency code `{0}`")]
+    InvalidCurrencyCode(String),
+
+    /// Type `C` requires a code in the specifier or overrides.
+    #[error("currency formatting requires `C[CODE]` or a currency override")]
+    MissingCurrencyCode,
+
     /// The requested locale name has no registry entry.
     #[error("locale `{0}` was not found")]
     LocaleNotFound(String),

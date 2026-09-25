@@ -106,6 +106,8 @@ pub enum FormatType {
     CompactShort,
     /// Compact words. Precision counts significant digits.
     CompactLong,
+    /// Currency metadata formatting. Precision counts fraction digits.
+    Currency,
 }
 
 impl FormatType {
@@ -128,6 +130,7 @@ impl FormatType {
             'n' => Some(Self::LocaleDefault),
             'S' => Some(Self::CompactShort),
             'L' => Some(Self::CompactLong),
+            'C' => Some(Self::Currency),
             _ => None,
         }
     }
@@ -151,6 +154,7 @@ impl FormatType {
             Self::LocaleDefault => 'n',
             Self::CompactShort => 'S',
             Self::CompactLong => 'L',
+            Self::Currency => 'C',
         }
     }
 }
@@ -161,7 +165,7 @@ pub enum DigitSpec {
     /// Use the formatter's default or automatic precision selection.
     #[default]
     Auto,
-    /// Fraction digits for `f`, `e`, and `%`, significant digits for `g`, `r`, `s`, and `p`.
+    /// Fraction digits for `f`, `e`, `%`, and `C`. Significant digits for `g`, `r`, `s`, `p`, `S`, and `L`.
     /// Clamped to `0..=20` fraction digits or `1..=21` significant digits when rendered.
     /// Integer formats and `c` ignore precision.
     Precision(u8),
@@ -189,4 +193,6 @@ pub struct NumberFormatSpec {
     pub trim: Option<bool>,
     /// `None` selects general notation, defaulting to 12 significant digits and trimming.
     pub format_type: Option<FormatType>,
+    /// Uppercase currency code supplied by `C[CODE]`.
+    pub currency: Option<String>,
 }

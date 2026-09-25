@@ -90,6 +90,47 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
         })?;
         parsed.format_type = Some(format_type);
         i += 1;
+        if let Some((param_pos, '[')) = chars.get(i) {
+            if format_type != FormatType::Currency {
+                return Err(ParseError::invalid(
+                    *param_pos,
+                    "type parameters are only supported for `C`",
+                ));
+            }
+            i += 1;
+            let code_start_i = i;
+            while matches!(chars.get(i), Some((_, ch)) if ch.is_ascii_uppercase()) {
+                i += 1;
+            }
+            let code_start = chars
+                .get(code_start_i)
+                .map(|(pos, _)| *pos)
+                .unwrap_or_else(|| spec.len());
+            let code_end = byte_end(spec, &chars, i);
+            let code = &spec[code_start..code_end];
+            if code.len() != 3 {
+                return Err(ParseError::invalid(
+                    code_start,
+                    "currency code must be three uppercase ASCII letters",
+                ));
+            }
+            match chars.get(i) {
+                Some((_, ']')) => i += 1,
+                Some((pos, _)) => {
+                    return Err(ParseError::invalid(
+                        *pos,
+                        "currency type parameter must end with `]`",
+                    ));
+                }
+                None => {
+                    return Err(ParseError::invalid(
+                        spec.len(),
+                        "currency type parameter must end with `]`",
+                    ));
+                }
+            }
+            parsed.currency = Some(code.to_string());
+        }
     }
 
     if let Some((pos, _)) = chars.get(i) {

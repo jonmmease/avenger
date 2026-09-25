@@ -1,9 +1,10 @@
 use crate::{
     compact::{CompactPluralRule, CompactTier},
+    currency::{CurrencyFormat, CurrencySymbols},
     error::FormatError,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A name used to register and resolve a number locale.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -68,17 +69,20 @@ impl NumberLocaleSpec {
             .expect("bundled D3 number locale")
     }
 }
-/// Compact metadata registered separately from the D3 number definition.
+/// Compact and currency metadata registered separately from the D3 number definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct NumberLocaleExtensions {
+    pub currency: CurrencyFormat,
+    /// Localized symbols keyed by uppercase currency code. Missing entries use the code.
+    pub currency_symbols: BTreeMap<String, CurrencySymbols>,
     pub compact_short: Vec<CompactTier>,
     pub compact_long: Vec<CompactTier>,
     /// Selects the `one` pattern from the rounded coefficient.
     pub compact_plural_rule: CompactPluralRule,
 }
 impl NumberLocaleExtensions {
-    /// English compact suffixes for powers of a thousand.
+    /// U.S. currency symbols and English compact suffixes.
     pub fn en_us() -> Self {
         fn tiers(suffixes: [&str; 4]) -> Vec<CompactTier> {
             [3, 6, 9, 12]
@@ -93,6 +97,19 @@ impl NumberLocaleExtensions {
                 .collect()
         }
         Self {
+            currency: CurrencyFormat::default(),
+            currency_symbols: [("USD", "$"), ("EUR", "€"), ("JPY", "¥")]
+                .into_iter()
+                .map(|(code, symbol)| {
+                    (
+                        code.into(),
+                        CurrencySymbols {
+                            symbol: Some(symbol.into()),
+                            narrow_symbol: None,
+                        },
+                    )
+                })
+                .collect(),
             compact_short: tiers(["K", "M", "B", "T"]),
             compact_long: tiers([" thousand", " million", " billion", " trillion"]),
             compact_plural_rule: CompactPluralRule::IntegerOne,
@@ -124,7 +141,7 @@ impl ResolvedNumberLocale {
         &self.definition
     }
 
-    /// Borrow compact metadata associated with this definition.
+    /// Borrow compact and currency metadata associated with this definition.
     pub fn extensions(&self) -> &NumberLocaleExtensions {
         &self.extensions
     }
