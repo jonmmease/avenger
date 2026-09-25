@@ -19,7 +19,7 @@ numberLocales.custom = {
   minus: 'MINUS', percent: 'pct', nan: 'missing',
   numerals: ['⓪', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 };
-const timeLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, builtin('datetime', name)]));
+const timeLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [name, read(`avenger-format-datetime-d3/locales/${name}.json`)]));
 timeLocales.custom = {...timeLocales['en-US'], dateTime: '%x at %X', date: '%Y/%-m/%-d', time: '%Hh%M', periods: ['morning', 'evening']};
 const numberValue = value => typeof value === 'string' ? Number(value) : value;
 
