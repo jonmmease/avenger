@@ -29,6 +29,28 @@ impl DateTimeFormatConfig {
             timezone: None,
         }
     }
+
+    /// Select a locale understood by the provider.
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = Some(locale.into());
+        self
+    }
+
+    /// Set the IANA display timezone for instants. Civil fields are unchanged.
+    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = Some(timezone.into());
+        self
+    }
+
+    /// Add or replace a provider-specific locale definition without selecting it.
+    pub fn with_custom_locale(
+        mut self,
+        name: impl Into<String>,
+        definition: serde_json::Value,
+    ) -> Self {
+        self.locales.insert(name.into(), definition);
+        self
+    }
 }
 
 /// Preparation input. Pattern syntax and named options belong to the provider.

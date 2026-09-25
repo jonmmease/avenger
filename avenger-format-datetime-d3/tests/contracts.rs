@@ -54,19 +54,16 @@ fn civil_preparation_rejects_instant_fields_including_locale_expansions() {
     use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%Z", "%Q", "%s"] {
-        let config = DateTimeFormatConfig {
-            locale: Some("custom".into()),
-            locales: [(
-                "custom".into(),
+        let config = DateTimeFormatConfig::new("d3")
+            .with_locale("custom")
+            .with_custom_locale(
+                "custom",
                 serde_json::to_value(DateTimeLocaleSpec {
                     time: directive.into(),
                     ..Default::default()
                 })
                 .unwrap(),
-            )]
-            .into(),
-            ..DateTimeFormatConfig::new("d3")
-        };
+            );
         for spec in [
             serde_json::json!(directive),
             serde_json::json!("%c"),
@@ -342,10 +339,7 @@ fn provider_accepts_explicit_patterns_and_multi_formats() {
     use avenger_format::{DateTimeFormatConfig, DateTimeFormatProvider, DateTimeFormatRequest};
     use serde_json::json;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    let config = DateTimeFormatConfig {
-        timezone: Some("America/New_York".into()),
-        ..DateTimeFormatConfig::new("d3")
-    };
+    let config = DateTimeFormatConfig::new("d3").with_timezone("America/New_York");
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let instant = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
     for (spec, civil, zoned) in [
