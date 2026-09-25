@@ -270,8 +270,16 @@ fn compile_errors_for_unknown_text_param() {
 
 #[test]
 fn compile_numfmt_uses_number_locale_context() {
+    let mut registry = avenger_format_number_d3::NumberLocaleRegistry::with_builtins();
+    registry
+        .register_custom_locale_json(
+            "de-DE",
+            include_str!("../../avenger-format-number-d3/tests/fixtures/locales/de-DE.json"),
+        )
+        .unwrap();
     let mut options = LabelOptions {
         number_locale: Some("de-DE".to_string()),
+        number_locale_registry: Some(std::sync::Arc::new(registry)),
         ..Default::default()
     };
     options
