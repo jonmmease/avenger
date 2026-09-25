@@ -19,19 +19,20 @@ pub type NumberLocaleData = BTreeMap<String, serde_json::Value>;
 
 /// Serializable provider selection and locale data shared by measurement and rendering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
 pub struct NumberFormatConfig {
-    /// Registered provider name. Avenger uses `d3` by default.
+    /// Registered provider name.
     pub provider: String,
     /// Locale name understood by the provider. `None` uses its default locale.
     pub locale: Option<String>,
     /// Custom locale definitions in the selected provider’s data format.
+    #[serde(default)]
     pub locales: NumberLocaleData,
 }
-impl Default for NumberFormatConfig {
-    fn default() -> Self {
+impl NumberFormatConfig {
+    /// Select a provider with its ordinary locale and no custom locale definitions.
+    pub fn new(provider: impl Into<String>) -> Self {
         Self {
-            provider: "d3".into(),
+            provider: provider.into(),
             locale: None,
             locales: BTreeMap::new(),
         }

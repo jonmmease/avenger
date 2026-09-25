@@ -5,28 +5,14 @@ use crate::{
 };
 use avenger_format::{
     FormattedNumber, NumberFormatConfig, NumberFormatContext, NumberFormatError,
-    NumberFormatOptions, NumberFormatProvider, NumberFormatRegistry, NumberFormatRequest,
-    PreparedNumberFormatter,
+    NumberFormatOptions, NumberFormatProvider, NumberFormatRequest, PreparedNumberFormatter,
 };
 use serde_json::Value;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// D3 specifiers and locale definitions exposed through the shared formatting interface.
 #[derive(Debug, Default)]
 pub struct D3NumberFormatProvider;
-
-/// Shared default registry containing the `d3` provider.
-/// Clone the registry before registering additional providers.
-pub fn default_number_format_registry() -> Arc<NumberFormatRegistry> {
-    static REGISTRY: OnceLock<Arc<NumberFormatRegistry>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(|| {
-            let mut registry = NumberFormatRegistry::default();
-            registry.register("d3", Arc::new(D3NumberFormatProvider));
-            Arc::new(registry)
-        })
-        .clone()
-}
 
 impl NumberFormatProvider for D3NumberFormatProvider {
     fn prepare(

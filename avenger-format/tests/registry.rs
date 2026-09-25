@@ -7,10 +7,7 @@ use std::sync::Arc;
 #[test]
 fn unknown_provider_is_rejected() {
     let registry = NumberFormatRegistry::default();
-    let config = NumberFormatConfig {
-        provider: "missing".into(),
-        ..Default::default()
-    };
+    let config = NumberFormatConfig::new("missing");
     assert!(registry
         .prepare(&config, &Default::default())
         .unwrap_err()
@@ -42,9 +39,8 @@ fn providers_are_replaceable_without_changing_prepared_formatters() {
     let mut registry = NumberFormatRegistry::default();
     registry.register("literal", Arc::new(Literal("first")));
     let config = NumberFormatConfig {
-        provider: "literal".into(),
         locale: Some("custom".into()),
-        ..Default::default()
+        ..NumberFormatConfig::new("literal")
     };
     let request = NumberFormatRequest {
         spec: Some("provider-specific syntax".into()),
@@ -71,4 +67,11 @@ fn providers_are_replaceable_without_changing_prepared_formatters() {
             .text,
         "second"
     );
+}
+
+#[test]
+fn serialized_configuration_requires_provider_selection() {
+    assert!(serde_json::from_str::<NumberFormatConfig>("{}").is_err());
+    let config: NumberFormatConfig = serde_json::from_str(r#"{"provider":"custom"}"#).unwrap();
+    assert_eq!(config, NumberFormatConfig::new("custom"));
 }

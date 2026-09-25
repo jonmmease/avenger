@@ -1,11 +1,14 @@
 use avenger_format::{NumberFormatConfig, NumberFormatContext, NumberFormatRequest};
-use avenger_format_number_d3::default_number_format_registry;
 use serde_json::json;
 
 #[test]
 fn provider_prepares_d3_labels_with_context_and_overrides() {
-    let registry = default_number_format_registry();
-    let config = NumberFormatConfig::default();
+    let mut registry = avenger_format::NumberFormatRegistry::default();
+    registry.register(
+        "d3",
+        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    );
+    let config = NumberFormatConfig::new("d3");
     for (context, spec, value, expected) in [
         (
             NumberFormatContext::Scalar,
@@ -41,7 +44,7 @@ fn provider_prepares_d3_labels_with_context_and_overrides() {
     }
     let mut config = NumberFormatConfig {
         locale: Some("custom".into()),
-        ..Default::default()
+        ..NumberFormatConfig::new("d3")
     };
     config.locales.insert(
         "custom".into(),

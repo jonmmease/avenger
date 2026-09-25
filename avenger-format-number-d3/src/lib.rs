@@ -19,6 +19,6 @@ pub use error::{FormatError, ParseError};
 pub use format::{format_number, NumberFormatOverrides, PreparedNumberFormat};
 pub use locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale};
 pub use parser::parse_number_spec;
-pub use provider::{default_number_format_registry, D3NumberFormatProvider};
+pub use provider::D3NumberFormatProvider;
 pub use registry::NumberLocaleRegistry;
 pub use spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol};
