@@ -662,11 +662,8 @@ impl PdfRenderer {
                 limit: *limit,
                 syntax_mode: mark.text_syntax,
                 params: &mark.text_params,
-                number_locale: mark.number_locale.as_deref(),
-                number_locale_specs: Some(&mark.number_locale_specs),
-                datetime_locale: mark.datetime_locale.as_deref(),
-                datetime_timezone: mark.datetime_timezone.as_deref(),
-                datetime_locale_specs: Some(&mark.datetime_locale_specs),
+                number_format: mark.number_format.as_ref(),
+                datetime_format: mark.datetime_format.as_ref(),
             })?;
 
             if *leader {
