@@ -62,7 +62,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-        let prepared = prepare(config, pattern)?;
+        let prepared = prepare(config, pattern, chrono_tz::UTC)?;
         prepared.validate_naive().map_err(error)?;
         Ok(Arc::new(prepared))
     }
@@ -72,13 +72,16 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(prepare(config, pattern)?))
+        let timezone =
+            parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
+        Ok(Arc::new(prepare(config, pattern, timezone)?))
     }
 }
 
 fn prepare(
     config: &D3DateTimeFormatConfig,
     pattern: &str,
+    timezone: chrono_tz::Tz,
 ) -> Result<PreparedDateTimeFormat, DateTimeFormatError> {
     let id = config.locale.as_deref().unwrap_or("en-US");
     let normalized = id.replace('_', "-");
@@ -95,8 +98,6 @@ fn prepare(
     } else {
         return Err(DateTimeFormatError(format!("locale `{id}` was not found")));
     };
-    let timezone =
-        parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
     PreparedDateTimeFormat::new(Some(pattern), DateTimeFormatContext::new(&locale, timezone))
         .map_err(error)
 }

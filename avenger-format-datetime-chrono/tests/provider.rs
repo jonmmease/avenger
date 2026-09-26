@@ -87,8 +87,22 @@ fn preparation_rejects_unknown_locales_and_timezones() {
     let config = ChronoDateTimeFormatConfig::new().with_locale("unknown");
     assert!(provider.prepare_naive(&config, "%Y").is_err());
     assert!(provider.prepare_zoned(&config, "%Y").is_err());
-    let config = ChronoDateTimeFormatConfig::new().with_timezone("invalid/zone");
-    assert!(provider.prepare_zoned(&config, "%Y").is_err());
+}
+
+#[test]
+fn timezone_validation_applies_only_to_instants() {
+    fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config) {
+        assert!(provider.prepare_naive(&config, "%Y").is_ok());
+        assert!(provider.prepare_zoned(&config, "%Y").is_err());
+    }
+    check(
+        ChronoDateTimeFormatProvider,
+        ChronoDateTimeFormatConfig::new().with_timezone("invalid/zone"),
+    );
+    check(
+        D3DateTimeFormatProvider,
+        D3DateTimeFormatConfig::new().with_timezone("invalid/zone"),
+    );
 }
 
 #[test]

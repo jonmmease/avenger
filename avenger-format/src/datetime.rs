@@ -29,13 +29,14 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
     type Config;
 
     /// Prepare for civil dates and datetimes, rejecting fields that require an instant.
+    /// Timezone configuration is unused and is not validated.
     fn prepare_naive(
         &self,
         config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError>;
 
-    /// Prepare for instants displayed in the configured timezone.
+    /// Prepare for instants, resolving and validating the configured display timezone.
     fn prepare_zoned(
         &self,
         config: &Self::Config,
