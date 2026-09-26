@@ -63,7 +63,6 @@ pub fn make_colorbar_marks_with_surfaces(
 fn colorbar_domain_label_text(
     scale: &ConfiguredScale,
     config: &ColorbarConfig,
-    text_engine: &TextEngine,
 ) -> Result<(String, String, TextSyntaxMode), AvengerGuidesError> {
     let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
     let ticks = Arc::new(Float64Array::from(vec![
@@ -74,13 +73,10 @@ fn colorbar_domain_label_text(
         format_number: config.format_number.clone(),
         format_datetime: None,
         tick_label: None,
-        number_format: config
-            .number_format
-            .clone()
-            .or_else(|| text_engine.number_format_config().cloned()),
+        number_format: config.number_format.clone(),
         ..Default::default()
     };
-    let tick_labels = make_tick_label_text(&ticks, scale, &axis_config, text_engine)?;
+    let tick_labels = make_tick_label_text(&ticks, scale, &axis_config)?;
     let labels = tick_labels.text.as_vec(2, None);
     Ok((
         labels.first().cloned().unwrap_or_default(),
@@ -115,7 +111,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             let (min_label, max_label, label_syntax_mode) =
-                colorbar_domain_label_text(scale, config, text_engine)?;
+                colorbar_domain_label_text(scale, config)?;
 
             // Measure both labels and take the maximum width
             let min_bounds =
@@ -127,7 +123,11 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
-                    number_format: config.number_format.as_ref(),
+                    number_format: config
+                        .number_format
+                        .as_ref()
+                        .map(|config| config.binding())
+                        .as_ref(),
                     datetime_format: None,
                 });
             let max_bounds =
@@ -139,7 +139,11 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
-                    number_format: config.number_format.as_ref(),
+                    number_format: config
+                        .number_format
+                        .as_ref()
+                        .map(|config| config.binding())
+                        .as_ref(),
                     datetime_format: None,
                 });
 
@@ -176,10 +180,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 format_datetime: None,
                 tick_label: None,
-                number_format: config
-                    .number_format
-                    .clone()
-                    .or_else(|| text_engine.number_format_config().cloned()),
+                number_format: config.number_format.clone(),
                 datetime_format: None,
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
@@ -332,7 +333,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
             let (min_label, max_label, label_syntax_mode) =
-                colorbar_domain_label_text(scale, config, text_engine)?;
+                colorbar_domain_label_text(scale, config)?;
 
             // Measure both labels and take the maximum width
             let min_bounds =
@@ -344,7 +345,11 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
-                    number_format: config.number_format.as_ref(),
+                    number_format: config
+                        .number_format
+                        .as_ref()
+                        .map(|config| config.binding())
+                        .as_ref(),
                     datetime_format: None,
                 });
             let max_bounds =
@@ -356,7 +361,11 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
-                    number_format: config.number_format.as_ref(),
+                    number_format: config
+                        .number_format
+                        .as_ref()
+                        .map(|config| config.binding())
+                        .as_ref(),
                     datetime_format: None,
                 });
 
@@ -406,10 +415,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 format_datetime: None,
                 tick_label: None,
-                number_format: config
-                    .number_format
-                    .clone()
-                    .or_else(|| text_engine.number_format_config().cloned()),
+                number_format: config.number_format.clone(),
                 datetime_format: None,
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
@@ -589,10 +595,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 format_datetime: None,
                 tick_label: None,
-                number_format: config
-                    .number_format
-                    .clone()
-                    .or_else(|| text_engine.number_format_config().cloned()),
+                number_format: config.number_format.clone(),
                 datetime_format: None,
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
@@ -827,10 +830,7 @@ pub fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 format_datetime: None,
                 tick_label: None,
-                number_format: config
-                    .number_format
-                    .clone()
-                    .or_else(|| text_engine.number_format_config().cloned()),
+                number_format: config.number_format.clone(),
                 datetime_format: None,
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
@@ -1029,7 +1029,7 @@ pub struct ColorbarConfig {
     pub colorbar_margin: Option<f32>,
     /// Optional numeric formatting string for colorbar tick labels
     pub format_number: Option<String>,
-    pub number_format: Option<avenger_format::NumberFormatConfig>,
+    pub number_format: Option<avenger_format_config::NumberFormatConfig>,
     /// Optional background rect styling
     pub background_fill: Option<ColorOrGradient>,
     pub background_stroke: Option<ColorOrGradient>,
@@ -1088,15 +1088,8 @@ impl Default for ColorbarConfig {
 #[cfg(test)]
 mod tests {
     fn d3_text_engine() -> TextEngine {
-        let mut registry = avenger_text::NumberFormatRegistry::default();
-        registry.register(
-            "d3",
-            std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-        );
-        avenger_text::default_text_engine().with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
+        avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+            .configure_text_engine(default_text_engine())
     }
     fn make_colorbar_marks_with_surfaces(
         scale: &ConfiguredScale,
@@ -1121,7 +1114,10 @@ mod tests {
     use crate::legend::{GuideLegendContinuousOrientation, GuideLegendSurfaceKind};
 
     fn color_scale() -> ConfiguredScale {
-        LinearScale::configured_color((0.0, 100.0), ["#440154", "#fde725"])
+        let mut scale = LinearScale::configured_color((0.0, 100.0), ["#440154", "#fde725"]);
+        scale.config.context.formatting =
+            avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default());
+        scale
     }
 
     fn test_config(orientation: ColorbarOrientation) -> ColorbarConfig {
@@ -1159,12 +1155,15 @@ mod tests {
 
     #[test]
     fn colorbar_domain_measurement_labels_use_shared_number_formatter() {
-        let scale = LinearScale::configured_color((900_000.0, 1_100_000.0), ["#440154", "#fde725"]);
+        let mut scale =
+            LinearScale::configured_color((900_000.0, 1_100_000.0), ["#440154", "#fde725"]);
+        scale.config.context.formatting =
+            avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default());
         let mut config = test_config(ColorbarOrientation::Top);
         config.format_number = Some("s".to_string());
 
         let (min_label, max_label, syntax_mode) =
-            colorbar_domain_label_text(&scale, &config, &d3_text_engine()).expect("domain labels");
+            colorbar_domain_label_text(&scale, &config).expect("domain labels");
 
         assert_eq!(syntax_mode, TextSyntaxMode::Plain);
         assert_eq!(min_label, "0.90M");
