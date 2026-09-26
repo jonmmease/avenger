@@ -195,6 +195,7 @@ pub struct RenderedPlot {
 #[derive(Clone)]
 pub struct RenderedChart {
     scene: Arc<avenger_scenegraph::scene_graph::SceneGraph>,
+    #[cfg(any(feature = "svg", feature = "pdf", feature = "png"))]
     text: TextEngine,
     inputs: Inputs,
     plots: Vec<RenderedPlot>,

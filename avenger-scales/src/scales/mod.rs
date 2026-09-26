@@ -1483,7 +1483,24 @@ impl ConfiguredScale {
 /// Formatter pass through methods
 impl ConfiguredScale {
     pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        self.config.context.formatters.format(values, None)
+        let labels = self.config.context.formatters.format(values, None)?;
+        if self.option_boolean("include_null", false) && values.null_count() > 0 {
+            Ok(ScalarOrArray::new_array(
+                labels
+                    .as_iter(values.len(), None)
+                    .enumerate()
+                    .map(|(i, label)| {
+                        if values.is_null(i) {
+                            "null".to_string()
+                        } else {
+                            label.clone()
+                        }
+                    })
+                    .collect(),
+            ))
+        } else {
+            Ok(labels)
+        }
     }
 
     pub fn format_numbers(

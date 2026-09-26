@@ -48,7 +48,7 @@ macro_rules! impl_ordinal_enum_scale_method {
 ///
 /// # Config Options
 ///
-/// This scale does not currently support any configuration options.
+/// `include_null` treats null as a distinct domain member when enabled.
 #[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
@@ -89,6 +89,7 @@ impl ScaleImpl for OrdinalScale {
                 // Ordinal scale supports no custom options currently
                 // But default option is allowed for consistency
                 OptionDefinition::optional("default", super::OptionConstraint::String),
+                OptionDefinition::optional("include_null", super::OptionConstraint::Boolean),
             ];
         }
 
@@ -100,6 +101,34 @@ impl ScaleImpl for OrdinalScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        if config.option_boolean("include_null", false) {
+            if config.range.is_empty() {
+                return Ok(arrow::array::new_null_array(
+                    config.range.data_type(),
+                    values.len(),
+                ));
+            }
+            // Arrow's row encoding keeps null distinct from every typed value.
+            let converter = arrow::row::RowConverter::new(vec![arrow::row::SortField::new(
+                config.domain.data_type().clone(),
+            )])?;
+            let domain = converter.convert_columns(std::slice::from_ref(&config.domain))?;
+            let values = converter.convert_columns(&[cast(values, config.domain.data_type())?])?;
+            let mapping: HashMap<_, _> = domain
+                .iter()
+                .enumerate()
+                .map(|(i, row)| (row, (i % config.range.len()) as u32))
+                .collect();
+            let indices = values
+                .iter()
+                .map(|row| mapping.get(&row).copied())
+                .collect::<Vec<_>>();
+            return Ok(take::take(
+                &config.range,
+                &UInt32Array::from(indices),
+                None,
+            )?);
+        }
         // Get dictionary array with range indices
         let range_dict_array =
             range_dict_array_for_values(&config.domain, config.range.len(), values)?;

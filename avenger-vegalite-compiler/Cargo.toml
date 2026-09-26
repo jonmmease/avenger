@@ -1,0 +1,47 @@
+[package]
+name = "avenger-vegalite-compiler"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Compile a Vega-Lite subset into portable Avenger chart definitions"
+
+[dependencies]
+avenger-vegalite-spec = { path = "../avenger-vegalite-spec" }
+avenger-chart-definition = { path = "../avenger-chart-definition" }
+avenger-chart = { path = "../avenger-chart", default-features = false }
+avenger-datafusion-dataflow = { path = "../avenger-datafusion-dataflow" }
+avenger-transform = { path = "../avenger-transform" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+css-color-parser = { workspace = true }
+url = "2"
+
+[features]
+default = ["svg", "pdf", "png"]
+svg = ["avenger-chart/svg"]
+pdf = ["avenger-chart/pdf"]
+png = ["avenger-chart/png"]
+
+[dev-dependencies]
+avenger-text = { path = "../avenger-text" }
+avenger-scales = { path = "../avenger-scales" }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+avenger-app = { path = "../avenger-app" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
+winit = { workspace = true }
+async-trait = { workspace = true }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-common = { path = "../avenger-common" }
+
+[[example]]
+name = "export_bars"
+required-features = ["svg", "pdf", "png"]
+
+[[example]]
+name = "serialized_bars"
+required-features = ["svg"]

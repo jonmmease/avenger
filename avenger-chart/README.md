@@ -67,3 +67,5 @@ The runtime supports the descriptor set documented by `avenger-chart-definition`
 Fixed guide reservations keep plot bounds stable during pan and zoom. Other plots measure guides and use bounded layout refinement. The runtime does not compile Vega-Lite, infer encodings, implement legends, or supply a chart interaction grammar.
 
 See the `bars`, `facets`, and `pan_zoom` examples in `avenger-chart-definition` for complete programs.
+
+Chart definitions also support point scales, null categorical values, category-step dimensions, centered rectangles, span spacing/minimums, scale-edge baselines, axis angles, and optional backgrounds. Unclipped marks contribute to the outer frame bounds. Clipped retained-symbol plots keep their existing geometry path. See [avenger-vegalite-compiler](../avenger-vegalite-compiler/README.md) for a Vega-Lite frontend using these descriptors.

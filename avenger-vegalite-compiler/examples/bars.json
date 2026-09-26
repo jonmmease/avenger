@@ -1,0 +1,17 @@
+{
+  "data": {"values": [
+    {"category": "Alpha", "amount": 12}, {"category": "Alpha", "amount": 18},
+    {"category": "Beta", "amount": 25}, {"category": "Beta", "amount": 15},
+    {"category": "Gamma", "amount": 10}, {"category": "Gamma", "amount": 22},
+    {"category": "Delta", "amount": 28}, {"category": "Delta", "amount": 8}
+  ]},
+  "title": ["Sales by category", "Left / Right: change minimum • Escape: reset"],
+  "width": 480, "height": 300,
+  "params": [{"name": "minimum", "value": 0}],
+  "transform": [{"filter": {"field": "amount", "gte": {"expr": "minimum"}}}],
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "category", "type": "nominal", "title": null, "axis": {"labelAngle": 0}},
+    "y": {"field": "amount", "aggregate": "sum", "type": "quantitative", "title": "Total sales"}
+  }
+}
