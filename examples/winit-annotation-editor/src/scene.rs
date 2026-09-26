@@ -59,9 +59,22 @@ fn rule(x: f32, y: f32, x2: f32, y2: f32, color: [f32; 4]) -> SceneRuleMark {
 }
 
 fn axis_ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, AvengerScaleError> {
+    use avenger_scales::formatter::{Formatters, NumberFormatAdapter, NumberLabelContext};
     let ticks = scale.ticks(Some(5.0))?;
     let positions = scale.scale_to_numeric(&ticks)?;
-    let labels = scale.format(&ticks)?;
+    let (start, stop) = scale.numeric_interval_domain_f64()?;
+    let formatter = NumberFormatAdapter::d3(Default::default()).prepare(
+        None,
+        NumberLabelContext::Ticks {
+            step: avenger_scales::array::tick_step(start, stop, 5.0),
+            reference_value: start.abs().max(stop.abs()),
+        },
+    )?;
+    let labels = Formatters {
+        number: Some(formatter),
+        ..Default::default()
+    }
+    .format(&ticks, None)?;
     Ok(positions
         .as_iter_owned(ticks.len(), None)
         .zip(labels.as_iter_owned(ticks.len(), None))
