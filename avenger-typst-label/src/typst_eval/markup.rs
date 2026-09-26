@@ -3,10 +3,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatRegistry, DateTimeFormatRequest,
-    NaiveDateTimeInput, NumberFormatConfig, NumberFormatOptions, NumberFormatRegistry,
-    NumberFormatRequest, NumberTypesetting, PreparedCivilDateTimeFormatter,
-    PreparedInstantFormatter,
+    DateTimeFormatBinding, DateTimeFormatError, NaiveDateTimeInput, NumberFormatBinding,
+    NumberTypesetting, PreparedCivilDateTimeFormatter, PreparedInstantFormatter,
 };
 
 use crate::label::LabelError;
@@ -40,15 +38,13 @@ pub(crate) fn parse_line_with_params(
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct NumberFormatMarkupContext<'a> {
-    pub(crate) config: Option<&'a NumberFormatConfig>,
-    pub(crate) registry: Option<&'a NumberFormatRegistry>,
+    pub(crate) binding: Option<&'a NumberFormatBinding>,
     pub(crate) cache: Option<&'a FormattingCache>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DateTimeFormatMarkupContext<'a> {
-    pub(crate) config: Option<&'a DateTimeFormatConfig>,
-    pub(crate) registry: Option<&'a DateTimeFormatRegistry>,
+    pub(crate) binding: Option<&'a DateTimeFormatBinding>,
     pub(crate) cache: Option<&'a FormattingCache>,
 }
 
@@ -56,22 +52,6 @@ pub(crate) struct DateTimeFormatMarkupContext<'a> {
 pub(crate) struct MarkupFormatContext<'a> {
     pub(crate) number: NumberFormatMarkupContext<'a>,
     pub(crate) datetime: DateTimeFormatMarkupContext<'a>,
-}
-
-#[cfg(test)]
-pub(crate) fn parse_line_with_number_format_context(
-    source: &str,
-    params: &Scope,
-    number_format: NumberFormatMarkupContext<'_>,
-) -> Result<LabelContent, LabelError> {
-    parse_line_with_format_context(
-        source,
-        params,
-        MarkupFormatContext {
-            number: number_format,
-            datetime: DateTimeFormatMarkupContext::default(),
-        },
-    )
 }
 
 pub(crate) fn parse_line_with_format_context(
@@ -308,7 +288,6 @@ fn lower_numfmt_call(
 ) -> Result<(), LabelError> {
     let mut value = None;
     let mut spec = None;
-    let mut overrides = NumberFormatOptions::default();
 
     for arg in call.args().items() {
         match arg {
@@ -325,7 +304,10 @@ fn lower_numfmt_call(
                 }
             }
             typst_ast::Arg::Named(named) => {
-                parse_numfmt_named_arg(named, params, &mut overrides)?;
+                return Err(unsupported(
+                    named.name().to_untyped().range().start,
+                    "numfmt accepts value and pattern only; use label or engine settings",
+                ));
             }
             typst_ast::Arg::Spread(_) => {
                 return Err(unsupported(
@@ -339,23 +321,14 @@ fn lower_numfmt_call(
     let Some(value) = value else {
         return Err(unsupported(range.start, "numfmt expects a value argument"));
     };
-    let config = number_format.config.ok_or_else(|| {
+    let binding = number_format.binding.ok_or_else(|| {
         numfmt_engine_error(range.clone(), "number formatting is not configured".into())
     })?;
-    let registry = number_format.registry.ok_or_else(|| {
-        numfmt_engine_error(
-            range.clone(),
-            "number format providers are not configured".into(),
-        )
-    })?;
-    let request = NumberFormatRequest {
-        spec: spec.unwrap_or_default(),
-        options: overrides,
-    };
+    let pattern = spec.unwrap_or_default();
     let formatted = if let Some(cache) = number_format.cache {
-        cache.number(value, &request, config, registry)
+        cache.number(value, &pattern, binding)
     } else {
-        registry.prepare(config, &request).map(|f| f.format(value))
+        binding.prepare(&pattern).map(|f| f.format(value))
     }
     .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
 
@@ -398,18 +371,13 @@ impl DatefmtValue {
 
     pub(super) fn prepare(
         &self,
-        config: &DateTimeFormatConfig,
-        request: &DateTimeFormatRequest,
-        registry: &DateTimeFormatRegistry,
+        binding: &DateTimeFormatBinding,
+        pattern: &str,
     ) -> Result<PreparedDatefmt, DateTimeFormatError> {
         if self.is_instant() {
-            registry
-                .prepare_zoned(config, request)
-                .map(PreparedDatefmt::Instant)
+            binding.prepare_zoned(pattern).map(PreparedDatefmt::Instant)
         } else {
-            registry
-                .prepare_naive(config, request)
-                .map(PreparedDatefmt::Civil)
+            binding.prepare_naive(pattern).map(PreparedDatefmt::Civil)
         }
     }
 
@@ -438,8 +406,6 @@ fn lower_datefmt_call(
 ) -> Result<(), LabelError> {
     let mut value = None;
     let mut spec = None;
-    let mut request = DateTimeFormatRequest::new("");
-    let mut locale_override = None;
 
     for arg in call.args().items() {
         match arg {
@@ -456,7 +422,10 @@ fn lower_datefmt_call(
                 }
             }
             typst_ast::Arg::Named(named) => {
-                parse_datefmt_named_arg(named, params, &mut request, &mut locale_override)?;
+                return Err(unsupported(
+                    named.name().to_untyped().range().start,
+                    "datefmt accepts value and pattern only; use label or engine settings",
+                ));
             }
             typst_ast::Arg::Spread(_) => {
                 return Err(unsupported(
@@ -474,104 +443,22 @@ fn lower_datefmt_call(
         return Err(unsupported(range.start, "datefmt expects a format string"));
     };
 
-    let config = datetime_format.config.ok_or_else(|| {
+    let binding = datetime_format.binding.ok_or_else(|| {
         datefmt_engine_error(
             range.clone(),
             "datetime formatting is not configured".into(),
         )
     })?;
-    let registry = datetime_format.registry.ok_or_else(|| {
-        datefmt_engine_error(
-            range.clone(),
-            "datetime format providers are not configured".into(),
-        )
-    })?;
-    let override_config = locale_override.map(|locale| DateTimeFormatConfig {
-        locale: Some(locale),
-        ..config.clone()
-    });
-    let config = override_config.as_ref().unwrap_or(config);
-    request.spec = spec.into();
     let formatted = if let Some(cache) = datetime_format.cache {
-        cache.datetime(value, &request, config, registry)
+        cache.datetime(value, &spec, binding)
     } else {
         value
-            .prepare(config, &request, registry)
+            .prepare(binding, &spec)
             .and_then(|formatter| value.format(&formatter))
     }
     .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
 
     push_plain(nodes, &formatted, range);
-    Ok(())
-}
-
-fn parse_numfmt_named_arg(
-    named: typst_ast::Named<'_>,
-    params: &Scope,
-    options: &mut NumberFormatOptions,
-) -> Result<(), LabelError> {
-    let position = named.name().to_untyped().range().start;
-    let name = named.name().as_str();
-    let value = parse_format_option(named.expr(), params, position)?;
-    if options.insert(name.to_string(), value).is_some() {
-        return Err(unsupported(position, "duplicate numfmt option"));
-    }
-    Ok(())
-}
-
-/// Preserve scalar option values for validation by the selected provider.
-fn parse_format_option(
-    expr: typst_ast::Expr<'_>,
-    params: &Scope,
-    position: usize,
-) -> Result<serde_json::Value, LabelError> {
-    if let Some(value) = param_value_for_ident(expr, params) {
-        return match value {
-            Value::None => Ok(serde_json::Value::Null),
-            Value::Bool(v) => Ok((*v).into()),
-            Value::Int(v) => Ok((*v).into()),
-            Value::Float(v) if v.is_finite() => Ok((*v).into()),
-            Value::Str(v) => Ok(v.clone().into()),
-            _ => Err(unsupported(
-                position,
-                "format options must be scalar values",
-            )),
-        };
-    }
-    match expr {
-        typst_ast::Expr::None(_) => Ok(serde_json::Value::Null),
-        typst_ast::Expr::Bool(v) => Ok(v.get().into()),
-        typst_ast::Expr::Str(v) => Ok(v.get().to_string().into()),
-        typst_ast::Expr::Int(v) => Ok(v.get().into()),
-        typst_ast::Expr::Float(v) if v.get().is_finite() => Ok(v.get().into()),
-        _ => Err(unsupported(
-            position,
-            "format options must be scalar values",
-        )),
-    }
-}
-
-fn parse_datefmt_named_arg(
-    named: typst_ast::Named<'_>,
-    params: &Scope,
-    request: &mut DateTimeFormatRequest,
-    locale_override: &mut Option<String>,
-) -> Result<(), LabelError> {
-    let position = named.name().to_untyped().range().start;
-    match named.name().as_str() {
-        "locale" => {
-            *locale_override = Some(parse_datefmt_string(named.expr(), params, position)?);
-        }
-        "timezone" | "tz" => {
-            request.timezone = Some(parse_datefmt_string(named.expr(), params, position)?);
-        }
-        name => {
-            let value = parse_format_option(named.expr(), params, position)?;
-            if request.options.insert(name.into(), value).is_some() {
-                return Err(unsupported(position, "duplicate datefmt option"));
-            }
-        }
-    }
     Ok(())
 }
 
@@ -914,31 +801,24 @@ mod tests {
     }
 
     fn parse_with_params(source: &str, params: &Scope) -> LabelContent {
-        let mut registry = avenger_format::NumberFormatRegistry::default();
-        registry.register(
-            "d3",
-            std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+        let number = NumberFormatBinding::new(
+            avenger_format_number_d3::D3NumberFormatProvider,
+            avenger_format_number_d3::D3NumberFormatConfig::new(),
         );
-        let datetime_registry = {
-            let mut registry = avenger_format::DateTimeFormatRegistry::default();
-            registry.register(
-                "d3",
-                std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-            );
-            registry
-        };
+        let datetime = DateTimeFormatBinding::new(
+            avenger_format_datetime_d3::D3DateTimeFormatProvider,
+            avenger_format_datetime_d3::D3DateTimeFormatConfig::new(),
+        );
         parse_line_with_format_context(
             source,
             params,
             MarkupFormatContext {
                 number: NumberFormatMarkupContext {
-                    config: Some(&NumberFormatConfig::new("d3")),
-                    registry: Some(&registry),
+                    binding: Some(&number),
                     ..Default::default()
                 },
                 datetime: DateTimeFormatMarkupContext {
-                    config: Some(&DateTimeFormatConfig::new("d3")),
-                    registry: Some(&datetime_registry),
+                    binding: Some(&datetime),
                     ..Default::default()
                 },
             },
@@ -1293,38 +1173,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_numfmt_with_custom_locale_registry() {
-        let mut registry = avenger_format::NumberFormatRegistry::default();
-        registry.register(
-            "d3",
-            std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-        );
-        let config = NumberFormatConfig {
-            locale: Some("label-test".into()),
-            locales: [(
-                "label-test".into(),
-                serde_json::json!({"decimal": "~", "thousands": "_", "grouping": [3]}),
-            )]
-            .into(),
-            ..NumberFormatConfig::new("d3")
-        };
-        let params = scope([("value", Value::Float(1234.5))]);
-        let line = parse_line_with_number_format_context(
-            "#numfmt(value, \",.1f\")",
-            &params,
-            NumberFormatMarkupContext {
-                config: Some(&config),
-                registry: Some(&registry),
-                ..Default::default()
-            },
-        )
-        .expect("line");
-
-        assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1_234~5"));
-    }
-
-    #[test]
     fn parses_datefmt_naive_date_output() {
         let params = scope([(
             "value",
@@ -1366,20 +1214,11 @@ mod tests {
             &params,
             MarkupFormatContext {
                 datetime: DateTimeFormatMarkupContext {
-                    config: Some(&DateTimeFormatConfig {
-                        timezone: Some("America/New_York".into()),
-                        ..DateTimeFormatConfig::new("d3")
-                    }),
-                    registry: Some(&{
-                        let mut registry = avenger_format::DateTimeFormatRegistry::default();
-                        registry.register(
-                            "d3",
-                            std::sync::Arc::new(
-                                avenger_format_datetime_d3::D3DateTimeFormatProvider,
-                            ),
-                        );
-                        registry
-                    }),
+                    binding: Some(&DateTimeFormatBinding::new(
+                        avenger_format_datetime_d3::D3DateTimeFormatProvider,
+                        avenger_format_datetime_d3::D3DateTimeFormatConfig::new()
+                            .with_timezone("America/New_York"),
+                    )),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -1394,65 +1233,20 @@ mod tests {
     }
 
     #[test]
-    fn parses_datefmt_with_call_locale_override() {
-        let registry = {
-            let mut registry = avenger_format::DateTimeFormatRegistry::default();
-            registry.register(
-                "d3",
-                std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+    fn rejects_per_call_format_settings() {
+        let params = scope([("value", Value::Date(chrono::NaiveDate::MIN))]);
+        for name in ["locale", "timezone", "tz"] {
+            let source = format!("#datefmt(value, \"%Y\", {name}: \"UTC\")");
+            let error = parse_line_with_params(&source, &params).unwrap_err();
+            assert!(
+                matches!(error, LabelError::UnsupportedSyntax { position: 22, message }
+                if message.contains("label or engine settings"))
             );
-            registry
-        };
-        let config = DateTimeFormatConfig {
-            locales: [(
-                "label-date".into(),
-                serde_json::to_value(avenger_format_datetime_d3::DateTimeLocaleSpec {
-                    date: "%Y~%m~%d".into(),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )]
-            .into(),
-            ..DateTimeFormatConfig::new("d3")
-        };
-        let params = scope([(
-            "value",
-            Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
-        )]);
-        let line = parse_line_with_format_context(
-            "#datefmt(value, \"%x\", locale: \"label-date\")",
-            &params,
-            MarkupFormatContext {
-                datetime: DateTimeFormatMarkupContext {
-                    registry: Some(&registry),
-                    config: Some(&config),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        )
-        .expect("line");
-
-        assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "2024~01~05"));
-    }
-
-    #[test]
-    fn parses_datefmt_zoned_with_tz_alias_override() {
-        let params = scope([(
-            "value",
-            Value::UtcDateTime(
-                chrono::DateTime::from_timestamp(1_704_067_200, 0).expect("UTC datetime"),
-            ),
-        )]);
-        let line = parse_with_params(
-            "#datefmt(value, \"%Y-%m-%d %H:%M\", tz: \"America/New_York\")",
-            &params,
-        );
-
-        assert_eq!(line.nodes.len(), 1);
+        }
+        let error = parse_line("#numfmt(1, \"f\", precision: 2)").unwrap_err();
         assert!(
-            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "2023-12-31 19:00")
+            matches!(error, LabelError::UnsupportedSyntax { message, .. }
+            if message.contains("label or engine settings"))
         );
     }
 
@@ -1465,36 +1259,6 @@ mod tests {
         assert!(
             matches!(&line.nodes[0], LineNode::Math(math) if math.source == "1.2 times 10^(3)")
         );
-    }
-
-    #[test]
-    fn parses_numfmt_named_override_params() {
-        let params = scope([("value", Value::Float(1.234)), ("precision", Value::Int(1))]);
-        let line = parse_with_params("#numfmt(value, \".3f\", precision: precision)", &params);
-
-        assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1.2"));
-    }
-
-    #[test]
-    fn parses_numfmt_width_fill_align_overrides() {
-        let params = scope([("value", Value::Float(42.0))]);
-        let line = parse_with_params(
-            "#numfmt(value, \".0f\", width: 5, fill: \".\", align: \"<\")",
-            &params,
-        );
-
-        assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "42..."));
-    }
-
-    #[test]
-    fn parses_numfmt_width_none_override() {
-        let params = scope([("value", Value::Float(42.0))]);
-        let line = parse_with_params("#numfmt(value, \"08.0f\", width: none)", &params);
-
-        assert_eq!(line.nodes.len(), 1);
-        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "42"));
     }
 
     #[test]

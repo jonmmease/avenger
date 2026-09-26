@@ -56,8 +56,10 @@ The crate intentionally excludes full Typst document features:
 ## Number formatting
 
 `LabelEngine::new` does not register or select a number formatter. Call
-`with_number_formatting(config, registry)` to configure `#numfmt` for the engine.
-`LabelOptions::number_format` can override that configuration for one label.
+`with_number_formatting(NumberFormatBinding::new(provider, config))` to configure `#numfmt` for the engine.
+`LabelEngine::compile_with_formatting` accepts `LabelFormatting` bindings that override
+the engine settings for one label. `LabelOptions` contains the serializable style,
+parameter, and layout settings.
 Plain text and math do not require a number formatter. Numeric markup reports an
 error when no configuration or matching provider is available.
 

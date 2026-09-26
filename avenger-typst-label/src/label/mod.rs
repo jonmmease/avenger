@@ -18,8 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use avenger_format::{DateTimeFormatConfig, DateTimeFormatRegistry};
-use avenger_format::{NumberFormatConfig, NumberFormatRegistry};
+use avenger_format::{DateTimeFormatBinding, NumberFormatBinding};
 use indexmap::IndexMap;
 
 use crate::typst_eval::markup::{
@@ -158,11 +157,14 @@ pub struct LabelOptions {
     pub text: TextStyle,
     pub math: MathStyle,
     pub params: LabelParams,
-    /// Override the engine’s number format for `#numfmt` in this label.
-    pub number_format: Option<NumberFormatConfig>,
-    /// Override the engine’s datetime format for `#datefmt` in this label.
-    pub datetime_format: Option<DateTimeFormatConfig>,
     pub limits: LabelLimits,
+}
+
+/// Per-label formatting bindings. Missing bindings inherit the engine settings.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LabelFormatting<'a> {
+    pub number: Option<&'a NumberFormatBinding>,
+    pub datetime: Option<&'a DateTimeFormatBinding>,
 }
 
 pub type LabelParams = IndexMap<String, LabelParamValue>;
@@ -209,10 +211,8 @@ impl Hash for LabelParamValue {
 #[derive(Debug, Clone)]
 pub struct LabelEngine {
     inner: TypstEngineCore,
-    number_formatters: Arc<NumberFormatRegistry>,
-    number_format: Option<NumberFormatConfig>,
-    datetime_formatters: Arc<DateTimeFormatRegistry>,
-    datetime_format: Option<DateTimeFormatConfig>,
+    number_format: Option<NumberFormatBinding>,
+    datetime_format: Option<DateTimeFormatBinding>,
     formatting_cache: std::sync::Arc<crate::typst_eval::format_cache::FormattingCache>,
 }
 
@@ -220,60 +220,48 @@ impl LabelEngine {
     pub fn new(options: EngineOptions) -> Result<Self, LabelInitError> {
         Ok(Self {
             inner: TypstEngineCore::new(&options)?,
-            number_formatters: Arc::new(NumberFormatRegistry::default()),
             number_format: None,
-            datetime_formatters: Arc::new(DateTimeFormatRegistry::default()),
             datetime_format: None,
             formatting_cache: Default::default(),
         })
     }
 
-    /// Select a number format and its registered providers for compiled labels.
-    pub fn with_number_formatting(
-        mut self,
-        config: NumberFormatConfig,
-        registry: Arc<NumberFormatRegistry>,
-    ) -> Self {
-        self.number_format = Some(config);
-        self.number_formatters = registry;
-        self.formatting_cache = Default::default();
+    /// Set the provider and settings used by numeric labels.
+    pub fn with_number_formatting(mut self, binding: NumberFormatBinding) -> Self {
+        self.number_format = Some(binding);
         self
     }
 
-    /// Configuration used when a label does not supply its own.
-    pub fn number_format_config(&self) -> Option<&NumberFormatConfig> {
+    /// Binding used when a label does not supply its own.
+    pub fn number_format(&self) -> Option<&NumberFormatBinding> {
         self.number_format.as_ref()
     }
 
-    pub fn number_formatters(&self) -> &Arc<NumberFormatRegistry> {
-        &self.number_formatters
-    }
-
-    /// Select a datetime format and its registered providers for compiled labels.
-    pub fn with_datetime_formatting(
-        mut self,
-        config: DateTimeFormatConfig,
-        registry: Arc<DateTimeFormatRegistry>,
-    ) -> Self {
-        self.datetime_format = Some(config);
-        self.datetime_formatters = registry;
-        self.formatting_cache = Default::default();
+    /// Set the provider and settings used by temporal labels.
+    pub fn with_datetime_formatting(mut self, binding: DateTimeFormatBinding) -> Self {
+        self.datetime_format = Some(binding);
         self
     }
 
-    /// Configuration used when a label does not supply its own.
-    pub fn datetime_format_config(&self) -> Option<&DateTimeFormatConfig> {
+    /// Binding used when a label does not supply its own.
+    pub fn datetime_format(&self) -> Option<&DateTimeFormatBinding> {
         self.datetime_format.as_ref()
-    }
-
-    pub fn datetime_formatters(&self) -> &Arc<DateTimeFormatRegistry> {
-        &self.datetime_formatters
     }
 
     pub fn compile(
         &self,
         source: &str,
         options: &LabelOptions,
+    ) -> Result<CompiledLabel, LabelError> {
+        self.compile_with_formatting(source, options, LabelFormatting::default())
+    }
+
+    /// Compile using per-label bindings, inheriting omitted bindings from the engine.
+    pub fn compile_with_formatting(
+        &self,
+        source: &str,
+        options: &LabelOptions,
+        formatting: LabelFormatting<'_>,
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
@@ -283,19 +271,11 @@ impl LabelEngine {
             &layout_options.params,
             MarkupFormatContext {
                 number: NumberFormatMarkupContext {
-                    config: options
-                        .number_format
-                        .as_ref()
-                        .or(self.number_format.as_ref()),
-                    registry: Some(&self.number_formatters),
+                    binding: formatting.number.or(self.number_format.as_ref()),
                     cache: Some(&self.formatting_cache),
                 },
                 datetime: DateTimeFormatMarkupContext {
-                    config: options
-                        .datetime_format
-                        .as_ref()
-                        .or(self.datetime_format.as_ref()),
-                    registry: Some(&self.datetime_formatters),
+                    binding: formatting.datetime.or(self.datetime_format.as_ref()),
                     cache: Some(&self.formatting_cache),
                 },
             },

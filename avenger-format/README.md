@@ -6,6 +6,8 @@ Select a concrete provider and pass its typed configuration to `prepare()`, `pre
 
 Prepared formatters own their resolved state and remain unchanged when the input configuration is modified or dropped. They are returned as `Arc<dyn PreparedNumberFormatter>`, `Arc<dyn PreparedCivilDateTimeFormatter>`, or `Arc<dyn PreparedInstantFormatter>`, so rendering code can use different implementations through the same interface.
 
+`NumberFormatBinding` and `DateTimeFormatBinding` capture a provider and its typed configuration when a consumer needs to prepare patterns at runtime. Clones share the captured settings and cache identity. Constructing a replacement binding assigns a new identity. These bindings require neither serialization nor a shared configuration type.
+
 Number formatting returns `FormattedNumber`, which carries plain text and optional scientific-notation parts for a text renderer. Callers choose patterns and tick spacing. Provider configuration can supply precision options without generating ticks.
 
 Datetime preparation validates the pattern for the input type. Civil inputs retain their calendar fields. Instant formatting displays a UTC instant in the configured timezone. Formatting returns plain text or an error that depends on the value, such as an out-of-range display date.
