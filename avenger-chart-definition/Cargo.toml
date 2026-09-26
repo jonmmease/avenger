@@ -18,6 +18,7 @@ prost-build = "0.14.1"
 protoc-bin-vendored = "3"
 
 [dev-dependencies]
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-transform = { path = "../avenger-transform" }

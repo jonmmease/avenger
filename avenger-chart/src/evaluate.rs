@@ -84,6 +84,8 @@ pub(crate) struct PlotInstance<'a> {
     pub id: PanelId,
     pub path: Vec<String>,
     pub scales: BTreeMap<String, avenger_scales::scales::ConfiguredScale>,
+    /// Each axis's tick label formatter, once its scale is configured.
+    pub axis_formats: Vec<avenger_format::PreparedFormatter>,
 }
 struct GroupInstance {
     name: String,
@@ -115,6 +117,7 @@ fn expand<'a>(
                     path: child_path,
                     ctx: ctx.clone(),
                     scales: BTreeMap::new(),
+                    axis_formats: Vec::new(),
                 });
                 Expanded::Plot(index)
             }
@@ -342,7 +345,7 @@ pub(crate) fn render(
     let arranged = tree
         .arrange(&arrangement(&root, &plots, ArrangementSpec::new()))
         .map_err(error)?;
-    crate::scales::configure(&mut plots, &tree, &chart.0.text)?;
+    crate::scales::configure(&mut plots, &tree, chart.0.formatting.as_ref())?;
     let mut edges = crate::scales::measure(&plots, &chart.0.text, None)?;
     let mut solution = layout(&root, &plots, &arranged, &edges, None)
         .solve(&SolveOptions::default())
