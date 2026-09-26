@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 180 138" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="180" height="138" fill="#ffffff"/>
+  <rect x="0" y="0" width="160" height="94" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="0" y="0" width="160" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="24" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">pair</text>
+  <rect x="0" y="0" width="90" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="36" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a0</text>
+  <rect x="90" y="0" width="70" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="93" y="36" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a1</text>
+  <rect x="0" y="54" width="160" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="78" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">single</text>
+  <rect x="0" y="54" width="160" height="40" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <rect x="0" y="54" width="120" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="3" y="90" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b0</text>
+  <rect x="0" y="104" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <text x="13" y="113" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="104" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="82" y="113" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <rect x="0" y="0" width="160" height="94" fill="none" stroke="#111111" stroke-width="1"/>
+</svg>
