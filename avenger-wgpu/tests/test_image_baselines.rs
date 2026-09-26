@@ -1,5 +1,10 @@
 #[cfg(test)]
 mod test_image_baselines {
+    use avenger_color::ColorOrGradient;
+    use avenger_common::{canvas::CanvasDimensions, types::SymbolShape, value::ScalarOrArray};
+    use avenger_scenegraph::marks::{group::SceneGroup, symbol::SceneSymbolMark};
+    use avenger_wgpu::canvas::CanvasConfig;
+
     use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, PngCanvas};
@@ -250,4 +255,94 @@ mod test_image_baselines {
 
     #[test]
     fn test_marker() {} // Help IDE detect test module
+
+    #[test]
+    fn open_circle_edges_do_not_mix_in_transparent_fill_rgb() {
+        let mark = SceneSymbolMark {
+            len: 128,
+            x: ScalarOrArray::new_array((0..128).map(|i| 8.0 + (i % 16) as f32 * 14.0).collect()),
+            y: ScalarOrArray::new_array((0..128).map(|i| 8.0 + (i / 16) as f32 * 14.0).collect()),
+            size: ScalarOrArray::new_scalar(36.0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+            stroke_width: Some(2.0),
+            ..Default::default()
+        };
+        let scene = SceneGraph {
+            width: 226.0,
+            height: 114.0,
+            origin: [0.0, 0.0],
+            marks: vec![mark.into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene.width, scene.height],
+                scale: 2.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas.set_scene(&scene).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+        assert!(
+            image.pixels().any(|pixel| pixel.0[1] < 200),
+            "expected red strokes"
+        );
+        assert!(
+            image.pixels().all(|pixel| pixel.0[0] >= 254),
+            "transparent black contaminated red edges"
+        );
+    }
+
+    #[test]
+    fn reused_instanced_symbol_renderer_respects_changed_group_origin() {
+        let scene = |origin: [f32; 2]| SceneGraph {
+            width: 160.0,
+            height: 160.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                origin,
+                marks: vec![SceneSymbolMark {
+                    len: 100,
+                    shapes: vec![SymbolShape::Circle],
+                    x: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index % 10) as f32 * 5.0).collect(),
+                    ),
+                    y: ScalarOrArray::new_array(
+                        (0..100).map(|index| (index / 10) as f32 * 5.0).collect(),
+                    ),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.4, 0.8, 1.0])),
+                    size: ScalarOrArray::new_scalar(9.0),
+                    shape_index: ScalarOrArray::new_scalar(0),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let dimensions = CanvasDimensions {
+            size: [160.0, 160.0],
+            scale: 1.0,
+        };
+        let first = scene([10.0, 10.0]);
+        let moved = scene([70.0, 70.0]);
+
+        let mut reused = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("reused canvas");
+        reused.set_scene(&first).expect("install first scene");
+        pollster::block_on(reused.render()).expect("render first scene");
+        reused.set_scene(&moved).expect("install moved scene");
+        let reused_image = pollster::block_on(reused.render()).expect("render moved scene");
+
+        let mut fresh = pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default()))
+            .expect("fresh canvas");
+        fresh.set_scene(&moved).expect("install fresh moved scene");
+        let fresh_image = pollster::block_on(fresh.render()).expect("render fresh moved scene");
+
+        assert!(
+            reused_image.as_raw() == fresh_image.as_raw(),
+            "instanced renderer reuse must not retain the previous group origin"
+        );
+    }
 }
