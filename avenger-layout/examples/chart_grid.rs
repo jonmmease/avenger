@@ -10,10 +10,12 @@ use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
+use avenger_format::{NumberFormatProvider, PreparedFormatter};
+use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_geometry::marks::TextGeometryUtils;
+use avenger_guides::axis::continuous::make_continuous_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_with_text_engine};
+use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 use avenger_layout::{EdgeDemand, Edges, Layout, LayoutSolution, Rect, Side, Size, SolveOptions};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scales::scales::linear::LinearScale;
@@ -22,8 +24,8 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_text::TextEngine;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use avenger_typst_label::LabelEngine;
+use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
 const CANVAS: Size = Size {
     width: 900.0,
@@ -132,11 +134,16 @@ fn build_axes(
     size: Size,
     origin: [f32; 2],
     grid: bool,
-    text_engine: &TextEngine,
+    text_engine: &LabelEngine,
 ) -> Vec<SceneGroup> {
     let (x_scale, y_scale) = plot_scales(spec, size);
     let dims = [size.width, size.height];
-    let x_axis = make_numeric_axis_marks_with_text_engine(
+    // Vega's default axis format
+    let format: PreparedFormatter = D3NumberFormatProvider::new()
+        .prepare(",f")
+        .expect("valid pattern")
+        .into();
+    let x_axis = make_continuous_axis_marks(
         &x_scale,
         spec.x_title,
         origin,
@@ -144,12 +151,13 @@ fn build_axes(
             orientation: AxisOrientation::Bottom,
             dimensions: dims,
             grid,
-            ..Default::default()
+            format: format.clone(),
+            style: Default::default(),
         },
         text_engine,
     )
     .expect("x axis");
-    let y_axis = make_numeric_axis_marks_with_text_engine(
+    let y_axis = make_continuous_axis_marks(
         &y_scale,
         spec.y_title,
         origin,
@@ -157,7 +165,8 @@ fn build_axes(
             orientation: AxisOrientation::Left,
             dimensions: dims,
             grid,
-            ..Default::default()
+            format,
+            style: Default::default(),
         },
         text_engine,
     )
@@ -169,8 +178,8 @@ fn build_axes(
 /// chart area so the whole group is self-contained: placing its origin
 /// on the plot's right edge puts every item (and the title) just past
 /// it, and the group's bbox width is exactly the clearance to demand.
-fn build_legend(plot_height: f32, text_engine: &TextEngine) -> SceneGroup {
-    make_symbol_legend_with_text_engine(
+fn build_legend(plot_height: f32, text_engine: &LabelEngine) -> SceneGroup {
+    make_symbol_legend(
         &SymbolLegendConfig {
             title: Some("cohort".to_string()),
             text: ScalarOrArray::new_array(CATEGORY_NAMES.iter().map(|s| s.to_string()).collect()),
@@ -192,7 +201,7 @@ fn build_legend(plot_height: f32, text_engine: &TextEngine) -> SceneGroup {
 
 /// Measure how far a set of guide groups overflows a `size` plot
 /// rectangle whose top-left sits at the groups' shared origin.
-fn measure_overflow(groups: &[SceneGroup], size: Size, text_engine: &TextEngine) -> Edges<f32> {
+fn measure_overflow(groups: &[SceneGroup], size: Size, text_engine: &LabelEngine) -> Edges<f32> {
     let mut edges: Edges<f32> = Edges::default();
     for group in groups {
         let bbox = group.bounding_box(text_engine);
@@ -259,7 +268,7 @@ fn build_points(spec: &PlotSpec, content: Rect) -> SceneMark {
 fn solve_page(
     specs: &[PlotSpec],
     sizes: &[Size],
-    text_engine: &TextEngine,
+    text_engine: &LabelEngine,
 ) -> LayoutSolution<&'static str> {
     let leaf = |index: usize| -> Layout<&'static str> {
         let spec = &specs[index];
@@ -321,7 +330,7 @@ fn solve_page(
         .expect("solve")
 }
 
-fn settle_layout(specs: &[PlotSpec], text_engine: &TextEngine) -> LayoutSolution<&'static str> {
+fn settle_layout(specs: &[PlotSpec], text_engine: &LabelEngine) -> LayoutSolution<&'static str> {
     let mut sizes = vec![ESTIMATE; specs.len()];
     let mut previous: Option<LayoutSolution<&'static str>> = None;
     for iteration in 1..=8 {
@@ -348,7 +357,7 @@ fn settle_layout(specs: &[PlotSpec], text_engine: &TextEngine) -> LayoutSolution
 #[tokio::main]
 async fn main() {
     let specs = specs();
-    let text_engine = d3_text_engine();
+    let text_engine = avenger_typst_label::bundled_label_engine();
     let solved = settle_layout(&specs, &text_engine);
     let mut marks: Vec<SceneMark> = vec![SceneMark::Rect(SceneRectMark {
         len: 1,
@@ -420,14 +429,11 @@ async fn main() {
             size: [scene.width, scene.height],
             scale: 2.0,
         },
-        CanvasConfig {
-            text_engine,
-            ..Default::default()
-        },
+        Default::default(),
     )
     .await
     .expect("canvas");
-    canvas.set_scene(&scene).expect("set scene");
+    canvas.set_scene(&scene, &text_engine).expect("set scene");
     let image = canvas.render().await.expect("render");
     let out = std::env::args_os()
         .nth(1)
@@ -443,7 +449,7 @@ async fn main() {
 #[test]
 fn measured_guides_fit_final_allocations() {
     let specs = specs();
-    let engine = d3_text_engine();
+    let engine = avenger_typst_label::bundled_label_engine();
     let solved = settle_layout(&specs, &engine);
     for spec in &specs {
         let region = solved.region(&spec.id).unwrap();
@@ -474,16 +480,4 @@ fn measured_guides_fit_final_allocations() {
     let bottom = solved.region(&"latency").unwrap().slot;
     assert_eq!(left.x, bottom.x);
     assert!((right.x + right.width - bottom.x - bottom.width).abs() < 0.01);
-}
-
-fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine().with_number_formatting(
-        avenger_text::NumberFormatConfig::new("d3"),
-        std::sync::Arc::new(registry),
-    )
 }
