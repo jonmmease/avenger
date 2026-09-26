@@ -34,11 +34,41 @@ fn error(e: impl std::fmt::Display) -> Error {
     Error::Render(e.to_string())
 }
 
+/// Formatter providers that text markup and axis labels share.
+#[derive(Clone, Debug)]
+pub struct ChartFormatting {
+    pub number: Arc<dyn avenger_format::NumberFormatProvider>,
+    /// Pattern for linear axes that set no format, in the number provider's syntax, such as
+    /// Vega's default `",f"` with D3.
+    pub number_pattern: String,
+    /// Pattern for numeric categories on band axes that set no format, such as `"c"` with D3,
+    /// which shows each value as written.
+    pub category_pattern: String,
+    /// Labels date and timestamp categories with its default calendar patterns.
+    pub datetime: Arc<dyn avenger_format::DateTimeFormatProvider>,
+}
+
 /// Resources shared by measurement, rendering, and query execution.
 #[derive(Default)]
 pub struct ChartOptions {
     pub text_engine: Option<TextEngine>,
+    /// Formatters for axis labels, which charts with axes need.
+    pub formatting: Option<ChartFormatting>,
     pub dataflow: Option<Runtime>,
+}
+impl ChartOptions {
+    /// Share formatter providers between text markup and axis labels.
+    pub fn with_formatting(mut self, formatting: ChartFormatting) -> Self {
+        self.text_engine = Some(
+            self.text_engine
+                .take()
+                .unwrap_or_else(avenger_text::default_text_engine)
+                .with_number_formatting(formatting.number.clone())
+                .with_datetime_formatting(formatting.datetime.clone()),
+        );
+        self.formatting = Some(formatting);
+        self
+    }
 }
 /// One complete frame request. Native inputs support tables, expressions, and scoped bindings.
 #[derive(Clone, Default)]
@@ -64,6 +94,7 @@ struct Inner {
     interface: dataflow::DataflowInterface,
     outputs: (Vec<dataflow::TableOutput>, Vec<dataflow::ScalarOutput>),
     text: TextEngine,
+    formatting: Option<ChartFormatting>,
     positions: Mutex<HashMap<String, Arc<marks::Positions>>>,
 }
 /// A prepared chart. Clones share query caches and retained immutable geometry.
@@ -94,6 +125,7 @@ impl Chart {
             text: options
                 .text_engine
                 .unwrap_or_else(avenger_text::default_text_engine),
+            formatting: options.formatting,
             positions: Mutex::new(HashMap::new()),
         })))
     }

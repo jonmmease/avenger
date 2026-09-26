@@ -10,11 +10,13 @@ use crate::dataflow::{
     TableSnapshot,
 };
 use crate::{definition::*, error, evaluate::PlotInstance, Result};
+use avenger_format::{PreparedFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
     band::make_band_axis_marks_with_text_engine,
-    numeric::make_numeric_axis_marks_with_text_engine,
-    opts::{AxisConfig, AxisOrientation},
+    continuous::make_continuous_axis_marks_with_text_engine,
+    guide_format, label_values,
+    opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
 use avenger_layout::LayoutSolution;
 use avenger_panels::*;
@@ -157,7 +159,7 @@ fn configure_scale(s: &Scale, values: &[ScalarValue], size: Size) -> Result<Conf
 pub(crate) fn configure(
     plots: &mut [PlotInstance],
     tree: &PanelTree,
-    text: &crate::TextEngine,
+    formatting: Option<&crate::ChartFormatting>,
 ) -> Result<()> {
     let mut domains = plots
         .iter()
@@ -217,48 +219,48 @@ pub(crate) fn configure(
     }
     for (pi, p) in plots.iter_mut().enumerate() {
         for (si, (name, s)) in p.plot.scales.iter().enumerate() {
-            let mut scale = configure_scale(s, &domains[pi][si], p.plot.size)?;
-            scale.config.context.formatters.number = text
-                .number_format_config()
-                .map(|config| {
-                    text.number_formatters().prepare(
-                        config,
-                        &if s.kind == ScaleKind::Linear {
-                            avenger_scales::formatter::d3_continuous_number_request(
-                                None,
-                                Default::default(),
-                            )
-                        } else {
-                            avenger_format::NumberFormatRequest::new("c")
-                        },
-                    )
-                })
-                .transpose()
-                .map_err(error)?;
-            if let Some(config) = text.datetime_format_config() {
-                let request = avenger_scales::formatter::d3_datetime_tick_request();
-                match scale.domain().data_type() {
-                    DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, None) => {
-                        scale.config.context.formatters.civil_datetime = Some(
-                            text.datetime_formatters()
-                                .prepare_naive(config, &request)
-                                .map_err(error)?,
-                        );
-                    }
-                    DataType::Timestamp(_, Some(_)) => {
-                        scale.config.context.formatters.instant = Some(
-                            text.datetime_formatters()
-                                .prepare_zoned(config, &request)
-                                .map_err(error)?,
-                        );
-                    }
-                    _ => {}
-                }
-            }
+            let scale = configure_scale(s, &domains[pi][si], p.plot.size)?;
             p.scales.insert(name.clone(), scale);
         }
+        let formats = p
+            .plot
+            .axes
+            .iter()
+            .map(|a| {
+                let band = p
+                    .plot
+                    .scales
+                    .iter()
+                    .any(|(name, s)| name == a.scale.name() && s.kind == ScaleKind::Band);
+                axis_format(&p.scales[a.scale.name()], a, band, formatting)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        p.axis_formats = formats;
     }
     Ok(())
+}
+/// The formatter an axis labels its ticks with: the axis's number format or the chart's, and
+/// the datetime provider's calendar patterns for date and timestamp categories.
+fn axis_format(
+    scale: &ConfiguredScale,
+    a: &Axis,
+    band: bool,
+    formatting: Option<&crate::ChartFormatting>,
+) -> Result<PreparedFormatter> {
+    let formatting = formatting
+        .ok_or_else(|| error("axes need formatters from ChartOptions::with_formatting"))?;
+    let default = if band {
+        &formatting.category_pattern
+    } else {
+        &formatting.number_pattern
+    };
+    guide_format(
+        scale.domain().data_type(),
+        formatting.number.as_ref(),
+        a.format.as_deref().unwrap_or(default),
+        formatting.datetime.as_ref(),
+    )
+    .map_err(error)
 }
 fn guide_key(p: &PlotInstance, index: usize) -> GuideKey {
     format!("{:?}:{index}", p.path).into()
@@ -266,7 +268,8 @@ fn guide_key(p: &PlotInstance, index: usize) -> GuideKey {
 fn title_key(p: &PlotInstance, index: usize) -> GuideKey {
     format!("{:?}:{index}:title", p.path).into()
 }
-fn equivalent(p: &PlotInstance, a: &Axis) -> Result<EquivalenceKey> {
+fn equivalent(p: &PlotInstance, index: usize) -> Result<EquivalenceKey> {
+    let a = &p.plot.axes[index];
     let s = &p.scales[a.scale.name()];
     let band = p
         .plot
@@ -278,7 +281,13 @@ fn equivalent(p: &PlotInstance, a: &Axis) -> Result<EquivalenceKey> {
     } else {
         s.ticks(Some(a.tick_count)).map_err(error)?
     };
-    let labels = s.format(&ticks).map_err(error)?;
+    // Labels as the axis shows them: categories each on their own, and ticks as a set
+    let spacing = if band {
+        TickSpacing::Varying
+    } else {
+        TickSpacing::Uniform
+    };
+    let labels = label_values(&ticks, &p.axis_formats[index], spacing).map_err(error)?;
     let positions = if band {
         s.clone().with_option("band", 0.5)
     } else {
@@ -301,7 +310,7 @@ fn equivalent(p: &PlotInstance, a: &Axis) -> Result<EquivalenceKey> {
     Ok(format!(
         "{}:{:?}:{:?}:{:?}:{:?}",
         bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-        labels.value(),
+        labels,
         positions.value(),
         a.format,
         options
@@ -327,10 +336,7 @@ pub(crate) fn guides(
         let a = &p.plot.axes[i];
         let contributions = members
             .iter()
-            .map(|(p, i)| {
-                Ok(GuideContribution::new(p.id.clone())
-                    .equivalent(equivalent(p, &p.plot.axes[*i])?))
-            })
+            .map(|(p, i)| Ok(GuideContribution::new(p.id.clone()).equivalent(equivalent(p, *i)?)))
             .collect::<Result<Vec<_>>>()?;
         requests.push(
             AxisLabels::new(key, a.side, a.sharing.clone(), contributions)
@@ -382,11 +388,13 @@ pub(crate) fn axes(
                     Side::Right => AxisOrientation::Right,
                 },
                 grid: a.grid,
-                format_number: a.format.clone(),
-                labels_visible: Some(labels),
-                title_visible: Some(title),
-                tick_count: Some(a.tick_count),
-                ..Default::default()
+                format: p.axis_formats[i].clone(),
+                style: AxisStyle {
+                    labels_visible: Some(labels),
+                    title_visible: Some(title),
+                    tick_count: Some(a.tick_count),
+                    ..Default::default()
+                },
             };
             let s = &p.scales[a.scale.name()];
             let kind = p
@@ -398,9 +406,13 @@ pub(crate) fn axes(
                 .1
                 .kind;
             match kind {
-                ScaleKind::Linear => {
-                    make_numeric_axis_marks_with_text_engine(s, &a.title, [0.0, 0.0], &config, text)
-                }
+                ScaleKind::Linear => make_continuous_axis_marks_with_text_engine(
+                    s,
+                    &a.title,
+                    [0.0, 0.0],
+                    &config,
+                    text,
+                ),
                 ScaleKind::Band => {
                     make_band_axis_marks_with_text_engine(s, &a.title, [0.0, 0.0], &config, text)
                 }
