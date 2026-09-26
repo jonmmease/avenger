@@ -18,6 +18,7 @@ members = [
     "avenger-geometry",
     "avenger-geo",
     "avenger-layout",
+    "avenger-panels",
     "avenger-text",
     "avenger-svg",
     "avenger-pdf",
@@ -29,6 +30,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
     "examples/winit-annotation-editor",
+    "examples/winit-panels",
 ]
 exclude = [
     "tools/upstream-typst-probe",

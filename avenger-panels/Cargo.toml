@@ -1,0 +1,10 @@
+[package]
+name = "avenger-panels"
+version = "0.0.1"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Panel hierarchy, sharing policies, and guide placement"
+repository = "https://github.com/jonmmease/avenger"
+
+[dependencies]
+avenger-layout = { path = "../avenger-layout" }
