@@ -89,9 +89,27 @@ fn line(x: f32, y: f32, x2: f32, y2: f32, color: [f32; 4]) -> SceneRuleMark {
     }
 }
 fn ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, String> {
+    use avenger_scales::formatter::{Formatters, NumberFormatAdapter, NumberLabelContext};
     let values = scale.ticks(Some(5.0)).map_err(|e| e.to_string())?;
     let positions = scale.scale_to_numeric(&values).map_err(|e| e.to_string())?;
-    let labels = scale.format(&values).map_err(|e| e.to_string())?;
+    let (start, stop) = scale
+        .numeric_interval_domain_f64()
+        .map_err(|e| e.to_string())?;
+    let formatter = NumberFormatAdapter::d3(Default::default())
+        .prepare(
+            None,
+            NumberLabelContext::Ticks {
+                step: avenger_scales::array::tick_step(start, stop, 5.0),
+                reference_value: start.abs().max(stop.abs()),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    let labels = Formatters {
+        number: Some(formatter),
+        ..Default::default()
+    }
+    .format(&values, None)
+    .map_err(|e| e.to_string())?;
     Ok(positions
         .as_iter_owned(values.len(), None)
         .zip(labels.as_iter_owned(values.len(), None))
