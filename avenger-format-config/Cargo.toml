@@ -1,0 +1,16 @@
+[package]
+name = "avenger-format-config"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+icu = ["dep:avenger-format-number-icu", "dep:avenger-format-datetime-icu"]
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-number-icu = { path = "../avenger-format-number-icu", optional = true }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-datetime-chrono = { path = "../avenger-format-datetime-chrono" }
+avenger-format-datetime-icu = { path = "../avenger-format-datetime-icu", optional = true }
+serde = { workspace = true }

@@ -17,7 +17,7 @@ use std::{slice, sync::Arc};
 pub use avenger_format::CalendarPatterns;
 
 /// Prepare Chrono datetime patterns with a built-in locale and display timezone.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChronoDateTimeFormatProvider {
     /// Chrono locale name. Names other than `POSIX` require `all-locales`.

@@ -96,9 +96,9 @@ pub struct TextMeasurementConfig<'a> {
     /// Read-only Typst label parameters available to markup labels.
     pub params: &'a avenger_typst_label::LabelParams,
     /// Provider selection and locale data for numeric Typst functions such as `#numfmt`.
-    pub number_format: Option<&'a crate::NumberFormatConfig>,
+    pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
     /// Provider selection, locale data, and timezone for `#datefmt`.
-    pub datetime_format: Option<&'a crate::DateTimeFormatConfig>,
+    pub datetime_format: Option<&'a std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
 }
 
 /// Configuration needed for font-level metrics.

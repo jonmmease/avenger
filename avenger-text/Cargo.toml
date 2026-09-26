@@ -11,7 +11,6 @@ default = ["serde"]
 tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true }
 image = { workspace = true }
 chrono = { workspace = true }
 unicode-segmentation = "1.12.0"
@@ -34,4 +33,5 @@ web-sys = "0.3.77"
 [dev-dependencies]
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+chrono-tz = { workspace = true }
 ttf-parser = { workspace = true }

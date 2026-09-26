@@ -19,9 +19,10 @@ markup and `$...$` math fragments.
 
 ## Number formatting
 
-Call `TextEngine::with_number_formatting(config, registry)` to select a provider
+Call `TextEngine::with_number_formatting(Arc::new(provider))` to select a provider
 for numeric labels. Measurement and rendering share this selection. Per-label
-configuration overrides it. A new engine has no number formatter configured.
+configuration overrides it, and caches match providers by identity. A new engine
+has no number formatter configured.
 
 ## Usage by Other Crates
 

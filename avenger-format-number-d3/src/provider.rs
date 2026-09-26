@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 /// Prepare D3 number patterns with locale definitions and a precision policy.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct D3NumberFormatProvider {
     /// Locale name. An omitted name selects `en-US`.
@@ -52,7 +52,7 @@ impl D3NumberFormatProvider {
 
 /// Single-value precision when a pattern omits it. Explicit precision in the pattern takes
 /// precedence. Tick formatting follows Vega's axis rules in either mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum D3NumberPrecision {
     /// Use the pattern's precision or its ordinary D3 default.
     #[default]

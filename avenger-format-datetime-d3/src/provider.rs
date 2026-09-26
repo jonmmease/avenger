@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Prepare D3 datetime patterns with locale definitions and a display timezone.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default)]
 pub struct D3DateTimeFormatProvider {
     /// Locale name. An omitted name selects `en-US`.

@@ -25,8 +25,8 @@ pub struct TextPdfExtractionConfig<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
-    pub number_format: Option<&'a crate::NumberFormatConfig>,
-    pub datetime_format: Option<&'a crate::DateTimeFormatConfig>,
+    pub number_format: Option<&'a std::sync::Arc<dyn crate::NumberFormatProvider>>,
+    pub datetime_format: Option<&'a std::sync::Arc<dyn crate::DateTimeFormatProvider>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
