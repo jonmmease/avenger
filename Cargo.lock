@@ -535,6 +535,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-datafusion-preaggregate"
+version = "0.1.0"
+dependencies = [
+ "avenger-datafusion-aggregate-state",
+ "avenger-datafusion-dataflow",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-eventstream"
 version = "0.1.0"
 dependencies = [
@@ -825,6 +835,20 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "avenger-selection"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-datafusion-dataflow",
+ "avenger-datafusion-preaggregate",
+ "avenger-scales-datafusion",
+ "datafusion",
+ "half",
+ "thiserror 2.0.12",
+ "tokio",
 ]
 
 [[package]]
