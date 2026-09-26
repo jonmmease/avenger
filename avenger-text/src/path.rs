@@ -30,8 +30,8 @@ pub struct TextPathExtractionConfig<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
-    pub number_format: Option<&'a crate::NumberFormatConfig>,
-    pub datetime_format: Option<&'a crate::DateTimeFormatConfig>,
+    pub number_format: Option<&'a crate::NumberFormatBinding>,
+    pub datetime_format: Option<&'a crate::DateTimeFormatBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

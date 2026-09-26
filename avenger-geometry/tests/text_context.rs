@@ -13,30 +13,33 @@ use geo::BoundingRect;
 
 #[test]
 fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
+    use avenger_format_config::{D3NumberFormatConfig, NumberFormatConfig};
     let engine = TextEngine::with_font_resolution(&FontResolutionOptions {
         load_system_fonts: false,
         default_sans_serif_family: Some("DejaVu Sans Mono".to_string()),
         ..avenger_text::default_font_resolution()
     })
     .unwrap()
-    .with_number_formatting(
-        avenger_text::NumberFormatConfig::new("d3"),
-        std::sync::Arc::new(registry),
-    );
+    .with_number_formatting(avenger_text::NumberFormatBinding::new(
+        avenger_format_number_d3::D3NumberFormatProvider,
+        D3NumberFormatConfig::new(),
+    ));
     let mut mark = SceneTextMark {
         text: ScalarOrArray::new_scalar("#label #numfmt(value, \",.2f\")".to_string()),
         text_syntax: TextSyntaxMode::TypstMarkup,
         font: "sans-serif".to_string().into(),
         font_size: 20.0.into(),
-        number_format: Some(avenger_text::NumberFormatConfig {
-            locale: Some("wide".into()),
-            ..avenger_text::NumberFormatConfig::new("d3")
-        }),
+        number_format: Some(NumberFormatConfig::D3(
+            D3NumberFormatConfig::new()
+                .with_locale("wide")
+                .with_custom_locale(
+                    "wide",
+                    serde_json::from_str(
+                        r#"{"decimal":"decimal","thousands":"group","grouping":[3]}"#,
+                    )
+                    .unwrap(),
+                ),
+        )),
         ..Default::default()
     };
     mark.text_params.insert(
@@ -45,10 +48,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
     );
     mark.text_params
         .insert("value".into(), LabelParamValue::Float(1234.5));
-    mark.number_format.as_mut().unwrap().locales.insert(
-        "wide".into(),
-        serde_json::json!({"decimal":"decimal", "thousands":"group", "grouping":[3]}),
-    );
+    let binding = mark.number_format.as_ref().unwrap().binding();
     let source = mark.text.as_vec(1, None)[0].clone();
     for limit in [f32::INFINITY, 75.0] {
         mark.limit = limit.into();
@@ -60,7 +60,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             font_style: FontStyle::Normal,
             syntax_mode: mark.text_syntax,
             params: &mark.text_params,
-            number_format: mark.number_format.as_ref(),
+            number_format: Some(&binding),
             datetime_format: None,
         };
         let expected = engine.measure_bounds_with_limit(&config, limit).unwrap();
@@ -76,10 +76,7 @@ fn geometry_uses_registered_fonts_parameters_locales_and_the_same_width_limit() 
             assert!(
                 (expected.width
                     - avenger_text::default_text_engine()
-                        .with_number_formatting(
-                            avenger_text::NumberFormatConfig::new("d3"),
-                            engine.number_formatters().clone()
-                        )
+                        .with_number_formatting(engine.number_format().unwrap().clone())
                         .measure_bounds(&config)
                         .unwrap()
                         .width)

@@ -1168,6 +1168,8 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        let number_format = mark.number_format.as_ref().map(|config| config.binding());
+        let datetime_format = mark.datetime_format.as_ref().map(|config| config.binding());
         let registrations = izip!(
             mark.text_iter(),
             mark.x_iter(),
@@ -1211,8 +1213,8 @@ impl MultiMarkRenderer {
                     limit: *limit,
                     syntax_mode: mark.text_syntax,
                     params: &mark.text_params,
-                    number_format: mark.number_format.as_ref(),
-                    datetime_format: mark.datetime_format.as_ref(),
+                    number_format: number_format.as_ref(),
+                    datetime_format: datetime_format.as_ref(),
                     use_nearest_filter: is_axis_aligned_angle(*angle),
                 };
                 self.text_atlas_builder

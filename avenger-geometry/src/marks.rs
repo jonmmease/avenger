@@ -376,6 +376,8 @@ impl MarkGeometryUtils for SceneTextMark {
         text_engine: &TextEngine,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let measurer = text_engine.clone();
+        let number_format = self.number_format.as_ref().map(|config| config.binding());
+        let datetime_format = self.datetime_format.as_ref().map(|config| config.binding());
         let name = self.name.clone();
         Box::new(
             izip!(
@@ -419,8 +421,8 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_style: *font_style,
                         syntax_mode: self.text_syntax,
                         params: &self.text_params,
-                        number_format: self.number_format.as_ref(),
-                        datetime_format: self.datetime_format.as_ref(),
+                        number_format: number_format.as_ref(),
+                        datetime_format: datetime_format.as_ref(),
                     };
 
                     let text_bounds = measurer.measure_bounds_with_limit_or_approx(&config, *limit);

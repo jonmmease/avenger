@@ -33,19 +33,15 @@ struct MeasureBoundsCacheKey {
     font_style: String,
     syntax_mode: TextSyntaxMode,
     params: String,
-    number_format: String,
-    number_format_registry: usize,
-    datetime_format: String,
-    datetime_format_registry: usize,
+    number_format: usize,
+    datetime_format: usize,
 }
 
 impl MeasureBoundsCacheKey {
     fn new(
         config: &TextMeasurementConfig,
-        registry_id: usize,
-        number_format: Option<&crate::NumberFormatConfig>,
-        datetime_registry_id: usize,
-        datetime_format: Option<&crate::DateTimeFormatConfig>,
+        number_format: Option<&crate::NumberFormatBinding>,
+        datetime_format: Option<&crate::DateTimeFormatBinding>,
     ) -> Self {
         Self {
             text: config.text.to_string(),
@@ -58,15 +54,13 @@ impl MeasureBoundsCacheKey {
             number_format: config
                 .number_format
                 .or(number_format)
-                .map(crate::number_format_fingerprint)
+                .map(crate::NumberFormatBinding::cache_id)
                 .unwrap_or_default(),
-            number_format_registry: registry_id,
             datetime_format: config
                 .datetime_format
                 .or(datetime_format)
-                .map(crate::datetime_format_fingerprint)
+                .map(crate::DateTimeFormatBinding::cache_id)
                 .unwrap_or_default(),
-            datetime_format_registry: datetime_registry_id,
         }
     }
 }
@@ -123,57 +117,33 @@ impl TextEngine {
         Self::with_config_and_font_resolution(TextMarkupConfig::default(), font_resolution)
     }
 
-    /// Select a number format and its registered providers for numeric labels.
-    pub fn with_number_formatting(
-        mut self,
-        config: crate::NumberFormatConfig,
-        registry: Arc<crate::NumberFormatRegistry>,
-    ) -> Self {
-        self.typst = self.typst.with_number_formatting(config, registry);
-        self.measure_bounds_cache = Arc::new(Mutex::new(HashMap::new()));
+    /// Set the provider and settings used by numeric labels.
+    pub fn with_number_formatting(mut self, binding: crate::NumberFormatBinding) -> Self {
+        self.typst = self.typst.with_number_formatting(binding);
         self
     }
 
-    /// Configuration shared by numeric labels unless a label supplies its own.
-    pub fn number_format_config(&self) -> Option<&crate::NumberFormatConfig> {
-        self.typst.number_format_config()
+    /// Binding inherited by labels without their own number settings.
+    pub fn number_format(&self) -> Option<&crate::NumberFormatBinding> {
+        self.typst.number_format()
     }
 
-    pub fn number_formatters(&self) -> &Arc<crate::NumberFormatRegistry> {
-        self.typst.number_formatters()
-    }
-
-    /// Select a datetime format and its registered providers for temporal labels.
-    pub fn with_datetime_formatting(
-        mut self,
-        config: crate::DateTimeFormatConfig,
-        registry: Arc<crate::DateTimeFormatRegistry>,
-    ) -> Self {
-        self.typst = self.typst.with_datetime_formatting(config, registry);
-        self.measure_bounds_cache = Arc::new(Mutex::new(HashMap::new()));
+    /// Set the provider and settings used by temporal labels.
+    pub fn with_datetime_formatting(mut self, binding: crate::DateTimeFormatBinding) -> Self {
+        self.typst = self.typst.with_datetime_formatting(binding);
         self
     }
 
-    /// Configuration shared by temporal labels unless a label supplies its own.
-    pub fn datetime_format_config(&self) -> Option<&crate::DateTimeFormatConfig> {
-        self.typst.datetime_format_config()
-    }
-
-    pub fn datetime_formatters(&self) -> &Arc<crate::DateTimeFormatRegistry> {
-        self.typst.datetime_formatters()
+    /// Binding inherited by labels without their own datetime settings.
+    pub fn datetime_format(&self) -> Option<&crate::DateTimeFormatBinding> {
+        self.typst.datetime_format()
     }
 
     pub fn measure_bounds(
         &self,
         config: &TextMeasurementConfig,
     ) -> Result<TextBounds, AvengerTextError> {
-        let key = MeasureBoundsCacheKey::new(
-            config,
-            self.number_formatters().cache_id(),
-            self.number_format_config(),
-            self.datetime_formatters().cache_id(),
-            self.datetime_format_config(),
-        );
+        let key = MeasureBoundsCacheKey::new(config, self.number_format(), self.datetime_format());
         if let Some(bounds) = self
             .measure_bounds_cache
             .lock()
@@ -414,17 +384,10 @@ mod tests {
     fn engine() -> TextEngine {
         TextEngine::with_default_config()
             .unwrap()
-            .with_datetime_formatting(
-                crate::DateTimeFormatConfig::new("d3"),
-                Arc::new({
-                    let mut registry = crate::DateTimeFormatRegistry::default();
-                    registry.register(
-                        "d3",
-                        Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                    );
-                    registry
-                }),
-            )
+            .with_datetime_formatting(crate::DateTimeFormatBinding::new(
+                avenger_format_datetime_d3::D3DateTimeFormatProvider,
+                avenger_format_datetime_d3::D3DateTimeFormatConfig::new(),
+            ))
     }
 
     #[test]
@@ -504,213 +467,108 @@ mod tests {
     }
 
     #[test]
-    fn formatter_replacement_updates_measurement_and_raster_caches() {
-        use avenger_format::{
-            FormattedNumber, NumberFormatConfig, NumberFormatError, NumberFormatProvider,
-            NumberFormatRegistry, NumberFormatRequest, PreparedNumberFormatter,
-        };
+    fn formatter_bindings_invalidate_measurement_and_raster_caches() {
+        use avenger_format::*;
         #[derive(Debug)]
-        struct Provider(String);
+        struct Provider;
+        #[derive(Debug)]
+        struct Prepared(String);
         impl NumberFormatProvider for Provider {
+            type Config = String;
             fn prepare(
                 &self,
-                config: &NumberFormatConfig,
-                request: &NumberFormatRequest,
+                config: &String,
+                _: &str,
             ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-                assert_eq!(request.spec, "custom");
-                Ok(Arc::new(Provider(
-                    config.locale.clone().unwrap_or_else(|| self.0.clone()),
-                )))
+                Ok(Arc::new(Prepared(config.clone())))
             }
         }
-        impl PreparedNumberFormatter for Provider {
+        impl DateTimeFormatProvider for Provider {
+            type Config = String;
+            fn prepare_naive(
+                &self,
+                config: &String,
+                _: &str,
+            ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+                Ok(Arc::new(Prepared(config.clone())))
+            }
+            fn prepare_zoned(
+                &self,
+                config: &String,
+                _: &str,
+            ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+                Ok(Arc::new(Prepared(config.clone())))
+            }
+        }
+        impl PreparedNumberFormatter for Prepared {
             fn format(&self, _: f64) -> FormattedNumber {
                 FormattedNumber::plain(self.0.clone())
             }
         }
-        let config: NumberFormatConfig =
-            serde_json::from_value(serde_json::json!({"provider": "test"})).unwrap();
-        let mut registry = NumberFormatRegistry::default();
-        registry.register("test", Arc::new(Provider("1".into())));
-        let first = engine().with_number_formatting(config.clone(), Arc::new(registry.clone()));
-        let text = "#numfmt(42, \"custom\")".to_string();
-        let font = "sans-serif".to_string();
-        let measurement = measure(&text, &font);
-        let first_bounds = first.measure_bounds(&measurement).unwrap();
-        let raster = raster(&text, &font);
-        let first_raster = first
-            .rasterize(&raster, 1.0, &HashMap::<_, ()>::new())
-            .unwrap();
-        registry.register("test", Arc::new(Provider("100000000".into())));
-        let second = first
-            .clone()
-            .with_number_formatting(config.clone(), Arc::new(registry));
-        let second_bounds = second.measure_bounds(&measurement).unwrap();
-        assert!(second_bounds.width > first_bounds.width * 2.0);
-        assert_eq!(
-            first.measure_bounds(&measurement).unwrap().width,
-            first_bounds.width
-        );
-        let cache = HashMap::from([(
-            first_raster.entries[0].0.cache_key.clone(),
-            crate::rasterization::CachedTextRasterization {
-                entries: first_raster.entries.clone(),
-                text_bounds: first_raster.text_bounds.clone(),
-            },
-        )]);
-        let second_raster = second.rasterize(&raster, 1.0, &cache).unwrap();
-        assert_ne!(
-            first_raster.entries[0].0.cache_key,
-            second_raster.entries[0].0.cache_key
-        );
-        assert!(second_raster.entries[0].0.image.is_some());
-        assert!(second_raster.text_bounds.width > first_raster.text_bounds.width * 2.0);
-
-        let mut localized_config = config;
-        localized_config.locale = Some("111111111111".into());
-        let localized = first
-            .clone()
-            .with_number_formatting(localized_config, first.number_formatters().clone());
-        assert_eq!(
-            localized.number_formatters().cache_id(),
-            first.number_formatters().cache_id()
-        );
-        assert!(localized.measure_bounds(&measurement).unwrap().width > first_bounds.width * 2.0);
-        let localized_raster = localized.rasterize(&raster, 1.0, &cache).unwrap();
-        assert_ne!(
-            first_raster.entries[0].0.cache_key,
-            localized_raster.entries[0].0.cache_key
-        );
-        assert!(localized_raster.entries[0].0.image.is_some());
-    }
-
-    #[test]
-    fn datetime_formatter_replacement_updates_measurement_and_raster_caches() {
-        use avenger_format::{
-            DateTimeFormatConfig, DateTimeFormatError, DateTimeFormatProvider,
-            DateTimeFormatRegistry, DateTimeFormatRequest, PreparedCivilDateTimeFormatter,
-            PreparedInstantFormatter,
+        impl PreparedCivilDateTimeFormatter for Prepared {
+            fn format(&self, _: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
+                Ok(self.0.clone())
+            }
+        }
+        impl PreparedInstantFormatter for Prepared {
+            fn format(&self, _: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+                Ok(self.0.clone())
+            }
+        }
+        let configure = |value: &str| {
+            engine()
+                .with_number_formatting(NumberFormatBinding::new(Provider, value.to_owned()))
+                .with_datetime_formatting(DateTimeFormatBinding::new(Provider, value.to_owned()))
         };
-        #[derive(Debug)]
-        struct Provider(String);
-        impl Provider {
-            fn prepare(
-                &self,
-                config: &DateTimeFormatConfig,
-                request: &DateTimeFormatRequest,
-            ) -> Arc<Provider> {
-                assert_eq!(request.spec, serde_json::json!("custom"));
-                assert_eq!(request.options["calendar"], "custom");
-                Arc::new(Provider(
-                    config.locale.clone().unwrap_or_else(|| self.0.clone()),
-                ))
-            }
-        }
-        impl DateTimeFormatProvider for Provider {
-            fn prepare_naive(
-                &self,
-                config: &DateTimeFormatConfig,
-                request: &DateTimeFormatRequest,
-            ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
-                Ok(self.prepare(config, request))
-            }
-            fn prepare_zoned(
-                &self,
-                config: &DateTimeFormatConfig,
-                request: &DateTimeFormatRequest,
-            ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
-                Ok(self.prepare(config, request))
-            }
-        }
-        impl PreparedCivilDateTimeFormatter for Provider {
-            fn format(
-                &self,
-                _: avenger_format::NaiveDateTimeInput,
-            ) -> Result<String, DateTimeFormatError> {
-                Ok(self.0.clone())
-            }
-        }
-        impl PreparedInstantFormatter for Provider {
-            fn format(
-                &self,
-                _: avenger_format::ZonedDateTimeInput,
-            ) -> Result<String, DateTimeFormatError> {
-                Ok(self.0.clone())
-            }
-        }
-        let config: DateTimeFormatConfig =
-            serde_json::from_value(serde_json::json!({"provider": "test"})).unwrap();
-        let mut registry = DateTimeFormatRegistry::default();
-        registry.register("test", Arc::new(Provider("1".into())));
-        let first = engine().with_datetime_formatting(config.clone(), Arc::new(registry.clone()));
-        let text = "#datefmt(value, \"custom\", calendar: \"custom\")".to_string();
-        let font = "sans-serif".to_string();
+        let first = configure("1");
+        let second = configure("100000000");
         let params = LabelParams::from([(
             "value".into(),
             LabelParamValue::UtcDateTime(chrono::DateTime::UNIX_EPOCH),
         )]);
-        let mut measurement = measure(&text, &font);
-        measurement.params = &params;
-        let first_bounds = first.measure_bounds(&measurement).unwrap();
-        let mut raster = raster(&text, &font);
-        raster.params = &params;
-        let first_raster = first
-            .rasterize(&raster, 1.0, &HashMap::<_, ()>::new())
-            .unwrap();
-        registry.register("test", Arc::new(Provider("100000000".into())));
-        let second = first
-            .clone()
-            .with_datetime_formatting(config.clone(), Arc::new(registry));
-        let second_bounds = second.measure_bounds(&measurement).unwrap();
-        assert!(second_bounds.width > first_bounds.width * 2.0);
-        assert_eq!(
-            first.measure_bounds(&measurement).unwrap().width,
-            first_bounds.width
-        );
-        let cache = HashMap::from([(
-            first_raster.entries[0].0.cache_key.clone(),
-            crate::rasterization::CachedTextRasterization {
-                entries: first_raster.entries.clone(),
-                text_bounds: first_raster.text_bounds.clone(),
-            },
-        )]);
-        let second_raster = second.rasterize(&raster, 1.0, &cache).unwrap();
-        assert_ne!(
-            first_raster.entries[0].0.cache_key,
-            second_raster.entries[0].0.cache_key
-        );
-        assert!(second_raster.entries[0].0.image.is_some());
-        assert!(second_raster.text_bounds.width > first_raster.text_bounds.width * 2.0);
-
-        let mut localized_config = config;
-        localized_config.locale = Some("111111111111".into());
-        let localized = first
-            .clone()
-            .with_datetime_formatting(localized_config, first.datetime_formatters().clone());
-        assert_eq!(
-            localized.datetime_formatters().cache_id(),
-            first.datetime_formatters().cache_id()
-        );
-        assert!(localized.measure_bounds(&measurement).unwrap().width > first_bounds.width * 2.0);
-        let localized_raster = localized.rasterize(&raster, 1.0, &cache).unwrap();
-        assert_ne!(
-            first_raster.entries[0].0.cache_key,
-            localized_raster.entries[0].0.cache_key
-        );
-        assert!(localized_raster.entries[0].0.image.is_some());
-        let override_config = DateTimeFormatConfig {
-            locale: Some("111111111111111111".into()),
-            ..DateTimeFormatConfig::new("test")
-        };
-        measurement.datetime_format = Some(&override_config);
-        raster.datetime_format = Some(&override_config);
-        assert!(first.measure_bounds(&measurement).unwrap().width > first_bounds.width * 2.0);
-        let override_raster = first.rasterize(&raster, 1.0, &cache).unwrap();
-        assert!(override_raster.entries[0].0.image.is_some());
-        assert_ne!(
-            override_raster.entries[0].0.cache_key,
-            first_raster.entries[0].0.cache_key
-        );
+        let font = "sans-serif".to_string();
+        for source in ["#numfmt(42, \"custom\")", "#datefmt(value, \"custom\")"] {
+            let text = source.to_string();
+            let mut measurement = measure(&text, &font);
+            measurement.params = &params;
+            let mut raster = raster(&text, &font);
+            raster.params = &params;
+            let first_bounds = first.measure_bounds(&measurement).unwrap();
+            let first_raster = first
+                .rasterize(&raster, 1.0, &HashMap::<_, ()>::new())
+                .unwrap();
+            let cache = HashMap::from([(
+                first_raster.entries[0].0.cache_key.clone(),
+                crate::rasterization::CachedTextRasterization {
+                    entries: first_raster.entries.clone(),
+                    text_bounds: first_raster.text_bounds.clone(),
+                },
+            )]);
+            let second_bounds = second.measure_bounds(&measurement).unwrap();
+            assert!(second_bounds.width > first_bounds.width * 2.0);
+            assert_eq!(
+                first.clone().measure_bounds(&measurement).unwrap(),
+                first_bounds
+            );
+            let second_raster = second.rasterize(&raster, 1.0, &cache).unwrap();
+            assert_ne!(
+                first_raster.entries[0].0.cache_key,
+                second_raster.entries[0].0.cache_key
+            );
+            assert!(second_raster.entries[0].0.image.is_some());
+            assert_eq!(second_raster.text_bounds, second_bounds);
+            measurement.number_format = second.number_format();
+            measurement.datetime_format = second.datetime_format();
+            raster.number_format = second.number_format();
+            raster.datetime_format = second.datetime_format();
+            assert_eq!(first.measure_bounds(&measurement).unwrap(), second_bounds);
+            let overridden = first.rasterize(&raster, 1.0, &cache).unwrap();
+            assert_eq!(
+                overridden.entries[0].0.cache_key,
+                second_raster.entries[0].0.cache_key
+            );
+            assert_eq!(overridden.text_bounds, second_raster.text_bounds);
+        }
     }
 
     #[test]

@@ -500,7 +500,7 @@ pub struct TextInstance<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a LabelParams,
-    pub number_format: Option<&'a avenger_text::NumberFormatConfig>,
-    pub datetime_format: Option<&'a avenger_text::DateTimeFormatConfig>,
+    pub number_format: Option<&'a avenger_text::NumberFormatBinding>,
+    pub datetime_format: Option<&'a avenger_text::DateTimeFormatBinding>,
     pub use_nearest_filter: bool,
 }

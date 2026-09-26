@@ -19,7 +19,7 @@ markup and `$...$` math fragments.
 
 ## Number formatting
 
-Call `TextEngine::with_number_formatting(config, registry)` to select a provider
+Call `TextEngine::with_number_formatting(NumberFormatBinding::new(provider, config))` to select a provider
 for numeric labels. Measurement and rendering share this selection. Per-label
 configuration overrides it. A new engine has no number formatter configured.
 

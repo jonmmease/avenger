@@ -147,16 +147,14 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             params: crate::math::label_params_fingerprint(config.params),
             number_format: config
                 .number_format
-                .or(self.typst.number_format_config())
-                .map(crate::number_format_fingerprint)
+                .or(self.typst.number_format())
+                .map(crate::NumberFormatBinding::cache_id)
                 .unwrap_or_default(),
-            number_format_registry: self.typst.number_formatters().cache_id(),
             datetime_format: config
                 .datetime_format
-                .or(self.typst.datetime_format_config())
-                .map(crate::datetime_format_fingerprint)
+                .or(self.typst.datetime_format())
+                .map(crate::DateTimeFormatBinding::cache_id)
                 .unwrap_or_default(),
-            datetime_format_registry: self.typst.datetime_formatters().cache_id(),
         };
         if let Some(cached) = cached_entries
             .get(&cache_key)
@@ -263,8 +261,8 @@ fn measure_text_width_with_typst(
     font_weight: FontWeight,
     font_style: FontStyle,
     params: &avenger_typst_label::LabelParams,
-    number_format: Option<&crate::NumberFormatConfig>,
-    datetime_format: Option<&crate::DateTimeFormatConfig>,
+    number_format: Option<&crate::NumberFormatBinding>,
+    datetime_format: Option<&crate::DateTimeFormatBinding>,
 ) -> Result<f32, AvengerTextError> {
     Ok(typeset_line(
         typst,
@@ -301,8 +299,8 @@ pub(crate) fn typeset_line(
     font_style: FontStyle,
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
-    number_format: Option<&crate::NumberFormatConfig>,
-    datetime_format: Option<&crate::DateTimeFormatConfig>,
+    number_format: Option<&crate::NumberFormatBinding>,
+    datetime_format: Option<&crate::DateTimeFormatBinding>,
 ) -> Result<TypesetLineResult, avenger_typst_label::LabelError> {
     let options = label_options(
         math,
@@ -313,13 +311,18 @@ pub(crate) fn typeset_line(
         font_style,
         color,
         params,
-        number_format,
-        datetime_format,
     );
     let label = if math.syntax_mode == crate::types::TextSyntaxMode::Plain {
         typst.compile_text(text, &options)?
     } else {
-        typst.compile(text, &options)?
+        typst.compile_with_formatting(
+            text,
+            &options,
+            avenger_typst_label::LabelFormatting {
+                number: number_format,
+                datetime: datetime_format,
+            },
+        )?
     };
     for warning in &label.warnings {
         tracing::warn!(?warning, "label typesetting warning");
@@ -356,8 +359,6 @@ pub(crate) fn label_options(
     font_style: FontStyle,
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
-    number_format: Option<&crate::NumberFormatConfig>,
-    datetime_format: Option<&crate::DateTimeFormatConfig>,
 ) -> avenger_typst_label::LabelOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
@@ -379,8 +380,6 @@ pub(crate) fn label_options(
         },
         math: math_style,
         params: params.clone(),
-        number_format: number_format.cloned(),
-        datetime_format: datetime_format.cloned(),
         limits: math.limits,
     }
 }
@@ -507,8 +506,6 @@ mod tests {
             STYLE,
             [0.0, 0.0, 0.0, 1.0],
             crate::empty_label_params(),
-            None,
-            None,
         );
 
         assert_eq!(options.text.font_family, "sans-serif");
@@ -562,54 +559,24 @@ mod tests {
     }
 
     #[test]
-    fn label_options_include_number_locale() {
-        let config = crate::NumberFormatConfig {
-            locale: Some("de-DE".into()),
-            ..crate::NumberFormatConfig::new("d3")
-        };
-        let options = label_options(
-            &TextMarkupConfig::default(),
-            "#numfmt(value, \",.1f\")",
-            "sans-serif",
-            12.0,
-            WEIGHT,
-            STYLE,
-            [0.0, 0.0, 0.0, 1.0],
-            crate::empty_label_params(),
-            Some(&config),
-            None,
-        );
-
-        assert_eq!(
-            options.number_format.as_ref().unwrap().locale.as_deref(),
-            Some("de-DE")
-        );
-    }
-
-    #[test]
     fn typst_numfmt_uses_number_locale_specs() {
-        let mut registry = avenger_format::NumberFormatRegistry::default();
-        registry.register(
-            "d3",
-            std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-        );
-        let typst = avenger_typst_label::LabelEngine::new(Default::default())
-            .unwrap()
-            .with_number_formatting(
-                crate::NumberFormatConfig::new("d3"),
-                std::sync::Arc::new(registry),
-            );
+        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
         let mut params = crate::LabelParams::default();
         params.insert("value".to_string(), crate::LabelParamValue::Float(1234.5));
-        let config = crate::NumberFormatConfig {
-            locale: Some("tick-test".into()),
-            locales: [(
-                "tick-test".into(),
-                serde_json::json!({"decimal":"~", "thousands":"_", "grouping":[3]}),
-            )]
-            .into(),
-            ..crate::NumberFormatConfig::new("d3")
-        };
+        let config = crate::NumberFormatBinding::new(
+            avenger_format_number_d3::D3NumberFormatProvider,
+            avenger_format_number_d3::D3NumberFormatConfig::new()
+                .with_locale("tick-test")
+                .with_custom_locale(
+                    "tick-test",
+                    avenger_format_number_d3::NumberLocaleSpec {
+                        decimal: "~".into(),
+                        thousands: "_".into(),
+                        grouping: vec![3],
+                        ..Default::default()
+                    },
+                ),
+        );
 
         let result = typeset_line(
             &typst,
@@ -625,7 +592,7 @@ mod tests {
             None,
         );
 
-        assert!(result.is_ok());
+        assert_eq!(result.unwrap().label.semantic_text(), "1_234~5");
     }
 
     #[test]
@@ -636,29 +603,17 @@ mod tests {
             "value".to_string(),
             crate::LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
         );
-        let config = crate::DateTimeFormatConfig {
-            locale: Some("label-date-test".into()),
-            locales: [(
-                "label-date-test".into(),
-                serde_json::to_value(avenger_format_datetime_d3::DateTimeLocaleSpec {
-                    date: "%Y~%m~%d".into(),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )]
-            .into(),
-            ..crate::DateTimeFormatConfig::new("d3")
-        };
-        let typst = typst.with_datetime_formatting(
-            crate::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_format::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
+        let config = crate::DateTimeFormatBinding::new(
+            avenger_format_datetime_d3::D3DateTimeFormatProvider,
+            avenger_format_datetime_d3::D3DateTimeFormatConfig::new()
+                .with_locale("label-date-test")
+                .with_custom_locale(
+                    "label-date-test",
+                    avenger_format_datetime_d3::DateTimeLocaleSpec {
+                        date: "%Y~%m~%d".into(),
+                        ..Default::default()
+                    },
+                ),
         );
         let result = typeset_line(
             &typst,

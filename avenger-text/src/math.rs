@@ -114,16 +114,6 @@ pub fn label_params_fingerprint(params: &avenger_typst_label::LabelParams) -> St
     out
 }
 
-/// Stable cache representation of provider selection and locale data.
-pub fn number_format_fingerprint(config: &crate::NumberFormatConfig) -> String {
-    serde_json::to_string(config).expect("number format configuration is JSON serializable")
-}
-
-/// Stable cache representation of provider selection, locale data, and timezone.
-pub fn datetime_format_fingerprint(config: &crate::DateTimeFormatConfig) -> String {
-    serde_json::to_string(config).expect("datetime format configuration is JSON serializable")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

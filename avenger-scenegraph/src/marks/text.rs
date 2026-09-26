@@ -24,9 +24,9 @@ pub struct SceneTextMark {
     #[serde(default, skip_serializing_if = "text_params_is_empty")]
     pub text_params: avenger_text::LabelParams,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub number_format: Option<avenger_text::NumberFormatConfig>,
+    pub number_format: Option<avenger_format_config::NumberFormatConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub datetime_format: Option<avenger_text::DateTimeFormatConfig>,
+    pub datetime_format: Option<avenger_format_config::DateTimeFormatConfig>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     pub align: ScalarOrArray<TextAlign>,
@@ -50,14 +50,8 @@ impl Hash for SceneTextMark {
         self.text.hash(state);
         self.text_syntax.hash(state);
         avenger_text::label_params_fingerprint(&self.text_params).hash(state);
-        self.number_format
-            .as_ref()
-            .map(avenger_text::number_format_fingerprint)
-            .hash(state);
-        self.datetime_format
-            .as_ref()
-            .map(avenger_text::datetime_format_fingerprint)
-            .hash(state);
+        self.number_format.hash(state);
+        self.datetime_format.hash(state);
         self.x.hash(state);
         self.y.hash(state);
         self.align.hash(state);

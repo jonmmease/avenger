@@ -1,0 +1,11 @@
+[package]
+name = "avenger-format-config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-datetime-chrono = { path = "../avenger-format-datetime-chrono" }
+serde = { workspace = true }
