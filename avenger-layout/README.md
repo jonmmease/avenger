@@ -58,7 +58,7 @@ Set a tolerance and iteration limit appropriate for the application.
 
 The chart-grid example measures axes and a legend with `avenger-guides`,
 repeats layout until allocations settle, maps points with `avenger-scales`,
-and renders with `avenger-wgpu`. One `avenger-text` engine is shared by guide
+and renders with `avenger-wgpu`. One label engine is shared by guide
 measurement and rendering. These crates are development dependencies only.
 
 ```sh
