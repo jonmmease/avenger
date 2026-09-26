@@ -201,6 +201,7 @@ mod wasm {
         listeners: Vec<Listener>,
         input_state: Rc<RefCell<TextAgentInputState>>,
         clipboard_payload: Rc<RefCell<String>>,
+        clipboard_provider: Rc<RefCell<Option<ClipboardPayloadProvider>>>,
         active: Rc<Cell<bool>>,
         event_proxy: EventLoopProxy<WinitWgpuEvent>,
         logical_canvas_size: [f32; 2],
@@ -252,13 +253,14 @@ mod wasm {
                 listeners: Vec::new(),
                 input_state: Rc::new(RefCell::new(TextAgentInputState::default())),
                 clipboard_payload: Rc::new(RefCell::new(String::new())),
+                clipboard_provider: Rc::new(RefCell::new(clipboard_payload_provider)),
                 active: Rc::new(Cell::new(false)),
                 event_proxy,
                 logical_canvas_size: [1.0, 1.0],
             };
             host.install_input_listeners()?;
             host.install_focus_listeners(&window)?;
-            host.install_clipboard_listeners(document.as_ref(), clipboard_payload_provider)?;
+            host.install_clipboard_listeners(document.as_ref())?;
             Ok(host)
         }
 
@@ -270,6 +272,22 @@ mod wasm {
 
         pub fn set_clipboard_payload(&self, payload: impl Into<String>) {
             *self.clipboard_payload.borrow_mut() = payload.into();
+        }
+
+        /// Use this application’s selection provider for subsequent copy and cut events.
+        pub fn set_clipboard_payload_provider(
+            &mut self,
+            provider: Option<ClipboardPayloadProvider>,
+        ) {
+            *self.clipboard_provider.borrow_mut() = provider;
+        }
+
+        pub fn reset_for_replacement(&mut self, size: [f32; 2]) {
+            self.apply_commands(vec![RuntimeHostCommand::SetImeAllowed { allowed: false }]);
+            *self.input_state.borrow_mut() = TextAgentInputState::default();
+            self.input.set_value("");
+            self.set_clipboard_payload("");
+            self.set_logical_canvas_size(size);
         }
 
         pub fn apply_commands(&mut self, commands: Vec<RuntimeHostCommand>) {
@@ -450,15 +468,11 @@ mod wasm {
             Ok(())
         }
 
-        fn install_clipboard_listeners(
-            &mut self,
-            document: &EventTarget,
-            clipboard_payload_provider: Option<ClipboardPayloadProvider>,
-        ) -> Result<(), JsValue> {
+        fn install_clipboard_listeners(&mut self, document: &EventTarget) -> Result<(), JsValue> {
             for name in ["copy", "cut"] {
                 let proxy = self.event_proxy.clone();
                 let payload = self.clipboard_payload.clone();
-                let provider = clipboard_payload_provider.clone();
+                let provider = self.clipboard_provider.clone();
                 let active = self.active.clone();
                 self.add_listener(document, name, move |event| {
                     if !active.get() {
@@ -467,7 +481,8 @@ mod wasm {
                     let event = event.unchecked_into::<DomClipboardEvent>();
                     if let Some(data) = event.clipboard_data() {
                         let fallback = payload.borrow().clone();
-                        let payload = resolved_clipboard_payload(provider.as_ref(), &fallback);
+                        let payload =
+                            resolved_clipboard_payload(provider.borrow().as_ref(), &fallback);
                         let _ = data.set_data("text/plain", &payload);
                         event.prevent_default();
                     }

@@ -20,6 +20,10 @@ impl PendingWakes {
         self.next_ticket
     }
 
+    fn clear(&mut self) {
+        self.tickets.clear();
+    }
+
     fn claim(&mut self, event: &RuntimeWakeEvent, ticket: u64) -> bool {
         if self.tickets.get(&event.key) == Some(&(ticket, event.generation)) {
             self.tickets.remove(&event.key);
@@ -87,6 +91,10 @@ impl RuntimeWakeScheduler {
         self.pending.lock().unwrap().tickets.remove(key);
     }
 
+    pub(crate) fn clear(&self) {
+        self.pending.lock().unwrap().clear();
+    }
+
     pub(crate) fn claim(&self, event: &RuntimeWakeEvent, ticket: u64) -> bool {
         self.pending.lock().unwrap().claim(event, ticket)
     }
@@ -136,5 +144,18 @@ mod tests {
         assert!(!pending.claim(&event, first));
         assert!(pending.claim(&event, replacement));
         assert!(!pending.claim(&event, replacement));
+    }
+    #[test]
+    fn replacement_rejects_an_old_queued_wake_when_the_new_manager_reuses_its_key() {
+        let mut pending = PendingWakes::default();
+        let event = RuntimeWakeEvent {
+            key: RuntimeWakeKey::new("manager", 0, "debounce"),
+            generation: 1,
+        };
+        let old = pending.request(event.key.clone(), event.generation);
+        pending.clear();
+        let new = pending.request(event.key.clone(), event.generation);
+        assert!(!pending.claim(&event, old));
+        assert!(pending.claim(&event, new));
     }
 }

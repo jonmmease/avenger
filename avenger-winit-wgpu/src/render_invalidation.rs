@@ -2,15 +2,22 @@ use super::*;
 
 pub(super) fn send_render_invalidation_event(
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    host_generation: u64,
     invalidation: RenderInvalidation,
 ) {
     match invalidation.schedule {
         RenderInvalidationSchedule::Now => {
-            let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated { invalidation });
+            let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            });
         }
         RenderInvalidationSchedule::After(delay) => send_event_after(
             event_proxy,
-            WinitWgpuEvent::RenderInvalidated { invalidation },
+            WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            },
             delay,
         ),
     }

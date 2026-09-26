@@ -22,8 +22,11 @@ Open [localhost:8767](http://localhost:8767). The page uses the display's pixel 
 - Drag a label to move it. Drag the plot background to pan. A gesture keeps its original target until release, even over another mark.
 - The x and y linear scales position points and generate ticks for the visible domains. Tick labels and grid lines share these positions and move smoothly with the points during panning.
 - Hover over a point for 400 ms to show a tooltip. Tooltip movement does not rebuild the application scene.
+- Switch samples to replace the application in the same window. Edits are in memory and reset when a sample loads.
 
-Edits stay in memory while the editor is open.
+To exercise out-of-order preparation, run with `--slow-loads`, click Sample A, then click Sample B within 1.6 seconds. B prepares in 150 ms. Its result stays installed when the earlier A request finishes. The window remains usable during preparation.
+
+In the browser, use the delayed-loading link or open [localhost:8767/?slow-loads](http://localhost:8767/?slow-loads), then perform the same sample switch. Browser preparation uses local asynchronous tasks and browser timers.
 
 After building the WASM package, run the browser interaction tests with Node.js 20 or later and Chrome:
 
@@ -34,15 +37,18 @@ npx playwright install chrome
 npm run test:browser
 ```
 
-The tests start a local server when needed. They exercise typing, clipboard events, composition, focus changes, panning, annotation dragging. CI also runs this suite.
+The tests start a local server when needed. They exercise typing, clipboard events, composition, focus changes, panning, annotation dragging, and delayed sample replacement. CI also runs this suite.
 
 ```sh
+cargo run --release -p winit-annotation-editor -- --slow-loads
 cargo test --release -p winit-annotation-editor
 cargo run --release -p winit-annotation-editor --example snapshot -- target/annotation-editor
 ```
 
 The snapshot example renders selection, composition, and panning at 1× and 2×. The window uses scale 2 on macOS and scale 1 elsewhere. Override the raster scale with `--scale NUMBER` when testing another display configuration.
 
-`state.rs` owns the editor and draft. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `web.rs` starts the browser host. `scene.rs` draws the UI with the same text engine used for editing and picking.
+`state.rs` owns the editor and draft. `interaction.rs` registers gestures and requests keyed wake-ups, IME placement, clipboard writes, and tooltip updates. `reload.rs` prepares replacement applications, advances the request epoch before preparation, and observes installation results. `tasks.rs` uses Tokio on native targets and local futures with browser timers on WASM. `web.rs` starts the browser host and keeps the reload coordinator alive with it. `scene.rs` draws the UI with the same text engine used for editing and picking.
 
-![Annotation editing and text selection](../../docs/images/annotation-editor-single-sample.png)
+![Native annotation editor](../../docs/images/annotation-editor.png)
+
+![Browser annotation editor](../../docs/images/annotation-editor-wasm.png)

@@ -7,8 +7,10 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use std::sync::Arc;
 
 pub mod interaction;
+pub mod reload;
 pub mod scene;
 pub mod state;
+mod tasks;
 
 #[cfg(target_arch = "wasm32")]
 mod web;
