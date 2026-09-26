@@ -1,0 +1,97 @@
+syntax = "proto3";
+package avenger.chart;
+import "dataflow.proto";
+import "datafusion/proto-common/proto/datafusion_common.proto";
+
+message ChartArtifact {
+  uint32 version = 1;
+  avenger.dataflow.DataflowArtifact dataflow = 2;
+  Group root = 3;
+  repeated Parameter parameters = 4;
+}
+message Reference { repeated string scope = 1; string name = 2; }
+message Parameter { string name = 1; Reference input = 2; datafusion_common.ScalarValue initial = 3; }
+message Group {
+  string name = 1;
+  Arrangement arrangement = 2;
+  Text title = 3;
+  repeated Node children = 4;
+  Reference discovery = 5;
+  bool descending_keys = 6;
+  repeated Key explicit_keys = 7;
+}
+message Key { repeated datafusion_common.ScalarValue values = 1; }
+message Node { oneof node { Plot plot = 1; Group group = 2; Facet facet = 3; } }
+message Facet { string name = 1; repeated string scope = 2; Arrangement arrangement = 3; Group template = 4; }
+message Arrangement {
+  enum Kind { COLUMN = 0; ROW = 1; WRAP = 2; GRID = 3; }
+  Kind kind = 1;
+  uint32 row_count = 2;
+  uint32 column_count = 3;
+  repeated Slot slots = 4;
+  float gap = 5;
+  float margin = 6;
+  bool uniform_columns = 7;
+  bool uniform_rows = 8;
+  optional string share = 9;
+  repeated Track columns = 10;
+  repeated Track rows = 11;
+}
+message Slot { string name = 1; uint32 row = 2; uint32 column = 3; uint32 row_span = 4; uint32 column_span = 5; }
+message Track { oneof track { bool auto = 1; float fixed = 2; float flex = 3; } }
+message Text { oneof text { string literal = 1; string key = 2; Reference scalar = 3; } }
+message Plot {
+  string name = 1;
+  float width = 2;
+  float height = 3;
+  bool clip = 4;
+  repeated NamedScale scales = 5;
+  repeated Mark marks = 6;
+  repeated Axis axes = 7;
+  Edges guide_reservations = 8;
+}
+message Edges { float top = 1; float right = 2; float bottom = 3; float left = 4; }
+message NamedScale { string name = 1; Scale scale = 2; }
+message Scale {
+  enum Kind { LINEAR = 0; BAND = 1; }
+  Kind kind = 1;
+  Domain domain = 2;
+  Range range = 3;
+  bool zero = 4;
+  bool nice = 5;
+  bool clamp = 6;
+  float padding_inner = 7;
+  float padding_outer = 8;
+  double empty_min = 9;
+  double empty_max = 10;
+  Sharing sharing = 11;
+}
+message Domain { oneof domain { Column column = 1; Reference extent = 2; Bounds bounds = 3; Key values = 4; } }
+message Column { Reference table = 1; string name = 2; }
+message Bounds { Reference min = 1; Reference max = 2; }
+message Range { oneof range { bool plot_width = 1; bool plot_height_reversed = 2; Interval fixed = 3; } }
+message Interval { float start = 1; float end = 2; }
+message Sharing { string name = 1; Scope scope = 2; }
+message Scope { oneof scope { bool panel = 1; bool root = 2; uint32 ancestor = 3; } }
+message Value { oneof value { double constant = 1; string field = 2; Reference scalar = 3; Scaled scaled = 4; string bandwidth = 5; bool plot_width = 6; bool plot_height = 7; } }
+message Scaled { string scale = 1; Value input = 2; }
+message Mark {
+  string name = 1;
+  Reference table = 2;
+  oneof encoding { Rect rect = 3; Symbol symbol = 4; }
+}
+message Rect { Value x = 1; Value y = 2; Value x2 = 3; Value y2 = 4; Value width = 5; Value height = 6; string fill = 7; bool interactive = 8; }
+message Symbol { Value x = 1; Value y = 2; Value size = 3; string fill = 4; bool interactive = 5; }
+message Axis {
+  enum Side { BOTTOM = 0; TOP = 1; LEFT = 2; RIGHT = 3; }
+  enum Labels { ALL = 0; OUTER = 1; NONE = 2; }
+  string scale = 1;
+  Side side = 2;
+  string title = 3;
+  optional string format = 4;
+  float tick_count = 5;
+  bool grid = 6;
+  Labels labels = 7;
+  Scope sharing = 8;
+  bool shared_title = 9;
+}

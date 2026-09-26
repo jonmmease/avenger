@@ -31,6 +31,14 @@ pub struct DataflowInterface {
     pub(crate) inner: Arc<InterfaceDef>,
 }
 impl DataflowInterface {
+    /// Check that a complete input snapshot belongs to this dataflow.
+    pub fn validate_inputs(&self, inputs: &crate::Inputs) -> Result<()> {
+        if inputs.graph.id != self.inner.id {
+            return Err(Error::ForeignHandle);
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(graph: &GraphDef) -> Self {
         Self {
             inner: Arc::new(InterfaceDef {
@@ -239,4 +247,72 @@ pub struct Reference {
     pub scope: Vec<String>,
     /// Name within the addressed scope and namespace.
     pub name: String,
+}
+
+/// A published output's portable address and declared schema.
+#[derive(Clone, Debug)]
+pub struct OutputMetadata {
+    pub reference: Reference,
+    pub schema: datafusion::common::DFSchemaRef,
+}
+
+impl DataflowInterface {
+    /// Resolve a sequence of scope names. An empty path denotes the root.
+    pub fn scope_at(&self, path: &[String]) -> Result<ScopeInterface> {
+        path.iter()
+            .try_fold(self.root(), |scope, name| scope.scope(name))
+    }
+
+    fn path(&self, index: usize) -> Vec<String> {
+        self.inner.scopes[index]
+            .1
+            .as_ref()
+            .map_or_else(Vec::new, |h| {
+                h.path.iter().map(|s| s.name.to_string()).collect()
+            })
+    }
+
+    /// Return a scope's portable path after checking graph ownership.
+    pub fn scope_path(&self, handle: &ScopeHandle) -> Result<Vec<String>> {
+        if handle.graph != self.inner.id {
+            return Err(Error::ForeignHandle);
+        }
+        Ok(self.path(handle.index))
+    }
+
+    /// Inspect a table output without preparing or executing its plan.
+    pub fn table_metadata(&self, handle: &TableOutput) -> Result<OutputMetadata> {
+        self.output_metadata(handle.graph, handle.index)
+    }
+
+    /// Inspect a scalar output without evaluating its expression.
+    pub fn scalar_metadata(&self, handle: &ScalarOutput) -> Result<OutputMetadata> {
+        self.output_metadata(handle.graph, handle.index)
+    }
+
+    fn output_metadata(&self, graph: u64, index: usize) -> Result<OutputMetadata> {
+        if graph != self.inner.id {
+            return Err(Error::ForeignHandle);
+        }
+        let output = &self.inner.outputs[index];
+        Ok(OutputMetadata {
+            reference: Reference {
+                scope: self.path(output.scope),
+                name: output.name.to_string(),
+            },
+            schema: output.schema.clone(),
+        })
+    }
+
+    /// Address a scalar input after checking graph ownership.
+    pub fn scalar_input_reference(&self, handle: &ScalarInput) -> Result<Reference> {
+        if handle.graph != self.inner.id {
+            return Err(Error::ForeignHandle);
+        }
+        let input = &self.inner.inputs[handle.index];
+        Ok(Reference {
+            scope: self.path(input.scope),
+            name: input.name.to_string(),
+        })
+    }
 }
