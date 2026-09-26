@@ -24,7 +24,7 @@ pdf = ["avenger-chart/pdf"]
 png = ["avenger-chart/png"]
 
 [dev-dependencies]
-avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
