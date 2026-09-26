@@ -452,18 +452,13 @@ mod tests {
 
     #[test]
     fn extracts_numfmt_params() {
-        let names = referenced_params(
-            "Peak #numfmt(value, \".3f\", precision: precision, currency: currency_code)",
-        )
-        .unwrap();
-        assert_eq!(names, vec!["value", "precision", "currency_code"]);
+        let names = referenced_params("Peak #numfmt(value, number_format)").unwrap();
+        assert_eq!(names, vec!["value", "number_format"]);
     }
 
     #[test]
     fn extracts_datefmt_params() {
-        let names =
-            referenced_params("Report #datefmt(report_date, date_format, locale: locale_name)")
-                .unwrap();
-        assert_eq!(names, vec!["report_date", "date_format", "locale_name"]);
+        let names = referenced_params("Report #datefmt(report_date, date_format)").unwrap();
+        assert_eq!(names, vec!["report_date", "date_format"]);
     }
 }

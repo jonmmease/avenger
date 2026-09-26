@@ -56,10 +56,15 @@ The crate intentionally excludes full Typst document features:
 ## Number formatting
 
 `LabelEngine::new` does not register or select a number formatter. Call
-`with_number_formatting(config, registry)` to configure `#numfmt` for the engine.
-`LabelOptions::number_format` can override that configuration for one label.
+`with_number_formatting(Arc::new(provider))` to configure `#numfmt` for the engine, and
+`with_datetime_formatting` to configure `#datefmt`. The provider's settings, such as its
+locale and display timezone, apply to every pattern it prepares.
+`LabelEngine::compile_with_formatting` accepts `LabelFormatting` providers that override
+the engine's for one label. Prepared formats are reused while the provider and pattern
+stay the same. `LabelOptions` contains the serializable style, parameter, and layout
+settings.
 Plain text and math do not require a number formatter. Numeric markup reports an
-error when no configuration or matching provider is available.
+error when no provider is configured.
 
 ## Public API Shape
 
