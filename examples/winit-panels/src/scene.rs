@@ -1,12 +1,16 @@
 use crate::state::State;
 use avenger_color::ColorOrGradient;
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_common::types::FontWeight;
+use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::{
     axis::{
-        numeric::make_numeric_axis_marks_with_text_engine,
-        opts::{AxisConfig, AxisOrientation},
+        continuous::make_continuous_axis_marks,
+        opts::{AxisConfig, AxisOrientation, AxisStyle},
     },
-    legend::symbol::{SymbolLegendConfig, make_symbol_legend_with_text_engine},
+    legend::{
+        LegendStyle,
+        symbol::{SymbolLegendConfig, make_symbol_legend},
+    },
 };
 use avenger_layout::{ChromeLayer, Edges, Layout, LayoutSolution, Size, SolveFor, SolveOptions};
 use avenger_panels::*;
@@ -18,7 +22,7 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::{TextEngine, types::FontWeight};
+use avenger_typst_label::LabelEngine;
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
 const INK: [f32; 4] = [0.10, 0.17, 0.23, 1.0];
@@ -51,7 +55,7 @@ fn text(value: impl Into<String>, x: f32, y: f32, size: f32, color: [f32; 4]) ->
         y: y.into(),
         font_size: size.into(),
         color: ColorOrGradient::Color(color).into(),
-        interactive: false,
+        interactive: Some(false),
         ..Default::default()
     }
 }
@@ -65,7 +69,7 @@ fn rect(name: &str, r: Rect, fill: [f32; 4], stroke: Option<[f32; 4]>) -> SceneR
         fill: ColorOrGradient::Color(fill).into(),
         stroke: ColorOrGradient::Color(stroke.unwrap_or([0.0; 4])).into(),
         stroke_width: if stroke.is_some() { 1.0 } else { 0.0 }.into(),
-        interactive: !name.is_empty(),
+        interactive: Some(!name.is_empty()),
         // Numeric guide grids use layer -1; opaque backgrounds must stay below them.
         zindex: (name.is_empty() && stroke.is_none()).then_some(-2),
         ..Default::default()
@@ -129,8 +133,11 @@ fn y_format(state: &State, panel: &PanelId) -> &'static str {
 }
 fn scales(domain: (f32, f32), size: Size) -> (ConfiguredScale, ConfiguredScale) {
     (
-        LinearScale::configured((1.0, 12.0), (0.0, size.width)),
-        LinearScale::configured(domain, (size.height, 0.0)),
+        LinearScale::configured((1.0, 12.0), (0.0, f64::from(size.width))),
+        LinearScale::configured(
+            (f64::from(domain.0), f64::from(domain.1)),
+            (f64::from(size.height), 0.0),
+        ),
     )
 }
 fn label_visible(plan: Option<&GuidePlan>, key: &str, panel: &PanelId) -> bool {
@@ -161,7 +168,7 @@ fn axes(
     ]
     .into_iter()
     .map(|(scale, orientation, key, count, format)| {
-        make_numeric_axis_marks_with_text_engine(
+        make_continuous_axis_marks(
             &scale,
             "",
             [0.0, 0.0],
@@ -169,17 +176,20 @@ fn axes(
                 orientation,
                 dimensions: [size.width, size.height],
                 grid,
-                tick_count: Some(count),
-                format_number: Some(format.into()),
-                title_visible: Some(false),
-                labels_visible: Some(label_visible(plan, key, panel)),
-                label_font_size: Some(11.0),
-                grid_color: Some([0.89, 0.92, 0.94, 1.0]),
-                grid_width: Some(1.0),
-                domain_color: Some([0.65, 0.71, 0.75, 1.0]),
-                tick_color: Some([0.65, 0.71, 0.75, 1.0]),
-                label_color: Some(MUTED),
-                ..Default::default()
+                tick_format: format.into(),
+                tick_label: None,
+                style: AxisStyle {
+                    tick_count: Some(count),
+                    title_visible: false,
+                    labels_visible: label_visible(plan, key, panel),
+                    label_font_size: 11.0,
+                    grid_color: [0.89, 0.92, 0.94, 1.0],
+                    grid_width: 1.0,
+                    domain_color: [0.65, 0.71, 0.75, 1.0],
+                    tick_color: [0.65, 0.71, 0.75, 1.0],
+                    label_color: MUTED,
+                    ..Default::default()
+                },
             },
             &state.engine,
         )
@@ -280,7 +290,7 @@ struct Measured {
     group: SceneGroup,
     size: Size,
 }
-fn measured(mut group: SceneGroup, engine: &TextEngine) -> Measured {
+fn measured(mut group: SceneGroup, engine: &LabelEngine) -> Measured {
     let bbox = group.bounding_box(engine);
     let lo = bbox.lower();
     let hi = bbox.upper();
@@ -294,25 +304,25 @@ fn measured(mut group: SceneGroup, engine: &TextEngine) -> Measured {
 fn shared_content(instance: &GuideInstance, state: &State) -> Result<Measured, String> {
     let mut group = SceneGroup::default();
     if instance.kind() == GuideKind::Legend {
-        group = make_symbol_legend_with_text_engine(
+        group = make_symbol_legend(
             &SymbolLegendConfig {
                 title: Some("Sales channel".into()),
                 text: vec!["Online".to_string(), "Retail".to_string()].into(),
                 fill: vec![ColorOrGradient::Color(BLUE), ColorOrGradient::Color(ORANGE)].into(),
                 size: 64.0.into(),
-                inner_width: 0.0,
-                inner_height: 0.0,
-                outer_margin: 0.0,
                 text_padding: 7.0,
-                title_font_size: Some(12.0),
-                label_font_size: Some(12.0),
-                title_color: Some(INK),
-                label_color: Some(MUTED),
+                style: LegendStyle {
+                    label_font_size: 12.0,
+                    title_color: INK,
+                    label_color: MUTED,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &state.engine,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .group;
     } else {
         let label = match instance.key().as_str() {
             "x-title" => "Month".to_string(),
@@ -351,7 +361,7 @@ fn shared_content(instance: &GuideInstance, state: &State) -> Result<Measured, S
             INK,
         );
         if instance.kind() == GuideKind::Header {
-            mark.font_weight = FontWeight::Number(600.0).into();
+            mark.font_weight = FontWeight(600).into();
         }
         if matches!(instance.side(), Side::Left | Side::Right) {
             mark.angle = (-90.0).into();
@@ -697,17 +707,17 @@ pub fn build(state: &State) -> Result<Output, String> {
                     };
                     xs.push(
                         r.x + x
-                            .scale_scalar(&(month as f32 + 1.0))
+                            .scale_scalar(&(month as f64 + 1.0))
                             .map_err(|e| e.to_string())?
-                            .as_f32()
-                            .unwrap(),
+                            .as_f64()
+                            .unwrap() as f32,
                     );
                     ys.push(
                         r.y + y
-                            .scale_scalar(&v)
+                            .scale_scalar(&f64::from(v))
                             .map_err(|e| e.to_string())?
-                            .as_f32()
-                            .unwrap(),
+                            .as_f64()
+                            .unwrap() as f32,
                     );
                 }
                 chart.push(
@@ -717,7 +727,7 @@ pub fn build(state: &State) -> Result<Output, String> {
                         y: ys.into(),
                         stroke: ColorOrGradient::Color(color),
                         stroke_width: 2.5,
-                        interactive: false,
+                        interactive: Some(false),
                         ..Default::default()
                     }
                     .into(),
@@ -823,7 +833,7 @@ pub fn build(state: &State) -> Result<Output, String> {
         .into(),
     ];
     let mut title = text("One figure. Independent decisions.", 28.0, 47.0, 28.0, INK);
-    title.font_weight = FontWeight::Number(600.0).into();
+    title.font_weight = FontWeight(600).into();
     marks.push(title.into());
     marks.push(
         text(
