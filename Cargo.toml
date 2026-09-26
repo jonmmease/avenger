@@ -4,6 +4,7 @@ members = [
     "avenger-color",
     "avenger-fonts",
     "avenger-format",
+    "avenger-format-config",
     "avenger-format-number-d3",
     "avenger-format-datetime-d3",
     "avenger-format-datetime-chrono",
@@ -92,7 +93,6 @@ geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
 rstar = "0.13.0"
-cosmic-text = "0.14.2"
 geo-svg = "0.7.3"
 indexmap = { version = "2.9.0", features = ["serde"] }
 pollster = "0.4.0"

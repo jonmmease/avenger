@@ -41,6 +41,8 @@ jobs:
         run: |
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
+      - name: Check text path invariants in debug mode
+        run: cargo test -p avenger-text --lib --locked
       - name: Verify Typst layout against upstream PNGs
         run: cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --locked
       - name: Run doc tests
