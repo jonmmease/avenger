@@ -1,16 +1,26 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
+use std::sync::Arc;
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{StrokeCap, StrokeJoin, SymbolShape};
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use avenger_common::{
+    types::{StrokeCap, StrokeJoin, SymbolShape},
+    value::ScalarOrArray,
+};
+use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
+    line::SceneLineMark,
+    mark::SceneMark,
+    symbol::SceneSymbolMark,
+};
 use lyon_extra::parser::ParseError;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::{CssColorOrGradient, StrokeDashSpec},
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,10 +91,10 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 line_marks.push(SceneMark::Line(mark));
             }
             return Ok(SceneMark::Group(SceneGroup {
-                pattern_reference_frame: None,
-                interactive: true,
                 name: "symbol_line_legend".to_string(),
+                interactive: self.interactive,
                 origin: [0.0, 0.0],
+                pattern_reference_frame: None,
                 clip: Clip::None,
                 marks: line_marks,
                 gradients: vec![],

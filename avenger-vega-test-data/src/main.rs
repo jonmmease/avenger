@@ -1,9 +1,11 @@
-use std::fs::DirEntry;
-use std::path::Path;
-use std::sync::Once;
-use std::{fs, io};
-use vl_convert_rs::text::register_font_directory;
-use vl_convert_rs::VlConverter;
+use std::{
+    fs::{self, DirEntry},
+    io,
+    path::Path,
+    sync::Once,
+};
+
+use vl_convert_rs::{text::register_font_directory, VlConverter};
 static INIT: Once = Once::new();
 
 pub fn initialize() {

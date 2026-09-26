@@ -1,6 +1,8 @@
 use avenger_text::error::AvengerTextError;
 use thiserror::Error;
 
+use avenger_resource::ResourceKey;
+
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyErr};
 
@@ -15,6 +17,15 @@ pub enum AvengerSceneGraphError {
 
     #[error("Error generating text geometry")]
     TextGeometryError(AvengerTextError),
+
+    #[error("Image resource is pending: {0:?}")]
+    ImageResourcePending(ResourceKey),
+
+    #[error("Image resource is missing: {0:?}")]
+    ImageResourceMissing(ResourceKey),
+
+    #[error("Image resource failed: {0:?}: {1}")]
+    ImageResourceFailed(ResourceKey, String),
 }
 
 // Conversion to PyO3 error
