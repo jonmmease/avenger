@@ -17,7 +17,7 @@ fn chart_group(out: &scene::Output) -> &SceneGroup {
 
 #[test]
 fn outer_x_labels_remain_shared_with_independent_y_domains() {
-    let mut state = State::new(d3_text_engine());
+    let mut state = State::new(avenger_text::default_text_engine(), d3_formatting());
     state.y_scope = 0;
     state.title_scope = 1;
     for preset in [1, 2] {
@@ -72,7 +72,7 @@ fn outer_x_labels_remain_shared_with_independent_y_domains() {
 
 #[test]
 fn explorer_coordinates_domains_titles_legends_and_reflow_through_public_plans() {
-    let mut state = State::new(d3_text_engine());
+    let mut state = State::new(avenger_text::default_text_engine(), d3_formatting());
     let base = scene::build(&state).unwrap();
     assert_eq!(base.columns, 3);
     assert!(!base.fallback);
@@ -148,7 +148,7 @@ fn explorer_coordinates_domains_titles_legends_and_reflow_through_public_plans()
 
 #[test]
 fn equal_domains_with_different_units_keep_local_y_labels() {
-    let mut state = State::new(d3_text_engine());
+    let mut state = State::new(avenger_text::default_text_engine(), d3_formatting());
     state.preset = 2;
     state.y_scope = 2;
     let mixed = scene::build(&state).unwrap();
@@ -169,7 +169,7 @@ fn crowded_layouts_request_room_and_recover_after_resize() {
         ([720.0, 780.0], 1, 0, false, 2),
         ([720.0, 780.0], 1, 2, true, 2),
     ] {
-        let mut state = State::new(d3_text_engine());
+        let mut state = State::new(avenger_text::default_text_engine(), d3_formatting());
         state.size = size;
         state.y_scope = 0;
         state.title_scope = title_scope;
@@ -193,7 +193,7 @@ fn crowded_layouts_request_room_and_recover_after_resize() {
 fn measured_guides_do_not_overlap_axes_or_each_other_or_leave_the_canvas() {
     use avenger_geometry::marks::MarkGeometryUtils;
 
-    let mut state = State::new(d3_text_engine());
+    let mut state = State::new(avenger_text::default_text_engine(), d3_formatting());
     for (size, local) in [
         ([1280.0, 900.0], false),
         ([940.0, 1100.0], false),
@@ -250,26 +250,6 @@ fn measured_guides_do_not_overlap_axes_or_each_other_or_leave_the_canvas() {
     }
 }
 
-fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
-        .with_datetime_formatting(
-            avenger_text::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_text::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
-        )
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
 }

@@ -6692,8 +6692,6 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-eventstream",
- "avenger-format-datetime-d3",
- "avenger-format-number-d3",
  "avenger-geometry",
  "avenger-guides",
  "avenger-layout",

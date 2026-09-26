@@ -149,6 +149,8 @@ fn axes(
     grid: bool,
 ) -> Result<Vec<SceneGroup>, String> {
     let (x, y) = scales(domain, size);
+    let x = x.with_formatting(state.formatting.clone());
+    let y = y.with_formatting(state.formatting.clone());
     [
         (x, AxisOrientation::Bottom, "x-labels", 6.0, ".0f"),
         (

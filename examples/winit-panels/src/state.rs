@@ -6,6 +6,7 @@ use avenger_text::TextEngine;
 pub struct State {
     pub size: [f32; 2],
     pub engine: TextEngine,
+    pub formatting: avenger_scales::formatter::ScaleFormatting,
     pub y_scope: usize,
     pub title_scope: usize,
     pub legend_scope: usize,
@@ -16,10 +17,11 @@ pub struct State {
     pub preset: usize,
 }
 impl State {
-    pub fn new(engine: TextEngine) -> Self {
+    pub fn new(engine: TextEngine, formatting: avenger_scales::formatter::ScaleFormatting) -> Self {
         Self {
             size: [1280.0, 900.0],
-            engine,
+            engine: formatting.configure_text_engine(engine),
+            formatting,
             y_scope: 1,
             title_scope: 2,
             legend_scope: 1,

@@ -11,8 +11,6 @@ crate-type = ["cdylib", "rlib"]
 wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [dependencies]
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-app = { path = "../../avenger-app" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
