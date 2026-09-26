@@ -72,6 +72,58 @@ impl LogicalRect {
     }
 }
 
+/// Identity of one focused text-input session. Hosts preserve it on queued input.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InputSession {
+    pub owner: SmolStr,
+    pub generation: u64,
+}
+
+/// Keys whose browser defaults are handled by the installed canvas controls.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardPolicy {
+    pub keys: Vec<crate::window::NamedKey>,
+    pub tab_forward: bool,
+    pub tab_backward: bool,
+    pub text_shortcuts: bool,
+}
+
+impl KeyboardPolicy {
+    /// Decide synchronously whether a DOM key's default action belongs to the canvas.
+    pub fn captures(
+        &self,
+        key: crate::window::Key,
+        modifiers: crate::scene::ModifiersState,
+    ) -> bool {
+        use crate::window::{Key, NamedKey};
+        match key {
+            Key::Named(NamedKey::Tab) => {
+                if modifiers.control || modifiers.alt || modifiers.meta {
+                    return false;
+                }
+                if modifiers.shift {
+                    self.tab_backward
+                } else {
+                    self.tab_forward
+                }
+            }
+            Key::Named(key) => {
+                (self.text_shortcuts || !(modifiers.control || modifiers.alt || modifiers.meta))
+                    && self.keys.contains(&key)
+            }
+            Key::Character(' ') => {
+                !(modifiers.control || modifiers.alt || modifiers.meta)
+                    && self.keys.contains(&NamedKey::Space)
+            }
+            Key::Character(ch) => {
+                self.text_shortcuts
+                    && (modifiers.control || modifiers.meta)
+                    && matches!(ch.to_ascii_lowercase(), 'a' | 'z' | 'y')
+            }
+        }
+    }
+}
+
 /// Host-neutral styling for one transient tooltip overlay.
 ///
 /// Every length is expressed in root-canvas logical pixels. Colors are
@@ -254,11 +306,27 @@ pub enum RuntimeHostCommand {
     CancelWakeup {
         key: RuntimeWakeKey,
     },
+    /// Set the owner of subsequent text, IME, and clipboard input.
+    SetInputSession {
+        session: Option<InputSession>,
+    },
+    /// Publish synchronous browser key ownership. None restores legacy host behavior.
+    SetKeyboardPolicy {
+        policy: Option<KeyboardPolicy>,
+    },
+    /// Capture the active primary mouse pointer, or release it.
+    SetPointerCapture {
+        captured: bool,
+    },
     SetImeAllowed {
         allowed: bool,
     },
     SetImeCursorArea {
         rect: Option<LogicalRect>,
+    },
+    /// Cache the focused selection for synchronous browser copy/cut events.
+    SetClipboardPayload {
+        text: String,
     },
     WriteClipboard {
         text: String,
