@@ -7941,6 +7941,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "winit-mosaic-flights"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-color",
+ "avenger-common",
+ "avenger-datafusion-dataflow",
+ "avenger-datafusion-preaggregate",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-layout",
+ "avenger-panels",
+ "avenger-scales",
+ "avenger-scales-datafusion",
+ "avenger-scenegraph",
+ "avenger-selection",
+ "avenger-text",
+ "avenger-transform",
+ "avenger-wgpu",
+ "avenger-winit-wgpu",
+ "datafusion",
+ "tokio",
+ "winit",
+]
+
+[[package]]
 name = "winit-panels"
 version = "0.1.0"
 dependencies = [
