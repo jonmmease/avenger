@@ -96,9 +96,11 @@ function numberCases() {
 
 function timeCases(zone) {
   const cases = [];
-  const add = (spec, values, locale = 'en-US') => {
-    const f = timeFormatLocale(timeLocales[locale]).format(spec);
-    for (const value of values) cases.push({locale, zone, spec, value, expected: f(new Date(value))});
+  const add = (spec, values, locale = 'en-US', mode = 'format') => {
+    const d3 = timeFormatLocale(timeLocales[locale]);
+    const vega = vegaLocale(numberLocales['en-US'], timeLocales[locale]);
+    const f = mode === 'multi' ? vega.timeFormat(spec) : d3.format(spec);
+    for (const value of values) cases.push({locale, zone, mode, spec, value, expected: f(new Date(value))});
   };
   const dates = [Date.parse('2024-02-29T13:05:06.007Z'), -1, Date.parse('0001-01-01T00:00:00Z'), Date.parse('-000001-01-01T00:00:00Z')];
   if (zone === 'UTC') {
@@ -109,9 +111,18 @@ function timeCases(zone) {
     add('%Y-%m-%d %j %u %w %U %W %V %g %G', boundaries);
     for (const locale of Object.keys(timeLocales)) {
       add('%c | %x | %X | %A %B %p | 100%%', dates.slice(0, 2), locale);
+      if (locale !== 'en-US') {
+        add(null, ['2024-05-01T00:00:00Z', '2024-05-06T13:00:00Z'].map(Date.parse), locale, 'multi');
+      }
     }
   }
   add('%Y-%m-%d %H:%M:%S.%L %Z %Q %s %j %U %W %V %g %G', dates);
+
+  // Local calendar boundaries exercise every selection branch in each display zone.
+  const boundaries = ['2024-01-01T00:00:00', '2024-04-01T00:00:00', '2024-05-01T00:00:00', '2024-05-05T00:00:00', '2024-05-06T00:00:00', '2024-05-06T01:00:00', '2024-05-06T01:02:00', '2024-05-06T01:02:03', '2024-05-06T01:02:03.004'].map(Date.parse);
+  const overrides = {year: 'Y%Y', quarter: 'Q%q', month: '%b', week: 'W%U', date: '%-d', hours: '%Hh', minutes: '%Mmin', seconds: '%Ssec', milliseconds: '%f'};
+  add(null, boundaries, 'en-US', 'multi');
+  add(overrides, boundaries, 'en-US', 'multi');
 
   const transitions = {
     'America/New_York': ['2024-03-10T06:59:59.999Z', '2024-03-10T07:00:00Z', '2024-11-03T05:30:00Z', '2024-11-03T06:30:00Z'],
@@ -122,6 +133,7 @@ function timeCases(zone) {
   }[zone] || [];
   if (transitions.length) {
     add('%Y-%m-%d %H:%M:%S.%L %Z %Q %s', transitions.map(Date.parse));
+    add(null, transitions.map(Date.parse), 'en-US', 'multi');
   }
   return cases;
 }
@@ -134,10 +146,17 @@ if (process.argv[2] === '--time') {
   for (const zone of ['UTC', 'America/New_York', 'Asia/Kathmandu', 'Australia/Lord_Howe', 'America/Sao_Paulo', 'America/Havana']) {
     times.cases.push(...JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--time'], {env: {...process.env, TZ: zone}, maxBuffer: 8 * 1024 * 1024})));
   }
-  for (const [crate, fixture] of [['number', numbers], ['datetime', times]]) {
-    const dir = new URL(`avenger-format-${crate}-d3/tests/fixtures/`, root);
+  const multi = {locales: timeLocales, cases: times.cases.filter(item => item.mode === 'multi')};
+  times.cases = times.cases.filter(item => item.mode !== 'multi').map(({mode, ...item}) => item);
+  for (const [path, fixture] of [
+    ['avenger-format-number-d3/tests/fixtures/upstream.json', numbers],
+    ['avenger-format-datetime-d3/tests/fixtures/upstream.json', times],
+    ['avenger-scales/tests/fixtures/time-multi.json', multi]
+  ]) {
+    const destination = new URL(path, root);
+    const dir = new URL('./', destination);
     mkdirSync(dir, {recursive: true});
-    writeFileSync(new URL('upstream.json', dir), `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
+    writeFileSync(destination, `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
   }
-  console.log(`Generated ${numbers.cases.length} number and ${times.cases.length} datetime cases with ${process.version}.`);
+  console.log(`Generated ${numbers.cases.length} number and ${times.cases.length} scalar datetime and ${multi.cases.length} calendar cases with ${process.version}.`);
 }
