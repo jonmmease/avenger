@@ -583,6 +583,8 @@ impl PdfRenderer {
             .as_ref()
             .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
 
+        let number_format = mark.number_format.as_ref().map(|config| config.binding());
+        let datetime_format = mark.datetime_format.as_ref().map(|config| config.binding());
         for (
             index,
             (
@@ -662,8 +664,8 @@ impl PdfRenderer {
                 limit: *limit,
                 syntax_mode: mark.text_syntax,
                 params: &mark.text_params,
-                number_format: mark.number_format.as_ref(),
-                datetime_format: mark.datetime_format.as_ref(),
+                number_format: number_format.as_ref(),
+                datetime_format: datetime_format.as_ref(),
             })?;
 
             if *leader {
