@@ -7953,8 +7953,6 @@ dependencies = [
  "avenger-datafusion-dataflow",
  "avenger-datafusion-preaggregate",
  "avenger-eventstream",
- "avenger-format-datetime-d3",
- "avenger-format-number-d3",
  "avenger-geometry",
  "avenger-guides",
  "avenger-layout",

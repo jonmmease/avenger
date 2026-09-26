@@ -28,6 +28,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct State {
     pub text: TextEngine,
+    pub formatting: avenger_scales::formatter::ScaleFormatting,
     pub plots: Arc<Vec<Rect>>,
     pub selections: Selections,
     pub result: Arc<Evaluation>,
@@ -44,7 +45,11 @@ pub struct State {
     commit: DebouncedCommit<(usize, [f64; 2])>,
 }
 impl State {
-    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, BackgroundTasks)> {
+    pub async fn load(
+        config: Config,
+        text: TextEngine,
+        formatting: avenger_scales::formatter::ScaleFormatting,
+    ) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
         let selections = Selections::new(plots[0].width)?;
         let engine = Engine::load(&config, &selections).await?;
@@ -53,7 +58,8 @@ impl State {
         let tasks = BackgroundTasks::new();
         Ok((
             Self {
-                text,
+                text: formatting.configure_text_engine(text),
+                formatting,
                 plots,
                 selections,
                 result,
