@@ -266,7 +266,12 @@ mod tests {
             .unwrap();
         assert_eq!(marked.load(Ordering::Acquire), 2);
         b_send.send(()).unwrap();
-        assert_eq!(installed.recv().await, Some((2, Sample::B)));
+        let update = tokio::time::timeout(Duration::from_secs(10), installed.recv())
+            .await
+            .unwrap_or_else(|_| {
+                panic!("sample B was not installed: {:?}", feedback.lock().unwrap())
+            });
+        assert_eq!(update, Some((2, Sample::B)));
         a_send.send(()).unwrap();
         finish(&coordinator).await;
         assert!(installed.try_recv().is_err());
