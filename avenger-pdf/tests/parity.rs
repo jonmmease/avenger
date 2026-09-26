@@ -1,0 +1,84 @@
+#[path = "../../tests/render_fixtures/parity.rs"]
+mod parity;
+#[path = "support/pdf_raster.rs"]
+mod pdf_raster;
+#[path = "../../tests/render_fixtures/raster.rs"]
+#[allow(dead_code)]
+mod raster;
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+fn shared_scene_rules_survive_pdf_export() {
+    let renderer = avenger_pdf::PdfRenderer::new();
+    let output = std::env::var_os("AVENGER_PARITY_OUTPUT").map(std::path::PathBuf::from);
+    // Smooth transparent images have a separate expected failure below.
+    for case in parity::cases()
+        .into_iter()
+        .filter(|case| case.name != "image-true")
+    {
+        let pdf = renderer.render_scene_graph(&case.scene).unwrap();
+        let image = pdf_raster::pdf_to_png(&pdf, case.scene.width, case.scene.height);
+        if let Some(output) = &output {
+            std::fs::create_dir_all(output).unwrap();
+            std::fs::write(output.join(format!("{}.pdf", case.name)), &pdf).unwrap();
+            image
+                .save(output.join(format!("{}-pdf.png", case.name)))
+                .unwrap();
+        }
+        if !case.browser_only {
+            let svg = avenger_svg::SvgRenderer::new()
+                .render_scene_graph(&case.scene)
+                .unwrap();
+            let reference = raster::svg_to_png(&svg, 2.0);
+            let large = image
+                .pixels()
+                .zip(reference.pixels())
+                .filter(|(a, b)| a.0.into_iter().zip(b.0).any(|(a, b)| a.abs_diff(b) > 20))
+                .count();
+            assert!(
+                large < image.pixels().len() / 100,
+                "{}: {large} pixels differ beyond edge tolerance",
+                case.name
+            );
+        }
+        // Native radial shading color samples vary slightly between PDF viewers.
+        let tolerance = if case.browser_only { 5 } else { 3 };
+        for (point, expected) in case.samples {
+            let actual = image.get_pixel(point[0] * 2, point[1] * 2).0;
+            assert!(
+                actual
+                    .into_iter()
+                    .zip(expected)
+                    .all(|(a, b)| a.abs_diff(b) <= tolerance),
+                "{} {point:?}: {actual:?} != {expected:?}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires PDFium 7763; see avenger-pdf/README.md"]
+#[should_panic(expected = "smooth transparent image needs Krilla /Matte support")]
+fn smooth_transparent_images_match_premultiplied_alpha() {
+    // Krilla 0.8.2 cannot set /Matte on image soft masks. PDFium interpolates
+    // straight RGB and alpha separately, exposing colors from transparent pixels.
+    // Remove should_panic when the image path supports premultiplied interpolation.
+    let case = parity::cases()
+        .into_iter()
+        .find(|case| case.name == "image-true")
+        .unwrap();
+    let pdf = avenger_pdf::PdfRenderer::new()
+        .render_scene_graph(&case.scene)
+        .unwrap();
+    let image = pdf_raster::pdf_to_png(&pdf, case.scene.width, case.scene.height);
+    let (point, expected) = case.samples[0];
+    let actual = image.get_pixel(point[0] * 2, point[1] * 2).0;
+    assert!(
+        actual
+            .into_iter()
+            .zip(expected)
+            .all(|(a, b)| a.abs_diff(b) <= 3),
+        "smooth transparent image needs Krilla /Matte support: {actual:?} != {expected:?}"
+    );
+}
