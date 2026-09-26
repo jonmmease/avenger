@@ -300,6 +300,12 @@ fn copy_image_to_atlas(
         return;
     }
 
+    let image = image::RgbaImage::from_raw(
+        image.width(),
+        image.height(),
+        crate::image_resources::premultiplied_pixels(image.as_raw()),
+    )
+    .expect("dimensions match source pixels");
     let content_x = entry.x + IMAGE_ATLAS_GUTTER_PX;
     let content_y = entry.y + IMAGE_ATLAS_GUTTER_PX;
     for src_y in 0..copy_height {

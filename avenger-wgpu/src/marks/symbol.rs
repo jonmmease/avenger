@@ -166,13 +166,16 @@ impl SymbolShader {
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.1);
+            let fill_options = FillOptions::default()
+                .with_fill_rule(mark.fill_rule.into())
+                .with_tolerance(0.1);
             fill_tessellator.tessellate_path(&scaled_path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
             if mark.stroke_width.is_some() {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
+                    .with_miter_limit(avenger_common::types::LYON_SCENE_MITER_LIMIT)
                     .with_tolerance(0.1)
                     .with_line_width(1.0);
                 stroke_tessellator.tessellate_path(&scaled_path, &stroke_options, &mut builder)?;
@@ -297,6 +300,7 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.shape_index.hash(&mut hasher);
         self.x.hash(&mut hasher);
         self.y.hash(&mut hasher);
+        self.fill_rule.hash(&mut hasher);
         self.fill.hash(&mut hasher);
         self.size.hash(&mut hasher);
         self.stroke.hash(&mut hasher);
