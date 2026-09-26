@@ -5,26 +5,22 @@ use avenger_text::{FontResolutionOptions, TextEngine};
 
 #[test]
 fn guide_bounds_use_the_supplied_font_context() {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
+    let formatting =
+        avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default());
     let context = |family: &str| {
-        TextEngine::with_font_resolution(&FontResolutionOptions {
-            load_system_fonts: false,
-            default_sans_serif_family: Some(family.to_string()),
-            ..avenger_text::default_font_resolution()
-        })
-        .unwrap()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry.clone()),
+        formatting.configure_text_engine(
+            TextEngine::with_font_resolution(&FontResolutionOptions {
+                load_system_fonts: false,
+                default_sans_serif_family: Some(family.to_string()),
+                ..avenger_text::default_font_resolution()
+            })
+            .unwrap(),
         )
     };
     let proportional = context("Lato");
     let monospace = context("DejaVu Sans Mono");
-    let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+    let mut scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+    scale.config.context.formatting = formatting.clone();
     let title = "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii";
     let axis = |engine: &TextEngine| {
         make_numeric_axis_marks_with_text_engine(

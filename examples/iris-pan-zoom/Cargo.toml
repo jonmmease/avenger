@@ -7,8 +7,6 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-text = { path = "../../avenger-text", default-features = false }
 avenger-color = { path = "../../avenger-color" }
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }

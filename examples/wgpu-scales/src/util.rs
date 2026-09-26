@@ -220,10 +220,12 @@ pub async fn run() {
         .with_option("band", 0.0);
     let x2_scale = x_scale.clone().with_option("band", 1.0);
 
-    let y_scale = LinearScale::configured((0.0, 100.0), (height, 0.0));
+    let y_scale =
+        LinearScale::configured((0.0, 100.0), (height, 0.0)).with_formatting(d3_formatting());
 
     let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"])
-        .with_option("nice", 10.0);
+        .with_option("nice", 10.0)
+        .with_formatting(d3_formatting());
 
     // Make rect mark
     let rect = SceneRectMark {
@@ -379,26 +381,10 @@ pub async fn run() {
         .expect("Failed to run event loop");
 }
 
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+}
+
 fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
-        .with_datetime_formatting(
-            avenger_text::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_text::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
-        )
+    d3_formatting().configure_text_engine(avenger_text::default_text_engine())
 }

@@ -16,10 +16,10 @@ pub struct AxisConfig {
     pub format_number: Option<String>,
     pub format_datetime: Option<String>,
     pub tick_label: Option<String>,
-    /// Override the text engine’s number format for tick labels and titles.
-    pub number_format: Option<avenger_format::NumberFormatConfig>,
-    /// Override the text engine’s datetime format for tick labels and titles.
-    pub datetime_format: Option<avenger_format::DateTimeFormatConfig>,
+    /// Number settings for ticks and titles. Ticks otherwise use scale settings.
+    pub number_format: Option<avenger_format_config::NumberFormatConfig>,
+    /// Datetime settings for ticks and titles. Ticks otherwise use scale settings.
+    pub datetime_format: Option<avenger_format_config::DateTimeFormatConfig>,
     pub title_font_size: Option<f32>,
     // Theming
     pub domain_color: Option<[f32; 4]>,

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+avenger-format-config = { path = "../avenger-format-config" }
 avenger-format = { path = "../avenger-format" }
 serde_json = { workspace = true }
 avenger-scales = { path = "../avenger-scales" }
