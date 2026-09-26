@@ -155,9 +155,62 @@ pub fn tick_increment(start: f32, stop: f32, count: f32) -> f32 {
     10.0_f32.powf(power) * factor
 }
 
+/// Return D3's signed tick spacing for a domain and approximate interval count.
+/// Uses f64 arithmetic so label precision does not inherit f32 rounding at powers of ten.
+pub fn tick_step(start: f64, stop: f64, count: f64) -> f64 {
+    if stop < start {
+        return -tick_step(stop, start, count);
+    }
+    let step = (stop - start) / count.max(0.0);
+    let power = step.log10().floor();
+    let error = step / 10_f64.powf(power);
+    let factor = if error >= 50_f64.sqrt() {
+        10.0
+    } else if error >= 10_f64.sqrt() {
+        5.0
+    } else if error >= 2_f64.sqrt() {
+        2.0
+    } else {
+        1.0
+    };
+    let increment = if power < 0.0 {
+        -(10_f64.powf(-power) / factor)
+    } else {
+        10_f64.powf(power) * factor
+    };
+    let (first, last) = if increment < 0.0 {
+        ((start * -increment).ceil(), (stop * -increment).floor())
+    } else {
+        ((start / increment).ceil(), (stop / increment).floor())
+    };
+    if last < first && (0.5..2.0).contains(&count) {
+        return tick_step(start, stop, count * 2.0);
+    }
+    if increment < 0.0 {
+        1.0 / -increment
+    } else {
+        increment
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tick_step_preserves_d3_precision_boundaries() {
+        for (start, stop, count, expected) in [
+            (0.0, 1.0, 10.0, 0.1),
+            (1.0, 0.0, 10.0, -0.1),
+            (0.0, 0.1, 10.0, 0.01),
+            (0.0, 0.01, 10.0, 0.001),
+            (0.0, 10.0, 3.0, 5.0),
+            (0.0, 1.0, 0.5, 2.0),
+            (1.0, 1.0, 10.0, 0.0),
+        ] {
+            assert_eq!(tick_step(start, stop, count), expected);
+        }
+    }
 
     #[test]
     fn test_ticks() {

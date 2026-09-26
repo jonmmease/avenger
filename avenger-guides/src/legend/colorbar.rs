@@ -5,7 +5,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
 
 use crate::{
     axis::{
-        numeric::make_numeric_axis_marks,
+        numeric::make_numeric_axis_marks_with_text_engine,
         opts::{AxisConfig, AxisOrientation},
     },
     error::AvengerGuidesError,
@@ -16,6 +16,22 @@ pub fn make_colorbar_marks(
     title: &str,
     origin: [f32; 2],
     config: &ColorbarConfig,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    make_colorbar_marks_with_text_engine(
+        scale,
+        title,
+        origin,
+        config,
+        &avenger_text::default_text_engine(),
+    )
+}
+
+pub fn make_colorbar_marks_with_text_engine(
+    scale: &ConfiguredScale,
+    title: &str,
+    origin: [f32; 2],
+    config: &ColorbarConfig,
+    text_engine: &avenger_text::TextEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => todo!(),
@@ -30,13 +46,20 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
+                ..Default::default()
             };
 
             // Create a new scale with desired range for the axis
             let numeric_scale = scale
                 .clone()
                 .with_range_interval((config.dimensions[1], 0.0));
-            let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config)?;
+            let axis = make_numeric_axis_marks_with_text_engine(
+                &numeric_scale,
+                title,
+                origin,
+                &axis_config,
+                text_engine,
+            )?;
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
