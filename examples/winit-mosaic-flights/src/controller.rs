@@ -19,6 +19,7 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, EventStreamContext, EventStreamFilter, UpdateStatus},
     window::{Key, MouseButton, NamedKey},
 };
+use avenger_format::NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_panels::Rect;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -28,6 +29,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct State {
     pub text: TextEngine,
+    /// Prepares the axes' number patterns, and formats numbers in `text`'s labels.
+    pub number_format: Arc<dyn NumberFormatProvider>,
     pub plots: Arc<Vec<Rect>>,
     pub selections: Selections,
     pub result: Arc<Evaluation>,
@@ -44,7 +47,11 @@ pub struct State {
     commit: DebouncedCommit<(usize, [f64; 2])>,
 }
 impl State {
-    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, BackgroundTasks)> {
+    pub async fn load(
+        config: Config,
+        text: TextEngine,
+        number_format: Arc<dyn NumberFormatProvider>,
+    ) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
         let selections = Selections::new(plots[0].width)?;
         let engine = Engine::load(&config, &selections).await?;
@@ -53,7 +60,8 @@ impl State {
         let tasks = BackgroundTasks::new();
         Ok((
             Self {
-                text,
+                text: text.with_number_formatting(number_format.clone()),
+                number_format,
                 plots,
                 selections,
                 result,

@@ -6,8 +6,8 @@ use arrow::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_guides::axis::{
-    numeric::make_numeric_axis_marks_with_text_engine,
-    opts::{AxisConfig, AxisOrientation},
+    continuous::make_continuous_axis_marks_with_text_engine,
+    opts::{AxisConfig, AxisOrientation, AxisStyle},
 };
 use avenger_panels::Rect;
 use avenger_scales::scales::{ConfiguredScale, linear::LinearScale};
@@ -79,16 +79,19 @@ pub fn build(s: &State) -> Result<SceneGraph> {
             (&y, AxisOrientation::Left, "Count", ".2~s"),
         ] {
             marks.push(
-                make_numeric_axis_marks_with_text_engine(
+                make_continuous_axis_marks_with_text_engine(
                     scale,
                     title,
                     [r.x, r.y],
                     &AxisConfig {
                         dimensions: [r.width, r.height],
                         orientation,
-                        tick_count: Some(5.),
-                        format_number: Some(format.into()),
-                        ..Default::default()
+                        grid: false,
+                        format: s.number_format.prepare(format)?.into(),
+                        style: AxisStyle {
+                            tick_count: Some(5.),
+                            ..Default::default()
+                        },
                     },
                     &s.text,
                 )?
