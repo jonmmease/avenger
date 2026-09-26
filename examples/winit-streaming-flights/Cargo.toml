@@ -1,0 +1,36 @@
+[package]
+name = "winit-streaming-flights"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+arrow.workspace = true
+datafusion = { workspace = true, features = ["parquet", "nested_expressions"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+winit.workspace = true
+avenger-app = { path = "../../avenger-app" }
+avenger-color = { path = "../../avenger-color" }
+avenger-common = { path = "../../avenger-common" }
+avenger-datafusion-dataflow = { path = "../../avenger-datafusion-dataflow", features = ["sql"] }
+avenger-datafusion-preaggregate = { path = "../../avenger-datafusion-preaggregate", features = ["dataflow"] }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-guides = { path = "../../avenger-guides" }
+avenger-layout = { path = "../../avenger-layout" }
+avenger-panels = { path = "../../avenger-panels" }
+avenger-scales = { path = "../../avenger-scales" }
+avenger-scales-datafusion = { path = "../../avenger-scales-datafusion" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-selection = { path = "../../avenger-selection" }
+avenger-text = { path = "../../avenger-text" }
+avenger-transform = { path = "../../avenger-transform" }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["rayon"] }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+serde_json.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

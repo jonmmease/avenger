@@ -45,6 +45,7 @@ members = [
     "examples/winit-panels",
     "examples/winit-widgets",
     "examples/winit-mosaic-flights",
+    "examples/winit-streaming-flights",
 ]
 exclude = [
     "tools/upstream-typst-probe",
