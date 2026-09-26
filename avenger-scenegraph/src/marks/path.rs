@@ -1,16 +1,26 @@
-use super::mark::SceneMark;
-use crate::marks::mark::default_interactive;
+use std::{
+    hash::{DefaultHasher, Hasher},
+    sync::Arc,
+};
+
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::{PathTransform, StrokeCap, StrokeJoin};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_common::{
+    lyon::hash_lyon_path,
+    types::{PathTransform, StrokeCap, StrokeJoin},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_path::Path;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::hash::{DefaultHasher, Hasher};
-use std::sync::Arc;
+
+use super::{
+    mark::{default_interactive, SceneMark},
+    pattern::{
+        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
+    },
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -26,6 +36,11 @@ pub struct ScenePathMark {
     pub stroke_width: Option<f32>,
     pub path: ScalarOrArray<lyon_path::Path>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(
+        default = "default_no_fill_pattern",
+        skip_serializing_if = "is_no_fill_pattern"
+    )]
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub transform: ScalarOrArray<PathTransform>,
     pub indices: Option<Arc<Vec<usize>>>,
@@ -48,6 +63,7 @@ impl std::hash::Hash for ScenePathMark {
         }
         self.path.hash(state);
         self.fill.hash(state);
+        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
         self.stroke.hash(state);
         self.transform.hash(state);
         self.indices.hash(state);
@@ -66,6 +82,7 @@ impl PartialEq for ScenePathMark {
             || self.stroke_join != other.stroke_join
             || self.stroke_width != other.stroke_width
             || self.fill != other.fill
+            || self.fill_pattern != other.fill_pattern
             || self.stroke != other.stroke
             || self.transform != other.transform
             || self.indices != other.indices
@@ -120,6 +137,11 @@ impl ScenePathMark {
         self.fill.as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -160,8 +182,8 @@ impl ScenePathMark {
 impl Default for ScenePathMark {
     fn default() -> Self {
         Self {
-            interactive: true,
             name: "rule_mark".to_string(),
+            interactive: true,
             clip: true,
             len: 1,
             gradients: vec![],
@@ -170,6 +192,7 @@ impl Default for ScenePathMark {
             stroke_width: Some(0.0),
             path: ScalarOrArray::new_scalar(lyon_path::Path::default()),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             transform: ScalarOrArray::new_scalar(PathTransform::identity()),
             indices: None,
