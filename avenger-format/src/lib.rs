@@ -1,5 +1,8 @@
 //! Provider interfaces for preparing and rendering localized number and datetime labels.
 
+mod binding;
+pub use binding::{DateTimeFormatBinding, NumberFormatBinding};
+
 mod datetime;
 pub use datetime::{
     DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
