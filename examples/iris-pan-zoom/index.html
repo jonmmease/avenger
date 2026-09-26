@@ -7,13 +7,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Iris Pan Zoom WASM</title>
     <style>
-        canvas {
-            background-color: white;
-        }
+        #wasm-example { width: 340px; height: 350px; min-width: 340px; min-height: 350px; resize: both; overflow: hidden; border: 1px solid #bbb; }
+        canvas { display: block; width: 100% !important; height: 100% !important; background: white; }
     </style>
 </head>
 
-<body id="wasm-example">
+<body>
+<p>Drag the plot to pan, scroll to zoom, or drag the frame corner to resize.</p>
+<div id="wasm-example"></div>
 <script type="module">
     const cacheBust = Date.now();
     const { default: init } = await import(`./pkg/iris.js?v=${cacheBust}`);

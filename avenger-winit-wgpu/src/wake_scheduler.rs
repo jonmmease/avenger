@@ -92,6 +92,33 @@ impl RuntimeWakeScheduler {
     }
 }
 
+/// Delivers a host event after a delay on either platform.
+pub(super) fn send_event_after(
+    proxy: EventLoopProxy<WinitWgpuEvent>,
+    event: WinitWgpuEvent,
+    delay: std::time::Duration,
+) {
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let _ = proxy.send_event(event);
+    });
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{closure::Closure, JsCast};
+        let callback = Closure::once_into_js(move || {
+            let _ = proxy.send_event(event);
+        });
+        web_sys::window()
+            .expect("browser window")
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.unchecked_ref(),
+                delay.as_millis().min(i32::MAX as u128) as i32,
+            )
+            .expect("schedule host event");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
