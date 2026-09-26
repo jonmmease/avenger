@@ -1,12 +1,13 @@
 use crate::state::State;
 use avenger_color::ColorOrGradient;
-use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_common::types::FontWeight;
+use avenger_geometry::marks::TextGeometryUtils;
 use avenger_guides::{
     axis::{
-        numeric::make_numeric_axis_marks_with_text_engine,
-        opts::{AxisConfig, AxisOrientation},
+        continuous::make_continuous_axis_marks,
+        opts::{AxisConfig, AxisOrientation, AxisStyle},
     },
-    legend::symbol::{SymbolLegendConfig, make_symbol_legend_with_text_engine},
+    legend::symbol::{SymbolLegendConfig, make_symbol_legend},
 };
 use avenger_layout::{ChromeLayer, Edges, Layout, LayoutSolution, Size, SolveFor, SolveOptions};
 use avenger_panels::*;
@@ -18,7 +19,7 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_text::{TextEngine, types::FontWeight};
+use avenger_typst_label::LabelEngine;
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
 const INK: [f32; 4] = [0.10, 0.17, 0.23, 1.0];
@@ -161,7 +162,11 @@ fn axes(
     ]
     .into_iter()
     .map(|(scale, orientation, key, count, format)| {
-        make_numeric_axis_marks_with_text_engine(
+        let format = state
+            .number_format
+            .prepare(format)
+            .map_err(|e| e.to_string())?;
+        make_continuous_axis_marks(
             &scale,
             "",
             [0.0, 0.0],
@@ -169,17 +174,19 @@ fn axes(
                 orientation,
                 dimensions: [size.width, size.height],
                 grid,
-                tick_count: Some(count),
-                format_number: Some(format.into()),
-                title_visible: Some(false),
-                labels_visible: Some(label_visible(plan, key, panel)),
-                label_font_size: Some(11.0),
-                grid_color: Some([0.89, 0.92, 0.94, 1.0]),
-                grid_width: Some(1.0),
-                domain_color: Some([0.65, 0.71, 0.75, 1.0]),
-                tick_color: Some([0.65, 0.71, 0.75, 1.0]),
-                label_color: Some(MUTED),
-                ..Default::default()
+                format: format.into(),
+                style: AxisStyle {
+                    tick_count: Some(count),
+                    title_visible: Some(false),
+                    labels_visible: Some(label_visible(plan, key, panel)),
+                    label_font_size: Some(11.0),
+                    grid_color: Some([0.89, 0.92, 0.94, 1.0]),
+                    grid_width: Some(1.0),
+                    domain_color: Some([0.65, 0.71, 0.75, 1.0]),
+                    tick_color: Some([0.65, 0.71, 0.75, 1.0]),
+                    label_color: Some(MUTED),
+                    ..Default::default()
+                },
             },
             &state.engine,
         )
@@ -280,7 +287,7 @@ struct Measured {
     group: SceneGroup,
     size: Size,
 }
-fn measured(mut group: SceneGroup, engine: &TextEngine) -> Measured {
+fn measured(mut group: SceneGroup, engine: &LabelEngine) -> Measured {
     let bbox = group.bounding_box(engine);
     let lo = bbox.lower();
     let hi = bbox.upper();
@@ -294,7 +301,7 @@ fn measured(mut group: SceneGroup, engine: &TextEngine) -> Measured {
 fn shared_content(instance: &GuideInstance, state: &State) -> Result<Measured, String> {
     let mut group = SceneGroup::default();
     if instance.kind() == GuideKind::Legend {
-        group = make_symbol_legend_with_text_engine(
+        group = make_symbol_legend(
             &SymbolLegendConfig {
                 title: Some("Sales channel".into()),
                 text: vec!["Online".to_string(), "Retail".to_string()].into(),
@@ -351,7 +358,7 @@ fn shared_content(instance: &GuideInstance, state: &State) -> Result<Measured, S
             INK,
         );
         if instance.kind() == GuideKind::Header {
-            mark.font_weight = FontWeight::Number(600.0).into();
+            mark.font_weight = FontWeight(600).into();
         }
         if matches!(instance.side(), Side::Left | Side::Right) {
             mark.angle = (-90.0).into();
@@ -823,7 +830,7 @@ pub fn build(state: &State) -> Result<Output, String> {
         .into(),
     ];
     let mut title = text("One figure. Independent decisions.", 28.0, 47.0, 28.0, INK);
-    title.font_weight = FontWeight::Number(600.0).into();
+    title.font_weight = FontWeight(600).into();
     marks.push(title.into());
     marks.push(
         text(

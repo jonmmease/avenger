@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
+use avenger_format::NumberFormatProvider;
 use avenger_panels::{Scope, Side};
-use avenger_text::TextEngine;
+use avenger_typst_label::LabelEngine;
 
 /// Controls shared by the native host, browser, and PNG exporter.
 #[derive(Clone)]
 pub struct State {
     pub size: [f32; 2],
-    pub engine: TextEngine,
+    pub engine: LabelEngine,
+    /// Prepares each axis's number pattern, and formats numbers in `engine`'s labels.
+    pub number_format: Arc<dyn NumberFormatProvider>,
     pub y_scope: usize,
     pub title_scope: usize,
     pub legend_scope: usize,
@@ -16,10 +21,11 @@ pub struct State {
     pub preset: usize,
 }
 impl State {
-    pub fn new(engine: TextEngine) -> Self {
+    pub fn new(engine: LabelEngine, number_format: Arc<dyn NumberFormatProvider>) -> Self {
         Self {
             size: [1280.0, 900.0],
-            engine,
+            engine: engine.with_number_formatting(number_format.clone()),
+            number_format,
             y_scope: 1,
             title_scope: 2,
             legend_scope: 1,
