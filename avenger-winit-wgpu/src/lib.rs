@@ -6,6 +6,8 @@ use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent};
 use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use avenger_eventstream::{runtime::LogicalRect, window::ClipboardEvent};
 use avenger_resource::{
     RenderInvalidation, RenderInvalidationHub, RenderInvalidationReason,
     RenderInvalidationSchedule, RenderInvalidationSubscription,
@@ -37,9 +39,20 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{CursorIcon, WindowAttributes, WindowId},
 };
+#[cfg(not(target_arch = "wasm32"))]
+use winit::{dpi::PhysicalPosition, keyboard};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
+
+#[cfg(any(test, target_arch = "wasm32"))]
+mod text_agent;
+#[cfg(target_arch = "wasm32")]
+pub use text_agent::TextAgentHost;
+
+/// Synchronous text supplied to a browser copy/cut callback for the currently
+/// focused canvas control.
+pub type ClipboardPayloadProvider = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watcher;
@@ -84,6 +97,47 @@ impl fmt::Display for WinitWgpuHostInitError {
 
 impl std::error::Error for WinitWgpuHostInitError {}
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeClipboardShortcut {
+    Cut,
+    Copy,
+    Paste,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_clipboard_shortcut(
+    logical_key: &keyboard::Key,
+    state: ElementState,
+    repeat: bool,
+    modifiers: keyboard::ModifiersState,
+) -> Option<NativeClipboardShortcut> {
+    if state != ElementState::Pressed || repeat || modifiers.alt_key() {
+        return None;
+    }
+
+    #[cfg(target_os = "macos")]
+    let command_pressed = modifiers.super_key();
+    #[cfg(not(target_os = "macos"))]
+    let command_pressed = modifiers.control_key();
+    if !command_pressed {
+        return None;
+    }
+
+    let keyboard::Key::Character(character) = logical_key else {
+        return None;
+    };
+    if character.eq_ignore_ascii_case("x") {
+        Some(NativeClipboardShortcut::Cut)
+    } else if character.eq_ignore_ascii_case("c") {
+        Some(NativeClipboardShortcut::Copy)
+    } else if character.eq_ignore_ascii_case("v") {
+        Some(NativeClipboardShortcut::Paste)
+    } else {
+        None
+    }
+}
+
 mod canvas_frame;
 use canvas_frame::{CanvasFrameEventOutcome, CanvasFrameState};
 pub use canvas_frame::{CanvasFrameOptions, WindowSceneSizing};
@@ -98,6 +152,7 @@ pub struct WinitWgpuAvengerAppOptions {
     pub canvas_frame: Option<CanvasFrameOptions>,
     pub canvas_config: CanvasConfig,
     pub render_invalidation_hub: Option<RenderInvalidationHub>,
+    pub clipboard_payload_provider: Option<ClipboardPayloadProvider>,
 }
 
 impl WinitWgpuAvengerAppOptions {
@@ -111,6 +166,7 @@ impl WinitWgpuAvengerAppOptions {
             canvas_frame: None,
             canvas_config: CanvasConfig::default(),
             render_invalidation_hub: None,
+            clipboard_payload_provider: None,
         }
     }
 
@@ -146,6 +202,10 @@ impl WinitWgpuAvengerAppOptions {
 
     pub fn render_invalidation_hub(mut self, hub: RenderInvalidationHub) -> Self {
         self.render_invalidation_hub = Some(hub);
+        self
+    }
+    pub fn clipboard_payload_provider(mut self, provider: ClipboardPayloadProvider) -> Self {
+        self.clipboard_payload_provider = Some(provider);
         self
     }
 }
@@ -191,6 +251,14 @@ where
     stale_canvas_resize_count: usize,
     pending_canvas_resize: Option<CanvasResizeEvent>,
     fatal_error: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    clipboard: Option<arboard::Clipboard>,
+    #[cfg(not(target_arch = "wasm32"))]
+    modifiers: keyboard::ModifiersState,
+    #[cfg(target_arch = "wasm32")]
+    text_agent: std::rc::Rc<std::cell::RefCell<Option<TextAgentHost>>>,
+    #[cfg(target_arch = "wasm32")]
+    clipboard_payload_provider: Option<ClipboardPayloadProvider>,
     wake_scheduler: std::rc::Rc<RuntimeWakeScheduler>,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
@@ -317,6 +385,14 @@ where
             fatal_error: None,
             wake_scheduler,
             #[cfg(not(target_arch = "wasm32"))]
+            clipboard: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            modifiers: keyboard::ModifiersState::default(),
+            #[cfg(target_arch = "wasm32")]
+            text_agent: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            clipboard_payload_provider: options.clipboard_payload_provider,
+            #[cfg(not(target_arch = "wasm32"))]
             last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
             tokio_runtime,
@@ -359,6 +435,7 @@ where
                 let app_clone = self.avenger_app.clone();
                 let event_clone = event.clone();
                 let wake_scheduler = self.wake_scheduler.clone();
+                let text_agent = self.text_agent.clone();
                 let canvas_shared = self.canvas.clone();
                 let evaluation_epoch = self.hub_epoch_at_last_evaluation_start.clone();
                 let hub = self.render_invalidation_hub.clone();
@@ -381,6 +458,7 @@ where
                                     canvas.window().set_cursor(cursor_style_to_winit(cursor));
                                 }
                             }
+                            let mut text_commands = Vec::new();
                             for command in update.status.commands {
                                 match command {
                                     RuntimeHostCommand::RequestWakeup { key, deadline, generation } => wake_scheduler.request(key, deadline, generation),
@@ -390,9 +468,12 @@ where
                                             if let Err(error) = canvas.set_tooltip_update(update) { log::error!("failed to update tooltip: {error}"); }
                                         }
                                     }
+                                    command => text_commands.push(command),
                                 }
                             }
+                            if let Some(host) = text_agent.borrow_mut().as_mut() { host.apply_commands(text_commands); }
                             if let Some(scene_graph) = update.scene_graph {
+                                if let Some(host) = text_agent.borrow_mut().as_mut() { host.set_logical_canvas_size([scene_graph.width, scene_graph.height]); }
                                 let mut canvas_borrowed = canvas_shared.borrow_mut();
                                 if let Some(canvas) = canvas_borrowed.as_mut() {
                                     if let Err(e) = install_scene_graph(
@@ -674,10 +755,54 @@ where
                     generation,
                 } => self.wake_scheduler.request(key, deadline, generation),
                 RuntimeHostCommand::CancelWakeup { key } => self.wake_scheduler.cancel(&key),
+                RuntimeHostCommand::SetImeAllowed { allowed } => {
+                    if let Some(canvas) = self.canvas.borrow().as_ref() {
+                        canvas.window().set_ime_allowed(allowed);
+                    }
+                }
+                RuntimeHostCommand::SetImeCursorArea { rect } => {
+                    if let Some(canvas) = self.canvas.borrow().as_ref() {
+                        let scale = self.scale as f64;
+                        let rect = rect.unwrap_or_else(|| {
+                            LogicalRect::new(0.0, 0.0, 0.0, 0.0)
+                                .expect("zero IME rectangle is finite")
+                        });
+                        let (position, size) = physical_ime_cursor_area(rect, scale);
+                        canvas.window().set_ime_cursor_area(position, size);
+                    }
+                }
+                RuntimeHostCommand::WriteClipboard { text } => {
+                    if self.clipboard.is_none() {
+                        match arboard::Clipboard::new() {
+                            Ok(clipboard) => self.clipboard = Some(clipboard),
+                            Err(err) => {
+                                tracing::warn!(
+                                    target: "avenger_winit_wgpu::clipboard",
+                                    ?err,
+                                    "native clipboard unavailable"
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(clipboard) = self.clipboard.as_mut() {
+                        if let Err(err) = clipboard.set_text(text) {
+                            tracing::warn!(
+                                target: "avenger_winit_wgpu::clipboard",
+                                ?err,
+                                "failed to write native clipboard text"
+                            );
+                        }
+                    }
+                }
                 RuntimeHostCommand::UpdateTooltip(update) => {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         if let Err(error) = canvas.set_tooltip_update(update) {
-                            log::error!("failed to update tooltip: {error}");
+                            tracing::warn!(
+                                target: "avenger_winit_wgpu::tooltip",
+                                ?error,
+                                "failed to update tooltip overlay"
+                            );
                         }
                     }
                 }
@@ -693,19 +818,77 @@ where
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_native_clipboard_shortcut(&mut self, event: &WindowEvent) -> bool {
+        let WindowEvent::KeyboardInput { event, .. } = event else {
+            return false;
+        };
+        let Some(shortcut) = native_clipboard_shortcut(
+            &event.logical_key,
+            event.state,
+            event.repeat,
+            self.modifiers,
+        ) else {
+            return false;
+        };
+
+        let clipboard_event = match shortcut {
+            NativeClipboardShortcut::Cut => ClipboardEvent::Cut,
+            NativeClipboardShortcut::Copy => ClipboardEvent::Copy,
+            NativeClipboardShortcut::Paste => {
+                if self.clipboard.is_none() {
+                    match arboard::Clipboard::new() {
+                        Ok(clipboard) => self.clipboard = Some(clipboard),
+                        Err(err) => {
+                            tracing::warn!(
+                                target: "avenger_winit_wgpu::clipboard",
+                                ?err,
+                                "native clipboard unavailable"
+                            );
+                            return true;
+                        }
+                    }
+                }
+                let Some(clipboard) = self.clipboard.as_mut() else {
+                    return true;
+                };
+                match clipboard.get_text() {
+                    Ok(text) => ClipboardEvent::Paste(text.into()),
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "avenger_winit_wgpu::clipboard",
+                            ?err,
+                            "failed to read native clipboard text"
+                        );
+                        return true;
+                    }
+                }
+            }
+        };
+        self.dispatch_avenger_event(AvengerWindowEvent::Clipboard(clipboard_event), false);
+        true
+    }
+
     #[cfg(target_arch = "wasm32")]
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::platform::web::WindowExtWebSys;
 
-        web_sys::window()
+        let canvas = web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
                 let dst = doc.get_element_by_id("wasm-example")?;
-                let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                let canvas = window.canvas().expect("Failed to get canvas");
                 dst.append_child(&canvas).ok()?;
-                Some(())
+                Some(canvas)
             })
             .expect("Couldn't append canvas to document body.");
+        let host = TextAgentHost::new_with_clipboard_payload_provider(
+            canvas,
+            self.event_proxy.clone(),
+            self.clipboard_payload_provider.clone(),
+        )
+        .expect("failed to install wasm text agent");
+        *self.text_agent.borrow_mut() = Some(host);
     }
 }
 
@@ -747,6 +930,10 @@ where
             (scene_graph, dimensions)
         };
 
+        #[cfg(target_arch = "wasm32")]
+        if let Some(host) = self.text_agent.borrow_mut().as_mut() {
+            host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
+        }
         let canvas_future = WindowCanvas::new(window, dimensions, self.canvas_config.clone());
 
         cfg_if::cfg_if! {
@@ -894,6 +1081,27 @@ where
     ) {
         // Check if this is the correct window
         if Some(window_id) != self.window_id {
+            return;
+        }
+
+        // The DOM text agent combines focus on the canvas and its hidden input.
+        #[cfg(target_arch = "wasm32")]
+        if matches!(event, WindowEvent::Focused(_)) {
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.modifiers = modifiers.state();
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(event, WindowEvent::Focused(false)) {
+            self.modifiers = keyboard::ModifiersState::empty();
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.handle_native_clipboard_shortcut(&event) {
             return;
         }
 
@@ -1132,6 +1340,8 @@ fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
         AvengerWindowEvent::CursorLeft => "CursorLeft",
         AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
         AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
+        AvengerWindowEvent::Ime(_) => "Ime",
+        AvengerWindowEvent::Clipboard(_) => "Clipboard",
         AvengerWindowEvent::ModifiersChanged(_) => "ModifiersChanged",
         AvengerWindowEvent::RuntimeWake(_) => "RuntimeWake",
         AvengerWindowEvent::Touch(_) => "Touch",
@@ -1168,5 +1378,82 @@ fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
         WindowEvent::CloseRequested => "CloseRequested",
         WindowEvent::KeyboardInput { .. } => "KeyboardInput",
         _ => "Other",
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn physical_ime_cursor_area(
+    rect: LogicalRect,
+    scale: f64,
+) -> (PhysicalPosition<f64>, PhysicalSize<u32>) {
+    (
+        PhysicalPosition::new(f64::from(rect.x()) * scale, f64::from(rect.y()) * scale),
+        PhysicalSize::new(
+            (f64::from(rect.width()) * scale).round().max(0.0) as u32,
+            (f64::from(rect.height()) * scale).round().max(0.0) as u32,
+        ),
+    )
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_clipboard_shortcuts_require_command_and_ignore_repeats() {
+        #[cfg(target_os = "macos")]
+        let command = keyboard::ModifiersState::SUPER;
+        #[cfg(not(target_os = "macos"))]
+        let command = keyboard::ModifiersState::CONTROL;
+
+        let shortcut = |character: &str, state, repeat, modifiers| {
+            native_clipboard_shortcut(
+                &keyboard::Key::Character(character.into()),
+                state,
+                repeat,
+                modifiers,
+            )
+        };
+        assert_eq!(
+            shortcut("c", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Copy)
+        );
+        assert_eq!(
+            shortcut("X", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Cut)
+        );
+        assert_eq!(
+            shortcut("v", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Paste)
+        );
+        assert_eq!(shortcut("c", ElementState::Released, false, command), None);
+        assert_eq!(shortcut("c", ElementState::Pressed, true, command), None);
+        assert_eq!(
+            shortcut(
+                "c",
+                ElementState::Pressed,
+                false,
+                command | keyboard::ModifiersState::ALT,
+            ),
+            None
+        );
+        assert_eq!(
+            shortcut(
+                "c",
+                ElementState::Pressed,
+                false,
+                keyboard::ModifiersState::empty(),
+            ),
+            None
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ime_cursor_area_scales_root_logical_pixels_to_physical_pixels() {
+        let rect = LogicalRect::new(10.0, 20.0, 30.0, 12.0).unwrap();
+        let (position, size) = physical_ime_cursor_area(rect, 2.0);
+        assert_eq!(position, PhysicalPosition::new(20.0, 40.0));
+        assert_eq!(size, PhysicalSize::new(60, 24));
     }
 }

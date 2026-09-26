@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use smol_str::SmolStr;
+
 use crate::runtime::RuntimeWakeEvent;
 
 mod winit;
@@ -21,6 +23,8 @@ pub enum WindowEvent {
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
     ModifiersChanged(crate::scene::ModifiersState),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
     RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
     InteractionSettled { generation: u64 },
@@ -42,6 +46,8 @@ impl WindowEvent {
             Self::MouseInput(_)
                 | Self::KeyboardInput(_)
                 | Self::ModifiersChanged(_)
+                | Self::Ime(_)
+                | Self::Clipboard(_)
                 | Self::WindowFocused(_)
                 | Self::WindowCloseRequested
                 | Self::CursorLeft
@@ -52,6 +58,26 @@ impl WindowEvent {
                 | Self::CanvasResizeSettled(_)
         )
     }
+}
+
+/// Host-neutral input-method-editor event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImeEvent {
+    Enabled,
+    Preedit {
+        text: SmolStr,
+        cursor: Option<(usize, usize)>,
+    },
+    Commit(SmolStr),
+    Disabled,
+}
+
+/// Host-neutral clipboard action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardEvent {
+    Cut,
+    Copy,
+    Paste(SmolStr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,7 +114,11 @@ pub struct WindowMouseWheel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowKeyboardInput {
     pub key: Key,
-
+    /// Text produced by this key event, including multi-code-point input.
+    ///
+    /// `key` remains the shortcut/navigation identity; text insertion must
+    /// use this field rather than deriving text from [`Key::Character`].
+    pub text: Option<SmolStr>,
     pub state: ElementState,
 }
 
