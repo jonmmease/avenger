@@ -86,8 +86,9 @@ pub fn build(s: &State) -> Result<SceneGraph> {
         let r = s.plots[i];
         let bins = &s.result.bins[i];
         let maximum = bins.iter().map(|(_, n)| *n).max().unwrap_or(0).max(5) as f32;
-        let x = p.scale(r.width);
-        let y = LinearScale::configured((0., maximum), (r.height, 0.));
+        let x = p.scale(r.width).with_formatting(s.formatting.clone());
+        let y = LinearScale::configured((0., maximum), (r.height, 0.))
+            .with_formatting(s.formatting.clone());
         marks.push(rectangle(p.name, r, [1.; 4]).into());
         for (scale, orientation, title, format) in [
             (&x, AxisOrientation::Bottom, p.title, ",.0f"),

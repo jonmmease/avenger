@@ -5,8 +5,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 anyhow.workspace = true
 async-trait.workspace = true
 arrow.workspace = true

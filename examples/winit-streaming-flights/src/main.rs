@@ -25,7 +25,7 @@ fn main() -> Result<()> {
         return runtime.block_on(baseline::run(config));
     }
     let text = d3_text_engine();
-    let (state, tasks) = runtime.block_on(State::load(config, text.clone()))?;
+    let (state, tasks) = runtime.block_on(State::load(config, text.clone(), d3_formatting()))?;
     let app = runtime
         .block_on(make_app(state))?
         .with_background_tasks(tasks);
@@ -58,26 +58,10 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests;
 
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+}
+
 fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
-        .with_datetime_formatting(
-            avenger_text::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_text::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
-        )
+    d3_formatting().configure_text_engine(avenger_text::default_text_engine())
 }

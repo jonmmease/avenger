@@ -47,6 +47,7 @@ impl ContextKey {
 #[derive(Clone)]
 pub struct State {
     pub text: TextEngine,
+    pub formatting: avenger_scales::formatter::ScaleFormatting,
     pub plots: Arc<Vec<Rect>>,
     pub selections: Selections,
     pub result: Arc<Evaluation>,
@@ -78,7 +79,11 @@ pub struct State {
     commit: DebouncedCommit<(usize, [f64; 2])>,
 }
 impl State {
-    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, BackgroundTasks)> {
+    pub async fn load(
+        config: Config,
+        text: TextEngine,
+        formatting: avenger_scales::formatter::ScaleFormatting,
+    ) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
         let selections = Selections::new(plots[0].width)?;
         let replay = Replay::open(&config.data, config.batch_rows)?;
@@ -87,7 +92,8 @@ impl State {
         let tasks = BackgroundTasks::new();
         let context = ContextKey::new(0, &selections);
         let mut state = Self {
-            text,
+            text: formatting.configure_text_engine(text),
+            formatting,
             plots,
             selections,
             result: Arc::new(Evaluation::empty(latest.clone())),
@@ -591,28 +597,8 @@ pub async fn make_app(state: State) -> Result<AvengerApp<State>> {
 }
 
 #[cfg(test)]
-fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
-        .with_datetime_formatting(
-            avenger_text::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_text::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
-        )
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
 }
 
 #[cfg(test)]
@@ -637,7 +623,8 @@ mod tests {
             diagnostics: false,
             headless: false,
         };
-        let (state, tasks) = State::load(config, d3_text_engine()).await?;
+        let (state, tasks) =
+            State::load(config, avenger_text::default_text_engine(), d3_formatting()).await?;
         Ok((state, tasks, dir))
     }
 
