@@ -22,6 +22,7 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, EventStreamContext, EventStreamFilter, UpdateStatus},
     window::{Key, MouseButton, NamedKey},
 };
+use avenger_format::NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_panels::Rect;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -47,6 +48,8 @@ impl ContextKey {
 #[derive(Clone)]
 pub struct State {
     pub text: TextEngine,
+    /// Prepares the axes' number patterns, and formats numbers in `text`'s labels.
+    pub number_format: Arc<dyn NumberFormatProvider>,
     pub plots: Arc<Vec<Rect>>,
     pub selections: Selections,
     pub result: Arc<Evaluation>,
@@ -78,7 +81,11 @@ pub struct State {
     commit: DebouncedCommit<(usize, [f64; 2])>,
 }
 impl State {
-    pub async fn load(config: Config, text: TextEngine) -> Result<(Self, BackgroundTasks)> {
+    pub async fn load(
+        config: Config,
+        text: TextEngine,
+        number_format: Arc<dyn NumberFormatProvider>,
+    ) -> Result<(Self, BackgroundTasks)> {
         let plots = Arc::new(layout::plots()?);
         let selections = Selections::new(plots[0].width)?;
         let replay = Replay::open(&config.data, config.batch_rows)?;
@@ -87,7 +94,8 @@ impl State {
         let tasks = BackgroundTasks::new();
         let context = ContextKey::new(0, &selections);
         let mut state = Self {
-            text,
+            text: text.with_number_formatting(number_format.clone()),
+            number_format,
             plots,
             selections,
             result: Arc::new(Evaluation::empty(latest.clone())),
@@ -591,28 +599,8 @@ pub async fn make_app(state: State) -> Result<AvengerApp<State>> {
 }
 
 #[cfg(test)]
-fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine()
-        .with_number_formatting(
-            avenger_text::NumberFormatConfig::new("d3"),
-            std::sync::Arc::new(registry),
-        )
-        .with_datetime_formatting(
-            avenger_text::DateTimeFormatConfig::new("d3"),
-            std::sync::Arc::new({
-                let mut registry = avenger_text::DateTimeFormatRegistry::default();
-                registry.register(
-                    "d3",
-                    std::sync::Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-                );
-                registry
-            }),
-        )
+fn d3_formatting() -> std::sync::Arc<dyn avenger_format::NumberFormatProvider> {
+    std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new())
 }
 
 #[cfg(test)]
@@ -637,7 +625,8 @@ mod tests {
             diagnostics: false,
             headless: false,
         };
-        let (state, tasks) = State::load(config, d3_text_engine()).await?;
+        let (state, tasks) =
+            State::load(config, avenger_text::default_text_engine(), d3_formatting()).await?;
         Ok((state, tasks, dir))
     }
 
