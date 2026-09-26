@@ -120,8 +120,10 @@ fn specs() -> Vec<PlotSpec> {
 /// Linear scales ranged to a plot rectangle of `size` (y inverted, the
 /// usual screen convention).
 fn plot_scales(spec: &PlotSpec, size: Size) -> (ConfiguredScale, ConfiguredScale) {
-    let x = LinearScale::configured(spec.x_domain, (0.0, size.width));
-    let y = LinearScale::configured(spec.y_domain, (size.height, 0.0));
+    let formatting = d3_formatting();
+    let x = LinearScale::configured(spec.x_domain, (0.0, size.width))
+        .with_formatting(formatting.clone());
+    let y = LinearScale::configured(spec.y_domain, (size.height, 0.0)).with_formatting(formatting);
     (x, y)
 }
 
@@ -476,14 +478,10 @@ fn measured_guides_fit_final_allocations() {
     assert!((right.x + right.width - bottom.x - bottom.width).abs() < 0.01);
 }
 
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+}
+
 fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine().with_number_formatting(
-        avenger_text::NumberFormatConfig::new("d3"),
-        std::sync::Arc::new(registry),
-    )
+    d3_formatting().configure_text_engine(avenger_text::default_text_engine())
 }

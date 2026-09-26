@@ -8,7 +8,6 @@ description = "Chart-independent layout primitives for arranging rectangular reg
 [dependencies]
 
 [dev-dependencies]
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 resvg.workspace = true
 avenger-color = { path = "../avenger-color" }
 avenger-guides = { path = "../avenger-guides" }
