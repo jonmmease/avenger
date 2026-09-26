@@ -1537,7 +1537,14 @@ impl Evaluation {
         {
             self.reservation.charge(
                 batch
-                    .get_array_memory_size()
+                    .columns()
+                    .iter()
+                    .map(|c| {
+                        c.to_data()
+                            .get_slice_memory_size()
+                            .unwrap_or_else(|_| c.get_array_memory_size())
+                    })
+                    .sum::<usize>()
                     .saturating_add(std::mem::size_of::<RecordBatch>()),
             )?;
             // Binding can refine nullability. Public schemas remain fixed.
