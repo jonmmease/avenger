@@ -900,6 +900,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-transform"
+version = "0.1.0"
+dependencies = [
+ "avenger-datafusion-dataflow",
+ "avenger-datafusion-preaggregate",
+ "avenger-scales-datafusion",
+ "datafusion",
+ "datafusion-proto",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [

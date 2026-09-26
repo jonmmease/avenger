@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": { "generate": "node generate.mjs" },
+  "devDependencies": { "vega": "6.2.0" }
+}
