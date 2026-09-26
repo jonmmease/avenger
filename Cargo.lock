@@ -358,6 +358,7 @@ version = "58.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21ca356ad6425cecb6eb7b28e4f659f1ee7880fbb1a16127de7dd62901efee9e"
 dependencies = [
+ "serde",
  "serde_core",
  "serde_json",
 ]
@@ -480,6 +481,17 @@ dependencies = [
  "serde",
  "strum",
  "web-time",
+]
+
+[[package]]
+name = "avenger-datafusion-aggregate-state"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema",
+ "datafusion",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
