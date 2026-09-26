@@ -578,6 +578,8 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-format",
+ "avenger-format-config",
+ "avenger-format-datetime-chrono",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-image",

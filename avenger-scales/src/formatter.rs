@@ -9,113 +9,15 @@ use arrow::{
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_format::{
-    DateTimeFormatConfig, DateTimeFormatRegistry, DateTimeFormatRequest, NaiveDateTimeInput,
-    NumberFormatConfig, NumberFormatOptions, NumberFormatRegistry, NumberFormatRequest,
-    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, PreparedNumberFormatter,
+    NaiveDateTimeInput, PreparedCivilDateTimeFormatter, PreparedInstantFormatter,
+    PreparedNumberFormatter,
 };
+mod prepare;
+pub mod time;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use chrono_tz::Tz;
+pub use prepare::{NumberFormatAdapter, NumberLabelContext, ScaleFormatting};
 use std::{fmt::Debug, sync::Arc};
-
-/// Formatting options that prepare one shared engine for each batch.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DefaultFormatter {
-    pub format_str: Option<String>,
-    pub local_tz: Option<Tz>,
-    pub number_format: Option<NumberFormatConfig>,
-    pub number_formatters: Arc<NumberFormatRegistry>,
-    pub datetime_format: Option<DateTimeFormatConfig>,
-    pub datetime_formatters: Arc<DateTimeFormatRegistry>,
-}
-impl DefaultFormatter {
-    /// Resolve number configuration before formatting any values.
-    pub fn prepare_number(&self) -> Result<Arc<dyn PreparedNumberFormatter>, AvengerScaleError> {
-        let config = self.number_format.as_ref().ok_or_else(|| {
-            avenger_format::NumberFormatError("number formatting is not configured".into())
-        })?;
-        Ok(self.number_formatters.prepare(
-            config,
-            &match self.format_str.as_deref() {
-                Some(spec) => NumberFormatRequest::new(spec),
-                None => d3_continuous_number_request(None, Default::default()),
-            },
-        )?)
-    }
-    /// Prepare a civil formatter using the supplied fallback when no pattern is configured.
-    pub fn prepare_naive(
-        &self,
-        default_spec: &str,
-    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, AvengerScaleError> {
-        Ok(self.datetime_formatters.prepare_naive(
-            &self.datetime_config()?,
-            &DateTimeFormatRequest::new(self.format_str.as_deref().unwrap_or(default_spec)),
-        )?)
-    }
-
-    /// Prepare an instant formatter using the supplied fallback when no pattern is configured.
-    pub fn prepare_zoned(
-        &self,
-        default_spec: &str,
-    ) -> Result<Arc<dyn PreparedInstantFormatter>, AvengerScaleError> {
-        Ok(self.datetime_formatters.prepare_zoned(
-            &self.datetime_config()?,
-            &DateTimeFormatRequest::new(self.format_str.as_deref().unwrap_or(default_spec)),
-        )?)
-    }
-
-    fn datetime_config(&self) -> Result<DateTimeFormatConfig, AvengerScaleError> {
-        let mut config = self.datetime_format.clone().ok_or_else(|| {
-            avenger_format::DateTimeFormatError("datetime formatting is not configured".into())
-        })?;
-        if let Some(timezone) = self.local_tz {
-            config.timezone = Some(timezone.to_string());
-        }
-        Ok(config)
-    }
-}
-
-/// Choose D3's default format for continuous labels and request automatic precision.
-pub fn d3_continuous_number_request(
-    spec: Option<&str>,
-    mut options: NumberFormatOptions,
-) -> NumberFormatRequest {
-    options
-        .entry("auto_precision".into())
-        .or_insert(true.into());
-    NumberFormatRequest {
-        spec: spec.filter(|s| !s.is_empty()).unwrap_or(",").into(),
-        options,
-    }
-}
-
-/// Choose D3's default tick format and supply the selected spacing and reference magnitude.
-pub fn d3_step_number_request(
-    spec: Option<&str>,
-    mut options: NumberFormatOptions,
-    step: f64,
-    reference_value: f64,
-) -> NumberFormatRequest {
-    // A degenerate tick set retains the format's ordinary precision.
-    let step = if step.is_finite() { step } else { 0.0 };
-    let reference_value = if reference_value.is_finite() {
-        reference_value
-    } else {
-        0.0
-    };
-    options.entry("step".into()).or_insert(step.into());
-    options
-        .entry("reference_value".into())
-        .or_insert(reference_value.into());
-    NumberFormatRequest {
-        spec: spec.unwrap_or(",f").into(),
-        options,
-    }
-}
-
-/// Select D3's calendar-sensitive patterns for time-axis labels.
-pub fn d3_datetime_tick_request() -> DateTimeFormatRequest {
-    DateTimeFormatRequest::new(serde_json::json!({}))
-}
+pub use time::DateTimeFormatAdapter;
 
 pub trait DateFormatter: Debug + Send + Sync + 'static {
     fn format(
@@ -176,15 +78,7 @@ impl<T: PreparedCivilDateTimeFormatter + ?Sized> DateFormatter for T {
             .collect()
     }
 }
-impl DateFormatter for DefaultFormatter {
-    fn format(
-        &self,
-        values: &[Option<NaiveDate>],
-        default: Option<&str>,
-    ) -> Result<Vec<String>, AvengerScaleError> {
-        DateFormatter::format(self.prepare_naive("%Y-%m-%d")?.as_ref(), values, default)
-    }
-}
+
 impl<T: PreparedCivilDateTimeFormatter + ?Sized> TimestampFormatter for T {
     fn format(
         &self,
@@ -207,19 +101,7 @@ impl<T: PreparedCivilDateTimeFormatter + ?Sized> TimestampFormatter for T {
             .collect()
     }
 }
-impl TimestampFormatter for DefaultFormatter {
-    fn format(
-        &self,
-        values: &[Option<NaiveDateTime>],
-        default: Option<&str>,
-    ) -> Result<Vec<String>, AvengerScaleError> {
-        TimestampFormatter::format(
-            self.prepare_naive("%Y-%m-%d %H:%M:%S")?.as_ref(),
-            values,
-            default,
-        )
-    }
-}
+
 impl<T: PreparedInstantFormatter + ?Sized> TimestamptzFormatter for T {
     fn format(
         &self,
@@ -235,19 +117,6 @@ impl<T: PreparedInstantFormatter + ?Sized> TimestamptzFormatter for T {
                 )
             })
             .collect()
-    }
-}
-impl TimestamptzFormatter for DefaultFormatter {
-    fn format(
-        &self,
-        values: &[Option<DateTime<Utc>>],
-        default: Option<&str>,
-    ) -> Result<Vec<String>, AvengerScaleError> {
-        TimestamptzFormatter::format(
-            self.prepare_zoned("%Y-%m-%d %H:%M:%S %Z")?.as_ref(),
-            values,
-            default,
-        )
     }
 }
 
@@ -284,7 +153,7 @@ impl Formatters {
         })
     }
 
-    /// Format an arrow array according to the registered formatters.
+    /// Format an Arrow array with the prepared formatters.
     /// Types other than numbers, dates, and timestamps are cast to string using the
     /// cast arrow kernel.
     pub fn format(
@@ -396,7 +265,7 @@ pub(crate) fn timestamp_values(values: &ArrayRef, unit: &TimeUnit) -> Vec<Option
 
 #[cfg(test)]
 mod tests {
-    use avenger_format::{FormattedNumber, NumberFormatError, NumberFormatProvider};
+    use avenger_format::FormattedNumber;
     #[test]
     fn numeric_labels_require_a_formatter_but_string_labels_do_not() {
         let formatters = super::Formatters::default();
@@ -422,31 +291,13 @@ mod tests {
     fn arrow_numbers_use_the_selected_provider_and_preserve_nulls() {
         #[derive(Debug)]
         struct Custom;
-        impl NumberFormatProvider for Custom {
-            fn prepare(
-                &self,
-                _: &NumberFormatConfig,
-                request: &NumberFormatRequest,
-            ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-                assert_eq!(request.spec, "custom");
-                Ok(Arc::new(Custom))
-            }
-        }
         impl PreparedNumberFormatter for Custom {
             fn format(&self, value: f64) -> FormattedNumber {
                 FormattedNumber::plain(format!("value={value}"))
             }
         }
-        let mut registry = NumberFormatRegistry::default();
-        registry.register("custom", Arc::new(Custom));
-        let formatter = DefaultFormatter {
-            format_str: Some("custom".into()),
-            number_format: Some(NumberFormatConfig::new("custom")),
-            number_formatters: Arc::new(registry),
-            ..Default::default()
-        };
         let formatters = Formatters {
-            number: Some(formatter.prepare_number().unwrap()),
+            number: Some(Arc::new(Custom)),
             ..Default::default()
         };
         let values = Arc::new(arrow::array::Float64Array::from(vec![Some(1.25), None])) as ArrayRef;
@@ -459,26 +310,17 @@ mod tests {
         );
     }
 
-    fn d3_registry() -> DateTimeFormatRegistry {
-        let mut registry = DateTimeFormatRegistry::default();
-        registry.register(
-            "d3",
-            Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
-        );
-        registry
-    }
-    fn d3_config(timezone: &str) -> DateTimeFormatConfig {
-        DateTimeFormatConfig {
-            timezone: Some(timezone.into()),
-            ..DateTimeFormatConfig::new("d3")
-        }
+    use avenger_format::DateTimeFormatProvider;
+    use avenger_format_datetime_d3::{D3DateTimeFormatConfig, D3DateTimeFormatProvider};
+    fn d3_config(timezone: &str) -> D3DateTimeFormatConfig {
+        D3DateTimeFormatConfig::new().with_timezone(timezone)
     }
 
     #[test]
     fn zoned_batches_propagate_formatting_errors() {
-        for spec in [serde_json::json!("%c"), serde_json::json!({})] {
-            let formatter = d3_registry()
-                .prepare_zoned(&d3_config("Asia/Tokyo"), &DateTimeFormatRequest::new(spec))
+        for spec in [Some("%c"), None] {
+            let formatter = DateTimeFormatAdapter::d3(d3_config("Asia/Tokyo"), Default::default())
+                .prepare_zoned(spec)
                 .unwrap();
             assert!(TimestamptzFormatter::format(
                 formatter.as_ref(),
@@ -495,8 +337,8 @@ mod tests {
     fn arrow_temporal_formatting_preserves_instants_and_nulls() {
         let mut formatters = Formatters {
             instant: Some(
-                d3_registry()
-                    .prepare_zoned(&d3_config("UTC"), &DateTimeFormatRequest::new("%Q %f"))
+                D3DateTimeFormatProvider
+                    .prepare_zoned(&d3_config("UTC"), "%Q %f")
                     .unwrap(),
             ),
             ..Default::default()
@@ -520,8 +362,8 @@ mod tests {
             );
         }
         formatters.civil_datetime = Some(
-            d3_registry()
-                .prepare_naive(&d3_config("UTC"), &DateTimeFormatRequest::new("%Y-%m-%d"))
+            D3DateTimeFormatProvider
+                .prepare_naive(&d3_config("UTC"), "%Y-%m-%d")
                 .unwrap(),
         );
         let dates = Arc::new(Date64Array::from(vec![Some(-86_400_000), None])) as ArrayRef;
@@ -532,8 +374,8 @@ mod tests {
                 .as_vec(2, None),
             ["1969-12-31", "missing"]
         );
-        assert!(d3_registry()
-            .prepare_naive(&d3_config("UTC"), &DateTimeFormatRequest::new("%Z"))
+        assert!(D3DateTimeFormatProvider
+            .prepare_naive(&d3_config("UTC"), "%Z")
             .is_err());
     }
 }

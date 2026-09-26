@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-config = { path = "../avenger-format-config" }
+avenger-format-datetime-chrono = { path = "../avenger-format-datetime-chrono" }
 iana-time-zone = "0.1.61"
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
@@ -31,8 +35,6 @@ strum = { workspace = true }
 lazy_static = { workspace = true }
 
 [dev-dependencies]
-avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 float-cmp = "0.10.0"
 
 [[example]]

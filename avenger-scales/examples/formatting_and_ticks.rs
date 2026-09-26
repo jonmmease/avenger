@@ -12,15 +12,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
 
-    let mut registry = avenger_format::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
+    use avenger_format::NumberFormatProvider;
+    scale.config.context.formatters.number = Some(
+        avenger_format_number_d3::D3NumberFormatProvider
+            .prepare(&avenger_format_number_d3::D3NumberFormatConfig::new(), "")?,
     );
-    scale.config.context.formatters.number = Some(registry.prepare(
-        &avenger_format::NumberFormatConfig::new("d3"),
-        &avenger_format::NumberFormatRequest::new(""),
-    )?);
 
     let numbers = vec![0.0, 123.456, 1000.0, 10000.0, 0.00123];
     let number_array = Arc::new(Float32Array::from(numbers.clone())) as ArrayRef;

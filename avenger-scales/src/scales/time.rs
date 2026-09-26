@@ -1436,19 +1436,14 @@ mod tests {
     use avenger_common::value::ScalarOrArrayValue;
 
     fn prepare_datetime() -> crate::formatter::Formatters {
-        let mut registry = avenger_format::DateTimeFormatRegistry::default();
-        registry.register(
-            "d3",
-            Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider),
+        let formatter = crate::formatter::DateTimeFormatAdapter::d3(
+            avenger_format_datetime_d3::D3DateTimeFormatConfig::new()
+                .with_timezone("America/New_York"),
+            Default::default(),
         );
-        let config = avenger_format::DateTimeFormatConfig {
-            timezone: Some("America/New_York".into()),
-            ..avenger_format::DateTimeFormatConfig::new("d3")
-        };
-        let request = crate::formatter::d3_datetime_tick_request();
         crate::formatter::Formatters {
-            civil_datetime: Some(registry.prepare_naive(&config, &request).unwrap()),
-            instant: Some(registry.prepare_zoned(&config, &request).unwrap()),
+            civil_datetime: Some(formatter.prepare_naive(None).unwrap()),
+            instant: Some(formatter.prepare_zoned(None).unwrap()),
             ..Default::default()
         }
     }

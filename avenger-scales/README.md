@@ -223,27 +223,28 @@ let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 Number labels require an explicitly prepared formatter and preserve binary64 values through formatting. The example selects D3.
 
 ```rust
-use avenger_scales::formatter::DefaultFormatter;
-use avenger_format::{NumberFormatConfig, NumberFormatRegistry};
-use avenger_format_number_d3::D3NumberFormatProvider;
-use std::sync::Arc;
+use avenger_scales::formatter::{NumberFormatAdapter, NumberLabelContext};
+use avenger_format_number_d3::D3NumberFormatConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut registry = NumberFormatRegistry::default();
-    registry.register("d3", Arc::new(D3NumberFormatProvider));
-    let formatter = DefaultFormatter {
-        number_format: Some(NumberFormatConfig::new("d3")),
-        number_formatters: Arc::new(registry),
-        format_str: Some(".2f".into()),
-        ..Default::default()
-    }.prepare_number()?;
+    let adapter = NumberFormatAdapter::d3(D3NumberFormatConfig::new());
+    let formatter = adapter.prepare(Some(".2f"), NumberLabelContext::Continuous)?;
     assert_eq!(formatter.format(3.14159).text, "3.14");
     Ok(())
 }
 ```
 
-See [avenger-format-number-d3](../avenger-format-number-d3/README.md) for locale JSON,
-scalar formatters, and Vega's automatic number-label adapters.
+`NumberLabelContext::Ticks` supplies the selected step and reference magnitude.
+The adapter derives precision for that preparation without changing shared settings.
+See [avenger-format-number-d3](../avenger-format-number-d3/README.md) for locale definitions and scalar formatting.
+
+Datetime scales use `DateTimeFormatAdapter::d3` or `DateTimeFormatAdapter::chrono`.
+An explicit pattern prepares a scalar formatter. An omitted pattern selects calendar
+labels from `TimeMultiFormatSpec`. Locale and display timezone come from the provider's
+typed configuration.
+
+Pass `ScaleFormatting` to `ConfiguredScale::with_formatting` for axes, and use
+`ScaleFormatting::configure_text_engine` to give text markup the same settings.
 
 ## Examples
 

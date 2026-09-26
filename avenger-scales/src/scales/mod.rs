@@ -416,6 +416,7 @@ pub struct ScaleConfig {
 pub struct ScaleContext {
     pub color_interpolator: Arc<dyn ColorInterpolator>,
     pub formatters: Formatters,
+    pub formatting: crate::formatter::ScaleFormatting,
     pub color_coercer: Arc<dyn ColorCoercer>,
     pub numeric_coercer: Arc<dyn NumericCoercer>,
 }
@@ -425,6 +426,7 @@ impl Default for ScaleContext {
         Self {
             color_interpolator: Arc::new(SrgbaColorInterpolator),
             formatters: Formatters::default(),
+            formatting: Default::default(),
             color_coercer: Arc::new(CssColorCoercer),
             numeric_coercer: Arc::new(CastNumericCoercer),
         }
@@ -948,6 +950,12 @@ impl ConfiguredScale {
 
     pub fn with_config(self, config: ScaleConfig) -> ConfiguredScale {
         ConfiguredScale { config, ..self }
+    }
+
+    /// Set the policies used to prepare data and tick labels.
+    pub fn with_formatting(mut self, formatting: crate::formatter::ScaleFormatting) -> Self {
+        self.config.context.formatting = formatting;
+        self
     }
 
     pub fn with_option<S: Into<String>, V: Into<Scalar>>(
