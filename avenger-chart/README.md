@@ -5,15 +5,12 @@ Prepare an `avenger-chart-definition`, query its dataflow, and produce immutable
 ## Lifecycle
 
 ```rust,ignore
-let mut registry = avenger_text::NumberFormatRegistry::default();
-registry.register("d3", std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider));
-let text_engine = avenger_text::default_text_engine().with_number_formatting(
-    avenger_text::NumberFormatConfig::new("d3"), std::sync::Arc::new(registry),
+let formatting = avenger_scales::formatter::ScaleFormatting::d3(
+    Default::default(), Default::default(),
 );
-let chart = Chart::prepare(definition, ChartOptions {
-    text_engine: Some(text_engine),
-    ..Default::default()
-}).await?;
+let chart = Chart::prepare(
+    definition, ChartOptions::default().with_formatting(formatting),
+).await?;
 let frame = chart.render(RenderOptions::default()).await?;
 std::fs::write("chart.svg", frame.to_svg()?)?;
 std::fs::write("chart.pdf", frame.to_pdf()?)?;
@@ -22,7 +19,7 @@ std::fs::write("chart.png", frame.to_png(2.0).await?)?;
 
 Preparation validates descriptors and prepares the dataflow. Rendering queries the required outputs, expands observed facet instances, resolves shared domains, measures guides, solves layout, and constructs a scene. Export reuses that frame and its text engine without querying again. The `svg`, `pdf`, and `png` Cargo features enable the respective exports and are enabled by default.
 
-`ChartOptions` accepts a shared text engine and an existing dataflow `Runtime`. Numeric axes and labels use the formatter explicitly configured on the text engine. The default runtime supports the built-in transform codec and versions. Supply a configured runtime for other application functions or execution limits.
+`ChartOptions` accepts a shared text engine, explicit scale formatting, and an existing dataflow `Runtime`. `with_formatting` configures text markup and scale labels from the same settings while preserving the supplied engine's font and layout settings. The default runtime supports the built-in transform codec and versions. Supply a configured runtime for other application functions or execution limits.
 
 ## Inputs and parameters
 

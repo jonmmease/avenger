@@ -38,7 +38,25 @@ fn error(e: impl std::fmt::Display) -> Error {
 #[derive(Default)]
 pub struct ChartOptions {
     pub text_engine: Option<TextEngine>,
+    pub scale_formatting: avenger_scales::formatter::ScaleFormatting,
     pub dataflow: Option<Runtime>,
+}
+impl ChartOptions {
+    /// Share formatter settings between text markup and scale label preparation.
+    pub fn with_formatting(
+        mut self,
+        formatting: avenger_scales::formatter::ScaleFormatting,
+    ) -> Self {
+        self.text_engine = Some(
+            formatting.configure_text_engine(
+                self.text_engine
+                    .take()
+                    .unwrap_or_else(avenger_text::default_text_engine),
+            ),
+        );
+        self.scale_formatting = formatting;
+        self
+    }
 }
 /// One complete frame request. Native inputs support tables, expressions, and scoped bindings.
 #[derive(Clone, Default)]
@@ -64,6 +82,7 @@ struct Inner {
     interface: dataflow::DataflowInterface,
     outputs: (Vec<dataflow::TableOutput>, Vec<dataflow::ScalarOutput>),
     text: TextEngine,
+    scale_formatting: avenger_scales::formatter::ScaleFormatting,
     positions: Mutex<HashMap<String, Arc<marks::Positions>>>,
 }
 /// A prepared chart. Clones share query caches and retained immutable geometry.
@@ -94,6 +113,7 @@ impl Chart {
             text: options
                 .text_engine
                 .unwrap_or_else(avenger_text::default_text_engine),
+            scale_formatting: options.scale_formatting,
             positions: Mutex::new(HashMap::new()),
         })))
     }

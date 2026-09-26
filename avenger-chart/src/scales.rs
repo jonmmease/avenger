@@ -157,7 +157,7 @@ fn configure_scale(s: &Scale, values: &[ScalarValue], size: Size) -> Result<Conf
 pub(crate) fn configure(
     plots: &mut [PlotInstance],
     tree: &PanelTree,
-    text: &crate::TextEngine,
+    formatting: &avenger_scales::formatter::ScaleFormatting,
 ) -> Result<()> {
     let mut domains = plots
         .iter()
@@ -218,39 +218,25 @@ pub(crate) fn configure(
     for (pi, p) in plots.iter_mut().enumerate() {
         for (si, (name, s)) in p.plot.scales.iter().enumerate() {
             let mut scale = configure_scale(s, &domains[pi][si], p.plot.size)?;
-            scale.config.context.formatters.number = text
-                .number_format_config()
-                .map(|config| {
-                    text.number_formatters().prepare(
-                        config,
-                        &if s.kind == ScaleKind::Linear {
-                            avenger_scales::formatter::d3_continuous_number_request(
-                                None,
-                                Default::default(),
-                            )
-                        } else {
-                            avenger_format::NumberFormatRequest::new("c")
-                        },
-                    )
-                })
-                .transpose()
-                .map_err(error)?;
-            if let Some(config) = text.datetime_format_config() {
-                let request = avenger_scales::formatter::d3_datetime_tick_request();
+            scale.config.context.formatting = formatting.clone();
+            if let Some(number) = &formatting.number {
+                let context = if s.kind == ScaleKind::Linear {
+                    avenger_scales::formatter::NumberLabelContext::Continuous
+                } else {
+                    avenger_scales::formatter::NumberLabelContext::Categorical
+                };
+                scale.config.context.formatters.number =
+                    Some(number.prepare(None, context).map_err(error)?);
+            }
+            if let Some(datetime) = &formatting.datetime {
                 match scale.domain().data_type() {
                     DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, None) => {
-                        scale.config.context.formatters.civil_datetime = Some(
-                            text.datetime_formatters()
-                                .prepare_naive(config, &request)
-                                .map_err(error)?,
-                        );
+                        scale.config.context.formatters.civil_datetime =
+                            Some(datetime.prepare_naive(None).map_err(error)?);
                     }
                     DataType::Timestamp(_, Some(_)) => {
-                        scale.config.context.formatters.instant = Some(
-                            text.datetime_formatters()
-                                .prepare_zoned(config, &request)
-                                .map_err(error)?,
-                        );
+                        scale.config.context.formatters.instant =
+                            Some(datetime.prepare_zoned(None).map_err(error)?);
                     }
                     _ => {}
                 }

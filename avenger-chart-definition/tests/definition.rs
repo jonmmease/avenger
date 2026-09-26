@@ -203,8 +203,9 @@ async fn transform_udfs_round_trip_with_the_dataflow_codec() -> anyhow::Result<(
         definition,
         avenger_chart::ChartOptions {
             dataflow: Some(runtime),
-            text_engine: Some(d3_text_engine()),
-        },
+            ..Default::default()
+        }
+        .with_formatting(d3_formatting()),
     )
     .await?;
     let frame = chart
@@ -217,14 +218,6 @@ async fn transform_udfs_round_trip_with_the_dataflow_codec() -> anyhow::Result<(
     Ok(())
 }
 
-fn d3_text_engine() -> avenger_text::TextEngine {
-    let mut registry = avenger_text::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    avenger_text::default_text_engine().with_number_formatting(
-        avenger_text::NumberFormatConfig::new("d3"),
-        std::sync::Arc::new(registry),
-    )
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
 }

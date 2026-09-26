@@ -19,7 +19,7 @@ protoc-bin-vendored = "3"
 
 [dev-dependencies]
 avenger-text = { path = "../avenger-text" }
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-scales = { path = "../avenger-scales" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-transform = { path = "../avenger-transform" }
 avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }

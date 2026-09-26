@@ -342,7 +342,7 @@ pub(crate) fn render(
     let arranged = tree
         .arrange(&arrangement(&root, &plots, ArrangementSpec::new()))
         .map_err(error)?;
-    crate::scales::configure(&mut plots, &tree, &chart.0.text)?;
+    crate::scales::configure(&mut plots, &tree, &chart.0.scale_formatting)?;
     let mut edges = crate::scales::measure(&plots, &chart.0.text, None)?;
     let mut solution = layout(&root, &plots, &arranged, &edges, None)
         .solve(&SolveOptions::default())

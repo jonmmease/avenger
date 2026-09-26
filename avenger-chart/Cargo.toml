@@ -38,7 +38,5 @@ pdf = ["dep:avenger-pdf"]
 png = ["dep:avenger-wgpu", "dep:image"]
 
 [dev-dependencies]
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
-avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 anyhow = { workspace = true }
