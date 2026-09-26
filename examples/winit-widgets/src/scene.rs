@@ -89,12 +89,21 @@ fn line(x: f32, y: f32, x2: f32, y2: f32, color: [f32; 4]) -> SceneRuleMark {
     }
 }
 fn ticks(scale: &ConfiguredScale) -> Result<Vec<(f32, String)>, String> {
+    use arrow::{array::AsArray, datatypes::Float64Type};
+    use avenger_format::{NumberFormatProvider, TickSpacing};
     let values = scale.ticks(Some(5.0)).map_err(|e| e.to_string())?;
     let positions = scale.scale_to_numeric(&values).map_err(|e| e.to_string())?;
-    let labels = scale.format(&values).map_err(|e| e.to_string())?;
+    // Vega's default axis format, which labels the ticks as a set
+    let format = avenger_format_number_d3::D3NumberFormatProvider::new()
+        .prepare(",f")
+        .map_err(|e| e.to_string())?;
+    let labels = format.format_ticks(
+        values.as_primitive::<Float64Type>().values(),
+        TickSpacing::Uniform,
+    );
     Ok(positions
         .as_iter_owned(values.len(), None)
-        .zip(labels.as_iter_owned(values.len(), None))
+        .zip(labels.into_iter().map(|label| label.text))
         .collect())
 }
 

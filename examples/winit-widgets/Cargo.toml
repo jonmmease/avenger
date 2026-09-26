@@ -15,6 +15,8 @@ avenger-app = { path = "../../avenger-app" }
 avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-format = { path = "../../avenger-format" }
+avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-layout = { path = "../../avenger-layout" }
 avenger-widgets = { path = "../../avenger-widgets" }
@@ -24,6 +26,7 @@ avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 serde_json.workspace = true
+arrow.workspace = true
 async-trait.workspace = true
 winit.workspace = true
 
