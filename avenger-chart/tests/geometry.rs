@@ -66,7 +66,8 @@ async fn centered_spans_baselines_and_new_descriptor_round_trip() -> anyhow::Res
     let rt = Runtime::new(RuntimeConfig::default())?;
     let d = ChartDefinition::from_bytes(&bytes, &rt)?;
     assert_eq!(d.background(), Some("white"));
-    let chart = Chart::prepare(d, Default::default()).await?;
+    let options = avenger_chart::ChartOptions::default().with_formatting(d3_formatting());
+    let chart = Chart::prepare(d, options).await?;
     let f = chart.render(RenderOptions::default()).await?;
     let SceneMark::Group(root) = &f.scenegraph().marks[0] else {
         panic!()
@@ -85,4 +86,13 @@ async fn centered_spans_baselines_and_new_descriptor_round_trip() -> anyhow::Res
     assert_eq!(r.y_vec(), vec![61., 1.]);
     assert_eq!(r.height.as_ref().unwrap().as_vec(2, None), vec![39., 99.]);
     Ok(())
+}
+
+fn d3_formatting() -> avenger_chart::ChartFormatting {
+    avenger_chart::ChartFormatting {
+        number: Arc::new(avenger_format_number_d3::D3NumberFormatProvider::new()),
+        number_pattern: ",f".into(),
+        category_pattern: "c".into(),
+        datetime: Arc::new(avenger_format_datetime_d3::D3DateTimeFormatProvider::new()),
+    }
 }
