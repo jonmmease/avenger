@@ -3,6 +3,8 @@ members = [
     "avenger-color",
     "avenger-format",
     "avenger-format-number-d3",
+    "avenger-format-datetime-d3",
+    "avenger-format-datetime-chrono",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
     "avenger-wgpu",

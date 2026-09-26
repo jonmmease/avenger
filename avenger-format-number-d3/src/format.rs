@@ -27,13 +27,9 @@ pub struct PreparedNumberFormat {
 impl PreparedNumberFormat {
     /// Parse and resolve a number format before formatting a batch.
     /// `None` is equivalent to an empty specifier, which starts with D3's `.12~g` defaults.
-    pub fn new(
-        spec: Option<&str>,
-        overrides: NumberFormatOverrides,
-        locale: &ResolvedNumberLocale,
-    ) -> Result<Self, FormatError> {
+    pub fn new(spec: Option<&str>, locale: &ResolvedNumberLocale) -> Result<Self, FormatError> {
         Ok(Self::from_resolved(
-            resolve_number_format(parse_number_spec(spec.unwrap_or(""))?, overrides),
+            resolve_number_format(parse_number_spec(spec.unwrap_or(""))?),
             locale,
         ))
     }
@@ -62,39 +58,7 @@ impl PreparedNumberFormat {
     }
 }
 
-/// Field overrides applied to the parsed specifier before defaults and zero padding.
-/// `None` preserves a parsed field. For nullable fields, `Some(None)` clears it.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct NumberFormatOverrides {
-    pub format_type: Option<FormatType>,
-    /// Replace parsed precision, or use `Some(DigitSpec::Auto)` to restore automatic selection.
-    pub digit_spec: Option<DigitSpec>,
-    /// Enable or disable locale grouping, including the grouping implied by `n`.
-    pub group: Option<bool>,
-    /// Enable or disable removal of trailing fractional zeros before localization.
-    pub trim: Option<bool>,
-    pub sign: Option<SignPolicy>,
-    /// `Some(None)` removes currency affixes or a radix prefix requested by the specifier.
-    pub symbol: Option<Option<Symbol>>,
-    /// Minimum UTF-16 field width before numeral substitution, or `Some(None)` for no padding.
-    pub width: Option<Option<usize>>,
-    /// `Some(None)` restores a space, subject to the final zero-padding flag.
-    pub fill: Option<Option<char>>,
-    /// `Some(None)` restores right alignment, subject to the final zero-padding flag.
-    pub align: Option<Option<Align>>,
-    /// Override the zero-padding flag. An explicit `0=` fill and alignment still take effect.
-    pub zero: Option<bool>,
-}
-
-impl NumberFormatOverrides {
-    /// Set D3 precision, whose meaning depends on the format type.
-    pub fn with_precision(mut self, precision: u8) -> Self {
-        self.digit_spec = Some(DigitSpec::Precision(precision));
-        self
-    }
-}
-
-/// Merged format fields with defaults applied, retaining automatic precision for the adapters.
+/// Format fields with defaults applied, retaining automatic precision for the adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedNumberFormat {
     pub fill: char,
@@ -112,44 +76,30 @@ pub(crate) struct ResolvedNumberFormat {
 pub fn format_number(
     value: f64,
     spec: Option<&str>,
-    overrides: NumberFormatOverrides,
     locale: &ResolvedNumberLocale,
 ) -> Result<FormattedNumber, FormatError> {
-    Ok(PreparedNumberFormat::new(spec, overrides, locale)?.format(value))
+    Ok(PreparedNumberFormat::new(spec, locale)?.format(value))
 }
 
-/// Merge overrides and defaults, then apply the zero-padding flag to fill and alignment.
-pub(crate) fn resolve_number_format(
-    spec: NumberFormatSpec,
-    overrides: NumberFormatOverrides,
-) -> ResolvedNumberFormat {
-    let mut fill = overrides.fill.unwrap_or(spec.fill).unwrap_or(' ');
-    let mut align = overrides
-        .align
-        .unwrap_or(spec.align)
-        .unwrap_or(Align::Right);
-    let format_type = overrides.format_type.or(spec.format_type);
-    let sign = overrides.sign.or(spec.sign).unwrap_or(SignPolicy::Minus);
-    let symbol = overrides.symbol.unwrap_or(spec.symbol);
-    let width = overrides.width.unwrap_or(spec.width);
-    let group = overrides
+/// Apply defaults, then apply the zero-padding flag to fill and alignment.
+pub(crate) fn resolve_number_format(spec: NumberFormatSpec) -> ResolvedNumberFormat {
+    let mut fill = spec.fill.unwrap_or(' ');
+    let mut align = spec.align.unwrap_or(Align::Right);
+    let format_type = spec.format_type;
+    let sign = spec.sign.unwrap_or(SignPolicy::Minus);
+    let symbol = spec.symbol;
+    let width = spec.width;
+    let group = spec
         .group
-        .or(spec.group)
         .unwrap_or(format_type == Some(FormatType::LocaleDefault));
-    let trim = overrides
-        .trim
-        .or(spec.trim)
-        .unwrap_or(format_type.is_none());
-    let zero = overrides.zero.unwrap_or(spec.zero);
+    let trim = spec.trim.unwrap_or(format_type.is_none());
 
-    if zero {
+    if spec.zero {
         fill = '0';
         align = Align::AfterSign;
     }
 
-    let digit_spec = overrides
-        .digit_spec
-        .unwrap_or_else(|| spec.precision.map(DigitSpec::Precision).unwrap_or_default());
+    let digit_spec = spec.precision.map(DigitSpec::Precision).unwrap_or_default();
 
     ResolvedNumberFormat {
         fill,

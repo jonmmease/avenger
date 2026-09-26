@@ -1,0 +1,13 @@
+[package]
+name = "avenger-format-datetime-chrono"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+chrono = { workspace = true, features = ["unstable-locales"] }
+chrono-tz = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }

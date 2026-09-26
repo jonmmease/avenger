@@ -1,8 +1,7 @@
 use avenger_format_number_d3::{
     format_number, prepare_number_float_format, prepare_number_prefix_format,
-    prepare_number_step_format, DigitSpec, FormatError, NumberFormatOverrides,
-    NumberLocaleRegistry, NumberLocaleSpec, NumberTypesetting, PreparedNumberFormat,
-    ResolvedNumberLocale,
+    prepare_number_step_format, FormatError, NumberLocaleRegistry, NumberLocaleSpec,
+    NumberTypesetting, PreparedNumberFormat, ResolvedNumberLocale,
 };
 
 #[test]
@@ -12,7 +11,7 @@ fn exponent_parts_match_localized_text() {
         .register_custom_locale_json("de-DE", include_str!("fixtures/locales/de-DE.json"))
         .unwrap();
     let locale = registry.resolve("de-DE").unwrap();
-    let formatter = PreparedNumberFormat::new(Some("+.3~e"), Default::default(), &locale).unwrap();
+    let formatter = PreparedNumberFormat::new(Some("+.3~e"), &locale).unwrap();
     for (value, text, mantissa) in [(1200.0, "+1,2e+3", "+1,2"), (-1200.0, "−1,2e+3", "−1,2")] {
         let result = formatter.format(value);
         assert_eq!(result.text, text);
@@ -34,14 +33,14 @@ fn exponent_parts_require_unadorned_decimal_notation() {
         ("(.2e", -1200.0),
         (".2e", f64::INFINITY),
     ] {
-        let result = format_number(value, Some(spec), Default::default(), &locale).unwrap();
+        let result = format_number(value, Some(spec), &locale).unwrap();
         assert_eq!(
             result.typesetting,
             NumberTypesetting::Plain,
             "{spec}: {value}"
         );
     }
-    let result = format_number(1e21, Some("f"), Default::default(), &locale).unwrap();
+    let result = format_number(1e21, Some("f"), &locale).unwrap();
     assert_eq!(result.text, "1e+21");
     assert_eq!(
         result.typesetting,
@@ -50,64 +49,6 @@ fn exponent_parts_require_unadorned_decimal_notation() {
             exponent: 21
         }
     );
-}
-
-#[test]
-fn overrides_apply_before_defaults_and_zero_padding() {
-    let locale = ResolvedNumberLocale::en_us();
-    let without_zero = NumberFormatOverrides {
-        zero: Some(false),
-        ..Default::default()
-    };
-    for (spec, expected) in [("08.2f", "    1.20"), ("*<08.2f", "1.20****")] {
-        let result = format_number(1.2, Some(spec), without_zero.clone(), &locale).unwrap();
-        assert_eq!(result.text, expected);
-    }
-    let result = format_number(
-        1234.5,
-        Some("$,.2f"),
-        NumberFormatOverrides {
-            symbol: Some(None),
-            group: Some(false),
-            ..Default::default()
-        },
-        &locale,
-    )
-    .unwrap();
-    assert_eq!(result.text, "1234.50");
-    let result = format_number(
-        1.2,
-        Some(".^10.2f"),
-        NumberFormatOverrides {
-            width: Some(None),
-            ..Default::default()
-        },
-        &locale,
-    )
-    .unwrap();
-    assert_eq!(result.text, "1.20");
-    for (spec, expected) in [(".5f", "1234.56"), (".5g", "1.2e+3")] {
-        let result = format_number(
-            1234.56,
-            Some(spec),
-            NumberFormatOverrides::default().with_precision(2),
-            &locale,
-        )
-        .unwrap();
-        assert_eq!(result.text, expected);
-    }
-    let format = prepare_number_step_format(
-        0.1,
-        1.0,
-        Some(".3f"),
-        NumberFormatOverrides {
-            digit_spec: Some(DigitSpec::Auto),
-            ..Default::default()
-        },
-        &locale,
-    )
-    .unwrap();
-    assert_eq!(format.format(0.3).text, "0.3");
 }
 
 #[test]
@@ -121,8 +62,7 @@ fn step_format_selects_precision_and_shared_si_units() {
         (50_000.0, 1_100_000.0, Some("s"), 900_000.0, "0.90M"),
         (50_000.0, 1_100_000.0, Some("s"), 1_100_000.0, "1.10M"),
     ] {
-        let format =
-            prepare_number_step_format(step, reference, spec, Default::default(), &locale).unwrap();
+        let format = prepare_number_step_format(step, reference, spec, &locale).unwrap();
         assert_eq!(
             format.format(value).text,
             expected,
@@ -135,8 +75,7 @@ fn step_format_selects_precision_and_shared_si_units() {
 fn undefined_step_preserves_default_precision() {
     let locale = ResolvedNumberLocale::en_us();
     for step in [0.0, f64::NAN, f64::INFINITY] {
-        let format =
-            prepare_number_step_format(step, 1.0, Some("f"), Default::default(), &locale).unwrap();
+        let format = prepare_number_step_format(step, 1.0, Some("f"), &locale).unwrap();
         assert_eq!(format.format(0.3).text, "0.300000");
     }
 }
@@ -192,7 +131,7 @@ fn locale_registration_validates_before_replacing_a_definition() {
         .register_custom_locale_json("custom", r#"{"decimal": ","}"#)
         .unwrap();
     let original = registry.resolve("custom").unwrap();
-    let prepared = PreparedNumberFormat::new(Some(".1f"), Default::default(), &original).unwrap();
+    let prepared = PreparedNumberFormat::new(Some(".1f"), &original).unwrap();
     for invalid in [
         r#"{"grouping": [3, 0]}"#,
         r#"{"currency": ["$"]}"#,
@@ -210,9 +149,7 @@ fn locale_registration_validates_before_replacing_a_definition() {
     assert_eq!(prepared.format(1.5).text, "1,5");
     let replacement = registry.resolve("custom").unwrap();
     assert_eq!(
-        format_number(1.5, Some(".1f"), Default::default(), &replacement)
-            .unwrap()
-            .text,
+        format_number(1.5, Some(".1f"), &replacement).unwrap().text,
         "1.5"
     );
 }
@@ -224,7 +161,6 @@ fn undefined_prefix_reference_uses_no_si_multiplier() {
         let format = prepare_number_prefix_format(".1", value, &locale).unwrap();
         assert_eq!(format.format(1.2).text, "1.2");
     }
-    let format =
-        prepare_number_step_format(0.0, 0.0, Some("s"), Default::default(), &locale).unwrap();
+    let format = prepare_number_step_format(0.0, 0.0, Some("s"), &locale).unwrap();
     assert_eq!(format.format(0.0).text, "0.000000");
 }

@@ -159,7 +159,7 @@ pub enum DigitSpec {
     Precision(u8),
 }
 
-/// Parsed D3 fields before defaults and overrides are applied.
+/// Parsed D3 fields before defaults are applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct NumberFormatSpec {
     /// Padding character, defaulting to a space unless `zero` is enabled.
