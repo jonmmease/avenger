@@ -549,6 +549,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-schema",
  "datafusion",
+ "datafusion-proto",
  "serde",
  "serde_json",
  "tokio",
@@ -963,6 +964,7 @@ dependencies = [
 name = "avenger-transform"
 version = "0.1.0"
 dependencies = [
+ "avenger-datafusion-aggregate-state",
  "avenger-datafusion-dataflow",
  "avenger-datafusion-preaggregate",
  "avenger-scales-datafusion",

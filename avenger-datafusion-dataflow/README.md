@@ -455,6 +455,16 @@ Extensions currently use native Rust construction against one standalone base. A
 
 Use `table_snapshot(name, snapshot)` for immutable graph-owned data. Use `table_input()` for a table that changes between requests. A finite external provider in `add_plan()` is fixed for the preparation lifetime: if its files or database contents change, create a new preparation or call `clear_results()` after coordinating the source change. The runtime does not poll files or hash source contents.
 
+Use `input.plan_ref_with_row_index("ordinal")?` when a calculation needs the
+input's row order. The read appends a non-null UInt64 column starting at zero,
+following snapshot batch order and then row order within each batch. Bind the
+original schema. Indices are assigned before query filters and repartitioning,
+so an append preserves indices for earlier rows. A replacement assigns indices
+from its own order. Each executed indexed read allocates the index array and
+shares the source arrays. Give it a named node to reuse that work across
+downstream queries. The new column name must be nonempty and absent from the
+input schema.
+
 Give an expensive source its own named node before parameter-dependent transforms. Retention happens at named boundaries with complete schemas. A scan buried inside a filter node is only reused when that whole node's bindings match.
 
 The default runtime LRU retains at most 128 MiB and 1,024 entries across all its preparations. Configure `CachePolicy::Lru(CacheConfig { max_bytes, max_entries })` or use `CachePolicy::Disabled` to disable completed-result retention while preserving in-progress sharing. Oversized results bypass retention. Charges include retained Arrow allocations and key metadata, conservatively counting shared buffers more than once.
@@ -475,7 +485,7 @@ let marks = names.table_output("marks")?;
 let prepared = destination_runtime.prepare(&loaded).await?;
 ```
 
-The version 1 protobuf envelope imports DataFusion **54.1.0** logical-plan and expression messages. It includes declarations, scopes, outputs, semantic requirements, and Arrow IPC streams for fixed assets. A narrow side table covers IN/EXISTS subqueries, outer references, and set comparisons absent from DataFusion's expression format. Generated DataFusion types are reused through Prost `extern_path`. Vendored upstream `.proto` imports and a vendored build-time `protoc` keep code generation reproducible.
+The version 1 protobuf envelope imports DataFusion **54.1.0** logical-plan and expression messages. It includes declarations, scopes, outputs, semantic requirements, optional input row indices, and Arrow IPC streams for fixed assets. A narrow side table covers IN/EXISTS subqueries, outer references, and set comparisons absent from DataFusion's expression format. Generated DataFusion types are reused through Prost `extern_path`. Vendored upstream `.proto` imports and a vendored build-time `protoc` keep code generation reproducible.
 
 Decoding resolves functions immediately and produces the same native `Dataflow` used by Rust builders. Loading allocates fresh graph and snapshot identities; recover typed handles through `interface().root()`, `.scope(name)`, and the input/output lookup methods. Interfaces and immutable bindings do not retain source lineage or graph-owned assets.
 

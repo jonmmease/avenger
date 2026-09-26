@@ -55,6 +55,7 @@ message Read {
   uint32 index = 2;
   datafusion_common.DfSchema schema = 3;
   string label = 4;
+  optional string row_index = 5;
 }
 message FunctionRequirement {
   string kind = 1;

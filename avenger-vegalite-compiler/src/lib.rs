@@ -70,6 +70,24 @@ pub async fn compile_vegalite(
     compile::compile(spec, source)
 }
 
+/// Compile a named dataset as a required, replaceable dataflow table input.
+///
+/// The spec must use `data.name`. That name identifies the root table input in
+/// the returned definition. The supplied schema is the raw input schema, with
+/// no compiler-generated columns. Bind a matching `TableSnapshot` through
+/// `Chart::inputs` for each render. Row order follows snapshot batch order.
+///
+/// No data is loaded or embedded, including any matching root `datasets` entry.
+/// The input declaration and row-order handling survive native serialization.
+pub fn compile_vegalite_with_input(
+    spec: &spec::UnitSpec,
+    schema: avenger_datafusion_dataflow::arrow::datatypes::SchemaRef,
+) -> Result<ChartDefinition> {
+    spec.validate()
+        .map_err(|e| CompileError::at(e.path().to_string(), e))?;
+    compile::compile(spec, source::input(spec, schema)?)
+}
+
 /// Construct a prepared chart through the Vega-Lite frontend.
 pub trait FromVegaLite: Sized {
     /// Compile a spec and prepare its native definition using the supplied resources.

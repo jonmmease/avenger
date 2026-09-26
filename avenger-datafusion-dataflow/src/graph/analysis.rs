@@ -104,6 +104,11 @@ fn visit_plan(
                 .ok_or_else(|| {
                     Error::UnsupportedPlan(format!("custom extension {}", extension.node.name()))
                 })?;
+            if read.row_index.is_some() && !matches!(read.source, TableRef::Input(_)) {
+                return Err(Error::InvalidReference(
+                    "row index requires a table input".into(),
+                ));
+            }
             if read.graph != graph.id {
                 let base = graph.base.as_ref().ok_or(Error::ForeignHandle)?;
                 if read.graph != base.inner.id {
@@ -113,7 +118,8 @@ fn visit_plan(
                     return Err(Error::ForeignHandle);
                 };
                 let input = base_input(graph, index)?;
-                if !matches!(&input.kind, InputKind::Table(schema) if schema == &read.schema) {
+                if !matches!(&input.kind, InputKind::Table(schema) if read.matches_input_schema(schema))
+                {
                     return Err(Error::SchemaMismatch(read.label.to_string()));
                 }
                 result.base_inputs.insert(index);
@@ -147,7 +153,7 @@ fn visit_plan(
                 TableRef::Input(index) => {
                     if !matches!(
                         graph.inputs.get(index).map(|input| &input.kind),
-                        Some(InputKind::Table(schema)) if schema == &read.schema
+                        Some(InputKind::Table(schema)) if read.matches_input_schema(schema)
                     ) {
                         return Err(Error::InvalidReference(read.label.to_string()));
                     }
