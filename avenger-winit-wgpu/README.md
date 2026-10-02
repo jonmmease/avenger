@@ -7,3 +7,5 @@ Run `cargo run --release -p avenger-winit-wgpu --example image_resources` to see
 The Iris example in `examples/iris-pan-zoom` demonstrates window resizing, panning, and timed interaction updates in native and browser execution.
 
 `RuntimeHostCommand::UpdateTooltip` accepts formatted rows in logical canvas coordinates. Use owner-scoped show, move, and hide updates for application tooltips. The host clears transient overlays when focus or viewport size changes.
+
+The [annotation editor](../examples/winit-annotation-editor/README.md) demonstrates native and browser text editing. The browser text agent owns a hidden input for text, composition, focus, and clipboard events. Keyed timers remain independent of that input. A synchronous `ClipboardPayloadProvider` supplies the installed editor's selected text during browser copy and cut events.

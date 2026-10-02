@@ -33,6 +33,45 @@ pub struct RuntimeWakeEvent {
     pub generation: u64,
 }
 
+/// A finite rectangle in root-canvas logical pixels with a top-left origin.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LogicalRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl LogicalRect {
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Option<Self> {
+        let values = [x, y, width, height];
+        (values.iter().all(|value| value.is_finite()) && width >= 0.0 && height >= 0.0).then_some(
+            Self {
+                x,
+                y,
+                width,
+                height,
+            },
+        )
+    }
+
+    pub fn x(self) -> f32 {
+        self.x
+    }
+
+    pub fn y(self) -> f32 {
+        self.y
+    }
+
+    pub fn width(self) -> f32 {
+        self.width
+    }
+
+    pub fn height(self) -> f32 {
+        self.height
+    }
+}
+
 /// Host-neutral styling for one transient tooltip overlay.
 ///
 /// Every length is expressed in root-canvas logical pixels. Colors are
@@ -207,7 +246,6 @@ mod tooltip_tests {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RuntimeHostCommand {
-    UpdateTooltip(RuntimeTooltipUpdate),
     RequestWakeup {
         key: RuntimeWakeKey,
         deadline: Instant,
@@ -216,6 +254,16 @@ pub enum RuntimeHostCommand {
     CancelWakeup {
         key: RuntimeWakeKey,
     },
+    SetImeAllowed {
+        allowed: bool,
+    },
+    SetImeCursorArea {
+        rect: Option<LogicalRect>,
+    },
+    WriteClipboard {
+        text: String,
+    },
+    UpdateTooltip(RuntimeTooltipUpdate),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

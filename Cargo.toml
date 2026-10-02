@@ -24,6 +24,7 @@ members = [
     "examples/wgpu-scales",
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
+    "examples/winit-annotation-editor",
 ]
 exclude = [
     "tools/upstream-typst-probe",
@@ -70,6 +71,7 @@ strip = "symbols"
 incremental = false
 
 [workspace.dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 serde = { version = "^1.0", features = ["derive", "rc"] }
 serde_json = "^1.0"
 thiserror = "2.0.12"
