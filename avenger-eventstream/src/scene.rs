@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
+use smol_str::SmolStr;
 
 use crate::runtime::RuntimeWakeEvent;
 use crate::window::{
-    CanvasResizeEvent, Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent,
+    CanvasResizeEvent, ClipboardEvent, ImeEvent, Key, MouseButton, MouseScrollDelta,
+    WindowMovedEvent, WindowResizeEvent,
 };
 
 /// Events that can be handled by event streams
@@ -17,6 +19,8 @@ pub enum SceneGraphEvent {
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
     RuntimeWake(RuntimeWakeEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
@@ -74,6 +78,8 @@ impl SceneGraphEvent {
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
+            Self::Ime(..) => SceneGraphEventType::Ime,
+            Self::Clipboard(..) => SceneGraphEventType::Clipboard,
             Self::RuntimeWake(..) => SceneGraphEventType::RuntimeWake,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
@@ -102,6 +108,8 @@ pub enum SceneGraphEventType {
     MouseWheel,
     KeyPress,
     KeyRelease,
+    Ime,
+    Clipboard,
     RuntimeWake,
     CursorMoved,
     MarkMouseEnter,
@@ -160,7 +168,9 @@ pub struct SceneMouseWheelEvent {
 pub struct SceneKeyPressEvent {
     pub position: [f32; 2],
     pub key: Key,
-
+    /// Text produced by the key press. This is the sole native keyboard text
+    /// insertion source and may contain multiple Unicode code points.
+    pub text: Option<SmolStr>,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
 }

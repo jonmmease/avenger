@@ -51,4 +51,27 @@ jobs:
       - name: Check browser examples
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit
+          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p winit-annotation-editor
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: examples/winit-annotation-editor/package-lock.json
+      - name: Build browser annotation editor
+        run: |
+          cargo install wasm-pack --version 0.15.0 --locked
+          wasm-pack build examples/winit-annotation-editor --target web --release --no-opt
+      - name: Test browser annotation editor
+        working-directory: examples/winit-annotation-editor
+        run: |
+          npm ci
+          npx playwright install --with-deps chrome
+          npm run test:browser
+      - name: Upload browser failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: annotation-editor-browser-failures
+          path: examples/winit-annotation-editor/test-results/
+          if-no-files-found: ignore
