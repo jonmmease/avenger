@@ -8,6 +8,7 @@ pub struct ChartBuilder {
     scope: Vec<String>,
     group: Group,
     parameters: Vec<Parameter>,
+    background: Option<String>,
 }
 impl ChartBuilder {
     pub(crate) fn new(flow: Dataflow) -> Self {
@@ -31,7 +32,12 @@ impl ChartBuilder {
                 key_order: KeyOrder::Ascending,
             },
             parameters: vec![],
+            background: None,
         }
+    }
+    /// Set the figure background color. Use on the root builder.
+    pub fn background(&mut self, color: impl Into<String>) {
+        self.background = Some(color.into());
     }
     /// Configure this group's direct-child layout.
     pub fn arrange(&mut self, arrangement: Arrangement) {
@@ -150,6 +156,7 @@ impl ChartBuilder {
             dataflow: self.flow,
             root: self.group,
             parameters: self.parameters,
+            background: self.background,
         };
         definition.validate()?;
         Ok(definition)
@@ -166,6 +173,8 @@ impl PlotBuilder {
                 identity: crate::model::plot_identity(),
                 name,
                 size: Size::new(320.0, 220.0),
+                width_step: None,
+                height_step: None,
                 clip: true,
                 scales: vec![],
                 marks: vec![],
@@ -177,6 +186,22 @@ impl PlotBuilder {
     /// Set the content rectangle size, excluding guides and margins.
     pub fn content_size(&mut self, width: f32, height: f32) {
         self.plot.size = Size::new(width, height);
+        self.plot.width_step = None;
+        self.plot.height_step = None;
+    }
+    /// Derive content width from a discrete scale's domain and step.
+    pub fn width_step(&mut self, scale: &ScaleHandle, step: f32) {
+        self.plot.width_step = Some(StepDimension {
+            scale: scale.clone(),
+            step,
+        });
+    }
+    /// Derive content height from a discrete scale's domain and step.
+    pub fn height_step(&mut self, scale: &ScaleHandle, step: f32) {
+        self.plot.height_step = Some(StepDimension {
+            scale: scale.clone(),
+            step,
+        });
     }
     /// Clip mark layers to the content rectangle.
     pub fn clip(&mut self, enabled: bool) {
@@ -209,7 +234,7 @@ impl PlotBuilder {
         self.plot.marks.push(Mark {
             name: name.into(),
             table: *table,
-            encoding: Encoding::Rect(encoding),
+            encoding: Encoding::Rect(Box::new(encoding)),
         });
         Ok(())
     }

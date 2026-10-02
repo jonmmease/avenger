@@ -31,7 +31,7 @@ pub(crate) struct Positions {
     base: [ConfiguredScale; 2],
     xy: [ScalarOrArray<f32>; 2],
 }
-fn color(value: &str) -> Result<ScalarOrArray<ColorOrGradient>> {
+pub(crate) fn color(value: &str) -> Result<ScalarOrArray<ColorOrGradient>> {
     let c = value.parse::<css_color_parser::Color>().map_err(error)?;
     Ok(ScalarOrArray::new_scalar(ColorOrGradient::Color([
         c.r as f32 / 255.0,
@@ -74,6 +74,22 @@ fn channel(v: &Value, p: &PlotInstance, t: &TableSnapshot) -> Result<ScalarOrArr
         Value::Scaled(s, v) => ScalarOrArray::new_array(numeric(
             &p.scales[s.name()].scale(&input(v, p, t)?).map_err(error)?,
         )?),
+        Value::BandPosition(s, v, fraction) => ScalarOrArray::new_array(numeric(
+            &p.scales[s.name()]
+                .clone()
+                .with_option("band", *fraction)
+                .scale(&input(v, p, t)?)
+                .map_err(error)?,
+        )?),
+        Value::Baseline(s) => {
+            let scale = &p.scales[s.name()];
+            let (lo, hi) = scale.numeric_interval_domain_f64().map_err(error)?;
+            let zero = 0.0_f64.clamp(lo.min(hi), lo.max(hi));
+            let a = ScalarValue::Float64(Some(zero))
+                .to_array_of_size(1)
+                .map_err(error)?;
+            ScalarOrArray::new_scalar(numeric(&scale.scale(&a).map_err(error)?)?[0])
+        }
         Value::Bandwidth(s) => ScalarOrArray::new_scalar(
             avenger_scales::scales::band::bandwidth(&p.scales[s.name()].config).map_err(error)?,
         ),
@@ -164,6 +180,9 @@ pub(crate) fn build(
         .map(|m| {
             let t = p.ctx.table(&m.table)?;
             let len: u32 = t.num_rows().try_into().map_err(error)?;
+            if len == 0 {
+                return Ok(SceneMark::Group(Default::default()));
+            }
             Ok(match &m.encoding {
                 Encoding::Symbol(s) => {
                     let MappedPositions {
@@ -187,39 +206,49 @@ pub(crate) fn build(
                     })
                 }
                 Encoding::Rect(r) => {
-                    let xs = channel(r.x.as_ref().unwrap(), p, t)?.as_vec(len as usize, None);
-                    let ys = channel(r.y.as_ref().unwrap(), p, t)?.as_vec(len as usize, None);
-                    let endpoints = |end: &Option<Value>,
-                                     size: &Option<Value>,
-                                     start: &[f32]|
-                     -> Result<Vec<f32>> {
-                        if let Some(v) = end {
-                            Ok(channel(v, p, t)?.as_vec(len as usize, None))
-                        } else {
-                            Ok(channel(size.as_ref().unwrap(), p, t)?
-                                .as_iter(len as usize, None)
-                                .zip(start)
-                                .map(|(w, x)| x + w)
-                                .collect())
+                    let interval = |start: &Option<Value>,
+                                    center: &Option<Value>,
+                                    end: &Option<Value>,
+                                    size: &Option<Value>,
+                                    span: SpanAdjustment|
+                     -> Result<(Vec<f32>, Vec<f32>)> {
+                        let anchor = channel(start.as_ref().or(center.as_ref()).unwrap(), p, t)?
+                            .as_vec(len as usize, None);
+                        let sizes = size
+                            .as_ref()
+                            .map(|v| channel(v, p, t).map(|v| v.as_vec(len as usize, None)))
+                            .transpose()?;
+                        let ends = end
+                            .as_ref()
+                            .map(|v| channel(v, p, t).map(|v| v.as_vec(len as usize, None)))
+                            .transpose()?;
+                        let mut starts = Vec::with_capacity(len as usize);
+                        let mut lengths = Vec::with_capacity(len as usize);
+                        for (i, a) in anchor.into_iter().enumerate() {
+                            let (lo, raw) = if let Some(ends) = &ends {
+                                (a.min(ends[i]), (a - ends[i]).abs())
+                            } else {
+                                let size = sizes.as_ref().unwrap()[i];
+                                if size < 0.0 {
+                                    return Err(error("rectangle size must be nonnegative"));
+                                }
+                                (if center.is_some() { a - size / 2.0 } else { a }, size)
+                            };
+                            let length = (raw - span.spacing).max(span.minimum);
+                            starts.push(lo + (raw - length) / 2.0 + span.offset);
+                            lengths.push(length);
                         }
+                        Ok((starts, lengths))
                     };
-                    let x2 = endpoints(&r.x2, &r.width, &xs)?;
-                    let y2 = endpoints(&r.y2, &r.height, &ys)?;
+                    let (xs, widths) = interval(&r.x, &r.xc, &r.x2, &r.width, r.x_span)?;
+                    let (ys, heights) = interval(&r.y, &r.yc, &r.y2, &r.height, r.y_span)?;
                     SceneMark::Rect(SceneRectMark {
                         name: m.name.clone(),
                         len,
-                        x: ScalarOrArray::new_array(
-                            xs.iter().zip(&x2).map(|(a, b)| a.min(*b)).collect(),
-                        ),
-                        y: ScalarOrArray::new_array(
-                            ys.iter().zip(&y2).map(|(a, b)| a.min(*b)).collect(),
-                        ),
-                        width: Some(ScalarOrArray::new_array(
-                            xs.iter().zip(&x2).map(|(a, b)| (a - b).abs()).collect(),
-                        )),
-                        height: Some(ScalarOrArray::new_array(
-                            ys.iter().zip(&y2).map(|(a, b)| (a - b).abs()).collect(),
-                        )),
+                        x: ScalarOrArray::new_array(xs),
+                        y: ScalarOrArray::new_array(ys),
+                        width: Some(ScalarOrArray::new_array(widths)),
+                        height: Some(ScalarOrArray::new_array(heights)),
                         fill: color(&r.fill)?,
                         interactive: r.interactive,
                         clip: p.plot.clip,
@@ -229,4 +258,56 @@ pub(crate) fn build(
             })
         })
         .collect()
+}
+
+// Plain text layout collapses whitespace. Titles preserve authored line breaks as separate instances.
+pub(crate) fn multiline(
+    mut mark: avenger_scenegraph::marks::text::SceneTextMark,
+) -> avenger_scenegraph::marks::text::SceneTextMark {
+    use avenger_text::types::{TextBaseline, TextSyntaxMode};
+    if mark.len != 1 || mark.text_syntax != TextSyntaxMode::Plain {
+        return mark;
+    }
+    let text = mark.text.as_vec(1, None);
+    if !text[0].contains('\n') {
+        return mark;
+    }
+    let lines = text[0].split('\n').map(str::to_owned).collect::<Vec<_>>();
+    let step = mark.font_size.as_vec(1, None)[0] * 1.2;
+    let angle = mark.angle.as_vec(1, None)[0].to_radians();
+    let baseline = mark.baseline.as_vec(1, None)[0];
+    let offset = if matches!(baseline, TextBaseline::Bottom | TextBaseline::LineBottom) {
+        -(lines.len() as f32 - 1.0) * step
+    } else {
+        0.0
+    };
+    let x = mark.x.as_vec(1, None)[0];
+    let y = mark.y.as_vec(1, None)[0];
+    mark.x = ScalarOrArray::new_array(
+        (0..lines.len())
+            .map(|i| x - (offset + i as f32 * step) * angle.sin())
+            .collect(),
+    );
+    mark.y = ScalarOrArray::new_array(
+        (0..lines.len())
+            .map(|i| y + (offset + i as f32 * step) * angle.cos())
+            .collect(),
+    );
+    mark.len = lines.len() as u32;
+    mark.text = ScalarOrArray::new_array(lines);
+    mark
+}
+pub(crate) fn multiline_group(
+    mut group: avenger_scenegraph::marks::group::SceneGroup,
+) -> avenger_scenegraph::marks::group::SceneGroup {
+    group.marks = group
+        .marks
+        .into_iter()
+        .map(|m| match m {
+            SceneMark::Text(t) => SceneMark::Text(Arc::new(multiline((*t).clone()))),
+            SceneMark::Group(g) => SceneMark::Group(multiline_group(g)),
+            m => m,
+        })
+        .collect();
+    group
 }

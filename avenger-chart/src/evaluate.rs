@@ -79,7 +79,7 @@ impl<'a> Context<'a> {
     }
 }
 pub(crate) struct PlotInstance<'a> {
-    pub plot: &'a Plot,
+    pub plot: Plot,
     pub ctx: Context<'a>,
     pub id: PanelId,
     pub path: Vec<String>,
@@ -110,7 +110,7 @@ fn expand<'a>(
             Node::Plot(p) => {
                 let index = plots.len();
                 plots.push(PlotInstance {
-                    plot: p,
+                    plot: p.clone(),
                     id: ctx.identity(&child_path)?.into(),
                     path: child_path,
                     ctx: ctx.clone(),
@@ -231,6 +231,7 @@ fn layout(
     a: &PanelArrangement,
     edges: &[Edges<f32>],
     guides: Option<&avenger_panels::GuidePlan>,
+    text: &crate::TextEngine,
 ) -> Layout<NodeId, String> {
     let grid = a.grid(&g.id).expect("arranged group");
     let mut l = if g.children.is_empty() {
@@ -240,7 +241,7 @@ fn layout(
     };
     for (c, (_, slot)) in g.children.iter().zip(grid.slots()) {
         let child = match c {
-            Expanded::Group(g) => layout(g, p, a, edges, guides),
+            Expanded::Group(g) => layout(g, p, a, edges, guides, text),
             Expanded::Plot(i) => {
                 let mut l = Layout::leaf(p[*i].plot.size).id(NodeId::Panel(p[*i].id.clone()));
                 for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
@@ -263,8 +264,19 @@ fn layout(
     if !g.children.is_empty() {
         l = l.min_gap(g.arrangement.gap);
     }
-    if g.title.is_some() {
-        l = l.strip(Side::Top, 26.0);
+    if let Some(title) = &g.title {
+        use avenger_geometry::marks::MarkGeometryUtils;
+        let mark = crate::marks::multiline(SceneTextMark {
+            text: ScalarOrArray::new_scalar(title.clone()),
+            font_size: ScalarOrArray::new_scalar(15.0),
+            interactive: false,
+            ..Default::default()
+        });
+        let bounds = mark.bounding_box_with_text_engine(text);
+        l = l.strip(
+            Side::Top,
+            (bounds.upper()[1] - bounds.lower()[1] + 11.0).max(26.0),
+        );
     }
     l = crate::scales::reserve_titles(l, &NodeId::Group(g.id.clone()), guides);
     if !g.children.is_empty() && g.arrangement.uniform_columns {
@@ -297,7 +309,7 @@ fn titles(
     if let Some(title) = &g.title {
         let r = solution.region(&NodeId::Group(g.id.clone())).unwrap();
         out.push(SceneMark::Text(
-            SceneTextMark {
+            crate::marks::multiline(SceneTextMark {
                 name: format!("{}:header", g.id.as_str()),
                 text: ScalarOrArray::new_scalar(title.clone()),
                 x: ScalarOrArray::new_scalar(r.content.x),
@@ -312,7 +324,7 @@ fn titles(
                 font_size: ScalarOrArray::new_scalar(15.0),
                 interactive: false,
                 ..Default::default()
-            }
+            })
             .into(),
         ));
     }
@@ -344,7 +356,7 @@ pub(crate) fn render(
         .map_err(error)?;
     crate::scales::configure(&mut plots, &tree, &chart.0.scale_formatting)?;
     let mut edges = crate::scales::measure(&plots, &chart.0.text, None)?;
-    let mut solution = layout(&root, &plots, &arranged, &edges, None)
+    let mut solution = layout(&root, &plots, &arranged, &edges, None, &chart.0.text)
         .solve(&SolveOptions::default())
         .map_err(error)?;
     let mut guides = crate::scales::guides(&plots, &tree, &arranged, &solution)?;
@@ -354,14 +366,23 @@ pub(crate) fn render(
             break;
         }
         edges = next;
-        solution = layout(&root, &plots, &arranged, &edges, Some(&guides))
-            .solve(&SolveOptions::default())
-            .map_err(error)?;
+        solution = layout(
+            &root,
+            &plots,
+            &arranged,
+            &edges,
+            Some(&guides),
+            &chart.0.text,
+        )
+        .solve(&SolveOptions::default())
+        .map_err(error)?;
         guides = crate::scales::guides(&plots, &tree, &arranged, &solution)?;
     }
     let mut scene_marks = vec![];
     titles(&root, &solution, &mut scene_marks);
     let mut frames = vec![];
+    let mut outer_min = [0.0_f32; 2];
+    let mut outer_max = [solution.size.width, solution.size.height];
     let mut geometry = GeometryReport::default();
     let mut alive = std::collections::HashSet::new();
     for p in &plots {
@@ -369,7 +390,15 @@ pub(crate) fn render(
             .region(&NodeId::Panel(p.id.clone()))
             .unwrap()
             .content;
-        let mut marks = crate::marks::build(chart, p, &mut geometry, &mut alive)?;
+        for mut grid in crate::scales::grids(p)? {
+            grid.origin = [rect.x, rect.y];
+            scene_marks.push(SceneMark::Group(grid));
+        }
+        let mut marks = if p.plot.size.width == 0.0 || p.plot.size.height == 0.0 {
+            vec![]
+        } else {
+            crate::marks::build(chart, p, &mut geometry, &mut alive)?
+        };
         let group = SceneGroup {
             name: p.id.as_str().to_owned(),
             origin: [rect.x, rect.y],
@@ -386,7 +415,20 @@ pub(crate) fn render(
             marks: std::mem::take(&mut marks),
             ..Default::default()
         };
-        scene_marks.push(SceneMark::Group(group));
+        let group = SceneMark::Group(group);
+        if !p.plot.clip {
+            use avenger_geometry::marks::MarkGeometryUtils;
+            let bounds = group.bounding_box_with_text_engine(&chart.0.text);
+            for axis in 0..2 {
+                if bounds.lower()[axis].is_finite() {
+                    outer_min[axis] = outer_min[axis].min(bounds.lower()[axis]);
+                }
+                if bounds.upper()[axis].is_finite() {
+                    outer_max[axis] = outer_max[axis].max(bounds.upper()[axis]);
+                }
+            }
+        }
+        scene_marks.push(group);
         scene_marks.extend(
             crate::scales::axes(p, &chart.0.text, Some(&guides))?
                 .into_iter()
@@ -411,17 +453,53 @@ pub(crate) fn render(
         .map_err(error)?
         .retain(|k, _| alive.contains(k));
     scene_marks.extend(crate::scales::shared_titles(&plots, &guides, &solution));
-    let size = solution.size;
+    for mark in &scene_marks {
+        if let SceneMark::Text(_) = mark {
+            use avenger_geometry::marks::MarkGeometryUtils;
+            let bounds = mark.bounding_box_with_text_engine(&chart.0.text);
+            for axis in 0..2 {
+                if bounds.lower()[axis].is_finite() {
+                    outer_min[axis] = outer_min[axis].min(bounds.lower()[axis]);
+                }
+                if bounds.upper()[axis].is_finite() {
+                    outer_max[axis] = outer_max[axis].max(bounds.upper()[axis]);
+                }
+            }
+        }
+    }
+    let offset = [-outer_min[0], -outer_min[1]];
+    let size = Size::new(outer_max[0] - outer_min[0], outer_max[1] - outer_min[1]);
+    for p in &mut frames {
+        p.rect.x += offset[0];
+        p.rect.y += offset[1];
+    }
+    if let Some(color) = chart.definition().background() {
+        scene_marks.insert(
+            0,
+            SceneMark::Rect(avenger_scenegraph::marks::rect::SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(-offset[0]),
+                y: ScalarOrArray::new_scalar(-offset[1]),
+                width: Some(ScalarOrArray::new_scalar(size.width)),
+                height: Some(ScalarOrArray::new_scalar(size.height)),
+                fill: crate::marks::color(color)?,
+                interactive: false,
+                ..Default::default()
+            }),
+        );
+    }
     Ok(RenderedChart {
         scene: Arc::new(SceneGraph {
             marks: vec![SceneMark::Group(SceneGroup {
                 marks: scene_marks,
+                origin: offset,
                 ..Default::default()
             })],
             width: size.width,
             height: size.height,
             origin: [0.0, 0.0],
         }),
+        #[cfg(any(feature = "svg", feature = "pdf", feature = "png"))]
         text: chart.0.text.clone(),
         inputs,
         plots: frames,
