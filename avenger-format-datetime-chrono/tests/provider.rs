@@ -6,7 +6,7 @@ use chrono_tz::{America::New_York, Asia::Tokyo, Tz};
 #[test]
 fn prepared_formatters_retain_settings() {
     let provider = ChronoDateTimeFormatProvider::new()
-        .with_locale("en-US")
+        .with_locale("POSIX")
         .with_timezone(New_York);
     let date_formatter = provider.prepare_date("%Y-%m-%d").unwrap();
     let naive = provider.prepare_naive("%Y-%m-%d %H:%M").unwrap();
@@ -50,6 +50,7 @@ fn preparation_rejects_patterns_for_the_wrong_input_type() {
     }
 }
 
+#[cfg(feature = "all-locales")]
 #[test]
 fn uses_chrono_locales_and_validates_expanded_patterns() {
     let spec = "%B";
@@ -69,6 +70,23 @@ fn uses_chrono_locales_and_validates_expanded_patterns() {
     let spec = "%c";
     assert!(provider.prepare_naive(spec).is_err());
     assert!(provider.prepare_zoned(spec).is_ok());
+}
+
+#[cfg(not(feature = "all-locales"))]
+#[test]
+fn named_locales_require_the_feature() {
+    for name in ["en-US", "en_US", "fr-FR", "fr_FR"] {
+        let provider = ChronoDateTimeFormatProvider::new().with_locale(name);
+        for error in [
+            provider.prepare_date("%B").unwrap_err(),
+            provider.prepare_naive("%B").unwrap_err(),
+            provider.prepare_zoned("%B").unwrap_err(),
+        ] {
+            assert!(error
+                .to_string()
+                .contains("requires the `all-locales` feature"));
+        }
+    }
 }
 
 #[test]

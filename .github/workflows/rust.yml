@@ -44,7 +44,8 @@ jobs:
       - name: Test all bundled formatter locales
         run: |
           cargo test --release --locked -p avenger-format-datetime-d3 -p avenger-format-number-d3 \
-            --features avenger-format-datetime-d3/all-locales,avenger-format-number-d3/all-locales
+            -p avenger-format-datetime-chrono \
+            --features avenger-format-datetime-d3/all-locales,avenger-format-number-d3/all-locales,avenger-format-datetime-chrono/all-locales
       - name: Run doc tests
         run: cargo test --release --workspace --locked --doc --verbose
 

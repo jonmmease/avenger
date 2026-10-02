@@ -3,9 +3,12 @@ name = "avenger-format-datetime-chrono"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+all-locales = ["chrono/unstable-locales"]
+
 [dependencies]
 avenger-format = { path = "../avenger-format" }
-chrono = { workspace = true, features = ["unstable-locales"] }
+chrono = { workspace = true }
 chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 

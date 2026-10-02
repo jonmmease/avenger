@@ -8,7 +8,6 @@ use avenger_format_datetime_chrono::ChronoDateTimeFormatProvider;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = ChronoDateTimeFormatProvider::new()
-        .with_locale("en-US")
         .with_timezone("America/New_York".parse()?);
     let date_formatter = provider.prepare_date("%Y-%m-%d")?;
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
@@ -30,6 +29,12 @@ The provider owns its locale and display timezone. Pass a string pattern directl
 
 Date and naive preparation ignore timezone configuration. Parsing-only directives such as `%#z` fail during preparation for all three paths.
 
-Locale names accept either separator: `en-US` and `en_US` select the same locale. An omitted locale uses `POSIX`. The crate enables Chrono's `unstable-locales` feature for its built-in locale data.
+By default, the provider supports only Chrono's `POSIX` English conventions and does not enable Chrono's locale database. Enable `all-locales` to use the full database:
+
+```toml
+avenger-format-datetime-chrono = { version = "0.1", features = ["all-locales"] }
+```
+
+This feature enables Chrono's `unstable-locales` feature. Select a locale with `.with_locale("fr-FR")`. Names accept either separator: `en-US` and `en_US` select the same locale. An omitted locale still uses `POSIX`. Without `all-locales`, selecting any name other than `POSIX` returns an error during preparation.
 
 Formatting preserves the input's submillisecond precision and Chrono's leap-second representation. `%f` prints nanoseconds, `%3f` prints milliseconds, `%6f` prints microseconds, and `%z` prints a numeric timezone offset. Formatting errors and display dates outside the supported calendar range return `DateTimeFormatError`.
