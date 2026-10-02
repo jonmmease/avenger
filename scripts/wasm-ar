@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+for candidate in \
+    "${AVENGER_WASM_AR:-}" \
+    "/opt/homebrew/opt/llvm/bin/llvm-ar" \
+    "/usr/local/opt/llvm/bin/llvm-ar" \
+    "llvm-ar" \
+    "ar"
+do
+    [ -n "$candidate" ] || continue
+    if command -v "$candidate" >/dev/null 2>&1; then
+        exec "$candidate" "$@"
+    fi
+done
+
+echo "error: no archiver found for wasm32-unknown-unknown" >&2
+exit 127
