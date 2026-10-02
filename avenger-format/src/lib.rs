@@ -2,7 +2,7 @@
 
 mod datetime;
 pub use datetime::{
-    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind, PreparedDateFormatter,
     PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 

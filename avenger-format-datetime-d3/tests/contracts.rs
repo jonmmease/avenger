@@ -1,6 +1,7 @@
+use avenger_format::DateTimeInputKind;
 use avenger_format_datetime_d3::{
     D3DateTimeFormatProvider, DateTimeFormatContext, DateTimeFormatError, DateTimeLocaleRegistry,
-    DateTimeLocaleSpec, DateTimeParseError, PreparedDateTimeFormat, ResolvedDateTimeLocale,
+    DateTimeLocaleSpec, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::{America::New_York, Asia::Tokyo, UTC};
@@ -32,11 +33,10 @@ fn date_preparation_rejects_time_fields_including_locale_expansions() {
             .with_locale("custom")
             .with_custom_locale("custom", definition);
         for spec in [directive, "%x"] {
-            assert!(provider
-                .prepare_date(spec)
-                .unwrap_err()
-                .to_string()
-                .contains(directive));
+            assert!(matches!(provider.prepare_date(spec).unwrap_err(),
+                DateTimeFormatError::UnsupportedPattern { input: DateTimeInputKind::Date, message }
+                    if message.contains(directive)
+            ));
             let prepared =
                 PreparedDateTimeFormat::new(Some(spec), DateTimeFormatContext::new(&locale, UTC))
                     .unwrap();
@@ -63,11 +63,10 @@ fn naive_preparation_rejects_zoned_fields_including_locale_expansions() {
                 },
             );
         for spec in [directive, "%c"] {
-            assert!(provider
-                .prepare_naive(spec)
-                .unwrap_err()
-                .to_string()
-                .contains(directive));
+            assert!(matches!(provider.prepare_naive(spec).unwrap_err(),
+                DateTimeFormatError::UnsupportedPattern { input: DateTimeInputKind::Naive, message }
+                    if message.contains(directive)
+            ));
             assert!(provider.prepare_zoned(spec).is_ok());
         }
     }
@@ -118,7 +117,7 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
     invalid["months"].as_array_mut().unwrap().pop();
     assert!(matches!(
         registry.register_custom_locale_json("fr-FR", &invalid.to_string()),
-        Err(DateTimeFormatError::InvalidLocaleData(_))
+        Err(DateTimeFormatError::InvalidLocaleData { .. })
     ));
     assert_eq!(
         prepare(&registry.resolve("fr-FR").unwrap())
@@ -138,7 +137,7 @@ fn recursive_locale_patterns_are_rejected() {
         };
         assert!(matches!(
             ResolvedDateTimeLocale::new("cycle", definition),
-            Err(DateTimeFormatError::InvalidLocaleData(_))
+            Err(DateTimeFormatError::InvalidLocaleData { .. })
         ));
     }
 }
@@ -150,7 +149,7 @@ fn malformed_patterns_report_byte_positions() {
     for (pattern, expected_position) in [("%", 0), ("%_", 0), ("%k", 0), ("é%k", 2)] {
         assert!(matches!(
             PreparedDateTimeFormat::new(Some(pattern), context),
-            Err(DateTimeFormatError::Parse(DateTimeParseError::Invalid { position, .. }))
+            Err(DateTimeFormatError::InvalidPattern { position: Some(position), .. })
                 if position == expected_position
         ));
     }
@@ -182,7 +181,7 @@ fn out_of_range_display_dates_return_errors() {
         let scalar = PreparedDateTimeFormat::new(Some("%Y-%m-%d"), context).unwrap();
         assert_eq!(
             scalar.format_zoned(value),
-            Err(DateTimeFormatError::DateTimeOutOfRange)
+            Err(DateTimeFormatError::OutOfRange)
         );
     }
 }
@@ -196,10 +195,11 @@ fn naive_leap_seconds_are_rejected() {
         .unwrap()
         .and_hms_milli_opt(23, 59, 59, 1500)
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         scalar.format_naive(value),
-        Err(DateTimeFormatError::LeapSecondForNaive)
-    );
+        Err(DateTimeFormatError::UnsupportedValue { input: DateTimeInputKind::Naive, message })
+            if message.contains("leap seconds")
+    ));
 }
 
 #[test]
@@ -291,14 +291,19 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
         );
         let formatter = provider.prepare_date(spec).unwrap();
         // An exact custom name takes precedence even when its definition is invalid.
-        provider.locales.insert(
-            selected.into(),
-            DateTimeLocaleSpec {
-                date: "%x".into(),
-                ..Default::default()
-            },
-        );
-        assert!(provider.prepare_date(spec).is_err());
+        for invalid in ["%x", "%k"] {
+            provider.locales.insert(
+                selected.into(),
+                DateTimeLocaleSpec {
+                    date: invalid.into(),
+                    ..Default::default()
+                },
+            );
+            assert!(matches!(
+                provider.prepare_date(spec).unwrap_err(),
+                DateTimeFormatError::InvalidLocaleData { .. }
+            ));
+        }
         drop(provider);
         assert_eq!(
             formatter
@@ -307,10 +312,12 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
             "05~01~2024"
         );
     }
-    assert!(D3DateTimeFormatProvider::new()
+    assert!(matches!(D3DateTimeFormatProvider::new()
         .with_locale("unknown")
         .prepare_date(spec)
-        .is_err());
+        .unwrap_err(),
+        DateTimeFormatError::LocaleUnavailable { locale, .. } if locale == "unknown"
+    ));
 }
 
 #[cfg(feature = "all-locales")]

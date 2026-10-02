@@ -45,7 +45,10 @@ pub(crate) fn resolve(id: &str) -> Result<ResolvedDateTimeLocale, DateTimeFormat
     let (_, json) = LOCALES
         .iter()
         .find(|(name, _)| *name == id)
-        .ok_or_else(|| DateTimeFormatError::LocaleNotFound(id.into()))?;
+        .ok_or_else(|| DateTimeFormatError::LocaleUnavailable {
+            locale: id.into(),
+            message: "no bundled D3 definition is available in this build".into(),
+        })?;
     let definition: DateTimeLocaleSpec =
         serde_json::from_str(json).expect("bundled D3 time locale");
     ResolvedDateTimeLocale::new(id, definition)

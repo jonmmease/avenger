@@ -34,8 +34,11 @@ impl DateTimeLocaleRegistry {
         id: impl Into<String>,
         json: &str,
     ) -> Result<(), DateTimeFormatError> {
-        let spec = serde_json::from_str(json)
-            .map_err(|error| DateTimeFormatError::InvalidLocaleData(error.to_string()))?;
+        let id = id.into();
+        let spec =
+            serde_json::from_str(json).map_err(|error| DateTimeFormatError::InvalidLocaleData {
+                message: format!("locale `{id}`: {error}"),
+            })?;
         self.register_custom_locale(id, spec)
     }
     /// Resolve a name, sharing the validated definition with the caller.
@@ -43,6 +46,9 @@ impl DateTimeLocaleRegistry {
         self.locales
             .get(id)
             .cloned()
-            .ok_or_else(|| DateTimeFormatError::LocaleNotFound(id.into()))
+            .ok_or_else(|| DateTimeFormatError::LocaleUnavailable {
+                locale: id.into(),
+                message: "locale is not registered".into(),
+            })
     }
 }

@@ -37,4 +37,6 @@ avenger-format-datetime-chrono = { version = "0.1", features = ["all-locales"] }
 
 This feature enables Chrono's `unstable-locales` feature. Select a locale with `.with_locale("fr-FR")`. Names accept either separator: `en-US` and `en_US` select the same locale. An omitted locale still uses `POSIX`. Without `all-locales`, selecting any name other than `POSIX` returns an error during preparation.
 
-Formatting preserves the input's submillisecond precision and Chrono's leap-second representation. `%f` prints nanoseconds, `%3f` prints milliseconds, `%6f` prints microseconds, and `%z` prints a numeric timezone offset. Formatting errors and display dates outside the supported calendar range return `DateTimeFormatError`.
+Formatting preserves the input's submillisecond precision and Chrono's leap-second representation. `%f` prints nanoseconds, `%3f` prints milliseconds, `%6f` prints microseconds, and `%z` prints a numeric timezone offset.
+
+Preparation and formatting return [`avenger_format::DateTimeFormatError`]. Chrono's parser reports invalid patterns without byte positions. A failed preparation render returns `UnsupportedPattern` with the requested input type. Display dates outside the supported calendar range return `OutOfRange`.

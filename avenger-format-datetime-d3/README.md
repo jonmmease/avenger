@@ -44,4 +44,6 @@ The [reference generator](../tools/format-reference/README.md) pins the referenc
 
 The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
 
-Pass one explicit pattern string to `prepare_date()`, `prepare_naive()`, or `prepare_zoned()`. Preparation validates the pattern for the corresponding input type, including directives in locale expansions. Date and naive preparation ignore timezone configuration. An empty pattern produces an empty label. Callers choose ordinary patterns such as `%c` or `%Y-%m-%d`. Errors from preparation or individual values propagate through the shared error type.
+Pass one explicit pattern string to `prepare_date()`, `prepare_naive()`, or `prepare_zoned()`. Preparation validates the pattern for the corresponding input type, including directives in locale expansions. Date and naive preparation ignore timezone configuration. An empty pattern produces an empty label. Callers choose ordinary patterns such as `%c` or `%Y-%m-%d`.
+
+The low-level API and provider traits return [`avenger_format::DateTimeFormatError`]. Pattern errors retain byte positions, and unsupported patterns and values identify their input type. Malformed or recursive custom locale patterns return `InvalidLocaleData`.

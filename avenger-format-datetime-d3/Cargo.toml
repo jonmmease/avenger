@@ -12,4 +12,3 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }

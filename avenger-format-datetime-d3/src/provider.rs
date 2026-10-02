@@ -2,7 +2,7 @@ use crate::{
     DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind, PreparedDateFormatter,
     PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
@@ -67,7 +67,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
         let prepared = prepare(self, pattern, chrono_tz::UTC)?;
-        prepared.validate_date().map_err(error)?;
+        prepared.validate_input(DateTimeInputKind::Date)?;
         Ok(Arc::new(prepared))
     }
 
@@ -76,7 +76,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
         let prepared = prepare(self, pattern, chrono_tz::UTC)?;
-        prepared.validate_naive().map_err(error)?;
+        prepared.validate_input(DateTimeInputKind::Naive)?;
         Ok(Arc::new(prepared))
     }
 
@@ -102,32 +102,27 @@ fn prepare(
             .find_map(|(name, data)| (name.replace('_', "-") == normalized).then_some(data))
     });
     let locale = if let Some(definition) = data {
-        ResolvedDateTimeLocale::new(id, definition.clone()).map_err(error)?
+        ResolvedDateTimeLocale::new(id, definition.clone())?
     } else {
-        crate::bundled::resolve(&normalized).map_err(error)?
+        crate::bundled::resolve(&normalized)?
     };
     PreparedDateTimeFormat::new(Some(pattern), DateTimeFormatContext::new(&locale, timezone))
-        .map_err(error)
-}
-
-fn error(error: crate::DateTimeFormatError) -> DateTimeFormatError {
-    DateTimeFormatError(error.to_string())
 }
 
 impl PreparedDateFormatter for PreparedDateTimeFormat {
     fn format(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
-        self.format_date(value).map_err(error)
+        self.format_date(value)
     }
 }
 
 impl PreparedNaiveDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
-        self.format_naive(value).map_err(error)
+        self.format_naive(value)
     }
 }
 
 impl PreparedZonedDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
-        self.format_zoned(value).map_err(error)
+        self.format_zoned(value)
     }
 }

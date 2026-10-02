@@ -1,14 +1,13 @@
 #![doc = include_str!("../README.md")]
 
 mod bundled;
-mod error;
 mod format;
 mod locale;
 mod parser;
 mod provider;
 mod registry;
 
-pub use error::{DateTimeFormatError, DateTimeParseError};
+pub use avenger_format::DateTimeFormatError;
 pub use format::{
     format_naive_datetime, format_zoned_datetime, DateTimeFormatContext, PreparedDateTimeFormat,
 };

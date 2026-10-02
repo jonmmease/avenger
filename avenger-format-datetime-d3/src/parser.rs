@@ -1,4 +1,4 @@
-use crate::error::DateTimeParseError;
+use crate::DateTimeFormatError;
 
 /// A parsed D3 datetime pattern. Locale directives expand during preparation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub(crate) enum PatternToken {
 }
 
 /// Parse documented D3 datetime directives and their padding modifiers.
-pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseError> {
+pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeFormatError> {
     let mut tokens = Vec::new();
     let mut literal = String::new();
     let mut chars = spec.char_indices();
@@ -25,7 +25,7 @@ pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseEr
         }
         let (_, mut code) = chars
             .next()
-            .ok_or_else(|| DateTimeParseError::invalid(position, "missing directive after `%`"))?;
+            .ok_or_else(|| invalid_pattern(position, "missing directive after `%`"))?;
         let padding = match code {
             '-' | '_' | '0' => {
                 let padding = match code {
@@ -36,10 +36,7 @@ pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseEr
                 code = chars
                     .next()
                     .ok_or_else(|| {
-                        DateTimeParseError::invalid(
-                            position,
-                            "missing directive after padding modifier",
-                        )
+                        invalid_pattern(position, "missing directive after padding modifier")
                     })?
                     .1;
                 padding
@@ -47,7 +44,7 @@ pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseEr
             _ => Some(if code == 'e' { ' ' } else { '0' }),
         };
         if !"aAbBcdefgGHIjLmMpqQsSuUVwWxXyYZ%".contains(code) {
-            return Err(DateTimeParseError::invalid(
+            return Err(invalid_pattern(
                 position,
                 format!("unknown D3 datetime directive `%{code}`"),
             ));
@@ -58,4 +55,11 @@ pub(crate) fn parse_datetime_spec(spec: &str) -> Result<Pattern, DateTimeParseEr
         tokens.push(PatternToken::Literal(literal));
     }
     Ok(Pattern(tokens))
+}
+
+fn invalid_pattern(position: usize, message: impl Into<String>) -> DateTimeFormatError {
+    DateTimeFormatError::InvalidPattern {
+        position: Some(position),
+        message: message.into(),
+    }
 }

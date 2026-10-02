@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind, PreparedDateFormatter,
     PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 #[cfg(feature = "all-locales")]
@@ -62,7 +62,7 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         let pattern = Pattern::new(pattern, self.locale.as_deref())?;
         // Rendering without a time or offset rejects incompatible fields after locale expansion.
         PreparedDateFormatter::format(&pattern, DateTime::UNIX_EPOCH.date_naive())
-            .map_err(|_| error("Chrono pattern cannot format a date without a time or timezone"))?;
+            .map_err(|error| preparation_error(error, DateTimeInputKind::Date))?;
         Ok(Arc::new(pattern))
     }
 
@@ -77,11 +77,14 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
             .iter()
             .any(|item| matches!(item, Item::Numeric(Numeric::Timestamp, _)))
         {
-            return Err(error("Chrono pattern `%s` requires a zoned datetime"));
+            return Err(DateTimeFormatError::UnsupportedPattern {
+                input: DateTimeInputKind::Naive,
+                message: "`%s` requires a zoned datetime".into(),
+            });
         }
         // Rendering detects timezone-dependent and parsing-only items, including locale expansions.
         PreparedNaiveDateTimeFormatter::format(&pattern, DateTime::UNIX_EPOCH.naive_utc())
-            .map_err(|_| error("Chrono pattern cannot format a naive datetime"))?;
+            .map_err(|error| preparation_error(error, DateTimeInputKind::Naive))?;
         Ok(Arc::new(pattern))
     }
 
@@ -96,7 +99,7 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         // Chrono parses some directives, such as %#z, that it cannot use for formatting.
         formatter
             .format(DateTime::UNIX_EPOCH)
-            .map_err(|_| error("Chrono pattern contains a parsing-only directive"))?;
+            .map_err(|error| preparation_error(error, DateTimeInputKind::Zoned))?;
         Ok(Arc::new(formatter))
     }
 }
@@ -117,22 +120,30 @@ impl Pattern {
                     Some(name) => name
                         .replace('-', "_")
                         .parse::<Locale>()
-                        .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
+                        .map_err(|_| DateTimeFormatError::LocaleUnavailable {
+                            locale: name.into(),
+                            message: "unknown Chrono locale".into(),
+                        })?,
                     None => Locale::POSIX,
                 };
                 let items = StrftimeItems::new_with_locale(pattern, locale);
             } else {
                 if let Some(name) = locale.filter(|name| *name != "POSIX") {
-                    return Err(error(format!(
-                        "Chrono locale `{name}` requires the `all-locales` feature"
-                    )));
+                    return Err(DateTimeFormatError::LocaleUnavailable {
+                        locale: name.into(),
+                        message: "requires the `all-locales` feature".into(),
+                    });
                 }
                 let items = StrftimeItems::new(pattern);
             }
         }
-        let items = items
-            .parse_to_owned()
-            .map_err(|err| error(format!("invalid Chrono datetime pattern: {err}")))?;
+        let items =
+            items
+                .parse_to_owned()
+                .map_err(|error| DateTimeFormatError::InvalidPattern {
+                    position: None,
+                    message: error.to_string(),
+                })?;
         Ok(Self {
             items,
             #[cfg(feature = "all-locales")]
@@ -188,7 +199,7 @@ impl PreparedZonedDateTimeFormatter for ZonedFormat {
         let local = display
             .naive_utc()
             .checked_add_offset(display.offset().fix())
-            .ok_or_else(|| error("display datetime is outside the supported calendar range"))?;
+            .ok_or(DateTimeFormatError::OutOfRange)?;
         cfg_if::cfg_if! {
             if #[cfg(feature = "all-locales")] {
                 let format = DelayedFormat::new_with_offset_and_locale(
@@ -217,10 +228,17 @@ fn render(
     let mut text = String::new();
     format
         .write_to(&mut text)
-        .map_err(|_| error("datetime cannot be rendered with the prepared Chrono pattern"))?;
+        .map_err(|_| DateTimeFormatError::FormattingFailed)?;
     Ok(text)
 }
 
-fn error(message: impl Into<String>) -> DateTimeFormatError {
-    DateTimeFormatError(message.into())
+/// Classify a failed preparation render while preserving value errors.
+fn preparation_error(error: DateTimeFormatError, input: DateTimeInputKind) -> DateTimeFormatError {
+    match error {
+        DateTimeFormatError::FormattingFailed => DateTimeFormatError::UnsupportedPattern {
+            input,
+            message: "Chrono could not render this pattern".into(),
+        },
+        other => other,
+    }
 }

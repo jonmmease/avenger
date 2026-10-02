@@ -3,6 +3,7 @@ use crate::{
     parser::{parse_datetime_spec, Pattern, PatternToken},
     DateTimeFormatError, DateTimeLocaleSpec, ResolvedDateTimeLocale,
 };
+use avenger_format::DateTimeInputKind;
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Offset, Timelike, Utc};
 use chrono_tz::Tz;
 use std::sync::Arc;
@@ -62,34 +63,43 @@ impl PreparedDateTimeFormat {
             time_directive,
         })
     }
-    /// Check date-only compatibility before formatting a batch.
-    pub(crate) fn validate_date(&self) -> Result<(), DateTimeFormatError> {
-        self.validate_naive()?;
-        if let Some(code) = self.time_directive {
-            return Err(DateTimeFormatError::TimeFieldForDate(format!("%{code}")));
+    /// Reject directives that require fields absent from the input.
+    pub(crate) fn validate_input(
+        &self,
+        input: DateTimeInputKind,
+    ) -> Result<(), DateTimeFormatError> {
+        if input != DateTimeInputKind::Zoned {
+            if let Some(code) = self.zoned_directive {
+                return Err(DateTimeFormatError::UnsupportedPattern {
+                    input,
+                    message: format!("`%{code}` requires a zoned datetime"),
+                });
+            }
         }
-        Ok(())
-    }
-    /// Check naive-input compatibility before formatting a batch.
-    pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        if let Some(code) = self.zoned_directive {
-            return Err(DateTimeFormatError::TimezoneFieldForNaive(format!(
-                "%{code}"
-            )));
+        if input == DateTimeInputKind::Date {
+            if let Some(code) = self.time_directive {
+                return Err(DateTimeFormatError::UnsupportedPattern {
+                    input,
+                    message: format!("`%{code}` requires a time of day"),
+                });
+            }
         }
         Ok(())
     }
     /// Format naive fields, rejecting leap seconds and directives that require a zoned datetime.
     pub fn format_naive(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
-        self.validate_naive()?;
+        self.validate_input(DateTimeInputKind::Naive)?;
         if value.nanosecond() >= 1_000_000_000 {
-            return Err(DateTimeFormatError::LeapSecondForNaive);
+            return Err(DateTimeFormatError::UnsupportedValue {
+                input: DateTimeInputKind::Naive,
+                message: "D3 does not support naive leap seconds".into(),
+            });
         }
         Ok(self.render(value, 0, 0))
     }
     /// Format a calendar date, rejecting time, epoch, and timezone directives.
     pub fn format_date(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
-        self.validate_date()?;
+        self.validate_input(DateTimeInputKind::Date)?;
         Ok(self.render(value.and_time(NaiveTime::MIN), 0, 0))
     }
     /// Format a zoned datetime, returning an error if its display date exceeds Chrono's range.
@@ -218,7 +228,7 @@ pub(crate) fn normalize_zoned(value: DateTime<Utc>) -> Result<DateTime<Utc>, Dat
     let millis = value.timestamp_millis();
     let millis =
         millis + i64::from(millis < 0 && !value.timestamp_subsec_nanos().is_multiple_of(1_000_000));
-    DateTime::from_timestamp_millis(millis).ok_or(DateTimeFormatError::DateTimeOutOfRange)
+    DateTime::from_timestamp_millis(millis).ok_or(DateTimeFormatError::OutOfRange)
 }
 
 /// Convert display fields without overflowing Chrono's naive date range.
@@ -226,5 +236,5 @@ pub(crate) fn local_datetime(value: DateTime<Tz>) -> Result<NaiveDateTime, DateT
     value
         .naive_utc()
         .checked_add_offset(value.offset().fix())
-        .ok_or(DateTimeFormatError::DateTimeOutOfRange)
+        .ok_or(DateTimeFormatError::OutOfRange)
 }

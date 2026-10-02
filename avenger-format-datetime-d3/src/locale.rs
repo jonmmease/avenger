@@ -1,6 +1,6 @@
 use crate::{
-    error::DateTimeFormatError,
     parser::{parse_datetime_spec, Pattern, PatternToken},
+    DateTimeFormatError,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -67,9 +67,18 @@ impl ResolvedDateTimeLocale {
         id: impl Into<String>,
         definition: DateTimeLocaleSpec,
     ) -> Result<Self, DateTimeFormatError> {
-        let source = [&definition.date_time, &definition.date, &definition.time];
+        let id = id.into();
+        let source = [
+            ("dateTime", &definition.date_time),
+            ("date", &definition.date),
+            ("time", &definition.time),
+        ];
         let parsed = source
-            .map(|spec| parse_datetime_spec(spec))
+            .map(|(field, spec)| {
+                parse_datetime_spec(spec).map_err(|error| DateTimeFormatError::InvalidLocaleData {
+                    message: format!("locale `{id}` field `{field}`: {error}"),
+                })
+            })
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
         let patterns = [
@@ -100,9 +109,9 @@ pub(crate) fn expand(
         if let PatternToken::Directive { code, .. } = token {
             if let Some(index) = ['c', 'x', 'X'].iter().position(|item| item == code) {
                 if stack.contains(code) {
-                    return Err(DateTimeFormatError::InvalidLocaleData(format!(
-                        "recursive `%{code}` locale pattern"
-                    )));
+                    return Err(DateTimeFormatError::InvalidLocaleData {
+                        message: format!("recursive `%{code}` locale pattern"),
+                    });
                 }
                 stack.push(*code);
                 output.extend(expand(&locale[index], locale, stack)?.0);

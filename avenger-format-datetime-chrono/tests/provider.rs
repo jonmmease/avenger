@@ -1,4 +1,4 @@
-use avenger_format::DateTimeFormatProvider;
+use avenger_format::{DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind};
 use avenger_format_datetime_chrono::ChronoDateTimeFormatProvider;
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::{America::New_York, Asia::Tokyo, Tz};
@@ -31,7 +31,16 @@ fn date_preparation_validates_fields_after_locale_expansion() {
     assert_eq!(formatter.format(date).unwrap(), "02/29/24");
     assert_eq!(provider.prepare_date("").unwrap().format(date).unwrap(), "");
     for spec in ["%H", "%I", "%M", "%S", "%f", "%p", "%s", "%Z", "%X", "%c"] {
-        assert!(provider.prepare_date(spec).is_err(), "{spec}");
+        assert!(
+            matches!(
+                provider.prepare_date(spec).unwrap_err(),
+                DateTimeFormatError::UnsupportedPattern {
+                    input: DateTimeInputKind::Date,
+                    ..
+                }
+            ),
+            "{spec}"
+        );
     }
 }
 
@@ -39,14 +48,55 @@ fn date_preparation_validates_fields_after_locale_expansion() {
 fn preparation_rejects_patterns_for_the_wrong_input_type() {
     let provider = ChronoDateTimeFormatProvider::new();
     for spec in ["%s", "%z", "%+"] {
-        assert!(provider.prepare_date(spec).is_err(), "{spec}");
-        assert!(provider.prepare_naive(spec).is_err(), "{spec}");
+        assert!(
+            matches!(
+                provider.prepare_date(spec).unwrap_err(),
+                DateTimeFormatError::UnsupportedPattern {
+                    input: DateTimeInputKind::Date,
+                    ..
+                }
+            ),
+            "{spec}"
+        );
+        assert!(
+            matches!(
+                provider.prepare_naive(spec).unwrap_err(),
+                DateTimeFormatError::UnsupportedPattern {
+                    input: DateTimeInputKind::Naive,
+                    ..
+                }
+            ),
+            "{spec}"
+        );
         assert!(provider.prepare_zoned(spec).is_ok(), "{spec}");
     }
-    for spec in ["%", "%#z"] {
-        assert!(provider.prepare_date(spec).is_err(), "{spec}");
-        assert!(provider.prepare_naive(spec).is_err(), "{spec}");
-        assert!(provider.prepare_zoned(spec).is_err(), "{spec}");
+    for error in [
+        provider.prepare_date("%").unwrap_err(),
+        provider.prepare_naive("%").unwrap_err(),
+        provider.prepare_zoned("%").unwrap_err(),
+    ] {
+        assert!(matches!(
+            error,
+            DateTimeFormatError::InvalidPattern { position: None, .. }
+        ));
+    }
+    for (input, error) in [
+        (
+            DateTimeInputKind::Date,
+            provider.prepare_date("%#z").unwrap_err(),
+        ),
+        (
+            DateTimeInputKind::Naive,
+            provider.prepare_naive("%#z").unwrap_err(),
+        ),
+        (
+            DateTimeInputKind::Zoned,
+            provider.prepare_zoned("%#z").unwrap_err(),
+        ),
+    ] {
+        assert!(
+            matches!(error, DateTimeFormatError::UnsupportedPattern { input: actual, .. } if actual == input)
+        );
     }
 }
 
@@ -68,7 +118,13 @@ fn uses_chrono_locales_and_validates_expanded_patterns() {
 
     let provider = ChronoDateTimeFormatProvider::new().with_locale("en_US");
     let spec = "%c";
-    assert!(provider.prepare_naive(spec).is_err());
+    assert!(matches!(
+        provider.prepare_naive(spec).unwrap_err(),
+        DateTimeFormatError::UnsupportedPattern {
+            input: DateTimeInputKind::Naive,
+            ..
+        }
+    ));
     assert!(provider.prepare_zoned(spec).is_ok());
 }
 
@@ -82,9 +138,13 @@ fn named_locales_require_the_feature() {
             provider.prepare_naive("%B").unwrap_err(),
             provider.prepare_zoned("%B").unwrap_err(),
         ] {
-            assert!(error
-                .to_string()
-                .contains("requires the `all-locales` feature"));
+            assert_eq!(
+                error,
+                DateTimeFormatError::LocaleUnavailable {
+                    locale: name.into(),
+                    message: "requires the `all-locales` feature".into(),
+                }
+            );
         }
     }
 }
@@ -102,9 +162,15 @@ fn display_timezone_preserves_epoch() {
 #[test]
 fn preparation_rejects_unknown_locales() {
     let provider = ChronoDateTimeFormatProvider::new().with_locale("unknown");
-    assert!(provider.prepare_date("%Y").is_err());
-    assert!(provider.prepare_naive("%Y").is_err());
-    assert!(provider.prepare_zoned("%Y").is_err());
+    for error in [
+        provider.prepare_date("%Y").unwrap_err(),
+        provider.prepare_naive("%Y").unwrap_err(),
+        provider.prepare_zoned("%Y").unwrap_err(),
+    ] {
+        assert!(
+            matches!(error, DateTimeFormatError::LocaleUnavailable { locale, .. } if locale == "unknown")
+        );
+    }
 }
 
 #[test]
@@ -128,9 +194,8 @@ fn serialized_timezone_defaults_to_utc_and_validates_names() {
 fn out_of_range_display_dates_return_errors() {
     let provider = ChronoDateTimeFormatProvider::new().with_timezone(Tokyo);
     let formatter = provider.prepare_zoned("%F").unwrap();
-    assert!(formatter
-        .format(DateTime::<Utc>::MAX_UTC)
-        .unwrap_err()
-        .to_string()
-        .contains("calendar range"));
+    assert_eq!(
+        formatter.format(DateTime::<Utc>::MAX_UTC),
+        Err(DateTimeFormatError::OutOfRange)
+    );
 }
