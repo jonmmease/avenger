@@ -7,7 +7,7 @@ use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
 use avenger_scales::scales::linear::LinearScale;
@@ -217,11 +217,13 @@ impl ChartState {
     /// Scale for current x domain
     pub fn x_scale(&self) -> ConfiguredScale {
         LinearScale::configured(self.domain_sepal_length, (0.0, self.width))
+            .with_formatting(d3_formatting())
     }
 
     /// Scale for current y domain
     pub fn y_scale(&self) -> ConfiguredScale {
         LinearScale::configured(self.domain_sepal_width, (self.height, 0.0))
+            .with_formatting(d3_formatting())
     }
 }
 
@@ -279,7 +281,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     };
 
     // Make y-axis
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_numeric_axis_marks_with_text_engine(
         &y_scale,
         "Sepal Width",
         [0.0, 0.0],
@@ -287,12 +289,14 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Left,
             grid: true,
+            ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
     // Make x-axis
-    let x_axis = make_numeric_axis_marks(
+    let x_axis = make_numeric_axis_marks_with_text_engine(
         &x_scale,
         "Sepal Length",
         [0.0, 0.0],
@@ -300,7 +304,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Bottom,
             grid: true,
+            ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -602,4 +608,12 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             rebuild_geometry: false,
         }
     }
+}
+
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+}
+
+fn d3_text_engine() -> avenger_text::TextEngine {
+    d3_formatting().configure_text_engine(avenger_text::default_text_engine())
 }

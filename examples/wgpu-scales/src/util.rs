@@ -4,9 +4,11 @@ use avenger_common::canvas::CanvasDimensions;
 
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks_with_text_engine;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
+use avenger_guides::legend::colorbar::{
+    make_colorbar_marks_with_text_engine, ColorbarConfig, ColorbarOrientation,
+};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -218,10 +220,12 @@ pub async fn run() {
         .with_option("band", 0.0);
     let x2_scale = x_scale.clone().with_option("band", 1.0);
 
-    let y_scale = LinearScale::configured((0.0, 100.0), (height, 0.0));
+    let y_scale =
+        LinearScale::configured((0.0, 100.0), (height, 0.0)).with_formatting(d3_formatting());
 
     let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"])
-        .with_option("nice", 10.0);
+        .with_option("nice", 10.0)
+        .with_formatting(d3_formatting());
 
     // Make rect mark
     let rect = SceneRectMark {
@@ -251,7 +255,7 @@ pub async fn run() {
     };
 
     // Make y-axis
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_numeric_axis_marks_with_text_engine(
         &y_scale,
         "My Long Y-Axis Label",
         [0.0, 0.0],
@@ -259,7 +263,9 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
+            ..Default::default()
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -272,6 +278,7 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -317,7 +324,7 @@ pub async fn run() {
     // .unwrap();
 
     // Make colorbar
-    let colorbar = make_colorbar_marks(
+    let colorbar = make_colorbar_marks_with_text_engine(
         &color_scale,
         "My Colorbar",
         [0.0, 0.0],
@@ -325,6 +332,7 @@ pub async fn run() {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
         },
+        &d3_text_engine(),
     )
     .unwrap();
 
@@ -371,4 +379,12 @@ pub async fn run() {
     event_loop
         .run_app(&mut app)
         .expect("Failed to run event loop");
+}
+
+fn d3_formatting() -> avenger_scales::formatter::ScaleFormatting {
+    avenger_scales::formatter::ScaleFormatting::d3(Default::default(), Default::default())
+}
+
+fn d3_text_engine() -> avenger_text::TextEngine {
+    d3_formatting().configure_text_engine(avenger_text::default_text_engine())
 }
