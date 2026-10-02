@@ -307,6 +307,102 @@ impl SymbolShape {
                 builder.close();
                 SymbolShape::Path(builder.build())
             }
+            "star" => {
+                // https://github.com/d3/d3-shape/blob/main/src/symbol/star.js
+                let ka: f32 = 0.890_813_1;
+                let kr =
+                    (std::f32::consts::PI / 10.0).sin() / (7.0 * std::f32::consts::PI / 10.0).sin();
+                let kx = (std::f32::consts::TAU / 10.0).sin() * kr;
+                let ky = -(std::f32::consts::TAU / 10.0).cos() * kr;
+
+                // D3 defines symbol size as filled area. Store the path at size 1.
+                let r = ka.sqrt();
+                let x = kx * r;
+                let y = ky * r;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -r));
+                builder.line_to(Point::new(x, y));
+
+                for i in 1..5 {
+                    let a = std::f32::consts::TAU * i as f32 / 5.0;
+                    let c = a.cos();
+                    let s = a.sin();
+                    builder.line_to(Point::new(s * r, -c * r));
+                    builder.line_to(Point::new(c * x - s * y, s * x + c * y));
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "wye" => {
+                // https://github.com/d3/d3-shape/blob/main/src/symbol/wye.js
+                let c = -0.5;
+                let s = sqrt3 / 2.0;
+                let k = 1.0 / 12.0f32.sqrt();
+                let a = (k / 2.0 + 1.0) * 3.0;
+
+                let r = 1.0 / a.sqrt();
+                let x0 = r / 2.0;
+                let y0 = r * k;
+                let x1 = x0;
+                let y1 = r * k + r;
+                let x2 = -x1;
+                let y2 = y1;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(x0, y0));
+                builder.line_to(Point::new(x1, y1));
+                builder.line_to(Point::new(x2, y2));
+                builder.line_to(Point::new(c * x0 - s * y0, s * x0 + c * y0));
+                builder.line_to(Point::new(c * x1 - s * y1, s * x1 + c * y1));
+                builder.line_to(Point::new(c * x2 - s * y2, s * x2 + c * y2));
+                builder.line_to(Point::new(c * x0 + s * y0, c * y0 - s * x0));
+                builder.line_to(Point::new(c * x1 + s * y1, c * y1 - s * x1));
+                builder.line_to(Point::new(c * x2 + s * y2, c * y2 - s * x2));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "pentagon" => {
+                let r = 0.5;
+                let n = 5;
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                for i in 0..n {
+                    let angle = (2.0 * std::f32::consts::PI * i as f32 / n as f32)
+                        - std::f32::consts::PI / 2.0;
+                    let x = r * angle.cos();
+                    let y = r * angle.sin();
+                    if i == 0 {
+                        builder.move_to(Point::new(x, y));
+                    } else {
+                        builder.line_to(Point::new(x, y));
+                    }
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "cushion" | "concave-square" => {
+                let r = 0.5;
+                let curve_depth = 0.6;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                builder.move_to(Point::new(-r, -r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(0.0, -r + curve_depth * r), Point::new(r, -r));
+
+                builder.quadratic_bezier_to(Point::new(r - curve_depth * r, 0.0), Point::new(r, r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(0.0, r - curve_depth * r), Point::new(-r, r));
+
+                builder
+                    .quadratic_bezier_to(Point::new(-r + curve_depth * r, 0.0), Point::new(-r, -r));
+
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
             _ => {
                 // General SVG string
                 let path = parse_svg_path(shape)?;
@@ -336,5 +432,35 @@ impl TryInto<SymbolShape> for &str {
 
     fn try_into(self) -> Result<SymbolShape, Self::Error> {
         SymbolShape::from_vega_str(self)
+    }
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::SymbolShape;
+    use lyon_path::Event;
+
+    #[test]
+    fn d3_star_and_wye_have_unit_area_before_size_scaling() {
+        for name in ["star", "wye"] {
+            let shape = SymbolShape::from_vega_str(name).unwrap();
+            let path = shape.as_path();
+            let twice_area: f32 = path
+                .iter()
+                .filter_map(|event| match event {
+                    Event::Line { from, to } => Some(from.x * to.y - to.x * from.y),
+                    Event::End {
+                        last,
+                        first,
+                        close: true,
+                    } => Some(last.x * first.y - first.x * last.y),
+                    _ => None,
+                })
+                .sum();
+            assert!(
+                (twice_area.abs() / 2.0 - 1.0).abs() < 1e-5,
+                "{name}: {twice_area}"
+            );
+        }
     }
 }
