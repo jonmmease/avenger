@@ -1,4 +1,4 @@
-use crate::error::FormatError;
+use crate::NumberFormatError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -89,11 +89,15 @@ impl ResolvedNumberLocale {
     }
 
     /// Retain a named locale definition, rejecting zero-sized digit groups.
-    pub fn new(id: impl Into<String>, definition: NumberLocaleSpec) -> Result<Self, FormatError> {
+    pub fn new(
+        id: impl Into<String>,
+        definition: NumberLocaleSpec,
+    ) -> Result<Self, NumberFormatError> {
+        let id = id.into();
         if definition.grouping.contains(&0) {
-            return Err(FormatError::InvalidLocaleData(
-                "grouping sizes must be positive".into(),
-            ));
+            return Err(NumberFormatError::InvalidLocaleData {
+                message: format!("locale `{id}` grouping sizes must be positive"),
+            });
         }
         Ok(Self {
             id: LocaleId::new(id),

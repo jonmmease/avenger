@@ -1,4 +1,4 @@
-use crate::{FormatError, NumberLocaleSpec, ResolvedNumberLocale};
+use crate::{NumberFormatError, NumberLocaleSpec, ResolvedNumberLocale};
 use std::collections::BTreeMap;
 
 /// Named D3 number locales. [`Self::default`] creates an empty registry.
@@ -23,7 +23,7 @@ impl NumberLocaleRegistry {
         &mut self,
         id: impl Into<String>,
         spec: NumberLocaleSpec,
-    ) -> Result<(), FormatError> {
+    ) -> Result<(), NumberFormatError> {
         let id = id.into();
         let locale = ResolvedNumberLocale::new(id.clone(), spec)?;
         self.locales.insert(id, locale);
@@ -34,19 +34,23 @@ impl NumberLocaleRegistry {
         &mut self,
         id: impl Into<String>,
         json: &str,
-    ) -> Result<(), FormatError> {
-        self.register_custom_locale(
-            id,
-            serde_json::from_str(json)
-                .map_err(|error| FormatError::InvalidLocaleData(error.to_string()))?,
-        )
+    ) -> Result<(), NumberFormatError> {
+        let id = id.into();
+        let spec =
+            serde_json::from_str(json).map_err(|error| NumberFormatError::InvalidLocaleData {
+                message: format!("locale `{id}`: {error}"),
+            })?;
+        self.register_custom_locale(id, spec)
     }
     /// Resolve an exact, case-sensitive name, sharing its validated definition.
-    /// Unknown names return [`FormatError::LocaleNotFound`] without a fallback.
-    pub fn resolve(&self, id: &str) -> Result<ResolvedNumberLocale, FormatError> {
+    /// Unknown names return [`NumberFormatError::LocaleUnavailable`] without a fallback.
+    pub fn resolve(&self, id: &str) -> Result<ResolvedNumberLocale, NumberFormatError> {
         self.locales
             .get(id)
             .cloned()
-            .ok_or_else(|| FormatError::LocaleNotFound(id.into()))
+            .ok_or_else(|| NumberFormatError::LocaleUnavailable {
+                locale: id.into(),
+                message: "locale is not registered".into(),
+            })
     }
 }

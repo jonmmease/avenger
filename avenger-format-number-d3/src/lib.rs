@@ -4,7 +4,6 @@ mod adapters;
 mod bundled;
 mod decimal;
 mod digits;
-mod error;
 mod format;
 mod locale;
 mod parser;
@@ -15,8 +14,7 @@ mod spec;
 pub use adapters::{
     prepare_number_float_format, prepare_number_prefix_format, prepare_number_step_format,
 };
-pub use avenger_format::{FormattedNumber, NumberTypesetting};
-pub use error::{FormatError, ParseError};
+pub use avenger_format::{FormattedNumber, NumberFormatError, NumberTypesetting};
 pub use format::{format_number, PreparedNumberFormat};
 pub use locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale};
 pub use parser::parse_number_spec;

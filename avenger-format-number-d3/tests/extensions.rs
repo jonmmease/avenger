@@ -1,6 +1,6 @@
 use avenger_format_number_d3::{
     format_number, prepare_number_float_format, prepare_number_prefix_format,
-    prepare_number_step_format, FormatError, NumberLocaleRegistry, NumberLocaleSpec,
+    prepare_number_step_format, NumberFormatError, NumberLocaleRegistry, NumberLocaleSpec,
     NumberTypesetting, PreparedNumberFormat, ResolvedNumberLocale,
 };
 
@@ -129,7 +129,7 @@ fn locale_registration_validates_before_replacing_a_definition() {
     let mut registry = NumberLocaleRegistry::default();
     assert!(matches!(
         registry.resolve("custom"),
-        Err(FormatError::LocaleNotFound(_))
+        Err(NumberFormatError::LocaleUnavailable { locale, .. }) if locale == "custom"
     ));
     registry
         .register_custom_locale_json("custom", r#"{"decimal": ","}"#)
@@ -143,7 +143,7 @@ fn locale_registration_validates_before_replacing_a_definition() {
     ] {
         assert!(matches!(
             registry.register_custom_locale_json("custom", invalid),
-            Err(FormatError::InvalidLocaleData(_))
+            Err(NumberFormatError::InvalidLocaleData { .. })
         ));
         assert_eq!(registry.resolve("custom").unwrap(), original);
     }

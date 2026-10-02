@@ -82,8 +82,7 @@ impl NumberFormatProvider for D3NumberFormatProvider {
             ResolvedNumberLocale::new(id, definition.clone())
         } else {
             crate::bundled::resolve(&normalized)
-        }
-        .map_err(|err| NumberFormatError(err.to_string()))?;
+        }?;
         let prepared = match self.precision {
             D3NumberPrecision::FromSpecifier => PreparedNumberFormat::new(Some(pattern), &locale),
             D3NumberPrecision::Automatic => {
@@ -96,15 +95,17 @@ impl NumberFormatProvider for D3NumberFormatProvider {
                 step,
                 reference_value,
             } => {
-                if !step.is_finite() || !reference_value.is_finite() {
-                    return Err(NumberFormatError(
-                        "D3 step and reference value must be finite".into(),
-                    ));
+                for (option, value) in [("step", step), ("reference_value", reference_value)] {
+                    if !value.is_finite() {
+                        return Err(NumberFormatError::InvalidOption {
+                            option: option.into(),
+                            message: "must be finite".into(),
+                        });
+                    }
                 }
                 prepare_number_step_format(step, reference_value, Some(pattern), &locale)
             }
-        }
-        .map_err(|err| NumberFormatError(err.to_string()))?;
+        }?;
         Ok(Arc::new(prepared))
     }
 }

@@ -1,11 +1,10 @@
 use crate::{
     decimal,
     digits::substitute_digits,
-    error::FormatError,
     locale::ResolvedNumberLocale,
     parser::parse_number_spec,
     spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol},
-    FormattedNumber, NumberTypesetting,
+    FormattedNumber, NumberFormatError, NumberTypesetting,
 };
 
 /// Prefixes for powers of ten from -24 to 24 in steps of three.
@@ -27,7 +26,10 @@ pub struct PreparedNumberFormat {
 impl PreparedNumberFormat {
     /// Parse and resolve a number format before formatting a batch.
     /// `None` is equivalent to an empty specifier, which starts with D3's `.12~g` defaults.
-    pub fn new(spec: Option<&str>, locale: &ResolvedNumberLocale) -> Result<Self, FormatError> {
+    pub fn new(
+        spec: Option<&str>,
+        locale: &ResolvedNumberLocale,
+    ) -> Result<Self, NumberFormatError> {
         Ok(Self::from_resolved(
             resolve_number_format(parse_number_spec(spec.unwrap_or(""))?),
             locale,
@@ -77,7 +79,7 @@ pub fn format_number(
     value: f64,
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
-) -> Result<FormattedNumber, FormatError> {
+) -> Result<FormattedNumber, NumberFormatError> {
     Ok(PreparedNumberFormat::new(spec, locale)?.format(value))
 }
 

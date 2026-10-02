@@ -10,10 +10,26 @@ mod formatted_number;
 pub use formatted_number::{FormattedNumber, NumberTypesetting};
 use std::{fmt::Debug, sync::Arc};
 
-/// A configuration error detected before rendering values.
+/// Shared preparation errors for number providers, with backend diagnostic details.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub struct NumberFormatError(pub String);
+pub enum NumberFormatError {
+    /// The pattern parser rejected the syntax.
+    #[error("invalid number pattern{}: {message}", .position.map(|p| format!(" at byte {p}")).unwrap_or_default())]
+    InvalidPattern {
+        message: String,
+        /// Zero-based byte offset reported by the backend, or `None` when unavailable.
+        position: Option<usize>,
+    },
+    /// A provider option has an unsupported value.
+    #[error("invalid number format option `{option}`: {message}")]
+    InvalidOption { option: String, message: String },
+    /// The locale is unknown, unregistered, or disabled by a build feature.
+    #[error("locale `{locale}` is unavailable: {message}")]
+    LocaleUnavailable { locale: String, message: String },
+    /// A custom locale definition is malformed or inconsistent.
+    #[error("invalid locale data: {message}")]
+    InvalidLocaleData { message: String },
+}
 
 /// Prepare explicit patterns using the provider's locale and formatting settings.
 pub trait NumberFormatProvider: Debug + Send + Sync + 'static {

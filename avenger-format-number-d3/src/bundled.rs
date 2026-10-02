@@ -1,4 +1,4 @@
-use crate::{FormatError, NumberLocaleSpec, ResolvedNumberLocale};
+use crate::{NumberFormatError, NumberLocaleSpec, ResolvedNumberLocale};
 
 #[cfg(not(feature = "all-locales"))]
 pub(crate) const LOCALES: &[(&str, &str)] = &[("en-US", include_str!("../locales/en-US.json"))];
@@ -66,11 +66,14 @@ pub(crate) const LOCALES: &[(&str, &str)] = &[
     ("zh-CN", include_str!("../locales/zh-CN.json")),
 ];
 
-pub(crate) fn resolve(id: &str) -> Result<ResolvedNumberLocale, FormatError> {
+pub(crate) fn resolve(id: &str) -> Result<ResolvedNumberLocale, NumberFormatError> {
     let (_, json) = LOCALES
         .iter()
         .find(|(name, _)| *name == id)
-        .ok_or_else(|| FormatError::LocaleNotFound(id.into()))?;
+        .ok_or_else(|| NumberFormatError::LocaleUnavailable {
+            locale: id.into(),
+            message: "no bundled D3 definition is available in this build".into(),
+        })?;
     let definition: NumberLocaleSpec =
         serde_json::from_str(json).expect("bundled D3 number locale");
     ResolvedNumberLocale::new(id, definition)

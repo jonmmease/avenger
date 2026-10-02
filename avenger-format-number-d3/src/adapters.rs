@@ -1,7 +1,7 @@
 use crate::{
     decimal,
     format::{resolve_number_format, PreparedNumberFormat, SI_PREFIXES},
-    parse_number_spec, DigitSpec, FormatError, FormatType, ResolvedNumberLocale,
+    parse_number_spec, DigitSpec, FormatType, NumberFormatError, ResolvedNumberLocale,
 };
 
 /// Select precision from a supplied step's decimal order using D3's rules.
@@ -14,7 +14,7 @@ pub fn prepare_number_step_format(
     reference_value: f64,
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, FormatError> {
+) -> Result<PreparedNumberFormat, NumberFormatError> {
     let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), locale)?;
     let step = step.abs();
     let value = reference_value.abs();
@@ -72,7 +72,7 @@ pub fn prepare_number_prefix_format(
     spec: &str,
     value: f64,
     locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, FormatError> {
+) -> Result<PreparedNumberFormat, NumberFormatError> {
     let mut parsed = parse_number_spec(spec)?;
     parsed.format_type = Some(FormatType::Fixed);
     let resolved = resolve_number_format(parsed);
@@ -93,7 +93,7 @@ pub fn prepare_number_prefix_format(
 pub fn prepare_number_float_format(
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, FormatError> {
+) -> Result<PreparedNumberFormat, NumberFormatError> {
     let spec = spec.filter(|value| !value.is_empty()).unwrap_or(",");
     let mut prepared = PreparedNumberFormat::new(Some(spec), locale)?;
     apply_float_precision(&mut prepared);

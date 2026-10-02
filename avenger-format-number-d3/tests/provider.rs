@@ -1,4 +1,4 @@
-use avenger_format::NumberFormatProvider;
+use avenger_format::{NumberFormatError, NumberFormatProvider};
 use avenger_format_number_d3::{D3NumberFormatProvider, D3NumberPrecision, NumberLocaleSpec};
 
 #[test]
@@ -39,10 +39,15 @@ fn provider_prepares_explicit_patterns_and_precision() {
     }
     for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
         let provider = D3NumberFormatProvider::new().with_locale(selected);
-        assert_eq!(
-            provider.prepare(",.1f").is_ok(),
-            cfg!(feature = "all-locales")
-        );
+        let result = provider.prepare(",.1f");
+        if cfg!(feature = "all-locales") {
+            assert!(result.is_ok());
+        } else {
+            assert!(matches!(
+                result,
+                Err(NumberFormatError::LocaleUnavailable { locale, .. }) if locale == "de-DE"
+            ));
+        }
         let provider = provider.with_custom_locale(
             registered,
             NumberLocaleSpec {
@@ -63,18 +68,51 @@ fn provider_prepares_explicit_patterns_and_precision() {
                 ..Default::default()
             },
         );
-        assert!(provider.prepare(",.1f").is_err());
+        assert!(matches!(
+            provider.prepare(",.1f"),
+            Err(NumberFormatError::InvalidLocaleData { .. })
+        ));
         drop(provider);
         assert_eq!(formatter.format(1234.5).text, "1_234·5");
     }
-    for (step, reference_value) in [(f64::NAN, 1.0), (0.1, f64::INFINITY)] {
+    for (step, reference_value, option) in [
+        (f64::NAN, 1.0, "step"),
+        (0.1, f64::INFINITY, "reference_value"),
+    ] {
         let provider = provider.clone().with_precision(Step {
             step,
             reference_value,
         });
-        assert!(provider.prepare("f").is_err());
+        assert!(matches!(
+            provider.prepare("f"),
+            Err(NumberFormatError::InvalidOption { option: actual, .. }) if actual == option
+        ));
     }
-    assert!(provider.with_locale("unknown").prepare("f").is_err());
+    assert!(matches!(
+        provider.with_locale("unknown").prepare("f"),
+        Err(NumberFormatError::LocaleUnavailable { locale, .. }) if locale == "unknown"
+    ));
+}
+
+#[test]
+fn provider_preserves_pattern_errors_in_each_precision_mode() {
+    for precision in [
+        D3NumberPrecision::FromSpecifier,
+        D3NumberPrecision::Automatic,
+        D3NumberPrecision::Step {
+            step: 0.1,
+            reference_value: 1.0,
+        },
+    ] {
+        let result = D3NumberFormatProvider::new()
+            .with_precision(precision)
+            .prepare("💠>.2q");
+        assert!(matches!(
+            result,
+            Err(NumberFormatError::InvalidPattern { position: Some(7), message })
+                if message.contains("`q`")
+        ));
+    }
 }
 
 #[cfg(feature = "all-locales")]
