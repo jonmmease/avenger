@@ -177,3 +177,63 @@ fn all_query_shapes_include_stroke_in_containment() {
         }
     }
 }
+
+#[test]
+fn fill_rules_control_path_and_transformed_symbol_queries() {
+    use avenger_common::{
+        lyon::parse_svg_path,
+        types::{FillRule, SymbolShape},
+    };
+    use avenger_scenegraph::marks::{path::ScenePathMark, symbol::SceneSymbolMark};
+    for rule in [FillRule::NonZero, FillRule::EvenOdd] {
+        for symbol in [false, true] {
+            let path = parse_svg_path("M0,0 H40 V40 H0 Z M10,10 H30 V30 H10 Z").unwrap();
+            let mark = if symbol {
+                SceneSymbolMark {
+                    shapes: vec![SymbolShape::Path(path)],
+                    fill_rule: rule,
+                    size: 4.0.into(),
+                    x: 100.0.into(),
+                    y: 20.0.into(),
+                    angle: 90.0.into(),
+                    stroke_width: None,
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                ScenePathMark {
+                    path: path.into(),
+                    fill_rule: rule,
+                    stroke_width: None,
+                    ..Default::default()
+                }
+                .into()
+            };
+            let scene = SceneGraph {
+                width: 120.0,
+                height: 120.0,
+                origin: [0.0; 2],
+                marks: vec![mark],
+            };
+            let tree = SceneGraphRTree::from_scene_graph(&scene);
+            let p = if symbol { [60.0, 60.0] } else { [20.0, 20.0] };
+            let filled = rule == FillRule::NonZero;
+            assert_eq!(tree.locate_at_point(&p).is_some(), filled);
+            assert_eq!(
+                !tree
+                    .query_shape(
+                        &Shape::Circle {
+                            cx: p[0],
+                            cy: p[1],
+                            radius: 1.0
+                        },
+                        Policy::GeometryIntersects
+                    )
+                    .is_empty(),
+                filled
+            );
+            let outer = if symbol { [90.0, 30.0] } else { [5.0, 5.0] };
+            assert!(tree.locate_at_point(&outer).is_some());
+        }
+    }
+}

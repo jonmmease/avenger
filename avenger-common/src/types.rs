@@ -17,6 +17,29 @@ use std::{
 };
 use strum::VariantNames;
 
+/// Determines which regions of a compound path are filled.
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FillRule {
+    #[default]
+    NonZero,
+    EvenOdd,
+}
+
+impl From<FillRule> for lyon_path::FillRule {
+    fn from(rule: FillRule) -> Self {
+        match rule {
+            FillRule::NonZero => Self::NonZero,
+            FillRule::EvenOdd => Self::EvenOdd,
+        }
+    }
+}
+
+/// Ordinary scene miter limit, measured as miter length / half stroke width.
+pub const SCENE_MITER_LIMIT: f32 = 8.0;
+/// Lyon 1.x measures the miter limit relative to the full stroke width.
+pub const LYON_SCENE_MITER_LIMIT: f32 = SCENE_MITER_LIMIT / 2.0;
+
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]

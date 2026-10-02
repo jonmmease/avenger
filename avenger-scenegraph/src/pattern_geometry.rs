@@ -99,9 +99,12 @@ pub struct PatternRenderContext<'a> {
 /// One compound fill or stroke. Distinct primitives contribute union coverage.
 #[derive(Debug, Clone)]
 pub enum PatternCoveragePrimitive {
-    /// Fill all contours together using the even-odd rule.
-    Filled(Path),
-    /// Stroke with butt caps, miter joins, and a miter limit of 4.
+    /// Fill all contours together using the selected rule.
+    Filled {
+        path: Path,
+        fill_rule: avenger_common::types::FillRule,
+    },
+    /// Stroke with butt caps, miter joins, and a SVG miter limit of 8.
     Stroked { path: Path, stroke_width: f32 },
 }
 
@@ -109,7 +112,7 @@ impl PatternCoveragePrimitive {
     /// The compound path before filling or stroking.
     pub fn path(&self) -> &Path {
         match self {
-            Self::Filled(path) | Self::Stroked { path, .. } => path,
+            Self::Filled { path, .. } | Self::Stroked { path, .. } => path,
         }
     }
 }
@@ -353,7 +356,10 @@ fn append_symbol_layer(
                 .clone()
                 .transformed(&PathTransform::translation(position[0], position[1]));
             primitives.push(match layer.paint {
-                SymbolPaint::Filled => PatternCoveragePrimitive::Filled(path),
+                SymbolPaint::Filled => PatternCoveragePrimitive::Filled {
+                    path,
+                    fill_rule: layer.symbol.fill_rule,
+                },
                 SymbolPaint::Open { stroke_width } => {
                     PatternCoveragePrimitive::Stroked { path, stroke_width }
                 }
@@ -468,7 +474,10 @@ fn append_stripe_quad(
     builder.line_to(point(p2[0], p2[1]));
     builder.line_to(point(p3[0], p3[1]));
     builder.close();
-    primitives.push(PatternCoveragePrimitive::Filled(builder.build()));
+    primitives.push(PatternCoveragePrimitive::Filled {
+        path: builder.build(),
+        fill_rule: Default::default(),
+    });
 }
 
 fn stripe_point(origin: [f32; 2], d: [f32; 2], n: [f32; 2], t: f32, s: f32) -> [f32; 2] {
@@ -713,6 +722,7 @@ mod tests {
                         v_phase: 0.0,
                     },
                     symbol: crate::marks::pattern::PatternSymbol {
+                        fill_rule: avenger_common::types::FillRule::EvenOdd,
                         shape: "circle".to_string(),
                         size: 4.0,
                         rotation: 0.0,
