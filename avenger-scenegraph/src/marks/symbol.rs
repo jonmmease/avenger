@@ -35,6 +35,8 @@ pub struct SceneSymbolMark {
     pub shape_index: ScalarOrArray<usize>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
+    #[serde(default)]
+    pub fill_rule: avenger_common::types::FillRule,
     pub fill: ScalarOrArray<ColorOrGradient>,
     #[serde(
         default = "default_no_fill_pattern",
@@ -65,6 +67,7 @@ impl Hash for SceneSymbolMark {
         }
         self.x.hash(state);
         self.y.hash(state);
+        self.fill_rule.hash(state);
         self.fill.hash(state);
         hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
         self.size.hash(state);
@@ -225,6 +228,7 @@ impl Default for SceneSymbolMark {
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             shape_index: ScalarOrArray::new_scalar(0),
+            fill_rule: Default::default(),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             fill_pattern: default_no_fill_pattern(),
             size: ScalarOrArray::new_scalar(20.0),

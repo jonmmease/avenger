@@ -102,7 +102,10 @@ fn renderer_resize_preserves_logical_mark_coordinates() {
         marks: vec![
             avenger_scenegraph::marks::group::SceneGroup {
                 marks: vec![rect.into()],
-                clip: avenger_scenegraph::marks::group::Clip::Path(clip.build()),
+                clip: avenger_scenegraph::marks::group::Clip::Path {
+                    path: clip.build(),
+                    fill_rule: Default::default(),
+                },
                 ..Default::default()
             }
             .into(),
@@ -342,4 +345,88 @@ fn instancing_preserves_translucent_stroke_compositing() {
         instanced.get_pixel(100, 75),
         "same circle differs across instancing threshold"
     );
+}
+
+#[test]
+fn image_filtering_preserves_partial_alpha_on_transparent_and_opaque_targets() {
+    use avenger_common::canvas::CanvasDimensions;
+    use avenger_image::RgbaImage;
+    use avenger_scenegraph::{
+        marks::image::{SceneImageMark, SceneImageSource},
+        scene_graph::SceneGraph,
+    };
+    use avenger_wgpu::{
+        offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
+        renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
+    };
+    let (device, queue) = gpu_device();
+    let dimensions = CanvasDimensions {
+        size: [8.0, 8.0],
+        scale: 1.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let target = OffscreenTarget::new(&device, &OffscreenTargetDescriptor::new(dimensions, format));
+    let mut renderer =
+        AvengerWgpuRenderer::new(&device, AvengerRendererConfig::new(dimensions, format));
+    for smooth in [false, true] {
+        let scene = SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0; 2],
+            marks: vec![SceneImageMark {
+                image: SceneImageSource::Inline(std::sync::Arc::new(RgbaImage {
+                    width: 2,
+                    height: 1,
+                    data: vec![200, 40, 100, 128, 40, 200, 100, 64],
+                }))
+                .into(),
+                width: 8.0.into(),
+                height: 8.0.into(),
+                aspect: false,
+                smooth,
+                ..Default::default()
+            }
+            .into()],
+        };
+        renderer.set_scene(&device, &queue, &scene).unwrap();
+        for clear in [
+            wgpu::Color::TRANSPARENT,
+            wgpu::Color::BLACK,
+            wgpu::Color::WHITE,
+        ] {
+            queue.submit(
+                renderer
+                    .build_frame_commands(
+                        &device,
+                        &queue,
+                        target.render_target(wgpu::LoadOp::Clear(clear)),
+                        None,
+                    )
+                    .unwrap(),
+            );
+            let actual = pixels(&device, &queue, &target).get_pixel(3, 4).0;
+            // At this pixel linear filtering weights the two premultiplied texels 5:3.
+            let mut expected = if smooth {
+                [66, 31, 41, 104]
+            } else {
+                [100, 20, 50, 128]
+            };
+            if clear.a == 1.0 {
+                if clear.r == 1.0 {
+                    let remaining = 255 - expected[3];
+                    for color in &mut expected[..3] {
+                        *color += remaining;
+                    }
+                }
+                expected[3] = 255;
+            }
+            assert!(
+                actual
+                    .into_iter()
+                    .zip(expected)
+                    .all(|(a, b)| a.abs_diff(b) <= 1),
+                "smooth={smooth}, clear={clear:?}: {actual:?} != {expected:?}"
+            );
+        }
+    }
 }

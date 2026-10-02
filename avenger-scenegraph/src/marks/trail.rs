@@ -60,18 +60,14 @@ impl SceneTrailMark {
                     path_builder.begin(point(*x + origin[0], *y + origin[1]), &[*size]);
                 }
                 path_len += 1;
-            } else {
-                if path_len == 1 {
-                    // Finishing single point line. Add extra point at the same location
-                    // so that stroke caps are drawn
-                    path_builder.end(true);
-                } else {
-                    path_builder.end(false);
-                }
+            } else if path_len > 0 {
+                path_builder.end(false);
                 path_len = 0;
             }
         }
-        path_builder.end(false);
+        if path_len > 0 {
+            path_builder.end(false);
+        }
         path_builder.build()
     }
 }

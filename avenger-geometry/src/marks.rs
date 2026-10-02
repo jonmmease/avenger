@@ -208,7 +208,7 @@ impl MarkGeometryUtils for ScenePathMark {
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter(origin)).map(
                 move |(id, path)| {
-                    let geometry = path.as_geo_type(0.1, true);
+                    let geometry = path.filled_geo_type(0.1, self.fill_rule);
                     GeometryInstance {
                         mark_instance: MarkInstance {
                             name: name.clone(),
@@ -341,7 +341,7 @@ impl MarkGeometryUtils for SceneSymbolMark {
         let symbol_geometries: Vec<_> = self
             .shapes
             .iter()
-            .map(|symbol| symbol.as_path().as_geo_type(0.1, true))
+            .map(|symbol| symbol.as_path().filled_geo_type(0.1, self.fill_rule))
             .collect();
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
@@ -356,8 +356,8 @@ impl MarkGeometryUtils for SceneSymbolMark {
             .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
                 let geometry = symbol_geometries[*shape_idx]
                     .clone()
-                    .scale(size.sqrt())
-                    .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
+                    .scale_around_point(size.sqrt(), size.sqrt(), geo::Point::new(0.0, 0.0))
+                    .rotate_around_point(*angle, geo::Point::new(0.0, 0.0))
                     .translate(x + origin[0], y + origin[1]);
 
                 GeometryInstance {
