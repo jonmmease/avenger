@@ -20,7 +20,7 @@ fn naive_values_preserve_fields() {
 }
 
 #[test]
-fn date_preparation_rejects_time_fields_in_custom_date_patterns() {
+fn date_preparation_rejects_time_fields_including_locale_expansions() {
     use avenger_format::DateTimeFormatProvider;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%H", "%I", "%M", "%S", "%L", "%f", "%p", "%Q", "%s", "%Z"] {
@@ -43,6 +43,10 @@ fn date_preparation_rejects_time_fields_in_custom_date_patterns() {
                     .unwrap();
             assert!(prepared.format_date(NaiveDate::MIN).is_err());
         }
+    }
+    let config = D3DateTimeFormatConfig::new();
+    for spec in ["%X", "%c"] {
+        assert!(provider.prepare_date(&config, spec).is_err(), "{spec}");
     }
 }
 
@@ -239,9 +243,15 @@ fn ordinal_uses_calendar_date_after_midnight_offset_change() {
 fn provider_accepts_explicit_patterns() {
     use avenger_format::DateTimeFormatProvider;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    let config = D3DateTimeFormatConfig::new().with_timezone("America/New_York");
+    let config = D3DateTimeFormatConfig::new()
+        .with_locale("en_US")
+        .with_timezone("America/New_York");
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let zoned_value = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    for (pattern, expected) in [("%Y-%m-%d", "2024-01-01"), ("%x", "1/1/2024"), ("", "")] {
+        let prepared = provider.prepare_date(&config, pattern).unwrap();
+        assert_eq!(prepared.format(date).unwrap(), expected);
+    }
     for (pattern, naive, zoned) in [
         ("%c", "1/1/2024, 12:00:00 AM", "12/31/2023, 7:00:00 PM"),
         ("%Y-%m-%d", "2024-01-01", "2023-12-31"),
@@ -259,6 +269,8 @@ fn provider_accepts_explicit_patterns() {
         );
     }
     let config = config.with_timezone("local");
+    assert!(provider.prepare_date(&config, "%Y").is_ok());
+    assert!(provider.prepare_naive(&config, "%Y").is_ok());
     assert!(provider.prepare_zoned(&config, "%c").is_err());
 }
 
@@ -278,12 +290,6 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
             },
         );
         let formatter = provider.prepare_date(&config, spec).unwrap();
-        assert_eq!(
-            formatter
-                .format(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())
-                .unwrap(),
-            "05~01~2024"
-        );
         // An exact custom name takes precedence even when its definition is invalid.
         config.locales.insert(
             selected.into(),
@@ -293,5 +299,12 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
             },
         );
         assert!(provider.prepare_date(&config, spec).is_err());
+        drop(config);
+        assert_eq!(
+            formatter
+                .format(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())
+                .unwrap(),
+            "05~01~2024"
+        );
     }
 }

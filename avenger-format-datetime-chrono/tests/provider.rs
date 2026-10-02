@@ -1,70 +1,46 @@
 use avenger_format::DateTimeFormatProvider;
 use avenger_format_datetime_chrono::{ChronoDateTimeFormatConfig, ChronoDateTimeFormatProvider};
-use avenger_format_datetime_d3::{D3DateTimeFormatConfig, D3DateTimeFormatProvider};
 use chrono::{DateTime, NaiveDate, Utc};
 
 #[test]
-fn typed_providers_share_prepared_formatter_interfaces() {
-    fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config, fraction: &str) {
-        let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-        let zoned_value = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
-        let date_formatter = provider.prepare_date(&config, "%Y-%m-%d").unwrap();
-        let naive = provider.prepare_naive(&config, "%Y-%m-%d %H:%M").unwrap();
-        let zoned = provider.prepare_zoned(&config, "%Y-%m-%d").unwrap();
-        assert_eq!(date_formatter.format(date).unwrap(), "2024-01-01");
-        assert_eq!(
-            naive.format(date.and_hms_opt(13, 45, 0).unwrap()).unwrap(),
-            "2024-01-01 13:45"
-        );
-        assert_eq!(zoned.format(zoned_value).unwrap(), "2023-12-31");
-        let zoned = provider.prepare_zoned(&config, "%f").unwrap();
-        drop(config);
-        assert_eq!(zoned.format(zoned_value).unwrap(), fraction);
-    }
-    check(
-        ChronoDateTimeFormatProvider,
-        ChronoDateTimeFormatConfig::new()
-            .with_locale("en-US")
-            .with_timezone("America/New_York"),
-        "123456789",
+fn prepared_formatters_retain_settings() {
+    let provider = ChronoDateTimeFormatProvider;
+    let config = ChronoDateTimeFormatConfig::new()
+        .with_locale("en-US")
+        .with_timezone("America/New_York");
+    let date_formatter = provider.prepare_date(&config, "%Y-%m-%d").unwrap();
+    let naive = provider.prepare_naive(&config, "%Y-%m-%d %H:%M").unwrap();
+    let zoned = provider.prepare_zoned(&config, "%Y-%m-%d %f").unwrap();
+    drop(config);
+
+    let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let zoned_value = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
+    assert_eq!(date_formatter.format(date).unwrap(), "2024-01-01");
+    assert_eq!(
+        naive.format(date.and_hms_opt(13, 45, 0).unwrap()).unwrap(),
+        "2024-01-01 13:45"
     );
-    check(
-        D3DateTimeFormatProvider,
-        D3DateTimeFormatConfig::new()
-            .with_locale("en_US")
-            .with_timezone("America/New_York"),
-        "123000",
-    );
+    assert_eq!(zoned.format(zoned_value).unwrap(), "2023-12-31 123456789");
 }
 
 #[test]
 fn date_preparation_validates_fields_after_locale_expansion() {
-    fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config, expected: &str) {
-        let date = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
-        let formatter = provider.prepare_date(&config, "%x").unwrap();
-        assert_eq!(formatter.format(date).unwrap(), expected);
-        assert_eq!(
-            provider
-                .prepare_date(&config, "")
-                .unwrap()
-                .format(date)
-                .unwrap(),
-            ""
-        );
-        for spec in ["%H", "%I", "%M", "%S", "%f", "%p", "%s", "%Z", "%X", "%c"] {
-            assert!(provider.prepare_date(&config, spec).is_err(), "{spec}");
-        }
+    let provider = ChronoDateTimeFormatProvider;
+    let config = ChronoDateTimeFormatConfig::new();
+    let date = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
+    let formatter = provider.prepare_date(&config, "%x").unwrap();
+    assert_eq!(formatter.format(date).unwrap(), "02/29/24");
+    assert_eq!(
+        provider
+            .prepare_date(&config, "")
+            .unwrap()
+            .format(date)
+            .unwrap(),
+        ""
+    );
+    for spec in ["%H", "%I", "%M", "%S", "%f", "%p", "%s", "%Z", "%X", "%c"] {
+        assert!(provider.prepare_date(&config, spec).is_err(), "{spec}");
     }
-    check(
-        ChronoDateTimeFormatProvider,
-        ChronoDateTimeFormatConfig::new(),
-        "02/29/24",
-    );
-    check(
-        D3DateTimeFormatProvider,
-        D3DateTimeFormatConfig::new(),
-        "2/29/2024",
-    );
 }
 
 #[test]
@@ -128,19 +104,11 @@ fn preparation_rejects_unknown_locales() {
 
 #[test]
 fn timezone_validation_applies_only_to_zoned_preparation() {
-    fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config) {
-        assert!(provider.prepare_date(&config, "%Y").is_ok());
-        assert!(provider.prepare_naive(&config, "%Y").is_ok());
-        assert!(provider.prepare_zoned(&config, "%Y").is_err());
-    }
-    check(
-        ChronoDateTimeFormatProvider,
-        ChronoDateTimeFormatConfig::new().with_timezone("invalid/zone"),
-    );
-    check(
-        D3DateTimeFormatProvider,
-        D3DateTimeFormatConfig::new().with_timezone("invalid/zone"),
-    );
+    let provider = ChronoDateTimeFormatProvider;
+    let config = ChronoDateTimeFormatConfig::new().with_timezone("invalid/zone");
+    assert!(provider.prepare_date(&config, "%Y").is_ok());
+    assert!(provider.prepare_naive(&config, "%Y").is_ok());
+    assert!(provider.prepare_zoned(&config, "%Y").is_err());
 }
 
 #[test]
