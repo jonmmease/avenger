@@ -27,6 +27,19 @@ impl TableInput {
     pub fn plan_ref(&self) -> LogicalPlan {
         self.read.clone().plan()
     }
+    /// Read the raw input with a zero-based, non-null UInt64 row index appended.
+    ///
+    /// Indices follow snapshot batch order, then row order within each batch.
+    /// They are assigned before query filters, sorts, or repartitioning. Bind the
+    /// original input schema as usual. The new column name must not exist in it.
+    /// Each executed read allocates the index column and shares the source arrays.
+    pub fn plan_ref_with_row_index(&self, name: impl Into<String>) -> Result<LogicalPlan> {
+        let name = name.into();
+        let mut read = self.read.clone();
+        read.schema = GraphRead::indexed_schema(&read.schema, &name)?;
+        read.row_index = Some(name);
+        Ok(read.plan())
+    }
     pub fn schema(&self) -> &DFSchemaRef {
         &self.read.schema
     }
@@ -251,6 +264,7 @@ impl DataflowBuilder {
         let node = self.add_plan(
             name.clone(),
             GraphRead {
+                row_index: None,
                 graph: self.def.id,
                 source: TableRef::Import(output.index),
                 schema,
@@ -343,6 +357,7 @@ impl DataflowBuilder {
             schema.as_ref(),
         )?);
         let read = GraphRead {
+            row_index: None,
             graph: self.def.id,
             source: TableRef::Input(self.def.inputs.len()),
             schema: schema.clone(),
@@ -435,6 +450,7 @@ impl DataflowBuilder {
             &name,
         )?;
         let read = GraphRead {
+            row_index: None,
             graph: self.def.id,
             source: TableRef::Asset(self.def.assets.len()),
             schema: Arc::new(DFSchema::try_from_qualified_schema(
@@ -457,6 +473,7 @@ impl DataflowBuilder {
         let plan = normalize::normalize_plan(plan)?;
         let analysis = analysis::analyze(&plan, &self.def, self.current_scope)?;
         let read = GraphRead {
+            row_index: None,
             graph: self.def.id,
             source: TableRef::Node(self.def.nodes.len()),
             schema: plan.schema().clone(),

@@ -113,6 +113,7 @@ impl ScopeInterface {
         };
         Ok(TableInput {
             read: GraphRead {
+                row_index: None,
                 graph: self.interface.inner.id,
                 source: TableRef::Input(index),
                 schema: schema.clone(),
