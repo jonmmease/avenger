@@ -8,23 +8,17 @@ import {locale as vegaLocale} from 'vega-format';
 
 const root = new URL('../../', import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path, root)));
-const numberLocales = {
-  'en-US': read('avenger-format-number-d3/locales/en-US.json'),
-  ...Object.fromEntries(['de-DE', 'fr-FR', 'ja-JP'].map(name => [
-    name, read(`avenger-format-number-d3/tests/fixtures/locales/${name}.json`)
-  ]))
-};
+const numberLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [
+  name, read(`avenger-format-number-d3/locales/${name}.json`)
+]));
 numberLocales.custom = {
   decimal: '·', thousands: '_', grouping: [3, 2], currency: ['¤', ' coins'],
   minus: 'MINUS', percent: 'pct', nan: 'missing',
   numerals: ['⓪', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨']
 };
-const timeLocales = {
-  'en-US': read('avenger-format-datetime-d3/locales/en-US.json'),
-  ...Object.fromEntries(['de-DE', 'fr-FR', 'ja-JP'].map(name => [
-    name, read(`avenger-format-datetime-d3/tests/fixtures/locales/${name}.json`)
-  ]))
-};
+const timeLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(name => [
+  name, read(`avenger-format-datetime-d3/locales/${name}.json`)
+]));
 timeLocales.custom = {...timeLocales['en-US'], dateTime: '%x at %X', date: '%Y/%-m/%-d', time: '%Hh%M', periods: ['morning', 'evening']};
 const numberValue = value => typeof value === 'string' ? Number(value) : value;
 

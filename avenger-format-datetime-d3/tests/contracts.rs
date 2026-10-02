@@ -88,11 +88,11 @@ fn display_timezone_preserves_epoch() {
 fn locale_registration_validates_and_preserves_prepared_formats() {
     let mut registry = DateTimeLocaleRegistry::with_builtins();
     assert_eq!(
-        registry.resolve("fr-FR"),
-        Err(DateTimeFormatError::LocaleNotFound("fr-FR".into()))
+        registry.resolve("fr-FR").is_ok(),
+        cfg!(feature = "all-locales")
     );
     registry
-        .register_custom_locale_json("fr-FR", include_str!("fixtures/locales/fr-FR.json"))
+        .register_custom_locale_json("fr-FR", include_str!("../locales/fr-FR.json"))
         .unwrap();
     let locale = registry.resolve("fr-FR").unwrap();
     let prepare = |locale: &ResolvedDateTimeLocale| {
@@ -278,7 +278,10 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
     let spec = "%x";
     for (registered, selected) in [("fr-FR", "fr_FR"), ("fr_FR", "fr-FR")] {
         let mut provider = D3DateTimeFormatProvider::new().with_locale(selected);
-        assert!(provider.prepare_date(spec).is_err());
+        assert_eq!(
+            provider.prepare_date(spec).is_ok(),
+            cfg!(feature = "all-locales")
+        );
         provider.locales.insert(
             registered.into(),
             DateTimeLocaleSpec {
@@ -303,5 +306,44 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
                 .unwrap(),
             "05~01~2024"
         );
+    }
+    assert!(D3DateTimeFormatProvider::new()
+        .with_locale("unknown")
+        .prepare_date(spec)
+        .is_err());
+}
+
+#[cfg(feature = "all-locales")]
+#[test]
+fn bundled_locales_match_vendored_definitions() {
+    use avenger_format::DateTimeFormatProvider;
+    let registry = DateTimeLocaleRegistry::with_builtins();
+    let value = NaiveDate::from_ymd_opt(2024, 1, 2)
+        .unwrap()
+        .and_hms_opt(13, 5, 6)
+        .unwrap();
+    let pattern = "%c | %x | %X | %a %A %b %B %p";
+    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/locales")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let id = path.file_stem().unwrap().to_str().unwrap();
+        let definition: DateTimeLocaleSpec =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let locale = registry.resolve(id).unwrap();
+        assert_eq!(locale.definition(), &definition, "{id}");
+        let expected =
+            PreparedDateTimeFormat::new(Some(pattern), DateTimeFormatContext::new(&locale, UTC))
+                .unwrap()
+                .format_naive(value)
+                .unwrap();
+        for name in [id.to_owned(), id.replace('-', "_")] {
+            let formatter = D3DateTimeFormatProvider::new()
+                .with_locale(&name)
+                .prepare_naive(pattern)
+                .unwrap();
+            assert_eq!(formatter.format(value).unwrap(), expected, "{name}");
+        }
     }
 }

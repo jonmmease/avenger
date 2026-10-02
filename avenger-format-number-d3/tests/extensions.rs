@@ -7,8 +7,12 @@ use avenger_format_number_d3::{
 #[test]
 fn exponent_parts_match_localized_text() {
     let mut registry = NumberLocaleRegistry::with_builtins();
+    assert_eq!(
+        registry.resolve("de-DE").is_ok(),
+        cfg!(feature = "all-locales")
+    );
     registry
-        .register_custom_locale_json("de-DE", include_str!("fixtures/locales/de-DE.json"))
+        .register_custom_locale_json("de-DE", include_str!("../locales/de-DE.json"))
         .unwrap();
     let locale = registry.resolve("de-DE").unwrap();
     let formatter = PreparedNumberFormat::new(Some("+.3~e"), &locale).unwrap();

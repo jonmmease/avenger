@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod bundled;
 mod error;
 mod format;
 mod locale;

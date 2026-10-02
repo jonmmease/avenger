@@ -38,17 +38,20 @@ fn provider_prepares_explicit_patterns_and_precision() {
         assert_eq!(formatter.format(value).text, expected);
     }
     for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
-        let provider = D3NumberFormatProvider::new()
-            .with_locale(selected)
-            .with_custom_locale(
-                registered,
-                NumberLocaleSpec {
-                    decimal: ",".into(),
-                    thousands: ".".into(),
-                    grouping: vec![3],
-                    ..Default::default()
-                },
-            );
+        let provider = D3NumberFormatProvider::new().with_locale(selected);
+        assert_eq!(
+            provider.prepare(",.1f").is_ok(),
+            cfg!(feature = "all-locales")
+        );
+        let provider = provider.with_custom_locale(
+            registered,
+            NumberLocaleSpec {
+                decimal: "·".into(),
+                thousands: "_".into(),
+                grouping: vec![3],
+                ..Default::default()
+            },
+        );
         let provider: D3NumberFormatProvider =
             serde_json::from_str(&serde_json::to_string(&provider).unwrap()).unwrap();
         let formatter = provider.prepare(",.1f").unwrap();
@@ -62,7 +65,7 @@ fn provider_prepares_explicit_patterns_and_precision() {
         );
         assert!(provider.prepare(",.1f").is_err());
         drop(provider);
-        assert_eq!(formatter.format(1234.5).text, "1.234,5");
+        assert_eq!(formatter.format(1234.5).text, "1_234·5");
     }
     for (step, reference_value) in [(f64::NAN, 1.0), (0.1, f64::INFINITY)] {
         let provider = provider.clone().with_precision(Step {
@@ -72,4 +75,34 @@ fn provider_prepares_explicit_patterns_and_precision() {
         assert!(provider.prepare("f").is_err());
     }
     assert!(provider.with_locale("unknown").prepare("f").is_err());
+}
+
+#[cfg(feature = "all-locales")]
+#[test]
+fn bundled_locales_match_vendored_definitions() {
+    use avenger_format_number_d3::{NumberLocaleRegistry, PreparedNumberFormat};
+    let registry = NumberLocaleRegistry::with_builtins();
+    let value = -1234567.89;
+    let pattern = "$,.2f";
+    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/locales")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let id = path.file_stem().unwrap().to_str().unwrap();
+        let definition: NumberLocaleSpec =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let locale = registry.resolve(id).unwrap();
+        assert_eq!(locale.definition(), &definition, "{id}");
+        let expected = PreparedNumberFormat::new(Some(pattern), &locale)
+            .unwrap()
+            .format(value);
+        for name in [id.to_owned(), id.replace('-', "_")] {
+            let formatter = D3NumberFormatProvider::new()
+                .with_locale(&name)
+                .prepare(pattern)
+                .unwrap();
+            assert_eq!(formatter.format(value), expected, "{name}");
+        }
+    }
 }

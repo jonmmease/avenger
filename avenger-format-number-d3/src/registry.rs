@@ -7,11 +7,15 @@ pub struct NumberLocaleRegistry {
     locales: BTreeMap<String, ResolvedNumberLocale>,
 }
 impl NumberLocaleRegistry {
-    /// Create a registry containing the bundled U.S. English locale.
+    /// Load U.S. English, or all D3 locales with the `all-locales` feature.
     pub fn with_builtins() -> Self {
-        Self {
-            locales: BTreeMap::from([("en-US".into(), ResolvedNumberLocale::en_us())]),
+        let mut registry = Self::default();
+        for &(id, json) in crate::bundled::LOCALES {
+            registry
+                .register_custom_locale_json(id, json)
+                .expect("bundled D3 number locale");
         }
+        registry
     }
     /// Replace a named definition after validation succeeds.
     /// Previously resolved locales retain their definitions.

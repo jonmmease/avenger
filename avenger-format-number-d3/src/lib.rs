@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod adapters;
+mod bundled;
 mod decimal;
 mod digits;
 mod error;

@@ -103,10 +103,8 @@ fn prepare(
     });
     let locale = if let Some(definition) = data {
         ResolvedDateTimeLocale::new(id, definition.clone()).map_err(error)?
-    } else if normalized == "en-US" {
-        ResolvedDateTimeLocale::en_us()
     } else {
-        return Err(DateTimeFormatError(format!("locale `{id}` was not found")));
+        crate::bundled::resolve(&normalized).map_err(error)?
     };
     PreparedDateTimeFormat::new(Some(pattern), DateTimeFormatContext::new(&locale, timezone))
         .map_err(error)

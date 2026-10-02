@@ -80,10 +80,8 @@ impl NumberFormatProvider for D3NumberFormatProvider {
         });
         let locale = if let Some(definition) = data {
             ResolvedNumberLocale::new(id, definition.clone())
-        } else if normalized == "en-US" {
-            Ok(ResolvedNumberLocale::en_us())
         } else {
-            Err(crate::FormatError::LocaleNotFound(id.into()))
+            crate::bundled::resolve(&normalized)
         }
         .map_err(|err| NumberFormatError(err.to_string()))?;
         let prepared = match self.precision {

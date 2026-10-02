@@ -16,7 +16,15 @@ fn main() -> Result<(), avenger_format::NumberFormatError> {
 
 Prepare a formatter once and reuse it for binary64 values. Decimal conversion uses exact integer arithmetic for ECMAScript rounding and `ryu-js` for shortest strings. Keep original `f64` values until formatting. Casting a value through `f32` can change its label.
 
-Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The crate bundles `en-US`. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
+By default, the provider and `NumberLocaleRegistry::with_builtins()` include only U.S. English (`en-US`). Enable `all-locales` to embed all 59 D3 locales with `include_str!`:
+
+```toml
+avenger-format-number-d3 = { version = "0.1", features = ["all-locales"] }
+```
+
+The provider can then select a bundled locale with `.with_locale("de-DE")`. Custom definitions take precedence over bundled definitions. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`.
+
+Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
 
 D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
 
@@ -32,7 +40,7 @@ Resolved locales expose borrowed definitions. To customize a locale, clone `defi
 
 The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.
 
-The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
+The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access. The files in `locales/` are copied unchanged from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale), with the upstream license. The additional locales are excluded from builds without `all-locales`.
 
 `D3NumberFormatProvider` implements `NumberFormatProvider` from `avenger-format` and owns its locale definitions and precision settings. Pass an explicit pattern string to `prepare()`. Set grouping, signs, symbols, padding, and explicit precision in the pattern. Prepared formatters retain their resolved settings when the provider is changed or dropped.
 
