@@ -12,17 +12,17 @@ use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::{slice, sync::Arc};
 
-/// Built-in locale and display timezone for preparing Chrono datetime patterns.
+/// Prepare Chrono datetime patterns with a built-in locale and display timezone.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ChronoDateTimeFormatConfig {
+pub struct ChronoDateTimeFormatProvider {
     /// Chrono locale name. An omitted name selects `POSIX`.
     pub locale: Option<String>,
     /// IANA display timezone for zoned datetimes. An omitted name selects UTC.
     pub timezone: Option<String>,
 }
 
-impl ChronoDateTimeFormatConfig {
+impl ChronoDateTimeFormatProvider {
     /// Use the POSIX locale and UTC for zoned formatting.
     pub fn new() -> Self {
         Self::default()
@@ -41,19 +41,12 @@ impl ChronoDateTimeFormatConfig {
     }
 }
 
-/// Chrono patterns, built-in locales, and IANA display timezones through the shared interface.
-#[derive(Debug, Default)]
-pub struct ChronoDateTimeFormatProvider;
-
 impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
-    type Config = ChronoDateTimeFormatConfig;
-
     fn prepare_date(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        let pattern = Pattern::new(config, pattern)?;
+        let pattern = Pattern::new(pattern, self.locale.as_deref())?;
         // Rendering without a time or offset rejects incompatible fields after locale expansion.
         PreparedDateFormatter::format(&pattern, DateTime::UNIX_EPOCH.date_naive())
             .map_err(|_| error("Chrono pattern cannot format a date without a time or timezone"))?;
@@ -62,10 +55,9 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
 
     fn prepare_naive(
         &self,
-        config: &ChronoDateTimeFormatConfig,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
-        let pattern = Pattern::new(config, pattern)?;
+        let pattern = Pattern::new(pattern, self.locale.as_deref())?;
         // Chrono assumes UTC for naive timestamps. Naive values have no timezone.
         if pattern
             .items
@@ -82,15 +74,14 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
 
     fn prepare_zoned(
         &self,
-        config: &ChronoDateTimeFormatConfig,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        let name = config.timezone.as_deref().unwrap_or("UTC");
+        let name = self.timezone.as_deref().unwrap_or("UTC");
         let timezone = name
             .parse::<Tz>()
             .map_err(|_| error(format!("invalid IANA timezone `{name}`")))?;
         let formatter = ZonedFormat {
-            pattern: Pattern::new(config, pattern)?,
+            pattern: Pattern::new(pattern, self.locale.as_deref())?,
             timezone,
         };
         // Chrono parses some directives, such as %#z, that it cannot use for formatting.
@@ -109,11 +100,8 @@ struct Pattern {
 }
 
 impl Pattern {
-    fn new(
-        config: &ChronoDateTimeFormatConfig,
-        pattern: &str,
-    ) -> Result<Self, DateTimeFormatError> {
-        let locale = match config.locale.as_deref() {
+    fn new(pattern: &str, locale: Option<&str>) -> Result<Self, DateTimeFormatError> {
+        let locale = match locale {
             Some(name) => name
                 .replace('-', "_")
                 .parse::<Locale>()

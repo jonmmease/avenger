@@ -8,10 +8,10 @@ use avenger_format::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
-/// Locale and precision policy for preparing D3 number patterns.
+/// Prepare D3 number patterns with locale definitions and a precision policy.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct D3NumberFormatConfig {
+pub struct D3NumberFormatProvider {
     /// Locale name. An omitted name selects `en-US`.
     pub locale: Option<String>,
     /// Custom D3 definitions, keyed by locale name.
@@ -20,7 +20,7 @@ pub struct D3NumberFormatConfig {
     pub precision: D3NumberPrecision,
 }
 
-impl D3NumberFormatConfig {
+impl D3NumberFormatProvider {
     /// Use U.S. English and the pattern's ordinary D3 precision.
     pub fn new() -> Self {
         Self::default()
@@ -66,23 +66,15 @@ pub enum D3NumberPrecision {
     },
 }
 
-/// D3 patterns and locale definitions through the shared formatting interface.
-#[derive(Debug, Default)]
-pub struct D3NumberFormatProvider;
-
 impl NumberFormatProvider for D3NumberFormatProvider {
-    type Config = D3NumberFormatConfig;
-
     fn prepare(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-        let id = config.locale.as_deref().unwrap_or("en-US");
+        let id = self.locale.as_deref().unwrap_or("en-US");
         let normalized = id.replace('_', "-");
-        let data = config.locales.get(id).or_else(|| {
-            config
-                .locales
+        let data = self.locales.get(id).or_else(|| {
+            self.locales
                 .iter()
                 .find_map(|(name, data)| (name.replace('_', "-") == normalized).then_some(data))
         });
@@ -94,7 +86,7 @@ impl NumberFormatProvider for D3NumberFormatProvider {
             Err(crate::FormatError::LocaleNotFound(id.into()))
         }
         .map_err(|err| NumberFormatError(err.to_string()))?;
-        let prepared = match config.precision {
+        let prepared = match self.precision {
             D3NumberPrecision::FromSpecifier => PreparedNumberFormat::new(Some(pattern), &locale),
             D3NumberPrecision::Automatic => {
                 PreparedNumberFormat::new(Some(pattern), &locale).map(|mut prepared| {

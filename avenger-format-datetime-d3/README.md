@@ -4,17 +4,14 @@
 
 ```rust
 use avenger_format::DateTimeFormatProvider;
-use avenger_format_datetime_d3::{D3DateTimeFormatConfig, D3DateTimeFormatProvider};
+use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 
 fn main() -> Result<(), avenger_format::DateTimeFormatError> {
-    let config = D3DateTimeFormatConfig::new().with_timezone("America/New_York");
-    let date_formatter = D3DateTimeFormatProvider.prepare_date(&config, "%Y-%m-%d")?;
+    let provider = D3DateTimeFormatProvider::new().with_timezone("America/New_York");
+    let date_formatter = provider.prepare_date("%Y-%m-%d")?;
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     assert_eq!(date_formatter.format(date)?, "2024-01-01");
-    let formatter = D3DateTimeFormatProvider.prepare_zoned(
-        &config,
-        "%A %-d %B %Y %H:%M %Z",
-    )?;
+    let formatter = provider.prepare_zoned("%A %-d %B %Y %H:%M %Z")?;
     let zoned = chrono::DateTime::from_timestamp(1_704_067_200, 0).unwrap();
     assert_eq!(formatter.format(zoned)?, "Sunday 31 December 2023 19:00 -0500");
     Ok(())
@@ -35,7 +32,7 @@ Two behaviors intentionally differ from D3: unknown directives and incomplete `%
 
 The [reference generator](../tools/format-reference/README.md) pins the reference packages to generate compatibility fixtures. Additional locale definitions live in test fixtures. The locale files include the upstream license.
 
-`D3DateTimeFormatProvider` implements `avenger-format` with `D3DateTimeFormatConfig`. Configuration carries a locale name, typed custom `DateTimeLocaleSpec` definitions, and a display timezone. Its builders select a locale, add a custom definition, and set the timezone.
+`D3DateTimeFormatProvider` implements `DateTimeFormatProvider` from `avenger-format`. It owns a locale name, typed custom `DateTimeLocaleSpec` definitions, and a display timezone. Its builders select a locale, add a custom definition, and set the timezone. Prepared formatters retain their resolved settings when the provider is changed or dropped.
 
 The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
 

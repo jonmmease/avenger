@@ -1,5 +1,5 @@
 use avenger_format_datetime_d3::{
-    D3DateTimeFormatConfig, DateTimeFormatContext, DateTimeFormatError, DateTimeLocaleRegistry,
+    D3DateTimeFormatProvider, DateTimeFormatContext, DateTimeFormatError, DateTimeLocaleRegistry,
     DateTimeLocaleSpec, DateTimeParseError, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use chrono::{DateTime, NaiveDate, Utc};
@@ -22,19 +22,18 @@ fn naive_values_preserve_fields() {
 #[test]
 fn date_preparation_rejects_time_fields_including_locale_expansions() {
     use avenger_format::DateTimeFormatProvider;
-    let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%H", "%I", "%M", "%S", "%L", "%f", "%p", "%Q", "%s", "%Z"] {
         let definition = DateTimeLocaleSpec {
             date: directive.into(),
             ..Default::default()
         };
         let locale = ResolvedDateTimeLocale::new("custom", definition.clone()).unwrap();
-        let config = D3DateTimeFormatConfig::new()
+        let provider = D3DateTimeFormatProvider::new()
             .with_locale("custom")
             .with_custom_locale("custom", definition);
         for spec in [directive, "%x"] {
             assert!(provider
-                .prepare_date(&config, spec)
+                .prepare_date(spec)
                 .unwrap_err()
                 .to_string()
                 .contains(directive));
@@ -44,18 +43,17 @@ fn date_preparation_rejects_time_fields_including_locale_expansions() {
             assert!(prepared.format_date(NaiveDate::MIN).is_err());
         }
     }
-    let config = D3DateTimeFormatConfig::new();
+    let provider = D3DateTimeFormatProvider::new();
     for spec in ["%X", "%c"] {
-        assert!(provider.prepare_date(&config, spec).is_err(), "{spec}");
+        assert!(provider.prepare_date(spec).is_err(), "{spec}");
     }
 }
 
 #[test]
 fn naive_preparation_rejects_zoned_fields_including_locale_expansions() {
     use avenger_format::DateTimeFormatProvider;
-    let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%Z", "%Q", "%s"] {
-        let config = D3DateTimeFormatConfig::new()
+        let provider = D3DateTimeFormatProvider::new()
             .with_locale("custom")
             .with_custom_locale(
                 "custom",
@@ -66,11 +64,11 @@ fn naive_preparation_rejects_zoned_fields_including_locale_expansions() {
             );
         for spec in [directive, "%c"] {
             assert!(provider
-                .prepare_naive(&config, spec)
+                .prepare_naive(spec)
                 .unwrap_err()
                 .to_string()
                 .contains(directive));
-            assert!(provider.prepare_zoned(&config, spec).is_ok());
+            assert!(provider.prepare_zoned(spec).is_ok());
         }
     }
 }
@@ -242,14 +240,13 @@ fn ordinal_uses_calendar_date_after_midnight_offset_change() {
 #[test]
 fn provider_accepts_explicit_patterns() {
     use avenger_format::DateTimeFormatProvider;
-    let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
-    let config = D3DateTimeFormatConfig::new()
+    let provider = D3DateTimeFormatProvider::new()
         .with_locale("en_US")
         .with_timezone("America/New_York");
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let zoned_value = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
     for (pattern, expected) in [("%Y-%m-%d", "2024-01-01"), ("%x", "1/1/2024"), ("", "")] {
-        let prepared = provider.prepare_date(&config, pattern).unwrap();
+        let prepared = provider.prepare_date(pattern).unwrap();
         assert_eq!(prepared.format(date).unwrap(), expected);
     }
     for (pattern, naive, zoned) in [
@@ -257,49 +254,48 @@ fn provider_accepts_explicit_patterns() {
         ("%Y-%m-%d", "2024-01-01", "2023-12-31"),
         ("", "", ""),
     ] {
-        let prepared = provider.prepare_naive(&config, pattern).unwrap();
+        let prepared = provider.prepare_naive(pattern).unwrap();
         assert_eq!(prepared.format(zoned_value.naive_utc()).unwrap(), naive);
         assert_eq!(
             provider
-                .prepare_zoned(&config, pattern)
+                .prepare_zoned(pattern)
                 .unwrap()
                 .format(zoned_value)
                 .unwrap(),
             zoned
         );
     }
-    let config = config.with_timezone("local");
-    assert!(provider.prepare_date(&config, "%Y").is_ok());
-    assert!(provider.prepare_naive(&config, "%Y").is_ok());
-    assert!(provider.prepare_zoned(&config, "%c").is_err());
+    let provider = provider.with_timezone("local");
+    assert!(provider.prepare_date("%Y").is_ok());
+    assert!(provider.prepare_naive("%Y").is_ok());
+    assert!(provider.prepare_zoned("%c").is_err());
 }
 
 #[test]
 fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
     use avenger_format::DateTimeFormatProvider;
-    let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     let spec = "%x";
     for (registered, selected) in [("fr-FR", "fr_FR"), ("fr_FR", "fr-FR")] {
-        let mut config = D3DateTimeFormatConfig::new().with_locale(selected);
-        assert!(provider.prepare_date(&config, spec).is_err());
-        config.locales.insert(
+        let mut provider = D3DateTimeFormatProvider::new().with_locale(selected);
+        assert!(provider.prepare_date(spec).is_err());
+        provider.locales.insert(
             registered.into(),
             DateTimeLocaleSpec {
                 date: "%d~%m~%Y".into(),
                 ..Default::default()
             },
         );
-        let formatter = provider.prepare_date(&config, spec).unwrap();
+        let formatter = provider.prepare_date(spec).unwrap();
         // An exact custom name takes precedence even when its definition is invalid.
-        config.locales.insert(
+        provider.locales.insert(
             selected.into(),
             DateTimeLocaleSpec {
                 date: "%x".into(),
                 ..Default::default()
             },
         );
-        assert!(provider.prepare_date(&config, spec).is_err());
-        drop(config);
+        assert!(provider.prepare_date(spec).is_err());
+        drop(provider);
         assert_eq!(
             formatter
                 .format(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())

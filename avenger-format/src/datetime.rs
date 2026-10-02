@@ -6,16 +6,13 @@ use std::{fmt::Debug, sync::Arc};
 #[error("{0}")]
 pub struct DateTimeFormatError(pub String);
 
-/// Resolve an explicit pattern and provider-specific configuration for a sequence of labels.
+/// Prepare explicit patterns using the provider's locale and formatting settings.
+/// Prepared formatters retain resolved settings independently of the provider.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
-    /// Locale and preparation options accepted by this provider.
-    type Config;
-
     /// Prepare for calendar dates, rejecting time, epoch, and timezone fields.
     /// Timezone configuration is unused and is not validated.
     fn prepare_date(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError>;
 
@@ -23,14 +20,12 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
     /// Timezone configuration is unused and is not validated.
     fn prepare_naive(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError>;
 
     /// Prepare for zoned datetimes, resolving and validating the configured display timezone.
     fn prepare_zoned(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
 }

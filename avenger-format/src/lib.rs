@@ -15,17 +15,11 @@ use std::{fmt::Debug, sync::Arc};
 #[error("{0}")]
 pub struct NumberFormatError(pub String);
 
-/// Resolve a pattern and provider-specific configuration once for a sequence of labels.
+/// Prepare explicit patterns using the provider's locale and formatting settings.
 pub trait NumberFormatProvider: Debug + Send + Sync + 'static {
-    /// Locale and preparation options accepted by this provider.
-    type Config;
-
-    /// Prepare an explicit pattern, retaining the resolved state independently of configuration.
-    fn prepare(
-        &self,
-        config: &Self::Config,
-        pattern: &str,
-    ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError>;
+    /// Prepare an explicit pattern, retaining resolved settings independently of the provider.
+    fn prepare(&self, pattern: &str)
+        -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError>;
 }
 
 /// A reusable formatter. Implementations must be immutable and deterministic,

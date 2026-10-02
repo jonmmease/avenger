@@ -4,11 +4,11 @@
 
 ```rust
 use avenger_format::NumberFormatProvider;
-use avenger_format_number_d3::{D3NumberFormatConfig, D3NumberFormatProvider};
+use avenger_format_number_d3::D3NumberFormatProvider;
 
 fn main() -> Result<(), avenger_format::NumberFormatError> {
-    let config = D3NumberFormatConfig::new().with_locale("en-US");
-    let formatter = D3NumberFormatProvider.prepare(&config, "$,.2f")?;
+    let provider = D3NumberFormatProvider::new().with_locale("en-US");
+    let formatter = provider.prepare("$,.2f")?;
     assert_eq!(formatter.format(1234.5).text, "$1,234.50");
     Ok(())
 }
@@ -34,7 +34,7 @@ The supported grammar is the documented [D3 number format](https://d3js.org/d3-f
 
 The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
 
-`D3NumberFormatProvider` implements the provider interface in `avenger-format` with `D3NumberFormatConfig`. Pass an explicit pattern string to `prepare()`. Set grouping, signs, symbols, padding, and explicit precision in the pattern.
+`D3NumberFormatProvider` implements `NumberFormatProvider` from `avenger-format` and owns its locale definitions and precision settings. Pass an explicit pattern string to `prepare()`. Set grouping, signs, symbols, padding, and explicit precision in the pattern. Prepared formatters retain their resolved settings when the provider is changed or dropped.
 
 Use `with_locale()` and `with_custom_locale()` to configure the selected locale and typed `NumberLocaleSpec` definitions. The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
 

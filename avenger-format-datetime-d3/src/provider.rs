@@ -10,10 +10,10 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
-/// Locale definitions and display timezone for preparing D3 datetime patterns.
+/// Prepare D3 datetime patterns with locale definitions and a display timezone.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct D3DateTimeFormatConfig {
+pub struct D3DateTimeFormatProvider {
     /// Locale name. An omitted name selects `en-US`.
     pub locale: Option<String>,
     /// Custom D3 definitions, keyed by locale name.
@@ -22,7 +22,7 @@ pub struct D3DateTimeFormatConfig {
     pub timezone: Option<String>,
 }
 
-impl D3DateTimeFormatConfig {
+impl D3DateTimeFormatProvider {
     /// Use U.S. English and UTC for zoned formatting.
     pub fn new() -> Self {
         Self::default()
@@ -51,53 +51,44 @@ impl D3DateTimeFormatConfig {
     }
 }
 
-/// D3 datetime patterns and locale definitions through the shared interface.
-#[derive(Debug, Default)]
-pub struct D3DateTimeFormatProvider;
-
 impl DateTimeFormatProvider for D3DateTimeFormatProvider {
-    type Config = D3DateTimeFormatConfig;
-
     fn prepare_date(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        let prepared = prepare(config, pattern, chrono_tz::UTC)?;
+        let prepared = prepare(self, pattern, chrono_tz::UTC)?;
         prepared.validate_date().map_err(error)?;
         Ok(Arc::new(prepared))
     }
 
     fn prepare_naive(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
-        let prepared = prepare(config, pattern, chrono_tz::UTC)?;
+        let prepared = prepare(self, pattern, chrono_tz::UTC)?;
         prepared.validate_naive().map_err(error)?;
         Ok(Arc::new(prepared))
     }
 
     fn prepare_zoned(
         &self,
-        config: &Self::Config,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
         let timezone =
-            parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
-        Ok(Arc::new(prepare(config, pattern, timezone)?))
+            parse_datetime_timezone(self.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
+        Ok(Arc::new(prepare(self, pattern, timezone)?))
     }
 }
 
 fn prepare(
-    config: &D3DateTimeFormatConfig,
+    provider: &D3DateTimeFormatProvider,
     pattern: &str,
     timezone: chrono_tz::Tz,
 ) -> Result<PreparedDateTimeFormat, DateTimeFormatError> {
-    let id = config.locale.as_deref().unwrap_or("en-US");
+    let id = provider.locale.as_deref().unwrap_or("en-US");
     let normalized = id.replace('_', "-");
-    let data = config.locales.get(id).or_else(|| {
-        config
+    let data = provider.locales.get(id).or_else(|| {
+        provider
             .locales
             .iter()
             .find_map(|(name, data)| (name.replace('_', "-") == normalized).then_some(data))
