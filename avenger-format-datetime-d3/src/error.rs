@@ -37,4 +37,7 @@ pub enum DateTimeFormatError {
 
     #[error("datetime format field `{0}` requires zoned datetime input")]
     TimezoneFieldForNaive(String),
+
+    #[error("datetime format field `{0}` requires a time of day")]
+    TimeFieldForDate(String),
 }

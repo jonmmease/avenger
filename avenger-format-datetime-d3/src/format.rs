@@ -3,11 +3,10 @@ use crate::{
     parser::{parse_datetime_spec, Pattern, PatternToken},
     DateTimeFormatError, DateTimeLocaleSpec, ResolvedDateTimeLocale,
 };
-use chrono::{DateTime, Datelike, NaiveDateTime, Offset, Timelike};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Offset, Timelike, Utc};
 use chrono_tz::Tz;
 use std::sync::Arc;
 
-pub use avenger_format::{NaiveDateTimeInput, ZonedDateTimeInput};
 /// Locale and concrete timezone resolved by the caller.
 #[derive(Debug, Clone, Copy)]
 pub struct DateTimeFormatContext<'a> {
@@ -28,6 +27,7 @@ pub struct PreparedDateTimeFormat {
     locale: Arc<DateTimeLocaleSpec>,
     timezone: Tz,
     zoned_directive: Option<char>,
+    time_directive: Option<char>,
 }
 impl PreparedDateTimeFormat {
     /// Prepare a D3 pattern. An omitted scalar pattern uses locale `%c`.
@@ -47,12 +47,28 @@ impl PreparedDateTimeFormat {
             } => Some(*code),
             _ => None,
         });
+        let time_directive = pattern.0.iter().find_map(|token| match token {
+            PatternToken::Directive {
+                code: code @ ('H' | 'I' | 'M' | 'S' | 'L' | 'f' | 'p'),
+                ..
+            } => Some(*code),
+            _ => None,
+        });
         Ok(Self {
             pattern,
             locale: Arc::clone(&context.locale.definition),
             timezone: context.timezone,
             zoned_directive,
+            time_directive,
         })
+    }
+    /// Check date-only compatibility before formatting a batch.
+    pub(crate) fn validate_date(&self) -> Result<(), DateTimeFormatError> {
+        self.validate_naive()?;
+        if let Some(code) = self.time_directive {
+            return Err(DateTimeFormatError::TimeFieldForDate(format!("%{code}")));
+        }
+        Ok(())
     }
     /// Check naive-input compatibility before formatting a batch.
     pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
@@ -64,16 +80,20 @@ impl PreparedDateTimeFormat {
         Ok(())
     }
     /// Format naive fields, rejecting leap seconds and directives that require a zoned datetime.
-    pub fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
+    pub fn format_naive(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
         self.validate_naive()?;
-        let date = value.datetime();
-        if date.nanosecond() >= 1_000_000_000 {
+        if value.nanosecond() >= 1_000_000_000 {
             return Err(DateTimeFormatError::LeapSecondForNaive);
         }
-        Ok(self.render(date, 0, 0))
+        Ok(self.render(value, 0, 0))
+    }
+    /// Format a calendar date, rejecting time, epoch, and timezone directives.
+    pub fn format_date(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
+        self.validate_date()?;
+        Ok(self.render(value.and_time(NaiveTime::MIN), 0, 0))
     }
     /// Format a zoned datetime, returning an error if its display date exceeds Chrono's range.
-    pub fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+    pub fn format_zoned(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         let value = normalize_zoned(value)?;
         let millis = value.timestamp_millis();
         let display = value.with_timezone(&self.timezone);
@@ -178,7 +198,7 @@ impl PreparedDateTimeFormat {
 
 /// Format a naive value with a D3 pattern.
 pub fn format_naive_datetime(
-    value: NaiveDateTimeInput,
+    value: NaiveDateTime,
     spec: Option<&str>,
     context: DateTimeFormatContext<'_>,
 ) -> Result<String, DateTimeFormatError> {
@@ -186,7 +206,7 @@ pub fn format_naive_datetime(
 }
 /// Format a zoned datetime with a D3 pattern and an explicit display zone.
 pub fn format_zoned_datetime(
-    value: ZonedDateTimeInput,
+    value: DateTime<Utc>,
     spec: Option<&str>,
     context: DateTimeFormatContext<'_>,
 ) -> Result<String, DateTimeFormatError> {
@@ -194,9 +214,7 @@ pub fn format_zoned_datetime(
 }
 
 // JavaScript Date clips fractional epoch milliseconds toward zero.
-pub(crate) fn normalize_zoned(
-    value: ZonedDateTimeInput,
-) -> Result<ZonedDateTimeInput, DateTimeFormatError> {
+pub(crate) fn normalize_zoned(value: DateTime<Utc>) -> Result<DateTime<Utc>, DateTimeFormatError> {
     let millis = value.timestamp_millis();
     let millis =
         millis + i64::from(millis < 0 && !value.timestamp_subsec_nanos().is_multiple_of(1_000_000));

@@ -1,6 +1,6 @@
 # Datetime formatting
 
-`avenger-format-datetime-d3` formats naive and zoned datetimes with D3 datetime patterns and locale definitions. Display timezones are explicit IANA names, independent of locale.
+`avenger-format-datetime-d3` formats dates, naive datetimes, and zoned datetimes with D3 datetime patterns and locale definitions. Display timezones are explicit IANA names, independent of locale.
 
 ```rust
 use avenger_format::DateTimeFormatProvider;
@@ -8,6 +8,9 @@ use avenger_format_datetime_d3::{D3DateTimeFormatConfig, D3DateTimeFormatProvide
 
 fn main() -> Result<(), avenger_format::DateTimeFormatError> {
     let config = D3DateTimeFormatConfig::new().with_timezone("America/New_York");
+    let date_formatter = D3DateTimeFormatProvider.prepare_date(&config, "%Y-%m-%d")?;
+    let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    assert_eq!(date_formatter.format(date)?, "2024-01-01");
     let formatter = D3DateTimeFormatProvider.prepare_zoned(
         &config,
         "%A %-d %B %Y %H:%M %Z",
@@ -20,7 +23,8 @@ fn main() -> Result<(), avenger_format::DateTimeFormatError> {
 
 Prepare a formatter once and reuse it. The low-level `PreparedDateTimeFormat::new(None, context)` uses the locale's `%c` pattern. Its formatting methods return `Result<String, DateTimeFormatError>`:
 
-- `format_naive` preserves naive calendar fields. It rejects leap seconds, `%Q`, `%s`, and `%Z`.
+- `format_date` accepts `chrono::NaiveDate` and preserves its calendar date. It rejects time, epoch, and timezone directives.
+- `format_naive` accepts `chrono::NaiveDateTime` and preserves its calendar fields. It rejects leap seconds, `%Q`, `%s`, and `%Z`.
 - `format_zoned` accepts a zoned datetime represented in UTC. It uses the display zone for calendar fields and offsets, preserving the epoch value for `%Q` and `%s`. It returns an error if the display date exceeds Chrono's range. Fractional epoch milliseconds are clipped toward zero to match JavaScript Date. `%f` formats milliseconds followed by three zeros.
 
 `DateTimeLocaleRegistry::with_builtins()` contains U.S. English (`en-US`). Register other complete D3 definitions with `register_custom_locale` or `register_custom_locale_json`. Locale JSON uses `dateTime`, `date`, `time`, `periods`, `days`, `shortDays`, `months`, and `shortMonths`. Array lengths and recursive `%c`/`%x`/`%X` expansions are validated. To customize a resolved locale, clone `definition()`, edit it, and register it. Existing prepared formatters retain their locale data.
@@ -35,4 +39,4 @@ The [reference generator](../tools/format-reference/README.md) pins the referenc
 
 The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
 
-Pass one explicit pattern string to `prepare_naive()` or `prepare_zoned()`. Naive preparation rejects epoch and timezone directives, including directives in locale expansions. An empty pattern produces an empty label. Callers choose ordinary patterns such as `%c` or `%Y-%m-%d`. Errors from preparation or individual values propagate through the shared error type.
+Pass one explicit pattern string to `prepare_date()`, `prepare_naive()`, or `prepare_zoned()`. Preparation validates the pattern for the corresponding input type, including directives in locale expansions. Date and naive preparation ignore timezone configuration. An empty pattern produces an empty label. Callers choose ordinary patterns such as `%c` or `%Y-%m-%d`. Errors from preparation or individual values propagate through the shared error type.

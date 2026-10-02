@@ -1,7 +1,6 @@
 use avenger_format_datetime_d3::{
     D3DateTimeFormatConfig, DateTimeFormatContext, DateTimeFormatError, DateTimeLocaleRegistry,
-    DateTimeLocaleSpec, DateTimeParseError, NaiveDateTimeInput, PreparedDateTimeFormat,
-    ResolvedDateTimeLocale,
+    DateTimeLocaleSpec, DateTimeParseError, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::{America::New_York, Asia::Tokyo, UTC};
@@ -13,17 +12,38 @@ fn naive_values_preserve_fields() {
     let scalar = PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M:%S.%L %f"), context).unwrap();
     let date = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
     assert_eq!(
-        scalar.format_naive(NaiveDateTimeInput::Date(date)).unwrap(),
-        "2024-02-29 00:00:00.000 000000"
-    );
-    assert_eq!(
         scalar
-            .format_naive(NaiveDateTimeInput::DateTime(
-                date.and_hms_micro_opt(13, 5, 6, 7_999).unwrap()
-            ))
+            .format_naive(date.and_hms_micro_opt(13, 5, 6, 7_999).unwrap())
             .unwrap(),
         "2024-02-29 13:05:06.007 007000"
     );
+}
+
+#[test]
+fn date_preparation_rejects_time_fields_in_custom_date_patterns() {
+    use avenger_format::DateTimeFormatProvider;
+    let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
+    for directive in ["%H", "%I", "%M", "%S", "%L", "%f", "%p", "%Q", "%s", "%Z"] {
+        let definition = DateTimeLocaleSpec {
+            date: directive.into(),
+            ..Default::default()
+        };
+        let locale = ResolvedDateTimeLocale::new("custom", definition.clone()).unwrap();
+        let config = D3DateTimeFormatConfig::new()
+            .with_locale("custom")
+            .with_custom_locale("custom", definition);
+        for spec in [directive, "%x"] {
+            assert!(provider
+                .prepare_date(&config, spec)
+                .unwrap_err()
+                .to_string()
+                .contains(directive));
+            let prepared =
+                PreparedDateTimeFormat::new(Some(spec), DateTimeFormatContext::new(&locale, UTC))
+                    .unwrap();
+            assert!(prepared.format_date(NaiveDate::MIN).is_err());
+        }
+    }
 }
 
 #[test]
@@ -83,11 +103,11 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
     registry
         .register_custom_locale("fr-FR", replacement.clone())
         .unwrap();
-    let date = NaiveDateTimeInput::Date(NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
-    assert_eq!(original.format_naive(date).unwrap(), "janvier 02/01/2024");
+    let date = NaiveDate::from_ymd_opt(2024, 1, 2).unwrap();
+    assert_eq!(original.format_date(date).unwrap(), "janvier 02/01/2024");
     assert_eq!(
         prepare(&registry.resolve("fr-FR").unwrap())
-            .format_naive(date)
+            .format_date(date)
             .unwrap(),
         "Updated 2024"
     );
@@ -100,7 +120,7 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
     ));
     assert_eq!(
         prepare(&registry.resolve("fr-FR").unwrap())
-            .format_naive(date)
+            .format_date(date)
             .unwrap(),
         "Updated 2024"
     );
@@ -132,12 +152,12 @@ fn malformed_patterns_report_byte_positions() {
                 if position == expected_position
         ));
     }
-    let date = NaiveDateTimeInput::Date(NaiveDate::MIN);
+    let date = NaiveDate::MIN;
     for pattern in ["", "literal é"] {
         assert_eq!(
             PreparedDateTimeFormat::new(Some(pattern), context)
                 .unwrap()
-                .format_naive(date)
+                .format_date(date)
                 .unwrap(),
             pattern
         );
@@ -170,12 +190,10 @@ fn naive_leap_seconds_are_rejected() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, UTC);
     let scalar = PreparedDateTimeFormat::new(Some("%H:%M:%S.%L"), context).unwrap();
-    let value = NaiveDateTimeInput::DateTime(
-        NaiveDate::from_ymd_opt(2016, 12, 31)
-            .unwrap()
-            .and_hms_milli_opt(23, 59, 59, 1500)
-            .unwrap(),
-    );
+    let value = NaiveDate::from_ymd_opt(2016, 12, 31)
+        .unwrap()
+        .and_hms_milli_opt(23, 59, 59, 1500)
+        .unwrap();
     assert_eq!(
         scalar.format_naive(value),
         Err(DateTimeFormatError::LeapSecondForNaive)
@@ -230,10 +248,7 @@ fn provider_accepts_explicit_patterns() {
         ("", "", ""),
     ] {
         let prepared = provider.prepare_naive(&config, pattern).unwrap();
-        assert_eq!(
-            prepared.format(NaiveDateTimeInput::Date(date)).unwrap(),
-            naive
-        );
+        assert_eq!(prepared.format(zoned_value.naive_utc()).unwrap(), naive);
         assert_eq!(
             provider
                 .prepare_zoned(&config, pattern)
@@ -254,7 +269,7 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
     let spec = "%x";
     for (registered, selected) in [("fr-FR", "fr_FR"), ("fr_FR", "fr-FR")] {
         let mut config = D3DateTimeFormatConfig::new().with_locale(selected);
-        assert!(provider.prepare_naive(&config, spec).is_err());
+        assert!(provider.prepare_date(&config, spec).is_err());
         config.locales.insert(
             registered.into(),
             DateTimeLocaleSpec {
@@ -262,12 +277,10 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
                 ..Default::default()
             },
         );
-        let formatter = provider.prepare_naive(&config, spec).unwrap();
+        let formatter = provider.prepare_date(&config, spec).unwrap();
         assert_eq!(
             formatter
-                .format(NaiveDateTimeInput::Date(
-                    NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()
-                ))
+                .format(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())
                 .unwrap(),
             "05~01~2024"
         );
@@ -279,6 +292,6 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
                 ..Default::default()
             },
         );
-        assert!(provider.prepare_naive(&config, spec).is_err());
+        assert!(provider.prepare_date(&config, spec).is_err());
     }
 }

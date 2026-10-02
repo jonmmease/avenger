@@ -3,9 +3,10 @@ use crate::{
     ResolvedDateTimeLocale,
 };
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
+    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -57,6 +58,16 @@ pub struct D3DateTimeFormatProvider;
 impl DateTimeFormatProvider for D3DateTimeFormatProvider {
     type Config = D3DateTimeFormatConfig;
 
+    fn prepare_date(
+        &self,
+        config: &Self::Config,
+        pattern: &str,
+    ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
+        let prepared = prepare(config, pattern, chrono_tz::UTC)?;
+        prepared.validate_date().map_err(error)?;
+        Ok(Arc::new(prepared))
+    }
+
     fn prepare_naive(
         &self,
         config: &Self::Config,
@@ -106,14 +117,20 @@ fn error(error: crate::DateTimeFormatError) -> DateTimeFormatError {
     DateTimeFormatError(error.to_string())
 }
 
+impl PreparedDateFormatter for PreparedDateTimeFormat {
+    fn format(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
+        self.format_date(value).map_err(error)
+    }
+}
+
 impl PreparedNaiveDateTimeFormatter for PreparedDateTimeFormat {
-    fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
+    fn format(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
         self.format_naive(value).map_err(error)
     }
 }
 
 impl PreparedZonedDateTimeFormatter for PreparedDateTimeFormat {
-    fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+    fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         self.format_zoned(value).map_err(error)
     }
 }

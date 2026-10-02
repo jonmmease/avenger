@@ -1,12 +1,12 @@
 #![doc = include_str!("../README.md")]
 
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
+    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 use chrono::{
     format::{DelayedFormat, Item, Numeric, StrftimeItems},
-    DateTime, Locale, Offset,
+    DateTime, Locale, NaiveDate, NaiveDateTime, Offset, Utc,
 };
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,18 @@ pub struct ChronoDateTimeFormatProvider;
 impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
     type Config = ChronoDateTimeFormatConfig;
 
+    fn prepare_date(
+        &self,
+        config: &Self::Config,
+        pattern: &str,
+    ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
+        let pattern = Pattern::new(config, pattern)?;
+        // Rendering without a time or offset rejects incompatible fields after locale expansion.
+        PreparedDateFormatter::format(&pattern, DateTime::UNIX_EPOCH.date_naive())
+            .map_err(|_| error("Chrono pattern cannot format a date without a time or timezone"))?;
+        Ok(Arc::new(pattern))
+    }
+
     fn prepare_naive(
         &self,
         config: &ChronoDateTimeFormatConfig,
@@ -63,10 +75,7 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
             return Err(error("Chrono pattern `%s` requires a zoned datetime"));
         }
         // Rendering detects timezone-dependent and parsing-only items, including locale expansions.
-        pattern
-            .format(NaiveDateTimeInput::DateTime(
-                DateTime::UNIX_EPOCH.naive_utc(),
-            ))
+        PreparedNaiveDateTimeFormatter::format(&pattern, DateTime::UNIX_EPOCH.naive_utc())
             .map_err(|_| error("Chrono pattern cannot format a naive datetime"))?;
         Ok(Arc::new(pattern))
     }
@@ -118,9 +127,19 @@ impl Pattern {
     }
 }
 
+impl PreparedDateFormatter for Pattern {
+    fn format(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
+        render(DelayedFormat::new_with_locale(
+            Some(value),
+            None,
+            self.items.iter(),
+            self.locale,
+        ))
+    }
+}
+
 impl PreparedNaiveDateTimeFormatter for Pattern {
-    fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
-        let value = value.datetime();
+    fn format(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
         render(DelayedFormat::new_with_locale(
             Some(value.date()),
             Some(value.time()),
@@ -137,7 +156,7 @@ struct ZonedFormat {
 }
 
 impl PreparedZonedDateTimeFormatter for ZonedFormat {
-    fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
+    fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         let display = value.with_timezone(&self.timezone);
         let local = display
             .naive_utc()

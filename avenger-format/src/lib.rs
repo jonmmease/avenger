@@ -2,8 +2,8 @@
 
 mod datetime;
 pub use datetime::{
-    DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
+    DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 
 mod formatted_number;

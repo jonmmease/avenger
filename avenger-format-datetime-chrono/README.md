@@ -10,6 +10,9 @@ fn main() -> Result<(), avenger_format::DateTimeFormatError> {
     let config = ChronoDateTimeFormatConfig::new()
         .with_locale("en-US")
         .with_timezone("America/New_York");
+    let date_formatter = ChronoDateTimeFormatProvider.prepare_date(&config, "%Y-%m-%d")?;
+    let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    assert_eq!(date_formatter.format(date)?, "2024-01-01");
     let formatter = ChronoDateTimeFormatProvider.prepare_zoned(&config, "%Y-%m-%d %H:%M:%S%.6f %:z")?;
     let zoned = chrono::DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
     assert_eq!(formatter.format(zoned)?, "2023-12-31 19:00:00.123456 -05:00");
@@ -17,7 +20,13 @@ fn main() -> Result<(), avenger_format::DateTimeFormatError> {
 }
 ```
 
-Pass a string pattern directly to `prepare_naive()` or `prepare_zoned()`. Preparation resolves the pattern and locale once. `prepare_naive()` accepts dates and naive datetimes, with dates interpreted as midnight. It rejects epoch and timezone fields, including those in locale patterns. Configuration's display timezone does not affect naive values. `prepare_zoned()` accepts UTC datetimes and uses the IANA display timezone in `ChronoDateTimeFormatConfig`, or UTC when absent. Parsing-only directives such as `%#z` fail during preparation.
+Pass a string pattern directly to a preparation method. Preparation resolves the pattern and locale once, including locale expansions.
+
+- `prepare_date()` accepts `chrono::NaiveDate` and rejects time, epoch, and timezone fields.
+- `prepare_naive()` accepts `chrono::NaiveDateTime` and rejects epoch and timezone fields.
+- `prepare_zoned()` accepts `chrono::DateTime<chrono::Utc>` and uses the IANA display timezone in `ChronoDateTimeFormatConfig`, or UTC when absent.
+
+Date and naive preparation ignore timezone configuration. Parsing-only directives such as `%#z` fail during preparation for all three paths.
 
 Locale names accept either separator: `en-US` and `en_US` select the same locale. An omitted locale uses `POSIX`. The crate enables Chrono's `unstable-locales` feature for its built-in locale data.
 
