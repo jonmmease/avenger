@@ -1,19 +1,21 @@
-use crate::marks::mark::default_interactive;
 use std::hash::{DefaultHasher, Hasher};
 
-use crate::marks::mark::SceneMark;
-use crate::marks::path::ScenePathMark;
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::lyon::hash_lyon_path;
-use avenger_common::types::PathTransform;
-use avenger_common::value::ScalarOrArray;
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::Box2D;
-use lyon_path::Winding;
+use avenger_common::{lyon::hash_lyon_path, types::PathTransform, value::ScalarOrArray};
+use lyon_path::{
+    geom::{euclid::Point2D, Box2D},
+    Winding,
+};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+use crate::marks::{
+    mark::{default_interactive, SceneMark},
+    path::ScenePathMark,
+    pattern::PatternReferenceFrame,
+};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum Clip {
     #[default]
     None,
@@ -118,6 +120,8 @@ pub struct SceneGroup {
     #[serde(default = "default_interactive")]
     pub interactive: bool,
     pub origin: [f32; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_reference_frame: Option<PatternReferenceFrame>,
     pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
@@ -137,6 +141,7 @@ impl std::hash::Hash for SceneGroup {
             OrderedFloat::from(self.origin[1]),
         ]
         .hash(state);
+        self.pattern_reference_frame.hash(state);
         self.clip.hash(state);
         self.gradients.hash(state);
         self.fill.hash(state);
@@ -208,6 +213,7 @@ impl SceneGroup {
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             ),
+            fill_pattern: crate::marks::pattern::default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(
                 self.stroke
                     .clone()
@@ -242,9 +248,10 @@ impl SceneGroup {
 impl Default for SceneGroup {
     fn default() -> Self {
         Self {
-            interactive: true,
             name: "".to_string(),
+            interactive: true,
             origin: [0.0, 0.0],
+            pattern_reference_frame: None,
             clip: Default::default(),
             marks: vec![],
             gradients: vec![],

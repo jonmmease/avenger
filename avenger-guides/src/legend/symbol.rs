@@ -4,7 +4,11 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::{
-    group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
+    group::SceneGroup,
+    mark::SceneMark,
+    pattern::{default_no_fill_pattern, PatternFill, PatternReferenceFrame},
+    rect::SceneRectMark,
+    symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
 use avenger_text::{
@@ -29,6 +33,7 @@ pub struct SymbolLegendConfig {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub angle: ScalarOrArray<f32>,
 
     /// Width of the chart area that the legend may be placed next to
@@ -78,6 +83,7 @@ impl Default for SymbolLegendConfig {
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             angle: ScalarOrArray::new_scalar(0.0),
             inner_width: 100.0,
             inner_height: 100.0,
@@ -132,6 +138,7 @@ pub fn make_symbol_legend_itemized_with_text_engine(
         config.size.len(),
         config.stroke.len(),
         config.fill.len(),
+        config.fill_pattern.len(),
         config.angle.len(),
     ])?;
 
@@ -155,6 +162,7 @@ pub fn make_symbol_legend_itemized_with_text_engine(
         stroke: config.stroke.clone(),
         angle: config.angle.clone(),
         fill: config.fill.clone(),
+        fill_pattern: config.fill_pattern.clone(),
 
         // Scalars
         stroke_width: config.stroke_width,
@@ -365,6 +373,19 @@ fn make_symbol_group(
 
     single_symbol_mark.y = ((symbol_height / 2.0 + padding).round()).into();
 
+    let pattern_reference_frame = single_symbol_mark
+        .fill_pattern_iter()
+        .any(Option::is_some)
+        .then(|| {
+            let bounds = single_symbol_mark.bounding_box_with_text_engine(text_engine);
+            PatternReferenceFrame {
+                x: bounds.lower()[0],
+                y: bounds.lower()[1],
+                width: bounds.width(),
+                height: bounds.height(),
+            }
+        });
+
     tracing::debug!(text = text, "Creating legend text mark");
     let text_mark = SceneTextMark {
         clip: false,
@@ -401,6 +422,7 @@ fn make_symbol_group(
 
     Ok(SceneGroup {
         origin,
+        pattern_reference_frame,
         marks: std::iter::once(
             // Transparent hit rect for interactions. Its row height preserves the
             // pre-itemized legend spacing that used an invisible row rect.
@@ -426,6 +448,95 @@ fn make_symbol_group(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_pattern_anchor_resolves_in_translated_legend_swatches() {
+        use avenger_scenegraph::{
+            marks::pattern::{PatternLayer, StripePatternLayer},
+            pattern_geometry::{build_layered_pattern_geometry, PatternRect, PatternRenderContext},
+            render_order::{SceneDisplayList, SceneDisplayMark},
+            scene_graph::SceneGraph,
+        };
+        let mut legend = make_symbol_legend(&SymbolLegendConfig {
+            text: vec!["A".to_string(), "B".to_string()].into(),
+            size: 100.0.into(),
+            shape: SymbolShape::from_vega_str("square").unwrap().into(),
+            fill_pattern: vec![2.0, 4.0]
+                .into_iter()
+                .map(|phase| {
+                    let mut stripe = StripePatternLayer::new(0.0, 8.0, 2.0);
+                    stripe.phase = phase;
+                    Some(PatternFill {
+                        layers: vec![PatternLayer::Stripe(stripe)],
+                        ..Default::default()
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            ..Default::default()
+        })
+        .unwrap();
+        for origin in [[0.0, 0.0], [37.0, 53.0]] {
+            legend.origin = origin;
+            let scene = SceneGraph {
+                width: 400.0,
+                height: 200.0,
+                origin: [0.0; 2],
+                marks: vec![legend.clone().into()],
+            };
+            let list = SceneDisplayList::from_scene_graph(&scene);
+            let mut phases = Vec::new();
+            for item in &list.items {
+                let SceneDisplayMark::Borrowed(SceneMark::Symbol(mark)) = &item.mark else {
+                    continue;
+                };
+                let bounds = mark.bounding_box();
+                let host_bounds = PatternRect::new(
+                    bounds.lower()[0] + item.origin[0],
+                    bounds.lower()[1] + item.origin[1],
+                    bounds.width(),
+                    bounds.height(),
+                );
+                let frame = item
+                    .pattern_reference_frame
+                    .as_ref()
+                    .expect("swatch supplies a frame");
+                assert_eq!(
+                    [frame.x, frame.y, frame.width, frame.height],
+                    [
+                        host_bounds.x,
+                        host_bounds.y,
+                        host_bounds.width,
+                        host_bounds.height
+                    ]
+                );
+                let geometry = build_layered_pattern_geometry(
+                    mark.fill_pattern_iter().next().unwrap().as_ref().unwrap(),
+                    &PatternRenderContext {
+                        chart_bounds: PatternRect::new(0.0, 0.0, scene.width, scene.height),
+                        plot_bounds: Some(PatternRect::new(
+                            frame.x,
+                            frame.y,
+                            frame.width,
+                            frame.height,
+                        )),
+                        host_bounds,
+                        host_fill: mark.fill_iter().next().unwrap(),
+                        gradients: &[],
+                    },
+                )
+                .unwrap()
+                .unwrap();
+                let first = geometry.layers[0].primitives[0]
+                    .path()
+                    .first_endpoint()
+                    .unwrap()
+                    .0;
+                phases.push(first.y - host_bounds.y);
+            }
+            assert_eq!(phases, [1.0, 3.0]);
+        }
+    }
 
     #[test]
     fn itemized_symbol_legend_reports_interactive_hit_rects() {
