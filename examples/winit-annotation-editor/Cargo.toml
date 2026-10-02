@@ -26,11 +26,13 @@ winit = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["rayon"] }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 console_log = "1.0"
+futures = { workspace = true }
+gloo-timers = { version = "0.3", features = ["futures"] }
 log = { workspace = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

@@ -6,7 +6,7 @@ use avenger_eventstream::{
 };
 use winit_annotation_editor::{
     make_app,
-    state::{Drag, State},
+    state::{Drag, Sample, State},
 };
 
 struct Harness {
@@ -16,8 +16,12 @@ struct Harness {
 impl Harness {
     fn new() -> Self {
         Self {
-            app: pollster::block_on(make_app(State::new(avenger_text::default_text_engine())))
-                .unwrap(),
+            app: pollster::block_on(make_app(State::new(
+                Sample::A,
+                0,
+                avenger_text::default_text_engine(),
+            )))
+            .unwrap(),
             time: Instant::now(),
         }
     }
@@ -112,6 +116,18 @@ fn clipboard_snapshot_tracks_selection_before_a_browser_copy_event() {
     assert_eq!(*clipboard.lock().unwrap(), "New source");
     h.send(WindowEvent::Clipboard(ClipboardEvent::Cut));
     assert_eq!(*clipboard.lock().unwrap(), "");
+}
+
+#[test]
+fn preparing_a_sample_does_not_replace_the_installed_clipboard_selection() {
+    let mut h = Harness::new();
+    h.focus();
+    h.all();
+    let clipboard = h.state().clipboard_text.clone();
+    let expected = clipboard.lock().unwrap().clone();
+    let next = State::new(Sample::B, 1, avenger_text::default_text_engine());
+    pollster::block_on(make_app(next)).unwrap();
+    assert_eq!(*clipboard.lock().unwrap(), expected);
 }
 
 #[test]
@@ -486,6 +502,25 @@ fn focus_loss_clears_modifier_keys_and_resize_keeps_ime_inside_the_field() {
         .unwrap();
     assert!(area.x() >= x && area.x() < x + w);
     assert!(area.y() >= y && area.y() + area.height() <= y + height);
+}
+
+#[test]
+fn an_old_application_wake_cannot_change_a_replacement() {
+    let mut h = Harness::new();
+    h.focus();
+    let update = h.replace("old generation");
+    let old = wake(&update, "apply");
+    h.app = pollster::block_on(make_app(State::new(
+        Sample::B,
+        1,
+        avenger_text::default_text_engine(),
+    )))
+    .unwrap();
+    h.advance(500);
+    assert!(!h.wake(old).status.rerender);
+    assert_eq!(h.state().sample, Sample::B);
+    assert!(!h.state().focused);
+    assert_ne!(h.state().points[7].annotation, "old generation");
 }
 
 fn text_marks(
