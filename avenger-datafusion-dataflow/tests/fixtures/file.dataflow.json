@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dialect": "datafusion",
+  "inputs": {"minimum": {"kind": "scalar", "type": "int64"}},
+  "sources": {
+    "sales": {
+      "url": "sales.csv", "format": "csv",
+      "schema": [{"name": "amount", "type": "int64", "nullable": false}]
+    }
+  },
+  "tables": {"filtered": "SELECT * FROM sales WHERE amount > $minimum"},
+  "outputs": {"tables": {"rows": "filtered"}}
+}

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "dialect": "datafusion",
+  "inputs": {"minimum": {"kind": "scalar", "type": "float64"}},
+  "sources": {
+    "sales": {
+      "schema": [
+        {"name": "region", "type": "utf8", "nullable": false},
+        {"name": "year", "type": "int64", "nullable": false},
+        {"name": "amount", "type": "float64", "nullable": false}
+      ],
+      "values": [
+        {"region": "East", "year": 2024, "amount": 100},
+        {"region": "East", "year": 2025, "amount": 200},
+        {"region": "East", "year": 2025, "amount": 50},
+        {"region": "West", "year": 2025, "amount": 300}
+      ]
+    }
+  },
+  "tables": {"eligible": "SELECT * FROM sales WHERE amount >= $minimum"},
+  "scalars": {"grand_total": "(SELECT SUM(amount) FROM eligible)"},
+  "outputs": {"tables": {"eligible_sales": "eligible"}, "scalars": {"total": "grand_total"}},
+  "scopes": {
+    "regions": {
+      "partition": {"source": "eligible", "keys": ["region"]},
+      "rows": "region_rows",
+      "inputs": {
+        "offset": {"kind": "scalar", "type": "float64"},
+        "selected_years": {"kind": "table", "schema": [{"name": "year", "type": "int64", "nullable": false}]}
+      },
+      "scalars": {"region_total": "(SELECT SUM(amount) FROM region_rows)"},
+      "outputs": {"scalars": {"total": "region_total"}},
+      "scopes": {
+        "years": {
+          "partition": {"source": "region_rows", "keys": ["year"]},
+          "rows": "year_rows",
+          "inputs": {"fraction": {"kind": "scalar", "type": "float64"}},
+          "scalars": {"threshold": "GREATEST($minimum, $offset + $fraction * (SELECT MAX(amount) FROM year_rows))"},
+          "tables": {"visible": "SELECT * FROM year_rows WHERE amount >= $threshold AND year IN (SELECT year FROM selected_years)"},
+          "outputs": {"tables": {"marks": "visible"}, "scalars": {"threshold": "threshold"}}
+        }
+      }
+    }
+  }
+}

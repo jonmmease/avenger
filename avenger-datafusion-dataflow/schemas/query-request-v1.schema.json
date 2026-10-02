@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QueryRequest",
+  "description": "Bindings and output selection for one independent query.",
+  "type": "object",
+  "properties": {
+    "bindings": {
+      "$ref": "#/$defs/RequestBindings",
+      "default": {
+        "exprs": {},
+        "overrides": [],
+        "scalars": {},
+        "scope_defaults": [],
+        "tables": {}
+      }
+    },
+    "outputs": {
+      "$ref": "#/$defs/OutputSelection",
+      "default": {
+        "scalars": [],
+        "tables": []
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AssetSource": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "asset"
+      ]
+    },
+    "InlineBinding": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "values"
+      ]
+    },
+    "InstanceAddress": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "array",
+          "items": true
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "key"
+      ]
+    },
+    "InstanceBindings": {
+      "type": "object",
+      "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InstanceAddress"
+          }
+        },
+        "scalars": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TableBinding"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ]
+    },
+    "OutputAddress": {
+      "type": "object",
+      "properties": {
+        "output": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "output"
+      ]
+    },
+    "OutputSelection": {
+      "type": "object",
+      "properties": {
+        "scalars": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/OutputAddress"
+          }
+        },
+        "tables": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/OutputAddress"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "RequestBindings": {
+      "type": "object",
+      "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "overrides": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InstanceBindings"
+          }
+        },
+        "scalars": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "scope_defaults": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ScopeBindings"
+          }
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TableBinding"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScopeBindings": {
+      "type": "object",
+      "properties": {
+        "exprs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "scalars": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TableBinding"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "scope"
+      ]
+    },
+    "TableBinding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InlineBinding"
+        },
+        {
+          "$ref": "#/$defs/AssetSource"
+        }
+      ]
+    }
+  }
+}
