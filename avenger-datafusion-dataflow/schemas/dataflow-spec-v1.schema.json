@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataflowSpec",
+  "description": "Version 1 authoring document. Parsing it performs no source access.",
+  "type": "object",
+  "properties": {
+    "dialect": {
+      "type": "string",
+      "pattern": "^datafusion$"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/InputSpec"
+      },
+      "default": {}
+    },
+    "outputs": {
+      "$ref": "#/$defs/OutputSpec",
+      "default": {
+        "scalars": {},
+        "tables": {}
+      }
+    },
+    "scalars": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "scopes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScopeSpec"
+      },
+      "default": {}
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SourceSpec"
+      },
+      "default": {}
+    },
+    "tables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "maximum": 1,
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "dialect"
+  ],
+  "$defs": {
+    "AssetSource": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "asset"
+      ]
+    },
+    "FieldSpec": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/TypeSpec"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "nullable"
+      ]
+    },
+    "FileFormat": {
+      "type": "string",
+      "enum": [
+        "csv",
+        "parquet",
+        "arrow"
+      ]
+    },
+    "FileOptions": {
+      "type": "object",
+      "properties": {
+        "delimiter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "has_header": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "schema_infer_max_records": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "FileSource": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/FileFormat"
+        },
+        "options": {
+          "$ref": "#/$defs/FileOptions",
+          "default": {
+            "delimiter": null,
+            "has_header": null,
+            "schema_infer_max_records": null
+          }
+        },
+        "schema": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/FieldSpec"
+          }
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "format"
+      ]
+    },
+    "InlineSource": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldSpec"
+          }
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "values"
+      ]
+    },
+    "InputSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "expr"
+            },
+            "type": {
+              "$ref": "#/$defs/TypeSpec"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scalar"
+            },
+            "type": {
+              "$ref": "#/$defs/TypeSpec"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "table"
+            },
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FieldSpec"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "schema"
+          ]
+        }
+      ]
+    },
+    "OutputSpec": {
+      "type": "object",
+      "properties": {
+        "scalars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "PartitionSpec": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "keys"
+      ]
+    },
+    "ScopeSpec": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/InputSpec"
+          },
+          "default": {}
+        },
+        "outputs": {
+          "$ref": "#/$defs/OutputSpec",
+          "default": {
+            "scalars": {},
+            "tables": {}
+          }
+        },
+        "partition": {
+          "$ref": "#/$defs/PartitionSpec"
+        },
+        "rows": {
+          "type": "string"
+        },
+        "scalars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "scopes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ScopeSpec"
+          },
+          "default": {}
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SourceSpec"
+          },
+          "default": {}
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "partition",
+        "rows"
+      ]
+    },
+    "SourceSpec": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InlineSource"
+        },
+        {
+          "$ref": "#/$defs/FileSource"
+        },
+        {
+          "$ref": "#/$defs/AssetSource"
+        }
+      ]
+    },
+    "TimeUnitSpec": {
+      "type": "string",
+      "enum": [
+        "s",
+        "ms",
+        "us",
+        "ns"
+      ]
+    },
+    "TimestampSpec": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unit": {
+          "$ref": "#/$defs/TimeUnitSpec"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "unit"
+      ]
+    },
+    "TypeSpec": {
+      "description": "Arrow primitive types supported by the version 1 JSON adapter.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "null",
+            "boolean",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "float64",
+            "utf8",
+            "large_utf8",
+            "date32",
+            "date64"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "$ref": "#/$defs/TimestampSpec"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "timestamp"
+          ]
+        }
+      ]
+    }
+  }
+}
