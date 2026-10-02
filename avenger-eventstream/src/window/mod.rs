@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::runtime::RuntimeWakeEvent;
+
 mod winit;
 
 /// Native window events, in logical coordinates
@@ -15,6 +17,8 @@ pub enum WindowEvent {
     CursorLeft,
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
+    ModifiersChanged(crate::scene::ModifiersState),
+    RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
     FileChanged(WindowFileChangedEvent),
 }
@@ -31,7 +35,14 @@ impl WindowEvent {
     pub fn skip_if_render_pending(&self) -> bool {
         !matches!(
             self,
-            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_)
+            Self::MouseInput(_)
+                | Self::KeyboardInput(_)
+                | Self::ModifiersChanged(_)
+                | Self::WindowFocused(_)
+                | Self::WindowCloseRequested
+                | Self::CursorLeft
+                | Self::RuntimeWake(_)
+                | Self::FileChanged(_)
         )
     }
 }
@@ -65,6 +76,7 @@ pub struct WindowMouseWheel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowKeyboardInput {
     pub key: Key,
+
     pub state: ElementState,
 }
 
