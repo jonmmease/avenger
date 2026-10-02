@@ -317,6 +317,10 @@ impl ScaleImpl for LinearScale {
         &DEFINITIONS
     }
 
+    fn supports_radius_expansion(&self) -> bool {
+        true
+    }
+
     fn invert(
         &self,
         config: &ScaleConfig,
