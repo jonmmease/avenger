@@ -13,3 +13,8 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 winit = { workspace = true, optional = true }
 async-trait = { workspace = true }
+tracing = { workspace = true }
+smol_str = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

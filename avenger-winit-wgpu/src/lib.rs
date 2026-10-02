@@ -1,15 +1,18 @@
 use avenger_app::app::AvengerApp;
 use avenger_common::canvas::CanvasDimensions;
+use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
+use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent};
+use winit::window::CursorIcon;
+mod wake_scheduler;
 use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use wake_scheduler::RuntimeWakeScheduler;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard;
-use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
 
 #[cfg(target_arch = "wasm32")]
@@ -23,12 +26,24 @@ pub use file_watcher::FileWatcher;
 #[cfg(target_arch = "wasm32")]
 pub struct FileWatcher;
 
+/// Application events and scheduled work delivered on the window event loop.
+#[derive(Clone)]
+pub enum WinitWgpuEvent {
+    App(AvengerWindowEvent),
+    #[doc(hidden)]
+    RuntimeWake {
+        event: RuntimeWakeEvent,
+        ticket: u64,
+    },
+}
+
 pub struct WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
     canvas: std::rc::Rc<std::cell::RefCell<Option<WindowCanvas<'static>>>>,
     scale: f32,
+    wake_scheduler: std::rc::Rc<RuntimeWakeScheduler>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
     pub file_watcher: Option<FileWatcher>,
@@ -46,9 +61,9 @@ where
         avenger_app: AvengerApp<State>,
         scale: f32,
         #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
-    ) -> (Self, EventLoop<AvengerWindowEvent>) {
+    ) -> (Self, EventLoop<WinitWgpuEvent>) {
         // Create event loop with AvengerWindowEvent as custom event type
-        let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event()
+        let event_loop = EventLoop::<WinitWgpuEvent>::with_user_event()
             .build()
             .expect("Failed to build event loop");
 
@@ -71,6 +86,7 @@ where
         let winit_app = Self {
             canvas: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scale,
+            wake_scheduler: std::rc::Rc::new(RuntimeWakeScheduler::new(event_loop.create_proxy())),
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
             file_watcher,
@@ -80,6 +96,62 @@ where
         };
 
         (winit_app, event_loop)
+    }
+
+    fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent) {
+        if self.render_pending && event.skip_if_render_pending() {
+            return;
+        }
+        let app = self.avenger_app.clone();
+        let canvas = self.canvas.clone();
+        let scheduler = self.wake_scheduler.clone();
+        // Browser builders may await local tasks while the application stays borrowed.
+        #[allow(clippy::await_holding_refcell_ref)]
+        let update = async move {
+            let result = app
+                .borrow_mut()
+                .update_with_status(&event, Instant::now())
+                .await;
+            let update = match result {
+                Ok(update) => update,
+                Err(error) => {
+                    log::error!("failed to update application: {error}");
+                    return false;
+                }
+            };
+            for command in update.status.commands {
+                match command {
+                    RuntimeHostCommand::RequestWakeup {
+                        key,
+                        deadline,
+                        generation,
+                    } => scheduler.request(key, deadline, generation),
+                    RuntimeHostCommand::CancelWakeup { key } => scheduler.cancel(&key),
+                }
+            }
+            if let Some(canvas) = canvas.borrow_mut().as_mut() {
+                if let Some(cursor) = update.status.cursor {
+                    canvas.window().set_cursor(cursor_style_to_winit(cursor));
+                }
+                if let Some(scene) = update.scene_graph {
+                    if let Err(error) = canvas.set_scene(&scene) {
+                        log::error!("failed to set scene: {error}");
+                        return false;
+                    }
+                    canvas.window().request_redraw();
+                    return true;
+                }
+            }
+            false
+        };
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            update.await;
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.render_pending |= self.tokio_runtime.block_on(update);
+        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -98,7 +170,7 @@ where
     }
 }
 
-impl<State> ApplicationHandler<AvengerWindowEvent> for WinitWgpuAvengerApp<State>
+impl<State> ApplicationHandler<WinitWgpuEvent> for WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
@@ -151,40 +223,12 @@ where
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AvengerWindowEvent) {
-        // Process file change events and other custom events
-        if !self.render_pending || !event.skip_if_render_pending() {
-            let app_clone = self.avenger_app.clone();
-            let canvas_shared = self.canvas.clone();
-            let event_clone = event.clone();
-            #[allow(clippy::await_holding_refcell_ref)]
-            let update_future = async move {
-                let update_result = app_clone
-                    .borrow_mut()
-                    .update(&event_clone, Instant::now())
-                    .await;
-
-                match update_result {
-                    Ok(Some(scene_graph)) => {
-                        if let Some(canvas) = canvas_shared.borrow_mut().as_mut() {
-                            canvas.set_scene(&scene_graph).unwrap();
-                            canvas.window().request_redraw();
-                        }
-                    }
-                    Ok(None) => {
-                        // No update needed
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to update app with user event: {e:?}");
-                    }
-                }
-            };
-
-            cfg_if::cfg_if! {
-                if #[cfg(target_arch = "wasm32")] {
-                    spawn_local(update_future);
-                } else {
-                    self.tokio_runtime.block_on(update_future);
+    fn user_event(&mut self, _: &ActiveEventLoop, event: WinitWgpuEvent) {
+        match event {
+            WinitWgpuEvent::App(event) => self.dispatch_avenger_event(event),
+            WinitWgpuEvent::RuntimeWake { event, ticket } => {
+                if self.wake_scheduler.claim(&event, ticket) {
+                    self.dispatch_avenger_event(AvengerWindowEvent::RuntimeWake(event));
                 }
             }
         }
@@ -212,16 +256,8 @@ where
 
         if !input_handled {
             match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            logical_key: keyboard::Key::Named(NamedKey::Escape),
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
+                WindowEvent::CloseRequested => {
+                    self.dispatch_avenger_event(AvengerWindowEvent::WindowCloseRequested);
                     *self.canvas.borrow_mut() = None;
                     _event_loop.exit();
                 }
@@ -260,64 +296,25 @@ where
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if !self.render_pending || !event.skip_if_render_pending() {
-                            cfg_if::cfg_if! {
-                                if #[cfg(target_arch = "wasm32")] {
-                                    let app_clone = self.avenger_app.clone();
-                                    let event_clone = event.clone();
-                                    let canvas_shared = self.canvas.clone();
-
-                                    #[allow(clippy::await_holding_refcell_ref)]
-                                    let update_future = async move {
-                                        let update_result = app_clone
-                                            .borrow_mut()
-                                            .update(&event_clone, Instant::now())
-                                            .await;
-
-                                        match update_result {
-                                            Ok(Some(scene_graph)) => {
-                                                let mut canvas_borrowed = canvas_shared.borrow_mut();
-                                                if let Some(canvas) = canvas_borrowed.as_mut() {
-                                                    if let Err(e) = canvas.set_scene(&scene_graph) {
-                                                        log::error!("Failed to set scene: {:?}", e);
-                                                    } else {
-                                                        canvas.window().request_redraw();
-                                                    }
-                                                }
-                                            }
-                                            Ok(None) => {
-                                                // No update needed
-                                            }
-                                            Err(e) => {
-                                                log::error!("Failed to update app: {:?}", e);
-                                            }
-                                        }
-                                    };
-                                    spawn_local(update_future);
-                                } else {
-                                    // For non-WASM, maintain the original precise render_pending logic
-                                    let scene_graph_opt = {
-                                        let mut app = self.avenger_app.borrow_mut();
-                                        self.tokio_runtime
-                                            .block_on(app.update(&event, Instant::now()))
-                                            .expect("Failed to update app")
-                                    };
-
-                                    if let Some(scene_graph) = scene_graph_opt {
-                                        if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
-                                            canvas.set_scene(&scene_graph).unwrap();
-                                            self.render_pending = true;
-                                            canvas.window().request_redraw();
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // println!("skip update scene graph");
-                        }
+                        self.dispatch_avenger_event(event);
                     }
                 }
             }
         }
+    }
+}
+
+fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
+    match style {
+        CursorStyle::Default => CursorIcon::Default,
+        CursorStyle::Pointer => CursorIcon::Pointer,
+        CursorStyle::Text => CursorIcon::Text,
+        CursorStyle::Crosshair => CursorIcon::Crosshair,
+        CursorStyle::Grab => CursorIcon::Grab,
+        CursorStyle::Grabbing => CursorIcon::Grabbing,
+        CursorStyle::ResizeHorizontal => CursorIcon::EwResize,
+        CursorStyle::ResizeVertical => CursorIcon::NsResize,
+        CursorStyle::ResizeNwSe => CursorIcon::NwseResize,
+        CursorStyle::ResizeNeSw => CursorIcon::NeswResize,
     }
 }
