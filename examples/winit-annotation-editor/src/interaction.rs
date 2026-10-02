@@ -20,7 +20,7 @@ use avenger_eventstream::{
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_text::text_edit::{cursor_rect_for_offset, Action, Motion, SingleLineEditor};
 
-use crate::state::{annotation_config, Drag, State};
+use crate::state::{annotation_config, Drag, Sample, State};
 
 type Registration = (EventStreamConfig, Arc<dyn EventStreamHandler<State>>);
 
@@ -300,6 +300,31 @@ impl EventStreamHandler<State> for InputHandler {
                     } else if name == "plot" {
                         state.drag = Some(Drag::Plot);
                         state.drag_origin = state.pan;
+                    } else if name == "sample-a" || name == "sample-b" {
+                        let sample = if name == "sample-a" {
+                            Sample::A
+                        } else {
+                            Sample::B
+                        };
+                        if let Some(reload) = state.reload.upgrade() {
+                            match reload.request(
+                                sample,
+                                state.size,
+                                state.engine.clone(),
+                                state.load_feedback.clone(),
+                            ) {
+                                Ok(()) => {
+                                    state.loading = Some(sample);
+                                    status.commands.push(Command::RequestWakeup {
+                                        key: state.key("load"),
+                                        deadline: time + Duration::from_millis(100),
+                                        generation: state.generation,
+                                    });
+                                }
+                                Err(error) => state.error = Some(error),
+                            }
+                        }
+                        status.rerender = true;
                     }
                 }
             }
@@ -456,7 +481,9 @@ impl EventStreamHandler<State> for InputHandler {
                 }
             }
             Event::RuntimeWake(wake) => {
-                if wake.key.namespace != "annotation-editor" {
+                if wake.key.attachment_epoch != state.generation
+                    || wake.key.namespace != "annotation-editor"
+                {
                     return rejected();
                 }
                 let update = state.debounce.handle_wakeup(wake, time);
@@ -516,6 +543,20 @@ impl EventStreamHandler<State> for InputHandler {
                                 },
                             )));
                     }
+                } else if wake.key == state.key("load") && state.loading.is_some() {
+                    let result = state.load_feedback.lock().expect("load feedback").clone();
+                    match result {
+                        Some(result) => {
+                            state.loading = None;
+                            state.error = result.err();
+                            status.rerender = true;
+                        }
+                        None => status.commands.push(Command::RequestWakeup {
+                            key: wake.key.clone(),
+                            deadline: time + Duration::from_millis(100),
+                            generation: state.generation,
+                        }),
+                    }
                 }
             }
             Event::WindowFocused(focused) => {
@@ -543,6 +584,9 @@ impl EventStreamHandler<State> for InputHandler {
             Event::WindowCloseRequested => {
                 hide_hover(state, &mut status);
                 blur(state, false, &mut status);
+                if let Some(reload) = state.reload.upgrade() {
+                    reload.close();
+                }
                 status.consume = false;
             }
             _ => return rejected(),
@@ -653,7 +697,7 @@ impl EventStreamHandler<State> for HoverHandler {
         let point = index(name, "point-");
         status.cursor = Some(if name == "field" {
             CursorStyle::Text
-        } else if point.is_some() {
+        } else if name.starts_with("sample-") || point.is_some() {
             CursorStyle::Pointer
         } else if name == "plot" || name.starts_with("annotation-") {
             CursorStyle::Grab

@@ -1,5 +1,11 @@
 use avenger_app::app::AvengerApp;
+mod background;
+mod host_update;
 mod render_invalidation;
+pub use host_update::{
+    HostUpdateInstallOutcome, HostUpdateSender, HostUpdateSubmitError, HostUpdateSubmitOutcome,
+    PreparedHostUpdate,
+};
 mod wake_scheduler;
 use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
 use avenger_eventstream::runtime::{RuntimeHostCommand, RuntimeWakeEvent};
@@ -25,10 +31,11 @@ use avenger_wgpu::{
 };
 use render_invalidation::send_render_invalidation_event;
 use std::{
+    collections::VecDeque,
     fmt,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 use wake_scheduler::{send_event_after, RuntimeWakeScheduler};
@@ -66,7 +73,20 @@ pub struct FileWatcher;
 pub enum WinitWgpuEvent {
     App(AvengerWindowEvent),
     RenderInvalidated {
+        host_generation: u64,
         invalidation: RenderInvalidation,
+    },
+    HostUpdateReady,
+    BackgroundTaskReady {
+        host_generation: u64,
+        event: RuntimeWakeEvent,
+    },
+    SetWindowTitle(String),
+    ExitRequested,
+    CanvasFrameResize {
+        host_generation: u64,
+        size: [f32; 2],
+        settled: bool,
     },
     ResizeSettled {
         size: [f32; 2],
@@ -82,6 +102,7 @@ pub enum WinitWgpuEvent {
 pub enum WinitWgpuHostInitError {
     EventLoop(String),
     FileWatcher(String),
+    BackgroundTasks(String),
 }
 
 impl fmt::Display for WinitWgpuHostInitError {
@@ -90,6 +111,9 @@ impl fmt::Display for WinitWgpuHostInitError {
             Self::EventLoop(message) => write!(f, "failed to build native event loop: {message}"),
             Self::FileWatcher(message) => {
                 write!(f, "failed to initialize app file watcher: {message}")
+            }
+            Self::BackgroundTasks(message) => {
+                write!(f, "failed to attach background tasks: {message}")
             }
         }
     }
@@ -259,7 +283,11 @@ where
     text_agent: std::rc::Rc<std::cell::RefCell<Option<TextAgentHost>>>,
     #[cfg(target_arch = "wasm32")]
     clipboard_payload_provider: Option<ClipboardPayloadProvider>,
+    prepared_host_updates: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+    latest_host_request_epoch: Arc<AtomicU64>,
+    installed_host_generation: u64,
     wake_scheduler: std::rc::Rc<RuntimeWakeScheduler>,
+    background: std::rc::Rc<std::cell::RefCell<background::BackgroundHost>>,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
@@ -329,11 +357,12 @@ where
                 let subscription = hub.subscribe(Arc::new(move |invalidation| {
                     send_render_invalidation_event(
                         event_proxy_for_subscription.clone(),
+                        0,
                         invalidation,
                     );
                 }));
                 if let Some(invalidation) = hub.latest_invalidation() {
-                    send_render_invalidation_event(event_proxy.clone(), invalidation);
+                    send_render_invalidation_event(event_proxy.clone(), 0, invalidation);
                 }
                 subscription
             });
@@ -355,6 +384,16 @@ where
         let file_watcher = None;
 
         let wake_scheduler = std::rc::Rc::new(RuntimeWakeScheduler::new(event_proxy.clone()));
+        let attachment = background::attach(
+            avenger_app.background_tasks(),
+            event_proxy.clone(),
+            0,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_runtime.handle().clone(),
+        )
+        .map_err(|error| WinitWgpuHostInitError::BackgroundTasks(error.to_string()))?;
+        let mut background = background::BackgroundHost::default();
+        background.install(0, attachment);
 
         let winit_app = Self {
             canvas: std::rc::Rc::new(std::cell::RefCell::new(None)),
@@ -384,6 +423,10 @@ where
             pending_canvas_resize: None,
             fatal_error: None,
             wake_scheduler,
+            background: std::rc::Rc::new(std::cell::RefCell::new(background)),
+            prepared_host_updates: Default::default(),
+            latest_host_request_epoch: Default::default(),
+            installed_host_generation: 0,
             #[cfg(not(target_arch = "wasm32"))]
             clipboard: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -701,11 +744,13 @@ where
             self.refresh_canvas_frame_overlay();
         }
         if let Some(size) = outcome.resize {
-            let _ =
-                self.event_proxy
-                    .send_event(WinitWgpuEvent::App(AvengerWindowEvent::CanvasResize(
-                        CanvasResizeEvent { size },
-                    )));
+            let _ = self
+                .event_proxy
+                .send_event(WinitWgpuEvent::CanvasFrameResize {
+                    host_generation: self.installed_host_generation,
+                    size,
+                    settled: false,
+                });
             tracing::trace!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -715,9 +760,13 @@ where
             );
         }
         if let Some(size) = outcome.resize_settled {
-            let _ = self.event_proxy.send_event(WinitWgpuEvent::App(
-                AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent { size }),
-            ));
+            let _ = self
+                .event_proxy
+                .send_event(WinitWgpuEvent::CanvasFrameResize {
+                    host_generation: self.installed_host_generation,
+                    size,
+                    settled: true,
+                });
             tracing::debug!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -892,6 +941,13 @@ where
     }
 }
 
+impl<State: Clone + Send + Sync + 'static> Drop for WinitWgpuAvengerApp<State> {
+    fn drop(&mut self) {
+        // Shut down before the runtime drops, even if async canvas setup holds a clone.
+        self.background.borrow_mut().shutdown();
+    }
+}
+
 impl<State> ApplicationHandler<WinitWgpuEvent> for WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
@@ -901,6 +957,7 @@ where
             Ok(window) => window,
             Err(error) => {
                 self.fatal_error = Some(format!("failed to create native window: {error}"));
+                self.background.borrow_mut().shutdown();
                 event_loop.exit();
                 return;
             }
@@ -942,6 +999,8 @@ where
 
                 let event_proxy = self.event_proxy.clone();
                 let render_invalidation_hub = self.render_invalidation_hub.clone();
+                let render_generation = self.installed_host_generation;
+                let background = self.background.clone();
                 let setup_future = async move {
                     match canvas_future.await {
                         Ok(mut canvas) => {
@@ -953,20 +1012,27 @@ where
                                 None,
                             ) {
                                 log::error!("Failed to set initial scene: {err:?}");
+                                background.borrow_mut().shutdown();
+                                let _ = event_proxy.send_event(WinitWgpuEvent::ExitRequested);
+                                return;
                             }
                             *canvas_shared.borrow_mut() = Some(canvas);
+                            background.borrow_mut().activate();
                             if let Some(invalidation) = render_invalidation_hub
                                 .as_ref()
                                 .and_then(|hub| hub.latest_evaluation_invalidation())
                             {
                                 send_render_invalidation_event(
                                     event_proxy,
+                                    render_generation,
                                     invalidation,
                                 );
                             }
                         }
                         Err(e) => {
                             log::error!("Failed to create canvas: {e:?}");
+                            background.borrow_mut().shutdown();
+                            let _ = event_proxy.send_event(WinitWgpuEvent::ExitRequested);
                         }
                     }
                 };
@@ -995,10 +1061,12 @@ where
                         ) {
                             self.fatal_error =
                                 Some(format!("failed to install initial scene: {err:?}"));
+                            self.background.borrow_mut().shutdown();
                             event_loop.exit();
                             return;
                         }
                         *canvas_shared.borrow_mut() = Some(canvas);
+                        self.background.borrow_mut().activate();
                         // Replay any invalidation that arrived while the
                         // canvas didn't exist yet (e.g. an async
                         // materialization that completed during init) so its
@@ -1038,11 +1106,16 @@ where
                     }
                     Err(e) => {
                         self.fatal_error = Some(format!("failed to create canvas: {e:?}"));
+                        self.background.borrow_mut().shutdown();
                         event_loop.exit();
                     }
                 }
             }
         }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.background.borrow_mut().shutdown();
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WinitWgpuEvent) {
@@ -1054,8 +1127,54 @@ where
                 };
                 self.dispatch_avenger_event(event, force);
             }
-            WinitWgpuEvent::RenderInvalidated { invalidation } => {
-                self.handle_render_invalidation(invalidation)
+            WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            } => {
+                if host_generation == self.installed_host_generation {
+                    self.handle_render_invalidation(invalidation);
+                }
+            }
+            WinitWgpuEvent::BackgroundTaskReady {
+                host_generation,
+                event,
+            } => {
+                let current = self.background.borrow().accepts(host_generation);
+                if current {
+                    self.dispatch_avenger_event(AvengerWindowEvent::RuntimeWake(event), true);
+                }
+            }
+            WinitWgpuEvent::HostUpdateReady => {
+                self.install_latest_prepared_host_update();
+            }
+            WinitWgpuEvent::SetWindowTitle(title) => {
+                if let Some(canvas) = self.canvas.borrow().as_ref() {
+                    canvas.window().set_title(&title);
+                } else {
+                    self.window_attributes = self.window_attributes.clone().with_title(title);
+                }
+            }
+            WinitWgpuEvent::ExitRequested => {
+                self.dispatch_avenger_event(AvengerWindowEvent::WindowCloseRequested, true);
+                *self.canvas.borrow_mut() = None;
+                self.background.borrow_mut().shutdown();
+                _event_loop.exit();
+            }
+            WinitWgpuEvent::CanvasFrameResize {
+                host_generation,
+                size,
+                settled,
+            } => {
+                if host_generation == self.installed_host_generation {
+                    let event = if settled {
+                        AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent { size })
+                    } else {
+                        AvengerWindowEvent::CanvasResize(CanvasResizeEvent { size })
+                    };
+                    if let Some(force) = self.user_event_force(&event) {
+                        self.dispatch_avenger_event(event, force);
+                    }
+                }
             }
             WinitWgpuEvent::ResizeSettled { size, generation } => {
                 if generation == self.resize_settle_generation.get() {
@@ -1123,6 +1242,7 @@ where
                 WindowEvent::CloseRequested => {
                     self.dispatch_avenger_event(AvengerWindowEvent::WindowCloseRequested, true);
                     *self.canvas.borrow_mut() = None;
+                    self.background.borrow_mut().shutdown();
                     _event_loop.exit();
                 }
                 WindowEvent::Resized(physical_size) => {
@@ -1172,6 +1292,7 @@ where
                                         "native rendering stopped because the GPU surface ran out of memory"
                                             .to_string(),
                                     );
+                                    self.background.borrow_mut().shutdown();
                                     _event_loop.exit();
                                 }
                                 wgpu::SurfaceError::Timeout => {
