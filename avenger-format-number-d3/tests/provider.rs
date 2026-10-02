@@ -1,84 +1,88 @@
-use avenger_format::{NumberFormatConfig, NumberFormatContext, NumberFormatRequest};
-use serde_json::json;
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::{
+    D3NumberFormatConfig, D3NumberFormatProvider, D3NumberPrecision, NumberLocaleSpec,
+};
 
 #[test]
-fn provider_prepares_d3_labels_with_context_and_overrides() {
-    let mut registry = avenger_format::NumberFormatRegistry::default();
-    registry.register(
-        "d3",
-        std::sync::Arc::new(avenger_format_number_d3::D3NumberFormatProvider),
-    );
-    let config = NumberFormatConfig::new("d3");
-    for (context, spec, value, expected) in [
+fn provider_prepares_explicit_patterns_and_precision() {
+    use D3NumberPrecision::{Automatic, FromSpecifier, Step};
+    let provider = D3NumberFormatProvider;
+    let config = D3NumberFormatConfig::new().with_locale("en_US");
+    for (pattern, precision, value, expected) in [
+        (",.2f", FromSpecifier, 1234.5, "1,234.50"),
+        (",", Automatic, 0.0012, "0.0012"),
+        ("", Automatic, 1234.5, "1234.5"),
+        ("c", FromSpecifier, 1234.5, "1234.5"),
         (
-            NumberFormatContext::Scalar,
-            Some(",.2f"),
-            1234.5,
-            "1,234.50",
-        ),
-        (NumberFormatContext::Continuous, None, 0.0012, "0.0012"),
-        (NumberFormatContext::Discrete, None, 1234.5, "1234.5"),
-        (
-            NumberFormatContext::Step {
+            "s",
+            Step {
                 step: 100000.0,
                 reference_value: 1100000.0,
             },
-            Some("s"),
             900000.0,
             "0.9M",
         ),
+        (
+            ".2f",
+            Step {
+                step: 0.001,
+                reference_value: 1.0,
+            },
+            0.125,
+            "0.13",
+        ),
+        (".2f", Automatic, 1.0, "1.00"),
     ] {
-        let request = NumberFormatRequest {
-            spec: spec.map(str::to_owned),
-            context,
-            ..Default::default()
-        };
+        let config = config.clone().with_precision(precision);
         assert_eq!(
-            registry
-                .prepare(&config, &request)
+            provider
+                .prepare(&config, pattern)
                 .unwrap()
                 .format(value)
                 .text,
             expected
         );
     }
-    let mut config = NumberFormatConfig {
-        locale: Some("custom".into()),
-        ..NumberFormatConfig::new("d3")
-    };
-    config.locales.insert(
-        "custom".into(),
-        json!({"decimal": ",", "thousands": ".", "grouping": [3]}),
-    );
-    let request = NumberFormatRequest {
-        spec: Some("08,.2f".into()),
-        options: [
-            ("precision".into(), json!(1)),
-            ("width".into(), json!(null)),
-            ("zero".into(), json!(false)),
-        ]
-        .into(),
-        ..Default::default()
-    };
-    let config: NumberFormatConfig =
-        serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
-    assert_eq!(
-        registry
-            .prepare(&config, &request)
-            .unwrap()
-            .format(1234.5)
-            .text,
-        "1.234,5"
-    );
-    for (name, value) in [
-        ("precision", json!(-1)),
-        ("align", json!("?")),
-        ("unknown", json!(true)),
-    ] {
-        let request = NumberFormatRequest {
-            options: [(name.into(), value)].into(),
-            ..Default::default()
-        };
-        assert!(registry.prepare(&config, &request).is_err());
+    for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
+        let config = D3NumberFormatConfig::new()
+            .with_locale(selected)
+            .with_custom_locale(
+                registered,
+                NumberLocaleSpec {
+                    decimal: ",".into(),
+                    thousands: ".".into(),
+                    grouping: vec![3],
+                    ..Default::default()
+                },
+            );
+        let config: D3NumberFormatConfig =
+            serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(
+            provider
+                .prepare(&config, ",.1f")
+                .unwrap()
+                .format(1234.5)
+                .text,
+            "1.234,5"
+        );
+        // An exact custom name takes precedence even when its definition is invalid.
+        let config = config.with_custom_locale(
+            selected,
+            NumberLocaleSpec {
+                grouping: vec![0],
+                ..Default::default()
+            },
+        );
+        assert!(provider.prepare(&config, ",.1f").is_err());
     }
+    for (step, reference_value) in [(f64::NAN, 1.0), (0.1, f64::INFINITY)] {
+        let config = config.clone().with_precision(Step {
+            step,
+            reference_value,
+        });
+        assert!(provider.prepare(&config, "f").is_err());
+    }
+    assert!(provider
+        .prepare(&config.with_locale("unknown"), "f")
+        .is_err());
 }

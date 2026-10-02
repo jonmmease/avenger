@@ -3,15 +3,12 @@
 `avenger-format-number-d3` implements valid D3 number formats with D3 locale definitions.
 
 ```rust
-use avenger_format_number_d3::{NumberLocaleRegistry, PreparedNumberFormat};
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::{D3NumberFormatConfig, D3NumberFormatProvider};
 
-fn main() -> Result<(), avenger_format_number_d3::FormatError> {
-    let locale = NumberLocaleRegistry::with_builtins().resolve("en-US")?;
-    let formatter = PreparedNumberFormat::new(
-        Some("$,.2f"),
-        Default::default(),
-        &locale,
-    )?;
+fn main() -> Result<(), avenger_format::NumberFormatError> {
+    let config = D3NumberFormatConfig::new().with_locale("en-US");
+    let formatter = D3NumberFormatProvider.prepare(&config, "$,.2f")?;
     assert_eq!(formatter.format(1234.5).text, "$1,234.50");
     Ok(())
 }
@@ -21,7 +18,7 @@ Prepare a formatter once and reuse it for binary64 values. Decimal conversion us
 
 Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The crate bundles `en-US`. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
 
-`NumberFormatOverrides` replaces fields from a format string before defaults and zero padding are applied. For nullable fields, `Some(None)` clears the parsed value. D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
+D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
 
 Resolved locales expose borrowed definitions. To customize a locale, clone `definition()`, edit the clone, and register it. Existing prepared formatters retain their resolved locale.
 
@@ -37,4 +34,8 @@ The supported grammar is the documented [D3 number format](https://d3js.org/d3-f
 
 The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
 
-`D3NumberFormatProvider` implements the provider interface in `avenger-format`. Register it explicitly in a `NumberFormatRegistry` and select that name with `NumberFormatConfig::new("d3")`. Named options are `type` (or `style`), `precision`, `group`, `trim`, `sign`, `symbol`, `width`, `fill`, `align`, and `zero`. Their meanings match D3 specifier fields. Null restores automatic precision or clears an optional padding or symbol field. Other options are rejected.
+`D3NumberFormatProvider` implements the provider interface in `avenger-format` with `D3NumberFormatConfig`. Pass an explicit pattern string to `prepare()`. Set grouping, signs, symbols, padding, and explicit precision in the pattern.
+
+Use `with_locale()` and `with_custom_locale()` to configure the selected locale and typed `NumberLocaleSpec` definitions. The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
+
+`with_precision()` selects a `D3NumberPrecision` policy. `FromSpecifier` uses ordinary D3 precision. `Automatic` chooses Vega's precision and trimming when the pattern omits precision. `Step { step, reference_value }` infers precision from numeric spacing and coordinates SI units. Both numeric inputs must be finite. Explicit precision in the pattern is preserved in every mode. The caller chooses the pattern and tick spacing.

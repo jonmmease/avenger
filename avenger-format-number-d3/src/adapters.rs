@@ -1,8 +1,7 @@
 use crate::{
     decimal,
     format::{resolve_number_format, PreparedNumberFormat, SI_PREFIXES},
-    parse_number_spec, DigitSpec, FormatError, FormatType, NumberFormatOverrides,
-    ResolvedNumberLocale,
+    parse_number_spec, DigitSpec, FormatError, FormatType, ResolvedNumberLocale,
 };
 
 /// Select precision from a supplied step's decimal order using D3's rules.
@@ -14,10 +13,9 @@ pub fn prepare_number_step_format(
     step: f64,
     reference_value: f64,
     spec: Option<&str>,
-    overrides: NumberFormatOverrides,
     locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
-    let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), overrides, locale)?;
+    let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), locale)?;
     let step = step.abs();
     let value = reference_value.abs();
     if prepared.resolved.digit_spec == DigitSpec::Auto {
@@ -77,7 +75,7 @@ pub fn prepare_number_prefix_format(
 ) -> Result<PreparedNumberFormat, FormatError> {
     let mut parsed = parse_number_spec(spec)?;
     parsed.format_type = Some(FormatType::Fixed);
-    let resolved = resolve_number_format(parsed, NumberFormatOverrides::default());
+    let resolved = resolve_number_format(parsed);
     let exponent = decimal::exponent(value)
         .unwrap_or(0)
         .div_euclid(3)
@@ -96,16 +94,13 @@ pub fn prepare_number_float_format(
     spec: Option<&str>,
     locale: &ResolvedNumberLocale,
 ) -> Result<PreparedNumberFormat, FormatError> {
-    prepare_number_float_format_with_overrides(spec, NumberFormatOverrides::default(), locale)
+    let spec = spec.filter(|value| !value.is_empty()).unwrap_or(",");
+    let mut prepared = PreparedNumberFormat::new(Some(spec), locale)?;
+    apply_float_precision(&mut prepared);
+    Ok(prepared)
 }
 
-pub(crate) fn prepare_number_float_format_with_overrides(
-    spec: Option<&str>,
-    overrides: NumberFormatOverrides,
-    locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, FormatError> {
-    let spec = spec.filter(|value| !value.is_empty()).unwrap_or(",");
-    let mut prepared = PreparedNumberFormat::new(Some(spec), overrides, locale)?;
+pub(crate) fn apply_float_precision(prepared: &mut PreparedNumberFormat) {
     if prepared.resolved.digit_spec == DigitSpec::Auto {
         prepared.resolved.digit_spec = DigitSpec::Precision(match prepared.resolved.format_type {
             Some(FormatType::Percent) => 10,
@@ -114,5 +109,4 @@ pub(crate) fn prepare_number_float_format_with_overrides(
         });
         prepared.resolved.trim = true;
     }
-    Ok(prepared)
 }
