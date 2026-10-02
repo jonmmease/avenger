@@ -1,5 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::LinearScaleAdjustment;
+use avenger_scenegraph::render_order::{SceneDisplayList, SceneDisplayMark};
 use avenger_text::{FontResolutionOptions, TextEngine};
 use image::imageops::crop_imm;
 use std::collections::HashMap;
@@ -31,9 +32,8 @@ use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::{
-    marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::SceneRectMark,
-    marks::rule::SceneRuleMark, marks::symbol::SceneSymbolMark, marks::text::SceneTextMark,
-    scene_graph::SceneGraph,
+    marks::mark::SceneMark, marks::rect::SceneRectMark, marks::rule::SceneRuleMark,
+    marks::symbol::SceneSymbolMark, marks::text::SceneTextMark, scene_graph::SceneGraph,
 };
 
 pub enum MarkRenderer {
@@ -255,94 +255,32 @@ pub trait Canvas {
         Ok(())
     }
 
-    fn add_group_mark(
-        &mut self,
-        group: &SceneGroup,
-        parent_origin: [f32; 2],
-        parent_clip: &Clip,
-    ) -> Result<(), AvengerWgpuError> {
-        // Maybe add rect around group boundary
-        if let Some(rect) = group.make_path_mark() {
-            self.add_path_mark(&rect, parent_origin, &group.clip)?;
-        }
-
-        // Add groups in order of zindex
-        let zindex = group.marks.iter().map(|m| m.zindex()).collect::<Vec<_>>();
-        let mut indices: Vec<usize> = (0..zindex.len()).collect();
-        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
-
-        // Compute new origin
-        let origin = [
-            parent_origin[0] + group.origin[0],
-            parent_origin[1] + group.origin[1],
-        ];
-
-        // Compute new clip
-        let clip = if let Clip::None = group.clip {
-            // No clip defined for this group, propagate parent clip down
-            parent_clip.clone()
-        } else {
-            // Translate clip to absolute coordinates
-            group.clip.translate(origin[0], origin[1])
-        };
-
-        for mark_ind in indices {
-            let mark = &group.marks[mark_ind];
-            match mark {
-                SceneMark::Arc(mark) => {
-                    self.add_arc_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Rule(mark) => {
-                    self.add_rule_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Path(mark) => {
-                    self.add_path_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Line(mark) => {
-                    self.add_line_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Trail(mark) => {
-                    self.add_trail_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Area(mark) => {
-                    self.add_area_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Text(mark) => {
-                    self.add_text_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Image(mark) => {
-                    self.add_image_mark(mark, origin, &clip)?;
-                }
-                SceneMark::Group(group) => {
-                    self.add_group_mark(group, origin, &clip)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     #[tracing::instrument(skip_all)]
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
-        // Clear existing marks
         self.clear_mark_renderer();
-
-        // Sort groups by zindex
-        let groups = scene_graph.groups();
-        let zindex = groups.iter().map(|g| g.zindex).collect::<Vec<_>>();
-        let mut indices: Vec<usize> = (0..zindex.len()).collect();
-        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
-
-        for group_ind in &indices {
-            let group = groups[*group_ind];
-            self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
+        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        for item in display_list.ordered_items() {
+            match &item.mark {
+                SceneDisplayMark::OwnedGroupPath(mark) => {
+                    self.add_path_mark(mark, item.origin, &item.clip)?
+                }
+                SceneDisplayMark::Borrowed(mark) => match mark {
+                    SceneMark::Arc(mark) => self.add_arc_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Symbol(mark) => {
+                        self.add_symbol_mark(mark, item.origin, &item.clip)?
+                    }
+                    SceneMark::Rect(mark) => self.add_rect_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Rule(mark) => self.add_rule_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Path(mark) => self.add_path_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Line(mark) => self.add_line_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Trail(mark) => self.add_trail_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Area(mark) => self.add_area_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Text(mark) => self.add_text_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Image(mark) => self.add_image_mark(mark, item.origin, &item.clip)?,
+                    SceneMark::Group(_) => unreachable!("groups are flattened into display items"),
+                },
+            }
         }
-
         Ok(())
     }
 }

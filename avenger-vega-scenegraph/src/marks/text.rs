@@ -65,6 +65,7 @@ impl VegaMarkContainer<VegaTextItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
         let mut mark = SceneTextMark {
+            interactive: self.interactive,
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()

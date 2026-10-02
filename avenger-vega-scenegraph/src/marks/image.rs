@@ -98,6 +98,7 @@ impl VegaMarkContainer<VegaImageItem> {
         };
 
         Ok(SceneMark::Image(Arc::new(SceneImageMark {
+            interactive: true,
             name,
             clip: self.clip || force_clip,
             len: self.items.len() as u32,
