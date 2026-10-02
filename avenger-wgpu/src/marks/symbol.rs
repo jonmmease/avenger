@@ -1,20 +1,23 @@
 use std::hash::{Hash, Hasher};
 
-use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::PathTransform;
+use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use itertools::izip;
-use lyon::lyon_tessellation::{
-    BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
+use lyon::{
+    lyon_tessellation::{
+        BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
+    },
+    tessellation::{
+        geometry_builder::VertexBuffers, FillOptions, FillTessellator, StrokeOptions,
+        StrokeTessellator,
+    },
 };
-use lyon::tessellation::geometry_builder::VertexBuffers;
-use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 use ordered_float::OrderedFloat;
 use wgpu::{Extent3d, VertexBufferLayout};
 
-use super::instanced_mark::InstancedMarkFingerprint;
+use crate::error::AvengerWgpuError;
+
+use super::instanced_mark::{InstancedMarkBatch, InstancedMarkFingerprint, InstancedMarkShader};
 
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
