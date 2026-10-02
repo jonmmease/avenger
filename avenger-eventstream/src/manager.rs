@@ -277,9 +277,17 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             }
             WindowEvent::RuntimeWake(event) => Some(SceneGraphEvent::RuntimeWake(event.clone())),
             WindowEvent::WindowResize(e) => Some(SceneGraphEvent::WindowResize(e.clone())),
+            WindowEvent::WindowResizeSettled(e) => {
+                Some(SceneGraphEvent::WindowResizeSettled(e.clone()))
+            }
+            WindowEvent::CanvasResize(e) => Some(SceneGraphEvent::CanvasResize(e.clone())),
+            WindowEvent::CanvasResizeSettled(e) => {
+                Some(SceneGraphEvent::CanvasResizeSettled(e.clone()))
+            }
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            WindowEvent::InteractionSettled { .. } => Some(SceneGraphEvent::InteractionSettled),
             WindowEvent::FileChanged(e) => {
                 Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
                     file_path: e.file_path.clone(),
@@ -668,7 +676,9 @@ mod tests {
     use crate::{
         runtime::{RuntimeHostCommand, RuntimeWakeEvent},
         stream::{DebounceConfig, EventAdmission, EventStreamConfig, EventStreamFilter},
-        window::{WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent},
+        window::{
+            CanvasResizeEvent, WindowCursorMoved, WindowEvent, WindowMouseInput, WindowResizeEvent,
+        },
     };
 
     #[derive(Clone, Default)]
@@ -1727,6 +1737,37 @@ mod tests {
                 .filter(|event| matches!(event, SceneGraphEvent::DoubleClick(_)))
                 .count(),
             0
+        );
+    }
+    #[tokio::test]
+    async fn canvas_resize_maps_to_scene_graph_event() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CanvasResize],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::CanvasResize(CanvasResizeEvent {
+                    size: [720.0, 420.0],
+                }),
+                &empty_rtree(),
+                Instant::now(),
+            )
+            .await;
+
+        assert!(status.rerender);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            &[SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                size: [720.0, 420.0],
+            })]
         );
     }
 }

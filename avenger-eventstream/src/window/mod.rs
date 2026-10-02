@@ -8,6 +8,9 @@ mod winit;
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowEvent {
     WindowResize(WindowResizeEvent),
+    WindowResizeSettled(WindowResizeEvent),
+    CanvasResize(CanvasResizeEvent),
+    CanvasResizeSettled(CanvasResizeEvent),
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
@@ -20,6 +23,7 @@ pub enum WindowEvent {
     ModifiersChanged(crate::scene::ModifiersState),
     RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
+    InteractionSettled { generation: u64 },
     FileChanged(WindowFileChangedEvent),
 }
 
@@ -43,12 +47,20 @@ impl WindowEvent {
                 | Self::CursorLeft
                 | Self::RuntimeWake(_)
                 | Self::FileChanged(_)
+                | Self::InteractionSettled { .. }
+                | Self::WindowResizeSettled(_)
+                | Self::CanvasResizeSettled(_)
         )
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowResizeEvent {
+    pub size: [f32; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanvasResizeEvent {
     pub size: [f32; 2],
 }
 

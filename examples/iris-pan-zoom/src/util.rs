@@ -32,9 +32,10 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::types::{TextAlign, TextBaseline};
-use avenger_winit_wgpu::WinitWgpuAvengerApp;
+use avenger_winit_wgpu::{WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions};
 use csv::Reader;
 use rand_distr::Distribution;
+use winit::{dpi::LogicalSize, window::WindowAttributes};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::{fs::File, io::BufReader};
@@ -323,13 +324,18 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     .unwrap();
 
     // Wrap axis and rect in group
+    let mut symbol_legend = chart_state.symbol_legend.clone();
+    if let SceneMark::Group(legend) = &mut symbol_legend {
+        let (_, base_width) = chart_state.base_x_scale.numeric_interval_range().unwrap();
+        legend.origin[0] += chart_state.width - base_width;
+    }
     let group = SceneMark::Group(SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),
-            chart_state.symbol_legend.clone(),
+            symbol_legend,
         ],
         ..Default::default()
     });
@@ -337,7 +343,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     let domain_label = SceneTextMark {
         text: chart_state.domain_readout.clone().into(),
         x: 24.0.into(),
-        y: 326.0.into(),
+        y: (chart_state.height + 126.0).into(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Top.into(),
         font_size: 11.0.into(),
@@ -346,8 +352,8 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
 
     let scene_graph = SceneGraph {
         marks: vec![group, domain_label.into()],
-        width: 340.0,
-        height: 350.0,
+        width: chart_state.width + 140.0,
+        height: chart_state.height + 150.0,
         origin: [0.0; 2],
     };
 
@@ -397,6 +403,13 @@ pub async fn run() {
         ChartState::new(),
         Arc::new(IrisSceneGraphBuilder),
         vec![
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::WindowResize],
+                    ..Default::default()
+                },
+                Arc::new(ResizeChart),
+            ),
             // Panning (record click anchor)
             (left_mouse_down_config.clone(), Arc::new(PanningClick)),
             // Panning (dragging)
@@ -449,17 +462,27 @@ pub async fn run() {
     .await
     .expect("Failed to create AvengerApp");
 
+    let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
+        WindowAttributes::default()
+            .with_title("Iris interactions")
+            .with_resizable(true)
+            .with_min_inner_size(LogicalSize::new(340.0, 350.0)),
+    );
     let (mut app, event_loop) = {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let tokio_runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap();
-            WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0, tokio_runtime)
+            WinitWgpuAvengerApp::new_and_event_loop_with_options(
+                avenger_app,
+                options,
+                tokio_runtime,
+            )
         }
         #[cfg(target_arch = "wasm32")]
         {
-            WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0)
+            WinitWgpuAvengerApp::new_and_event_loop_with_options(avenger_app, options)
         }
     };
 
@@ -683,6 +706,31 @@ impl EventStreamHandler<ChartState> for DomainReadout {
         state.domain_readout = format!("Visible x: {x0:.2}–{x1:.2}   y: {y0:.2}–{y1:.2}");
         UpdateStatus {
             rerender: true,
+            ..Default::default()
+        }
+    }
+}
+
+struct ResizeChart;
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl EventStreamHandler<ChartState> for ResizeChart {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        _: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let SceneGraphEvent::WindowResize(event) = event else {
+            return UpdateStatus::default();
+        };
+        state.width = (event.size[0] - 140.0).max(1.0);
+        state.height = (event.size[1] - 150.0).max(1.0);
+        state.pan_anchor = None;
+        UpdateStatus {
+            rerender: true,
+            rebuild_geometry: true,
+            cursor: Some(CursorStyle::Default),
             ..Default::default()
         }
     }
