@@ -444,6 +444,7 @@ name = "avenger-format-datetime-chrono"
 version = "0.1.0"
 dependencies = [
  "avenger-format",
+ "cfg-if",
  "chrono",
  "chrono-tz",
  "serde",

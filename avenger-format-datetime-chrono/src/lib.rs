@@ -111,25 +111,25 @@ struct Pattern {
 
 impl Pattern {
     fn new(pattern: &str, locale: Option<&str>) -> Result<Self, DateTimeFormatError> {
-        #[cfg(feature = "all-locales")]
-        let locale = match locale {
-            Some(name) => name
-                .replace('-', "_")
-                .parse::<Locale>()
-                .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
-            None => Locale::POSIX,
-        };
-        #[cfg(feature = "all-locales")]
-        let items = StrftimeItems::new_with_locale(pattern, locale);
-        #[cfg(not(feature = "all-locales"))]
-        let items = {
-            if let Some(name) = locale.filter(|name| *name != "POSIX") {
-                return Err(error(format!(
-                    "Chrono locale `{name}` requires the `all-locales` feature"
-                )));
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "all-locales")] {
+                let locale = match locale {
+                    Some(name) => name
+                        .replace('-', "_")
+                        .parse::<Locale>()
+                        .map_err(|_| error(format!("unknown Chrono locale `{name}`")))?,
+                    None => Locale::POSIX,
+                };
+                let items = StrftimeItems::new_with_locale(pattern, locale);
+            } else {
+                if let Some(name) = locale.filter(|name| *name != "POSIX") {
+                    return Err(error(format!(
+                        "Chrono locale `{name}` requires the `all-locales` feature"
+                    )));
+                }
+                let items = StrftimeItems::new(pattern);
             }
-            StrftimeItems::new(pattern)
-        };
+        }
         let items = items
             .parse_to_owned()
             .map_err(|err| error(format!("invalid Chrono datetime pattern: {err}")))?;
@@ -143,26 +143,35 @@ impl Pattern {
 
 impl PreparedDateFormatter for Pattern {
     fn format(&self, value: NaiveDate) -> Result<String, DateTimeFormatError> {
-        #[cfg(feature = "all-locales")]
-        let format =
-            DelayedFormat::new_with_locale(Some(value), None, self.items.iter(), self.locale);
-        #[cfg(not(feature = "all-locales"))]
-        let format = DelayedFormat::new(Some(value), None, self.items.iter());
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "all-locales")] {
+                let format = DelayedFormat::new_with_locale(
+                    Some(value), None, self.items.iter(), self.locale,
+                );
+            } else {
+                let format = DelayedFormat::new(Some(value), None, self.items.iter());
+            }
+        }
         render(format)
     }
 }
 
 impl PreparedNaiveDateTimeFormatter for Pattern {
     fn format(&self, value: NaiveDateTime) -> Result<String, DateTimeFormatError> {
-        #[cfg(feature = "all-locales")]
-        let format = DelayedFormat::new_with_locale(
-            Some(value.date()),
-            Some(value.time()),
-            self.items.iter(),
-            self.locale,
-        );
-        #[cfg(not(feature = "all-locales"))]
-        let format = DelayedFormat::new(Some(value.date()), Some(value.time()), self.items.iter());
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "all-locales")] {
+                let format = DelayedFormat::new_with_locale(
+                    Some(value.date()),
+                    Some(value.time()),
+                    self.items.iter(),
+                    self.locale,
+                );
+            } else {
+                let format = DelayedFormat::new(
+                    Some(value.date()), Some(value.time()), self.items.iter(),
+                );
+            }
+        }
         render(format)
     }
 }
@@ -180,21 +189,24 @@ impl PreparedZonedDateTimeFormatter for ZonedFormat {
             .naive_utc()
             .checked_add_offset(display.offset().fix())
             .ok_or_else(|| error("display datetime is outside the supported calendar range"))?;
-        #[cfg(feature = "all-locales")]
-        let format = DelayedFormat::new_with_offset_and_locale(
-            Some(local.date()),
-            Some(local.time()),
-            display.offset(),
-            self.pattern.items.iter(),
-            self.pattern.locale,
-        );
-        #[cfg(not(feature = "all-locales"))]
-        let format = DelayedFormat::new_with_offset(
-            Some(local.date()),
-            Some(local.time()),
-            display.offset(),
-            self.pattern.items.iter(),
-        );
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "all-locales")] {
+                let format = DelayedFormat::new_with_offset_and_locale(
+                    Some(local.date()),
+                    Some(local.time()),
+                    display.offset(),
+                    self.pattern.items.iter(),
+                    self.pattern.locale,
+                );
+            } else {
+                let format = DelayedFormat::new_with_offset(
+                    Some(local.date()),
+                    Some(local.time()),
+                    display.offset(),
+                    self.pattern.items.iter(),
+                );
+            }
+        }
         render(format)
     }
 }

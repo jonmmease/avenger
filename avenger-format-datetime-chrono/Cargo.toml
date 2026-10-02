@@ -8,6 +8,7 @@ all-locales = ["chrono/unstable-locales"]
 
 [dependencies]
 avenger-format = { path = "../avenger-format" }
+cfg-if = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
