@@ -48,6 +48,9 @@ path = "../avenger-color"
 path = "../avenger-image"
 default-features = false
 
+[dependencies.avenger-resource]
+path = "../avenger-resource"
+
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
