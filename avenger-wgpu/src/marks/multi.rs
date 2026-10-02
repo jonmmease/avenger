@@ -1,5 +1,14 @@
 use crate::canvas::TextBuildCtor;
 use crate::error::AvengerWgpuError;
+use avenger_scenegraph::marks::{
+    stroke_dash::dash_paths,
+    text_leader::{
+        compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
+        TextLeaderGeometryInput, TextLeaderPath,
+    },
+};
+use avenger_text::measurement::TextMeasurementConfig;
+use lyon::{math::point, path::Path};
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
@@ -36,7 +45,7 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
+use crate::marks::text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance};
 
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::group::Clip;
@@ -104,6 +113,7 @@ pub struct MultiMarkBatch {
 }
 
 pub struct MultiMarkRenderer {
+    text_engine: avenger_text::TextEngine,
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
     clip_verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
     batches: Vec<MultiMarkBatch>,
@@ -244,7 +254,7 @@ impl MultiMarkRenderer {
             ctor()
         } else {
             Box::new(crate::marks::text::TextAtlasBuilder::new(
-                std::sync::Arc::new(text_engine),
+                std::sync::Arc::new(text_engine.clone()),
             ))
         };
 
@@ -261,6 +271,7 @@ impl MultiMarkRenderer {
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
             text_atlas_builder,
+            text_engine,
         }
     }
 
@@ -1166,14 +1177,24 @@ impl MultiMarkRenderer {
         &mut self,
         mark: &SceneTextMark,
         origin: [f32; 2],
-        clip: &Clip,
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        // The atlas and leader geometry share the same text context.
+        let dimensions = self.dimensions;
+        let text_engine = self.text_engine.clone();
+        let leader_stroke_dash_values = mark
+            .leader_stroke_dash
+            .as_ref()
+            .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
+        let text_atlas_builder = &mut self.text_atlas_builder;
+        let mut leaders = Vec::new();
         let number_format = mark.number_format.as_ref().map(|config| config.binding());
         let datetime_format = mark.datetime_format.as_ref().map(|config| config.binding());
-        let registrations = izip!(
+        let registrations: Vec<TextAtlasRegistration> = izip!(
             mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
+            mark.target_position_iter(),
+            mark.label_position_iter(),
+            mark.defined_iter(),
             mark.color_iter(),
             mark.align_iter(),
             mark.angle_iter(),
@@ -1183,25 +1204,60 @@ impl MultiMarkRenderer {
             mark.font_weight_iter(),
             mark.font_style_iter(),
             mark.limit_iter(),
+            mark.leader_iter(),
+            mark.leader_stroke_iter(),
+            mark.leader_stroke_width_iter(),
+            mark.leader_stroke_cap_iter(),
+            mark.leader_stroke_join_iter(),
+            mark.leader_label_padding_iter(),
+            mark.leader_target_radius_iter(),
+            mark.leader_min_length_iter(),
+            mark.leader_shape_iter(),
+            mark.leader_arrow_iter(),
+            mark.leader_arrow_length_iter(),
+            mark.leader_arrow_width_iter(),
         )
+        .enumerate()
         .map(
             |(
-                text,
-                x,
-                y,
-                color,
-                align,
-                angle,
-                baseline,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
+                index,
+                (
+                    text,
+                    target,
+                    label,
+                    defined,
+                    color,
+                    align,
+                    angle,
+                    baseline,
+                    font,
+                    font_size,
+                    font_weight,
+                    font_style,
+                    limit,
+                    leader,
+                    leader_stroke,
+                    leader_stroke_width,
+                    leader_stroke_cap,
+                    leader_stroke_join,
+                    leader_label_padding,
+                    leader_target_radius,
+                    leader_min_length,
+                    leader_shape,
+                    leader_arrow,
+                    leader_arrow_length,
+                    leader_arrow_width,
+                ),
             )| {
+                if !*defined {
+                    return Ok(Vec::new());
+                }
+
+                let use_nearest_filter = is_axis_aligned_angle(*angle);
+                let label = [label[0] + origin[0], label[1] + origin[1]];
                 let instance = TextInstance {
                     text,
-                    position: [*x + origin[0], *y + origin[1]],
+                    position: label,
                     color: &color.color_or_transparent(),
                     align,
                     angle: *angle,
@@ -1210,15 +1266,56 @@ impl MultiMarkRenderer {
                     font_size: *font_size,
                     font_weight,
                     font_style,
-                    limit: *limit,
                     syntax_mode: mark.text_syntax,
                     params: &mark.text_params,
                     number_format: number_format.as_ref(),
                     datetime_format: datetime_format.as_ref(),
-                    use_nearest_filter: is_axis_aligned_angle(*angle),
+                    limit: *limit,
+                    use_nearest_filter,
                 };
-                self.text_atlas_builder
-                    .register_text(instance, self.dimensions)
+                if *leader {
+                    let text_bounds = text_engine.measure_bounds_with_limit_or_approx(
+                        &TextMeasurementConfig {
+                            text,
+                            font,
+                            font_size: *font_size,
+                            font_weight: *font_weight,
+                            font_style: *font_style,
+                            syntax_mode: mark.text_syntax,
+                            params: &mark.text_params,
+                            number_format: number_format.as_ref(),
+                            datetime_format: datetime_format.as_ref(),
+                        },
+                        *limit,
+                    );
+                    if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
+                        target: [target[0] + origin[0], target[1] + origin[1]],
+                        label_anchor: label,
+                        angle_degrees: *angle,
+                        text_bounds: &text_bounds,
+                        align,
+                        baseline,
+                        label_padding: *leader_label_padding,
+                        target_radius: *leader_target_radius,
+                        min_length: *leader_min_length,
+                        shape: *leader_shape,
+                        arrow: *leader_arrow,
+                        arrow_length: *leader_arrow_length,
+                        arrow_width: *leader_arrow_width,
+                    }) {
+                        leaders.push(TextLeaderRenderItem {
+                            geometry,
+                            stroke: leader_stroke.clone(),
+                            stroke_width: *leader_stroke_width,
+                            stroke_cap: *leader_stroke_cap,
+                            stroke_join: *leader_stroke_join,
+                            stroke_dash: leader_stroke_dash_values
+                                .as_ref()
+                                .and_then(|values| values.get(index).cloned()),
+                        });
+                    }
+                }
+                text_atlas_builder.register_text(instance, dimensions)
             },
         )
         .collect::<Result<Vec<_>, AvengerWgpuError>>()?
@@ -1226,12 +1323,23 @@ impl MultiMarkRenderer {
         .flatten()
         .collect::<Vec<_>>();
 
+        self.add_text_leaders(leaders, group_clip, mark.clip)?;
+        self.add_text_registrations(registrations, group_clip, mark.clip)?;
+        Ok(())
+    }
+
+    pub fn add_text_registrations(
+        &mut self,
+        registrations: Vec<crate::marks::text::TextAtlasRegistration>,
+        clip: &Clip,
+        mark_clip: bool,
+    ) -> Result<(), AvengerWgpuError> {
         // Construct batches, one batch per text atlas index
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: clip.maybe_clip(mark.clip),
-            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            clip: clip.maybe_clip(mark_clip),
+            clip_indices_range: self.add_clip_path(clip, mark_clip)?,
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1254,8 +1362,8 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: clip.maybe_clip(mark.clip),
-                    clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+                    clip: clip.maybe_clip(mark_clip),
+                    clip_indices_range: self.add_clip_path(clip, mark_clip)?,
                     image_atlas_index: None,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1269,6 +1377,42 @@ impl MultiMarkRenderer {
         }
 
         self.batches.push(next_batch);
+        Ok(())
+    }
+
+    pub(crate) fn add_text_leaders(
+        &mut self,
+        leaders: Vec<TextLeaderRenderItem>,
+        clip: &Clip,
+        mark_clip: bool,
+    ) -> Result<(), AvengerWgpuError> {
+        if leaders.is_empty() {
+            return Ok(());
+        }
+
+        let verts_inds = leaders
+            .iter()
+            .map(tessellate_text_leader)
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+
+        let start_ind = self.num_indices();
+        let inds_len: usize = verts_inds.iter().map(|(_, indices)| indices.len()).sum();
+        if inds_len == 0 {
+            return Ok(());
+        }
+        let indices_range = (start_ind as u32)..((start_ind + inds_len) as u32);
+
+        let batch = MultiMarkBatch {
+            indices_range,
+            clip: clip.maybe_clip(mark_clip),
+            clip_indices_range: self.add_clip_path(clip, mark_clip)?,
+            image_atlas_index: None,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+        };
+
+        self.verts_inds.extend(verts_inds);
+        self.batches.push(batch);
         Ok(())
     }
 
@@ -1897,5 +2041,143 @@ impl SymbolVertex {
             top_left: [x - absolue_scale / 2.0, y - absolue_scale / 2.0],
             bottom_right: [x + absolue_scale / 2.0, y + absolue_scale / 2.0],
         }
+    }
+}
+
+pub(crate) struct TextLeaderRenderItem {
+    pub geometry: TextLeaderGeometry,
+    pub stroke: ColorOrGradient,
+    pub stroke_width: f32,
+    pub stroke_cap: StrokeCap,
+    pub stroke_join: StrokeJoin,
+    pub stroke_dash: Option<Vec<f32>>,
+}
+
+fn tessellate_text_leader(
+    leader: &TextLeaderRenderItem,
+) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+    let stroke_color = match &leader.stroke {
+        ColorOrGradient::Color(color) => *color,
+        ColorOrGradient::GradientIndex(_) => [0.0, 0.0, 0.0, 0.0],
+    };
+    let spine_path = leader_path_to_lyon(&leader.geometry.spine);
+    let spine_path = if let Some(dash) = &leader.stroke_dash {
+        dash_paths(std::iter::once(&spine_path), dash)
+    } else {
+        spine_path
+    };
+
+    let bbox = bounding_box(&spine_path);
+    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+    let mut builder = BuffersBuilder::new(
+        &mut buffers,
+        VertexPositions {
+            fill: stroke_color,
+            stroke: stroke_color,
+            top_left: bbox.min.to_array(),
+            bottom_right: bbox.max.to_array(),
+        },
+    );
+
+    let mut stroke_tessellator = StrokeTessellator::new();
+    let stroke_options = StrokeOptions::default()
+        .with_tolerance(0.05)
+        .with_line_join(to_line_join(leader.stroke_join))
+        .with_line_cap(to_line_cap(leader.stroke_cap))
+        .with_line_width(leader.stroke_width.max(0.0));
+    stroke_tessellator.tessellate_path(&spine_path, &stroke_options, &mut builder)?;
+
+    if let Some(arrowhead) = &leader.geometry.arrowhead {
+        match arrowhead {
+            TextLeaderArrowhead::Open { .. } => {
+                let arrow_path = arrowhead_to_lyon(arrowhead);
+                let arrow_options = StrokeOptions::default()
+                    .with_tolerance(0.05)
+                    .with_line_join(to_line_join(leader.stroke_join))
+                    .with_line_cap(to_line_cap(leader.stroke_cap))
+                    .with_line_width(leader.stroke_width.max(0.0));
+                stroke_tessellator.tessellate_path(&arrow_path, &arrow_options, &mut builder)?;
+            }
+            TextLeaderArrowhead::Triangle { .. } => {
+                let arrow_path = arrowhead_to_lyon(arrowhead);
+                let mut fill_tessellator = FillTessellator::new();
+                let fill_options = FillOptions::default().with_tolerance(0.05);
+                fill_tessellator.tessellate_path(&arrow_path, &fill_options, &mut builder)?;
+            }
+        }
+    }
+
+    Ok((buffers.vertices, buffers.indices))
+}
+
+fn leader_path_to_lyon(path: &TextLeaderPath) -> Path {
+    let mut builder = Path::builder();
+    match path {
+        TextLeaderPath::Line { start, end } => {
+            builder.begin(point(start[0], start[1]));
+            builder.line_to(point(end[0], end[1]));
+            builder.end(false);
+        }
+        TextLeaderPath::Polyline { points } => {
+            if let Some(first) = points.first() {
+                builder.begin(point(first[0], first[1]));
+                for point_value in points.iter().skip(1) {
+                    builder.line_to(point(point_value[0], point_value[1]));
+                }
+                builder.end(false);
+            }
+        }
+        TextLeaderPath::Cubic {
+            start,
+            ctrl1,
+            ctrl2,
+            end,
+        } => {
+            builder.begin(point(start[0], start[1]));
+            builder.cubic_bezier_to(
+                point(ctrl1[0], ctrl1[1]),
+                point(ctrl2[0], ctrl2[1]),
+                point(end[0], end[1]),
+            );
+            builder.end(false);
+        }
+    }
+    builder.build()
+}
+
+fn arrowhead_to_lyon(arrowhead: &TextLeaderArrowhead) -> Path {
+    let mut builder = Path::builder();
+    match arrowhead {
+        TextLeaderArrowhead::Open { left, right } => {
+            builder.begin(point(left[0][0], left[0][1]));
+            builder.line_to(point(left[1][0], left[1][1]));
+            builder.end(false);
+            builder.begin(point(right[0][0], right[0][1]));
+            builder.line_to(point(right[1][0], right[1][1]));
+            builder.end(false);
+        }
+        TextLeaderArrowhead::Triangle { points } => {
+            builder.begin(point(points[0][0], points[0][1]));
+            builder.line_to(point(points[1][0], points[1][1]));
+            builder.line_to(point(points[2][0], points[2][1]));
+            builder.close();
+        }
+    }
+    builder.build()
+}
+
+fn to_line_cap(cap: StrokeCap) -> LineCap {
+    match cap {
+        StrokeCap::Butt => LineCap::Butt,
+        StrokeCap::Round => LineCap::Round,
+        StrokeCap::Square => LineCap::Square,
+    }
+}
+
+fn to_line_join(join: StrokeJoin) -> LineJoin {
+    match join {
+        StrokeJoin::Miter => LineJoin::Miter,
+        StrokeJoin::Round => LineJoin::Round,
+        StrokeJoin::Bevel => LineJoin::Bevel,
     }
 }
