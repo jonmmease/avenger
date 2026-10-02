@@ -1,13 +1,18 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger_color::{ColorOrGradient, Gradient};
-use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::area::SceneAreaMark;
-
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_common::{
+    types::{AreaOrientation, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
+use avenger_scenegraph::marks::{area::SceneAreaMark, mark::SceneMark};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerVegaError,
+    marks::{
+        mark::{VegaMarkContainer, VegaMarkItem},
+        values::{CssColorOrGradient, StrokeDashSpec},
+    },
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

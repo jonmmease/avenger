@@ -1,13 +1,16 @@
-use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem};
 use avenger_color::Gradient;
-
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
+    mark::SceneMark,
+};
 use lyon_extra::euclid::{Box2D, Point2D};
-use lyon_path::builder::BorderRadii;
-use lyon_path::Winding;
+use lyon_path::{builder::BorderRadii, Winding};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    error::AvengerVegaError,
+    marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem},
+};
 
 use super::values::CssColorOrGradient;
 
@@ -147,11 +150,11 @@ impl VegaMarkContainer<VegaGroupItem> {
             };
 
             groups.push(SceneMark::Group(SceneGroup {
-                pattern_reference_frame: None,
-                interactive: true,
                 name: self.name.clone().unwrap_or("group_mark".to_string()),
+                interactive: self.interactive,
                 zindex: self.zindex,
                 origin: [group_item.x.unwrap_or(0.0), group_item.y.unwrap_or(0.0)],
+                pattern_reference_frame: None,
                 clip,
                 marks,
                 gradients,

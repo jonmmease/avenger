@@ -185,6 +185,7 @@ fn mark_clip_enabled(mark: &SceneMark) -> bool {
         | SceneMark::Rule(SceneRuleMark { clip, .. }) => *clip,
         SceneMark::Text(mark) => mark.clip,
         SceneMark::Image(mark) => mark.clip,
+        SceneMark::WarpedImage(mark) => mark.clip,
         SceneMark::Group(_) => false,
     }
 }
