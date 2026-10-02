@@ -242,7 +242,9 @@ fn provider_accepts_explicit_patterns() {
     use avenger_format::DateTimeFormatProvider;
     let provider = D3DateTimeFormatProvider::new()
         .with_locale("en_US")
-        .with_timezone("America/New_York");
+        .with_timezone(New_York);
+    let provider: D3DateTimeFormatProvider =
+        serde_json::from_str(&serde_json::to_string(&provider).unwrap()).unwrap();
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let zoned_value = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
     for (pattern, expected) in [("%Y-%m-%d", "2024-01-01"), ("%x", "1/1/2024"), ("", "")] {
@@ -265,10 +267,9 @@ fn provider_accepts_explicit_patterns() {
             zoned
         );
     }
-    let provider = provider.with_timezone("local");
-    assert!(provider.prepare_date("%Y").is_ok());
-    assert!(provider.prepare_naive("%Y").is_ok());
-    assert!(provider.prepare_zoned("%c").is_err());
+    let defaults: D3DateTimeFormatProvider = serde_json::from_str("{}").unwrap();
+    assert_eq!(defaults.timezone, UTC);
+    assert!(serde_json::from_str::<D3DateTimeFormatProvider>(r#"{"timezone":"local"}"#).is_err());
 }
 
 #[test]

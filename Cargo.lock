@@ -447,6 +447,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -868,6 +869,7 @@ dependencies = [
  "chrono",
  "chrono-tz-build",
  "phf",
+ "serde",
 ]
 
 [[package]]

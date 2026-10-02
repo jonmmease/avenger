@@ -10,20 +10,20 @@ pub struct DateTimeFormatError(pub String);
 /// Prepared formatters retain resolved settings independently of the provider.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
     /// Prepare for calendar dates, rejecting time, epoch, and timezone fields.
-    /// Timezone configuration is unused and is not validated.
+    /// The provider's display timezone does not affect the date.
     fn prepare_date(
         &self,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError>;
 
     /// Prepare for naive datetimes, rejecting epoch and timezone fields.
-    /// Timezone configuration is unused and is not validated.
+    /// The provider's display timezone does not affect the calendar fields.
     fn prepare_naive(
         &self,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError>;
 
-    /// Prepare for zoned datetimes, resolving and validating the configured display timezone.
+    /// Prepare for UTC datetimes displayed in the provider's timezone.
     fn prepare_zoned(
         &self,
         pattern: &str,

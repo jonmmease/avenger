@@ -1,25 +1,35 @@
 use crate::{
-    parse_datetime_timezone, DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat,
-    ResolvedDateTimeLocale,
+    DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use avenger_format::{
     DateTimeFormatError, DateTimeFormatProvider, PreparedDateFormatter,
     PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Prepare D3 datetime patterns with locale definitions and a display timezone.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct D3DateTimeFormatProvider {
     /// Locale name. An omitted name selects `en-US`.
     pub locale: Option<String>,
     /// Custom D3 definitions, keyed by locale name.
     pub locales: BTreeMap<String, DateTimeLocaleSpec>,
-    /// IANA display timezone for zoned datetimes. An omitted name selects UTC.
-    pub timezone: Option<String>,
+    /// Resolved IANA display timezone for zoned datetimes. Defaults to UTC.
+    pub timezone: Tz,
+}
+
+impl Default for D3DateTimeFormatProvider {
+    fn default() -> Self {
+        Self {
+            locale: None,
+            locales: BTreeMap::new(),
+            timezone: Tz::UTC,
+        }
+    }
 }
 
 impl D3DateTimeFormatProvider {
@@ -45,8 +55,8 @@ impl D3DateTimeFormatProvider {
     }
 
     /// Set the IANA display timezone for zoned datetimes. Naive fields are unchanged.
-    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
-        self.timezone = Some(timezone.into());
+    pub fn with_timezone(mut self, timezone: Tz) -> Self {
+        self.timezone = timezone;
         self
     }
 }
@@ -74,16 +84,14 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         &self,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        let timezone =
-            parse_datetime_timezone(self.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
-        Ok(Arc::new(prepare(self, pattern, timezone)?))
+        Ok(Arc::new(prepare(self, pattern, self.timezone)?))
     }
 }
 
 fn prepare(
     provider: &D3DateTimeFormatProvider,
     pattern: &str,
-    timezone: chrono_tz::Tz,
+    timezone: Tz,
 ) -> Result<PreparedDateTimeFormat, DateTimeFormatError> {
     let id = provider.locale.as_deref().unwrap_or("en-US");
     let normalized = id.replace('_', "-");

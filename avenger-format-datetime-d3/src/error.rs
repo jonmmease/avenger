@@ -32,9 +32,6 @@ pub enum DateTimeFormatError {
     #[error("invalid locale data: {0}")]
     InvalidLocaleData(String),
 
-    #[error("invalid timezone `{0}`")]
-    InvalidTimezone(String),
-
     #[error("datetime format field `{0}` requires zoned datetime input")]
     TimezoneFieldForNaive(String),
 

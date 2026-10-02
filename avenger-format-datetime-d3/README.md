@@ -1,13 +1,13 @@
 # Datetime formatting
 
-`avenger-format-datetime-d3` formats dates, naive datetimes, and zoned datetimes with D3 datetime patterns and locale definitions. Display timezones are explicit IANA names, independent of locale.
+`avenger-format-datetime-d3` formats dates, naive datetimes, and zoned datetimes with D3 datetime patterns and locale definitions. Display timezones are resolved IANA zones, independent of locale.
 
 ```rust
 use avenger_format::DateTimeFormatProvider;
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 
 fn main() -> Result<(), avenger_format::DateTimeFormatError> {
-    let provider = D3DateTimeFormatProvider::new().with_timezone("America/New_York");
+    let provider = D3DateTimeFormatProvider::new().with_timezone(chrono_tz::America::New_York);
     let date_formatter = provider.prepare_date("%Y-%m-%d")?;
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     assert_eq!(date_formatter.format(date)?, "2024-01-01");
@@ -33,6 +33,8 @@ Two behaviors intentionally differ from D3: unknown directives and incomplete `%
 The [reference generator](../tools/format-reference/README.md) pins the reference packages to generate compatibility fixtures. Additional locale definitions live in test fixtures. The locale files include the upstream license.
 
 `D3DateTimeFormatProvider` implements `DateTimeFormatProvider` from `avenger-format`. It owns a locale name, typed custom `DateTimeLocaleSpec` definitions, and a display timezone. Its builders select a locale, add a custom definition, and set the timezone. Prepared formatters retain their resolved settings when the provider is changed or dropped.
+
+`with_timezone()` accepts a resolved `chrono_tz::Tz`. Use a timezone constant or parse a name with `.parse()?`. The default timezone is UTC. Serialized providers use IANA timezone names and reject invalid names during deserialization.
 
 The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
 

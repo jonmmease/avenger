@@ -13,13 +13,22 @@ use serde::{Deserialize, Serialize};
 use std::{slice, sync::Arc};
 
 /// Prepare Chrono datetime patterns with a built-in locale and display timezone.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChronoDateTimeFormatProvider {
     /// Chrono locale name. An omitted name selects `POSIX`.
     pub locale: Option<String>,
-    /// IANA display timezone for zoned datetimes. An omitted name selects UTC.
-    pub timezone: Option<String>,
+    /// Resolved IANA display timezone for zoned datetimes. Defaults to UTC.
+    pub timezone: Tz,
+}
+
+impl Default for ChronoDateTimeFormatProvider {
+    fn default() -> Self {
+        Self {
+            locale: None,
+            timezone: Tz::UTC,
+        }
+    }
 }
 
 impl ChronoDateTimeFormatProvider {
@@ -35,8 +44,8 @@ impl ChronoDateTimeFormatProvider {
     }
 
     /// Set the IANA display timezone for zoned datetimes. Naive fields are unchanged.
-    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
-        self.timezone = Some(timezone.into());
+    pub fn with_timezone(mut self, timezone: Tz) -> Self {
+        self.timezone = timezone;
         self
     }
 }
@@ -76,13 +85,9 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         &self,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        let name = self.timezone.as_deref().unwrap_or("UTC");
-        let timezone = name
-            .parse::<Tz>()
-            .map_err(|_| error(format!("invalid IANA timezone `{name}`")))?;
         let formatter = ZonedFormat {
             pattern: Pattern::new(pattern, self.locale.as_deref())?,
-            timezone,
+            timezone: self.timezone,
         };
         // Chrono parses some directives, such as %#z, that it cannot use for formatting.
         formatter

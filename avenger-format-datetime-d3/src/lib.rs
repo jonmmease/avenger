@@ -6,7 +6,6 @@ mod locale;
 mod parser;
 mod provider;
 mod registry;
-mod timezone;
 
 pub use error::{DateTimeFormatError, DateTimeParseError};
 pub use format::{
@@ -15,4 +14,3 @@ pub use format::{
 pub use locale::{DateTimeLocaleSpec, LocaleId, ResolvedDateTimeLocale};
 pub use provider::D3DateTimeFormatProvider;
 pub use registry::DateTimeLocaleRegistry;
-pub use timezone::parse_datetime_timezone;

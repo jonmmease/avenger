@@ -6,5 +6,8 @@ edition = "2021"
 [dependencies]
 avenger-format = { path = "../avenger-format" }
 chrono = { workspace = true, features = ["unstable-locales"] }
-chrono-tz = { workspace = true }
+chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

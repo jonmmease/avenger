@@ -1,12 +1,13 @@
 use avenger_format::DateTimeFormatProvider;
 use avenger_format_datetime_chrono::ChronoDateTimeFormatProvider;
 use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::{America::New_York, Asia::Tokyo, Tz};
 
 #[test]
 fn prepared_formatters_retain_settings() {
     let provider = ChronoDateTimeFormatProvider::new()
         .with_locale("en-US")
-        .with_timezone("America/New_York");
+        .with_timezone(New_York);
     let date_formatter = provider.prepare_date("%Y-%m-%d").unwrap();
     let naive = provider.prepare_naive("%Y-%m-%d %H:%M").unwrap();
     let zoned = provider.prepare_zoned("%Y-%m-%d %f").unwrap();
@@ -72,7 +73,7 @@ fn uses_chrono_locales_and_validates_expanded_patterns() {
 
 #[test]
 fn display_timezone_preserves_epoch() {
-    let provider = ChronoDateTimeFormatProvider::new().with_timezone("Asia/Tokyo");
+    let provider = ChronoDateTimeFormatProvider::new().with_timezone(Tokyo);
     let formatter = provider.prepare_zoned("%F %R %z %s").unwrap();
     assert_eq!(
         formatter.format(DateTime::UNIX_EPOCH).unwrap(),
@@ -89,16 +90,25 @@ fn preparation_rejects_unknown_locales() {
 }
 
 #[test]
-fn timezone_validation_applies_only_to_zoned_preparation() {
-    let provider = ChronoDateTimeFormatProvider::new().with_timezone("invalid/zone");
-    assert!(provider.prepare_date("%Y").is_ok());
-    assert!(provider.prepare_naive("%Y").is_ok());
-    assert!(provider.prepare_zoned("%Y").is_err());
+fn serialized_timezone_defaults_to_utc_and_validates_names() {
+    let provider: ChronoDateTimeFormatProvider = serde_json::from_str("{}").unwrap();
+    assert_eq!(provider.timezone, Tz::UTC);
+    let provider = provider.with_timezone("America/New_York".parse().unwrap());
+    let json = serde_json::to_string(&provider).unwrap();
+    assert!(json.contains(r#""timezone":"America/New_York""#));
+    assert_eq!(
+        serde_json::from_str::<ChronoDateTimeFormatProvider>(&json).unwrap(),
+        provider
+    );
+    assert!(
+        serde_json::from_str::<ChronoDateTimeFormatProvider>(r#"{"timezone":"invalid/zone"}"#)
+            .is_err()
+    );
 }
 
 #[test]
 fn out_of_range_display_dates_return_errors() {
-    let provider = ChronoDateTimeFormatProvider::new().with_timezone("Asia/Tokyo");
+    let provider = ChronoDateTimeFormatProvider::new().with_timezone(Tokyo);
     let formatter = provider.prepare_zoned("%F").unwrap();
     assert!(formatter
         .format(DateTime::<Utc>::MAX_UTC)

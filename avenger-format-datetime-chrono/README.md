@@ -6,10 +6,10 @@
 use avenger_format::DateTimeFormatProvider;
 use avenger_format_datetime_chrono::ChronoDateTimeFormatProvider;
 
-fn main() -> Result<(), avenger_format::DateTimeFormatError> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = ChronoDateTimeFormatProvider::new()
         .with_locale("en-US")
-        .with_timezone("America/New_York");
+        .with_timezone("America/New_York".parse()?);
     let date_formatter = provider.prepare_date("%Y-%m-%d")?;
     let date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     assert_eq!(date_formatter.format(date)?, "2024-01-01");
@@ -22,9 +22,11 @@ fn main() -> Result<(), avenger_format::DateTimeFormatError> {
 
 The provider owns its locale and display timezone. Pass a string pattern directly to a preparation method. Preparation resolves the pattern and locale once, including locale expansions. Prepared formatters retain these settings when the provider is changed or dropped.
 
+`with_timezone()` accepts a resolved `chrono_tz::Tz`. Use a constant such as `chrono_tz::America::New_York`, or parse a name with `.parse()?`. The default timezone is UTC. Serialized providers use IANA timezone names and reject invalid names during deserialization.
+
 - `prepare_date()` accepts `chrono::NaiveDate` and rejects time, epoch, and timezone fields.
 - `prepare_naive()` accepts `chrono::NaiveDateTime` and rejects epoch and timezone fields.
-- `prepare_zoned()` accepts `chrono::DateTime<chrono::Utc>` and uses the provider's IANA display timezone, or UTC when absent.
+- `prepare_zoned()` accepts `chrono::DateTime<chrono::Utc>` and uses the provider's resolved display timezone.
 
 Date and naive preparation ignore timezone configuration. Parsing-only directives such as `%#z` fail during preparation for all three paths.
 
