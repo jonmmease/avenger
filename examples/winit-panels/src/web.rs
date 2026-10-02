@@ -1,7 +1,20 @@
 use avenger_wgpu::canvas::CanvasConfig;
 use avenger_winit_wgpu::{WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions};
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use winit::platform::web::EventLoopExtWebSys;
+
+thread_local! {
+    static INSPECTION: RefCell<String> = const { RefCell::new(String::new()) };
+}
+pub(crate) fn record(state: &crate::state::State) {
+    INSPECTION.with(|snapshot| *snapshot.borrow_mut() = state.inspection().to_string());
+}
+/// Read-only state from the example's last completed scene build.
+#[wasm_bindgen]
+pub fn snapshot() -> String {
+    INSPECTION.with(|value| value.borrow().clone())
+}
 
 /// Start the same panel explorer in the page's wasm-example element.
 #[wasm_bindgen]
