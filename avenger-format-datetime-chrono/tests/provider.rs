@@ -7,17 +7,17 @@ use chrono::{DateTime, NaiveDate, Utc};
 fn typed_providers_share_prepared_formatter_interfaces() {
     fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config, fraction: &str) {
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-        let instant = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
-        let civil = provider.prepare_naive(&config, "%Y-%m-%d").unwrap();
+        let zoned_value = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
+        let naive = provider.prepare_naive(&config, "%Y-%m-%d").unwrap();
         let zoned = provider.prepare_zoned(&config, "%Y-%m-%d").unwrap();
         assert_eq!(
-            civil.format(NaiveDateTimeInput::Date(date)).unwrap(),
+            naive.format(NaiveDateTimeInput::Date(date)).unwrap(),
             "2024-01-01"
         );
-        assert_eq!(zoned.format(instant).unwrap(), "2023-12-31");
+        assert_eq!(zoned.format(zoned_value).unwrap(), "2023-12-31");
         let zoned = provider.prepare_zoned(&config, "%f").unwrap();
         drop(config);
-        assert_eq!(zoned.format(instant).unwrap(), fraction);
+        assert_eq!(zoned.format(zoned_value).unwrap(), fraction);
     }
     check(
         ChronoDateTimeFormatProvider,
@@ -53,14 +53,14 @@ fn preparation_rejects_patterns_for_the_wrong_input_type() {
 fn uses_chrono_locales_and_validates_expanded_patterns() {
     let provider = ChronoDateTimeFormatProvider;
     let spec = "%B";
-    let instant = DateTime::UNIX_EPOCH;
-    let value = NaiveDateTimeInput::DateTime(instant.naive_utc());
+    let zoned_value = DateTime::UNIX_EPOCH;
+    let value = NaiveDateTimeInput::DateTime(zoned_value.naive_utc());
     for locale in ["fr-FR", "fr_FR"] {
         let config = ChronoDateTimeFormatConfig::new().with_locale(locale);
-        let civil = provider.prepare_naive(&config, spec).unwrap();
+        let naive = provider.prepare_naive(&config, spec).unwrap();
         let zoned = provider.prepare_zoned(&config, spec).unwrap();
-        assert_eq!(civil.format(value).unwrap(), "janvier");
-        assert_eq!(zoned.format(instant).unwrap(), "janvier");
+        assert_eq!(naive.format(value).unwrap(), "janvier");
+        assert_eq!(zoned.format(zoned_value).unwrap(), "janvier");
     }
 
     let config = ChronoDateTimeFormatConfig::new().with_locale("en_US");
@@ -90,7 +90,7 @@ fn preparation_rejects_unknown_locales_and_timezones() {
 }
 
 #[test]
-fn timezone_validation_applies_only_to_instants() {
+fn timezone_validation_applies_only_to_zoned_preparation() {
     fn check<P: DateTimeFormatProvider>(provider: P, config: P::Config) {
         assert!(provider.prepare_naive(&config, "%Y").is_ok());
         assert!(provider.prepare_zoned(&config, "%Y").is_err());

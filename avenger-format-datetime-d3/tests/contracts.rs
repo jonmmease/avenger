@@ -7,7 +7,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::{America::New_York, Asia::Tokyo, UTC};
 
 #[test]
-fn civil_values_preserve_fields() {
+fn naive_values_preserve_fields() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, New_York);
     let scalar = PreparedDateTimeFormat::new(Some("%Y-%m-%d %H:%M:%S.%L %f"), context).unwrap();
@@ -27,7 +27,7 @@ fn civil_values_preserve_fields() {
 }
 
 #[test]
-fn civil_preparation_rejects_instant_fields_including_locale_expansions() {
+fn naive_preparation_rejects_zoned_fields_including_locale_expansions() {
     use avenger_format::DateTimeFormatProvider;
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     for directive in ["%Z", "%Q", "%s"] {
@@ -166,7 +166,7 @@ fn out_of_range_display_dates_return_errors() {
 }
 
 #[test]
-fn civil_leap_seconds_are_rejected() {
+fn naive_leap_seconds_are_rejected() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, UTC);
     let scalar = PreparedDateTimeFormat::new(Some("%H:%M:%S.%L"), context).unwrap();
@@ -183,7 +183,7 @@ fn civil_leap_seconds_are_rejected() {
 }
 
 #[test]
-fn submillisecond_instants_use_javascript_date_precision() {
+fn submillisecond_zoned_values_use_javascript_date_precision() {
     let locale = ResolvedDateTimeLocale::en_us();
     let context = DateTimeFormatContext::new(&locale, UTC);
     let format = PreparedDateTimeFormat::new(Some("%Q %s %L %f"), context).unwrap();
@@ -223,8 +223,8 @@ fn provider_accepts_explicit_patterns() {
     let provider = avenger_format_datetime_d3::D3DateTimeFormatProvider;
     let config = D3DateTimeFormatConfig::new().with_timezone("America/New_York");
     let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    let instant = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-    for (pattern, civil, zoned) in [
+    let zoned_value = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    for (pattern, naive, zoned) in [
         ("%c", "1/1/2024, 12:00:00 AM", "12/31/2023, 7:00:00 PM"),
         ("%Y-%m-%d", "2024-01-01", "2023-12-31"),
         ("", "", ""),
@@ -232,13 +232,13 @@ fn provider_accepts_explicit_patterns() {
         let prepared = provider.prepare_naive(&config, pattern).unwrap();
         assert_eq!(
             prepared.format(NaiveDateTimeInput::Date(date)).unwrap(),
-            civil
+            naive
         );
         assert_eq!(
             provider
                 .prepare_zoned(&config, pattern)
                 .unwrap()
-                .format(instant)
+                .format(zoned_value)
                 .unwrap(),
             zoned
         );

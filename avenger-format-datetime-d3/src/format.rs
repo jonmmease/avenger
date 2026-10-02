@@ -27,7 +27,7 @@ pub struct PreparedDateTimeFormat {
     pattern: Pattern,
     locale: Arc<DateTimeLocaleSpec>,
     timezone: Tz,
-    instant_directive: Option<char>,
+    zoned_directive: Option<char>,
 }
 impl PreparedDateTimeFormat {
     /// Prepare a D3 pattern. An omitted scalar pattern uses locale `%c`.
@@ -40,7 +40,7 @@ impl PreparedDateTimeFormat {
             &context.locale.patterns,
             &mut Vec::new(),
         )?;
-        let instant_directive = pattern.0.iter().find_map(|token| match token {
+        let zoned_directive = pattern.0.iter().find_map(|token| match token {
             PatternToken::Directive {
                 code: code @ ('Q' | 's' | 'Z'),
                 ..
@@ -51,19 +51,19 @@ impl PreparedDateTimeFormat {
             pattern,
             locale: Arc::clone(&context.locale.definition),
             timezone: context.timezone,
-            instant_directive,
+            zoned_directive,
         })
     }
-    /// Check civil-input compatibility before formatting a batch.
+    /// Check naive-input compatibility before formatting a batch.
     pub(crate) fn validate_naive(&self) -> Result<(), DateTimeFormatError> {
-        if let Some(code) = self.instant_directive {
+        if let Some(code) = self.zoned_directive {
             return Err(DateTimeFormatError::TimezoneFieldForNaive(format!(
                 "%{code}"
             )));
         }
         Ok(())
     }
-    /// Format civil fields, rejecting leap seconds and directives that require an instant.
+    /// Format naive fields, rejecting leap seconds and directives that require a zoned datetime.
     pub fn format_naive(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.validate_naive()?;
         let date = value.datetime();
@@ -72,9 +72,9 @@ impl PreparedDateTimeFormat {
         }
         Ok(self.render(date, 0, 0))
     }
-    /// Format an instant, returning an error if its display date exceeds Chrono's range.
+    /// Format a zoned datetime, returning an error if its display date exceeds Chrono's range.
     pub fn format_zoned(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
-        let value = normalize_instant(value)?;
+        let value = normalize_zoned(value)?;
         let millis = value.timestamp_millis();
         let display = value.with_timezone(&self.timezone);
         Ok(self.render(
@@ -176,7 +176,7 @@ impl PreparedDateTimeFormat {
     }
 }
 
-/// Format a civil value with a D3 pattern.
+/// Format a naive value with a D3 pattern.
 pub fn format_naive_datetime(
     value: NaiveDateTimeInput,
     spec: Option<&str>,
@@ -184,7 +184,7 @@ pub fn format_naive_datetime(
 ) -> Result<String, DateTimeFormatError> {
     PreparedDateTimeFormat::new(spec, context)?.format_naive(value)
 }
-/// Format an instant with a D3 pattern and an explicit display zone.
+/// Format a zoned datetime with a D3 pattern and an explicit display zone.
 pub fn format_zoned_datetime(
     value: ZonedDateTimeInput,
     spec: Option<&str>,
@@ -194,7 +194,7 @@ pub fn format_zoned_datetime(
 }
 
 // JavaScript Date clips fractional epoch milliseconds toward zero.
-pub(crate) fn normalize_instant(
+pub(crate) fn normalize_zoned(
     value: ZonedDateTimeInput,
 ) -> Result<ZonedDateTimeInput, DateTimeFormatError> {
     let millis = value.timestamp_millis();
@@ -203,7 +203,7 @@ pub(crate) fn normalize_instant(
     DateTime::from_timestamp_millis(millis).ok_or(DateTimeFormatError::DateTimeOutOfRange)
 }
 
-/// Convert display fields without overflowing Chrono's civil date range.
+/// Convert display fields without overflowing Chrono's naive date range.
 pub(crate) fn local_datetime(value: DateTime<Tz>) -> Result<NaiveDateTime, DateTimeFormatError> {
     value
         .naive_utc()

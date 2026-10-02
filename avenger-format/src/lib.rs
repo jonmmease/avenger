@@ -3,7 +3,7 @@
 mod datetime;
 pub use datetime::{
     DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
 };
 
 mod formatted_number;

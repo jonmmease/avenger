@@ -1,6 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-/// Civil calendar fields without an instant or display offset.
+/// Naive calendar fields without a timezone or UTC offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NaiveDateTimeInput {
     Date(chrono::NaiveDate),
@@ -15,7 +15,7 @@ impl NaiveDateTimeInput {
         }
     }
 }
-/// An instant represented in UTC and displayed in the configured timezone.
+/// A zoned datetime supplied in UTC and displayed in the configured timezone.
 pub type ZonedDateTimeInput = chrono::DateTime<chrono::Utc>;
 
 /// A provider configuration or input-value error.
@@ -28,30 +28,30 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
     /// Locale and preparation options accepted by this provider.
     type Config;
 
-    /// Prepare for civil dates and datetimes, rejecting fields that require an instant.
+    /// Prepare for naive dates and datetimes, rejecting fields that require a zoned datetime.
     /// Timezone configuration is unused and is not validated.
     fn prepare_naive(
         &self,
         config: &Self::Config,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError>;
+    ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError>;
 
-    /// Prepare for instants, resolving and validating the configured display timezone.
+    /// Prepare for zoned datetimes, resolving and validating the configured display timezone.
     fn prepare_zoned(
         &self,
         config: &Self::Config,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError>;
+    ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
 }
 
-/// Immutable, deterministic formatting of civil calendar fields.
+/// Immutable, deterministic formatting of naive calendar fields.
 /// Preparation validates the specification. Formatting can still reject unsupported values.
-pub trait PreparedCivilDateTimeFormatter: Debug + Send + Sync + 'static {
+pub trait PreparedNaiveDateTimeFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError>;
 }
 
-/// Immutable, deterministic formatting of instants in a resolved display timezone.
+/// Immutable, deterministic formatting of zoned datetimes in a resolved display timezone.
 /// Formatting reports values whose display date is outside the supported range.
-pub trait PreparedInstantFormatter: Debug + Send + Sync + 'static {
+pub trait PreparedZonedDateTimeFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError>;
 }

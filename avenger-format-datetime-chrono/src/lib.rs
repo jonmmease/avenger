@@ -2,7 +2,7 @@
 
 use avenger_format::{
     DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
 };
 use chrono::{
     format::{DelayedFormat, Item, Numeric, StrftimeItems},
@@ -18,12 +18,12 @@ use std::{slice, sync::Arc};
 pub struct ChronoDateTimeFormatConfig {
     /// Chrono locale name. An omitted name selects `POSIX`.
     pub locale: Option<String>,
-    /// IANA display timezone for instants. An omitted name selects UTC.
+    /// IANA display timezone for zoned datetimes. An omitted name selects UTC.
     pub timezone: Option<String>,
 }
 
 impl ChronoDateTimeFormatConfig {
-    /// Use the POSIX locale and UTC for instant display.
+    /// Use the POSIX locale and UTC for zoned formatting.
     pub fn new() -> Self {
         Self::default()
     }
@@ -34,7 +34,7 @@ impl ChronoDateTimeFormatConfig {
         self
     }
 
-    /// Set the IANA display timezone for instants. Civil fields are unchanged.
+    /// Set the IANA display timezone for zoned datetimes. Naive fields are unchanged.
     pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
         self.timezone = Some(timezone.into());
         self
@@ -52,9 +52,9 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         &self,
         config: &ChronoDateTimeFormatConfig,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
         let pattern = Pattern::new(config, pattern)?;
-        // Chrono assumes UTC for naive timestamps. Civil values have no implied instant.
+        // Chrono assumes UTC for naive timestamps. Naive values have no timezone.
         if pattern
             .items
             .iter()
@@ -67,7 +67,7 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
             .format(NaiveDateTimeInput::DateTime(
                 DateTime::UNIX_EPOCH.naive_utc(),
             ))
-            .map_err(|_| error("Chrono pattern cannot format a civil datetime"))?;
+            .map_err(|_| error("Chrono pattern cannot format a naive datetime"))?;
         Ok(Arc::new(pattern))
     }
 
@@ -75,7 +75,7 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         &self,
         config: &ChronoDateTimeFormatConfig,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
         let name = config.timezone.as_deref().unwrap_or("UTC");
         let timezone = name
             .parse::<Tz>()
@@ -118,7 +118,7 @@ impl Pattern {
     }
 }
 
-impl PreparedCivilDateTimeFormatter for Pattern {
+impl PreparedNaiveDateTimeFormatter for Pattern {
     fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
         let value = value.datetime();
         render(DelayedFormat::new_with_locale(
@@ -136,7 +136,7 @@ struct ZonedFormat {
     timezone: Tz,
 }
 
-impl PreparedInstantFormatter for ZonedFormat {
+impl PreparedZonedDateTimeFormatter for ZonedFormat {
     fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
         let display = value.with_timezone(&self.timezone);
         let local = display

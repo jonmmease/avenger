@@ -23,7 +23,7 @@ pub enum DateTimeFormatError {
     #[error("datetime exceeds the supported calendar range")]
     DateTimeOutOfRange,
 
-    #[error("leap seconds are unsupported for civil datetime formatting")]
+    #[error("leap seconds are unsupported for naive datetime formatting")]
     LeapSecondForNaive,
 
     #[error("locale `{0}` was not found")]
@@ -35,6 +35,6 @@ pub enum DateTimeFormatError {
     #[error("invalid timezone `{0}`")]
     InvalidTimezone(String),
 
-    #[error("datetime format field `{0}` requires timezone-aware input")]
+    #[error("datetime format field `{0}` requires zoned datetime input")]
     TimezoneFieldForNaive(String),
 }

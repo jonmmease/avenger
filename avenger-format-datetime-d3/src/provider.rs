@@ -4,7 +4,7 @@ use crate::{
 };
 use avenger_format::{
     DateTimeFormatError, DateTimeFormatProvider, NaiveDateTimeInput,
-    PreparedCivilDateTimeFormatter, PreparedInstantFormatter, ZonedDateTimeInput,
+    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter, ZonedDateTimeInput,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -17,12 +17,12 @@ pub struct D3DateTimeFormatConfig {
     pub locale: Option<String>,
     /// Custom D3 definitions, keyed by locale name.
     pub locales: BTreeMap<String, DateTimeLocaleSpec>,
-    /// IANA display timezone for instants. An omitted name selects UTC.
+    /// IANA display timezone for zoned datetimes. An omitted name selects UTC.
     pub timezone: Option<String>,
 }
 
 impl D3DateTimeFormatConfig {
-    /// Use U.S. English and UTC for instant display.
+    /// Use U.S. English and UTC for zoned formatting.
     pub fn new() -> Self {
         Self::default()
     }
@@ -43,7 +43,7 @@ impl D3DateTimeFormatConfig {
         self
     }
 
-    /// Set the IANA display timezone for instants. Civil fields are unchanged.
+    /// Set the IANA display timezone for zoned datetimes. Naive fields are unchanged.
     pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
         self.timezone = Some(timezone.into());
         self
@@ -61,7 +61,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         &self,
         config: &Self::Config,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedCivilDateTimeFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
         let prepared = prepare(config, pattern, chrono_tz::UTC)?;
         prepared.validate_naive().map_err(error)?;
         Ok(Arc::new(prepared))
@@ -71,7 +71,7 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
         &self,
         config: &Self::Config,
         pattern: &str,
-    ) -> Result<Arc<dyn PreparedInstantFormatter>, DateTimeFormatError> {
+    ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
         let timezone =
             parse_datetime_timezone(config.timezone.as_deref().unwrap_or("UTC")).map_err(error)?;
         Ok(Arc::new(prepare(config, pattern, timezone)?))
@@ -106,13 +106,13 @@ fn error(error: crate::DateTimeFormatError) -> DateTimeFormatError {
     DateTimeFormatError(error.to_string())
 }
 
-impl PreparedCivilDateTimeFormatter for PreparedDateTimeFormat {
+impl PreparedNaiveDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: NaiveDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.format_naive(value).map_err(error)
     }
 }
 
-impl PreparedInstantFormatter for PreparedDateTimeFormat {
+impl PreparedZonedDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: ZonedDateTimeInput) -> Result<String, DateTimeFormatError> {
         self.format_zoned(value).map_err(error)
     }
