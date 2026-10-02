@@ -68,6 +68,41 @@ enum ExitSide {
 }
 
 impl TextLeaderPath {
+    pub fn to_lyon(&self) -> lyon_path::Path {
+        let mut builder = lyon_path::Path::builder();
+        match self {
+            TextLeaderPath::Line { start, end } => {
+                builder.begin(lyon_path::math::point(start[0], start[1]));
+                builder.line_to(lyon_path::math::point(end[0], end[1]));
+                builder.end(false);
+            }
+            TextLeaderPath::Polyline { points } => {
+                if let Some(first) = points.first() {
+                    builder.begin(lyon_path::math::point(first[0], first[1]));
+                    for point in points.iter().skip(1) {
+                        builder.line_to(lyon_path::math::point(point[0], point[1]));
+                    }
+                    builder.end(false);
+                }
+            }
+            TextLeaderPath::Cubic {
+                start,
+                ctrl1,
+                ctrl2,
+                end,
+            } => {
+                builder.begin(lyon_path::math::point(start[0], start[1]));
+                builder.cubic_bezier_to(
+                    lyon_path::math::point(ctrl1[0], ctrl1[1]),
+                    lyon_path::math::point(ctrl2[0], ctrl2[1]),
+                    lyon_path::math::point(end[0], end[1]),
+                );
+                builder.end(false);
+            }
+        }
+        builder.build()
+    }
+
     pub fn points(&self) -> Vec<[f32; 2]> {
         match self {
             TextLeaderPath::Line { start, end } => vec![*start, *end],

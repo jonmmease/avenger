@@ -237,3 +237,39 @@ fn fill_rules_control_path_and_transformed_symbol_queries() {
         }
     }
 }
+
+#[test]
+fn dashed_line_singletons_remain_queryable_at_breaks_and_at_the_end() {
+    use avenger_common::{types::StrokeCap, value::ScalarOrArray as S};
+    use avenger_scenegraph::marks::line::SceneLineMark;
+    let tree = SceneGraphRTree::from_scene_graph(&SceneGraph {
+        width: 100.,
+        height: 100.,
+        origin: [0.; 2],
+        marks: vec![SceneLineMark {
+            len: 3,
+            x: S::new_array(vec![20., 50., 80.]),
+            y: 50.0.into(),
+            defined: S::new_array(vec![true, false, true]),
+            stroke_width: 10.,
+            stroke_cap: StrokeCap::Round,
+            stroke_dash: Some(vec![2., 3.]),
+            ..Default::default()
+        }
+        .into()],
+    });
+    for x in [20., 80.] {
+        assert_eq!(
+            tree.query_shape(
+                &Shape::Circle {
+                    cx: x,
+                    cy: 50.,
+                    radius: 1.
+                },
+                Policy::GeometryIntersects
+            )
+            .len(),
+            1
+        );
+    }
+}

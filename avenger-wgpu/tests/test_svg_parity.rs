@@ -24,6 +24,14 @@ fn svg_parity_scenes_render_expected_coverage() {
             "render {} (browser reference: {})",
             case.name, case.browser_only
         );
+        let size = [case.scene.width, case.scene.height];
+        if canvas.dimensions().size != size {
+            canvas = pollster::block_on(PngCanvas::new(
+                CanvasDimensions { size, scale: 2.0 },
+                CanvasConfig::default(),
+            ))
+            .unwrap();
+        }
         canvas.set_scene(&case.scene).unwrap();
         let image = pollster::block_on(canvas.render()).unwrap();
         let svg = SvgRenderer::new().render_scene_graph(&case.scene).unwrap();
@@ -35,7 +43,7 @@ fn svg_parity_scenes_render_expected_coverage() {
         }
         if !case.browser_only {
             let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default()).unwrap();
-            let mut pixels = resvg::tiny_skia::Pixmap::new(840, 480).unwrap();
+            let mut pixels = resvg::tiny_skia::Pixmap::new(image.width(), image.height()).unwrap();
             resvg::render(
                 &tree,
                 resvg::tiny_skia::Transform::from_scale(2.0, 2.0),
@@ -50,7 +58,7 @@ fn svg_parity_scenes_render_expected_coverage() {
                 .filter(|(a, b)| a.0.into_iter().zip(b.0).any(|(a, b)| a.abs_diff(b) > 20))
                 .count();
             assert!(
-                large < 840 * 480 / 100,
+                large < image.pixels().len() / 100,
                 "{}: {large} pixels differ beyond edge tolerance",
                 case.name
             );
