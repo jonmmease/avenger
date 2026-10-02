@@ -106,6 +106,8 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
             if #[cfg(target_arch = "wasm32")] {
                 let app_clone = self.avenger_app.clone();
                 let canvas_shared = self.canvas.clone();
+                let text_agent = self.text_agent.clone();
+                let wake_scheduler = self.wake_scheduler.clone();
                 let invalidation_epoch = invalidation.epoch;
                 let hub_epoch_before = self
                     .render_invalidation_hub
@@ -137,6 +139,9 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
                         log::error!("Failed to set invalidated scene graph: {err:?}");
                         return;
                     }
+                    drop(canvas_borrowed);
+                    let commands = app_clone.borrow_mut().take_host_commands();
+                    apply_browser_host_commands(commands, &wake_scheduler, &canvas_shared, &text_agent);
                     tracing::debug!(
                         target: "avenger_winit_wgpu::resize",
                         epoch = invalidation_epoch,
@@ -188,6 +193,8 @@ impl<State: Clone + Send + Sync + 'static> WinitWgpuAvengerApp<State> {
                     );
                     self.render_pending = true;
                 }
+                let commands = self.avenger_app.borrow_mut().take_host_commands();
+                self.apply_runtime_host_commands(commands);
                 true
             }
         }
