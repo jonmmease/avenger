@@ -7,12 +7,12 @@ This directory contains examples demonstrating how to use the various scale type
 To run any example, use:
 
 ```bash
-cargo run --example <example_name>
+cargo run --release --example <example_name>
 ```
 
 For example:
 ```bash
-cargo run --example linear_scale
+cargo run --release --example linear_scale
 ```
 
 ## Example Overview

@@ -220,15 +220,31 @@ let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 
 ## Number Formatting
 
-Built-in number formatting with D3-style format strings:
-```rust
-use avenger_scales::format_num::NumberFormat;
+Number labels require an explicitly prepared formatter and preserve binary64 values through formatting. The example selects D3.
 
-let formatter = NumberFormat::new();
-assert_eq!(formatter.format(".2f", 3.14159), "3.14");
-assert_eq!(formatter.format(".0%", 0.123), "12%");
-assert_eq!(formatter.format(".2s", 42000000), "42M");
+```rust
+use avenger_scales::formatter::{NumberFormatAdapter, NumberLabelContext};
+use avenger_format_number_d3::D3NumberFormatConfig;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = NumberFormatAdapter::d3(D3NumberFormatConfig::new());
+    let formatter = adapter.prepare(Some(".2f"), NumberLabelContext::Continuous)?;
+    assert_eq!(formatter.format(3.14159).text, "3.14");
+    Ok(())
+}
 ```
+
+`NumberLabelContext::Ticks` supplies the selected step and reference magnitude.
+The adapter derives precision for that preparation without changing shared settings.
+See [avenger-format-number-d3](../avenger-format-number-d3/README.md) for locale definitions and scalar formatting.
+
+Datetime scales use `DateTimeFormatAdapter::d3` or `DateTimeFormatAdapter::chrono`.
+An explicit pattern prepares a scalar formatter. An omitted pattern selects calendar
+labels from `TimeMultiFormatSpec`. Locale and display timezone come from the provider's
+typed configuration.
+
+Pass `ScaleFormatting` to `ConfiguredScale::with_formatting` for axes, and use
+`ScaleFormatting::configure_text_engine` to give text markup the same settings.
 
 ## Examples
 
@@ -243,8 +259,8 @@ The `examples/` directory contains comprehensive examples:
 
 Run examples with:
 ```bash
-cargo run --example linear_scale
-cargo run --example color_scales
+cargo run --release --example linear_scale
+cargo run --release --example color_scales
 ```
 
 ## Contributing

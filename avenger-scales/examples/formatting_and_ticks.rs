@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_scales::scales::linear::LinearScale;
 use chrono::{DateTime, NaiveDate, Utc};
-use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Formatting and Tick Generation Examples ===\n");
@@ -9,7 +10,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Numeric Formatting
     println!("1. Number Formatting:");
 
-    let scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
+    let mut scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
+
+    use avenger_format::NumberFormatProvider;
+    scale.config.context.formatters.number = Some(
+        avenger_format_number_d3::D3NumberFormatProvider
+            .prepare(&avenger_format_number_d3::D3NumberFormatConfig::new(), "")?,
+    );
 
     let numbers = vec![0.0, 123.456, 1000.0, 10000.0, 0.00123];
     let number_array = Arc::new(Float32Array::from(numbers.clone())) as ArrayRef;
@@ -24,12 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Format specific numbers with different precision
     let precision_numbers = vec![
-        Some(std::f32::consts::PI),
-        Some(std::f32::consts::E),
+        Some(std::f64::consts::PI),
+        Some(std::f64::consts::E),
         None,
-        Some(std::f32::consts::SQRT_2),
+        Some(std::f64::consts::SQRT_2),
     ];
-    let formatted_precision = scale.format_numbers(&precision_numbers);
+    let formatted_precision = scale.format_numbers(&precision_numbers)?;
     let precision_strings = formatted_precision.as_vec(precision_numbers.len(), None);
 
     println!("\nNumber formatting with Some/None values:");
@@ -50,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(NaiveDate::from_ymd_opt(2024, 12, 25).unwrap()),
     ];
 
-    let formatted_dates = scale.format_dates(&dates);
+    let formatted_dates = scale.format_dates(&dates)?;
     let date_strings = formatted_dates.as_vec(dates.len(), None);
 
     println!("Date formatting:");
@@ -71,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DateTime::from_timestamp(1704067200, 0).map(|dt| dt.naive_utc()), // 2024-01-01 00:00:00
     ];
 
-    let formatted_timestamps = scale.format_timestamps(&timestamps);
+    let formatted_timestamps = scale.format_timestamps(&timestamps)?;
     let timestamp_strings = formatted_timestamps.as_vec(timestamps.len(), None);
 
     println!("Timestamp formatting:");
@@ -95,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(base_time + chrono::Duration::days(365)),
     ];
 
-    let formatted_timestamptz = scale.format_timestamptz(&timestamptz_values);
+    let formatted_timestamptz = scale.format_timestamptz(&timestamptz_values)?;
     let timestamptz_strings = formatted_timestamptz.as_vec(timestamptz_values.len(), None);
 
     println!("Timezone-aware timestamp formatting:");
