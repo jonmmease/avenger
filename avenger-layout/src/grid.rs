@@ -1,0 +1,691 @@
+//! Grid track requirements and solving.
+//!
+//! This is the general solver: rectangular slots with row/column spans, track
+//! sizes derived from content, and one gap rule shared by every consumer:
+//! `gap(i, i + 1) = max(min_gap, trailing[i].total + leading[i + 1].total)`.
+
+use crate::geometry::{Edges, Size};
+use crate::region::EdgeGrant;
+
+/// Two-dimensional grid track count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GridShape {
+    pub rows: usize,
+    pub columns: usize,
+}
+
+/// Rectangular slot occupied by one child in a grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GridSlot {
+    pub row: usize,
+    pub column: usize,
+    pub row_span: usize,
+    pub column_span: usize,
+}
+
+impl GridSlot {
+    /// Exclusive end row, saturated at `usize::MAX` for an invalid span.
+    pub fn row_end(self) -> usize {
+        self.row.saturating_add(self.row_span)
+    }
+
+    /// Exclusive end column, saturated at `usize::MAX` for an invalid span.
+    pub fn column_end(self) -> usize {
+        self.column.saturating_add(self.column_span)
+    }
+
+    pub(crate) fn fits(self, shape: GridShape) -> bool {
+        self.row_span > 0
+            && self.column_span > 0
+            && self
+                .row
+                .checked_add(self.row_span)
+                .is_some_and(|end| end <= shape.rows)
+            && self
+                .column
+                .checked_add(self.column_span)
+                .is_some_and(|end| end <= shape.columns)
+    }
+}
+
+/// Content and edge demand exported by one grid child.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridItem {
+    pub slot: GridSlot,
+    pub content_size: Size,
+    pub guide_edges: Edges<f32>,
+    pub legend_edges: Edges<f32>,
+    pub total_edges: Edges<f32>,
+}
+
+/// Per-axis spacing policy for a sequence of grid tracks.
+///
+/// `min_gap` is the floor applied to every inter-track gap:
+/// `gap(i, i+1) = max(min_gap, trailing[i].total + leading[i+1].total)`.
+/// The first track's leading edge and the last track's trailing edge stay
+/// excluded from the content extent (they overlap container overflow).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TrackSpacing {
+    pub outer_start: f32,
+    pub outer_end: f32,
+    pub min_gap: f32,
+}
+
+impl TrackSpacing {
+    pub fn merge_max(self, other: Self) -> Self {
+        Self {
+            outer_start: self.outer_start.max(other.outer_start),
+            outer_end: self.outer_end.max(other.outer_end),
+            min_gap: self.min_gap.max(other.min_gap),
+        }
+    }
+}
+
+/// Effective gap between adjacent tracks `i` and `i + 1` on one axis.
+#[inline]
+fn track_gap(trailing_total: f32, leading_total: f32, min_gap: f32) -> f32 {
+    (trailing_total + leading_total).max(min_gap.max(0.0))
+}
+
+/// Track sizes and edge requirements needed to align one measured grid.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridRequirements {
+    pub column_spacing: TrackSpacing,
+    pub row_spacing: TrackSpacing,
+    pub column_widths: Vec<f32>,
+    pub row_heights: Vec<f32>,
+    pub column_left: Vec<EdgeGrant>,
+    pub column_right: Vec<EdgeGrant>,
+    pub row_top: Vec<EdgeGrant>,
+    pub row_bottom: Vec<EdgeGrant>,
+}
+
+/// Solved track starts and effective content size for one grid.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridSolution {
+    pub column_spacing: TrackSpacing,
+    pub row_spacing: TrackSpacing,
+    pub column_widths: Vec<f32>,
+    pub row_heights: Vec<f32>,
+    pub column_left: Vec<EdgeGrant>,
+    pub column_right: Vec<EdgeGrant>,
+    pub row_top: Vec<EdgeGrant>,
+    pub row_bottom: Vec<EdgeGrant>,
+    pub column_starts: Vec<f32>,
+    pub row_starts: Vec<f32>,
+    pub content_size: Size,
+}
+
+fn grid_edge_demand(demand: &GridItem, side: crate::geometry::Side) -> EdgeGrant {
+    use crate::geometry::Side;
+    match side {
+        Side::Top => EdgeGrant::new(
+            demand.guide_edges.top,
+            demand.legend_edges.top,
+            demand.total_edges.top,
+        ),
+        Side::Right => EdgeGrant::new(
+            demand.guide_edges.right,
+            demand.legend_edges.right,
+            demand.total_edges.right,
+        ),
+        Side::Bottom => EdgeGrant::new(
+            demand.guide_edges.bottom,
+            demand.legend_edges.bottom,
+            demand.total_edges.bottom,
+        ),
+        Side::Left => EdgeGrant::new(
+            demand.guide_edges.left,
+            demand.legend_edges.left,
+            demand.total_edges.left,
+        ),
+    }
+}
+
+impl GridRequirements {
+    /// Derive requirements from slots already checked by `Layout::solve`.
+    pub(crate) fn from_items(
+        shape: GridShape,
+        base_cell_size: Size,
+        demands: &[GridItem],
+    ) -> GridRequirements {
+        use crate::geometry::Side;
+
+        let mut requirements = GridRequirements {
+            column_spacing: TrackSpacing::default(),
+            row_spacing: TrackSpacing::default(),
+            column_widths: vec![base_cell_size.width; shape.columns],
+            row_heights: vec![base_cell_size.height; shape.rows],
+            column_left: vec![EdgeGrant::default(); shape.columns],
+            column_right: vec![EdgeGrant::default(); shape.columns],
+            row_top: vec![EdgeGrant::default(); shape.rows],
+            row_bottom: vec![EdgeGrant::default(); shape.rows],
+        };
+
+        for demand in demands {
+            let slot = demand.slot;
+            let last_row = slot.row_end() - 1;
+            let last_column = slot.column_end() - 1;
+            requirements.column_left[slot.column] = requirements.column_left[slot.column]
+                .max_components(grid_edge_demand(demand, Side::Left));
+            requirements.column_right[last_column] = requirements.column_right[last_column]
+                .max_components(grid_edge_demand(demand, Side::Right));
+            requirements.row_top[slot.row] =
+                requirements.row_top[slot.row].max_components(grid_edge_demand(demand, Side::Top));
+            requirements.row_bottom[last_row] = requirements.row_bottom[last_row]
+                .max_components(grid_edge_demand(demand, Side::Bottom));
+
+            if slot.column_span == 1 {
+                requirements.column_widths[slot.column] =
+                    requirements.column_widths[slot.column].max(demand.content_size.width);
+            }
+            if slot.row_span == 1 {
+                requirements.row_heights[slot.row] =
+                    requirements.row_heights[slot.row].max(demand.content_size.height);
+            }
+        }
+
+        requirements
+    }
+
+    /// Solve track starts, span constraints, and content size for one grid,
+    /// with optional per-track growth kinds: span deficits distribute to
+    /// `Auto` tracks first, then `Flex`, never `Fixed`. `None` treats every
+    /// track as `Auto`. Span growth updates these requirements so later
+    /// sharing and allocation use the solved floors.
+    pub(crate) fn solve_with_growth(
+        &mut self,
+        demands: &[GridItem],
+        column_growth: Option<&[TrackGrowth]>,
+        row_growth: Option<&[TrackGrowth]>,
+        uniform: [bool; 2],
+    ) -> GridSolution {
+        let requirements = self;
+
+        let column_widths = &mut requirements.column_widths;
+        let row_heights = &mut requirements.row_heights;
+        let column_right_totals = edge_demand_totals(&requirements.column_right);
+        let column_left_totals = edge_demand_totals(&requirements.column_left);
+        let row_bottom_totals = edge_demand_totals(&requirements.row_bottom);
+        let row_top_totals = edge_demand_totals(&requirements.row_top);
+
+        satisfy_span_axis_constraints(
+            column_widths,
+            &column_right_totals,
+            &column_left_totals,
+            requirements.column_spacing.min_gap,
+            column_growth,
+            uniform[0],
+            demands
+                .iter()
+                .map(|demand| AxisSpanConstraint {
+                    start: demand.slot.column,
+                    span: demand.slot.column_span,
+                    target: demand.content_size.width,
+                })
+                .collect(),
+        );
+        satisfy_span_axis_constraints(
+            row_heights,
+            &row_bottom_totals,
+            &row_top_totals,
+            requirements.row_spacing.min_gap,
+            row_growth,
+            uniform[1],
+            demands
+                .iter()
+                .map(|demand| AxisSpanConstraint {
+                    start: demand.slot.row,
+                    span: demand.slot.row_span,
+                    target: demand.content_size.height,
+                })
+                .collect(),
+        );
+
+        let (column_starts, content_width) = track_starts_and_content_size(
+            column_widths,
+            &column_right_totals,
+            &column_left_totals,
+            requirements.column_spacing,
+        );
+        let (row_starts, content_height) = track_starts_and_content_size(
+            row_heights,
+            &row_bottom_totals,
+            &row_top_totals,
+            requirements.row_spacing,
+        );
+
+        GridSolution {
+            column_spacing: requirements.column_spacing,
+            row_spacing: requirements.row_spacing,
+            column_widths: column_widths.clone(),
+            row_heights: row_heights.clone(),
+            column_left: requirements.column_left.clone(),
+            column_right: requirements.column_right.clone(),
+            row_top: requirements.row_top.clone(),
+            row_bottom: requirements.row_bottom.clone(),
+            column_starts,
+            row_starts,
+            content_size: Size::new(content_width, content_height),
+        }
+    }
+}
+
+/// Collect the `total` component of each edge demand.
+pub(crate) fn edge_demand_totals(edges: &[EdgeGrant]) -> Vec<f32> {
+    edges.iter().map(|edge| edge.total).collect()
+}
+
+/// How one track may absorb distributed space (span deficits, stretch).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrackGrowth {
+    Auto,
+    Flex,
+    Fixed,
+}
+
+#[derive(Clone, Debug)]
+struct AxisSpanConstraint {
+    start: usize,
+    span: usize,
+    target: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn satisfy_span_axis_constraints(
+    sizes: &mut [f32],
+    trailing_edges: &[f32],
+    leading_edges: &[f32],
+    min_gap: f32,
+    growth: Option<&[TrackGrowth]>,
+    uniform: bool,
+    mut constraints: Vec<AxisSpanConstraint>,
+) {
+    if uniform {
+        let size = sizes.iter().copied().fold(0.0f32, f32::max);
+        sizes.fill(size);
+    }
+    constraints.sort_by_key(|constraint| constraint.span);
+    for constraint in constraints {
+        let current = span_axis_extent(
+            sizes,
+            trailing_edges,
+            leading_edges,
+            min_gap,
+            constraint.start,
+            constraint.span,
+        );
+        let deficit = constraint.target - current;
+        if deficit <= 0.0 {
+            continue;
+        }
+        if uniform {
+            let extra = deficit / constraint.span as f32;
+            for size in sizes.iter_mut() {
+                *size += extra;
+            }
+            continue;
+        }
+        let range = constraint.start..constraint.start + constraint.span;
+        // Deficits prefer Auto tracks, then Flex, never Fixed.
+        let growable: Vec<usize> = match growth {
+            None => range.collect(),
+            Some(growth) => {
+                let of_kind = |kind: TrackGrowth| -> Vec<usize> {
+                    range
+                        .clone()
+                        .filter(|&index| {
+                            growth.get(index).copied().unwrap_or(TrackGrowth::Auto) == kind
+                        })
+                        .collect()
+                };
+                let auto = of_kind(TrackGrowth::Auto);
+                if !auto.is_empty() {
+                    auto
+                } else {
+                    of_kind(TrackGrowth::Flex)
+                }
+            }
+        };
+        if growable.is_empty() {
+            continue; // all Fixed: the spanning item overflows.
+        }
+        let extra_per_track = deficit / growable.len() as f32;
+        for index in growable {
+            sizes[index] += extra_per_track;
+        }
+    }
+}
+
+/// Extent of a span of tracks including the inter-track gaps it crosses.
+pub(crate) fn span_axis_extent(
+    sizes: &[f32],
+    trailing_edges: &[f32],
+    leading_edges: &[f32],
+    min_gap: f32,
+    start: usize,
+    span: usize,
+) -> f32 {
+    let end = start + span;
+    let track_sum = sizes[start..end].iter().sum::<f32>();
+    let gap_sum = (start..end.saturating_sub(1))
+        .map(|index| track_gap(trailing_edges[index], leading_edges[index + 1], min_gap))
+        .sum::<f32>();
+    track_sum + gap_sum
+}
+
+fn track_starts_and_content_size(
+    sizes: &[f32],
+    trailing_edges: &[f32],
+    leading_edges: &[f32],
+    spacing: TrackSpacing,
+) -> (Vec<f32>, f32) {
+    let mut starts = vec![0.0f32; sizes.len()];
+    let mut cursor = spacing.outer_start.max(0.0);
+    for index in 0..sizes.len() {
+        if index > 0 {
+            cursor += track_gap(
+                trailing_edges[index - 1],
+                leading_edges[index],
+                spacing.min_gap,
+            );
+        }
+        starts[index] = cursor;
+        cursor += sizes[index];
+    }
+    (starts, cursor + spacing.outer_end.max(0.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grid_item(
+        row: usize,
+        column: usize,
+        row_span: usize,
+        column_span: usize,
+        content_size: Size,
+        total_edges: Edges<f32>,
+    ) -> GridItem {
+        grid_item_with_edges(
+            row,
+            column,
+            row_span,
+            column_span,
+            content_size,
+            Edges::default(),
+            Edges::default(),
+            total_edges,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn grid_item_with_edges(
+        row: usize,
+        column: usize,
+        row_span: usize,
+        column_span: usize,
+        content_size: Size,
+        guide_edges: Edges<f32>,
+        legend_edges: Edges<f32>,
+        total_edges: Edges<f32>,
+    ) -> GridItem {
+        GridItem {
+            slot: GridSlot {
+                row,
+                column,
+                row_span,
+                column_span,
+            },
+            content_size,
+            guide_edges,
+            legend_edges,
+            total_edges,
+        }
+    }
+
+    #[test]
+    fn grid_solver_matches_non_spanning_grid_placement() {
+        let shape = GridShape {
+            rows: 2,
+            columns: 2,
+        };
+        let demands = vec![
+            grid_item(
+                0,
+                0,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(1.0, 5.0, 2.0, 3.0),
+            ),
+            grid_item(
+                0,
+                1,
+                1,
+                1,
+                Size::new(120.0, 50.0),
+                Edges::new(1.0, 4.0, 2.0, 7.0),
+            ),
+            grid_item(
+                1,
+                0,
+                1,
+                1,
+                Size::new(100.0, 60.0),
+                Edges::new(9.0, 5.0, 2.0, 3.0),
+            ),
+        ];
+
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands);
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        assert_eq!(solution.column_widths, vec![100.0, 120.0]);
+        assert_eq!(solution.row_heights, vec![50.0, 60.0]);
+        assert_eq!(solution.column_starts, vec![0.0, 112.0]);
+        assert_eq!(solution.row_starts, vec![0.0, 61.0]);
+        assert_eq!(solution.content_size, Size::new(232.0, 121.0));
+    }
+
+    #[test]
+    fn grid_solver_preserves_outer_offsets() {
+        let shape = GridShape {
+            rows: 1,
+            columns: 1,
+        };
+        let demands = vec![grid_item(
+            0,
+            0,
+            1,
+            1,
+            Size::new(100.0, 50.0),
+            Edges::default(),
+        )];
+
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands);
+        requirements.column_spacing = TrackSpacing {
+            outer_start: 3.0,
+            outer_end: 7.0,
+            min_gap: 0.0,
+        };
+        requirements.row_spacing = TrackSpacing {
+            outer_start: 5.0,
+            outer_end: 11.0,
+            min_gap: 0.0,
+        };
+
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        assert_eq!(solution.column_starts, vec![3.0]);
+        assert_eq!(solution.row_starts, vec![5.0]);
+        assert_eq!(solution.content_size, Size::new(110.0, 66.0));
+    }
+
+    #[test]
+    fn grid_solver_preserves_hole_track_positions() {
+        let shape = GridShape {
+            rows: 2,
+            columns: 3,
+        };
+        let demands = vec![
+            grid_item(0, 0, 1, 1, Size::new(100.0, 100.0), Edges::default()),
+            grid_item(1, 2, 1, 1, Size::new(100.0, 100.0), Edges::default()),
+        ];
+
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 100.0), &demands);
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        assert_eq!(solution.column_starts, vec![0.0, 100.0, 200.0]);
+        assert_eq!(solution.row_starts, vec![0.0, 100.0]);
+        assert_eq!(solution.content_size, Size::new(300.0, 200.0));
+    }
+
+    #[test]
+    fn grid_solver_satisfies_span_interval_constraints() {
+        let shape = GridShape {
+            rows: 1,
+            columns: 3,
+        };
+        let demands = vec![
+            grid_item(
+                0,
+                0,
+                1,
+                3,
+                Size::new(190.0, 50.0),
+                Edges::new(1.0, 6.0, 2.0, 4.0),
+            ),
+            grid_item(
+                0,
+                1,
+                1,
+                1,
+                Size::new(50.0, 50.0),
+                Edges::new(0.0, 3.0, 0.0, 2.0),
+            ),
+        ];
+
+        let mut requirements = GridRequirements::from_items(shape, Size::new(50.0, 50.0), &demands);
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        assert_eq!(
+            edge_demand_totals(&solution.column_left),
+            vec![4.0, 2.0, 0.0]
+        );
+        assert_eq!(
+            edge_demand_totals(&solution.column_right),
+            vec![0.0, 3.0, 6.0]
+        );
+        let column_right_totals = edge_demand_totals(&solution.column_right);
+        let column_left_totals = edge_demand_totals(&solution.column_left);
+        let spanned_width = span_axis_extent(
+            &solution.column_widths,
+            &column_right_totals,
+            &column_left_totals,
+            solution.column_spacing.min_gap,
+            0,
+            3,
+        );
+        assert!((spanned_width - 190.0).abs() < 0.0001);
+        assert_eq!(solution.column_starts[1], solution.column_widths[0] + 2.0);
+        assert_eq!(
+            solution.column_starts[2],
+            solution.column_widths[0] + 2.0 + solution.column_widths[1] + 3.0
+        );
+        assert!((solution.content_size.width - 190.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn min_gap_floors_inter_track_gaps() {
+        let shape = GridShape {
+            rows: 1,
+            columns: 3,
+        };
+        let demands = vec![
+            grid_item(
+                0,
+                0,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(0.0, 2.0, 0.0, 0.0),
+            ),
+            grid_item(
+                0,
+                1,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(0.0, 9.0, 0.0, 3.0),
+            ),
+            grid_item(
+                0,
+                2,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(0.0, 0.0, 0.0, 4.0),
+            ),
+        ];
+
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands);
+        requirements.column_spacing.min_gap = 10.0;
+
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        // First pair: edge demand 2.0 + 3.0 = 5.0 < min_gap 10.0 -> floored.
+        // Second pair: edge demand 9.0 + 4.0 = 13.0 > min_gap 10.0 -> demand wins.
+        assert_eq!(solution.column_starts, vec![0.0, 110.0, 223.0]);
+        assert_eq!(solution.content_size.width, 323.0);
+    }
+
+    #[test]
+    fn min_gap_participates_in_span_extents() {
+        let shape = GridShape {
+            rows: 1,
+            columns: 2,
+        };
+        let demands = vec![
+            grid_item(0, 0, 1, 2, Size::new(250.0, 50.0), Edges::default()),
+            grid_item(
+                0,
+                0,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(0.0, 1.0, 0.0, 0.0),
+            ),
+            grid_item(
+                0,
+                1,
+                1,
+                1,
+                Size::new(100.0, 50.0),
+                Edges::new(0.0, 0.0, 0.0, 2.0),
+            ),
+        ];
+
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands);
+        requirements.column_spacing.min_gap = 8.0;
+
+        let solution = requirements.solve_with_growth(&demands, None, None, [false; 2]);
+
+        // The floored gap (max(8.0, 1.0 + 2.0) = 8.0) counts toward the span
+        // target of 250.0, so each track absorbs (250 - 200 - 8) / 2 = 21.0.
+        assert_eq!(solution.column_widths, vec![121.0, 121.0]);
+        assert_eq!(solution.column_starts, vec![0.0, 129.0]);
+        assert_eq!(solution.content_size.width, 250.0);
+
+        // Slot content size agrees with the positional distance from span
+        // start to span end content edge.
+        let positional_extent =
+            solution.column_starts[1] + solution.column_widths[1] - solution.column_starts[0];
+        assert!((positional_extent - 250.0).abs() < 0.0001);
+    }
+}
