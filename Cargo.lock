@@ -557,6 +557,7 @@ dependencies = [
  "rstar 0.13.0",
  "serde_json",
  "thiserror 2.0.12",
+ "tracing",
 ]
 
 [[package]]

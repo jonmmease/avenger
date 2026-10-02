@@ -8,8 +8,8 @@ use crate::{error::AvengerScaleError, scalar::Scalar};
 
 use super::{
     linear::{LinearScale, NormalizationConfig},
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
-    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionConstraint,
+    OptionDefinition, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Quantize scale that divides a continuous numeric domain into uniform segments,
@@ -165,6 +165,51 @@ impl ScaleImpl for QuantizeScale {
         )?;
 
         Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
+
+    fn legend_entries(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<Option<Vec<LegendEntry>>, AvengerScaleError> {
+        // Get the normalized domain (after applying nice/zero)
+        let Ok(interval_domain) = config.numeric_interval_domain() else {
+            return Ok(None);
+        };
+        let (min, max) = match QuantizeScale::apply_normalization(
+            interval_domain,
+            config.options.get("zero"),
+            config.options.get("nice"),
+        ) {
+            Ok(domain) => domain,
+            Err(_) => return Ok(None),
+        };
+
+        let n_bins = config.range.len();
+        if n_bins == 0 {
+            return Ok(None);
+        }
+
+        let step = (max - min) / n_bins as f32;
+
+        // Use the formatter to format bin boundary values
+        let formatter = config.context.formatters.number()?;
+
+        let entries: Vec<LegendEntry> = (0..n_bins)
+            .map(|i| {
+                let start = min + (i as f32) * step;
+                let end = min + ((i + 1) as f32) * step;
+
+                let formatted_start = formatter.format(start as f64);
+                let formatted_end = formatter.format(end as f64);
+
+                LegendEntry {
+                    label: format!("{} - {}", formatted_start.text, formatted_end.text),
+                    representative_value: Scalar::from((start + end) / 2.0),
+                }
+            })
+            .collect();
+
+        Ok(Some(entries))
     }
 }
 
