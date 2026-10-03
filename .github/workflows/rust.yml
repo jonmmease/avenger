@@ -52,4 +52,4 @@ jobs:
       - name: Check browser examples
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit
+          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu

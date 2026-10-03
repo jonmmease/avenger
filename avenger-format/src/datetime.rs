@@ -25,19 +25,22 @@ impl fmt::Display for DateTimeInputKind {
 /// Shared error categories for datetime providers, with backend diagnostic details.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DateTimeFormatError {
-    /// The pattern parser rejected the syntax.
-    #[error("invalid datetime pattern{}: {message}", .position.map(|p| format!(" at byte {p}")).unwrap_or_default())]
+    /// The format specification has invalid syntax.
+    #[error("invalid datetime format specification{}: {message}", .position.map(|p| format!(" at byte {p}")).unwrap_or_default())]
     InvalidPattern {
         message: String,
         /// Zero-based byte offset reported by the backend, or `None` when unavailable.
         position: Option<usize>,
     },
-    /// The parsed pattern cannot format the requested input type.
-    #[error("unsupported pattern for {input} input: {message}")]
+    /// The format specification cannot format the requested input type or field combination.
+    #[error("unsupported format specification for {input} input: {message}")]
     UnsupportedPattern {
         input: DateTimeInputKind,
         message: String,
     },
+    /// A provider or format option has an unsupported value.
+    #[error("invalid datetime format option `{option}`: {message}")]
+    InvalidOption { option: String, message: String },
     /// The locale is unknown, unregistered, or disabled by a build feature.
     #[error("locale `{locale}` is unavailable: {message}")]
     LocaleUnavailable { locale: String, message: String },
@@ -54,31 +57,31 @@ pub enum DateTimeFormatError {
     #[error("datetime exceeds the supported calendar range")]
     OutOfRange,
     /// Rendering failed without a more specific diagnosis from the backend.
-    #[error("datetime cannot be rendered with the prepared pattern")]
+    #[error("datetime cannot be rendered with the prepared format specification")]
     FormattingFailed,
 }
 
-/// Prepare explicit patterns using the provider's locale and formatting settings.
+/// Prepare explicit format specifications using the provider's locale and formatting settings.
 /// Prepared formatters retain resolved settings independently of the provider.
 pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
     /// Prepare for calendar dates, rejecting time, epoch, and timezone fields.
     /// The provider's display timezone does not affect the date.
     fn prepare_date(
         &self,
-        pattern: &str,
+        spec: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError>;
 
     /// Prepare for naive datetimes, rejecting epoch and timezone fields.
     /// The provider's display timezone does not affect the calendar fields.
     fn prepare_naive(
         &self,
-        pattern: &str,
+        spec: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError>;
 
     /// Prepare for UTC datetimes displayed in the provider's timezone.
     fn prepare_zoned(
         &self,
-        pattern: &str,
+        spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
 }
 

@@ -5,6 +5,7 @@ members = [
     "avenger-format-number-d3",
     "avenger-format-datetime-d3",
     "avenger-format-datetime-chrono",
+    "avenger-format-datetime-icu",
     "avenger-scenegraph",
     "avenger-vega-scenegraph",
     "avenger-wgpu",
