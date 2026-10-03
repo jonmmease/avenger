@@ -312,7 +312,33 @@ fn zoned_formatting_uses_per_value_offsets_and_names() {
 }
 
 #[test]
+fn unavailable_locales_fail_during_preparation() {
+    for locale in ["xx", "frr-FR"] {
+        let provider = IcuSemanticDateTimeFormatProvider::new().with_locale(locale);
+        for error in [
+            provider.prepare_date("{dateFields=year-month-day}").err(),
+            provider.prepare_naive("{timePrecision=minute}").err(),
+            provider
+                .prepare_zoned("{timePrecision=minute timeZoneStyle=short}")
+                .err(),
+        ] {
+            assert!(
+                matches!(&error, Some(DateTimeFormatError::LocaleUnavailable { locale: actual, .. }) if actual == locale),
+                "{locale}: {error:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_are_validated_and_serialized() {
+    for locale in ["fr-FR", "fr_FR", "fr-XX"] {
+        let formatter = IcuSemanticDateTimeFormatProvider::new()
+            .with_locale(locale)
+            .prepare_date("{dateFields=month dateLength=long}")
+            .unwrap();
+        assert_eq!(formatter.format(date(2024, 3, 1)).unwrap(), "mars");
+    }
     let provider = IcuSemanticDateTimeFormatProvider::new()
         .with_locale("en-US")
         .with_calendar(CalendarAlgorithm::Hebrew)

@@ -1,8 +1,13 @@
 use avenger_format::DateTimeFormatError;
 use icu_calendar::{preferences::CalendarAlgorithm, AnyCalendarKind};
-use icu_datetime::DateTimeFormatterPreferences;
+use icu_datetime::{
+    provider::{names::DatetimeNamesWeekdayV1, semantic_skeletons::marker_attrs::WIDE, Baked},
+    DateTimeFormatterPreferences,
+};
 use icu_locale_core::Locale;
-use icu_provider::{DataError, DataErrorKind};
+use icu_provider::{
+    DataError, DataErrorKind, DataIdentifierBorrowed, DataMarker, DataProvider, DataRequest,
+};
 
 /// Borrow provider settings while validating preferences and loading locale data.
 pub(crate) struct Settings<'a> {
@@ -21,12 +26,38 @@ impl Settings<'_> {
             .map_err(|error| self.locale_error(error.to_string()))?;
         let mut prefs = DateTimeFormatterPreferences::from_locale_strict(&locale)
             .map_err(|_| self.locale_error("invalid Unicode locale preference".into()))?;
+        self.validate_locale(prefs)?;
         if let Some(calendar) = self.calendar {
             prefs.calendar_algorithm = Some(calendar);
         }
         let kind =
             AnyCalendarKind::try_new((&prefs).into()).map_err(|error| self.data_error(error))?;
         Ok((prefs, kind))
+    }
+
+    fn validate_locale(
+        &self,
+        prefs: DateTimeFormatterPreferences,
+    ) -> Result<(), DateTimeFormatError> {
+        // Wide weekday names provide calendar-independent localized data. ICU reports
+        // root fallback as a successful load, so check the resolved locale as well.
+        let locale = DatetimeNamesWeekdayV1::INFO.make_locale(prefs.locale_preferences);
+        let response = DataProvider::<DatetimeNamesWeekdayV1>::load(
+            &Baked,
+            DataRequest {
+                id: DataIdentifierBorrowed::for_marker_attributes_and_locale(WIDE, &locale),
+                ..Default::default()
+            },
+        )
+        .map_err(|error| self.data_error(error))?;
+        if response
+            .metadata
+            .locale
+            .is_some_and(|locale| locale.is_unknown())
+        {
+            return Err(self.locale_error("ICU has no localized datetime data".into()));
+        }
+        Ok(())
     }
 
     pub(crate) fn locale_name(&self) -> &str {

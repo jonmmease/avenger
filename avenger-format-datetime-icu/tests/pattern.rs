@@ -79,8 +79,25 @@ fn preparation_validates_fields_and_respects_literals() {
 }
 
 #[test]
+fn unavailable_locales_fail_during_preparation() {
+    for locale in ["xx", "frr-FR"] {
+        let provider = IcuPatternDateTimeFormatProvider::new().with_locale(locale);
+        for error in [
+            provider.prepare_date("MMM d, y").err(),
+            provider.prepare_naive("yyyy-MM-dd HH:mm").err(),
+            provider.prepare_zoned("yyyy-MM-dd HH:mm XXX").err(),
+        ] {
+            assert!(
+                matches!(&error, Some(DateTimeFormatError::LocaleUnavailable { locale: actual, .. }) if actual == locale),
+                "{locale}: {error:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_are_validated_and_serialized() {
-    for locale in ["fr-FR", "fr_FR"] {
+    for locale in ["fr-FR", "fr_FR", "fr-XX"] {
         let formatter = IcuPatternDateTimeFormatProvider::new()
             .with_locale(locale)
             .prepare_date("MMMM")
