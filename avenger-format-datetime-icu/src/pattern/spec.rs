@@ -2,7 +2,10 @@ use crate::unsupported;
 use avenger_format::{DateTimeFormatError, DateTimeInputKind};
 use icu_datetime::{pattern::DateTimePattern, provider::fields::FieldSymbol};
 
-/// Reject fields that ICU would otherwise render as literals or unknown offsets.
+/// Parse ICU4X's supported subset of Unicode datetime patterns for the input type.
+/// Reject unsupported fields that ICU4X would render as literals, including valid
+/// Unicode fields such as `w` and standalone `SSS`. Date inputs reject time fields,
+/// and Date and Naive inputs reject timezone fields.
 pub(super) fn parse(
     source: &str,
     input: DateTimeInputKind,
