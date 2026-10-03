@@ -1,9 +1,27 @@
-# Number formatter interfaces
+# Formatting interfaces
 
-`NumberFormatProvider` prepares a reusable `PreparedNumberFormatter` from a specifier, named options, locale configuration, and numeric context. Providers own their syntax and locale data. Callers receive `FormattedNumber`, which carries plain text and optional scientific-notation parts for a text renderer.
+Traits for preparing reusable number, date, and datetime formatters.
 
-`NumberFormatConfig` serializes a provider name, optional locale name, and custom locale definitions. Runtime providers are registered separately in `NumberFormatRegistry`. Provider selection is required. Create a configuration with `NumberFormatConfig::new("d3")` and register `D3NumberFormatProvider` from `avenger-format-number-d3` to use D3. Empty registries and unknown provider names return an error when preparing a formatter.
+Configure a provider, then pass a format string to its preparation method. Each provider defines its format syntax and locale settings. Prepared formatters retain those settings when the provider changes or is dropped.
 
-Callers choose tick spacing and pass it with a reference value through `NumberFormatContext::Step`. The provider selects precision and units without generating ticks. `Scalar`, `Continuous`, and `Discrete` contexts distinguish individual values, automatic precision, and numeric categories.
+`NumberFormatProvider` and `DateTimeFormatProvider` return prepared formatters through `Arc<dyn ...>`, so rendering code can use different providers through the same interface.
 
-Share a registry through `Arc`. To replace a provider, clone the registry and register the replacement. Existing prepared formatters and registry snapshots retain their behavior. Label caches should include `cache_id()` and the complete formatting configuration in their keys. Provider implementations must remain immutable after registration.
+| Preparation method | Prepared trait | Value passed to `format()` |
+| --- | --- | --- |
+| `prepare()` | `PreparedNumberFormatter` | `f64` |
+| `prepare_date()` | `PreparedDateFormatter` | `chrono::NaiveDate` |
+| `prepare_naive()` | `PreparedNaiveDateTimeFormatter` | `chrono::NaiveDateTime` |
+| `prepare_zoned()` | `PreparedZonedDateTimeFormatter` | `chrono::DateTime<chrono::Utc>` |
+
+Number formatting returns `FormattedNumber`, which contains the label text and optional mantissa and exponent parts for scientific notation. Formatting accepts all `f64` values, including NaN and infinity. Callers choose formats and tick spacing.
+
+Datetime preparation checks that the format is valid for its input type. Date formats reject time, epoch, and timezone fields. Naive datetime formats reject epoch and timezone fields. Date and naive formatters ignore the display timezone. Zoned formatters convert UTC datetimes to the configured display timezone.
+
+Chrono inputs use the proleptic Gregorian calendar. Providers can convert the display date to another calendar. Datetime formatting returns text or an error for an unsupported value or a date outside the supported range.
+
+Providers and usage examples are available in:
+
+- [D3 number formatting](../avenger-format-number-d3/README.md).
+- [D3 datetime formatting](../avenger-format-datetime-d3/README.md).
+- [Chrono datetime formatting](../avenger-format-datetime-chrono/README.md).
+- [ICU datetime formatting](../avenger-format-datetime-icu/README.md).

@@ -1,6 +1,6 @@
 # Formatting reference fixtures
 
-Generate Rust test expectations from D3 and Vega with Node 20.19.6:
+This tool generates number and datetime formatting fixtures from D3 and Vega. From the repository root, run these commands with Node 20.19.6:
 
 ```sh
 cd tools/format-reference
@@ -8,8 +8,12 @@ npm ci --ignore-scripts
 npm run generate
 ```
 
-The package lock pins the reference implementations. Rust tests consume the generated JSON without Node or network access. Review fixture changes together with dependency upgrades. The fixtures cover shared D3/Vega behavior. Rust tests separately check the float formatter's intentional trimming differences with custom numerals, affixes, and padding.
+The package lock pins the reference versions. The generator writes `tests/fixtures/upstream.json` in `avenger-format-number-d3` and `avenger-format-datetime-d3`. Rust tests read these files without Node or network access. Review fixture changes when updating dependencies.
 
-Step-format fixtures pair Vega's `formatSpan` output with the interval selected by D3's `tickStep`. Rust tests pass that interval and the largest endpoint magnitude to `prepare_number_step_format`.
+Number fixtures store each input's exact `f64` bits as hexadecimal text. Step-format fixtures record Vega's `formatSpan` output, D3's `tickStep` interval, and the largest endpoint magnitude.
 
-Number locale definitions come from d3-format 3.1.2. The generator reads the bundled `en-US` definition and the `de-DE`, `fr-FR`, and `ja-JP` definitions in `avenger-format-number-d3/tests/fixtures/locales/`. The upstream license is included beside both sets of locale files.
+Datetime fixtures cover D3 directives in UTC. Separate processes test selected patterns across display timezones and timezone transitions.
+
+The generator reads `en-US`, `de-DE`, `fr-FR`, and `ja-JP` from each crate's `locales/` directory. These definitions come from d3-format 3.1.2 and d3-time-format 4.1.0. Each directory includes the upstream license.
+
+Separate Rust tests cover pattern validation and Avenger's intentional differences from D3 and Vega, including `%j` calendar ordinals and automatic trimming before localization and padding.

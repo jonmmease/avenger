@@ -1,0 +1,14 @@
+[package]
+name = "avenger-format-datetime-d3"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+all-locales = []
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+chrono = { workspace = true }
+chrono-tz = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

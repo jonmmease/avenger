@@ -1,40 +1,41 @@
-# Number formatting
+# D3 number formatting
 
-`avenger-format-number-d3` implements valid D3 number formats with D3 locale definitions.
+`avenger-format-number-d3` formats `f64` values with [D3 number patterns](https://d3js.org/d3-format) and locale definitions. It implements the [number formatter interface](../avenger-format/README.md) from `avenger-format`.
 
 ```rust
-use avenger_format_number_d3::{NumberLocaleRegistry, PreparedNumberFormat};
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::D3NumberFormatProvider;
 
-fn main() -> Result<(), avenger_format_number_d3::FormatError> {
-    let locale = NumberLocaleRegistry::with_builtins().resolve("en-US")?;
-    let formatter = PreparedNumberFormat::new(
-        Some("$,.2f"),
-        Default::default(),
-        &locale,
-    )?;
+fn main() -> Result<(), avenger_format::NumberFormatError> {
+    let provider = D3NumberFormatProvider::new().with_locale("en-US");
+    let formatter = provider.prepare("$,.2f")?;
     assert_eq!(formatter.format(1234.5).text, "$1,234.50");
     Ok(())
 }
 ```
 
-Prepare a formatter once and reuse it for binary64 values. Decimal conversion uses exact integer arithmetic for ECMAScript rounding and `ryu-js` for shortest strings. Keep original `f64` values until formatting. Casting a value through `f32` can change its label.
+Prepare a formatter once and reuse it for multiple values. Set grouping, signs, currency symbols, padding, and precision in the pattern. D3's `$` symbol uses the selected locale's currency prefix and suffix.
 
-Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The crate bundles `en-US`. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
+The default locale is U.S. English (`en-US`). Enable `all-locales` to include all bundled D3 locales:
 
-`NumberFormatOverrides` replaces fields from a format string before defaults and zero padding are applied. For nullable fields, `Some(None)` clears the parsed value. D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
+```toml
+avenger-format-number-d3 = { version = "0.1", features = ["all-locales"] }
+```
 
-Resolved locales expose borrowed definitions. To customize a locale, clone `definition()`, edit the clone, and register it. Existing prepared formatters retain their resolved locale.
+Select a locale with `.with_locale("de-DE")`. Names accept hyphens or underscores. Add custom `NumberLocaleSpec` definitions with `with_custom_locale()`. Custom definitions take precedence over bundled definitions and work without `all-locales`.
 
-`prepare_number_step_format` selects precision from a supplied step's decimal order and a reference magnitude using D3's rules. The caller chooses the step. The reference is typically the largest magnitude to format. Automatic `s` formatting uses one SI unit for all labels.
+`with_precision()` selects a `D3NumberPrecision` policy:
 
-`prepare_number_prefix_format` fixes a D3 SI unit using a reference value. A zero or non-finite reference selects no SI prefix.
+- `FromSpecifier` uses D3's default precision when the pattern omits it.
+- `Automatic` uses Vega's automatic precision and trimming when the pattern omits precision.
+- `Step { step, reference_value }` derives precision from numeric spacing and a reference magnitude. Automatic `s` formatting uses one SI unit for all labels. Both values must be finite.
 
-`prepare_number_float_format` uses Vega's automatic precision rules. It intentionally trims the numeric significand before localization and padding. This preserves custom numerals, locale affixes, and field widths instead of reproducing Vega 2.1.3's trimming of the completed label, which can return blank labels for custom numerals. Explicit precision disables automatic trimming.
+Explicit precision in the pattern takes precedence. The caller chooses the step and reference value, usually the largest magnitude to format.
 
-`FormattedNumber` contains plain text and optional mantissa and exponent parts for scientific notation. Those parts use the same locale, signs, precision, and trimming as the text. Formats with affixes, padding, or custom numerals retain their plain representation.
+Automatic trimming removes trailing zeros before localization and padding. This intentionally differs from Vega 2.1.3 so that custom numerals, locale affixes, and field widths are preserved.
 
-The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.
+`FormattedNumber` contains the label text and optional mantissa and exponent parts for scientific notation. Formats with affixes, padding, or custom numerals use the text representation.
 
-The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access.
+Keep values as `f64` until formatting. Converting through `f32` can change the label. Prepared formatters also accept NaN and infinity.
 
-`D3NumberFormatProvider` implements the provider interface in `avenger-format`. Register it explicitly in a `NumberFormatRegistry` and select that name with `NumberFormatConfig::new("d3")`. Named options are `type` (or `style`), `precision`, `group`, `trim`, `sign`, `symbol`, `width`, `fill`, `align`, and `zero`. Their meanings match D3 specifier fields. Null restores automatic precision or clears an optional padding or symbol field. Other options are rejected.
+The locale files and license come from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale). The [reference generator](../tools/format-reference/README.md) produces compatibility fixtures from D3 and Vega.

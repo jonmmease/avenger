@@ -1,11 +1,11 @@
 use crate::{
-    error::ParseError,
     spec::{Align, FormatType, NumberFormatSpec, SignPolicy, Symbol},
+    NumberFormatError,
 };
 
 /// Parse a D3 specifier, reporting invalid input at its UTF-8 byte offset.
 /// Defaults and zero-padding normalization are applied during formatter preparation.
-pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
+pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, NumberFormatError> {
     let chars: Vec<(usize, char)> = spec.char_indices().collect();
     let mut i = 0;
     let mut parsed = NumberFormatSpec::default();
@@ -49,7 +49,7 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
             }
             let end = byte_end(spec, &chars, i);
             let width = spec[*start..end].parse::<usize>().map_err(|_| {
-                ParseError::invalid(chars[start_i].0, "width is too large to represent")
+                invalid_pattern(chars[start_i].0, "width is too large to represent")
             })?;
             parsed.width = Some(width);
         }
@@ -67,7 +67,7 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
             i += 1;
         }
         if precision_start == i {
-            return Err(ParseError::invalid(
+            return Err(invalid_pattern(
                 *dot_pos,
                 "precision requires one or more digits after `.`",
             ));
@@ -86,20 +86,27 @@ pub fn parse_number_spec(spec: &str) -> Result<NumberFormatSpec, ParseError> {
 
     if let Some((type_pos, ch)) = chars.get(i) {
         let format_type = FormatType::from_char(*ch).ok_or_else(|| {
-            ParseError::invalid(*type_pos, format!("unknown number format type `{ch}`"))
+            invalid_pattern(*type_pos, format!("unknown number format type `{ch}`"))
         })?;
         parsed.format_type = Some(format_type);
         i += 1;
     }
 
     if let Some((pos, _)) = chars.get(i) {
-        return Err(ParseError::invalid(
+        return Err(invalid_pattern(
             *pos,
             "trailing characters in format specifier",
         ));
     }
 
     Ok(parsed)
+}
+
+fn invalid_pattern(position: usize, message: impl Into<String>) -> NumberFormatError {
+    NumberFormatError::InvalidPattern {
+        position: Some(position),
+        message: message.into(),
+    }
 }
 
 fn byte_end(spec: &str, chars: &[(usize, char)], i: usize) -> usize {
@@ -109,7 +116,10 @@ fn byte_end(spec: &str, chars: &[(usize, char)], i: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::parse_number_spec;
-    use crate::spec::{Align, FormatType, SignPolicy, Symbol};
+    use crate::{
+        spec::{Align, FormatType, SignPolicy, Symbol},
+        NumberFormatError,
+    };
 
     #[test]
     fn parses_all_d3_fields() {
@@ -143,9 +153,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_specs_without_panicking() {
-        for spec in [".", ".x", "q", ".2E"] {
-            assert!(parse_number_spec(spec).is_err(), "{spec} should fail");
+    fn rejects_invalid_specs_at_byte_offsets() {
+        for (spec, position) in [
+            (".", 0),
+            (".x", 0),
+            ("q", 0),
+            (".2E", 2),
+            ("💠>.2q", 7),
+            (".2ff", 3),
+            ("9999999999999999999999999999999999999999f", 0),
+        ] {
+            assert!(
+                matches!(
+                    parse_number_spec(spec),
+                    Err(NumberFormatError::InvalidPattern { position: Some(actual), .. }) if actual == position
+                ),
+                "{spec} should fail at byte {position}"
+            );
         }
     }
 }
