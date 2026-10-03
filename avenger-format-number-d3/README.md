@@ -1,6 +1,6 @@
-# Number formatting
+# D3 number formatting
 
-`avenger-format-number-d3` implements valid D3 number formats with D3 locale definitions.
+`avenger-format-number-d3` formats `f64` values with [D3 number patterns](https://d3js.org/d3-format) and locale definitions. It implements the [number formatter interface](../avenger-format/README.md) from `avenger-format`.
 
 ```rust
 use avenger_format::NumberFormatProvider;
@@ -14,38 +14,28 @@ fn main() -> Result<(), avenger_format::NumberFormatError> {
 }
 ```
 
-Prepare a formatter once and reuse it for binary64 values. Decimal conversion uses exact integer arithmetic for ECMAScript rounding and `ryu-js` for shortest strings. Keep original `f64` values until formatting. Casting a value through `f32` can change its label.
+Prepare a formatter once and reuse it for multiple values. Set grouping, signs, currency symbols, padding, and precision in the pattern. D3's `$` symbol uses the selected locale's currency prefix and suffix.
 
-By default, the provider and `NumberLocaleRegistry::with_builtins()` include only U.S. English (`en-US`). Enable `all-locales` to embed all 59 D3 locales with `include_str!`:
+The default locale is U.S. English (`en-US`). Enable `all-locales` to include all bundled D3 locales:
 
 ```toml
 avenger-format-number-d3 = { version = "0.1", features = ["all-locales"] }
 ```
 
-The provider can then select a bundled locale with `.with_locale("de-DE")`. Custom definitions take precedence over bundled definitions. Register other D3 locale definitions through `NumberLocaleRegistry::register_custom_locale_json`.
+Select a locale with `.with_locale("de-DE")`. Names accept hyphens or underscores. Add custom `NumberLocaleSpec` definitions with `with_custom_locale()`. Custom definitions take precedence over bundled definitions and work without `all-locales`.
 
-Locale JSON uses `decimal`, `thousands`, a cyclic `grouping` array, and a `currency` prefix/suffix pair, with optional `numerals`, `percent`, `minus`, and `nan`. The default minus is Unicode `−`. D3's `$` symbol uses the locale affixes and does not select an ISO currency or its precision.
+`with_precision()` selects a `D3NumberPrecision` policy:
 
-D3 precision means fraction digits for `f`, `e`, and `%`, and significant digits for `g`, `r`, `s`, and `p`.
+- `FromSpecifier` uses D3's default precision when the pattern omits it.
+- `Automatic` uses Vega's automatic precision and trimming when the pattern omits precision.
+- `Step { step, reference_value }` derives precision from numeric spacing and a reference magnitude. Automatic `s` formatting uses one SI unit for all labels. Both values must be finite.
 
-Resolved locales expose borrowed definitions. To customize a locale, clone `definition()`, edit the clone, and register it. Existing prepared formatters retain their resolved locale.
+Explicit precision in the pattern takes precedence. The caller chooses the step and reference value, usually the largest magnitude to format.
 
-`prepare_number_step_format` selects precision from a supplied step's decimal order and a reference magnitude using D3's rules. The caller chooses the step. The reference is typically the largest magnitude to format. Automatic `s` formatting uses one SI unit for all labels.
+Automatic trimming removes trailing zeros before localization and padding. This intentionally differs from Vega 2.1.3 so that custom numerals, locale affixes, and field widths are preserved.
 
-`prepare_number_prefix_format` fixes a D3 SI unit using a reference value. A zero or non-finite reference selects no SI prefix.
+`FormattedNumber` contains the label text and optional mantissa and exponent parts for scientific notation. Formats with affixes, padding, or custom numerals use the text representation.
 
-`prepare_number_float_format` uses Vega's automatic precision rules. It intentionally trims the numeric significand before localization and padding. This preserves custom numerals, locale affixes, and field widths instead of reproducing Vega 2.1.3's trimming of the completed label, which can return blank labels for custom numerals. Explicit precision disables automatic trimming.
+Keep values as `f64` until formatting. Converting through `f32` can change the label. Prepared formatters also accept NaN and infinity.
 
-`FormattedNumber` contains plain text and optional mantissa and exponent parts for scientific notation. Those parts use the same locale, signs, precision, and trimming as the text. Formats with affixes, padding, or custom numerals retain their plain representation.
-
-The supported grammar is the documented [D3 number format](https://d3js.org/d3-format). Unknown-type fallback and JavaScript object coercion are outside the contract. The numeric `c` format uses JavaScript number-to-string semantics.
-
-The [reference generator](../tools/format-reference/README.md) pins upstream packages and records exact input bits for number fixtures. Rust tests need neither Node nor network access. The files in `locales/` are copied unchanged from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale), with the upstream license. The additional locales are excluded from builds without `all-locales`.
-
-`D3NumberFormatProvider` implements `NumberFormatProvider` from `avenger-format` and owns its locale definitions and precision settings. Pass an explicit pattern string to `prepare()`. Set grouping, signs, symbols, padding, and explicit precision in the pattern. Prepared formatters retain their resolved settings when the provider is changed or dropped.
-
-Use `with_locale()` and `with_custom_locale()` to configure the selected locale and typed `NumberLocaleSpec` definitions. The provider treats hyphens and underscores as equivalent in locale names, including custom definitions. An exact custom name takes precedence when both forms are registered.
-
-`with_precision()` selects a `D3NumberPrecision` policy. `FromSpecifier` uses ordinary D3 precision. `Automatic` chooses Vega's precision and trimming when the pattern omits precision. `Step { step, reference_value }` infers precision from numeric spacing and coordinates SI units. Both numeric inputs must be finite. Explicit precision in the pattern is preserved in every mode. The caller chooses the pattern and tick spacing.
-
-The provider and low-level APIs return [`avenger_format::NumberFormatError`], which distinguishes invalid patterns, invalid provider options, unavailable locales, and invalid locale data. D3 pattern errors retain their UTF-8 byte positions. Invalid precision options identify `step` or `reference_value`. Once prepared, formatting is infallible, including for NaN and infinity.
+The locale files and license come from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale). The [reference generator](../tools/format-reference/README.md) produces compatibility fixtures from D3 and Vega.

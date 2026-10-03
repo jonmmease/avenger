@@ -1,6 +1,6 @@
 # Chrono datetime formatting
 
-`avenger-format-datetime-chrono` implements the datetime formatter traits from `avenger-format` with Chrono's [strftime patterns](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
+`avenger-format-datetime-chrono` formats dates and datetimes with Chrono's [strftime patterns](https://docs.rs/chrono/latest/chrono/format/strftime/index.html). It implements the [datetime formatter interfaces](../avenger-format/README.md) from `avenger-format`.
 
 ```rust
 use avenger_format::DateTimeFormatProvider;
@@ -19,24 +19,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The provider owns its locale and display timezone. Pass a string pattern directly to a preparation method. Preparation resolves the pattern and locale once, including locale expansions. Prepared formatters retain these settings when the provider is changed or dropped.
+Use `prepare_date()`, `prepare_naive()`, or `prepare_zoned()` for the input type. Preparation validates the pattern and resolves its locale settings once. Reuse the prepared formatter for multiple values.
 
-`with_timezone()` accepts a resolved `chrono_tz::Tz`. Use a constant such as `chrono_tz::America::New_York`, or parse a name with `.parse()?`. The default timezone is UTC. Serialized providers use IANA timezone names and reject invalid names during deserialization.
+`with_timezone()` sets the display timezone for zoned datetimes and defaults to UTC. It accepts a `chrono_tz::Tz` constant or a name parsed with `.parse()?`. Dates and naive datetimes preserve their calendar fields.
 
-- `prepare_date()` accepts `chrono::NaiveDate` and rejects time, epoch, and timezone fields.
-- `prepare_naive()` accepts `chrono::NaiveDateTime` and rejects epoch and timezone fields.
-- `prepare_zoned()` accepts `chrono::DateTime<chrono::Utc>` and uses the provider's resolved display timezone.
-
-Date and naive preparation ignore timezone configuration. Parsing-only directives such as `%#z` fail during preparation for all three paths.
-
-By default, the provider supports only Chrono's `POSIX` English conventions and does not enable Chrono's locale database. Enable `all-locales` to use the full database:
+The default locale is Chrono's `POSIX` English. Enable `all-locales` to include Chrono's locale database:
 
 ```toml
 avenger-format-datetime-chrono = { version = "0.1", features = ["all-locales"] }
 ```
 
-This feature enables Chrono's `unstable-locales` feature. Select a locale with `.with_locale("fr-FR")`. Names accept either separator: `en-US` and `en_US` select the same locale. An omitted locale still uses `POSIX`. Without `all-locales`, selecting any name other than `POSIX` returns an error during preparation.
+This enables Chrono's `unstable-locales` feature. Select a locale with `.with_locale("fr-FR")`. Names accept hyphens or underscores, so `fr-FR` and `fr_FR` select the same locale. Names other than `POSIX` require `all-locales`.
 
-Formatting preserves the input's submillisecond precision and Chrono's leap-second representation. `%f` prints nanoseconds, `%3f` prints milliseconds, `%6f` prints microseconds, and `%z` prints a numeric timezone offset.
-
-Preparation and formatting return [`avenger_format::DateTimeFormatError`]. Chrono's parser reports invalid patterns without byte positions. A failed preparation render returns `UnsupportedPattern` with the requested input type. Display dates outside the supported calendar range return `OutOfRange`.
+Formatting preserves nanosecond precision and Chrono's leap-second representation. Directives that Chrono supports only for parsing, such as `%#z`, return an error during preparation.
