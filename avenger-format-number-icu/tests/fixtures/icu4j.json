@@ -1,0 +1,718 @@
+{
+  "cases": [
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "40934a4584f4c6e7",
+      "expected": "1,234.56789"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00",
+      "bits": "3ff3333333333333",
+      "expected": "1.20"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0##",
+      "bits": "3ff3c0c1fc8f3238",
+      "expected": "1.235"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@#",
+      "bits": "3f543a1eb4cbfa14",
+      "expected": "0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/w",
+      "bits": "4000000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited",
+      "bits": "3e8091f16677e7af",
+      "expected": "0.000000123456789"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##r",
+      "bits": "405edd2f1a9fbe77",
+      "expected": "123.46"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##s",
+      "bits": "405edd2f1a9fbe77",
+      "expected": "123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@@*",
+      "bits": "3f543a1eb4cbfa14",
+      "expected": "0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##r",
+      "bits": "4023ff7ced916873",
+      "expected": "10.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@",
+      "bits": "0000000000000000",
+      "expected": "0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@",
+      "bits": "408f3f3333333333",
+      "expected": "1,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer",
+      "bits": "4004000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer",
+      "bits": "400c000000000000",
+      "expected": "4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-half-up",
+      "bits": "c004000000000000",
+      "expected": "-3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-half-down",
+      "bits": "4004000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-ceiling",
+      "bits": "bfe0000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-floor",
+      "bits": "bfe0000000000000",
+      "expected": "-1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-up",
+      "bits": "3fb999999999999a",
+      "expected": "1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-down",
+      "bits": "bfb999999999999a",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/* .00",
+      "bits": "3fd0000000000000",
+      "expected": ".25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width-trunc .00",
+      "bits": "405ed00000000000",
+      "expected": ".25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##00",
+      "bits": "40fe240b33333333",
+      "expected": "3,456.7"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "00000",
+      "bits": "4000000000000000",
+      "expected": "00,002"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "decimal-always",
+      "bits": "4000000000000000",
+      "expected": "2."
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/* decimal-always",
+      "bits": "0000000000000000",
+      "expected": "."
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-negative precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+- precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "()- precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+!",
+      "bits": "0000000000000000",
+      "expected": "+0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+_",
+      "bits": "c028000000000000",
+      "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "()",
+      "bits": "c028000000000000",
+      "expected": "-12"
+    },
+    {
+      "locale": "es-ES",
+      "skeleton": "group-auto",
+      "bits": "4093480000000000",
+      "expected": "1234"
+    },
+    {
+      "locale": "es-ES",
+      "skeleton": "group-on-aligned",
+      "bits": "4093480000000000",
+      "expected": "1.234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-min2",
+      "bits": "4093480000000000",
+      "expected": "1234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-min2",
+      "bits": "40c81c8000000000",
+      "expected": "12,345"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "",
+      "bits": "4132d68700000000",
+      "expected": "12,34,567"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "group-thousands",
+      "bits": "4132d68700000000",
+      "expected": "1,234,567"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "؜-١٬٢٣٤٫٥"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/thai",
+      "bits": "3ff0000000000000",
+      "expected": "๑"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "latin",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "fa",
+      "skeleton": "",
+      "bits": "7ff8000000000000",
+      "expected": "ناعدد"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "8000000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7ff8000000000000",
+      "expected": "NaN"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "fff0000000000000",
+      "expected": "-∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "0000000000000001",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7fefffffffffffff",
+      "expected": "179,769,313,486,231,570,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited",
+      "bits": "0000000000000001",
+      "expected": "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000049",
+      "compatibility_exception": {
+        "expected": "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005",
+        "reason": "Rust prints the shortest round-trip decimal; Java prints two digits for subnormal doubles."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0/@@@*",
+      "bits": "3ff0000000000000",
+      "expected": "1.0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ":: .00",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "bogus",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0#0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@#@",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/w/w",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-off group-auto",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent .00",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000x",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*#0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": " ‎.00 group-off group-auto",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 18
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "rounding-mode-unnecessary",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formatting cannot report value-dependent rounding errors."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/roman",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/bali",
+      "bits": "4028000000000000",
+      "expected": "᭑᭒",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.50"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.50"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "8000000000000000",
+      "expected": "-000.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "8000000000000000",
+      "expected": "-000.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "3f5426fe718a86d7",
+      "expected": "000.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "3f5426fe718a86d7",
+      "expected": "000.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "c0934a0000000000",
+      "expected": "-1234.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "c0934a0000000000",
+      "expected": "-1234.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.00123"
+    },
+    {
+      "locale": "xx",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
+    },
+    {
+      "locale": "frr-FR",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
+    },
+    {
+      "locale": "en-!",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "The locale identifier is invalid."
+      }
+    },
+    {
+      "locale": "en_US",
+      "skeleton": "",
+      "bits": "4029000000000000",
+      "expected": "12.5"
+    },
+    {
+      "locale": "nb",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "−1 234,5"
+    },
+    {
+      "locale": "ht",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1 234,5",
+      "compatibility_exception": {
+        "expected": "1 234,5",
+        "reason": "CLDR 48.2.1 groups ht digits with a no-break space; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "iw",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "‎-1,234.5"
+    },
+    {
+      "locale": "tl",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "sh",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1.234,5"
+    },
+    {
+      "locale": "mo",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1.234,5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/0",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/#",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/# .00",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": ".00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "3ff0000000000000",
+      "expected": "1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "405a400000000000",
+      "expected": "5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/###",
+      "bits": "4028000000000000",
+      "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "",
+      "bits": "4132d687e4189375",
+      "expected": "1 234 567,891",
+      "compatibility_exception": {
+        "expected": "1'234'567,891",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "fff8000000000000",
+      "expected": "-NaN",
+      "compatibility_exception": {
+        "expected": "NaN",
+        "reason": "Formatting ignores the sign of NaN, which varies by platform."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@ integer-width/*",
+      "bits": "0000000000000000",
+      "expected": "0.0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@ integer-width/*",
+      "bits": "8000000000000000",
+      "expected": "-0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@@* integer-width/*",
+      "bits": "0000000000000000",
+      "expected": ".00"
+    },
+    {
+      "locale": "und",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "und-US",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.5"
+    },
+    {
+      "locale": "az-Cyrl",
+      "skeleton": "",
+      "bits": "c132d687e4189375",
+      "expected": "-1.234.567,891",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/latn-arab",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/ARAB",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited/@@r",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    }
+  ],
+  "java": "openjdk version \"21.0.12.1\" 2026-08-18 LTS",
+  "icu4j": "78.1"
+}

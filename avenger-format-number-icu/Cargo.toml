@@ -1,0 +1,17 @@
+[package]
+name = "avenger-format-number-icu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+serde = { workspace = true }
+fixed_decimal = { version = "~0.7.2", features = ["ryu"] }
+icu_decimal = { version = "~2.3.0", default-features = false, features = ["compiled_data", "alloc", "unstable"] }
+icu_locale_core = "~2.3.0"
+icu_locale = "~2.3.0"
+icu_provider = { version = "~2.3.0", features = ["sync"] }
+writeable = "0.6"
+
+[dev-dependencies]
+serde_json = { workspace = true }

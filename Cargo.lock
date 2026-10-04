@@ -492,6 +492,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-format-number-icu"
+version = "0.1.0"
+dependencies = [
+ "avenger-format",
+ "fixed_decimal",
+ "icu_decimal",
+ "icu_locale",
+ "icu_locale_core",
+ "icu_provider 2.3.1",
+ "serde",
+ "serde_json",
+ "writeable 0.6.4",
+]
+
+[[package]]
 name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [
@@ -1361,6 +1376,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79c3c892f121fff406e5dd6b28c1b30096b95111c30701a899d4f2b18da6d1bd"
 dependencies = [
  "displaydoc",
+ "ryu",
  "smallvec",
  "writeable 0.6.4",
 ]
@@ -2131,6 +2147,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "icu_collections"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
+dependencies = [
+ "displaydoc",
+ "potential_utf",
+ "utf8_iter",
+ "yoke 0.8.3",
+ "zerofrom",
+ "zerovec 0.11.8",
+]
+
+[[package]]
 name = "icu_datetime"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2170,8 +2200,10 @@ dependencies = [
  "icu_decimal_data",
  "icu_locale_core",
  "icu_locale_fallback",
+ "icu_pattern",
  "icu_plurals",
  "icu_provider 2.3.1",
+ "serde",
  "writeable 0.6.4",
  "zerovec 0.11.8",
 ]
@@ -2181,6 +2213,21 @@ name = "icu_decimal_data"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4c887fc7d4c297cf3f9436864af9e3dba7f8be9415a6c2a7f392f3b1636298c"
+
+[[package]]
+name = "icu_locale"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "785f595c61ef57169a467eeed7b4b6936a66f6cacbb116a96ee86da983251bf4"
+dependencies = [
+ "icu_collections 2.3.0",
+ "icu_locale_core",
+ "icu_locale_data",
+ "icu_locale_fallback",
+ "icu_provider 2.3.1",
+ "tinystr 0.8.4",
+ "zerovec 0.11.8",
+]
 
 [[package]]
 name = "icu_locale_core"
@@ -2195,6 +2242,12 @@ dependencies = [
  "writeable 0.6.4",
  "zerovec 0.11.8",
 ]
+
+[[package]]
+name = "icu_locale_data"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d37d91460e362a5cf58907cd7ce871411775ee6294e49a5cc8e6cec16dfa75ea"
 
 [[package]]
 name = "icu_locale_fallback"
@@ -2256,7 +2309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19ce3e0da2ec68599d193c93d088142efd7f9c5d6fc9b803774855747dc6a84f"
 dependencies = [
  "displaydoc",
- "icu_collections",
+ "icu_collections 1.5.0",
  "icu_normalizer_data",
  "icu_properties",
  "icu_provider 1.5.0",
@@ -2312,7 +2365,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93d6020766cfc6302c15dbbc9c8778c37e62c14427cb7f6e601d849e092aeef5"
 dependencies = [
  "displaydoc",
- "icu_collections",
+ "icu_collections 1.5.0",
  "icu_locid_transform",
  "icu_properties_data",
  "icu_provider 1.5.0",
