@@ -77,6 +77,8 @@ impl Prepared {
         let signs = &self.locale.signs;
         match &self.locale.affix {
             Affix::Plain => signs.apply(&body, sign),
+            // Unit patterns can precede the number, so the sign stays with the digits.
+            Affix::Unit(units) => units.render(&signs.apply(&body, sign), number, exponent),
             Affix::Percent(percent) => percent.render(&body, sign, signs),
             Affix::Currency(currency) => currency.render(&body, sign, number, exponent, signs),
         }

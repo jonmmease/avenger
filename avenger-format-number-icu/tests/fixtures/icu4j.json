@@ -834,15 +834,147 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "unit/meter",
+      "bits": "3ff0000000000000",
+      "expected": "1 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name .0",
+      "bits": "3ff0000000000000",
+      "expected": "1.0 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot unit-width-narrow",
+      "bits": "4008000000000000",
+      "expected": "3′"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metry"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4014000000000000",
+      "expected": "5 metrów"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff8000000000000",
+      "expected": "1,5 metra"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter E0",
+      "bits": "4093480000000000",
+      "expected": "1.234E3 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter K unit-width-full-name",
+      "bits": "4093480000000000",
+      "expected": "1.2K meters"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4008000000000000",
+      "expected": "3 metres"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12 meters",
+      "compatibility_exception": {
+        "expected": "12",
+        "reason": "Hidden suppresses measurement labels; ICU4J 78.1 ignores this width for measurement units."
+      }
+    },
+    {
+      "locale": "ar",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 متر"
+    },
+    {
+      "locale": "zh-TW",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4008000000000000",
+      "expected": "3 公尺"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 meters"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 mètres",
+      "compatibility_exception": {
+        "expected": "1E-3 mètre",
+        "reason": "For negative scientific exponents, CLDR one and many rules overlap. ICU4X gives one precedence; ICU4J 78.1 gives many precedence."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "408f400000000000",
+      "expected": "1E3 mètres"
+    },
+    {
+      "locale": "en-US",
       "skeleton": ".0/@@@*",
       "bits": "3ff0000000000000",
       "expected": "1.0"
     },
     {
       "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f847ae147ae147b",
+      "expected": "1E-2 mètres",
+      "compatibility_exception": {
+        "expected": "1E-2 mètre",
+        "reason": "For negative scientific exponents, CLDR one and many rules overlap. ICU4X gives one precedence; ICU4J 78.1 gives many precedence."
+      }
+    },
+    {
+      "locale": "fr",
       "skeleton": "currency/EUR unit-width-full-name E0",
       "bits": "75154fdd7f73bf3c",
       "expected": "1,00E256 euros"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-formal",
+      "bits": "3ff0000000000000",
+      "expected": "1 meter"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-variant",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-iso-code",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
     },
     {
       "locale": "fr-CH",
@@ -1125,6 +1257,20 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "measure-unit/bogus-meter",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit/second",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
       "skeleton": " ‎.00 group-off group-auto",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
@@ -1159,6 +1305,100 @@
       "compatibility_exception": {
         "error": "InvalidOption",
         "reason": "Decimal literal magnitudes are limited to ±1000."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/bogus",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "per-measure-unit requires a measurement unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius",
+      "bits": "4028000000000000",
+      "expected": "12°C",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-per-second",
+      "bits": "4028000000000000",
+      "expected": "12 m/s",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/kilowatt-hour",
+      "bits": "4028000000000000",
+      "expected": "12 kWh",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/byte",
+      "bits": "4028000000000000",
+      "expected": "12 byte",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-decimeter",
+      "bits": "4028000000000000",
+      "expected": "12 dm²",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-second",
+      "bits": "4028000000000000",
+      "expected": "12 m⋅sec",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compound unit labels are unsupported."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "expected": "12 m/s",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compound unit labels are unsupported."
       }
     },
     {
@@ -1299,6 +1539,16 @@
       "compatibility_exception": {
         "error": "InvalidOption",
         "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Only pow2- and pow3- powers map to CLDR's named square and cubic units."
       }
     },
     {
@@ -1453,9 +1703,51 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "measure-unit/length-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/pow2-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²"
+    },
+    {
+      "locale": "en-US",
       "skeleton": "K",
       "bits": "4028000000000000",
       "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter K",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-formal",
+      "bits": "4028000000000000",
+      "expected": "12 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-variant",
+      "bits": "4028000000000000",
+      "expected": "12 meters"
     },
     {
       "locale": "en-US",
@@ -1468,6 +1760,102 @@
       "skeleton": "precision-currency-cash K",
       "bits": "4028000000000000",
       "expected": "12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter .0",
+      "bits": "409925604189374c",
+      "expected": "1,609.3 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 feet"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metres"
+    },
+    {
+      "locale": "fr-CA",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1 mètre"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 square meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/second unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 seconds"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/kilogram unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 kilograms"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/liter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 liters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 L"
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 l"
+    },
+    {
+      "locale": "en-001",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 l"
+    },
+    {
+      "locale": "gsw",
+      "skeleton": "unit/meter",
+      "bits": "3ff0000000000000",
+      "expected": "1 m",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no unit names for this CLDR locale, so preparation rejects it instead of using root names."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius unit-width-hidden .0",
+      "bits": "4037800000000000",
+      "expected": "23.5 degrees Celsius",
+      "compatibility_exception": {
+        "expected": "23.5",
+        "reason": "Hidden suppresses measurement labels; ICU4J 78.1 ignores this width for measurement units."
+      }
+    },
+    {
+      "locale": "xx",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meters",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
     },
     {
       "locale": "xx",
@@ -1552,6 +1940,12 @@
       "skeleton": "currency/NOK",
       "bits": "c0934a0000000000",
       "expected": "−1 234,50 kr"
+    },
+    {
+      "locale": "nb-NO",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meter"
     },
     {
       "locale": "nb-SJ",
@@ -1727,6 +2121,24 @@
     },
     {
       "locale": "sw",
+      "skeleton": "unit/kilogram",
+      "bits": "c014000000000000",
+      "expected": "kg -5"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "unit/hour",
+      "bits": "c014000000000000",
+      "expected": "saa -5"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "unit/kilogram +!",
+      "bits": "4014000000000000",
+      "expected": "kg +5"
+    },
+    {
+      "locale": "sw",
       "skeleton": "K",
       "bits": "c093480000000000",
       "expected": "elfu -1.2",
@@ -1747,9 +2159,33 @@
     },
     {
       "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1 metar"
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metra"
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4035000000000000",
+      "expected": "21 metar"
+    },
+    {
+      "locale": "sr-Latn",
       "skeleton": "KK",
       "bits": "412e848000000000",
       "expected": "1 milion"
+    },
+    {
+      "locale": "bs-Cyrl",
+      "skeleton": "unit/hour unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 сата"
     },
     {
       "locale": "fr",
@@ -2068,6 +2504,54 @@
         "expected": "1 234 567,89 ​",
         "reason": "CLDR gives the Cape Verdean escudo its own decimal separator, `$`, which the formatter does not apply."
       }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/mass-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-square-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter-per-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/percent",
+      "bits": "4029000000000000",
+      "expected": "12.5%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/concentr-percent",
+      "bits": "4029000000000000",
+      "expected": "12.5%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/permille",
+      "bits": "4029000000000000",
+      "expected": "12.5‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/concentr-permille",
+      "bits": "4029000000000000",
+      "expected": "12.5‰"
     }
   ],
   "java": "openjdk version \"21.0.12.1\" 2026-08-18 LTS",

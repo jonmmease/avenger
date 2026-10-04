@@ -20,6 +20,7 @@ mod percent;
 mod precision;
 mod prepared;
 mod skeleton;
+mod units;
 
 use avenger_format::{NumberFormatError, NumberFormatProvider, PreparedNumberFormatter};
 use serde::{Deserialize, Serialize};

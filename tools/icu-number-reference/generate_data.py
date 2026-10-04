@@ -130,6 +130,18 @@ def generate(z):
     names = sorted(tag(k) for k in plurals)
     out += ['    ' + ' '.join(f'{rust(k)},' for k in names[i:i + 10]) for i in range(0, len(names), 10)]
     out += ['];']
+    # ICU4X files a locale's unit names as core, extended, or outlier data by these lists.
+    preferences = json.loads(z.read('cldr-core/supplemental/unitPreferenceData.json'))['supplemental']['unitPreferenceData']
+    region_units = {}
+    for category in ('area', 'duration', 'length', 'mass', 'volume'):
+        for regions in preferences[category].values():
+            for region, items in regions.items():
+                region_units.setdefault((category, region), set()).update(item['unit'] for item in items)
+    out += ['/// Units that CLDR unit preferences list for each labeled category and region, in any usage.',
+            'pub(crate) static REGION_UNITS: &[(&str, &str, &[&str])] = &[']
+    out += [f'    ({rust(category)}, {rust(region)}, &[{", ".join(rust(u) for u in sorted(units))}]),'
+            for (category, region), units in sorted(region_units.items())]
+    out += ['];']
     dest = ROOT / 'avenger-format-number-icu'
     (dest / 'src/generated.rs').write_text('\n'.join(out) + '\n')
     (dest / 'data').mkdir(exist_ok=True)

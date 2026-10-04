@@ -6,10 +6,13 @@
 
 Preparation returns an error for:
 
-- measurement units and `usage`
+- mixed units and `usage`
 - `rounding-mode-unnecessary`, because formatting cannot fail
 - repeated notation options, such as `scientific/*e/*ee`
 - compact currency, percent, and per-mille; full-name percent and per-mille; and formal and variant currency widths
+- measurement units outside length, area, duration, mass, and volume, other than `percent` and `permille`
+- compound units, including `per-measure-unit`, other than `square-` and `cubic-` powers
+- measurement units in locales without unit names, such as `gsw`
 - numbering systems without decimal digits, such as `roman`
 - decimal literals with more than 999 digits or magnitudes beyond ±1000
 

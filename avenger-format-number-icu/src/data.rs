@@ -159,6 +159,11 @@ impl Context {
         })
     }
 
+    /// The ICU4X fallback chain, most specific first.
+    pub fn chain(&self) -> &[String] {
+        &self.chain
+    }
+
     pub fn symbols_for(&self, numbering_system: &str) -> Option<&'static Symbols> {
         find_symbols(&self.chain, numbering_system)
     }
@@ -202,6 +207,21 @@ impl Context {
             metadata: silent(),
         };
         provider.load(request).allow_identifier_not_found()
+    }
+
+    /// Count fallback steps from the request to the locale that supplied a response.
+    pub fn specificity<M: DataMarker>(&self, resolved: Option<&DataLocale>) -> usize {
+        let Some(resolved) = resolved else {
+            return 0;
+        };
+        let fallbacker = LocaleFallbacker::new().for_config(M::INFO.fallback_config);
+        let mut iter = fallbacker.fallback_for(M::INFO.make_locale(self.prefs.locale_preferences));
+        let mut rank = 1;
+        while iter.get() != resolved && !iter.get().is_unknown() {
+            iter.step();
+            rank += 1;
+        }
+        rank
     }
 
     /// CLDR inherits plural rules by truncation alone: pt-AO uses pt, sr-Latn uses sr, and ht uses

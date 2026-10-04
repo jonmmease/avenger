@@ -48,6 +48,8 @@ pub(crate) enum Unit {
     Percent,
     Permille,
     Currency(CurrencyType),
+    /// A CLDR unit identifier, such as `meter`, `foot-and-inch`, or `meter-per-second`.
+    Measure(String),
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +120,7 @@ impl Skeleton {
     pub fn parse(input: &str) -> Result<Self, NumberFormatError> {
         let mut result = Self::default();
         let mut seen = HashSet::new();
+        let mut per_unit = None;
         let mut offset = 0;
         for token in input.split(separator) {
             let start = offset;
@@ -367,6 +370,25 @@ impl Skeleton {
                     result.width = Width::parse(stem);
                     "width"
                 }
+                "measure-unit" | "unit" => {
+                    let option = one_option()?;
+                    let unit = if stem == "measure-unit" {
+                        crate::units::legacy(option, start)?
+                    } else {
+                        option.into()
+                    };
+                    // ICU formats these units with the percent and per-mille symbols.
+                    result.unit = match unit.as_str() {
+                        "percent" => Unit::Percent,
+                        "permille" => Unit::Permille,
+                        _ => Unit::Measure(unit),
+                    };
+                    "unit"
+                }
+                "per-measure-unit" => {
+                    per_unit = Some(crate::units::legacy(one_option()?, start)?);
+                    "per-unit"
+                }
                 _ => return Err(invalid(format!("unknown skeleton stem: {stem}"), start)),
             };
             if !seen.insert(category) {
@@ -380,6 +402,15 @@ impl Skeleton {
             if !seen.contains("grouping") {
                 result.grouping = Grouping::Min2;
             }
+        }
+        if let Some(denominator) = per_unit {
+            let Unit::Measure(numerator) = &mut result.unit else {
+                return Err(unsupported(
+                    "per-measure-unit",
+                    "requires measurement units",
+                ));
+            };
+            *numerator = format!("{numerator}-per-{denominator}");
         }
         result.explicit_precision = seen.contains("precision");
         Ok(result)

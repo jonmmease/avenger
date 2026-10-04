@@ -69,3 +69,53 @@ fn rejects_locales_that_icu4x_formats_with_root_data() {
         );
     }
 }
+
+#[test]
+fn rejects_unit_names_that_icu4x_lacks() {
+    use icu_experimental::dimension::provider::units::categorized_display_names::*;
+    use icu_experimental::dimension::provider::units::display_names::UnitsDisplayNames;
+    use icu_experimental::provider::Baked;
+    use icu_provider::prelude::*;
+
+    // The locale's own names, from any of a category's data sets.
+    fn localized<M>(locale: &DataLocale, unit: &str) -> bool
+    where
+        M: DataMarker<DataStruct = UnitsDisplayNames<'static>>,
+        Baked: DataProvider<M>,
+    {
+        let attributes = DataMarkerAttributes::from_str_or_panic(unit);
+        let request = DataRequest {
+            id: DataIdentifierBorrowed::for_marker_attributes_and_locale(attributes, locale),
+            ..Default::default()
+        };
+        DataProvider::<M>::load(&Baked, request)
+            .is_ok_and(|r| !r.metadata.locale.is_some_and(|l| l.is_unknown()))
+    }
+    for name in [
+        "bgn", "cad", "ccp", "ce", "cic", "dz", "en-Dsrt", "fur", "gsw", "haw", "jgo", "ksh",
+        "lkt", "ms-Arab", "mus", "mzn", "os", "osa", "se", "trv", "wae",
+    ] {
+        let locale: DataLocale = name
+            .parse::<icu_locale_core::LanguageIdentifier>()
+            .unwrap()
+            .into();
+        let names = [
+            localized::<UnitsNamesLengthCoreV1>(&locale, "long-meter"),
+            localized::<UnitsNamesLengthExtendedV1>(&locale, "long-meter"),
+            localized::<UnitsNamesDurationCoreV1>(&locale, "long-hour"),
+            localized::<UnitsNamesDurationExtendedV1>(&locale, "long-hour"),
+            localized::<UnitsNamesMassCoreV1>(&locale, "long-kilogram"),
+            localized::<UnitsNamesMassExtendedV1>(&locale, "long-kilogram"),
+        ];
+        assert!(!names.contains(&true), "{name} has ICU4X unit names");
+        assert!(
+            matches!(
+                IcuNumberFormatProvider::new()
+                    .with_locale(name)
+                    .prepare("unit/meter"),
+                Err(avenger_format::NumberFormatError::LocaleUnavailable { .. })
+            ),
+            "{name}"
+        );
+    }
+}

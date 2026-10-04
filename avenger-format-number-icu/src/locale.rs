@@ -4,6 +4,7 @@ use crate::{
     notation::Compact,
     percent::Percent,
     skeleton::{unsupported, Grouping, Skeleton, Unit},
+    units::Units,
 };
 use avenger_format::NumberFormatError;
 use fixed_decimal::Sign;
@@ -41,6 +42,7 @@ impl Signs {
 #[derive(Debug)]
 pub(crate) enum Affix {
     Plain,
+    Unit(Units),
     Percent(Percent),
     Currency(Currency),
 }
@@ -169,6 +171,7 @@ impl LocaleData {
             Unit::Currency(code) => {
                 Affix::Currency(Currency::new(context, skeleton, *code).map_err(data_error)?)
             }
+            Unit::Measure(unit) => Affix::Unit(Units::new(unit, skeleton.width, context)?),
         };
         Ok(Self {
             decimal,
