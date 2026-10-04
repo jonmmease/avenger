@@ -12,6 +12,7 @@
 //! ```
 
 mod arithmetic;
+mod currency;
 mod data;
 mod locale;
 mod notation;
@@ -50,7 +51,8 @@ impl NumberFormatProvider for IcuNumberFormatProvider {
         &self,
         pattern: &str,
     ) -> Result<Arc<dyn PreparedNumberFormatter>, NumberFormatError> {
-        let skeleton = skeleton::Skeleton::parse(pattern)?;
+        let mut skeleton = skeleton::Skeleton::parse(pattern)?;
+        currency::resolve_precision(&mut skeleton)?;
         let name = self.locale.as_deref().unwrap_or("en-US");
         let context = data::Context::new(name, skeleton.numbering_system.as_deref())?;
         let locale = locale::LocaleData::new(&context, &skeleton)?;

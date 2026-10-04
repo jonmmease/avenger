@@ -30,6 +30,12 @@ impl Default for Precision {
 }
 
 impl Precision {
+    pub fn currency(&self, increment: Literal) -> Self {
+        let mut result = Self::increment(increment);
+        result.hide_whole = self.hide_whole;
+        result
+    }
+
     pub fn increment(increment: Literal) -> Self {
         Self {
             increment: Some(increment),

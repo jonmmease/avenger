@@ -648,9 +648,233 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "3ff0147ae147ae14",
+      "expected": "$1.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/JPY",
+      "bits": "40934a0000000000",
+      "expected": "¥1,234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/KWD",
+      "bits": "3ff3c083126e978d",
+      "expected": "KWD 1.234"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF precision-currency-cash",
+      "bits": "3ff3ae147ae147ae",
+      "expected": "CHF 1.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD .000",
+      "bits": "3ff3333333333333",
+      "expected": "$1.200"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD precision-currency-standard/w",
+      "bits": "4000000000000000",
+      "expected": "$2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/CAD unit-width-narrow",
+      "bits": "4028000000000000",
+      "expected": "$12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-iso-code",
+      "bits": "4028000000000000",
+      "expected": "USD 12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-hidden ()",
+      "bits": "c028000000000000",
+      "expected": "(12.00)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1.00 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-full-name precision-integer",
+      "bits": "3ff0000000000000",
+      "expected": "1 US dollar"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/ZZZ",
+      "bits": "4028000000000000",
+      "expected": "ZZZ 12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()",
+      "bits": "c028000000000000",
+      "expected": "($12.00)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()!",
+      "bits": "4028000000000000",
+      "expected": "+$12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()-",
+      "bits": "c004000000000000",
+      "expected": "($2.50)"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF +!",
+      "bits": "4028000000000000",
+      "expected": "CHF+12.00"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF +!",
+      "bits": "c028000000000000",
+      "expected": "CHF-12.00"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1 234,50 $US"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "currency/USD",
+      "bits": "c028000000000000",
+      "expected": "؜-‏١٢٫٠٠ US$"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD .00",
+      "bits": "4093480000000000",
+      "expected": "$1.23E3"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "currency/RUB unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2,00 российского рубля"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "8000000000000000",
+      "expected": "-$0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()",
+      "bits": "fff0000000000000",
+      "expected": "($∞)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "7ff8000000000000",
+      "expected": "$NaN"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 US$"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD unit-width-full-name precision-integer",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD unit-width-full-name precision-integer",
+      "bits": "408f400000000000",
+      "expected": "1E3 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/ZZZ unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12.00 ZZZ"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-standard",
+      "bits": "3ff3333333333333",
+      "expected": "1.20"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 €"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF ()!",
+      "bits": "4028000000000000",
+      "expected": "CHF+12.00"
+    },
+    {
+      "locale": "en-US",
       "skeleton": ".0/@@@*",
       "bits": "3ff0000000000000",
       "expected": "1.0"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-full-name E0",
+      "bits": "75154fdd7f73bf3c",
+      "expected": "1,00E256 euros"
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00",
+      "bits": "40934a0000000000",
+      "expected": "1 234.50 CHF",
+      "compatibility_exception": {
+        "expected": "1'234.50 CHF",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00 group-off",
+      "bits": "40934a0000000000",
+      "expected": "1234.50 CHF"
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00 numbering-system/thai",
+      "bits": "40934a0000000000",
+      "expected": "๑ ๒๓๔.๕๐ CHF",
+      "compatibility_exception": {
+        "expected": "๑'๒๓๔.๕๐ CHF",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR .00",
+      "bits": "4132d687cccccccd",
+      "expected": "₹१,२३४,५६७.८०"
     },
     {
       "locale": "blo",
@@ -832,6 +1056,34 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "precision-currency-standard/@##",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/US",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/1AA",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD percent",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
       "skeleton": "E",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
@@ -911,6 +1163,26 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "percent unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 percent",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 permille",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
       "skeleton": "percent K",
       "bits": "4028000000000000",
       "expected": "12%",
@@ -927,6 +1199,96 @@
       "compatibility_exception": {
         "error": "InvalidOption",
         "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD KK",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD compact-short",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD compact-long",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 US dollars",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD KK unit-width-iso-code",
+      "bits": "4028000000000000",
+      "expected": "USD 12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/TWD unit-width-formal",
+      "bits": "4028000000000000",
+      "expected": "NT$12.00",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formal and variant currency symbols are deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/TWD unit-width-variant",
+      "bits": "4028000000000000",
+      "expected": "NT$12.00",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formal and variant currency symbols are deferred."
       }
     },
     {
@@ -1096,6 +1458,18 @@
       "expected": "12"
     },
     {
+      "locale": "en-US",
+      "skeleton": "precision-currency-standard",
+      "bits": "4028000000000000",
+      "expected": "12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-cash K",
+      "bits": "4028000000000000",
+      "expected": "12.00"
+    },
+    {
       "locale": "xx",
       "skeleton": "",
       "bits": "3ff0000000000000",
@@ -1174,6 +1548,12 @@
       "expected": "−1 234,5"
     },
     {
+      "locale": "nb-NO",
+      "skeleton": "currency/NOK",
+      "bits": "c0934a0000000000",
+      "expected": "−1 234,50 kr"
+    },
+    {
       "locale": "nb-SJ",
       "skeleton": "percent",
       "bits": "4029000000000000",
@@ -1236,6 +1616,12 @@
       "skeleton": "integer-width/# .00",
       "bits": "3f50624dd2f1a9fc",
       "expected": ".00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/0 currency/USD",
+      "bits": "0000000000000000",
+      "expected": "$0.00"
     },
     {
       "locale": "en-US",
@@ -1350,10 +1736,32 @@
       }
     },
     {
+      "locale": "sw",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "c014000000000000",
+      "expected": "dola za Marekani -5.00",
+      "compatibility_exception": {
+        "expected": "-dola za Marekani 5.00",
+        "reason": "ICU4X places the sign outside currency patterns without a negative subpattern, following UTS #35."
+      }
+    },
+    {
       "locale": "sr-Latn",
       "skeleton": "KK",
       "bits": "412e848000000000",
       "expected": "1 milion"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-full-name",
+      "bits": "7ff8000000000000",
+      "expected": "NaN euros"
+    },
+    {
+      "locale": "pt",
+      "skeleton": "currency/EUR unit-width-full-name",
+      "bits": "7ff0000000000000",
+      "expected": "∞ Euros"
     },
     {
       "locale": "te",
@@ -1374,6 +1782,46 @@
       "expected": "% 1 23 45 67"
     },
     {
+      "locale": "it",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 USD",
+      "compatibility_exception": {
+        "expected": "1234,50 US$",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "bg",
+      "skeleton": "currency/GBP",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 GBP",
+      "compatibility_exception": {
+        "expected": "1234,50 £",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "es-419",
+      "skeleton": "currency/EUR",
+      "bits": "c0934a0000000000",
+      "expected": "-EUR 1,234.50",
+      "compatibility_exception": {
+        "expected": "-€1,234.50",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-hidden",
+      "bits": "40934a0000000000",
+      "expected": "1 234,50 ",
+      "compatibility_exception": {
+        "expected": "1 234,50",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
       "locale": "fr-CH",
       "skeleton": "",
       "bits": "4132d687e4189375",
@@ -1381,6 +1829,16 @@
       "compatibility_exception": {
         "expected": "1'234'567,891",
         "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-iso-code",
+      "bits": "7ff8000000000000",
+      "expected": "USDNaN",
+      "compatibility_exception": {
+        "expected": "USD NaN",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so non-finite values keep the space."
       }
     },
     {
@@ -1519,6 +1977,96 @@
       "compatibility_exception": {
         "expected": "99E-3",
         "reason": "ICU4J assumes increment rounding raises the magnitude; Rust derives the exponent from the rounded value."
+      }
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "currency/USD ()",
+      "bits": "4132d687e4189375",
+      "expected": "$1,234,567.89"
+    },
+    {
+      "locale": "ta",
+      "skeleton": "currency/INR ()",
+      "bits": "c132d687e4189375",
+      "expected": "(₹1,234,567.89)"
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "currency/INR unit-width-hidden ()",
+      "bits": "4132d687e4189375",
+      "expected": "1,234,567.89"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR unit-width-full-name",
+      "bits": "4132d687e4189375",
+      "expected": "१२,३४,५६७.८९ भारतीय रुपये"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR unit-width-full-name ()",
+      "bits": "c132d687e4189375",
+      "expected": "-१२,३४,५६७.८९ भारतीय रुपये"
+    },
+    {
+      "locale": "en-DE",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "€1,234.50",
+      "compatibility_exception": {
+        "expected": "1.234,50 €",
+        "reason": "Rust follows CLDR's en-DE currency data, with German separators and a trailing symbol; ICU4J 78.1 places the symbol first."
+      }
+    },
+    {
+      "locale": "en-150",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "€1,234.50",
+      "compatibility_exception": {
+        "expected": "1,234.50 €",
+        "reason": "Rust follows CLDR's en-150 currency pattern, which places the symbol after the number; ICU4J 78.1 places it first."
+      }
+    },
+    {
+      "locale": "my",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "4029000000000000",
+      "expected": "၁၂.၅၀ အမေရိကန် ဒေါ်လာ",
+      "compatibility_exception": {
+        "expected": "အမေရိကန် ဒေါ်လာ ၁၂.၅၀",
+        "reason": "Rust follows CLDR's Burmese currency unit pattern, which places the name first; ICU4J 78.1 places it after the number."
+      }
+    },
+    {
+      "locale": "bn",
+      "skeleton": "currency/USD",
+      "bits": "7ff8000000000000",
+      "expected": "NaNUS$",
+      "compatibility_exception": {
+        "expected": "NaN US$",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so a symbol that ends with a letter keeps its space before a number without a leading digit."
+      }
+    },
+    {
+      "locale": "ko",
+      "skeleton": "currency/CHF unit-width-iso-code .## integer-width/* ()",
+      "bits": "bfe0000000000000",
+      "expected": "(CHF.5)",
+      "compatibility_exception": {
+        "expected": "(CHF .5)",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so a symbol that ends with a letter keeps its space before a number without a leading digit."
+      }
+    },
+    {
+      "locale": "pt-CV",
+      "skeleton": "currency/CVE",
+      "bits": "4132d687e3d70a3d",
+      "expected": "1 234 567$89 ​",
+      "compatibility_exception": {
+        "expected": "1 234 567,89 ​",
+        "reason": "CLDR gives the Cape Verdean escudo its own decimal separator, `$`, which the formatter does not apply."
       }
     }
   ],

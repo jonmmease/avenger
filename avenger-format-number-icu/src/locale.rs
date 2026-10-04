@@ -1,4 +1,5 @@
 use crate::{
+    currency::{Currency, Width},
     data::{data_error, Context, Symbols},
     notation::Compact,
     percent::Percent,
@@ -41,6 +42,7 @@ impl Signs {
 pub(crate) enum Affix {
     Plain,
     Percent(Percent),
+    Currency(Currency),
 }
 
 #[derive(Debug)]
@@ -59,6 +61,7 @@ pub(crate) struct LocaleData {
 struct DecimalData {
     grouping: Grouping,
     sizes: Option<(u8, u8)>,
+    separators: Option<(&'static str, &'static str)>,
 }
 impl DataProvider<DecimalSymbolsV1> for DecimalData {
     fn load(&self, req: DataRequest) -> Result<DataResponse<DecimalSymbolsV1>, DataError> {
@@ -80,7 +83,12 @@ impl DataProvider<DecimalSymbolsV1> for DecimalData {
             }
             _ => (),
         }
-        let strings = DecimalSymbolStrsBuilder::from(&*old.strings).build();
+        let mut builder = DecimalSymbolStrsBuilder::from(&*old.strings);
+        if let Some((decimal, group)) = self.separators {
+            builder.decimal_separator = decimal.into();
+            builder.grouping_separator = group.into();
+        }
+        let strings = builder.build();
         Ok(DataResponse {
             metadata: response.metadata,
             payload: DataPayload::from_owned(DecimalSymbols {
@@ -99,12 +107,22 @@ impl DataProvider<DecimalDigitsV1> for DecimalData {
 impl LocaleData {
     pub fn new(context: &Context, skeleton: &Skeleton) -> Result<Self, NumberFormatError> {
         let symbols = context.symbols;
+        let monetary = match skeleton.unit {
+            Unit::Currency(_) => symbols.monetary.as_ref(),
+            _ => None,
+        };
         let data = DecimalData {
             grouping: skeleton.grouping,
             sizes: match skeleton.unit {
                 Unit::Percent | Unit::Permille => symbols.percent_grouping,
-                _ => None,
+                // Full currency names format the number with the decimal pattern.
+                Unit::Currency(_) if skeleton.width == Width::FullName => None,
+                Unit::Currency(_) if skeleton.accounting => symbols
+                    .accounting_grouping
+                    .or(monetary.map(|m| (m.primary, m.secondary))),
+                _ => monetary.map(|m| (m.primary, m.secondary)),
             },
+            separators: monetary.map(|m| (m.decimal, m.group)),
         };
         let mut options = DecimalFormatterOptions::default();
         options.grouping_strategy = Some(match skeleton.grouping {
@@ -135,7 +153,7 @@ impl LocaleData {
         let affix = match &skeleton.unit {
             Unit::None => Affix::Plain,
             Unit::Percent | Unit::Permille => {
-                if skeleton.notation.is_compact() {
+                if skeleton.width == Width::FullName || skeleton.notation.is_compact() {
                     return Err(unsupported(
                         "unit",
                         "ICU has no full-name or compact percent/per-mille patterns",
@@ -147,6 +165,9 @@ impl LocaleData {
                     symbols.permille
                 };
                 Affix::Percent(Percent::new(context, unit).map_err(data_error)?)
+            }
+            Unit::Currency(code) => {
+                Affix::Currency(Currency::new(context, skeleton, *code).map_err(data_error)?)
             }
         };
         Ok(Self {

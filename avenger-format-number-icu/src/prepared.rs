@@ -73,11 +73,12 @@ impl Prepared {
         writer.text
     }
 
-    fn affix(&self, body: String, sign: Sign) -> String {
+    fn affix(&self, body: String, sign: Sign, number: Option<&Decimal>, exponent: i16) -> String {
         let signs = &self.locale.signs;
         match &self.locale.affix {
             Affix::Plain => signs.apply(&body, sign),
             Affix::Percent(percent) => percent.render(&body, sign, signs),
+            Affix::Currency(currency) => currency.render(&body, sign, number, exponent, signs),
         }
     }
 }
@@ -128,7 +129,7 @@ impl Prepared {
                 sign: exponent_sign,
                 ..
             } => {
-                let mantissa = self.affix(body.clone(), sign);
+                let mantissa = self.affix(body.clone(), sign, Some(&number), exponent);
                 let mut exponent_number = Decimal::from(exponent);
                 // ICU shows an exponent's plus sign only for sign-always.
                 exponent_number.sign = match exponent_sign {
@@ -147,6 +148,8 @@ impl Prepared {
                 let text = self.affix(
                     format!("{body}{}{suffix}", self.locale.symbols.exponent),
                     sign,
+                    Some(&number),
+                    exponent,
                 );
                 let typesetting = if s.unit == Unit::None
                     && self.locale.latin_digits
@@ -171,9 +174,11 @@ impl Prepared {
                     .as_ref()
                     .expect("compact data prepared with notation");
                 let body = compact.render(&number, exponent, &body);
-                FormattedNumber::plain(self.affix(body, sign))
+                FormattedNumber::plain(self.affix(body, sign, Some(&number), exponent))
             }
-            Notation::Simple => FormattedNumber::plain(self.affix(body, sign)),
+            Notation::Simple => {
+                FormattedNumber::plain(self.affix(body, sign, Some(&number), exponent))
+            }
         }
     }
 }
@@ -194,7 +199,7 @@ impl PreparedNumberFormatter for Prepared {
                 .skeleton
                 .sign
                 .display(!value.is_nan() && value.is_sign_negative(), value.is_nan());
-            FormattedNumber::plain(self.affix(body.into(), sign))
+            FormattedNumber::plain(self.affix(body.into(), sign, None, 0))
         }
     }
 }

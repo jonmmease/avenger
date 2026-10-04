@@ -153,3 +153,20 @@ impl Compact {
         pattern.interpolate([body]).write_to_string().into_owned()
     }
 }
+
+/// CLDR 48 distinguishes exponent operands 0–5 from all other values.
+/// Rescale the significand to preserve the quantity when ICU4X's byte-sized exponent cannot hold it.
+pub(crate) fn plural_operands(
+    number: &fixed_decimal::Decimal,
+    exponent: i16,
+) -> icu_plurals::PluralOperands {
+    if let Ok(exponent) = u8::try_from(exponent) {
+        return icu_plurals::PluralOperands::from_significand_and_exponent(
+            &number.absolute,
+            exponent,
+        );
+    }
+    let mut number = number.clone();
+    number.multiply_pow10(exponent - 6);
+    icu_plurals::PluralOperands::from_significand_and_exponent(&number.absolute, 6)
+}

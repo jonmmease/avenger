@@ -19,8 +19,20 @@ pub(crate) struct Symbols {
     pub exponent: &'static str,
     pub percent: &'static str,
     pub permille: &'static str,
+    /// Monetary separators and grouping that differ from ordinary decimal data.
+    pub monetary: Option<Monetary>,
     /// Percent grouping sizes that differ from ordinary decimal data.
     pub percent_grouping: Option<(u8, u8)>,
+    /// Accounting grouping sizes that differ from the standard currency pattern's.
+    pub accounting_grouping: Option<(u8, u8)>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Monetary {
+    pub decimal: &'static str,
+    pub group: &'static str,
+    pub primary: u8,
+    pub secondary: u8,
 }
 
 include!("generated.rs");
@@ -172,6 +184,24 @@ impl Context {
             ..Default::default()
         };
         Ok(provider.load(request)?.payload)
+    }
+
+    /// Load an attribute-keyed entry, or `None` when upstream has no such identifier.
+    pub fn load_attributes<M, P>(
+        &self,
+        provider: &P,
+        attributes: &DataMarkerAttributes,
+    ) -> Result<Option<DataResponse<M>>, DataError>
+    where
+        M: DataMarker,
+        P: DataProvider<M>,
+    {
+        let locale = M::INFO.make_locale(self.prefs.locale_preferences);
+        let request = DataRequest {
+            id: DataIdentifierBorrowed::for_marker_attributes_and_locale(attributes, &locale),
+            metadata: silent(),
+        };
+        provider.load(request).allow_identifier_not_found()
     }
 
     /// CLDR inherits plural rules by truncation alone: pt-AO uses pt, sr-Latn uses sr, and ht uses

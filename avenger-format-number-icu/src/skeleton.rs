@@ -3,8 +3,10 @@ use fixed_decimal::{SignedRoundingMode as R, UnsignedRoundingMode as U};
 use std::collections::HashSet;
 
 use crate::arithmetic::Literal;
+use crate::currency::Width;
 use crate::notation::Notation;
 use crate::precision::{Digits, Precision};
+use icu_experimental::dimension::currency::CurrencyType;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Grouping {
@@ -45,11 +47,16 @@ pub(crate) enum Unit {
     None,
     Percent,
     Permille,
+    Currency(CurrencyType),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Skeleton {
     pub notation: Notation,
+    pub width: Width,
+    pub accounting: bool,
+    pub explicit_precision: bool,
+    pub currency_precision: Option<bool>,
     pub precision: Precision,
     pub rounding: R,
     pub grouping: Grouping,
@@ -66,6 +73,10 @@ impl Default for Skeleton {
     fn default() -> Self {
         Self {
             notation: Notation::Simple,
+            width: Width::Short,
+            accounting: false,
+            explicit_precision: false,
+            currency_precision: None,
             precision: Precision::default(),
             rounding: R::Unsigned(U::HalfEven),
             grouping: Grouping::Auto,
@@ -242,6 +253,7 @@ impl Skeleton {
                 | "sign-accounting-negative"
                 | "()-" => {
                     no_options()?;
+                    result.accounting = stem.contains("accounting") || stem.starts_with("()");
                     result.sign = match stem {
                         "sign-always" | "+!" | "sign-accounting-always" | "()!" => Sign::Always,
                         "sign-never" | "+_" => Sign::Never,
@@ -324,6 +336,37 @@ impl Skeleton {
                     result.precision.options(&options[1..], start)?;
                     "precision"
                 }
+                "currency" => {
+                    let code = one_option()?;
+                    if code.len() != 3 || !code.bytes().all(|b| b.is_ascii_alphabetic()) {
+                        return Err(invalid("currency must contain three ASCII letters", start));
+                    }
+                    result.unit = Unit::Currency(
+                        code.to_uppercase()
+                            .parse()
+                            .map_err(|_| invalid("invalid currency code", start))?,
+                    );
+                    "unit"
+                }
+                "precision-currency-standard" | "precision-currency-cash" => {
+                    if options.len() > 1 || options.first().is_some_and(|o| *o != "w") {
+                        return Err(invalid("currency precision accepts only /w", start));
+                    }
+                    result.currency_precision = Some(stem.ends_with("cash"));
+                    result.precision.options(options, start)?;
+                    "precision"
+                }
+                "unit-width-short"
+                | "unit-width-narrow"
+                | "unit-width-full-name"
+                | "unit-width-iso-code"
+                | "unit-width-hidden"
+                | "unit-width-formal"
+                | "unit-width-variant" => {
+                    no_options()?;
+                    result.width = Width::parse(stem);
+                    "width"
+                }
                 _ => return Err(invalid(format!("unknown skeleton stem: {stem}"), start)),
             };
             if !seen.insert(category) {
@@ -338,6 +381,7 @@ impl Skeleton {
                 result.grouping = Grouping::Min2;
             }
         }
+        result.explicit_precision = seen.contains("precision");
         Ok(result)
     }
 }
