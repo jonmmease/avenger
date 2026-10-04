@@ -4,65 +4,44 @@ use crate::{
     parse_number_spec, DigitSpec, FormatType, NumberFormatError, ResolvedNumberLocale,
 };
 
-/// Select precision from a supplied step's decimal order using D3's rules.
-/// `reference_value` is typically the value with the largest magnitude to format.
-/// Both arguments use absolute values. `None` uses `,f`. Explicit precision is preserved.
-/// Automatic `s` formatting selects one SI unit from the reference value.
-/// A zero or non-finite step leaves precision at the format default.
-pub fn prepare_number_step_format(
+/// Select precision from a tick step's decimal order using Vega's `formatSpan` rules.
+/// `magnitude` is the largest absolute tick, which selects one SI unit for automatic `s`
+/// formatting. Explicit precision is preserved.
+pub(crate) fn step_format(
+    pattern: &PreparedNumberFormat,
     step: f64,
-    reference_value: f64,
-    spec: Option<&str>,
-    locale: &ResolvedNumberLocale,
-) -> Result<PreparedNumberFormat, NumberFormatError> {
-    let mut prepared = PreparedNumberFormat::new(Some(spec.unwrap_or(",f")), locale)?;
-    let step = step.abs();
-    let value = reference_value.abs();
-    if prepared.resolved.digit_spec == DigitSpec::Auto {
-        let kind = prepared.resolved.format_type;
-        let precision = match kind {
-            Some(FormatType::Si) => {
-                let e = decimal::exponent(value)
-                    .unwrap_or(0)
-                    .div_euclid(3)
-                    .clamp(-8, 8)
-                    * 3;
-                let p = decimal::exponent(step).map(|step| (e - step).max(0));
-                prepared.scale = 10_f64.powi(-e);
-                prepared.suffix = SI_PREFIXES[(e / 3 + 8) as usize].into();
-                prepared.resolved.format_type = Some(FormatType::Fixed);
-                p
-            }
-            Some(FormatType::Fixed | FormatType::Percent) => {
-                decimal::exponent(step).map(|exponent| {
-                    (-exponent).max(0)
-                        - if kind == Some(FormatType::Percent) {
-                            2
-                        } else {
-                            0
-                        }
-                })
-            }
-            None
-            | Some(
-                FormatType::Exponent
-                | FormatType::General
-                | FormatType::Rounded
-                | FormatType::PercentRounded,
-            ) => decimal::exponent(step).and_then(|step_exponent| {
-                decimal::exponent(value - step).map(|value_exponent| {
-                    (value_exponent - step_exponent).max(0) + 1
-                        - i32::from(kind == Some(FormatType::Exponent))
-                })
-            }),
-            _ => None,
-        };
-        if let Some(precision) = precision {
-            prepared.resolved.digit_spec =
-                DigitSpec::Precision(precision.clamp(0, u8::MAX as i32) as u8);
-        }
+    magnitude: f64,
+) -> PreparedNumberFormat {
+    let mut prepared = pattern.clone();
+    let Some(step_exponent) = decimal::exponent(step) else {
+        return prepared;
+    };
+    if prepared.resolved.digit_spec != DigitSpec::Auto {
+        return prepared;
     }
-    Ok(prepared)
+    let kind = prepared.resolved.format_type;
+    let precision = match kind {
+        Some(FormatType::Si) => fix_si_unit(&mut prepared, magnitude) - step_exponent,
+        Some(FormatType::Fixed) => -step_exponent,
+        Some(FormatType::Percent) => -step_exponent - 2,
+        None
+        | Some(
+            FormatType::Exponent
+            | FormatType::General
+            | FormatType::Rounded
+            | FormatType::PercentRounded,
+        ) => {
+            // Vega subtracts the step from the domain's largest magnitude. For ticks
+            // [0, step], the largest tick gives zero where the domain gives a value below
+            // the step, and neither adds digits.
+            let extra = decimal::exponent(magnitude - step)
+                .map_or(0, |exponent| (exponent - step_exponent).max(0));
+            extra + 1 - i32::from(kind == Some(FormatType::Exponent))
+        }
+        _ => return prepared,
+    };
+    prepared.resolved.digit_spec = DigitSpec::Precision(precision.clamp(0, u8::MAX as i32) as u8);
+    prepared
 }
 
 /// Fix an SI unit from a reference value using D3's formatPrefix rules.
@@ -75,16 +54,23 @@ pub fn prepare_number_prefix_format(
 ) -> Result<PreparedNumberFormat, NumberFormatError> {
     let mut parsed = parse_number_spec(spec)?;
     parsed.format_type = Some(FormatType::Fixed);
-    let resolved = resolve_number_format(parsed);
+    let mut prepared = PreparedNumberFormat::from_resolved(resolve_number_format(parsed), locale);
+    fix_si_unit(&mut prepared, value);
+    Ok(prepared)
+}
+
+/// Fix the SI unit that D3's formatPrefix selects for `value`, with fixed fraction digits.
+/// Returns the unit's power of ten. A zero or non-finite value selects no prefix.
+fn fix_si_unit(prepared: &mut PreparedNumberFormat, value: f64) -> i32 {
     let exponent = decimal::exponent(value)
         .unwrap_or(0)
         .div_euclid(3)
         .clamp(-8, 8)
         * 3;
-    let mut prepared = PreparedNumberFormat::from_resolved(resolved, locale);
     prepared.scale = 10_f64.powi(-exponent);
     prepared.suffix = SI_PREFIXES[(exponent / 3 + 8) as usize].into();
-    Ok(prepared)
+    prepared.resolved.format_type = Some(FormatType::Fixed);
+    exponent
 }
 
 /// Prepare labels with Vega's automatic precision rules. `None` or an empty specifier uses `,`.

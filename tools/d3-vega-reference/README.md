@@ -8,9 +8,9 @@ npm ci --ignore-scripts
 npm run generate
 ```
 
-The package lock pins the reference versions. The generator writes `tests/fixtures/upstream.json` in `avenger-format-number-d3` and `avenger-format-datetime-d3`. Rust tests read these files without Node or network access. Review fixture changes when updating dependencies.
+The package lock pins the reference versions. The generator writes `tests/fixtures/upstream.json` in `avenger-format-number-d3` and `avenger-format-datetime-d3`, and `tests/fixtures/ticks.json` in `avenger-format-number-d3`. Rust tests read these files without Node or network access. Review fixture changes when updating dependencies.
 
-Number fixtures store each input's exact `f64` bits as hexadecimal text. Step-format fixtures record Vega's `formatSpan` output, D3's `tickStep` interval, and the largest endpoint magnitude.
+Number fixtures store each input's exact `f64` bits as hexadecimal text. Tick fixtures record D3's ticks for a domain with Vega's `formatSpan` labels, and Vega's `formatFloat` labels for values that span magnitudes.
 
 Datetime fixtures cover D3 directives in UTC. Separate processes test selected patterns across display timezones and timezone transitions.
 

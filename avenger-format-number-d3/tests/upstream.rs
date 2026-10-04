@@ -1,6 +1,6 @@
 use avenger_format_number_d3::{
-    prepare_number_float_format, prepare_number_prefix_format, prepare_number_step_format,
-    NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
+    prepare_number_float_format, prepare_number_prefix_format, NumberLocaleSpec,
+    PreparedNumberFormat, ResolvedNumberLocale,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -36,9 +36,6 @@ fn matches_d3_and_vega_number_formats() {
             "float" => prepare_number_float_format(case.spec.as_deref(), locale),
             "prefix" => {
                 prepare_number_prefix_format(case.spec.as_deref().unwrap(), case.args[0], locale)
-            }
-            "step" => {
-                prepare_number_step_format(case.args[0], case.args[1], case.spec.as_deref(), locale)
             }
             _ => unreachable!(),
         }

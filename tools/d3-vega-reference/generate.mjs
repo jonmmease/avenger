@@ -1,5 +1,5 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
-import {tickStep} from 'd3-array';
+import {ticks} from 'd3-array';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {formatLocale} from 'd3-format';
@@ -21,6 +21,11 @@ const timeLocales = Object.fromEntries(['en-US', 'de-DE', 'fr-FR', 'ja-JP'].map(
 ]));
 timeLocales.custom = {...timeLocales['en-US'], dateTime: '%x at %X', date: '%Y/%-m/%-d', time: '%Hh%M', periods: ['morning', 'evening']};
 const numberValue = value => typeof value === 'string' ? Number(value) : value;
+const hex = value => {
+  const buffer = Buffer.alloc(8);
+  buffer.writeDoubleBE(value);
+  return buffer.toString('hex');
+};
 
 function numberCases() {
   const cases = [];
@@ -29,17 +34,10 @@ function numberCases() {
     const vega = vegaLocale(numberLocales[locale], timeLocales['en-US']);
     const f = mode === 'format' ? d3.format(spec)
       : mode === 'prefix' ? d3.formatPrefix(spec, args[0])
-      : mode === 'float' ? vega.formatFloat(spec)
-      : vega.formatSpan(...args, spec);
-    const fixtureMode = mode === 'span' ? 'step' : mode;
-    const fixtureArgs = mode === 'span'
-      ? [tickStep(...args), Math.max(Math.abs(args[0]), Math.abs(args[1]))]
-      : args;
+      : vega.formatFloat(spec);
     for (const value of values) {
       const number = numberValue(value);
-      const buffer = Buffer.alloc(8);
-      buffer.writeDoubleBE(number);
-      cases.push({locale, mode: fixtureMode, spec, args: fixtureArgs, value, bits: buffer.toString('hex'), expected: f(number)});
+      cases.push({locale, mode, spec, args, value, bits: hex(number), expected: f(number)});
     }
   };
   for (const type of ['', 'n', 'b', 'o', 'd', 'x', 'X', 'c', 'e', 'f', 'g', 'r', 's', '%', 'p']) {
@@ -61,18 +59,6 @@ function numberCases() {
       add(spec, [0.1, 1.23, 1200, -0.0001], locale, 'float');
     }
   }
-  for (const spec of [null, '', 'f', '.2f', 's', '.2s', '%', 'e', 'g']) {
-    add(spec, [0, 0.1, 0.3, 1], 'en-US', 'span', [0, 1, 10]);
-    add(spec, [900000, 1000000, 1100000], 'en-US', 'span', [900000, 1100000, 4]);
-  }
-  for (const locale of ['de-DE', 'fr-FR', 'ja-JP', 'custom']) {
-    add('$,f', [1234.5], locale, 'span', [1200, 1300, 4]);
-    add('%', [0.3], locale, 'span', [0, 1, 10]);
-    add('s', [900000], locale, 'span', [900000, 1100000, 4]);
-  }
-  for (const args of [[0.571, 0.58, 1], [57.1, 58, 1]]) {
-    for (const spec of ['f', 'e', 'g']) add(spec, [args[0], args[1]], 'en-US', 'span', args);
-  }
   for (const spec of ['.2e', '.2g', '.2s', '.1r']) add(spec, [1e-323, 1e-7, 1e21, 1e23]);
   add('d', [1e21, 1e23, 1000000000000000100]);
   add('x', [2 ** 64, 1e100]);
@@ -85,6 +71,43 @@ function numberCases() {
     const value = buffer.readDoubleBE();
     if (Number.isFinite(value)) add(specs[index % specs.length], [value]);
   }
+  return {locales: numberLocales, cases};
+}
+
+// Vega reads the step and largest magnitude from the domain, and Avenger infers them from
+// the ticks. These domains give the same precision both ways. A degenerate domain does not:
+// Vega's zero step leaves the pattern's default precision.
+function tickCases() {
+  const cases = [];
+  const vega = locale => vegaLocale(numberLocales[locale], timeLocales['en-US']);
+  const uniform = (spec, [start, stop, count], locale = 'en-US') => {
+    const values = ticks(start, stop, count);
+    const f = vega(locale).formatSpan(start, stop, count, spec);
+    cases.push({locale, spacing: 'uniform', spec, domain: [start, stop, count], bits: values.map(hex), expected: values.map(f)});
+  };
+  const varying = (spec, values, locale = 'en-US') => {
+    const f = vega(locale).formatFloat(spec);
+    cases.push({locale, spacing: 'varying', spec, bits: values.map(hex), expected: values.map(f)});
+  };
+  const domains = [
+    [0, 1, 10], [0, 1, 5], [-0.5, 0.5, 5], [1, 0, 5], [0, 7, 10], [0.001, 0.002, 5],
+    [1000, 1001, 10], [0, 100, 5], [0, 35, 2], [0, 1.2e6, 6], [900000, 1100000, 4],
+    [-2e9, 5e9, 7], [1e-7, 5e-7, 4], [0.571, 0.58, 1], [57.1, 58, 1]
+  ];
+  for (const spec of ['', ',', 'f', '.2f', 's', '.2s', '%', 'e', '+.1e', 'g', 'r', 'p', '$,f', '08.2f']) {
+    for (const domain of domains) uniform(spec, domain);
+  }
+  for (const locale of ['de-DE', 'fr-FR', 'ja-JP', 'custom']) {
+    uniform('$,f', [1200, 1300, 4], locale);
+    uniform('%', [0, 1, 10], locale);
+    uniform('s', [900000, 1100000, 4], locale);
+  }
+  for (const spec of ['', ',', 's', 'f', '.2f', 'e', '%', '$,']) {
+    for (const values of [[1, 2, 5, 10, 20, 50, 100], [0.001, 0.01, 0.1, 1, 10], [1e3, 1e4, 1e5, 1e6], [0.5, 1, 1.5, 2, 3]]) {
+      varying(spec, values);
+    }
+  }
+  varying(',', [0.001, 1234.5], 'de-DE');
   return {locales: numberLocales, cases};
 }
 
@@ -128,10 +151,11 @@ if (process.argv[2] === '--time') {
   for (const zone of ['UTC', 'America/New_York', 'Asia/Kathmandu', 'Australia/Lord_Howe', 'America/Sao_Paulo', 'America/Havana']) {
     times.cases.push(...JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--time'], {env: {...process.env, TZ: zone}, maxBuffer: 8 * 1024 * 1024})));
   }
-  for (const [crate, fixture] of [['number', numbers], ['datetime', times]]) {
+  const tickSets = tickCases();
+  for (const [crate, name, fixture] of [['number', 'upstream.json', numbers], ['number', 'ticks.json', tickSets], ['datetime', 'upstream.json', times]]) {
     const dir = new URL(`avenger-format-${crate}-d3/tests/fixtures/`, root);
     mkdirSync(dir, {recursive: true});
-    writeFileSync(new URL('upstream.json', dir), `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
+    writeFileSync(new URL(name, dir), `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
   }
-  console.log(`Generated ${numbers.cases.length} number and ${times.cases.length} datetime cases with ${process.version}.`);
+  console.log(`Generated ${numbers.cases.length} number, ${tickSets.cases.length} tick set, and ${times.cases.length} datetime cases with ${process.version}.`);
 }
