@@ -663,7 +663,8 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     }
 
     /// Get the domain values for ticks for the scale
-    /// These can be scaled to number for position, and scaled to string for labels
+    /// These can be scaled to number for position, and scaled to string for labels.
+    /// Numeric ticks are f64, each the shortest decimal of the f32 tick.
     fn ticks(
         &self,
         _config: &ScaleConfig,
@@ -1042,7 +1043,8 @@ impl ConfiguredScale {
     }
 
     /// Get the domain values for ticks for the scale
-    /// These can be scaled to number for position, and scaled to string for labels
+    /// These can be scaled to number for position, and scaled to string for labels.
+    /// Numeric ticks are f64, each the shortest decimal of the f32 tick.
     pub fn ticks(&self, count: Option<f32>) -> Result<ArrayRef, AvengerScaleError> {
         self.scale_impl.ticks(&self.config, count)
     }

@@ -1,4 +1,4 @@
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, Float32Array, Float64Array};
 use avenger_scales::scales::linear::LinearScale;
 use chrono::{DateTime, NaiveDate, Utc};
 use std::sync::Arc;
@@ -115,8 +115,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Linear scale ticks (different counts):");
     for tick_count in [5.0, 10.0, 15.0] {
         let ticks = tick_scale.ticks(Some(tick_count))?;
-        let tick_array = ticks.as_any().downcast_ref::<Float32Array>().unwrap();
-        let tick_values: Vec<f32> = tick_array.values().to_vec();
+        let tick_array = ticks.as_any().downcast_ref::<Float64Array>().unwrap();
+        let tick_values: Vec<f64> = tick_array.values().to_vec();
         println!("  {} ticks: {:?}", tick_count, tick_values);
     }
 

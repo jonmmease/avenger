@@ -109,8 +109,11 @@ impl ScaleImpl for ThresholdScale {
         config: &ScaleConfig,
         _count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Ticks are the same as the domain values
-        Ok(config.domain.clone())
+        // Ticks are the domain's thresholds, widened to f64 like other numeric ticks.
+        match config.domain.as_primitive_opt::<Float32Type>() {
+            Some(domain) => Ok(crate::array::tick_array(domain.values().iter().copied())),
+            None => Ok(cast(&config.domain, &DataType::Float64)?),
+        }
     }
 }
 

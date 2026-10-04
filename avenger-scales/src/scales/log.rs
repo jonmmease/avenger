@@ -598,7 +598,7 @@ impl ScaleImpl for LogScale {
 
         // D3: if (!(d[0] > 0 && d[1] > 0)) return [];
         if !(domain_start > 0.0 && domain_end > 0.0) {
-            return Ok(Arc::new(Float32Array::from(Vec::<f32>::new())));
+            return Ok(crate::array::tick_array([]));
         }
 
         let d = [domain_start, domain_end];
@@ -670,7 +670,7 @@ impl ScaleImpl for LogScale {
         if r {
             z.reverse();
         }
-        Ok(Arc::new(Float32Array::from(z)))
+        Ok(crate::array::tick_array(z))
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {

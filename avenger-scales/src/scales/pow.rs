@@ -509,8 +509,11 @@ impl ScaleImpl for PowScale {
             config.options.get("nice"),
         )?;
         let count = count.unwrap_or(10.0);
-        let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
-        Ok(Arc::new(ticks_array) as ArrayRef)
+        Ok(array::tick_array(array::ticks(
+            domain_start,
+            domain_end,
+            count,
+        )))
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
@@ -589,6 +592,7 @@ impl PowerFunction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::datatypes::Float64Type;
     use float_cmp::assert_approx_eq;
 
     #[test]
@@ -848,17 +852,17 @@ mod tests {
 
         let expected = vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(5.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         let expected = vec![0.0, 5.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(2.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         let expected = vec![0.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(1.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         Ok(())
@@ -875,25 +879,25 @@ mod tests {
 
         let scale = LinearScale;
         let ticks_array = scale.ticks(&config, Some(10.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(
             ticks_array.values().to_vec(),
             vec![-100.0, -80.0, -60.0, -40.0, -20.0, 0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
         );
 
         let ticks_array = scale.ticks(&config, Some(5.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(
             ticks_array.values().to_vec(),
             vec![-100.0, -50.0, 0.0, 50.0, 100.0]
         );
 
         let ticks_array = scale.ticks(&config, Some(2.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), vec![-100.0, 0.0, 100.0]);
 
         let ticks_array = scale.ticks(&config, Some(1.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), vec![0.0]);
 
         Ok(())

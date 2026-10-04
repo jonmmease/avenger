@@ -1,4 +1,4 @@
-use arrow::array::{ArrayRef, Float32Array};
+use arrow::array::{ArrayRef, Float32Array, Float64Array};
 use avenger_scales::scales::{log::LogScale, pow::PowScale, symlog::SymlogScale};
 use std::sync::Arc;
 
@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test log scale ticks
     println!("\nLog scale ticks (10 ticks requested):");
     let ticks = log_scale.ticks(Some(10.0))?;
-    let tick_array = ticks.as_any().downcast_ref::<Float32Array>().unwrap();
-    let tick_values: Vec<f32> = tick_array.values().to_vec();
+    let tick_array = ticks.as_any().downcast_ref::<Float64Array>().unwrap();
+    let tick_values: Vec<f64> = tick_array.values().to_vec();
 
     println!("Tick values: {:?}", tick_values);
 

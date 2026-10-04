@@ -112,11 +112,10 @@ impl ScaleImpl for QuantileScale {
         _count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         // The quantile boundaries are the ticks
-        let thresholds = Arc::new(Float32Array::from(quantile_thresholds(
+        Ok(crate::array::tick_array(quantile_thresholds(
             &config.domain,
             config.range.len(),
-        )?)) as ArrayRef;
-        Ok(thresholds)
+        )?))
     }
 }
 
@@ -149,8 +148,7 @@ mod tests {
     use std::vec;
 
     use super::*;
-    use arrow::array::StringArray;
-    use float_cmp::assert_approx_eq;
+    use arrow::{array::StringArray, datatypes::Float64Type};
 
     #[test]
     fn test_quantile_scale_basic() -> Result<(), AvengerScaleError> {
@@ -170,11 +168,11 @@ mod tests {
 
         // Check quantile thresholds
         let thresholds = scale.ticks(&config, None)?;
-        let thresholds = thresholds.as_primitive::<Float32Type>();
+        let thresholds = thresholds.as_primitive::<Float64Type>();
         assert_eq!(thresholds.len(), 2);
-        assert_approx_eq!(f32, thresholds.value(0), 3.0); // First third of values: [1,1,2]
-        assert_approx_eq!(f32, thresholds.value(1), 4.0); // Second third: [3,3,3]
-                                                          // Last third: [4,4,5]
+        assert_eq!(thresholds.value(0), 3.0); // First third of values: [1,1,2]
+        assert_eq!(thresholds.value(1), 4.0); // Second third: [3,3,3]
+                                              // Last third: [4,4,5]
 
         // Test mapping values
         let values = Arc::new(Float32Array::from(vec![1.5, 3.0, 4.5, f32::NAN])) as ArrayRef;

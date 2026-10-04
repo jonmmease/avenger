@@ -477,8 +477,11 @@ impl ScaleImpl for SymlogScale {
             config.options.get("nice"),
         )?;
         let count = count.unwrap_or(10.0);
-        let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
-        Ok(Arc::new(ticks_array) as ArrayRef)
+        Ok(array::tick_array(array::ticks(
+            domain_start,
+            domain_end,
+            count,
+        )))
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
@@ -515,6 +518,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use arrow::datatypes::Float64Type;
     use float_cmp::{assert_approx_eq, F32Margin};
 
     #[test]
@@ -850,15 +854,12 @@ mod tests {
             context: ScaleContext::default(),
         };
         let ticks = scale.ticks(&config, Some(10.0)).unwrap();
-        let ticks_array = ticks.as_primitive::<Float32Type>();
-        let expected = [
-            -1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0,
-        ];
-
-        assert_eq!(ticks.len(), expected.len());
-        for (a, b) in ticks_array.values().iter().zip(expected.iter()) {
-            assert_approx_eq!(f32, *a, *b);
-        }
+        let ticks_array = ticks.as_primitive::<Float64Type>();
+        // Widened ticks are the exact decimals.
+        assert_eq!(
+            ticks_array.values().to_vec(),
+            [-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        );
     }
 
     #[test]
@@ -875,19 +876,19 @@ mod tests {
         };
 
         let ticks = scale.ticks(&config, Some(5.0)).unwrap();
-        let ticks_array = ticks.as_primitive::<Float32Type>();
+        let ticks_array = ticks.as_primitive::<Float64Type>();
         assert!(!ticks.is_empty());
 
         // Ticks should be symmetric around zero
         let mid_idx = ticks.len() / 2;
         if ticks.len() % 2 == 1 {
-            assert_approx_eq!(f32, ticks_array.value(mid_idx), 0.0);
+            assert_approx_eq!(f64, ticks_array.value(mid_idx), 0.0);
         }
 
         // Test symmetry of positive/negative ticks
         for i in 0..mid_idx {
             assert_approx_eq!(
-                f32,
+                f64,
                 ticks_array.value(i).abs(),
                 ticks_array.value(ticks.len() - 1 - i).abs()
             );
