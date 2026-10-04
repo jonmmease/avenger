@@ -1,3 +1,4 @@
+use crate::arithmetic::Literal;
 use crate::skeleton::{invalid, parse_digits};
 use avenger_format::NumberFormatError;
 use fixed_decimal::{Decimal, SignedRoundingMode};
@@ -11,6 +12,7 @@ pub(crate) struct Digits {
 /// Fraction and significant limits share one rounding decision before display padding.
 #[derive(Debug, Clone)]
 pub(crate) struct Precision {
+    increment: Option<Literal>,
     fraction: Option<Digits>,
     significant: Option<Digits>,
     relaxed: bool,
@@ -28,8 +30,20 @@ impl Default for Precision {
 }
 
 impl Precision {
+    pub fn increment(increment: Literal) -> Self {
+        Self {
+            increment: Some(increment),
+            fraction: None,
+            significant: None,
+            relaxed: true,
+            retain: false,
+            hide_whole: false,
+        }
+    }
+
     pub fn compact() -> Self {
         Self {
+            increment: None,
             fraction: Some(Digits {
                 min: 0,
                 max: Some(0),
@@ -46,6 +60,7 @@ impl Precision {
 
     pub fn fraction(digits: Digits) -> Self {
         Self {
+            increment: None,
             fraction: Some(digits),
             significant: None,
             relaxed: true,
@@ -55,6 +70,7 @@ impl Precision {
     }
     pub fn significant(digits: Digits) -> Self {
         Self {
+            increment: None,
             fraction: None,
             significant: Some(digits),
             relaxed: true,
@@ -111,6 +127,13 @@ impl Precision {
     }
 
     pub fn apply(&self, value: &mut Decimal, mode: SignedRoundingMode) {
+        if let Some(increment) = &self.increment {
+            increment.round(value, mode);
+            if self.hide_whole {
+                value.trim_end_if_integer();
+            }
+            return;
+        }
         let magnitude = value.nonzero_magnitude_start();
         let frac_round = self
             .fraction

@@ -12,6 +12,8 @@ icu_locale_core = "~2.3.0"
 icu_locale = "~2.3.0"
 icu_provider = { version = "~2.3.0", features = ["sync"] }
 writeable = "0.6"
+num-bigint = "0.4.6"
+num-integer = "0.1.46"
 icu_plurals = "~2.3.0"
 icu_pattern = "~0.5.0"
 

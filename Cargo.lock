@@ -503,6 +503,8 @@ dependencies = [
  "icu_pattern",
  "icu_plurals",
  "icu_provider 2.3.1",
+ "num-bigint",
+ "num-integer",
  "serde",
  "serde_json",
  "writeable 0.6.4",

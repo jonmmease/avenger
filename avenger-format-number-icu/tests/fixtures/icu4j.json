@@ -199,6 +199,12 @@
       "expected": "-12"
     },
     {
+      "locale": "en-US",
+      "skeleton": "scale/0.01",
+      "bits": "405ec00000000000",
+      "expected": "1.23"
+    },
+    {
       "locale": "es-ES",
       "skeleton": "group-auto",
       "bits": "4093480000000000",
@@ -456,6 +462,150 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "scale/0.5",
+      "bits": "405edccccccccccd",
+      "expected": "61.725"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "c029000000000000",
+      "expected": "25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "c029000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "8000000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "7ff8000000000000",
+      "expected": "NaN"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/+5.E-1",
+      "bits": "4008000000000000",
+      "expected": "1.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/.5e+1",
+      "bits": "3fd0000000000000",
+      "expected": "1.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "3ff0666666666666",
+      "expected": "1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "3ff08f5c28f5c28f",
+      "expected": "1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "bff08f5c28f5c28f",
+      "expected": "-1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/3.14",
+      "bits": "4020000000000000",
+      "expected": "9.42"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.0300",
+      "bits": "3ff08f5c28f5c28f",
+      "expected": "1.0200"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/3.140e-2",
+      "bits": "3ff0e147ae147ae1",
+      "expected": "1.06760"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.25 rounding-mode-half-up",
+      "bits": "bfc0000000000000",
+      "expected": "-0.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.02",
+      "bits": "3ff07ae147ae147b",
+      "expected": "1.04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.05/w",
+      "bits": "4000020c49ba5e35",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/2.5 E0 .0",
+      "bits": "40af3e0000000000",
+      "expected": "1.0E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/2 K .0",
+      "bits": "411e847c00000000",
+      "expected": "1.0M"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1234567890123456789 precision-unlimited",
+      "bits": "54b693d8e89df183",
+      "expected": "15,241,578,753,238,835,651,425,097,777,625,363,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03 rounding-mode-ceiling",
+      "bits": "bf50624dd2f1a9fc",
+      "expected": "-0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03 rounding-mode-floor",
+      "bits": "bf50624dd2f1a9fc",
+      "expected": "-0.03"
+    },
+    {
+      "locale": "en-US",
       "skeleton": ".0/@@@*",
       "bits": "3ff0000000000000",
       "expected": "1.0"
@@ -546,6 +696,34 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "precision-increment/0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "IllegalArgumentException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/-0.03",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "IllegalArgumentException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1e",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1.2.3",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
       "skeleton": "E",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
@@ -611,6 +789,16 @@
       "compatibility_exception": {
         "error": "InvalidOption",
         "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1e1001",
+      "bits": "4028000000000000",
+      "expected": "1,200,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Decimal literal magnitudes are limited to ±1000."
       }
     },
     {
@@ -868,6 +1056,12 @@
       "expected": "0"
     },
     {
+      "locale": "en-US",
+      "skeleton": "E0 precision-increment/25 integer-width-trunc scale/1e-5",
+      "bits": "3fc0000000000000",
+      "expected": "0E-6"
+    },
+    {
       "locale": "de",
       "skeleton": "KK .0",
       "bits": "412e848000000000",
@@ -1081,6 +1275,26 @@
       "compatibility_exception": {
         "expected": "1 000 000 000 000 000 000 billions",
         "reason": "Rust applies CLDR's French `many` form to this round integer; ICU4J 78.1 selects the singular at this magnitude."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 precision-increment/0.03",
+      "bits": "3ff0000000000000",
+      "expected": "0.09E1",
+      "compatibility_exception": {
+        "expected": "9.99E-1",
+        "reason": "ICU4J assumes increment rounding raises the magnitude; Rust derives the exponent from the rounded value."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE0 precision-increment/3",
+      "bits": "3fb999999999999a",
+      "expected": "0E0",
+      "compatibility_exception": {
+        "expected": "99E-3",
+        "reason": "ICU4J assumes increment rounding raises the magnitude; Rust derives the exponent from the rounded value."
       }
     }
   ],

@@ -2,6 +2,7 @@ use avenger_format::NumberFormatError;
 use fixed_decimal::{SignedRoundingMode as R, UnsignedRoundingMode as U};
 use std::collections::HashSet;
 
+use crate::arithmetic::Literal;
 use crate::notation::Notation;
 use crate::precision::{Digits, Precision};
 
@@ -49,6 +50,7 @@ pub(crate) struct Skeleton {
     pub integer_max: Option<i16>,
     pub decimal_always: bool,
     pub numbering_system: Option<String>,
+    pub scale: Literal,
 }
 
 impl Default for Skeleton {
@@ -63,6 +65,7 @@ impl Default for Skeleton {
             integer_max: None,
             decimal_always: false,
             numbering_system: None,
+            scale: Literal::power(0),
         }
     }
 }
@@ -279,6 +282,22 @@ impl Skeleton {
                     }
                     result.numbering_system = Some(name.into());
                     "symbols"
+                }
+                "scale" => {
+                    result.scale = Literal::parse(one_option()?, start)?;
+                    "scale"
+                }
+                "precision-increment" => {
+                    if options.is_empty() || options.len() > 2 {
+                        return Err(invalid("expected increment and optional /w", start));
+                    }
+                    let increment = Literal::parse(options[0], start)?;
+                    if !increment.positive() {
+                        return Err(invalid("increment must be positive", start));
+                    }
+                    result.precision = Precision::increment(increment);
+                    result.precision.options(&options[1..], start)?;
+                    "precision"
                 }
                 _ => return Err(invalid(format!("unknown skeleton stem: {stem}"), start)),
             };

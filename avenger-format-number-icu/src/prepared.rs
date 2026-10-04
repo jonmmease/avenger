@@ -173,7 +173,9 @@ impl Prepared {
 impl PreparedNumberFormatter for Prepared {
     fn format(&self, value: f64) -> FormattedNumber {
         if value.is_finite() {
-            self.format_decimal(crate::arithmetic::from_float(value))
+            let mut number = crate::arithmetic::from_float(value);
+            self.skeleton.scale.scale(&mut number);
+            self.format_decimal(number)
         } else {
             let body = if value.is_nan() {
                 self.locale.symbols.nan
