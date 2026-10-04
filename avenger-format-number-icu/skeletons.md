@@ -24,6 +24,15 @@ Locales resolve through ICU4X's fallback chain, so `nb` uses Norwegian `no` data
 
 ICU4X's data omits currency symbols that equal the ISO code, so those locales show the root symbol: Italian formats `currency/USD` with `US$` where CLDR specifies `USD`. Per-currency separators, such as the Cape Verdean escudo's `$`, are not applied.
 
+## Tick labels
+
+`format_ticks()` formats axis ticks together when the skeleton has no precision stem. With explicit precision, `usage`, or mixed units, each tick formats as `format()` does.
+
+- Uniform ticks share the fraction digits that their finest decimal place needs after scaling, so `0` to `1` by `0.2` reads `0.0, 0.2, …, 1.0`, and whole-dollar currency ticks drop cents.
+- Compact ticks share the largest tick's unit, including zero, so `K` labels ticks up to `1.2M` as `0.0M, 0.2M, …, 1.2M`.
+- Scientific ticks share significant digits.
+- Varying ticks in simple notation keep their own digits, so `1e-7` reads `0.0000001`.
+
 ## Data
 
 Patterns, symbols, plural rules, and unit conversions come from ICU4X 2.3's compiled data. Tables generated from CLDR 48.2.1 supply what ICU4X omits, under the [Unicode license](data/LICENSE). The [reference tools](../tools/icu-number-reference/README.md) regenerate them and the test fixture.

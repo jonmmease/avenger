@@ -100,6 +100,12 @@ impl Literal {
         !self.negative && self.coefficient != BigUint::from(0u8)
     }
 
+    /// Power of ten of the last nonzero digit. Scaling moves values on a 10^r grid onto a
+    /// 10^(r + exponent) grid.
+    pub fn exponent(&self) -> i16 {
+        self.exponent
+    }
+
     pub fn scale(&self, value: &mut Decimal) {
         // ICU preserves zero and non-finite signs before applying an arbitrary multiplier.
         if value.is_zero() {

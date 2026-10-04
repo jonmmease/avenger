@@ -117,8 +117,8 @@ impl Compact {
             .last()
             .map_or(0, |p| i16::from(p.sized - p.variable.get_default().0.get()))
     }
-    pub fn render(&self, number: &Decimal, exponent: i16, body: &str) -> String {
-        let magnitude = number.nonzero_magnitude_start() + exponent;
+    /// Apply the pattern for `magnitude`, choosing its plural form from the displayed number.
+    pub fn render(&self, number: &Decimal, magnitude: i16, body: &str) -> String {
         // ICU uses explicit "=1" patterns for a positive mantissa equal to one, such as 1.0, but
         // plural categories from the displayed digits; in CLDR 48 only French data has such
         // patterns. ICU4X matches "=1" from operands exactly equal to one. A positive one with the
