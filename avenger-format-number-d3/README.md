@@ -38,4 +38,4 @@ Automatic trimming removes trailing zeros before localization and padding. This 
 
 Keep values as `f64` until formatting. Converting through `f32` can change the label. Prepared formatters also accept NaN and infinity.
 
-The locale files and license come from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale). The [reference generator](../tools/format-reference/README.md) produces compatibility fixtures from D3 and Vega.
+The locale files and license come from [d3-format 3.1.2](https://github.com/d3/d3-format/tree/ebdc2d530277df379157f82fee6ea5623d179bd7/locale). The [reference generator](../tools/d3-vega-reference/README.md) produces compatibility fixtures from D3 and Vega.

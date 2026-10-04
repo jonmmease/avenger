@@ -3,7 +3,7 @@
 This tool generates number and datetime formatting fixtures from D3 and Vega. From the repository root, run these commands with Node 20.19.6:
 
 ```sh
-cd tools/format-reference
+cd tools/d3-vega-reference
 npm ci --ignore-scripts
 npm run generate
 ```

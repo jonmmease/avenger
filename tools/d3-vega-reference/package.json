@@ -1,5 +1,5 @@
 {
-  "name": "avenger-format-reference",
+  "name": "avenger-d3-vega-reference",
   "private": true,
   "type": "module",
   "scripts": {"generate": "node generate.mjs"},
