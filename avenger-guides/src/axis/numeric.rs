@@ -24,8 +24,18 @@ pub fn make_numeric_axis_marks(
     origin: [f32; 2],
     config: &AxisConfig,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    // For scales with a band option, make sure ticks end up centered in the band
-    let scale = scale.clone().with_option("band", 0.5);
+    // For scales with a band option, make sure ticks end up centered in the band.
+    // Other scales reject unknown options.
+    let has_band = scale
+        .scale_impl
+        .option_definitions()
+        .iter()
+        .any(|option| option.name == "band");
+    let scale = if has_band {
+        scale.clone().with_option("band", 0.5)
+    } else {
+        scale.clone()
+    };
 
     let mut group = SceneGroup {
         origin,
