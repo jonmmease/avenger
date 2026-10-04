@@ -1,4 +1,4 @@
-use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
+use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
@@ -183,7 +183,13 @@ impl ChartState {
         // Make symbol legend
         let symbol_legend = SceneMark::Group(
             make_symbol_legend(&SymbolLegendConfig {
-                text: color_scale.format(color_scale.domain()).unwrap(),
+                text: color_scale
+                    .domain()
+                    .as_string::<i32>()
+                    .iter()
+                    .map(|species| species.unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
                 title: None,
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
                 stroke_width: Some(1.0),

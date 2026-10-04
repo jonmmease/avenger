@@ -13,8 +13,8 @@ pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
+use crate::color_interpolator::ColorInterpolatorConfig;
 use crate::{color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar};
-use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
 use crate::{
     color_interpolator::SrgbaColorInterpolator,
     scales::coerce::{ColorCoercer, CssColorCoercer},
@@ -32,7 +32,6 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 
 /// Validation constraint for a scale option.
@@ -413,7 +412,6 @@ pub struct ScaleConfig {
 #[derive(Debug, Clone)]
 pub struct ScaleContext {
     pub color_interpolator: Arc<dyn ColorInterpolator>,
-    pub formatters: Formatters,
     pub color_coercer: Arc<dyn ColorCoercer>,
     pub numeric_coercer: Arc<dyn NumericCoercer>,
 }
@@ -422,7 +420,6 @@ impl Default for ScaleContext {
     fn default() -> Self {
         Self {
             color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
             color_coercer: Arc::new(CssColorCoercer),
             numeric_coercer: Arc::new(CastNumericCoercer),
         }
@@ -704,7 +701,8 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         Ok(self.scale_to_color(config, &array)?.to_scalar_if_len_one())
     }
 
-    /// Scale to string values
+    /// Scale to string values, such as an ordinal scale's string range. Other outputs convert
+    /// to text, and nulls use the `default` option.
     fn scale_to_string(
         &self,
         config: &ScaleConfig,
@@ -714,10 +712,7 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         self.validate_options(config)?;
 
         let scaled = self.scale(config, values)?;
-        let formatter = &config.context.formatters;
-        let default = config.option_string("default", "");
-        let t = formatter.format(&scaled, Some(&default))?;
-        Ok(t)
+        to_text(&scaled, &config.option_string("default", ""))
     }
 
     fn scale_scalar_to_string(
@@ -1194,37 +1189,17 @@ impl ConfiguredScale {
     }
 }
 
-/// Formatter pass through methods
-impl ConfiguredScale {
-    pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        self.config.context.formatters.format(values, None)
-    }
-
-    pub fn format_numbers(&self, values: &[Option<f32>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.config.context.formatters.number.format(values, None))
-    }
-
-    pub fn format_dates(&self, values: &[Option<NaiveDate>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.config.context.formatters.date.format(values, None))
-    }
-
-    pub fn format_timestamps(&self, values: &[Option<NaiveDateTime>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(
-            self.config
-                .context
-                .formatters
-                .timestamp
-                .format(values, None),
-        )
-    }
-
-    pub fn format_timestamptz(&self, values: &[Option<DateTime<Utc>>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(
-            self.config
-                .context
-                .formatters
-                .timestamptz
-                .format(values, None),
-        )
-    }
+/// Convert values to text with Arrow's cast, writing `default` for nulls.
+pub fn to_text(
+    values: &ArrayRef,
+    default: &str,
+) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+    let values = cast(values, &DataType::Utf8)?;
+    Ok(ScalarOrArray::new_array(
+        values
+            .as_string::<i32>()
+            .iter()
+            .map(|value| value.unwrap_or(default).to_string())
+            .collect(),
+    ))
 }

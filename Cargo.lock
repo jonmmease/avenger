@@ -589,7 +589,6 @@ dependencies = [
  "ordered-float 5.0.0",
  "palette",
  "paste",
- "regex",
  "serde",
  "serde_json",
  "strum 0.27.1",

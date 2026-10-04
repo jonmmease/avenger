@@ -218,17 +218,9 @@ let panned_scale = scale.pan(10.0).unwrap();
 let zoomed_scale = scale.zoom(0.5, 2.0).unwrap(); // Zoom 2x around center
 ```
 
-## Number Formatting
+## Labels
 
-Built-in number formatting with D3-style format strings:
-```rust
-use avenger_scales::format_num::NumberFormat;
-
-let formatter = NumberFormat::new();
-assert_eq!(formatter.format(".2f", 3.14159), "3.14");
-assert_eq!(formatter.format(".0%", 0.123), "12%");
-assert_eq!(formatter.format(".2s", 42000000), "42M");
-```
+Scales don't format numbers. Format tick values with a provider from `avenger-format`, such as `avenger-format-number-d3` or `avenger-format-number-icu`, whose `format_ticks` labels a set of ticks together. `scale_to_string` returns a scale's string outputs, such as an ordinal scale's string range, and converts other outputs to text. Time scales format their tick labels by tick interval.
 
 ## Examples
 
@@ -237,9 +229,9 @@ The `examples/` directory contains comprehensive examples:
 - `linear_scale.rs` - Basic linear scale usage
 - `color_scales.rs` - Color interpolation and gradients
 - `categorical_scales.rs` - Band, point, and ordinal scales
-- `logarithmic_scale.rs` - Logarithmic transformations
-- `quantization_scales.rs` - Quantile, quantize, and threshold scales
-- `advanced_features.rs` - Pan, zoom, nice domains, and formatting
+- `logarithmic_scales.rs` - Logarithmic, power, and symlog transformations
+- `quantile_threshold.rs` - Quantile, quantize, and threshold scales
+- `ticks_and_options.rs` - Tick generation and scale options
 
 Run examples with:
 ```bash

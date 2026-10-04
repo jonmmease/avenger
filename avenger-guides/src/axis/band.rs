@@ -2,7 +2,10 @@ use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_format::{PreparedNumberFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
+use avenger_scales::{
+    error::AvengerScaleError,
+    scales::{to_text, ConfiguredScale},
+};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
 use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
@@ -211,7 +214,7 @@ fn make_tick_labels(
     let text = if scale.domain().data_type().is_numeric() {
         number_labels(scale.domain(), format, TickSpacing::Varying)?
     } else {
-        scale.format(scale.domain())?
+        to_text(scale.domain(), "")?
     };
 
     let (x, y, align, baseline, angle) = match orientation {
