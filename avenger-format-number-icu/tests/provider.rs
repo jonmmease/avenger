@@ -5,12 +5,15 @@ use avenger_format_number_icu::IcuNumberFormatProvider;
 
 #[test]
 fn prepared_formatters_are_shareable() {
-    let formatter = IcuNumberFormatProvider::new().prepare(".00").unwrap();
-    let expected = formatter.format(1.8).text;
-    let actual = std::thread::spawn(move || formatter.format(1.8).text)
-        .join()
-        .unwrap();
-    assert_eq!(actual, expected);
+    let provider = IcuNumberFormatProvider::new();
+    for skeleton in [".00", "unit/meter usage/person-height"] {
+        let formatter = provider.prepare(skeleton).unwrap();
+        let expected = formatter.format(1.8).text;
+        let actual = std::thread::spawn(move || formatter.format(1.8).text)
+            .join()
+            .unwrap();
+        assert_eq!(actual, expected, "{skeleton}");
+    }
 }
 
 #[test]

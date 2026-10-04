@@ -40,6 +40,21 @@ impl PartsWrite for BodyWriter {
 }
 
 impl Prepared {
+    /// Larger mixed components display integers but share the smallest component's plural precision.
+    pub(crate) fn format_mixed_integer(
+        &self,
+        number: Decimal,
+        precision: &crate::precision::Precision,
+    ) -> FormattedNumber {
+        let mut plural = number.clone();
+        precision.apply(&mut plural, self.skeleton.rounding);
+        let sign = self
+            .skeleton
+            .sign
+            .display(number.sign == Sign::Negative, number.is_zero());
+        FormattedNumber::plain(self.affix(self.body(&number), sign, Some(&plural), 0))
+    }
+
     fn body(&self, value: &Decimal) -> String {
         let s = &self.skeleton;
         let mut display = value.clone();

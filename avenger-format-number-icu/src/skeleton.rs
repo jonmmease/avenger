@@ -68,6 +68,7 @@ pub(crate) struct Skeleton {
     pub decimal_always: bool,
     pub numbering_system: Option<String>,
     pub unit: Unit,
+    pub usage: Option<String>,
     pub scale: Literal,
 }
 
@@ -88,6 +89,7 @@ impl Default for Skeleton {
             decimal_always: false,
             numbering_system: None,
             unit: Unit::None,
+            usage: None,
             scale: Literal::power(0),
         }
     }
@@ -388,6 +390,11 @@ impl Skeleton {
                 "per-measure-unit" => {
                     per_unit = Some(crate::units::legacy(one_option()?, start)?);
                     "per-unit"
+                }
+                "usage" => {
+                    let usage = one_option()?;
+                    result.usage = Some(usage.into());
+                    "usage"
                 }
                 _ => return Err(invalid(format!("unknown skeleton stem: {stem}"), start)),
             };

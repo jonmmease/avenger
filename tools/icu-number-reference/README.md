@@ -18,7 +18,7 @@ When Avenger's result should differ from ICU4J's, add one of these by hand:
 - `compatibility_exception`: an intentional difference, with a `reason` and Avenger's `expected` label or `error` category
 - `error`: Avenger's error category when ICU4J also rejects the input, with an optional byte `position`
 
-## Update CLDR or ICU4J
+## Update CLDR, ICU, or ICU4J
 
 After changing a version in the scripts, regenerate everything, then run the tests and review the results:
 
@@ -29,4 +29,4 @@ python3 tools/icu-number-reference/generate_reference.py
 cargo test -p avenger-format-number-icu
 ```
 
-`generate_data.py` writes `src/generated.rs`: CLDR data that ICU4X's compiled data lacks. After upgrading ICU4X itself, just run the tests.
+`generate_data.py` writes `src/generated.rs` and `src/generated_usage.rs`: CLDR data that ICU4X's compiled data lacks. After upgrading ICU4X itself, just run the tests.

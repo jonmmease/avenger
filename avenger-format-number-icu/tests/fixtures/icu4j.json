@@ -938,9 +938,199 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1 mi"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter usage/default",
+      "bits": "408f400000000000",
+      "expected": "3,281 ft"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1,6 km"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fe0000000000000",
+      "expected": "20 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height precision-integer",
+      "bits": "3ffd425aee631f8a",
+      "expected": "6 ft, 0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch .0",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 6.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch .0",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/inch-and-foot .0",
+      "bits": "4016000000000000",
+      "expected": "6.0 in, 5 ft"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height .0",
+      "bits": "bffccccccccccccd",
+      "expected": "-5 ft, 10.9 in"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/person-height .0",
+      "bits": "3ffccccccccccccd",
+      "expected": "1 m et 80,0 cm"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/second usage/media",
+      "bits": "405ec00000000000",
+      "expected": "2 min, 3 sec"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height-child",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "en-US-u-ms-metric",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1.6 km"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "4073800000000000",
+      "expected": "300 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "4072be6666666666",
+      "expected": "300 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408c1ffdf3b645a2",
+      "expected": "900 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408c200000000000",
+      "expected": "0,9 km"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/2 .0",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 12.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default K",
+      "bits": "412e848000000000",
+      "expected": "621 mi"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "0000000000000000",
+      "expected": "0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "8000000000000000",
+      "expected": "0 in"
+    },
+    {
+      "locale": "en-US",
       "skeleton": ".0/@@@*",
       "bits": "3ff0000000000000",
       "expected": "1.0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "7ff0000000000000",
+      "expected": "0 in",
+      "compatibility_exception": {
+        "expected": "∞ ft",
+        "reason": "Preserve infinity using the first preferred unit; ICU4J 78.1 replaces it with zero."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch",
+      "bits": "7ff8000000000000",
+      "expected": "0 ft, 0 in",
+      "compatibility_exception": {
+        "expected": "NaN ft",
+        "reason": "Preserve NaN using the largest mixed component; ICU4J 78.1 replaces it with zero."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "7fefffffffffffff",
+      "expected": "111,703,472,648,626,751,024,019,724,807,126,378,049,042,258,795,574,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000 mi",
+      "compatibility_exception": {
+        "expected": "111,703,472,648,626,751,024,019,724,807,126,400,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000 mi",
+        "reason": "Conversion is exact until the result is rounded to 34 significant digits; ICU4J 78.1 rounds the meter-to-mile factor to 34 digits first, which shows in the later digits of this 309-digit label."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "0000000000000001",
+      "expected": "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000019 in",
+      "compatibility_exception": {
+        "expected": "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002 in",
+        "reason": "Rust prints the shortest round-trip decimal; Java prints two digits for subnormal doubles."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fed42c3c9eecbfb",
+      "expected": "3 ft, 0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fed42c3c9eea8cc",
+      "expected": "36 in"
+    },
+    {
+      "locale": "fr-FR",
+      "skeleton": "unit/meter usage/road .00",
+      "bits": "4073800000000000",
+      "expected": "312,00 m"
     },
     {
       "locale": "fr",
@@ -975,6 +1165,30 @@
       "skeleton": "unit/meter unit-width-iso-code",
       "bits": "4000000000000000",
       "expected": "2 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch numbering-system/thai",
+      "bits": "4016000000000000",
+      "expected": "5 ft, ๖ in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch sign-never",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch sign-always",
+      "bits": "4016000000000000",
+      "expected": "5 ft, +6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/UNKNOWN",
+      "bits": "409925604189374c",
+      "expected": "1 mi"
     },
     {
       "locale": "fr-CH",
@@ -1403,6 +1617,26 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "unit/celsius usage/weather",
+      "bits": "4028000000000000",
+      "expected": "54°F",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Usage requires labeled output units; ICU4X has no temperature labels."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/byte-and-kilobyte",
+      "bits": "4028000000000000",
+      "expected": "0 byte, 12 kB",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
       "skeleton": "percent unit-width-full-name",
       "bits": "4028000000000000",
       "expected": "12 percent",
@@ -1533,12 +1767,94 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch usage/person-height",
+      "bits": "4028000000000000",
+      "expected": "1 sq ft",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Usage requires a single or compound input unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius-and-fahrenheit",
+      "bits": "4028000000000000",
+      "expected": "12°C, 32°F",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Mixed units require proportional component conversions."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
       "skeleton": "numbering-system/bali",
       "bits": "4028000000000000",
       "expected": "᭑᭒",
       "compatibility_exception": {
         "error": "InvalidOption",
         "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/road unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "40 feet",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12 feet, 0 inches",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
       }
     },
     {
@@ -1760,6 +2076,18 @@
       "skeleton": "precision-currency-cash K",
       "bits": "4028000000000000",
       "expected": "12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-meter usage/default",
+      "bits": "4028000000000000",
+      "expected": "129 sq ft"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter usage/default",
+      "bits": "4028000000000000",
+      "expected": "129 sq ft"
     },
     {
       "locale": "en-US",
@@ -2248,6 +2576,26 @@
       }
     },
     {
+      "locale": "en-US-u-ms-uksystem",
+      "skeleton": "unit/liter usage/fluid",
+      "bits": "3ffccccccccccccd",
+      "expected": "1.9 qt",
+      "compatibility_exception": {
+        "expected": "63 fl oz Imp.",
+        "reason": "ICU4J 78.1 maps uksystem to the legacy value imperial and then ignores it."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch",
+      "bits": "bfe0000000000000",
+      "expected": "0 ft, 6 in",
+      "compatibility_exception": {
+        "expected": "-0 ft, 6 in",
+        "reason": "ICU4J 78.1 drops the sign when the largest mixed component is zero."
+      }
+    },
+    {
       "locale": "fr",
       "skeleton": "currency/EUR unit-width-hidden",
       "bits": "40934a0000000000",
@@ -2531,6 +2879,14 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "measure-unit/length-meter-and-centimeter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
       "skeleton": "unit/percent",
       "bits": "4029000000000000",
       "expected": "12.5%"
@@ -2552,6 +2908,42 @@
       "skeleton": "measure-unit/concentr-permille",
       "bits": "4029000000000000",
       "expected": "12.5‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1 +!",
+      "bits": "4016000000000000",
+      "expected": "5 ft, +6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height scale/-1",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "de-u-rg-ussf",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408f400000000000",
+      "expected": "0,62 mi"
+    },
+    {
+      "locale": "en-GB-u-rg-usca",
+      "skeleton": "unit/kilogram usage/person",
+      "bits": "4054000000000000",
+      "expected": "176 lb"
     }
   ],
   "java": "openjdk version \"21.0.12.1\" 2026-08-18 LTS",

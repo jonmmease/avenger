@@ -30,6 +30,12 @@ impl Default for Precision {
 }
 
 impl Precision {
+    /// Usage defaults retain fractional padding after choosing integer or significant rounding.
+    pub fn usage() -> Self {
+        let mut result = Self::compact();
+        result.retain = true;
+        result
+    }
     pub fn currency(&self, increment: Literal) -> Self {
         let mut result = Self::increment(increment);
         result.hide_whole = self.hide_whole;

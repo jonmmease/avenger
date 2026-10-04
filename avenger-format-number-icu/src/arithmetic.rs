@@ -192,6 +192,61 @@ fn round_up(
     }
 }
 
+pub(crate) fn rational(value: &Decimal) -> num_rational::BigRational {
+    use num_bigint::BigInt;
+    let (coefficient, exponent) = coefficient(value);
+    let sign = if value.sign == Sign::Negative {
+        num_bigint::Sign::Minus
+    } else {
+        num_bigint::Sign::Plus
+    };
+    let coefficient = BigInt::from_biguint(sign, coefficient);
+    if exponent >= 0 {
+        num_rational::Ratio::from_integer(coefficient * BigInt::from(ten(exponent as u32)))
+    } else {
+        num_rational::Ratio::new(coefficient, BigInt::from(ten((-exponent) as u32)))
+    }
+}
+
+/// Round a conversion result to 34 significant digits, as DECIMAL128 does, without passing it
+/// through f64.
+pub(crate) fn decimal128(value: &num_rational::BigRational) -> Decimal {
+    use num_traits::{Signed, Zero};
+    if value.is_zero() {
+        return Decimal::from(0);
+    }
+    let n = value.numer().magnitude();
+    let d = value.denom().magnitude();
+    let mut magnitude = n.to_str_radix(10).len() as i16 - d.to_str_radix(10).len() as i16;
+    let below = if magnitude >= 0 {
+        n < &(d * ten(magnitude as u32))
+    } else {
+        &(n * ten((-magnitude) as u32)) < d
+    };
+    if below {
+        magnitude -= 1;
+    }
+    let exponent = magnitude - 33;
+    let (numerator, divisor) = if exponent < 0 {
+        (n * ten((-exponent) as u32), d.clone())
+    } else {
+        (n.clone(), d * ten(exponent as u32))
+    };
+    let (mut quotient, remainder) = numerator.div_rem(&divisor);
+    if round_up(
+        &quotient,
+        &remainder,
+        &divisor,
+        value.is_negative(),
+        R::Unsigned(U::HalfEven),
+    ) {
+        quotient += 1u8;
+    }
+    let mut result = from_coefficient(&quotient, exponent, value.is_negative());
+    result.trim_end();
+    result
+}
+
 /// Use the shortest decimal that round-trips to the same f64, retaining negative zero.
 pub(crate) fn from_float(value: f64) -> Decimal {
     Decimal::try_from_f64(value, fixed_decimal::FloatPrecision::RoundTrip)

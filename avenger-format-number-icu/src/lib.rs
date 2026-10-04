@@ -12,6 +12,7 @@
 //! ```
 
 mod arithmetic;
+mod conversion;
 mod currency;
 mod data;
 mod locale;
@@ -21,6 +22,7 @@ mod precision;
 mod prepared;
 mod skeleton;
 mod units;
+mod usage;
 
 use avenger_format::{NumberFormatError, NumberFormatProvider, PreparedNumberFormatter};
 use serde::{Deserialize, Serialize};
@@ -55,6 +57,11 @@ impl NumberFormatProvider for IcuNumberFormatProvider {
         let mut skeleton = skeleton::Skeleton::parse(pattern)?;
         currency::resolve_precision(&mut skeleton)?;
         let name = self.locale.as_deref().unwrap_or("en-US");
+        if skeleton.usage.is_some()
+            || matches!(&skeleton.unit, skeleton::Unit::Measure(unit) if unit.contains("-and-"))
+        {
+            return Ok(Arc::new(usage::Usage::new(name, skeleton)?));
+        }
         let context = data::Context::new(name, skeleton.numbering_system.as_deref())?;
         let locale = locale::LocaleData::new(&context, &skeleton)?;
         Ok(Arc::new(prepared::Prepared { skeleton, locale }))

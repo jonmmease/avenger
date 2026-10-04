@@ -143,6 +143,8 @@ def generate(z):
             for (category, region), units in sorted(region_units.items())]
     out += ['];']
     dest = ROOT / 'avenger-format-number-icu'
+    from usage_data import generate as generate_usage
+    generate_usage(z, dest, header)
     (dest / 'src/generated.rs').write_text('\n'.join(out) + '\n')
     (dest / 'data').mkdir(exist_ok=True)
     (dest / 'data/LICENSE').write_bytes(z.read('LICENSE'))
