@@ -1,6 +1,7 @@
 use arrow::array::ArrayRef;
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
+use avenger_format::{PreparedNumberFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
@@ -9,7 +10,10 @@ use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
 
-use super::opts::{AxisConfig, AxisOrientation};
+use super::{
+    number_labels,
+    opts::{AxisConfig, AxisOrientation},
+};
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
@@ -90,9 +94,16 @@ pub fn make_numeric_axis_marks(
         .push(make_tick_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
-    group
-        .marks
-        .push(make_tick_labels(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
+    group.marks.push(
+        make_tick_labels(
+            &ticks,
+            &scale,
+            &config.orientation,
+            &config.dimensions,
+            &*config.format,
+        )?
+        .into(),
+    );
 
     // Add title
     group
@@ -221,8 +232,14 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
+    format: &dyn PreparedNumberFormatter,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let tick_text = scale.format(ticks)?;
+    if !ticks.data_type().is_numeric() {
+        return Err(AvengerGuidesError::NonNumericTicks(
+            ticks.data_type().clone(),
+        ));
+    }
+    let tick_text = number_labels(ticks, format, tick_spacing(scale))?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {
@@ -268,6 +285,15 @@ fn make_tick_labels(
         font_size: TICK_FONT_SIZE.into(),
         ..Default::default()
     })
+}
+
+/// Log, threshold, and quantile ticks span magnitudes or arbitrary breaks. Other numeric
+/// scales space their ticks evenly.
+fn tick_spacing(scale: &ConfiguredScale) -> TickSpacing {
+    match scale.scale_impl.scale_type() {
+        "log" | "threshold" | "quantile" => TickSpacing::Varying,
+        _ => TickSpacing::Uniform,
+    }
 }
 
 fn make_title(

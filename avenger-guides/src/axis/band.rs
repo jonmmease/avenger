@@ -1,5 +1,6 @@
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
+use avenger_format::{PreparedNumberFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
@@ -9,7 +10,10 @@ use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
 
-use super::opts::{AxisConfig, AxisOrientation};
+use super::{
+    number_labels,
+    opts::{AxisConfig, AxisOrientation},
+};
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
@@ -78,9 +82,15 @@ pub fn make_band_axis_marks(
         .push(make_tick_marks(&scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
-    group
-        .marks
-        .push(make_tick_labels(&scale, &config.orientation, &config.dimensions)?.into());
+    group.marks.push(
+        make_tick_labels(
+            &scale,
+            &config.orientation,
+            &config.dimensions,
+            &*config.format,
+        )?
+        .into(),
+    );
 
     // Add title
     group
@@ -194,8 +204,15 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
+    format: &dyn PreparedNumberFormatter,
 ) -> Result<SceneTextMark, AvengerScaleError> {
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
+    // Categories are independent values, so each numeric label keeps its own digits.
+    let text = if scale.domain().data_type().is_numeric() {
+        number_labels(scale.domain(), format, TickSpacing::Varying)?
+    } else {
+        scale.format(scale.domain())?
+    };
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
@@ -230,7 +247,7 @@ fn make_tick_labels(
 
     Ok(SceneTextMark {
         len: scale.domain().len() as u32,
-        text: scale.format(scale.domain())?,
+        text,
         x,
         y,
         align: align.into(),

@@ -1,6 +1,8 @@
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::D3NumberFormatProvider;
 
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
@@ -250,6 +252,9 @@ pub async fn run() {
         ..Default::default()
     };
 
+    // Vega's default axis format
+    let format = D3NumberFormatProvider::new().prepare(",f").unwrap();
+
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
@@ -259,6 +264,7 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Left,
             grid: true,
+            format: format.clone(),
         },
     )
     .unwrap();
@@ -272,6 +278,7 @@ pub async fn run() {
             dimensions: [width, height],
             orientation: AxisOrientation::Bottom,
             grid: false,
+            format: format.clone(),
         },
     )
     .unwrap();
@@ -324,6 +331,7 @@ pub async fn run() {
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
+            format,
         },
     )
     .unwrap();

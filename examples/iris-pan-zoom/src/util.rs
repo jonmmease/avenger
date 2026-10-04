@@ -6,6 +6,8 @@ use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -278,6 +280,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         ..Default::default()
     };
 
+    // Vega's default axis format
+    let format = D3NumberFormatProvider::new().prepare(",f").unwrap();
+
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
@@ -287,6 +292,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Left,
             grid: true,
+            format: format.clone(),
         },
     )
     .unwrap();
@@ -300,6 +306,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Bottom,
             grid: true,
+            format,
         },
     )
     .unwrap();
