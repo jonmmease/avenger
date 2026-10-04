@@ -17,6 +17,10 @@ pub(crate) struct Symbols {
     pub nan: &'static str,
     pub infinity: &'static str,
     pub exponent: &'static str,
+    pub percent: &'static str,
+    pub permille: &'static str,
+    /// Percent grouping sizes that differ from ordinary decimal data.
+    pub percent_grouping: Option<(u8, u8)>,
 }
 
 include!("generated.rs");
@@ -53,6 +57,9 @@ pub(crate) struct Context {
     pub locale: Locale,
     pub prefs: DecimalFormatterPreferences,
     pub numbering_system: String,
+    /// ICU4X fallback chain, most specific first. It ends at the root locale only when the
+    /// request names it, so unknown languages stay unavailable.
+    chain: Vec<String>,
     pub symbols: &'static Symbols,
 }
 
@@ -135,8 +142,13 @@ impl Context {
             locale,
             prefs,
             numbering_system,
+            chain,
             symbols,
         })
+    }
+
+    pub fn symbols_for(&self, numbering_system: &str) -> Option<&'static Symbols> {
+        find_symbols(&self.chain, numbering_system)
     }
 
     /// Load numbering-system data when requested, then the locale's default data.

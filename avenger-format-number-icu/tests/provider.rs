@@ -27,7 +27,13 @@ fn scientific_typesetting_parts() {
             exponent: 3
         }
     );
-    for skeleton in ["E00", "E0 numbering-system/thai", "E0 000", "K"] {
+    for skeleton in [
+        "E00",
+        "E0 percent",
+        "E0 numbering-system/thai",
+        "E0 000",
+        "K",
+    ] {
         assert_eq!(
             provider
                 .prepare(skeleton)

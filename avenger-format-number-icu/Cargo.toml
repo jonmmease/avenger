@@ -16,6 +16,7 @@ num-bigint = "0.4.6"
 num-integer = "0.1.46"
 icu_plurals = "~2.3.0"
 icu_pattern = "~0.5.0"
+icu_experimental = { version = "~0.6.0", default-features = false, features = ["compiled_data"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }

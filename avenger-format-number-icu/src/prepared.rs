@@ -1,5 +1,8 @@
 use crate::notation::Notation;
-use crate::{locale::LocaleData, skeleton::Skeleton};
+use crate::{
+    locale::{Affix, LocaleData},
+    skeleton::{Skeleton, Unit},
+};
 use avenger_format::{FormattedNumber, NumberTypesetting, PreparedNumberFormatter};
 use fixed_decimal::{Decimal, Sign};
 use std::fmt::{self, Write};
@@ -71,7 +74,11 @@ impl Prepared {
     }
 
     fn affix(&self, body: String, sign: Sign) -> String {
-        self.locale.signs.apply(&body, sign)
+        let signs = &self.locale.signs;
+        match &self.locale.affix {
+            Affix::Plain => signs.apply(&body, sign),
+            Affix::Percent(percent) => percent.render(&body, sign, signs),
+        }
     }
 }
 
@@ -141,7 +148,8 @@ impl Prepared {
                     format!("{body}{}{suffix}", self.locale.symbols.exponent),
                     sign,
                 );
-                let typesetting = if self.locale.latin_digits
+                let typesetting = if s.unit == Unit::None
+                    && self.locale.latin_digits
                     && s.integer_min <= 1
                     && s.integer_max.is_none()
                     && digits == 1

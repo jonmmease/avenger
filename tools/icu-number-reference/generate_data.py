@@ -19,6 +19,14 @@ def rust(value):
     return '"' + ''.join('\\u{' + format(ord(c), 'x') + '}' if unicodedata.category(c) in ('Cf', 'Cc', 'Zl', 'Zp') else c for c in escaped) + '"'
 
 
+def grouping_sizes(pattern):
+    """Read primary and secondary grouping widths from the numeric blueprint."""
+    parts = re.search(r'[#0][#0,]*', pattern)[0].split(',')
+    primary = len(parts[-1]) if len(parts) > 1 else 0
+    secondary = len(parts[-2]) if len(parts) > 2 else primary
+    return primary, secondary
+
+
 def tag(locale):
     """Spell identifiers as ICU4X data locales do, with lowercase variants."""
     language, *rest = locale.split('-')
@@ -49,7 +57,7 @@ def ancestors(locale, parents, likely):
 
 
 def symbol_rows(z, coverage):
-    """Read symbols for every covered locale and numbering system."""
+    """Read symbols and overrides for every covered locale and numbering system."""
     rows = {}
     for name in sorted(z.namelist()):
         if not name.startswith('cldr-numbers-full/main/') or not name.endswith('/numbers.json'):
@@ -66,10 +74,17 @@ def symbol_rows(z, coverage):
             if not key.startswith('symbols-numberSystem-') or 'nan' not in val:
                 continue
             nu = key.removeprefix('symbols-numberSystem-')
+            def formats(kind):
+                return data.get(f'{kind}Formats-numberSystem-{nu}', data[f'{kind}Formats-numberSystem-latn'])
+            ordinary = (val['decimal'], val['group'], *grouping_sizes(formats('decimal')['standard']))
+            percent = grouping_sizes(formats('percent')['standard'])
             rows[f'{tag(locale)}/{nu}'] = (
                 ('nan', rust(val['nan'])),
                 ('infinity', rust(val['infinity'])),
                 ('exponent', rust(val['exponential'])),
+                ('percent', rust(val['percentSign'])),
+                ('permille', rust(val['perMille'])),
+                ('percent_grouping', f'Some({percent})' if percent != ordinary[2:] else 'None'),
             )
     return rows
 

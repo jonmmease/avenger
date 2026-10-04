@@ -158,6 +158,24 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "%x100 .0",
+      "bits": "3fbf7ced916872b0",
+      "expected": "12.3%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100",
+      "bits": "3fbf7ced916872b0",
+      "expected": "12.3%"
+    },
+    {
+      "locale": "en-US",
       "skeleton": "sign-negative precision-integer",
       "bits": "bfb999999999999a",
       "expected": "0"
@@ -251,6 +269,24 @@
       "skeleton": "numbering-system/thai",
       "bits": "3ff0000000000000",
       "expected": "๑"
+    },
+    {
+      "locale": "tr",
+      "skeleton": "percent",
+      "bits": "c028000000000000",
+      "expected": "-%12"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢٪؜"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12 ‰"
     },
     {
       "locale": "ar-EG",
@@ -369,6 +405,12 @@
       "skeleton": "E0",
       "bits": "4093480000000000",
       "expected": "1,234×10^3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 percent .00",
+      "bits": "402899999999999a",
+      "expected": "1.23E1%"
     },
     {
       "locale": "en-US",
@@ -611,6 +653,58 @@
       "expected": "1.0"
     },
     {
+      "locale": "blo",
+      "skeleton": "percent +!",
+      "bits": "4028000000000000",
+      "expected": "% +12"
+    },
+    {
+      "locale": "blo",
+      "skeleton": "percent",
+      "bits": "c028000000000000",
+      "expected": "% -12"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent numbering-system/latn +!",
+      "bits": "4028000000000000",
+      "expected": "‎+12‎%‎"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "permille +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢؉"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent numbering-system/thai +!",
+      "bits": "4028000000000000",
+      "expected": "‎+๑๒‎%‎",
+      "compatibility_exception": {
+        "expected": "؜+๑๒‎%‎",
+        "reason": "A numbering system without locale symbols uses the locale's ordinary ICU4X signs and symbols; ICU4J uses Latin symbols."
+      }
+    },
+    {
+      "locale": "tr",
+      "skeleton": "permille +!",
+      "bits": "4028000000000000",
+      "expected": "+‰12"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "percent +!",
+      "bits": "c028000000000000",
+      "expected": "-12 %"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent +!",
+      "bits": "7ff0000000000000",
+      "expected": "؜+∞٪؜"
+    },
+    {
       "locale": "en-US",
       "skeleton": ":: .00",
       "bits": "3ff0000000000000",
@@ -620,6 +714,13 @@
     {
       "locale": "en-US",
       "skeleton": "bogus",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent/extra",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
       "error": "InvalidPattern"
@@ -669,6 +770,13 @@
     {
       "locale": "en-US",
       "skeleton": "group-off group-auto",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100 scale/100",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
       "error": "InvalidPattern"
@@ -803,6 +911,26 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "percent K",
+      "bits": "4028000000000000",
+      "expected": "12%",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille K",
+      "bits": "4028000000000000",
+      "expected": "12‰",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
       "skeleton": "numbering-system/bali",
       "bits": "4028000000000000",
       "expected": "᭑᭒",
@@ -810,6 +938,42 @@
         "error": "InvalidOption",
         "reason": "ICU4X has no digits for this numbering system."
       }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "c0934a0000000000",
+      "expected": "-123450%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "c0934a0000000000",
+      "expected": "-123450%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "8000000000000000",
+      "expected": "-0%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "8000000000000000",
+      "expected": "-0%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.123%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.123%"
     },
     {
       "locale": "en-US",
@@ -968,10 +1132,52 @@
       "expected": "12.5"
     },
     {
+      "locale": "az-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12‰"
+    },
+    {
+      "locale": "pa-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "۱۲؉",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "uz-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "۱۲؉",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent numbering-system/arab +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢٪؜",
+      "compatibility_exception": {
+        "expected": "+١٢%",
+        "reason": "A numbering system without locale symbols uses the locale's ordinary ICU4X signs and symbols; ICU4J uses Latin symbols."
+      }
+    },
+    {
       "locale": "nb",
       "skeleton": "",
       "bits": "c0934a0000000000",
       "expected": "−1 234,5"
+    },
+    {
+      "locale": "nb-SJ",
+      "skeleton": "percent",
+      "bits": "4029000000000000",
+      "expected": "12,5 %"
     },
     {
       "locale": "ht",
@@ -1148,6 +1354,24 @@
       "skeleton": "KK",
       "bits": "412e848000000000",
       "expected": "1 milion"
+    },
+    {
+      "locale": "te",
+      "skeleton": "percent",
+      "bits": "4132d68700000000",
+      "expected": "1,234,567%"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "percent",
+      "bits": "40fe240000000000",
+      "expected": "१२३,४५६%"
+    },
+    {
+      "locale": "blo",
+      "skeleton": "percent",
+      "bits": "4132d68700000000",
+      "expected": "% 1 23 45 67"
     },
     {
       "locale": "fr-CH",

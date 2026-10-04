@@ -6,9 +6,10 @@
 
 Preparation returns an error for:
 
-- percent, per-mille, currencies, and units
+- currencies and units
 - `rounding-mode-unnecessary`, because formatting cannot fail
 - repeated notation options, such as `scientific/*e/*ee`
+- compact and full-name percent and per-mille
 - numbering systems without decimal digits, such as `roman`
 - decimal literals with more than 999 digits or magnitudes beyond ±1000
 

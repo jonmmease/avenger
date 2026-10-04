@@ -39,6 +39,14 @@ impl Sign {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum Unit {
+    #[default]
+    None,
+    Percent,
+    Permille,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Skeleton {
     pub notation: Notation,
@@ -50,6 +58,7 @@ pub(crate) struct Skeleton {
     pub integer_max: Option<i16>,
     pub decimal_always: bool,
     pub numbering_system: Option<String>,
+    pub unit: Unit,
     pub scale: Literal,
 }
 
@@ -65,6 +74,7 @@ impl Default for Skeleton {
             integer_max: None,
             decimal_always: false,
             numbering_system: None,
+            unit: Unit::None,
             scale: Literal::power(0),
         }
     }
@@ -135,6 +145,21 @@ impl Skeleton {
                     no_options()?;
                     result.notation = Notation::concise(stem, start)?;
                     "notation"
+                }
+                "base-unit" | "percent" | "%" | "permille" | "%x100" => {
+                    no_options()?;
+                    result.unit = match stem {
+                        "base-unit" => Unit::None,
+                        "permille" => Unit::Permille,
+                        _ => Unit::Percent,
+                    };
+                    if stem == "%x100" {
+                        if !seen.insert("scale") {
+                            return Err(invalid("duplicate scale", start));
+                        }
+                        result.scale = Literal::power(2);
+                    }
+                    "unit"
                 }
                 "precision-integer" | "precision-unlimited" => {
                     if stem == "precision-unlimited" && options.iter().any(|o| *o != "w") {
