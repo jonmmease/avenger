@@ -1,6 +1,7 @@
 /target
 /.idea
 /avenger-wgpu/tests/output/
+/avenger-format-number-icu/tests/output/
 .DS_Store
 examples/*/pkg/
 examples/*/target/
