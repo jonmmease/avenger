@@ -2,6 +2,7 @@ use avenger_format::NumberFormatError;
 use fixed_decimal::{SignedRoundingMode as R, UnsignedRoundingMode as U};
 use std::collections::HashSet;
 
+use crate::notation::Notation;
 use crate::precision::{Digits, Precision};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -39,6 +40,7 @@ impl Sign {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Skeleton {
+    pub notation: Notation,
     pub precision: Precision,
     pub rounding: R,
     pub grouping: Grouping,
@@ -52,6 +54,7 @@ pub(crate) struct Skeleton {
 impl Default for Skeleton {
     fn default() -> Self {
         Self {
+            notation: Notation::Simple,
             precision: Precision::default(),
             rounding: R::Unsigned(U::HalfEven),
             grouping: Grouping::Auto,
@@ -120,6 +123,16 @@ impl Skeleton {
                 }
             };
             let category = match stem {
+                "notation-simple" | "scientific" | "engineering" | "compact-short"
+                | "compact-long" | "K" | "KK" => {
+                    result.notation = Notation::parse(stem, options, start)?;
+                    "notation"
+                }
+                _ if stem.starts_with('E') => {
+                    no_options()?;
+                    result.notation = Notation::concise(stem, start)?;
+                    "notation"
+                }
                 "precision-integer" | "precision-unlimited" => {
                     if stem == "precision-unlimited" && options.iter().any(|o| *o != "w") {
                         return Err(invalid("precision-unlimited accepts only /w", start));
@@ -271,6 +284,14 @@ impl Skeleton {
             };
             if !seen.insert(category) {
                 return Err(invalid(format!("duplicate {category}"), start));
+            }
+        }
+        if result.notation.is_compact() {
+            if !seen.contains("precision") {
+                result.precision = Precision::compact();
+            }
+            if !seen.contains("grouping") {
+                result.grouping = Grouping::Min2;
             }
         }
         Ok(result)

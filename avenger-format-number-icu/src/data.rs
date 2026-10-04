@@ -7,7 +7,8 @@ use icu_decimal::{
     DecimalFormatterPreferences,
 };
 use icu_locale::{LocaleCanonicalizer, LocaleFallbacker};
-use icu_locale_core::Locale;
+use icu_locale_core::{LanguageIdentifier, Locale};
+use icu_plurals::{PluralRules, PluralRulesPreferences};
 use icu_provider::prelude::*;
 
 /// Supplemental CLDR number data that ICU4X does not compile.
@@ -15,6 +16,7 @@ use icu_provider::prelude::*;
 pub(crate) struct Symbols {
     pub nan: &'static str,
     pub infinity: &'static str,
+    pub exponent: &'static str,
 }
 
 include!("generated.rs");
@@ -48,7 +50,9 @@ const ICU4X_MISSING: [&str; 3] = ["az-Cyrl", "pa-Arab", "uz-Arab"];
 /// A requested locale resolved through ICU4X's fallback chain.
 #[derive(Debug)]
 pub(crate) struct Context {
+    pub locale: Locale,
     pub prefs: DecimalFormatterPreferences,
+    pub numbering_system: String,
     pub symbols: &'static Symbols,
 }
 
@@ -127,7 +131,12 @@ impl Context {
         let symbols = find_symbols(&chain, &numbering_system)
             .or_else(|| find_symbols(&chain, "latn"))
             .ok_or_else(|| unavailable("ICU has no localized number data".into()))?;
-        Ok(Self { prefs, symbols })
+        Ok(Self {
+            locale,
+            prefs,
+            numbering_system,
+            symbols,
+        })
     }
 
     /// Load numbering-system data when requested, then the locale's default data.
@@ -151,5 +160,21 @@ impl Context {
             ..Default::default()
         };
         Ok(provider.load(request)?.payload)
+    }
+
+    /// CLDR inherits plural rules by truncation alone: pt-AO uses pt, sr-Latn uses sr, and ht uses
+    /// root. ICU4X follows general parent locales instead, such as pt-PT, root, and fr.
+    pub fn plural_rules(&self) -> Result<PluralRules, DataError> {
+        let mut id: LanguageIdentifier = self.locale.id.clone();
+        id.variants.clear();
+        while PLURAL_LOCALES.binary_search(&&*id.to_string()).is_err() {
+            if id.region.take().is_none() && id.script.take().is_none() {
+                id = LanguageIdentifier::UNKNOWN;
+                break;
+            }
+        }
+        let mut prefs = PluralRulesPreferences::default();
+        prefs.locale_preferences = (&id).into();
+        PluralRules::try_new_cardinal(prefs)
     }
 }

@@ -1,6 +1,6 @@
-//! Behavior outside the ICU4J label fixture: thread sharing.
+//! Behavior outside the ICU4J label fixture: thread sharing and typesetting parts.
 
-use avenger_format::NumberFormatProvider;
+use avenger_format::{NumberFormatProvider, NumberTypesetting};
 use avenger_format_number_icu::IcuNumberFormatProvider;
 
 #[test]
@@ -11,6 +11,33 @@ fn prepared_formatters_are_shareable() {
         .join()
         .unwrap();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn scientific_typesetting_parts() {
+    let provider = IcuNumberFormatProvider::new();
+    assert_eq!(
+        provider
+            .prepare("E0 .0")
+            .unwrap()
+            .format(-1234.0)
+            .typesetting,
+        NumberTypesetting::Exponent {
+            mantissa: "-1.2".into(),
+            exponent: 3
+        }
+    );
+    for skeleton in ["E00", "E0 numbering-system/thai", "E0 000", "K"] {
+        assert_eq!(
+            provider
+                .prepare(skeleton)
+                .unwrap()
+                .format(1234.0)
+                .typesetting,
+            NumberTypesetting::Plain,
+            "{skeleton}"
+        );
+    }
 }
 
 /// ICU4X 2.3 has no number data for these CLDR locales, so preparation rejects them instead of

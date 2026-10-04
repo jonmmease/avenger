@@ -28,6 +28,22 @@ impl Default for Precision {
 }
 
 impl Precision {
+    pub fn compact() -> Self {
+        Self {
+            fraction: Some(Digits {
+                min: 0,
+                max: Some(0),
+            }),
+            significant: Some(Digits {
+                min: 1,
+                max: Some(2),
+            }),
+            relaxed: true,
+            retain: false,
+            hide_whole: false,
+        }
+    }
+
     pub fn fraction(digits: Digits) -> Self {
         Self {
             fraction: Some(digits),

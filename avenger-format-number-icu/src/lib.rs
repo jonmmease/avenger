@@ -14,6 +14,7 @@
 mod arithmetic;
 mod data;
 mod locale;
+mod notation;
 mod precision;
 mod prepared;
 mod skeleton;

@@ -312,6 +312,150 @@
     },
     {
       "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+!00 +!",
+      "bits": "3f8945b6c3760bf6",
+      "expected": "+12.34E-03"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific .0",
+      "bits": "4023fae147ae147b",
+      "expected": "1.0E1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "engineering .0",
+      "bits": "408f3feb851eb852",
+      "expected": "1.0E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "0000000000000000",
+      "expected": "0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "8000000000000000",
+      "expected": "-0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "E00 +!",
+      "bits": "3f8945b6c3760bf6",
+      "expected": "؜+١٫٢٣٤أس؜-٠٢"
+    },
+    {
+      "locale": "sv",
+      "skeleton": "E0",
+      "bits": "4093480000000000",
+      "expected": "1,234×10^3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "40c81c8000000000",
+      "expected": "12K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "KK",
+      "bits": "412e847e00000000",
+      "expected": "1 million"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K .00",
+      "bits": "40c81c8000000000",
+      "expected": "12.34K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K .0 decimal-always",
+      "bits": "40c81c8000000000",
+      "expected": "12.3K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K integer-width/00",
+      "bits": "40fe240000000000",
+      "expected": "23K"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "408f400000000000",
+      "expected": "mille"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK .0",
+      "bits": "408f400000000000",
+      "expected": "mille"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK",
+      "bits": "413e848000000000",
+      "expected": "2 миллиона"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK",
+      "bits": "415312d000000000",
+      "expected": "5 миллионов"
+    },
+    {
+      "locale": "ja",
+      "skeleton": "K",
+      "bits": "4132d68700000000",
+      "expected": "123万"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "K",
+      "bits": "4132d68700000000",
+      "expected": "12 लाख"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "3f8930be0ded288d",
+      "expected": "0.012"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K rounding-mode-down",
+      "bits": "408f3f3333333333",
+      "expected": "999"
+    },
+    {
+      "locale": "it",
+      "skeleton": "K",
+      "bits": "408f380000000000",
+      "expected": "999"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K +?",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
       "skeleton": ".0/@@@*",
       "bits": "3ff0000000000000",
       "expected": "1.0"
@@ -396,6 +540,47 @@
     {
       "locale": "en-US",
       "skeleton": "integer-width/*#0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/*e/*ee",
+      "bits": "3ff0000000000000",
+      "expected": "1E00",
+      "compatibility_exception": {
+        "error": "InvalidPattern",
+        "reason": "Preparation rejects repeated notation options; ICU4J uses the last one."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/sign-always/sign-never",
+      "bits": "3ff0000000000000",
+      "expected": "1E0",
+      "compatibility_exception": {
+        "error": "InvalidPattern",
+        "reason": "Preparation rejects repeated notation options; ICU4J uses the last one."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K/extra",
       "bits": "3ff0000000000000",
       "icu4j_error": "SkeletonSyntaxException",
       "error": "InvalidPattern"
@@ -511,6 +696,54 @@
       "expected": "+0.00123"
     },
     {
+      "locale": "en-US",
+      "skeleton": "scientific/*ee/sign-always",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E+04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+!00",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E+04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "engineering/sign-except-zero",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+?0",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "compact-short",
+      "bits": "40c81c8000000000",
+      "expected": "12K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "compact-long",
+      "bits": "40c81c8000000000",
+      "expected": "12 thousand"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "KK",
+      "bits": "40c81c8000000000",
+      "expected": "12 thousand"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "4028000000000000",
+      "expected": "12"
+    },
+    {
       "locale": "xx",
       "skeleton": "",
       "bits": "3ff0000000000000",
@@ -567,6 +800,12 @@
       "skeleton": "",
       "bits": "c0934a0000000000",
       "expected": "‎-1,234.5"
+    },
+    {
+      "locale": "in",
+      "skeleton": "KK",
+      "bits": "40934a0000000000",
+      "expected": "1,2 ribu"
     },
     {
       "locale": "tl",
@@ -627,6 +866,94 @@
       "skeleton": "integer-width/##",
       "bits": "0000000000000000",
       "expected": "0"
+    },
+    {
+      "locale": "de",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 Millionen"
+    },
+    {
+      "locale": "cs",
+      "skeleton": "KK .0",
+      "bits": "408f400000000000",
+      "expected": "1,0 tisíce"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK @@",
+      "bits": "41cdcd6500000000",
+      "expected": "1,0 миллиарда"
+    },
+    {
+      "locale": "pt-AO",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 milhão"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 milhões"
+    },
+    {
+      "locale": "sr-Cyrl-ME",
+      "skeleton": "KK",
+      "bits": "4093480000000000",
+      "expected": "1,2 хиљаде"
+    },
+    {
+      "locale": "nn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "1 million"
+    },
+    {
+      "locale": "hi-Latn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "10 lakh"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+?0",
+      "bits": "4059000000000000",
+      "expected": "1E2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/sign-except-zero",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+?00",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E03"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+?0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "K",
+      "bits": "c093480000000000",
+      "expected": "elfu -1.2",
+      "compatibility_exception": {
+        "expected": "-elfu 1.2",
+        "reason": "ICU4X places the sign outside compact patterns, following UTS #35."
+      }
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "1 milion"
     },
     {
       "locale": "fr-CH",
@@ -711,6 +1038,50 @@
       "icu4j_error": "SkeletonSyntaxException",
       "error": "InvalidPattern",
       "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@# integer-width-trunc E0",
+      "bits": "0000000000000000",
+      "expected": "0.0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K @@ integer-width/*",
+      "bits": "0000000000000000",
+      "expected": "0.0"
+    },
+    {
+      "locale": "ps",
+      "skeleton": "KK",
+      "bits": "408f400000000000",
+      "expected": "۱۰۰۰",
+      "compatibility_exception": {
+        "expected": "۱K",
+        "reason": "Rust follows CLDR's resolved compact-long data, which inherits the magnitudes below Pashto's billions; ICU4J 78.1 uses only the listed magnitudes."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "c08f400000000000",
+      "expected": "-1 millier"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK .0",
+      "bits": "c08f400000000000",
+      "expected": "-1,0 millier"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "46293e5939a08cea",
+      "expected": "1 000 000 000 000 000 000 billion",
+      "compatibility_exception": {
+        "expected": "1 000 000 000 000 000 000 billions",
+        "reason": "Rust applies CLDR's French `many` form to this round integer; ICU4J 78.1 selects the singular at this magnitude."
+      }
     }
   ],
   "java": "openjdk version \"21.0.12.1\" 2026-08-18 LTS",

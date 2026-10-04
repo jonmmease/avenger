@@ -1,5 +1,6 @@
 use crate::{
     data::{data_error, Context, Symbols},
+    notation::Compact,
     skeleton::{Grouping, Skeleton},
 };
 use avenger_format::NumberFormatError;
@@ -32,9 +33,12 @@ impl Signs {
 #[derive(Debug)]
 pub(crate) struct LocaleData {
     pub decimal: DecimalFormatter,
+    pub exponent_decimal: DecimalFormatter,
     pub symbols: &'static Symbols,
     pub separator: String,
     pub signs: Signs,
+    pub latin_digits: bool,
+    pub compact: Option<Compact>,
 }
 
 /// Override grouping and separators without changing ICU's digit or symbol lookup.
@@ -95,11 +99,24 @@ impl LocaleData {
             minus: (s.minus_sign_prefix().into(), s.minus_sign_suffix().into()),
             plus: (s.plus_sign_prefix().into(), s.plus_sign_suffix().into()),
         };
+        let mut exponent_options = DecimalFormatterOptions::default();
+        exponent_options.grouping_strategy = Some(GroupingStrategy::Never);
+        let exponent_decimal =
+            DecimalFormatter::try_new(context.prefs, exponent_options).map_err(data_error)?;
+        let compact = skeleton
+            .notation
+            .is_compact()
+            .then(|| Compact::new(context, skeleton.notation))
+            .transpose()
+            .map_err(data_error)?;
         Ok(Self {
             decimal,
+            exponent_decimal,
             symbols,
             separator: s.decimal_separator().into(),
             signs,
+            latin_digits: context.numbering_system == "latn",
+            compact,
         })
     }
 }

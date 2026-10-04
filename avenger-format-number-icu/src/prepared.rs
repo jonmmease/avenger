@@ -1,5 +1,6 @@
+use crate::notation::Notation;
 use crate::{locale::LocaleData, skeleton::Skeleton};
-use avenger_format::{FormattedNumber, PreparedNumberFormatter};
+use avenger_format::{FormattedNumber, NumberTypesetting, PreparedNumberFormatter};
 use fixed_decimal::{Decimal, Sign};
 use std::fmt::{self, Write};
 use writeable::{Part, PartsWrite, Writeable};
@@ -75,13 +76,97 @@ impl Prepared {
 }
 
 impl Prepared {
-    pub(crate) fn format_decimal(&self, mut number: Decimal) -> FormattedNumber {
+    fn exponent(&self, magnitude: i16) -> i16 {
+        match self.skeleton.notation {
+            Notation::Scientific {
+                engineering: true, ..
+            } => magnitude.div_euclid(3) * 3,
+            Notation::Scientific { .. } => magnitude,
+            _ => self
+                .locale
+                .compact
+                .as_ref()
+                .map_or(0, |c| c.exponent(magnitude)),
+        }
+    }
+
+    pub(crate) fn format_decimal(&self, original: Decimal) -> FormattedNumber {
         let s = &self.skeleton;
-        s.precision.apply(&mut number, s.rounding);
+        let mut exponent = if original.is_zero() {
+            0
+        } else {
+            self.exponent(original.nonzero_magnitude_start())
+        };
+        let round = |exponent: i16| {
+            let mut number = original.clone();
+            number.multiply_pow10(-exponent);
+            s.precision.apply(&mut number, s.rounding);
+            number
+        };
+        let mut number = round(exponent);
+        if !number.is_zero() {
+            let after = self.exponent(number.nonzero_magnitude_start() + exponent);
+            if after != exponent {
+                exponent = after;
+                number = round(exponent);
+            }
+        }
         let sign = s
             .sign
             .display(number.sign == Sign::Negative, number.is_zero());
-        FormattedNumber::plain(self.affix(self.body(&number), sign))
+        let body = self.body(&number);
+        match s.notation {
+            Notation::Scientific {
+                digits,
+                sign: exponent_sign,
+                ..
+            } => {
+                let mantissa = self.affix(body.clone(), sign);
+                let mut exponent_number = Decimal::from(exponent);
+                // ICU shows an exponent's plus sign only for sign-always.
+                exponent_number.sign = match exponent_sign {
+                    crate::skeleton::Sign::Never => Sign::None,
+                    _ if exponent < 0 => Sign::Negative,
+                    crate::skeleton::Sign::Always => Sign::Positive,
+                    _ => Sign::None,
+                };
+                exponent_number.pad_start(digits);
+                let suffix = self
+                    .locale
+                    .exponent_decimal
+                    .format(&exponent_number)
+                    .write_to_string()
+                    .into_owned();
+                let text = self.affix(
+                    format!("{body}{}{suffix}", self.locale.symbols.exponent),
+                    sign,
+                );
+                let typesetting = if self.locale.latin_digits
+                    && s.integer_min <= 1
+                    && s.integer_max.is_none()
+                    && digits == 1
+                    && exponent_sign == crate::skeleton::Sign::Auto
+                {
+                    NumberTypesetting::Exponent {
+                        mantissa,
+                        exponent: i32::from(exponent),
+                    }
+                } else {
+                    NumberTypesetting::Plain
+                };
+                FormattedNumber { text, typesetting }
+            }
+            Notation::CompactShort | Notation::CompactLong => {
+                let compact = self
+                    .locale
+                    .compact
+                    .as_ref()
+                    .expect("compact data prepared with notation");
+                let body = compact.render(&number, exponent, &body);
+                FormattedNumber::plain(self.affix(body, sign))
+            }
+            Notation::Simple => FormattedNumber::plain(self.affix(body, sign)),
+        }
     }
 }
 

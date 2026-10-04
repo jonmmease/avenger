@@ -500,6 +500,8 @@ dependencies = [
  "icu_decimal",
  "icu_locale",
  "icu_locale_core",
+ "icu_pattern",
+ "icu_plurals",
  "icu_provider 2.3.1",
  "serde",
  "serde_json",

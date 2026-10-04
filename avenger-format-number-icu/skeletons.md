@@ -6,8 +6,9 @@
 
 Preparation returns an error for:
 
-- notation, scale, rounding increments, percent, per-mille, currencies, and units
+- scale, rounding increments, percent, per-mille, currencies, and units
 - `rounding-mode-unnecessary`, because formatting cannot fail
+- repeated notation options, such as `scientific/*e/*ee`
 - numbering systems without decimal digits, such as `roman`
 
 ## Locales
@@ -16,4 +17,4 @@ Locales resolve through ICU4X's fallback chain, so `nb` uses Norwegian `no` data
 
 ## Data
 
-Patterns and symbols come from ICU4X 2.3's compiled data. Tables generated from CLDR 48.2.1 supply what ICU4X omits, under the [Unicode license](data/LICENSE). The [reference tools](../tools/icu-number-reference/README.md) regenerate them and the test fixture.
+Patterns, symbols, and plural rules come from ICU4X 2.3's compiled data. Tables generated from CLDR 48.2.1 supply what ICU4X omits, under the [Unicode license](data/LICENSE). The [reference tools](../tools/icu-number-reference/README.md) regenerate them and the test fixture.
