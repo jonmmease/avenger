@@ -39,26 +39,40 @@ fn math_spacing_for_level(
     )
 }
 
+#[cfg(test)]
 fn math_spacing_for_items(
+    left: SimpleMathClass,
+    right: SimpleMathClass,
+    left_item: (f32, u8),
+    right_item: (f32, u8),
+) -> f32 {
+    math_spacing_rule(left, right, left_item, right_item).unwrap_or(0.0)
+}
+
+/// The class rule for the gap between two items, or `None` when no rule applies. Only then may
+/// an explicit space next to a spaced item survive.
+///
+/// upstream: crates/typst-library/src/math/ir/process.rs::spacing @ c98e910
+fn math_spacing_rule(
     left: SimpleMathClass,
     right: SimpleMathClass,
     (left_size, left_level): (f32, u8),
     (right_size, right_level): (f32, u8),
-) -> f32 {
+) -> Option<f32> {
     use SimpleMathClass::*;
     match (left, right) {
-        (_, Punctuation) => 0.0,
-        (Punctuation, _) if left_level == 0 => THIN_EM * left_size,
-        (Opening, _) | (_, Closing) => 0.0,
-        (Relation, Relation) => 0.0,
-        (Relation, _) if left_level == 0 => THICK_EM * left_size,
-        (_, Relation) if right_level == 0 => THICK_EM * right_size,
-        (Binary, _) if left_level == 0 => MEDIUM_EM * left_size,
-        (_, Binary) if right_level == 0 => MEDIUM_EM * right_size,
-        (Large, Opening | Fence) => 0.0,
-        (Large, _) => THIN_EM * left_size,
-        (_, Large) => THIN_EM * right_size,
-        _ => 0.0,
+        (_, Punctuation) => Some(0.0),
+        (Punctuation, _) if left_level == 0 => Some(THIN_EM * left_size),
+        (Opening, _) | (_, Closing) => Some(0.0),
+        (Relation, Relation) => Some(0.0),
+        (Relation, _) if left_level == 0 => Some(THICK_EM * left_size),
+        (_, Relation) if right_level == 0 => Some(THICK_EM * right_size),
+        (Binary, _) if left_level == 0 => Some(MEDIUM_EM * left_size),
+        (_, Binary) if right_level == 0 => Some(MEDIUM_EM * right_size),
+        (Large, Opening | Fence) => Some(0.0),
+        (Large, _) => Some(THIN_EM * left_size),
+        (_, Large) => Some(THIN_EM * right_size),
+        _ => None,
     }
 }
 

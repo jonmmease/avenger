@@ -174,39 +174,30 @@ fn layout_simple_nodes_as_atom_with_context(
             RowLayoutItem::Atom(mut atom) => {
                 let left_class = resolved_left_class(previous, atom.left_class);
                 if let Some(previous) = previous {
-                    let automatic = math_spacing_for_items(
+                    let rule = math_spacing_rule(
                         previous,
                         left_class,
                         row_right_spacing.unwrap_or((font_size, script_level)),
                         atom.left_spacing.unwrap_or((font_size, script_level)),
                     );
-                    let visible = pending_space
-                        && (previous_spaced || atom.spaced)
-                        && !matches!(
-                            previous,
-                            SimpleMathClass::Opening
-                                | SimpleMathClass::Binary
-                                | SimpleMathClass::Relation
-                                | SimpleMathClass::Large
-                                | SimpleMathClass::Punctuation
-                        )
-                        && !matches!(
-                            left_class,
-                            SimpleMathClass::Closing
-                                | SimpleMathClass::Binary
-                                | SimpleMathClass::Relation
-                                | SimpleMathClass::Large
-                                | SimpleMathClass::Punctuation
-                        );
-                    metrics.width += if visible {
-                        let face = parse_math_face(font, "math word space")?;
-                        face.glyph_index(' ')
-                            .and_then(|id| face.glyph_hor_advance(id))
-                            .unwrap_or(250) as f32
-                            * font_size
-                            / face.units_per_em() as f32
-                    } else {
-                        automatic
+                    // upstream: crates/typst-library/src/math/ir/item.rs::MathItem::is_spaced
+                    // @ c98e910. Fences and spaced text keep an explicit space next to them
+                    // when no class rule applies.
+                    let spaced = previous_spaced
+                        || previous == SimpleMathClass::Fence
+                        || atom.spaced
+                        || left_class == SimpleMathClass::Fence;
+                    metrics.width += match rule {
+                        Some(width) => width,
+                        None if pending_space && spaced => {
+                            let face = parse_math_face(font, "math word space")?;
+                            face.glyph_index(' ')
+                                .and_then(|id| face.glyph_hor_advance(id))
+                                .unwrap_or(250) as f32
+                                * font_size
+                                / face.units_per_em() as f32
+                        }
+                        None => 0.0,
                     };
                 }
                 if atom.left_class == atom.right_class {

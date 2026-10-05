@@ -11,7 +11,10 @@ fn simple_atom(node: &MathNode) -> Option<SimpleMathAtom> {
         MathNode::Text(text) => Some(SimpleMathAtom {
             styled_text: style_text_atom(text),
             class: match text.kind {
-                MathTextKind::Grapheme => SimpleMathClass::Alphabetic,
+                // upstream: crates/typst-library/src/math/ir/item.rs::GlyphItem::create @ c98e910
+                MathTextKind::Grapheme => single_char(&text.text)
+                    .map(simple_math_class_for_char)
+                    .unwrap_or(SimpleMathClass::Alphabetic),
                 MathTextKind::Number | MathTextKind::Upright => SimpleMathClass::Normal,
             },
             text_operator: false,
@@ -39,11 +42,14 @@ fn simple_atom(node: &MathNode) -> Option<SimpleMathAtom> {
                 None
             }
         }
-        MathNode::Operator(operator) => Some(SimpleMathAtom {
-            styled_text: operator_text(operator),
-            class: operator_class(&operator.operator),
-            text_operator: false,
-        }),
+        MathNode::Operator(operator) => {
+            let styled_text = operator_text(operator);
+            Some(SimpleMathAtom {
+                class: operator_class(&styled_text),
+                styled_text,
+                text_operator: false,
+            })
+        }
         MathNode::Shorthand(shorthand) => Some(SimpleMathAtom {
             styled_text: shorthand_text(shorthand),
             class: symbol_class(shorthand.replacement),
@@ -233,16 +239,11 @@ fn identifier_class(text: &str) -> SimpleMathClass {
     }
 }
 
+/// Class of an operator atom, from the character it displays (`-` displays as `−`).
 fn operator_class(text: &str) -> SimpleMathClass {
-    match text {
-        "=" | "<" | ">" | ":" => SimpleMathClass::Relation,
-        "," => SimpleMathClass::Punctuation,
-        "(" | "[" | "{" => SimpleMathClass::Opening,
-        ")" | "]" | "}" => SimpleMathClass::Closing,
-        "|" => SimpleMathClass::Fence,
-        "+" | "-" | "*" | "!" | "&" => SimpleMathClass::Vary,
-        _ => SimpleMathClass::Normal,
-    }
+    single_char(text)
+        .map(simple_math_class_for_char)
+        .unwrap_or(SimpleMathClass::Normal)
 }
 
 fn symbol_class(text: &str) -> SimpleMathClass {
@@ -260,20 +261,7 @@ fn single_char(text: &str) -> Option<char> {
 fn simple_math_class_for_char(ch: char) -> SimpleMathClass {
     use unicode_math_class::MathClass;
 
-    let class = match ch {
-        ':' => Some(MathClass::Relation),
-        '⋯' | '⋱' | '⋰' | '⋮' => Some(MathClass::Normal),
-        '.' | '/' => Some(MathClass::Normal),
-        '\u{22A5}' => Some(MathClass::Normal),
-        '⅋' => Some(MathClass::Binary),
-        '⎰' | '⟅' => Some(MathClass::Opening),
-        '⎱' | '⟆' => Some(MathClass::Closing),
-        '⟇' => Some(MathClass::Binary),
-        '،' => Some(MathClass::Punctuation),
-        c => unicode_math_class::class(c),
-    };
-
-    match class {
+    match crate::typst_utils::default_math_class(ch) {
         Some(MathClass::Alphabetic) => SimpleMathClass::Alphabetic,
         Some(MathClass::Binary) => SimpleMathClass::Binary,
         Some(MathClass::Closing) => SimpleMathClass::Closing,
