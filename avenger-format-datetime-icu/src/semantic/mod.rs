@@ -128,4 +128,8 @@ impl PreparedZonedDateTimeFormatter for Zoned {
         input.set_time_zone_info_at_time_fields(zone);
         self.prepared.render(input, DateTimeInputKind::Zoned)
     }
+
+    fn timezone(&self) -> Tz {
+        self.zone.timezone()
+    }
 }

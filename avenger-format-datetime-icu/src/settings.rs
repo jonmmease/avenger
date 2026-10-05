@@ -60,6 +60,25 @@ impl Settings<'_> {
         Ok(())
     }
 
+    /// Reject calendars whose months start on other days than Gregorian months, which calendar
+    /// patterns need.
+    pub(crate) fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
+        let (_, calendar) = self.resolve()?;
+        match calendar {
+            AnyCalendarKind::Gregorian
+            | AnyCalendarKind::Iso
+            | AnyCalendarKind::Buddhist
+            | AnyCalendarKind::Japanese
+            | AnyCalendarKind::Roc => Ok(()),
+            _ => Err(DateTimeFormatError::InvalidOption {
+                option: "calendar".into(),
+                message: format!(
+                    "calendar patterns need Gregorian months, which the {calendar} calendar lacks"
+                ),
+            }),
+        }
+    }
+
     pub(crate) fn locale_name(&self) -> &str {
         self.locale.unwrap_or("en-US")
     }

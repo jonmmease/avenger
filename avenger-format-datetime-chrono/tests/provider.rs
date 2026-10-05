@@ -199,3 +199,11 @@ fn out_of_range_display_dates_return_errors() {
         Err(DateTimeFormatError::OutOfRange)
     );
 }
+
+#[test]
+fn zoned_formatters_report_their_timezone() {
+    let provider = ChronoDateTimeFormatProvider::new();
+    assert_eq!(provider.prepare_zoned("%H").unwrap().timezone(), Tz::UTC);
+    let provider = provider.with_timezone(New_York);
+    assert_eq!(provider.prepare_zoned("%H").unwrap().timezone(), New_York);
+}

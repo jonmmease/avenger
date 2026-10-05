@@ -2,8 +2,8 @@ use crate::{
     DateTimeFormatContext, DateTimeLocaleSpec, PreparedDateTimeFormat, ResolvedDateTimeLocale,
 };
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind, PreparedDateFormatter,
-    PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
+    CalendarPatterns, DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind,
+    PreparedDateFormatter, PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
@@ -86,6 +86,20 @@ impl DateTimeFormatProvider for D3DateTimeFormatProvider {
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
         Ok(Arc::new(prepare(self, pattern, self.timezone)?))
     }
+
+    /// Vega's time axis patterns, the same for every locale and timezone.
+    fn default_calendar_patterns(&self) -> CalendarPatterns {
+        CalendarPatterns {
+            year: "%Y".into(),
+            month: "%B".into(),
+            week: "%b %d".into(),
+            day: "%a %d".into(),
+            hour: "%I %p".into(),
+            minute: "%I:%M".into(),
+            second: ":%S".into(),
+            millisecond: ".%L".into(),
+        }
+    }
 }
 
 fn prepare(
@@ -124,5 +138,9 @@ impl PreparedNaiveDateTimeFormatter for PreparedDateTimeFormat {
 impl PreparedZonedDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         self.format_zoned(value)
+    }
+
+    fn timezone(&self) -> Tz {
+        PreparedDateTimeFormat::timezone(self)
     }
 }

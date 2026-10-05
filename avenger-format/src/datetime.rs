@@ -1,3 +1,4 @@
+use crate::CalendarPatterns;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use std::{fmt, fmt::Debug, sync::Arc};
 
@@ -83,6 +84,16 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
+
+    /// Default [`CalendarPatterns`] in the provider's syntax, for labels such as a time axis's.
+    fn default_calendar_patterns(&self) -> CalendarPatterns;
+
+    /// Check that dates display in a calendar whose months start on the same days as Gregorian
+    /// months, which [`CalendarPatterns`](crate::CalendarPatterns) needs to label boundaries.
+    /// Providers that only use the Gregorian calendar keep this default.
+    fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
+        Ok(())
+    }
 }
 
 /// Immutable, deterministic formatting of calendar dates without a time or timezone.
@@ -101,4 +112,7 @@ pub trait PreparedNaiveDateTimeFormatter: Debug + Send + Sync + 'static {
 /// Formatting reports values whose display date is outside the supported range.
 pub trait PreparedZonedDateTimeFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError>;
+
+    /// The timezone that values are displayed in.
+    fn timezone(&self) -> chrono_tz::Tz;
 }

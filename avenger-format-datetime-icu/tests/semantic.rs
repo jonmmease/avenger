@@ -372,3 +372,15 @@ fn settings_are_validated_and_serialized() {
         }
     }
 }
+
+#[test]
+fn zoned_formatters_report_their_timezone() {
+    let provider = IcuSemanticDateTimeFormatProvider::new();
+    let spec = "{timePrecision=hour}";
+    assert_eq!(
+        provider.prepare_zoned(spec).unwrap().timezone(),
+        chrono_tz::UTC
+    );
+    let provider = provider.with_timezone(New_York);
+    assert_eq!(provider.prepare_zoned(spec).unwrap().timezone(), New_York);
+}

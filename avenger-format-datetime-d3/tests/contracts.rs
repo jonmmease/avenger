@@ -354,3 +354,12 @@ fn bundled_locales_match_vendored_definitions() {
         }
     }
 }
+
+#[test]
+fn zoned_formatters_report_their_timezone() {
+    use avenger_format::DateTimeFormatProvider;
+    let provider = D3DateTimeFormatProvider::new();
+    assert_eq!(provider.prepare_zoned("%H").unwrap().timezone(), UTC);
+    let provider = provider.with_timezone(New_York);
+    assert_eq!(provider.prepare_zoned("%H").unwrap().timezone(), New_York);
+}

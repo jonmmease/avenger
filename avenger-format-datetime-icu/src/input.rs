@@ -44,6 +44,10 @@ impl Zone {
         }
     }
 
+    pub fn timezone(&self) -> Tz {
+        self.timezone
+    }
+
     pub fn localize(
         &self,
         value: DateTime<Utc>,

@@ -3,6 +3,7 @@ import {ticks} from 'd3-array';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {formatLocale} from 'd3-format';
+import {timeTicks} from 'd3-time';
 import {timeFormatLocale} from 'd3-time-format';
 import {locale as vegaLocale} from 'vega-format';
 
@@ -143,19 +144,70 @@ function timeCases(zone) {
   return cases;
 }
 
+// Vega labels time axes with a calendar multi-format: each tick gets the pattern for the coarsest
+// boundary it falls on, in local time. d3-time chooses the ticks for each local-time domain.
+function timeTickCases(zone) {
+  const cases = [];
+  const local = (year, month, day, hour = 0, minute = 0, second = 0, ms = 0) => new Date(year, month - 1, day, hour, minute, second, ms);
+  const add = ([start, stop, count], spec = null, locale = 'en-US') => {
+    const values = timeTicks(start, stop, count);
+    const f = vegaLocale(numberLocales['en-US'], timeLocales[locale]).timeFormat(spec ?? undefined);
+    cases.push({locale, zone, spec, domain: [start.toISOString(), stop.toISOString(), count], values: values.map(Number), expected: values.map(f)});
+  };
+  const domains = {
+    milliseconds: [local(2024, 3, 5, 15, 15, 30), local(2024, 3, 5, 15, 15, 31), 10],
+    seconds: [local(2024, 3, 5, 15, 15), local(2024, 3, 5, 15, 17), 8],
+    minutes: [local(2024, 3, 5, 15), local(2024, 3, 5, 16), 6],
+    hours: [local(2024, 3, 5, 18), local(2024, 3, 6, 6), 6],
+    days: [local(2024, 2, 25), local(2024, 3, 10), 14],
+    weeks: [local(2024, 1, 1), local(2024, 4, 1), 8],
+    months: [local(2023, 10, 1), local(2025, 3, 1), 12],
+    years: [local(2015, 1, 1), local(2025, 1, 1), 10],
+    decades: [local(1950, 1, 1), local(2050, 1, 1), 10]
+  };
+  for (const domain of Object.values(domains)) add(domain);
+  if (zone === 'UTC') {
+    for (const locale of ['de-DE', 'fr-FR', 'ja-JP', 'custom']) {
+      for (const name of ['hours', 'days', 'months']) add(domains[name], null, locale);
+    }
+    add(domains.milliseconds, {milliseconds: '%L ms'});
+    add(domains.minutes, {seconds: '%S s', minutes: '%H:%M'});
+    add(domains.hours, {hours: '%H:00'});
+    add(domains.days, {day: '%d'});
+    add(domains.days, {date: '%-d'});
+    add(domains.weeks, {week: 'W%U'});
+    // Avenger labels quarter starts as months, so a month override covers Vega's quarter pattern too.
+    add(domains.months, {month: '%b', quarter: '%b', year: '%y'});
+  }
+  const transitions = {
+    'America/New_York': [[2024, 3, 10], [2024, 11, 3]],
+    'Australia/Lord_Howe': [[2024, 4, 7], [2024, 10, 6]],
+    'America/Sao_Paulo': [[2018, 2, 17], [2018, 11, 4]],
+    'America/Havana': [[2024, 3, 10], [2024, 11, 3]]
+  }[zone] || [];
+  for (const [year, month, day] of transitions) {
+    add([local(year, month, day), local(year, month, day + 1), 24]);
+    add([local(year, month, day - 1, 18), local(year, month, day, 6), 12]);
+  }
+  return cases;
+}
+
 if (process.argv[2] === '--time') {
-  process.stdout.write(JSON.stringify(timeCases(process.env.TZ)));
+  process.stdout.write(JSON.stringify({datetime: timeCases(process.env.TZ), ticks: timeTickCases(process.env.TZ)}));
 } else {
   const numbers = numberCases();
   const times = {locales: timeLocales, cases: []};
+  const timeTickSets = {locales: timeLocales, cases: []};
   for (const zone of ['UTC', 'America/New_York', 'Asia/Kathmandu', 'Australia/Lord_Howe', 'America/Sao_Paulo', 'America/Havana']) {
-    times.cases.push(...JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--time'], {env: {...process.env, TZ: zone}, maxBuffer: 8 * 1024 * 1024})));
+    const zoneCases = JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--time'], {env: {...process.env, TZ: zone}, maxBuffer: 8 * 1024 * 1024}));
+    times.cases.push(...zoneCases.datetime);
+    timeTickSets.cases.push(...zoneCases.ticks);
   }
   const tickSets = tickCases();
-  for (const [crate, name, fixture] of [['number', 'upstream.json', numbers], ['number', 'ticks.json', tickSets], ['datetime', 'upstream.json', times]]) {
+  for (const [crate, name, fixture] of [['number', 'upstream.json', numbers], ['number', 'ticks.json', tickSets], ['datetime', 'upstream.json', times], ['datetime', 'ticks.json', timeTickSets]]) {
     const dir = new URL(`avenger-format-${crate}-d3/tests/fixtures/`, root);
     mkdirSync(dir, {recursive: true});
     writeFileSync(new URL(name, dir), `{\n  \"locales\": ${JSON.stringify(fixture.locales, null, 2)},\n  \"cases\": [\n${fixture.cases.map(item => '    ' + JSON.stringify(item)).join(',\n')}\n  ]\n}\n`);
   }
-  console.log(`Generated ${numbers.cases.length} number, ${tickSets.cases.length} tick set, and ${times.cases.length} datetime cases with ${process.version}.`);
+  console.log(`Generated ${numbers.cases.length} number, ${tickSets.cases.length} number tick set, ${times.cases.length} datetime, and ${timeTickSets.cases.length} time tick set cases with ${process.version}.`);
 }

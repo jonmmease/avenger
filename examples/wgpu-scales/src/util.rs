@@ -1,12 +1,12 @@
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_format::NumberFormatProvider;
+use avenger_format::{NumberFormatProvider, PreparedFormatter};
 use avenger_format_number_d3::D3NumberFormatProvider;
 
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::continuous::make_continuous_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
 use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
@@ -253,10 +253,10 @@ pub async fn run() {
     };
 
     // Vega's default axis format
-    let format = D3NumberFormatProvider::new().prepare(",f").unwrap();
+    let format: PreparedFormatter = D3NumberFormatProvider::new().prepare(",f").unwrap().into();
 
     // Make y-axis
-    let y_axis = make_numeric_axis_marks(
+    let y_axis = make_continuous_axis_marks(
         &y_scale,
         "My Long Y-Axis Label",
         [0.0, 0.0],

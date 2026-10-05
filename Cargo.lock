@@ -436,6 +436,7 @@ name = "avenger-format"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "thiserror 2.0.12",
 ]
 
@@ -541,11 +542,14 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-format",
+ "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-geometry",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
+ "chrono",
+ "chrono-tz",
  "geo",
  "itertools 0.14.0",
  "rstar 0.13.0",

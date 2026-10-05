@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use settings::{calendar_serde, Settings};
 use std::sync::Arc;
 
+pub use avenger_format::CalendarPatterns;
 pub use icu_calendar::preferences::{CalendarAlgorithm, HijriCalendarAlgorithm};
 
 /// Prepare Unicode datetime patterns with ICU's locale data and calendar systems.
@@ -198,6 +199,26 @@ impl DateTimeFormatProvider for IcuPatternDateTimeFormatProvider {
         formatter.format(DateTime::UNIX_EPOCH)?;
         Ok(formatter)
     }
+
+    /// The locale's names in a fixed layout: `Mar 3`, `Tue 5`, and `3 PM` in `en-US`. In the
+    /// Japanese calendar, `y` is the year within the era, so add the era with `.with_year("G y")`.
+    fn default_calendar_patterns(&self) -> CalendarPatterns {
+        CalendarPatterns {
+            year: "y".into(),
+            month: "MMMM".into(),
+            week: "MMM d".into(),
+            day: "EEE d".into(),
+            hour: "h a".into(),
+            minute: "h:mm".into(),
+            second: ":ss".into(),
+            // ICU formats fractions only after seconds.
+            millisecond: ":ss.SSS".into(),
+        }
+    }
+
+    fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
+        self.settings().check_gregorian_months()
+    }
 }
 
 impl DateTimeFormatProvider for IcuSemanticDateTimeFormatProvider {
@@ -232,6 +253,24 @@ impl DateTimeFormatProvider for IcuSemanticDateTimeFormatProvider {
             self.timezone,
             spec,
         )?))
+    }
+
+    /// Semantic field sets localized for the provider's locale.
+    fn default_calendar_patterns(&self) -> CalendarPatterns {
+        CalendarPatterns {
+            year: "{dateFields=year}".into(),
+            month: "{dateFields=month dateLength=long}".into(),
+            week: "{dateFields=month-day}".into(),
+            day: "{dateFields=day-weekday}".into(),
+            hour: "{timePrecision=hour}".into(),
+            minute: "{timePrecision=minute}".into(),
+            second: "{timePrecision=second}".into(),
+            millisecond: "{timePrecision=second fractionalSecondDigits=3}".into(),
+        }
+    }
+
+    fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
+        self.settings().check_gregorian_months()
     }
 }
 

@@ -1,6 +1,6 @@
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_format::{PreparedNumberFormatter, TickSpacing};
+use avenger_format::{PreparedFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::{
     error::AvengerScaleError,
@@ -14,8 +14,8 @@ use rstar::AABB;
 use crate::error::AvengerGuidesError;
 
 use super::{
-    number_labels,
     opts::{AxisConfig, AxisOrientation},
+    tick_labels,
 };
 
 const TICK_LENGTH: f32 = 5.0;
@@ -90,7 +90,7 @@ pub fn make_band_axis_marks(
             &scale,
             &config.orientation,
             &config.dimensions,
-            &*config.format,
+            &config.format,
         )?
         .into(),
     );
@@ -207,14 +207,16 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-    format: &dyn PreparedNumberFormatter,
-) -> Result<SceneTextMark, AvengerScaleError> {
+    format: &PreparedFormatter,
+) -> Result<SceneTextMark, AvengerGuidesError> {
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
-    // Categories are independent values, so each numeric label keeps its own digits.
-    let text = if scale.domain().data_type().is_numeric() {
-        number_labels(scale.domain(), format, TickSpacing::Varying)?
+    // Categories are independent values, so each label keeps its own digits. Categories that
+    // are neither numbers nor dates and times show as text.
+    let domain = scale.domain();
+    let text = if domain.data_type().is_numeric() || domain.data_type().is_temporal() {
+        tick_labels(domain, format, TickSpacing::Varying)?
     } else {
-        to_text(scale.domain(), "")?
+        to_text(domain, "")?
     };
 
     let (x, y, align, baseline, angle) = match orientation {

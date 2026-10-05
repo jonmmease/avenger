@@ -135,6 +135,10 @@ where
             DateTimeInputKind::Zoned,
         )
     }
+
+    fn timezone(&self) -> Tz {
+        self.zone.timezone()
+    }
 }
 
 /// Preserve ICU errors instead of returning their fallback output.
