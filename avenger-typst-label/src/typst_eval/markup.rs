@@ -53,12 +53,29 @@ pub(crate) struct MarkupFormatContext<'a> {
     pub(crate) datetime: DateTimeFormatMarkupContext<'a>,
 }
 
+#[cfg(test)]
 pub(crate) fn parse_line_with_format_context(
     source: &str,
     params: &Scope,
     format_context: MarkupFormatContext<'_>,
 ) -> Result<LabelContent, LabelError> {
+    parse_line_with_limits(
+        source,
+        params,
+        format_context,
+        crate::label::LabelLimits::default().max_math_depth,
+    )
+}
+
+/// Parse and lower one label line. Equations may nest at most `max_math_depth` levels.
+pub(crate) fn parse_line_with_limits(
+    source: &str,
+    params: &Scope,
+    format_context: MarkupFormatContext<'_>,
+    max_math_depth: usize,
+) -> Result<LabelContent, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
+    crate::typst_eval::math::check_math_nesting(&root, max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
     let markup = root

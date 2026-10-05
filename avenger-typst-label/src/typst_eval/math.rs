@@ -21,10 +21,31 @@ pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelEr
     parse_math_with_params(source, offset, &Scope::default())
 }
 
+/// Parse and lower one math span whose nesting depth is at most `max_depth`.
+pub(crate) fn parse_math_with_limit(
+    source: &str,
+    offset: usize,
+    params: &Scope,
+    max_depth: usize,
+) -> Result<MathAst, LabelError> {
+    parse_math_bounded(source, offset, params, Some(max_depth))
+}
+
+/// Parse and lower math without a depth check. Only use this for text inside a span that
+/// already passed [`parse_math_with_limit`].
 pub(crate) fn parse_math_with_params(
     source: &str,
     offset: usize,
     params: &Scope,
+) -> Result<MathAst, LabelError> {
+    parse_math_bounded(source, offset, params, None)
+}
+
+fn parse_math_bounded(
+    source: &str,
+    offset: usize,
+    params: &Scope,
+    max_depth: Option<usize>,
 ) -> Result<MathAst, LabelError> {
     if let Some((idx, _)) = source
         .char_indices()
@@ -36,6 +57,9 @@ pub(crate) fn parse_math_with_params(
         ));
     }
     let mut root = crate::typst_syntax::parse_math(source);
+    if let Some(limit) = max_depth {
+        check_math_nesting(&root, limit)?;
+    }
     synthesize_ranges(&mut root, source.len(), offset)?;
     reject_syntax_errors(&root, offset)?;
     let math = root
@@ -50,6 +74,49 @@ pub(crate) fn parse_math_with_params(
         source: source.to_string(),
         nodes,
     })
+}
+
+/// Reject math whose constructs nest more than `limit` levels deep.
+///
+/// Span synthesis, lowering, and layout recurse at least once per level, so deep input can
+/// overflow small thread stacks. This walk is iterative and runs right after parsing, before any
+/// recursive pass. On a markup root, only equations count.
+pub(crate) fn check_math_nesting(root: &SyntaxNode, limit: usize) -> Result<(), LabelError> {
+    let actual = math_nesting_depth(root);
+    if actual > limit {
+        return Err(LabelError::MathDepthExceeded { actual, limit });
+    }
+    Ok(())
+}
+
+fn math_nesting_depth(root: &SyntaxNode) -> usize {
+    let mut deepest = 0;
+    let mut pending = vec![(root, 0usize, root.kind() == SyntaxKind::Math)];
+    while let Some((node, depth, in_math)) = pending.pop() {
+        let in_math = in_math || node.kind() == SyntaxKind::Equation;
+        let depth = depth + usize::from(in_math && is_math_nesting_kind(node.kind()));
+        deepest = deepest.max(depth);
+        pending.extend(node.children().map(|child| (child, depth, in_math)));
+    }
+    deepest
+}
+
+/// Syntax kinds that open a nesting level inside math.
+fn is_math_nesting_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::MathDelimited
+            | SyntaxKind::MathAttach
+            | SyntaxKind::MathFrac
+            | SyntaxKind::MathRoot
+            | SyntaxKind::MathCall
+            | SyntaxKind::FuncCall
+            | SyntaxKind::Parenthesized
+            | SyntaxKind::Array
+            | SyntaxKind::Dict
+            | SyntaxKind::CodeBlock
+            | SyntaxKind::ContentBlock
+    )
 }
 
 fn lower_math(
@@ -202,6 +269,7 @@ fn lower_math_expr(
             let left = delimiter_char(open, source)?;
             let right = delimiter_char(close, source)?;
             let body_range = open_range.end..close_range.start;
+            // The enclosing span passed the depth check, and the body nests less deeply.
             let body = if body_range.start <= body_range.end {
                 parse_math_with_params(
                     &source[body_range.clone()],

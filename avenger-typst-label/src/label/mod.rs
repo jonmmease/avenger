@@ -23,10 +23,10 @@ use indexmap::IndexMap;
 
 use crate::typst_eval::markup::{
     DateTimeFormatMarkupContext, MarkupFormatContext, NumberFormatMarkupContext,
-    parse_line_with_format_context,
+    parse_line_with_limits,
 };
 use crate::typst_eval::math::is_retained_math_name;
-use crate::typst_eval::math::parse_math_with_params;
+use crate::typst_eval::math::parse_math_with_limit;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
     TypesetMetrics,
@@ -132,11 +132,17 @@ pub struct FontMetrics {
     pub line_gap: f32,
 }
 
+/// Bounds on the work one label may request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LabelLimits {
+    /// Largest accepted source, in bytes.
     pub max_source_bytes: usize,
+    /// Most `$...$` spans in one label.
     pub max_math_spans: usize,
+    /// Deepest nesting of math constructs: delimiters, attachments, fractions, roots, and
+    /// calls each add a level. Layout recurses per level, and the default keeps a label within
+    /// a 1 MiB stack, the WebAssembly default.
     pub max_math_depth: usize,
 }
 
@@ -145,7 +151,7 @@ impl Default for LabelLimits {
         Self {
             max_source_bytes: 16 * 1024,
             max_math_spans: 64,
-            max_math_depth: 64,
+            max_math_depth: 32,
         }
     }
 }
@@ -268,7 +274,7 @@ impl LabelEngine {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
         let layout_options = line_layout_options(options);
-        let line = parse_line_with_format_context(
+        let line = parse_line_with_limits(
             source,
             &layout_options.params,
             MarkupFormatContext {
@@ -281,6 +287,7 @@ impl LabelEngine {
                     cache: Some(&self.formatting_cache),
                 },
             },
+            options.limits.max_math_depth,
         )?;
         validate_line_math(
             &line,
@@ -1127,16 +1134,13 @@ fn validate_line_math(
             });
         }
 
-        let depth = max_grouping_depth(&math.source);
-        if depth > limits.max_math_depth {
-            return Err(LabelError::MathDepthExceeded {
-                actual: depth,
-                limit: limits.max_math_depth,
-            });
-        }
-
         strict_hash_precheck(&math.source, math.source_range.start, params)?;
-        parse_math_with_params(&math.source, math.source_range.start, scope)?;
+        parse_math_with_limit(
+            &math.source,
+            math.source_range.start,
+            scope,
+            limits.max_math_depth,
+        )?;
     }
     Ok(())
 }
@@ -1240,31 +1244,6 @@ fn starts_with_literal_unit(unit_and_tail: &str, unit: &str) -> bool {
     tail.chars()
         .next()
         .is_none_or(|ch| !matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
-}
-
-fn max_grouping_depth(source: &str) -> usize {
-    let mut escaped = false;
-    let mut depth = 0usize;
-    let mut max_depth = 0usize;
-    for ch in source.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        match ch {
-            '(' | '[' | '{' => {
-                depth += 1;
-                max_depth = max_depth.max(depth);
-            }
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    max_depth
 }
 
 fn label_has_markup(source: &str) -> bool {

@@ -1,6 +1,7 @@
 use indexmap::IndexSet;
 
-use crate::label::LabelError;
+use crate::label::{LabelError, LabelLimits};
+use crate::typst_eval::math::check_math_nesting;
 use crate::typst_library::foundations::Scope;
 use crate::typst_library::text::call::{
     is_retained_markup_name, parse_text_markup_option, text_span_kind,
@@ -13,6 +14,7 @@ use crate::typst_syntax::{
 
 pub(crate) fn referenced_params(source: &str) -> Result<Vec<String>, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
+    check_math_nesting(&root, LabelLimits::default().max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
     let markup = root
@@ -164,6 +166,7 @@ fn collect_math_source(
     }
 
     let mut root = crate::typst_syntax::parse_math(source);
+    check_math_nesting(&root, LabelLimits::default().max_math_depth)?;
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors_with_offset(&root, offset)?;
     let math = root

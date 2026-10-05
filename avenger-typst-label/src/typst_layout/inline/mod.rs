@@ -18,7 +18,7 @@ use self::font::{
     SegmentedText, ShapedText, TextDecorationLineMetrics, TextDecorationMetrics, TextFace,
     TextScript, shape_plain_text_with_fallback,
 };
-use crate::typst_eval::math::parse_math_with_params;
+use crate::typst_eval::math::parse_math_with_limit;
 use crate::typst_layout::math::try_typeset_simple_row_fragment_with_fontdb;
 use crate::typst_library::text::content::{
     LabelContent, PlainTextNode, TextDecorationOptions, TextMarkupKind, TextMarkupOptions,
@@ -407,8 +407,12 @@ fn try_typeset_mixed_metrics_text_line(
             }
 
             RenderNode::Math(span) => {
-                let math =
-                    parse_math_with_params(&span.source, span.source_range.start, &options.params)?;
+                let math = parse_math_with_limit(
+                    &span.source,
+                    span.source_range.start,
+                    &options.params,
+                    options.limits.max_math_depth,
+                )?;
                 let Some(artifact) = try_typeset_simple_row_fragment_with_fontdb(
                     &math,
                     &math_options,
