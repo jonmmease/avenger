@@ -32,8 +32,10 @@ use super::{
 ///
 /// ## Configuration Options
 ///
-/// - **timezone** (string, default: "UTC"): Display timezone for scale operations. Can be an IANA
-///   timezone string (e.g., "America/New_York"), "local" for system timezone, or "UTC".
+/// - **timezone** (string, default: "UTC"): Timezone of timezone-aware timestamp domains, which
+///   decides where ticks fall and how DST affects positions. Can be an IANA timezone string (e.g.,
+///   "America/New_York"), "local" (currently UTC), or "UTC". Dates and timestamps without a
+///   timezone keep their calendar fields and ignore it.
 ///
 /// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice
 ///   calendar boundaries. If true, uses a default count of 10. If a number, uses that as the target
@@ -243,6 +245,16 @@ impl TemporalHandler {
                 }
             }
         }
+    }
+}
+
+/// The timezone that a time scale places ticks and positions in: the `timezone` option for
+/// timezone-aware timestamp domains, and UTC for dates and naive timestamps, whose calendar fields
+/// are civil time.
+pub fn timezone(config: &ScaleConfig) -> Result<Tz, AvengerScaleError> {
+    match config.domain.data_type() {
+        DataType::Timestamp(_, Some(_)) => parse_timezone(&config.option_string("timezone", "UTC")),
+        _ => Ok(Tz::UTC),
     }
 }
 
@@ -540,8 +552,7 @@ impl ScaleImpl for TimeScale {
         let (range_start, range_end) = config.numeric_interval_range()?;
 
         // Get timezone for DST-aware duration calculations
-        let tz_str = config.option_string("timezone", "UTC");
-        let tz = parse_timezone(&tz_str)?;
+        let tz = timezone(config)?;
 
         // Compute actual duration (accounting for DST)
         let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
@@ -635,8 +646,7 @@ impl ScaleImpl for TimeScale {
         let (range_start, range_end) = config.numeric_interval_range()?;
 
         // Get timezone for DST-aware duration calculations
-        let tz_str = config.option_string("timezone", "UTC");
-        let tz = parse_timezone(&tz_str)?;
+        let tz = timezone(config)?;
 
         // Compute actual duration (accounting for DST)
         let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
@@ -710,8 +720,7 @@ impl ScaleImpl for TimeScale {
         let end_millis = get_temporal_value(&config.domain, 1, &handler)?;
 
         // Get timezone for tick generation
-        let tz_str = config.option_string("timezone", "UTC");
-        let tz = parse_timezone(&tz_str)?;
+        let tz = timezone(config)?;
 
         // Get target tick count
         let target_count = count.unwrap_or(10.0);
@@ -732,8 +741,7 @@ impl ScaleImpl for TimeScale {
         let end_millis = get_temporal_value(&config.domain, 1, &handler)?;
 
         // Get timezone for nice calculations
-        let tz_str = config.option_string("timezone", "UTC");
-        let tz = parse_timezone(&tz_str)?;
+        let tz = timezone(config)?;
 
         // Get nice option
         let nice_option = config.options.get("nice");
@@ -774,8 +782,7 @@ impl ScaleImpl for TimeScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         // Get timezone for formatting
-        let tz_str = config.option_string("timezone", "UTC");
-        let tz = parse_timezone(&tz_str)?;
+        let tz = timezone(config)?;
 
         // Determine the tick interval based on domain span and nice settings
         let domain_type = config.domain.data_type();
@@ -1920,8 +1927,12 @@ mod tests {
             .unwrap()
             .timestamp();
 
-        let domain_start = Arc::new(TimestampSecondArray::from(vec![start_ts])) as ArrayRef;
-        let domain_end = Arc::new(TimestampSecondArray::from(vec![end_ts])) as ArrayRef;
+        let domain_start =
+            Arc::new(TimestampSecondArray::from(vec![start_ts]).with_timezone("America/New_York"))
+                as ArrayRef;
+        let domain_end =
+            Arc::new(TimestampSecondArray::from(vec![end_ts]).with_timezone("America/New_York"))
+                as ArrayRef;
 
         let mut scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
         scale = scale.with_option("timezone", "America/New_York");
@@ -1978,12 +1989,12 @@ mod tests {
         let start = et.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap();
         let end = et.with_ymd_and_hms(2024, 3, 10, 4, 0, 0).unwrap();
 
-        let domain_start = Arc::new(TimestampMillisecondArray::from(vec![
-            start.timestamp_millis()
-        ])) as ArrayRef;
-        let domain_end = Arc::new(TimestampMillisecondArray::from(
-            vec![end.timestamp_millis()],
-        )) as ArrayRef;
+        let domain_start = Arc::new(
+            TimestampMillisecondArray::from(vec![start.timestamp_millis()]).with_timezone(tz_str),
+        ) as ArrayRef;
+        let domain_end = Arc::new(
+            TimestampMillisecondArray::from(vec![end.timestamp_millis()]).with_timezone(tz_str),
+        ) as ArrayRef;
 
         let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0))
             .with_option("timezone", tz_str);
@@ -2042,12 +2053,12 @@ mod tests {
         let start = et.with_ymd_and_hms(2024, 11, 3, 0, 0, 0).unwrap();
         let end = et.with_ymd_and_hms(2024, 11, 3, 4, 0, 0).unwrap();
 
-        let domain_start = Arc::new(TimestampMillisecondArray::from(vec![
-            start.timestamp_millis()
-        ])) as ArrayRef;
-        let domain_end = Arc::new(TimestampMillisecondArray::from(
-            vec![end.timestamp_millis()],
-        )) as ArrayRef;
+        let domain_start = Arc::new(
+            TimestampMillisecondArray::from(vec![start.timestamp_millis()]).with_timezone(tz_str),
+        ) as ArrayRef;
+        let domain_end = Arc::new(
+            TimestampMillisecondArray::from(vec![end.timestamp_millis()]).with_timezone(tz_str),
+        ) as ArrayRef;
 
         let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0))
             .with_option("timezone", tz_str);
@@ -2151,6 +2162,69 @@ mod tests {
             _ => panic!("Expected array of strings"),
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_civil_domains_ignore_the_timezone_option() -> Result<(), AvengerScaleError> {
+        // Dates keep their calendar fields: a week of dates in Tokyo still ticks on every date.
+        let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef; // 2024-01-01
+        let end = Arc::new(Date32Array::from(vec![19730])) as ArrayRef; // 2024-01-08
+        let dates = TimeScale::configured((start.clone(), end.clone()), (0.0, 100.0))
+            .with_option("timezone", "Asia/Tokyo");
+        let ticks = dates.ticks(Some(7.0))?;
+        let ticks = ticks.as_any().downcast_ref::<Date32Array>().unwrap();
+        assert_eq!(ticks.values().to_vec(), (19723..=19730).collect::<Vec<_>>());
+        let utc = TimeScale::configured((start, end), (0.0, 100.0));
+        let date = Arc::new(Date32Array::from(vec![19726])) as ArrayRef;
+        assert_eq!(
+            dates.scale_to_numeric(&date)?.as_vec(1, None),
+            utc.scale_to_numeric(&date)?.as_vec(1, None)
+        );
+
+        // Naive timestamps tick on their own midnights, not New York's.
+        let day = 86_400_000;
+        let start = Arc::new(TimestampMillisecondArray::from(vec![19723 * day])) as ArrayRef;
+        let end = Arc::new(TimestampMillisecondArray::from(vec![19726 * day])) as ArrayRef;
+        let naive = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", "America/New_York");
+        assert_eq!(timezone(&naive.config)?, Tz::UTC);
+        let ticks = naive.ticks(Some(3.0))?;
+        let ticks = ticks
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        assert!(ticks.values().iter().all(|tick| tick % day == 0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_timezone_applies_to_timezone_aware_domains() -> Result<(), AvengerScaleError> {
+        let et = parse_timezone("America/New_York")?;
+        let start = et
+            .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
+            .unwrap()
+            .timestamp_millis();
+        let end = et
+            .with_ymd_and_hms(2024, 1, 4, 0, 0, 0)
+            .unwrap()
+            .timestamp_millis();
+        let array = |value| {
+            Arc::new(TimestampMillisecondArray::from(vec![value]).with_timezone("UTC")) as ArrayRef
+        };
+        let scale = TimeScale::configured((array(start), array(end)), (0.0, 100.0))
+            .with_option("timezone", "America/New_York");
+        assert_eq!(timezone(&scale.config)?, et);
+        let ticks = scale.ticks(Some(3.0))?;
+        let ticks = ticks
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        // Ticks fall on New York midnights.
+        for tick in ticks.values().iter() {
+            let local = et.timestamp_millis_opt(*tick).unwrap();
+            assert_eq!((local.hour(), local.minute()), (0, 0), "{local}");
+        }
         Ok(())
     }
 }
