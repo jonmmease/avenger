@@ -14,7 +14,10 @@ The `audit-*` references use upstream Typst commit
 `c98e910391a8544b28bd5c99a6f3b1ac1ada9a84`. They cover the 18 findings listed
 in [UPSTREAM.md](../../../UPSTREAM.md#september-2026-correctness-audit), including
 mixed math sizes, tall radicals, nested accents, complex scripts, bidi markup,
-script metrics, variable fonts, ornaments, and decoration order.
+script metrics, variable fonts, ornaments, and decoration order. The `audit-math-*` cases
+added in October 2026 reduce lines from upstream math tests (see their `upstream_test`) and
+cover math class spacing, kept spaces around fences, parenthesis removal, and bracket
+shorthands.
 
 The manifest's `scale` controls both Avenger rasterization and upstream PPI
 (`72 * scale`). Most audit references use scale 2. The 0.2pt script uses scale 16

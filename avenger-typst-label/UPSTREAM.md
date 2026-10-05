@@ -204,3 +204,21 @@ The `custom_operators_*` tests in `tests/upstream_audit.rs` compare predefined a
 custom operators, including script sizes and explicit attachment modes, and check
 that wrapping a body in `op` preserves its geometry. The PNG corpus continues to
 use the audit baseline recorded above.
+
+## October 2026 review fixes
+
+These follow the audit baseline. Each `audit-math-*` case listed below is a line from the named
+upstream test, reduced to an inline label.
+
+| Behavior | Upstream source | PNG cases |
+| --- | --- | --- |
+| Operators, shorthands, and typed symbols take their class from `default_math_class`, so `-` is a binary `−`, `∈` is a relation, and `!` is normal. | `crates/typst-library/src/math/ir/item.rs` (`GlyphItem::create`) and `crates/typst-utils/src/lib.rs` (`default_math_class`) | `audit-math-spacing-*`, `audit-math-class-typed-symbols` |
+| Fences are spaced, and an explicit space next to a spaced item survives only when no class rule applies, including inside script-size fractions. | `crates/typst-library/src/math/ir/item.rs` (`MathItem::is_spaced`) and `process.rs` (`spacing`) | `audit-math-spacing-kept-fences`, `audit-math-frac-paren-removal` |
+| Fraction operands and radicands come from the parse tree, which removes one pair of parentheses only. Other delimiters, and parentheses in call arguments, render. | `crates/typst-syntax/src/parser.rs` (`math_unparen`) | `audit-math-frac-*`, `audit-math-root-syntax` |
+| `[\|` and `\|]` delimit with ⟦ and ⟧. | `crates/typst-syntax/src/parser.rs` (`math_delimited`) | `audit-math-white-brackets` |
+
+`LabelLimits::max_math_depth` counts nested math constructs in the parse tree, and the check
+runs before any recursive pass. The default of 32 keeps the deepest supported nesting within a
+1 MiB stack in release builds. Upstream has no such limit. Its parser caps recursive nesting at
+256 levels, which chains of `/` bypass, and its evaluator grows the stack with `stacker` for
+nested calls.
