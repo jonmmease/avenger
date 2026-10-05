@@ -36,7 +36,7 @@ async fn streamed_slices_are_charged_for_their_rows() -> Result<(), Box<dyn std:
         .inputs()
         .table(&source, common::snapshot(&values))?
         .finish()?;
-    let result = prepared.query(&[rows.clone()], &[], &inputs).await?;
+    let result = prepared.query(&[rows], &[], &inputs).await?;
     assert_eq!(result.table(&rows)?.num_rows(), n);
     Ok(())
 }
