@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, slice, sync::Arc};
 
 use super::{
     ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
@@ -7,11 +7,11 @@ use super::{
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
 
-use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
     datatypes::{DataType, UInt32Type},
+    row::{RowConverter, SortField},
 };
 use avenger_common::{
     types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
@@ -124,48 +124,32 @@ fn range_indices_for_values(
         ));
     }
 
-    // Convert domain and range to vectors of Scalars
-    let domain_values = (0..domain.len())
-        .map(|i| Scalar::try_from_array(domain.as_ref(), i).unwrap())
-        .collect::<Vec<_>>();
+    // Arrow's row format gives values of every type a hashable binary form
+    let converter = RowConverter::new(vec![SortField::new(domain.data_type().clone())])?;
+    let domain_rows = converter.convert_columns(slice::from_ref(domain))?;
+    let value_rows = converter.convert_columns(slice::from_ref(values))?;
 
-    // Cast values to dictionary array
-    let dict_type = DataType::Dictionary(
-        Box::new(DataType::Int16),
-        Box::new(domain.data_type().clone()),
-    );
-    let dict_array = cast(values, &dict_type)?;
-
-    // Downcast to dictionary with erased types
-    let dict_array = dict_array.as_any_dictionary();
-
-    // Get array of unique domain values that are observed in the values
-    let observed_domain_array = dict_array.values();
-    let observed_domain_values = (0..observed_domain_array.len())
-        .map(|i| Scalar::try_from_array(observed_domain_array, i))
-        .collect::<Result<Vec<_>, AvengerScaleError>>()?;
-
-    // Create a mapping from domain values to indices into range values
-    let mapping = domain_values
-        .into_iter()
+    // Map each non-null domain value to the index of its range value
+    let mapping = domain_rows
+        .iter()
         .enumerate()
-        .map(|(i, v)| (v, i as u32))
+        .filter(|(i, _)| domain.is_valid(*i))
+        .map(|(i, row)| (row, i as u32))
         .collect::<HashMap<_, _>>();
 
-    // Build corresponding array of range value indices that correspond to the observed domain values
-    let observed_range_indices = Arc::new(UInt32Array::from(
-        observed_domain_values
-            .iter()
-            .map(|d| mapping.get(d).cloned())
-            .collect::<Vec<_>>(),
-    )) as ArrayRef;
-
-    // Replace domain values with range indices
-    let range_dict_array = dict_array.with_values(observed_range_indices);
-
-    // Cast range indices to flat u32 array
-    let range_indices_array = cast(&range_dict_array, &DataType::UInt32)?;
-    Ok(range_indices_array)
+    // Null values and values outside the domain have no range value
+    let range_indices = value_rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            if values.is_null(i) {
+                None
+            } else {
+                mapping.get(&row).copied()
+            }
+        })
+        .collect::<UInt32Array>();
+    Ok(Arc::new(range_indices))
 }
 
 /// Generic helper function for evaluating ordinal scales
