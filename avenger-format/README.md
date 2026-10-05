@@ -19,6 +19,8 @@ Number formatting returns `FormattedNumber`, which contains the label text and o
 
 Datetime preparation checks that the format is valid for its input type. Date formats reject time, epoch, and timezone fields. Naive datetime formats reject epoch and timezone fields. Date and naive formatters ignore the display timezone. Zoned formatters convert UTC datetimes to the configured display timezone and report it with `timezone()`.
 
+`PreparedFormatter` holds a prepared formatter of any of these kinds, for consumers such as axes that label whichever values they're given. Its `format_ticks()` takes `FormatValues` of the matching kind and returns one label per value: numbers go through the number formatter's `format_ticks()`, and datetimes are formatted one by one. Values of another kind return `FormatError::Mismatch`.
+
 Chrono inputs use the proleptic Gregorian calendar. Providers can convert the display date to another calendar. Datetime formatting returns text or an error for an unsupported value or a date outside the supported range.
 
 Providers and usage examples are available in:
