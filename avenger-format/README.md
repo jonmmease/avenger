@@ -21,6 +21,8 @@ Datetime preparation checks that the format is valid for its input type. Date fo
 
 `PreparedFormatter` holds a prepared formatter of any of these kinds, for consumers such as axes that label whichever values they're given. Its `format_ticks()` takes `FormatValues` of the matching kind and returns one label per value: numbers go through the number formatter's `format_ticks()`, and datetimes are formatted one by one. Values of another kind return `FormatError::Mismatch`.
 
+`CalendarPatterns` holds one pattern per calendar boundary, in a provider's syntax, for labels such as a time axis's. Its `prepare_date()`, `prepare_naive()`, and `prepare_zoned()` prepare each pattern through a provider and return an ordinary prepared formatter. That formatter labels each value with the pattern for the coarsest boundary it falls on, as Vega labels time axes: Jan 1 uses `year`, the 1st of another month `month`, other Sundays `week`, other days `day`, and times within a day `hour`, `minute`, `second`, or `millisecond`. Boundaries use the Gregorian calendar and Sunday weeks, so preparation first calls the provider's `check_gregorian_months()`, which rejects calendars whose months start on other days. Zoned values are tested in the formatter's timezone. Provider crates supply default patterns, and `with_*` builders replace single patterns.
+
 Chrono inputs use the proleptic Gregorian calendar. Providers can convert the display date to another calendar. Datetime formatting returns text or an error for an unsupported value or a date outside the supported range.
 
 Providers and usage examples are available in:

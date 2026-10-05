@@ -83,6 +83,13 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
+
+    /// Check that dates display in a calendar whose months start on the same days as Gregorian
+    /// months, which [`CalendarPatterns`](crate::CalendarPatterns) needs to label boundaries.
+    /// Providers that only use the Gregorian calendar keep this default.
+    fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
+        Ok(())
+    }
 }
 
 /// Immutable, deterministic formatting of calendar dates without a time or timezone.

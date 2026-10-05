@@ -1,5 +1,8 @@
 //! Provider interfaces for preparing and rendering localized number and datetime labels.
 
+mod calendar;
+pub use calendar::CalendarPatterns;
+
 mod datetime;
 pub use datetime::{
     DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind, PreparedDateFormatter,
