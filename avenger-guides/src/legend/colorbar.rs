@@ -1,13 +1,12 @@
 use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
-use avenger_format::PreparedNumberFormatter;
-use std::sync::Arc;
+use avenger_format::PreparedFormatter;
 
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
 
 use crate::{
     axis::{
-        numeric::make_numeric_axis_marks,
+        continuous::make_continuous_axis_marks,
         opts::{AxisConfig, AxisOrientation},
     },
     error::AvengerGuidesError,
@@ -36,10 +35,10 @@ pub fn make_colorbar_marks(
             };
 
             // Create a new scale with desired range for the axis
-            let numeric_scale = scale
+            let axis_scale = scale
                 .clone()
                 .with_range_interval((config.dimensions[1], 0.0));
-            let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config)?;
+            let axis = make_continuous_axis_marks(&axis_scale, title, origin, &axis_config)?;
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
@@ -93,5 +92,5 @@ pub struct ColorbarConfig {
     pub orientation: ColorbarOrientation,
     pub dimensions: [f32; 2],
     /// Labels the colorbar's ticks together with `format_ticks`.
-    pub format: Arc<dyn PreparedNumberFormatter>,
+    pub format: PreparedFormatter,
 }

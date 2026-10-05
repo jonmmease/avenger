@@ -1,9 +1,9 @@
-use arrow::array::ArrayRef;
+use arrow::{array::ArrayRef, datatypes::DataType};
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_format::{PreparedNumberFormatter, TickSpacing};
+use avenger_format::{PreparedFormatter, TickSpacing};
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{time, ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use rstar::AABB;
@@ -11,8 +11,8 @@ use rstar::AABB;
 use crate::error::AvengerGuidesError;
 
 use super::{
-    number_labels,
     opts::{AxisConfig, AxisOrientation},
+    tick_labels,
 };
 
 const TICK_LENGTH: f32 = 5.0;
@@ -22,7 +22,9 @@ const TITLE_FONT_SIZE: f32 = 10.0;
 const TICK_FONT_SIZE: f32 = 8.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
-pub fn make_numeric_axis_marks(
+/// Axis marks for a scale with a numeric or temporal domain, such as a linear, log, or time
+/// scale, with tick labels from `config.format`.
+pub fn make_continuous_axis_marks(
     scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
@@ -100,7 +102,7 @@ pub fn make_numeric_axis_marks(
             &scale,
             &config.orientation,
             &config.dimensions,
-            &*config.format,
+            &config.format,
         )?
         .into(),
     );
@@ -232,14 +234,21 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-    format: &dyn PreparedNumberFormatter,
+    format: &PreparedFormatter,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    if !ticks.data_type().is_numeric() {
-        return Err(AvengerGuidesError::NonNumericTicks(
-            ticks.data_type().clone(),
-        ));
+    // Zoned labels must use the timezone that the scale places ticks in.
+    if let (DataType::Timestamp(_, Some(_)), PreparedFormatter::ZonedDateTime(zoned)) =
+        (ticks.data_type(), format)
+    {
+        let scale_timezone = time::timezone(&scale.config)?;
+        if zoned.timezone() != scale_timezone {
+            return Err(AvengerGuidesError::TimezoneMismatch {
+                scale: scale_timezone,
+                formatter: zoned.timezone(),
+            });
+        }
     }
-    let tick_text = number_labels(ticks, format, tick_spacing(scale))?;
+    let tick_text = tick_labels(ticks, format, tick_spacing(scale))?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {

@@ -1,5 +1,4 @@
-use avenger_format::PreparedNumberFormatter;
-use std::sync::Arc;
+use avenger_format::PreparedFormatter;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AxisOrientation {
@@ -14,5 +13,5 @@ pub struct AxisConfig {
     pub orientation: AxisOrientation,
     pub dimensions: [f32; 2],
     pub grid: bool,
-    pub format: Arc<dyn PreparedNumberFormatter>,
+    pub format: PreparedFormatter,
 }
