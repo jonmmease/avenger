@@ -50,6 +50,17 @@ fn load_default_math_font_with_fontdb(
     None
 }
 
+/// The math family a label asked for, used when no font with a MATH table can be loaded.
+fn requested_math_family(config: &EngineOptions, spec: &MathFontSpec) -> String {
+    match spec {
+        MathFontSpec::FontBytes(id) => format!("registered math font {}", id.0),
+        _ => math_font_family_candidates(config, spec)
+            .into_iter()
+            .next()
+            .unwrap_or_default(),
+    }
+}
+
 fn math_font_family_candidates(config: &EngineOptions, spec: &MathFontSpec) -> Vec<String> {
     let mut families = Vec::new();
     let mut push = |family: &str| {
@@ -398,10 +409,7 @@ fn layout_math_text(
         fallback_db.load_font_data(font.data.to_vec());
         &fallback_db
     };
-    let segmented = shape_plain_text_with_fallback(db, &style, text, font_size, &font.features)?
-        .ok_or(LabelError::UnsupportedOutput(
-            "no font available for text in math",
-        ))?;
+    let segmented = shape_plain_text_with_fallback(db, &style, text, font_size, &font.features)?;
     let mut m = segmented.metrics;
     // Math text uses tight top/bottom edges, unlike ordinary inline text.
     let mut ascent = f32::NEG_INFINITY;

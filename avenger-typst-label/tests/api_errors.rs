@@ -1,6 +1,12 @@
 mod common;
 
-use avenger_typst_label::{LabelEngine, LabelError, LabelLimits, LabelOptions, referenced_params};
+use std::io::Read;
+use std::sync::Arc;
+
+use avenger_typst_label::{
+    EngineOptions, LabelEngine, LabelError, LabelLimits, LabelOptions, MathFontBytesId,
+    RegisteredFont, referenced_params,
+};
 
 fn engine() -> LabelEngine {
     LabelEngine::new(common::engine_options()).unwrap()
@@ -137,6 +143,47 @@ fn math_at_the_depth_limit_fits_a_wasm_sized_stack() {
         .unwrap()
         .join()
         .expect("labels at the depth limit should not overflow the stack");
+}
+
+#[test]
+fn missing_fonts_report_the_requested_family() {
+    let mut options = EngineOptions::default();
+    options.fonts.load_system_fonts = false;
+    let engine = LabelEngine::new(options).unwrap();
+    let missing = LabelError::MissingFont {
+        family: "sans-serif".to_string(),
+    };
+    assert_eq!(
+        engine.compile("x", &LabelOptions::default()).unwrap_err(),
+        missing
+    );
+    assert_eq!(
+        engine
+            .compile_text("x", &LabelOptions::default())
+            .unwrap_err(),
+        missing
+    );
+
+    // Text fonts are available, but none has a MATH table.
+    let mut options = EngineOptions::default();
+    options.fonts.load_system_fonts = false;
+    options.fonts.default_sans_serif_family = Some("Lato".to_string());
+    let mut lato = Vec::new();
+    brotli::Decompressor::new(avenger_fonts::LATO_MEDIUM, 4096)
+        .read_to_end(&mut lato)
+        .unwrap();
+    options.fonts.registered_fonts = vec![RegisteredFont::new(
+        MathFontBytesId(1),
+        Arc::<[u8]>::from(lato),
+    )];
+    let engine = LabelEngine::new(options).unwrap();
+    engine.compile("x", &LabelOptions::default()).unwrap();
+    assert_eq!(
+        engine.compile("$x$", &LabelOptions::default()).unwrap_err(),
+        LabelError::MissingFont {
+            family: "Lete Sans Math".to_string(),
+        }
+    );
 }
 
 #[test]

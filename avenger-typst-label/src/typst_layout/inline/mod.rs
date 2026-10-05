@@ -158,7 +158,7 @@ fn shape_plain_text_for_style(
     font_size: f32,
     features: &[rustybuzz::Feature],
     fontdb: &fontdb::Database,
-) -> Result<Option<SegmentedText>, LabelError> {
+) -> Result<SegmentedText, LabelError> {
     shape_plain_text_with_fallback(fontdb, style, text, font_size, features)
 }
 
@@ -174,27 +174,20 @@ fn try_typeset_plain_text_line(
 
     match node {
         RenderNode::Plain(plain) => {
-            let Some(segmented) = shape_plain_text_for_style(
+            let segmented = shape_plain_text_for_style(
                 &options.text_style,
                 &plain.text,
                 options.text_style.font_size.max(f32::MIN_POSITIVE),
                 &[],
                 fontdb,
-            )?
-            else {
-                return Ok(None);
-            };
+            )?;
             typeset_segmented_plain_text_line(source, plain, &[], options, segmented)
         }
         RenderNode::DecoratedText(decorated) => {
             let decorations = text_decorations_for_run(decorated);
             let run_style =
                 text_style_for_static_run(&options.text_style, decorated.kind, &decorated.options);
-            let Some(face) =
-                TextFace::for_plain_style_and_text(&run_style, &decorated.text, fontdb)?
-            else {
-                return Ok(None);
-            };
+            let face = TextFace::for_plain_style_and_text(&run_style, &decorated.text, fontdb)?;
             let features = text_features_for_static_run(decorated.kind, &decorated.options);
             typeset_plain_text_line(
                 source,
@@ -237,17 +230,14 @@ fn try_typeset_mixed_metrics_text_line(
                 if plain.text.is_empty() {
                     continue;
                 }
-                let Some(segmented) = font::shape_text_with_direction(
+                let segmented = font::shape_text_with_direction(
                     fontdb,
                     &options.text_style,
                     &plain.text,
                     text_font_size,
                     &[],
                     Some(is_rtl),
-                )?
-                else {
-                    return Ok(None);
-                };
+                )?;
                 let metrics = metrics_from_segmented_text(&segmented, 0.0);
                 let paths = Some(plain_path_artifact_from_segmented(
                     &segmented,
@@ -299,11 +289,8 @@ fn try_typeset_mixed_metrics_text_line(
                     decorated.kind,
                     &decorated.options,
                 );
-                let Some(text_face) =
-                    TextFace::for_plain_style_and_text(&base_run_style, &decorated.text, fontdb)?
-                else {
-                    return Ok(None);
-                };
+                let text_face =
+                    TextFace::for_plain_style_and_text(&base_run_style, &decorated.text, fontdb)?;
                 let mut features = text_features_for_static_run(decorated.kind, &decorated.options);
                 let base_size = base_run_style.font_size;
                 let typographic = script.is_some_and(|script| {
@@ -339,17 +326,14 @@ fn try_typeset_mixed_metrics_text_line(
                         (base_run_style, 0.0, 0.0)
                     };
                 let run_font_size = run_style.font_size;
-                let Some(mut segmented) = font::shape_text_with_direction(
+                let mut segmented = font::shape_text_with_direction(
                     fontdb,
                     &run_style,
                     &decorated.text,
                     run_font_size,
                     &features,
                     Some(is_rtl),
-                )?
-                else {
-                    return Ok(None);
-                };
+                )?;
                 for run in &mut segmented.runs {
                     for glyph in &mut run.shaped.glyphs {
                         glyph.x += horizontal_shift;
@@ -1876,7 +1860,6 @@ mod tests {
         let options = LineLayoutOptions::default();
         let font_size = options.text_style.font_size.max(f32::MIN_POSITIVE);
         let face = TextFace::for_plain_style_and_text(&options.text_style, "important", &fontdb)
-            .unwrap()
             .expect("default text face should resolve");
         let expected = face.decoration_metrics(font_size).underline;
 

@@ -40,7 +40,9 @@ pub(crate) fn try_typeset_simple_row_fragment_with_fontdb(
         &options.style.font,
         &options.style.font_weight,
     ) else {
-        return Ok(None);
+        return Err(LabelError::MissingFont {
+            family: requested_math_family(config, &options.style.font),
+        });
     };
     font.text_fonts = Some(Arc::new(fontdb.clone()));
     font.weight = options.style.font_weight.clone();

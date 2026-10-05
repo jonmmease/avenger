@@ -163,19 +163,21 @@ impl TextFace {
         Ok(fontdb_face_for_style_and_text(fontdb, style, ""))
     }
 
+    /// Resolve the face for a styled run. Fails with [`LabelError::MissingFont`] when the
+    /// requested family is unavailable and no face covers the whole text.
     pub(crate) fn for_plain_style_and_text(
         style: &TextStyle,
         text: &str,
         fontdb: &fontdb::Database,
-    ) -> Result<Option<Self>, LabelError> {
+    ) -> Result<Self, LabelError> {
         if let Some(primary) = Self::for_plain_style(style, fontdb)? {
             if !primary.shaped_text(text, style.font_size).has_missing_glyph {
-                return Ok(Some(primary));
+                return Ok(primary);
             }
-            return Ok(fontdb_face_for_style_and_text(fontdb, style, text).or(Some(primary)));
+            return Ok(fontdb_face_for_style_and_text(fontdb, style, text).unwrap_or(primary));
         }
 
-        Ok(fontdb_face_for_style_and_text(fontdb, style, text))
+        fontdb_face_for_style_and_text(fontdb, style, text).ok_or_else(|| missing_font(style))
     }
 
     pub(crate) fn font_metrics(&self, font_size: f32) -> Option<crate::label::FontMetrics> {
@@ -574,10 +576,13 @@ pub(crate) fn shape_plain_text_with_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<SegmentedText>, LabelError> {
+) -> Result<SegmentedText, LabelError> {
     shape_text_with_direction(fontdb, style, text, font_size, features, None)
 }
 
+/// Shape `text` with the style's font, falling back per grapheme. Fails with
+/// [`LabelError::MissingFont`] when the requested family is unavailable and no face covers the
+/// whole text.
 pub(crate) fn shape_text_with_direction(
     fontdb: &fontdb::Database,
     style: &TextStyle,
@@ -585,17 +590,15 @@ pub(crate) fn shape_text_with_direction(
     font_size: f32,
     features: &[rustybuzz::Feature],
     direction: Option<bool>,
-) -> Result<Option<SegmentedText>, LabelError> {
+) -> Result<SegmentedText, LabelError> {
     let Some(primary) = TextFace::for_plain_style(style, fontdb)?
         .or_else(|| fontdb_face_for_style_and_text(fontdb, style, text))
     else {
-        return Ok(None);
+        return Err(missing_font(style));
     };
 
     if text.is_empty() {
-        return Ok(Some(SegmentedText::single(
-            primary, text, font_size, features,
-        )));
+        return Ok(SegmentedText::single(primary, text, font_size, features));
     }
 
     let mut spans = Vec::<TextMarkupSpan>::new();
@@ -683,19 +686,17 @@ pub(crate) fn shape_text_with_direction(
         x += width;
     }
 
-    Ok(Some(
-        SegmentedText {
-            metrics: ShapedTextMetrics {
-                width: x,
-                ascent,
-                descent,
-                height: ascent + descent,
-            },
-            runs,
-            has_missing_glyph: false,
-        }
-        .with_derived_missing_glyph(),
-    ))
+    Ok(SegmentedText {
+        metrics: ShapedTextMetrics {
+            width: x,
+            ascent,
+            descent,
+            height: ascent + descent,
+        },
+        runs,
+        has_missing_glyph: false,
+    }
+    .with_derived_missing_glyph())
 }
 
 struct TextMarkupSpan {
@@ -864,6 +865,12 @@ fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<TextFace> {
             variations: Vec::new(),
         })
     })?
+}
+
+fn missing_font(style: &TextStyle) -> LabelError {
+    LabelError::MissingFont {
+        family: style.font_family.clone(),
+    }
 }
 
 fn fontdb_families(font_family: &str) -> Vec<fontdb::Family<'_>> {
@@ -1134,8 +1141,7 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Some(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb).unwrap()
-        else {
+        let Ok(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb) else {
             return;
         };
 
@@ -1150,9 +1156,8 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Some(segmented) =
+        let Ok(segmented) =
             shape_plain_text_with_fallback(&fontdb, &style, "Hello 温度", style.font_size, &[])
-                .unwrap()
         else {
             return;
         };
@@ -1192,9 +1197,8 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Some(segmented) =
+        let Ok(segmented) =
             shape_plain_text_with_fallback(&fontdb, &style, "abc नमस्ते", style.font_size, &[])
-                .unwrap()
         else {
             return;
         };
@@ -1218,9 +1222,8 @@ mod tests {
             ..TextStyle::default()
         };
 
-        let Some(segmented) =
+        let Ok(segmented) =
             shape_plain_text_with_fallback(&fontdb, &style, "אבג ABC", style.font_size, &[])
-                .unwrap()
         else {
             return;
         };
@@ -1253,7 +1256,6 @@ mod tests {
 
         let segmented =
             shape_plain_text_with_fallback(&fontdb, &style, "Revenue 🚀", style.font_size, &[])
-                .unwrap()
                 .expect("text should shape");
         let emoji_run = segmented
             .runs
@@ -1289,7 +1291,6 @@ mod tests {
         let fontdb = test_fontdb();
         let style = TextStyle::default();
         let face = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb)
-            .unwrap()
             .expect("default sans-serif should resolve");
 
         assert_eq!(face.font_resource(FontResourceId(0)).family, "Lato");
