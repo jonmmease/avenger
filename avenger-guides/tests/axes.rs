@@ -2,7 +2,10 @@
 //! datetime formatters.
 
 use arrow::{
-    array::{ArrayRef, Date32Array, Float32Array, StringArray, TimestampMillisecondArray},
+    array::{
+        ArrayRef, Date32Array, Float32Array, Float64Array, Int64Array, StringArray,
+        TimestampMillisecondArray,
+    },
     datatypes::DataType,
 };
 use avenger_format::{
@@ -16,12 +19,14 @@ use avenger_guides::{
         band::make_band_axis_marks,
         continuous::make_continuous_axis_marks,
         opts::{AxisConfig, AxisOrientation},
+        point::make_point_axis_marks,
     },
     error::AvengerGuidesError,
     legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation},
 };
 use avenger_scales::scales::{
-    band::BandScale, linear::LinearScale, log::LogScale, time::TimeScale, ConfiguredScale,
+    band::BandScale, linear::LinearScale, log::LogScale, point::PointScale, time::TimeScale,
+    ConfiguredScale,
 };
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use chrono::{NaiveDate, TimeZone};
@@ -217,6 +222,27 @@ fn band_axes_format_numeric_categories() {
     let scale = BandScale::configured(names, (0.0, 400.0));
     let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
     assert_eq!(labels(&axis), ["a", "b", "c"]);
+}
+
+#[test]
+fn band_and_point_axes_label_temporal_and_64_bit_categories() {
+    let dates = Arc::new(Date32Array::from(vec![19723, 19754, 19783])) as ArrayRef;
+    let scale = BandScale::configured(dates, (0.0, 400.0));
+    let format = D3DateTimeFormatProvider::new()
+        .prepare_date("%b %d")
+        .unwrap();
+    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(format)).unwrap();
+    assert_eq!(labels(&axis), ["Jan 01", "Feb 01", "Mar 01"]);
+
+    let numbers = Arc::new(Float64Array::from(vec![1000.0, 2000.0, 2500.0])) as ArrayRef;
+    let scale = BandScale::configured(numbers, (0.0, 400.0));
+    let axis = make_band_axis_marks(&scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
+
+    let counts = Arc::new(Int64Array::from(vec![1000, 2000, 2500])) as ArrayRef;
+    let scale = PointScale::configured(counts, (0.0, 400.0));
+    let axis = make_point_axis_marks(scale, "Title", [0.0, 0.0], &config(d3(","))).unwrap();
+    assert_eq!(labels(&axis), ["1,000", "2,000", "2,500"]);
 }
 
 #[test]
