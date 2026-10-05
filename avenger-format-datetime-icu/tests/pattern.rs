@@ -320,3 +320,14 @@ fn conversion_preserves_leap_seconds_and_checks_range() {
         DateTimeFormatError::OutOfRange
     );
 }
+
+#[test]
+fn zoned_formatters_report_their_timezone() {
+    let provider = IcuPatternDateTimeFormatProvider::new();
+    assert_eq!(
+        provider.prepare_zoned("HH").unwrap().timezone(),
+        chrono_tz::UTC
+    );
+    let provider = provider.with_timezone(New_York);
+    assert_eq!(provider.prepare_zoned("HH").unwrap().timezone(), New_York);
+}

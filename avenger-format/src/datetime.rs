@@ -101,4 +101,7 @@ pub trait PreparedNaiveDateTimeFormatter: Debug + Send + Sync + 'static {
 /// Formatting reports values whose display date is outside the supported range.
 pub trait PreparedZonedDateTimeFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError>;
+
+    /// The timezone that values are displayed in.
+    fn timezone(&self) -> chrono_tz::Tz;
 }

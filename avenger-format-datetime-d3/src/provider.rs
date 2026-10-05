@@ -125,4 +125,8 @@ impl PreparedZonedDateTimeFormatter for PreparedDateTimeFormat {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         self.format_zoned(value)
     }
+
+    fn timezone(&self) -> Tz {
+        PreparedDateTimeFormat::timezone(self)
+    }
 }

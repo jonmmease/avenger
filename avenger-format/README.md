@@ -17,7 +17,7 @@ Number formatting returns `FormattedNumber`, which contains the label text and o
 
 `format_ticks()` formats a set of tick values together, such as an axis's labels. Pass `TickSpacing::Uniform` for evenly spaced ticks, such as a linear scale's, so the labels can share one precision and one SI or compact unit. Pass `TickSpacing::Varying` for ticks that span magnitudes, such as a log scale's. When a pattern leaves precision open, providers can derive it from the values with `TickStep::infer()`. Explicit pattern settings take precedence. Providers that don't override `format_ticks()` format each value independently.
 
-Datetime preparation checks that the format is valid for its input type. Date formats reject time, epoch, and timezone fields. Naive datetime formats reject epoch and timezone fields. Date and naive formatters ignore the display timezone. Zoned formatters convert UTC datetimes to the configured display timezone.
+Datetime preparation checks that the format is valid for its input type. Date formats reject time, epoch, and timezone fields. Naive datetime formats reject epoch and timezone fields. Date and naive formatters ignore the display timezone. Zoned formatters convert UTC datetimes to the configured display timezone and report it with `timezone()`.
 
 Chrono inputs use the proleptic Gregorian calendar. Providers can convert the display date to another calendar. Datetime formatting returns text or an error for an unsupported value or a date outside the supported range.
 

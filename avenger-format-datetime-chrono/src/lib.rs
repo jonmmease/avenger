@@ -220,6 +220,10 @@ impl PreparedZonedDateTimeFormatter for ZonedFormat {
         }
         render(format)
     }
+
+    fn timezone(&self) -> Tz {
+        self.timezone
+    }
 }
 
 fn render(

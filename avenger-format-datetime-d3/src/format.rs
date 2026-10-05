@@ -102,6 +102,10 @@ impl PreparedDateTimeFormat {
         self.validate_input(DateTimeInputKind::Date)?;
         Ok(self.render(value.and_time(NaiveTime::MIN), 0, 0))
     }
+    /// The timezone that zoned values are displayed in.
+    pub fn timezone(&self) -> Tz {
+        self.timezone
+    }
     /// Format a zoned datetime, returning an error if its display date exceeds Chrono's range.
     pub fn format_zoned(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
         let value = normalize_zoned(value)?;

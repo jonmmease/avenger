@@ -436,6 +436,7 @@ name = "avenger-format"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "thiserror 2.0.12",
 ]
 
