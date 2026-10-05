@@ -31,4 +31,6 @@ avenger-format-datetime-chrono = { version = "0.1", features = ["all-locales"] }
 
 This enables Chrono's `unstable-locales` feature. Select a locale with `.with_locale("fr-FR")`. Names accept hyphens or underscores, so `fr-FR` and `fr_FR` select the same locale. Names other than `POSIX` require `all-locales`.
 
+The provider's `default_calendar_patterns()` returns strftime patterns as `CalendarPatterns`, which label each value by the coarsest calendar boundary it falls on, as Vega labels time axes. Prepare them through the provider with `prepare_date()`, `prepare_naive()`, or `prepare_zoned()`. Names and `%p` follow the locale. Locales without AM/PM markers, such as `de_DE`, leave `%p` empty, so replace the hour and minute patterns there, for example with `.with_hour("%H:00").with_minute("%H:%M")`.
+
 Formatting preserves nanosecond precision and Chrono's leap-second representation. Directives that Chrono supports only for parsing, such as `%#z`, return an error during preparation.

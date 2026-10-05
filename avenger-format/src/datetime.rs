@@ -1,3 +1,4 @@
+use crate::CalendarPatterns;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use std::{fmt, fmt::Debug, sync::Arc};
 
@@ -83,6 +84,9 @@ pub trait DateTimeFormatProvider: Debug + Send + Sync + 'static {
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError>;
+
+    /// Default [`CalendarPatterns`] in the provider's syntax, for labels such as a time axis's.
+    fn default_calendar_patterns(&self) -> CalendarPatterns;
 
     /// Check that dates display in a calendar whose months start on the same days as Gregorian
     /// months, which [`CalendarPatterns`](crate::CalendarPatterns) needs to label boundaries.

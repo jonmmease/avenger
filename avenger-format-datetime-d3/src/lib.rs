@@ -7,7 +7,7 @@ mod parser;
 mod provider;
 mod registry;
 
-pub use avenger_format::DateTimeFormatError;
+pub use avenger_format::{CalendarPatterns, DateTimeFormatError};
 pub use format::{
     format_naive_datetime, format_zoned_datetime, DateTimeFormatContext, PreparedDateTimeFormat,
 };

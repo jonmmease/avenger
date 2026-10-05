@@ -81,6 +81,10 @@ impl DateTimeFormatProvider for Strftime {
         Ok(self.pattern(spec))
     }
 
+    fn default_calendar_patterns(&self) -> CalendarPatterns {
+        patterns()
+    }
+
     fn check_gregorian_months(&self) -> Result<(), DateTimeFormatError> {
         if self.other_months {
             return Err(DateTimeFormatError::InvalidOption {

@@ -14,6 +14,8 @@ use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::{slice, sync::Arc};
 
+pub use avenger_format::CalendarPatterns;
+
 /// Prepare Chrono datetime patterns with a built-in locale and display timezone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -101,6 +103,20 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
             .format(DateTime::UNIX_EPOCH)
             .map_err(|error| preparation_error(error, DateTimeInputKind::Zoned))?;
         Ok(Arc::new(formatter))
+    }
+
+    /// Vega's time axis patterns in strftime syntax. Names and `%p` follow the provider's locale.
+    fn default_calendar_patterns(&self) -> CalendarPatterns {
+        CalendarPatterns {
+            year: "%Y".into(),
+            month: "%B".into(),
+            week: "%b %d".into(),
+            day: "%a %d".into(),
+            hour: "%I %p".into(),
+            minute: "%I:%M".into(),
+            second: ":%S".into(),
+            millisecond: "%.3f".into(),
+        }
     }
 }
 

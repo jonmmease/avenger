@@ -30,6 +30,25 @@ avenger-format-datetime-d3 = { version = "0.1", features = ["all-locales"] }
 
 Select a locale with `.with_locale("fr-FR")`. Names accept hyphens or underscores. Add custom `DateTimeLocaleSpec` definitions with `with_custom_locale()`. Custom definitions take precedence over bundled definitions and work without `all-locales`.
 
+The provider's `default_calendar_patterns()` returns Vega's time axis patterns as `CalendarPatterns`. Prepared through the provider, they give a formatter that labels each value by the coarsest calendar boundary it falls on, as Vega labels time axes: the year on Jan 1, the month name on the 1st of a month, and the weekday or date at midnight.
+
+```rust
+use avenger_format::DateTimeFormatProvider;
+use avenger_format_datetime_d3::D3DateTimeFormatProvider;
+
+fn main() -> Result<(), avenger_format::DateTimeFormatError> {
+    let provider = D3DateTimeFormatProvider::new().with_timezone(chrono_tz::America::New_York);
+    let formatter = provider.default_calendar_patterns().prepare_zoned(&provider)?;
+    let midnight = chrono::DateTime::from_timestamp(1_709_614_800, 0).unwrap();
+    assert_eq!(formatter.format(midnight)?, "Tue 05");
+    let afternoon = chrono::DateTime::from_timestamp(1_709_668_800, 0).unwrap();
+    assert_eq!(formatter.format(afternoon)?, "03 PM");
+    Ok(())
+}
+```
+
+Builders such as `.with_day("%d")` replace single patterns, as Vega's unit-keyed format object does. Quarter starts use the `month` pattern; Vega's separate quarter pattern defaults to the same `%B`.
+
 Formatting uses millisecond precision. `%f` prints milliseconds followed by three zeros. Zoned formatting truncates fractional epoch milliseconds toward zero to match JavaScript `Date`. Naive leap-second values return an error.
 
 Unknown directives and incomplete `%` sequences return errors. `%j` uses the calendar day of the year. This intentionally differs from D3's elapsed-day calculation, which can be one day behind after a midnight offset change.
