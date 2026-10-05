@@ -1267,6 +1267,71 @@ pixel_tolerance = 2
 min_similarity = 0.90
 
 [[case]]
+id = "audit-math-frac-paren-removal"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "math-frac-paren-removal"
+source = "audit-math-frac-paren-removal.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-frac-call-delimiters"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "math-frac-paren-removal"
+source = "audit-math-frac-call-delimiters.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-frac-precedence-factorial"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "math-frac-precedence"
+source = "audit-math-frac-precedence-factorial.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-root-syntax"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "math-root-syntax"
+source = "audit-math-root-syntax.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
+id = "audit-math-white-brackets"
+upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
+upstream_test = "math-shorthands"
+source = "audit-math-white-brackets.typ"
+font_size = 32.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+scale = 2.0
+pixel_tolerance = 2
+min_similarity = 0.90
+
+[[case]]
 id = "audit-math-lr-shorthands"
 upstream_file = "typst@c98e910391a8544b28bd5c99a6f3b1ac1ada9a84"
 upstream_test = "math-lr-shorthands"

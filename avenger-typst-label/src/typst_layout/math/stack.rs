@@ -435,26 +435,6 @@ fn offset_atom_to_top_left(atom: &mut LaidOutMathAtom, x: f32, y: f32) {
     offset_atom(atom, x, y + atom.metrics.ascent - atom.metrics.baseline);
 }
 
-fn layout_fraction_child(
-    font: &MathFont,
-    node: &MathNode,
-    font_size: f32,
-    script_level: u8,
-    math_size: MathLayoutSize,
-) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    if let MathNode::Group(group) = node {
-        return layout_simple_nodes_as_atom_with_context(
-            font,
-            &group.body,
-            font_size,
-            script_level,
-            None,
-            math_size,
-        );
-    }
-    layout_simple_node_with_mid_target(font, node, font_size, script_level, None, math_size)
-}
-
 fn layout_fraction_child_nodes(
     font: &MathFont,
     nodes: &[MathNode],
@@ -463,7 +443,14 @@ fn layout_fraction_child_nodes(
     math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let [node] = nodes {
-        return layout_fraction_child(font, node, font_size, script_level, math_size);
+        return layout_simple_node_with_mid_target(
+            font,
+            node,
+            font_size,
+            script_level,
+            None,
+            math_size,
+        );
     }
     layout_simple_nodes_as_atom_with_context(font, nodes, font_size, script_level, None, math_size)
 }

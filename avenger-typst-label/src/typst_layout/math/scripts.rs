@@ -357,7 +357,14 @@ fn layout_script_nodes(
         return Ok(None);
     };
     if let [node] = nodes {
-        return layout_script_child(font, node, font_size, script_level, math_size);
+        return layout_simple_node_with_mid_target(
+            font,
+            node,
+            font_size,
+            script_level,
+            None,
+            math_size,
+        );
     }
     layout_simple_nodes_as_atom_with_context(font, nodes, font_size, script_level, None, math_size)
 }
@@ -722,26 +729,6 @@ fn combine_script_slots(
             }))
         }
     }
-}
-
-fn layout_script_child(
-    font: &MathFont,
-    node: &MathNode,
-    font_size: f32,
-    script_level: u8,
-    math_size: MathLayoutSize,
-) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    if let MathNode::Group(group) = node {
-        return layout_simple_nodes_as_atom_with_context(
-            font,
-            &group.body,
-            font_size,
-            script_level,
-            None,
-            math_size,
-        );
-    }
-    layout_simple_node_with_mid_target(font, node, font_size, script_level, None, math_size)
 }
 
 fn compute_script_shifts(

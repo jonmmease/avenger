@@ -344,21 +344,20 @@ fn lower_math_expr(
             byte_range: offset_range(primes.to_untyped().range(), offset),
         })]),
         typst_ast::Expr::MathFrac(frac) => {
-            let numerator = lower_math_expr_as_single(frac.num(), source, offset, params)?;
-            let denominator = lower_math_expr_as_single(frac.denom(), source, offset, params)?;
+            let numerator = lower_math_operand(frac.num(), source, offset, params)?;
+            let denominator = lower_math_operand(frac.denom(), source, offset, params)?;
             let slash_range = slash_range_between(
                 source,
                 frac.num().to_untyped().range().end,
                 frac.denom().to_untyped().range().start,
                 offset,
             );
-            let byte_range = numerator.byte_range().start..denominator.byte_range().end;
             Ok(vec![MathNode::Fraction(MathFraction {
-                numerator: vec![numerator],
-                denominator: vec![denominator],
+                numerator,
+                denominator,
                 style: MathFractionStyle::Vertical,
                 slash_range,
-                byte_range,
+                byte_range: offset_range(frac.to_untyped().range(), offset),
             })])
         }
         typst_ast::Expr::MathRoot(root) => lower_math_root(root, source, offset, params),
@@ -506,6 +505,18 @@ fn format_f64(value: f64) -> String {
     text
 }
 
+/// Lower an operand of `/` or `√`. The parser already removed one pair of parentheses from it
+/// (upstream: crates/typst-syntax/src/parser.rs::math_unparen @ c98e910), so any delimiters left
+/// in the tree are rendered.
+fn lower_math_operand(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    offset: usize,
+    params: &Scope,
+) -> Result<Vec<MathNode>, LabelError> {
+    lower_math_expr(expr, source, offset, params)
+}
+
 fn lower_math_expr_as_single(
     expr: typst_ast::Expr<'_>,
     source: &str,
@@ -583,8 +594,8 @@ fn lower_math_root(
     offset: usize,
     params: &Scope,
 ) -> Result<Vec<MathNode>, LabelError> {
-    let radicand = lower_math_expr_as_single(root.radicand(), source, offset, params)?;
-    let radicand_range = radicand.byte_range();
+    let radicand = lower_math_operand(root.radicand(), source, offset, params)?;
+    let radicand_range = offset_range(root.radicand().to_untyped().range(), offset);
     let mut args = Vec::new();
     let name = if let Some(index) = root.index() {
         let root_range = offset_range(root.to_untyped().range(), offset);
@@ -601,7 +612,7 @@ fn lower_math_root(
         "sqrt"
     };
     args.push(MathArg {
-        nodes: vec![radicand],
+        nodes: radicand,
         byte_range: radicand_range,
     });
     Ok(vec![MathNode::Call(MathCall {
@@ -674,6 +685,10 @@ fn lower_math_access_as_nodes(
 }
 
 fn delimiter_char(expr: typst_ast::Expr<'_>, source: &str) -> Result<char, LabelError> {
+    // The parser turns `[|` and `|]` into shorthands for ⟦ and ⟧.
+    if let typst_ast::Expr::MathShorthand(shorthand) = expr {
+        return Ok(shorthand.get());
+    }
     let range = expr.to_untyped().range();
     source[range.clone()]
         .chars()
@@ -1047,10 +1062,17 @@ mod tests {
             fraction.numerator.as_slice(),
             [MathNode::Call(call)] if call.name == "sqrt"
         ));
+        // The parser removes the denominator's parentheses, so it lowers to the bare row.
         assert!(matches!(
             fraction.denominator.as_slice(),
-            [MathNode::Group(group)] if group.left == '(' && group.right == ')'
+            [MathNode::Text(one), .., MathNode::Attach(_)] if one.text == "1"
         ));
+        assert!(
+            !fraction
+                .denominator
+                .iter()
+                .any(|node| matches!(node, MathNode::Group(_)))
+        );
     }
 
     #[test]
