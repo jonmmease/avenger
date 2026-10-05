@@ -34,4 +34,4 @@ Formatting uses millisecond precision. `%f` prints milliseconds followed by thre
 
 Unknown directives and incomplete `%` sequences return errors. `%j` uses the calendar day of the year. This intentionally differs from D3's elapsed-day calculation, which can be one day behind after a midnight offset change.
 
-The locale files and license come from [d3-time-format 4.1.0](https://github.com/d3/d3-time-format/tree/76cfef1da81b70404c0226ec9db9b0d56fa09461/locale). The [reference generator](../tools/format-reference/README.md) produces compatibility fixtures from D3.
+The locale files and license come from [d3-time-format 4.1.0](https://github.com/d3/d3-time-format/tree/76cfef1da81b70404c0226ec9db9b0d56fa09461/locale). The [reference generator](../tools/d3-vega-reference/README.md) produces compatibility fixtures from D3.

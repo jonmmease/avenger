@@ -1,0 +1,2951 @@
+{
+  "cases": [
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "40934a4584f4c6e7",
+      "expected": "1,234.56789"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00",
+      "bits": "3ff3333333333333",
+      "expected": "1.20"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0##",
+      "bits": "3ff3c0c1fc8f3238",
+      "expected": "1.235"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@#",
+      "bits": "3f543a1eb4cbfa14",
+      "expected": "0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/w",
+      "bits": "4000000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited",
+      "bits": "3e8091f16677e7af",
+      "expected": "0.000000123456789"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##r",
+      "bits": "405edd2f1a9fbe77",
+      "expected": "123.46"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##s",
+      "bits": "405edd2f1a9fbe77",
+      "expected": "123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@@*",
+      "bits": "3f543a1eb4cbfa14",
+      "expected": "0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@##r",
+      "bits": "4023ff7ced916873",
+      "expected": "10.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@",
+      "bits": "0000000000000000",
+      "expected": "0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@",
+      "bits": "408f3f3333333333",
+      "expected": "1,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer",
+      "bits": "4004000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer",
+      "bits": "400c000000000000",
+      "expected": "4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-half-up",
+      "bits": "c004000000000000",
+      "expected": "-3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-half-down",
+      "bits": "4004000000000000",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-ceiling",
+      "bits": "bfe0000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-floor",
+      "bits": "bfe0000000000000",
+      "expected": "-1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-up",
+      "bits": "3fb999999999999a",
+      "expected": "1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-integer rounding-mode-down",
+      "bits": "bfb999999999999a",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/* .00",
+      "bits": "3fd0000000000000",
+      "expected": ".25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width-trunc .00",
+      "bits": "405ed00000000000",
+      "expected": ".25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##00",
+      "bits": "40fe240b33333333",
+      "expected": "3,456.7"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "00000",
+      "bits": "4000000000000000",
+      "expected": "00,002"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "decimal-always",
+      "bits": "4000000000000000",
+      "expected": "2."
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/* decimal-always",
+      "bits": "0000000000000000",
+      "expected": "."
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100 .0",
+      "bits": "3fbf7ced916872b0",
+      "expected": "12.3%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100",
+      "bits": "3fbf7ced916872b0",
+      "expected": "12.3%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-negative precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+- precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "()- precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? precision-integer",
+      "bits": "bfb999999999999a",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+!",
+      "bits": "0000000000000000",
+      "expected": "+0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+_",
+      "bits": "c028000000000000",
+      "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "()",
+      "bits": "c028000000000000",
+      "expected": "-12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0.01",
+      "bits": "405ec00000000000",
+      "expected": "1.23"
+    },
+    {
+      "locale": "es-ES",
+      "skeleton": "group-auto",
+      "bits": "4093480000000000",
+      "expected": "1234"
+    },
+    {
+      "locale": "es-ES",
+      "skeleton": "group-on-aligned",
+      "bits": "4093480000000000",
+      "expected": "1.234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-min2",
+      "bits": "4093480000000000",
+      "expected": "1234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-min2",
+      "bits": "40c81c8000000000",
+      "expected": "12,345"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "",
+      "bits": "4132d68700000000",
+      "expected": "12,34,567"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "group-thousands",
+      "bits": "4132d68700000000",
+      "expected": "1,234,567"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "؜-١٬٢٣٤٫٥"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/thai",
+      "bits": "3ff0000000000000",
+      "expected": "๑"
+    },
+    {
+      "locale": "tr",
+      "skeleton": "percent",
+      "bits": "c028000000000000",
+      "expected": "-%12"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢٪؜"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12 ‰"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "latin",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "fa",
+      "skeleton": "",
+      "bits": "7ff8000000000000",
+      "expected": "ناعدد"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "8000000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7ff8000000000000",
+      "expected": "NaN"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "fff0000000000000",
+      "expected": "-∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "0000000000000001",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "7fefffffffffffff",
+      "expected": "179,769,313,486,231,570,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited",
+      "bits": "0000000000000001",
+      "expected": "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000049",
+      "compatibility_exception": {
+        "expected": "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005",
+        "reason": "Rust prints the shortest round-trip decimal; Java prints two digits for subnormal doubles."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+!00 +!",
+      "bits": "3f8945b6c3760bf6",
+      "expected": "+12.34E-03"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific .0",
+      "bits": "4023fae147ae147b",
+      "expected": "1.0E1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "engineering .0",
+      "bits": "408f3feb851eb852",
+      "expected": "1.0E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "0000000000000000",
+      "expected": "0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "8000000000000000",
+      "expected": "-0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "E00 +!",
+      "bits": "3f8945b6c3760bf6",
+      "expected": "؜+١٫٢٣٤أس؜-٠٢"
+    },
+    {
+      "locale": "sv",
+      "skeleton": "E0",
+      "bits": "4093480000000000",
+      "expected": "1,234×10^3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 percent .00",
+      "bits": "402899999999999a",
+      "expected": "1.23E1%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "40c81c8000000000",
+      "expected": "12K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "KK",
+      "bits": "412e847e00000000",
+      "expected": "1 million"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K .00",
+      "bits": "40c81c8000000000",
+      "expected": "12.34K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K .0 decimal-always",
+      "bits": "40c81c8000000000",
+      "expected": "12.3K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K integer-width/00",
+      "bits": "40fe240000000000",
+      "expected": "23K"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "408f400000000000",
+      "expected": "mille"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK .0",
+      "bits": "408f400000000000",
+      "expected": "mille"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK",
+      "bits": "413e848000000000",
+      "expected": "2 миллиона"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK",
+      "bits": "415312d000000000",
+      "expected": "5 миллионов"
+    },
+    {
+      "locale": "ja",
+      "skeleton": "K",
+      "bits": "4132d68700000000",
+      "expected": "123万"
+    },
+    {
+      "locale": "hi-IN",
+      "skeleton": "K",
+      "bits": "4132d68700000000",
+      "expected": "12 लाख"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "3f8930be0ded288d",
+      "expected": "0.012"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K rounding-mode-down",
+      "bits": "408f3f3333333333",
+      "expected": "999"
+    },
+    {
+      "locale": "it",
+      "skeleton": "K",
+      "bits": "408f380000000000",
+      "expected": "999"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K +?",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0.5",
+      "bits": "405edccccccccccd",
+      "expected": "61.725"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "c029000000000000",
+      "expected": "25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "c029000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "8000000000000000",
+      "expected": "-0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/-2",
+      "bits": "7ff0000000000000",
+      "expected": "∞"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/0",
+      "bits": "7ff8000000000000",
+      "expected": "NaN"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/+5.E-1",
+      "bits": "4008000000000000",
+      "expected": "1.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/.5e+1",
+      "bits": "3fd0000000000000",
+      "expected": "1.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "3ff0666666666666",
+      "expected": "1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "3ff08f5c28f5c28f",
+      "expected": "1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03",
+      "bits": "bff08f5c28f5c28f",
+      "expected": "-1.02"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/3.14",
+      "bits": "4020000000000000",
+      "expected": "9.42"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.0300",
+      "bits": "3ff08f5c28f5c28f",
+      "expected": "1.0200"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/3.140e-2",
+      "bits": "3ff0e147ae147ae1",
+      "expected": "1.06760"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.25 rounding-mode-half-up",
+      "bits": "bfc0000000000000",
+      "expected": "-0.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.02",
+      "bits": "3ff07ae147ae147b",
+      "expected": "1.04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.05/w",
+      "bits": "4000020c49ba5e35",
+      "expected": "2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/2.5 E0 .0",
+      "bits": "40af3e0000000000",
+      "expected": "1.0E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/2 K .0",
+      "bits": "411e847c00000000",
+      "expected": "1.0M"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1234567890123456789 precision-unlimited",
+      "bits": "54b693d8e89df183",
+      "expected": "15,241,578,753,238,835,651,425,097,777,625,363,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03 rounding-mode-ceiling",
+      "bits": "bf50624dd2f1a9fc",
+      "expected": "-0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0.03 rounding-mode-floor",
+      "bits": "bf50624dd2f1a9fc",
+      "expected": "-0.03"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "3ff0147ae147ae14",
+      "expected": "$1.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/JPY",
+      "bits": "40934a0000000000",
+      "expected": "¥1,234"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/KWD",
+      "bits": "3ff3c083126e978d",
+      "expected": "KWD 1.234"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF precision-currency-cash",
+      "bits": "3ff3ae147ae147ae",
+      "expected": "CHF 1.25"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD .000",
+      "bits": "3ff3333333333333",
+      "expected": "$1.200"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD precision-currency-standard/w",
+      "bits": "4000000000000000",
+      "expected": "$2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/CAD unit-width-narrow",
+      "bits": "4028000000000000",
+      "expected": "$12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-iso-code",
+      "bits": "4028000000000000",
+      "expected": "USD 12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-hidden ()",
+      "bits": "c028000000000000",
+      "expected": "(12.00)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1.00 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-full-name precision-integer",
+      "bits": "3ff0000000000000",
+      "expected": "1 US dollar"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/ZZZ",
+      "bits": "4028000000000000",
+      "expected": "ZZZ 12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()",
+      "bits": "c028000000000000",
+      "expected": "($12.00)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()!",
+      "bits": "4028000000000000",
+      "expected": "+$12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()-",
+      "bits": "c004000000000000",
+      "expected": "($2.50)"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF +!",
+      "bits": "4028000000000000",
+      "expected": "CHF+12.00"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF +!",
+      "bits": "c028000000000000",
+      "expected": "CHF-12.00"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1 234,50 $US"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "currency/USD",
+      "bits": "c028000000000000",
+      "expected": "؜-‏١٢٫٠٠ US$"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD .00",
+      "bits": "4093480000000000",
+      "expected": "$1.23E3"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "currency/RUB unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2,00 российского рубля"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "8000000000000000",
+      "expected": "-$0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD ()",
+      "bits": "fff0000000000000",
+      "expected": "($∞)"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD",
+      "bits": "7ff8000000000000",
+      "expected": "$NaN"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 US$"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD unit-width-full-name precision-integer",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 currency/USD unit-width-full-name precision-integer",
+      "bits": "408f400000000000",
+      "expected": "1E3 US dollars"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/ZZZ unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12.00 ZZZ"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-standard",
+      "bits": "3ff3333333333333",
+      "expected": "1.20"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 €"
+    },
+    {
+      "locale": "de-CH",
+      "skeleton": "currency/CHF ()!",
+      "bits": "4028000000000000",
+      "expected": "CHF+12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter",
+      "bits": "3ff0000000000000",
+      "expected": "1 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name .0",
+      "bits": "3ff0000000000000",
+      "expected": "1.0 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot unit-width-narrow",
+      "bits": "4008000000000000",
+      "expected": "3′"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metry"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4014000000000000",
+      "expected": "5 metrów"
+    },
+    {
+      "locale": "pl",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff8000000000000",
+      "expected": "1,5 metra"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter E0",
+      "bits": "4093480000000000",
+      "expected": "1.234E3 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter K unit-width-full-name",
+      "bits": "4093480000000000",
+      "expected": "1.2K meters"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4008000000000000",
+      "expected": "3 metres"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12 meters",
+      "compatibility_exception": {
+        "expected": "12",
+        "reason": "Hidden suppresses measurement labels; ICU4J 78.1 ignores this width for measurement units."
+      }
+    },
+    {
+      "locale": "ar",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 متر"
+    },
+    {
+      "locale": "zh-TW",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4008000000000000",
+      "expected": "3 公尺"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 meters"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3 mètres",
+      "compatibility_exception": {
+        "expected": "1E-3 mètre",
+        "reason": "For negative scientific exponents, CLDR one and many rules overlap. ICU4X gives one precedence; ICU4J 78.1 gives many precedence."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "408f400000000000",
+      "expected": "1E3 mètres"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1 mi"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter usage/default",
+      "bits": "408f400000000000",
+      "expected": "3,281 ft"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1,6 km"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fe0000000000000",
+      "expected": "20 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height precision-integer",
+      "bits": "3ffd425aee631f8a",
+      "expected": "6 ft, 0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch .0",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 6.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch .0",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/inch-and-foot .0",
+      "bits": "4016000000000000",
+      "expected": "6.0 in, 5 ft"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height .0",
+      "bits": "bffccccccccccccd",
+      "expected": "-5 ft, 10.9 in"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/person-height .0",
+      "bits": "3ffccccccccccccd",
+      "expected": "1 m et 80,0 cm"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/second usage/media",
+      "bits": "405ec00000000000",
+      "expected": "2 min, 3 sec"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height-child",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "en-US-u-ms-metric",
+      "skeleton": "unit/meter usage/default",
+      "bits": "409925604189374c",
+      "expected": "1.6 km"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "4073800000000000",
+      "expected": "300 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "4072be6666666666",
+      "expected": "300 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408c1ffdf3b645a2",
+      "expected": "900 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408c200000000000",
+      "expected": "0,9 km"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/2 .0",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 12.0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default K",
+      "bits": "412e848000000000",
+      "expected": "621 mi"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "0000000000000000",
+      "expected": "0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "8000000000000000",
+      "expected": "0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0/@@@*",
+      "bits": "3ff0000000000000",
+      "expected": "1.0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "7ff0000000000000",
+      "expected": "0 in",
+      "compatibility_exception": {
+        "expected": "∞ ft",
+        "reason": "Preserve infinity using the first preferred unit; ICU4J 78.1 replaces it with zero."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch",
+      "bits": "7ff8000000000000",
+      "expected": "0 ft, 0 in",
+      "compatibility_exception": {
+        "expected": "NaN ft",
+        "reason": "Preserve NaN using the largest mixed component; ICU4J 78.1 replaces it with zero."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "7fefffffffffffff",
+      "expected": "111,703,472,648,626,751,024,019,724,807,126,378,049,042,258,795,574,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000 mi",
+      "compatibility_exception": {
+        "expected": "111,703,472,648,626,751,024,019,724,807,126,400,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000 mi",
+        "reason": "Conversion is exact until the result is rounded to 34 significant digits; ICU4J 78.1 rounds the meter-to-mile factor to 34 digits first, which shows in the later digits of this 309-digit label."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/default",
+      "bits": "0000000000000001",
+      "expected": "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000019 in",
+      "compatibility_exception": {
+        "expected": "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002 in",
+        "reason": "Rust prints the shortest round-trip decimal; Java prints two digits for subnormal doubles."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fed42c3c9eecbfb",
+      "expected": "3 ft, 0 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height",
+      "bits": "3fed42c3c9eea8cc",
+      "expected": "36 in"
+    },
+    {
+      "locale": "fr-FR",
+      "skeleton": "unit/meter usage/road .00",
+      "bits": "4073800000000000",
+      "expected": "312,00 m"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "unit/meter unit-width-full-name E0",
+      "bits": "3f847ae147ae147b",
+      "expected": "1E-2 mètres",
+      "compatibility_exception": {
+        "expected": "1E-2 mètre",
+        "reason": "For negative scientific exponents, CLDR one and many rules overlap. ICU4X gives one precedence; ICU4J 78.1 gives many precedence."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-full-name E0",
+      "bits": "75154fdd7f73bf3c",
+      "expected": "1,00E256 euros"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-formal",
+      "bits": "3ff0000000000000",
+      "expected": "1 meter"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-variant",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
+    },
+    {
+      "locale": "en",
+      "skeleton": "unit/meter unit-width-iso-code",
+      "bits": "4000000000000000",
+      "expected": "2 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch numbering-system/thai",
+      "bits": "4016000000000000",
+      "expected": "5 ft, ๖ in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch sign-never",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch sign-always",
+      "bits": "4016000000000000",
+      "expected": "5 ft, +6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/UNKNOWN",
+      "bits": "409925604189374c",
+      "expected": "1 mi"
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00",
+      "bits": "40934a0000000000",
+      "expected": "1 234.50 CHF",
+      "compatibility_exception": {
+        "expected": "1'234.50 CHF",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00 group-off",
+      "bits": "40934a0000000000",
+      "expected": "1234.50 CHF"
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "currency/CHF .00 numbering-system/thai",
+      "bits": "40934a0000000000",
+      "expected": "๑ ๒๓๔.๕๐ CHF",
+      "compatibility_exception": {
+        "expected": "๑'๒๓๔.๕๐ CHF",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR .00",
+      "bits": "4132d687cccccccd",
+      "expected": "₹१,२३४,५६७.८०"
+    },
+    {
+      "locale": "blo",
+      "skeleton": "percent +!",
+      "bits": "4028000000000000",
+      "expected": "% +12"
+    },
+    {
+      "locale": "blo",
+      "skeleton": "percent",
+      "bits": "c028000000000000",
+      "expected": "% -12"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent numbering-system/latn +!",
+      "bits": "4028000000000000",
+      "expected": "‎+12‎%‎"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "permille +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢؉"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent numbering-system/thai +!",
+      "bits": "4028000000000000",
+      "expected": "‎+๑๒‎%‎",
+      "compatibility_exception": {
+        "expected": "؜+๑๒‎%‎",
+        "reason": "A numbering system without locale symbols uses the locale's ordinary ICU4X signs and symbols; ICU4J uses Latin symbols."
+      }
+    },
+    {
+      "locale": "tr",
+      "skeleton": "permille +!",
+      "bits": "4028000000000000",
+      "expected": "+‰12"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "percent +!",
+      "bits": "c028000000000000",
+      "expected": "-12 %"
+    },
+    {
+      "locale": "ar-EG",
+      "skeleton": "percent +!",
+      "bits": "7ff0000000000000",
+      "expected": "؜+∞٪؜"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ":: .00",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "bogus",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent/extra",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".0#0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@#@",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/w/w",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "group-off group-auto",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100 scale/100",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent .00",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000x",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*#0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "IllegalArgumentException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-increment/-0.03",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "IllegalArgumentException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1e",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1.2.3",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-standard/@##",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/US",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/1AA",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD percent",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+0",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/*e/*ee",
+      "bits": "3ff0000000000000",
+      "expected": "1E00",
+      "compatibility_exception": {
+        "error": "InvalidPattern",
+        "reason": "Preparation rejects repeated notation options; ICU4J uses the last one."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/sign-always/sign-never",
+      "bits": "3ff0000000000000",
+      "expected": "1E0",
+      "compatibility_exception": {
+        "error": "InvalidPattern",
+        "reason": "Preparation rejects repeated notation options; ICU4J uses the last one."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K/extra",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/bogus-meter",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit/second",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": " ‎.00 group-off group-auto",
+      "bits": "3ff0000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 18
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "rounding-mode-unnecessary",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formatting cannot report value-dependent rounding errors."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/roman",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scale/1e1001",
+      "bits": "4028000000000000",
+      "expected": "1,200,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Decimal literal magnitudes are limited to ±1000."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/bogus",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "per-measure-unit requires a measurement unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius",
+      "bits": "4028000000000000",
+      "expected": "12°C",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-per-second",
+      "bits": "4028000000000000",
+      "expected": "12 m/s",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/kilowatt-hour",
+      "bits": "4028000000000000",
+      "expected": "12 kWh",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/byte",
+      "bits": "4028000000000000",
+      "expected": "12 byte",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-decimeter",
+      "bits": "4028000000000000",
+      "expected": "12 dm²",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-second",
+      "bits": "4028000000000000",
+      "expected": "12 m⋅sec",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compound unit labels are unsupported."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter per-measure-unit/duration-second",
+      "bits": "4028000000000000",
+      "expected": "12 m/s",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compound unit labels are unsupported."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius usage/weather",
+      "bits": "4028000000000000",
+      "expected": "54°F",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Usage requires labeled output units; ICU4X has no temperature labels."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/byte-and-kilobyte",
+      "bits": "4028000000000000",
+      "expected": "0 byte, 12 kB",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no labels for this unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 percent",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 permille",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent K",
+      "bits": "4028000000000000",
+      "expected": "12%",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "permille K",
+      "bits": "4028000000000000",
+      "expected": "12‰",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no full-name or compact percent/per-mille patterns."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD KK",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD compact-short",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD compact-long",
+      "bits": "4028000000000000",
+      "expected": "$12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K unit-width-full-name",
+      "bits": "4028000000000000",
+      "expected": "12 US dollars",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD K unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD KK unit-width-iso-code",
+      "bits": "4028000000000000",
+      "expected": "USD 12",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Compact currency notation is deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/TWD unit-width-formal",
+      "bits": "4028000000000000",
+      "expected": "NT$12.00",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formal and variant currency symbols are deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/TWD unit-width-variant",
+      "bits": "4028000000000000",
+      "expected": "NT$12.00",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Formal and variant currency symbols are deferred."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD usage/default",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch usage/person-height",
+      "bits": "4028000000000000",
+      "expected": "1 sq ft",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Usage requires a single or compound input unit."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "IllegalIcuArgumentException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius-and-fahrenheit",
+      "bits": "4028000000000000",
+      "expected": "12°C, 32°F",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Mixed units require proportional component conversions."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-and-",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidOption"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/bali",
+      "bits": "4028000000000000",
+      "expected": "᭑᭒",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "ICU4X has no digits for this numbering system."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/road unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "40 feet",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch unit-width-hidden",
+      "bits": "4028000000000000",
+      "expected": "12 feet, 0 inches",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²",
+      "compatibility_exception": {
+        "error": "InvalidOption",
+        "reason": "Only pow2- and pow3- powers map to CLDR's named square and cubic units."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "c0934a0000000000",
+      "expected": "-123450%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "c0934a0000000000",
+      "expected": "-123450%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "8000000000000000",
+      "expected": "-0%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "8000000000000000",
+      "expected": "-0%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent scale/100 sign-always group-off",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.123%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "%x100‎+! ,_",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.123%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.50"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.50"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "8000000000000000",
+      "expected": "-000.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "8000000000000000",
+      "expected": "-000.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/*000 .00+",
+      "bits": "3f5426fe718a86d7",
+      "expected": "000.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "000 .00*",
+      "bits": "3f5426fe718a86d7",
+      "expected": "000.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "c0934a0000000000",
+      "expected": "-1234.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "c0934a0000000000",
+      "expected": "-1234.5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "sign-except-zero group-min2",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "+? ,?",
+      "bits": "3f5426fe718a86d7",
+      "expected": "+0.00123"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/*ee/sign-always",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E+04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+!00",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E+04"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "engineering/sign-except-zero",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+?0",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E3"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "compact-short",
+      "bits": "40c81c8000000000",
+      "expected": "12K"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "compact-long",
+      "bits": "40c81c8000000000",
+      "expected": "12 thousand"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "KK",
+      "bits": "40c81c8000000000",
+      "expected": "12 thousand"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/pow2-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter",
+      "bits": "4028000000000000",
+      "expected": "12 m²"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K",
+      "bits": "4028000000000000",
+      "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter K",
+      "bits": "4028000000000000",
+      "expected": "12 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-formal",
+      "bits": "4028000000000000",
+      "expected": "12 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter unit-width-variant",
+      "bits": "4028000000000000",
+      "expected": "12 meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-standard",
+      "bits": "4028000000000000",
+      "expected": "12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-currency-cash K",
+      "bits": "4028000000000000",
+      "expected": "12.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter-meter usage/default",
+      "bits": "4028000000000000",
+      "expected": "129 sq ft"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter usage/default",
+      "bits": "4028000000000000",
+      "expected": "129 sq ft"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter .0",
+      "bits": "409925604189374c",
+      "expected": "1,609.3 m"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 feet"
+    },
+    {
+      "locale": "en-GB",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metres"
+    },
+    {
+      "locale": "fr-CA",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1 mètre"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/square-meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 square meters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/second unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 seconds"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/kilogram unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 kilograms"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/liter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 liters"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 L"
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 l"
+    },
+    {
+      "locale": "en-001",
+      "skeleton": "unit/liter",
+      "bits": "3ff0000000000000",
+      "expected": "1 l"
+    },
+    {
+      "locale": "gsw",
+      "skeleton": "unit/meter",
+      "bits": "3ff0000000000000",
+      "expected": "1 m",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no unit names for this CLDR locale, so preparation rejects it instead of using root names."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/celsius unit-width-hidden .0",
+      "bits": "4037800000000000",
+      "expected": "23.5 degrees Celsius",
+      "compatibility_exception": {
+        "expected": "23.5",
+        "reason": "Hidden suppresses measurement labels; ICU4J 78.1 ignores this width for measurement units."
+      }
+    },
+    {
+      "locale": "xx",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meters",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
+    },
+    {
+      "locale": "xx",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
+    },
+    {
+      "locale": "frr-FR",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU has no localized number data for this locale."
+      }
+    },
+    {
+      "locale": "en-!",
+      "skeleton": "",
+      "bits": "3ff0000000000000",
+      "expected": "1",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "The locale identifier is invalid."
+      }
+    },
+    {
+      "locale": "en_US",
+      "skeleton": "",
+      "bits": "4029000000000000",
+      "expected": "12.5"
+    },
+    {
+      "locale": "az-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "12‰"
+    },
+    {
+      "locale": "pa-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "۱۲؉",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "uz-Arab",
+      "skeleton": "permille",
+      "bits": "4028000000000000",
+      "expected": "۱۲؉",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "percent numbering-system/arab +!",
+      "bits": "4028000000000000",
+      "expected": "؜+١٢٪؜",
+      "compatibility_exception": {
+        "expected": "+١٢%",
+        "reason": "A numbering system without locale symbols uses the locale's ordinary ICU4X signs and symbols; ICU4J uses Latin symbols."
+      }
+    },
+    {
+      "locale": "nb",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "−1 234,5"
+    },
+    {
+      "locale": "nb-NO",
+      "skeleton": "currency/NOK",
+      "bits": "c0934a0000000000",
+      "expected": "−1 234,50 kr"
+    },
+    {
+      "locale": "nb-NO",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 meter"
+    },
+    {
+      "locale": "nb-SJ",
+      "skeleton": "percent",
+      "bits": "4029000000000000",
+      "expected": "12,5 %"
+    },
+    {
+      "locale": "ht",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1 234,5",
+      "compatibility_exception": {
+        "expected": "1 234,5",
+        "reason": "CLDR 48.2.1 groups ht digits with a no-break space; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "iw",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "‎-1,234.5"
+    },
+    {
+      "locale": "in",
+      "skeleton": "KK",
+      "bits": "40934a0000000000",
+      "expected": "1,2 ribu"
+    },
+    {
+      "locale": "tl",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "sh",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1.234,5"
+    },
+    {
+      "locale": "mo",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1.234,5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/0",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/#",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/# .00",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": ".00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/0 currency/USD",
+      "bits": "0000000000000000",
+      "expected": "$0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "3ff0000000000000",
+      "expected": "1"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "405a400000000000",
+      "expected": "5"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/###",
+      "bits": "4028000000000000",
+      "expected": "12"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "integer-width/##",
+      "bits": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 precision-increment/25 integer-width-trunc scale/1e-5",
+      "bits": "3fc0000000000000",
+      "expected": "0E-6"
+    },
+    {
+      "locale": "de",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 Millionen"
+    },
+    {
+      "locale": "cs",
+      "skeleton": "KK .0",
+      "bits": "408f400000000000",
+      "expected": "1,0 tisíce"
+    },
+    {
+      "locale": "ru",
+      "skeleton": "KK @@",
+      "bits": "41cdcd6500000000",
+      "expected": "1,0 миллиарда"
+    },
+    {
+      "locale": "pt-AO",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 milhão"
+    },
+    {
+      "locale": "pt-PT",
+      "skeleton": "KK .0",
+      "bits": "412e848000000000",
+      "expected": "1,0 milhões"
+    },
+    {
+      "locale": "sr-Cyrl-ME",
+      "skeleton": "KK",
+      "bits": "4093480000000000",
+      "expected": "1,2 хиљаде"
+    },
+    {
+      "locale": "nn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "1 million"
+    },
+    {
+      "locale": "hi-Latn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "10 lakh"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+?0",
+      "bits": "4059000000000000",
+      "expected": "1E2"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "scientific/sign-except-zero",
+      "bits": "40c81c8000000000",
+      "expected": "1.2345E4"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE+?00",
+      "bits": "40c81c8000000000",
+      "expected": "12.345E03"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E+?0",
+      "bits": "3f50624dd2f1a9fc",
+      "expected": "1E-3"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "unit/kilogram",
+      "bits": "c014000000000000",
+      "expected": "kg -5"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "unit/hour",
+      "bits": "c014000000000000",
+      "expected": "saa -5"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "unit/kilogram +!",
+      "bits": "4014000000000000",
+      "expected": "kg +5"
+    },
+    {
+      "locale": "sw",
+      "skeleton": "K",
+      "bits": "c093480000000000",
+      "expected": "elfu -1.2",
+      "compatibility_exception": {
+        "expected": "-elfu 1.2",
+        "reason": "ICU4X places the sign outside compact patterns, following UTS #35."
+      }
+    },
+    {
+      "locale": "sw",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "c014000000000000",
+      "expected": "dola za Marekani -5.00",
+      "compatibility_exception": {
+        "expected": "-dola za Marekani 5.00",
+        "reason": "ICU4X places the sign outside currency patterns without a negative subpattern, following UTS #35."
+      }
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "3ff0000000000000",
+      "expected": "1 metar"
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 metra"
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "unit/meter unit-width-full-name",
+      "bits": "4035000000000000",
+      "expected": "21 metar"
+    },
+    {
+      "locale": "sr-Latn",
+      "skeleton": "KK",
+      "bits": "412e848000000000",
+      "expected": "1 milion"
+    },
+    {
+      "locale": "bs-Cyrl",
+      "skeleton": "unit/hour unit-width-full-name",
+      "bits": "4000000000000000",
+      "expected": "2 сата"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-full-name",
+      "bits": "7ff8000000000000",
+      "expected": "NaN euros"
+    },
+    {
+      "locale": "pt",
+      "skeleton": "currency/EUR unit-width-full-name",
+      "bits": "7ff0000000000000",
+      "expected": "∞ Euros"
+    },
+    {
+      "locale": "te",
+      "skeleton": "percent",
+      "bits": "4132d68700000000",
+      "expected": "1,234,567%"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "percent",
+      "bits": "40fe240000000000",
+      "expected": "१२३,४५६%"
+    },
+    {
+      "locale": "blo",
+      "skeleton": "percent",
+      "bits": "4132d68700000000",
+      "expected": "% 1 23 45 67"
+    },
+    {
+      "locale": "it",
+      "skeleton": "currency/USD",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 USD",
+      "compatibility_exception": {
+        "expected": "1234,50 US$",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "bg",
+      "skeleton": "currency/GBP",
+      "bits": "40934a0000000000",
+      "expected": "1234,50 GBP",
+      "compatibility_exception": {
+        "expected": "1234,50 £",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "es-419",
+      "skeleton": "currency/EUR",
+      "bits": "c0934a0000000000",
+      "expected": "-EUR 1,234.50",
+      "compatibility_exception": {
+        "expected": "-€1,234.50",
+        "reason": "ICU4X data omits locale symbols equal to the ISO code, so lookup falls back to root; CLDR uses the code."
+      }
+    },
+    {
+      "locale": "en-US-u-ms-uksystem",
+      "skeleton": "unit/liter usage/fluid",
+      "bits": "3ffccccccccccccd",
+      "expected": "1.9 qt",
+      "compatibility_exception": {
+        "expected": "63 fl oz Imp.",
+        "reason": "ICU4J 78.1 maps uksystem to the legacy value imperial and then ignores it."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch",
+      "bits": "bfe0000000000000",
+      "expected": "0 ft, 6 in",
+      "compatibility_exception": {
+        "expected": "-0 ft, 6 in",
+        "reason": "ICU4J 78.1 drops the sign when the largest mixed component is zero."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "currency/EUR unit-width-hidden",
+      "bits": "40934a0000000000",
+      "expected": "1 234,50 ",
+      "compatibility_exception": {
+        "expected": "1 234,50",
+        "reason": "Hidden labels would conceal which unit usage or mixed-unit formatting selects."
+      }
+    },
+    {
+      "locale": "fr-CH",
+      "skeleton": "",
+      "bits": "4132d687e4189375",
+      "expected": "1 234 567,891",
+      "compatibility_exception": {
+        "expected": "1'234'567,891",
+        "reason": "CLDR 48.2.1 groups fr-CH digits with an apostrophe; ICU4J 78.1 uses a narrow no-break space."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "currency/USD unit-width-iso-code",
+      "bits": "7ff8000000000000",
+      "expected": "USDNaN",
+      "compatibility_exception": {
+        "expected": "USD NaN",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so non-finite values keep the space."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "",
+      "bits": "fff8000000000000",
+      "expected": "-NaN",
+      "compatibility_exception": {
+        "expected": "NaN",
+        "reason": "Formatting ignores the sign of NaN, which varies by platform."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@ integer-width/*",
+      "bits": "0000000000000000",
+      "expected": "0.0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@@ integer-width/*",
+      "bits": "8000000000000000",
+      "expected": "-0.00"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": ".00/@@@* integer-width/*",
+      "bits": "0000000000000000",
+      "expected": ".00"
+    },
+    {
+      "locale": "und",
+      "skeleton": "",
+      "bits": "40934a0000000000",
+      "expected": "1,234.5"
+    },
+    {
+      "locale": "und-US",
+      "skeleton": "",
+      "bits": "c0934a0000000000",
+      "expected": "-1,234.5"
+    },
+    {
+      "locale": "az-Cyrl",
+      "skeleton": "",
+      "bits": "c132d687e4189375",
+      "expected": "-1.234.567,891",
+      "compatibility_exception": {
+        "error": "LocaleUnavailable",
+        "reason": "ICU4X 2.3 has no number data for this CLDR locale, so preparation rejects it instead of formatting with root data."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/latn-arab",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "numbering-system/ARAB",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "precision-unlimited/@@r",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "@@# integer-width-trunc E0",
+      "bits": "0000000000000000",
+      "expected": "0.0E0"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "K @@ integer-width/*",
+      "bits": "0000000000000000",
+      "expected": "0.0"
+    },
+    {
+      "locale": "ps",
+      "skeleton": "KK",
+      "bits": "408f400000000000",
+      "expected": "۱۰۰۰",
+      "compatibility_exception": {
+        "expected": "۱K",
+        "reason": "Rust follows CLDR's resolved compact-long data, which inherits the magnitudes below Pashto's billions; ICU4J 78.1 uses only the listed magnitudes."
+      }
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "c08f400000000000",
+      "expected": "-1 millier"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK .0",
+      "bits": "c08f400000000000",
+      "expected": "-1,0 millier"
+    },
+    {
+      "locale": "fr",
+      "skeleton": "KK",
+      "bits": "46293e5939a08cea",
+      "expected": "1 000 000 000 000 000 000 billion",
+      "compatibility_exception": {
+        "expected": "1 000 000 000 000 000 000 billions",
+        "reason": "Rust applies CLDR's French `many` form to this round integer; ICU4J 78.1 selects the singular at this magnitude."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "E0 precision-increment/0.03",
+      "bits": "3ff0000000000000",
+      "expected": "0.09E1",
+      "compatibility_exception": {
+        "expected": "9.99E-1",
+        "reason": "ICU4J assumes increment rounding raises the magnitude; Rust derives the exponent from the rounded value."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "EE0 precision-increment/3",
+      "bits": "3fb999999999999a",
+      "expected": "0E0",
+      "compatibility_exception": {
+        "expected": "99E-3",
+        "reason": "ICU4J assumes increment rounding raises the magnitude; Rust derives the exponent from the rounded value."
+      }
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "currency/USD ()",
+      "bits": "4132d687e4189375",
+      "expected": "$1,234,567.89"
+    },
+    {
+      "locale": "ta",
+      "skeleton": "currency/INR ()",
+      "bits": "c132d687e4189375",
+      "expected": "(₹1,234,567.89)"
+    },
+    {
+      "locale": "en-IN",
+      "skeleton": "currency/INR unit-width-hidden ()",
+      "bits": "4132d687e4189375",
+      "expected": "1,234,567.89"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR unit-width-full-name",
+      "bits": "4132d687e4189375",
+      "expected": "१२,३४,५६७.८९ भारतीय रुपये"
+    },
+    {
+      "locale": "mr",
+      "skeleton": "currency/INR unit-width-full-name ()",
+      "bits": "c132d687e4189375",
+      "expected": "-१२,३४,५६७.८९ भारतीय रुपये"
+    },
+    {
+      "locale": "en-DE",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "€1,234.50",
+      "compatibility_exception": {
+        "expected": "1.234,50 €",
+        "reason": "Rust follows CLDR's en-DE currency data, with German separators and a trailing symbol; ICU4J 78.1 places the symbol first."
+      }
+    },
+    {
+      "locale": "en-150",
+      "skeleton": "currency/EUR",
+      "bits": "40934a0000000000",
+      "expected": "€1,234.50",
+      "compatibility_exception": {
+        "expected": "1,234.50 €",
+        "reason": "Rust follows CLDR's en-150 currency pattern, which places the symbol after the number; ICU4J 78.1 places it first."
+      }
+    },
+    {
+      "locale": "my",
+      "skeleton": "currency/USD unit-width-full-name",
+      "bits": "4029000000000000",
+      "expected": "၁၂.၅၀ အမေရိကန် ဒေါ်လာ",
+      "compatibility_exception": {
+        "expected": "အမေရိကန် ဒေါ်လာ ၁၂.၅၀",
+        "reason": "Rust follows CLDR's Burmese currency unit pattern, which places the name first; ICU4J 78.1 places it after the number."
+      }
+    },
+    {
+      "locale": "bn",
+      "skeleton": "currency/USD",
+      "bits": "7ff8000000000000",
+      "expected": "NaNUS$",
+      "compatibility_exception": {
+        "expected": "NaN US$",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so a symbol that ends with a letter keeps its space before a number without a leading digit."
+      }
+    },
+    {
+      "locale": "ko",
+      "skeleton": "currency/CHF unit-width-iso-code .## integer-width/* ()",
+      "bits": "bfe0000000000000",
+      "expected": "(CHF.5)",
+      "compatibility_exception": {
+        "expected": "(CHF .5)",
+        "reason": "ICU4X currency spacing ignores the adjacent character, so a symbol that ends with a letter keeps its space before a number without a leading digit."
+      }
+    },
+    {
+      "locale": "pt-CV",
+      "skeleton": "currency/CVE",
+      "bits": "4132d687e3d70a3d",
+      "expected": "1 234 567$89 ​",
+      "compatibility_exception": {
+        "expected": "1 234 567,89 ​",
+        "reason": "CLDR gives the Cape Verdean escudo its own decimal separator, `$`, which the formatter does not apply."
+      }
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/mass-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-square-meter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter-per-second",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/length-meter-and-centimeter",
+      "bits": "4028000000000000",
+      "icu4j_error": "SkeletonSyntaxException",
+      "error": "InvalidPattern",
+      "position": 0
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/percent",
+      "bits": "4029000000000000",
+      "expected": "12.5%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/concentr-percent",
+      "bits": "4029000000000000",
+      "expected": "12.5%"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/permille",
+      "bits": "4029000000000000",
+      "expected": "12.5‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "measure-unit/concentr-permille",
+      "bits": "4029000000000000",
+      "expected": "12.5‰"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1",
+      "bits": "4016000000000000",
+      "expected": "5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1",
+      "bits": "c016000000000000",
+      "expected": "-5 ft, 6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/foot-and-inch scale/-1 +!",
+      "bits": "4016000000000000",
+      "expected": "5 ft, +6 in"
+    },
+    {
+      "locale": "en-US",
+      "skeleton": "unit/meter usage/person-height scale/-1",
+      "bits": "3ffccccccccccccd",
+      "expected": "5 ft, 11 in"
+    },
+    {
+      "locale": "de-u-rg-ussf",
+      "skeleton": "unit/meter usage/road",
+      "bits": "408f400000000000",
+      "expected": "0,62 mi"
+    },
+    {
+      "locale": "en-GB-u-rg-usca",
+      "skeleton": "unit/kilogram usage/person",
+      "bits": "4054000000000000",
+      "expected": "176 lb"
+    }
+  ],
+  "java": "openjdk version \"21.0.12.1\" 2026-08-18 LTS",
+  "icu4j": "78.1"
+}
