@@ -1,16 +1,21 @@
-//! Avenger's formatting functions: `#numfmt` and `#datetimefmt`.
+//! Avenger's formatting functions, `#numfmt` and `#datetimefmt`, and the formatting that
+//! [`LabelEngine::format`](super::LabelEngine::format) does for axes and legends.
 //!
 //! They format numbers and dates with the number and datetime formatters the label's world
-//! provides, the same `avenger-format` formatters that axes and legends use.
+//! provides.
 
 use std::sync::{Arc, Mutex};
 
 use avenger_format::{
-    DateTimeFormatError, DateTimeFormatProvider, NumberFormatError, NumberFormatProvider,
-    NumberTypesetting, PreparedDateFormatter, PreparedNaiveDateTimeFormatter,
-    PreparedNumberFormatter, PreparedZonedDateTimeFormatter,
+    DateTimeFormatError, DateTimeFormatProvider, FormattedNumber, NumberFormatError,
+    NumberFormatProvider, NumberTypesetting, PreparedDateFormatter,
+    PreparedNaiveDateTimeFormatter, PreparedNumberFormatter,
+    PreparedZonedDateTimeFormatter,
 };
 use ecow::eco_format;
+
+use super::error::LabelError;
+use super::values::LabelValue;
 
 use crate::typst_library::diag::{SourceResult, bail};
 use crate::typst_library::engine::Engine;
@@ -87,14 +92,12 @@ pub fn datetimefmt(
     };
     let cache = engine.world.formatting_cache();
     let formatted = match value {
-        Datetime::Date(date) => {
-            FormattingCache::date(cache, provider, &pattern).and_then(|f| f.format(date))
-        }
-        Datetime::Naive(datetime) => FormattingCache::naive(cache, provider, &pattern)
+        Datetime::Date(date) => FormattingCache::date(cache, provider, Some(&pattern))
+            .and_then(|f| f.format(date)),
+        Datetime::Naive(datetime) => FormattingCache::naive(cache, provider, Some(&pattern))
             .and_then(|f| f.format(datetime)),
-        Datetime::Zoned(instant) => {
-            FormattingCache::zoned(cache, provider, &pattern).and_then(|f| f.format(instant))
-        }
+        Datetime::Zoned(instant) => FormattingCache::zoned(cache, provider, Some(&pattern))
+            .and_then(|f| f.format(instant)),
     };
     match formatted {
         Ok(text) => Ok(TextElem::packed(one_line(&text)).spanned(span)),
@@ -126,6 +129,36 @@ fn scientific_notation(mantissa: &str, exponent: i32, span: Span) -> Content {
     EquationElem::new(body).pack().spanned(span)
 }
 
+/// A formatted number as a label value: its text, or for scientific notation, markup for the
+/// math that `#numfmt` sets. The mantissa is a string, which math sets as text, so that a
+/// localized mantissa such as "1,2" keeps its punctuation, and its sign is a minus.
+pub(super) fn number_value(formatted: FormattedNumber) -> LabelValue {
+    match formatted.typesetting {
+        NumberTypesetting::Plain => LabelValue::Str(formatted.text),
+        NumberTypesetting::Exponent { mantissa, exponent } => {
+            let (sign, digits) = match mantissa.strip_prefix(['-', '−']) {
+                Some(digits) => ("-", digits),
+                None => ("", mantissa.as_str()),
+            };
+            let digits = digits.replace('\\', "\\\\").replace('"', "\\\"");
+            LabelValue::Markup(format!("${sign}#\"{digits}\" times 10^({exponent})$"))
+        }
+    }
+}
+
+/// Each date or datetime formatted on its own, and a missing one as empty text.
+pub(super) fn each<T: Copy>(
+    values: &[Option<T>],
+    format: impl Fn(T) -> Result<String, DateTimeFormatError>,
+) -> Result<Vec<LabelValue>, LabelError> {
+    values
+        .iter()
+        .map(|value| {
+            Ok(LabelValue::Str(value.map(&format).transpose()?.unwrap_or_default()))
+        })
+        .collect()
+}
+
 #[derive(Debug)]
 struct Entry<F: ?Sized> {
     pattern: String,
@@ -134,18 +167,22 @@ struct Entry<F: ?Sized> {
 
 type Slot<F> = Mutex<Option<Entry<F>>>;
 
-/// The most recent format of each kind, reused across labels. A cache belongs to one engine's
-/// providers: an engine with another provider starts a new one.
+/// The most recent format of each kind, reused across labels, and the datetime provider's
+/// calendar patterns for each kind, which datetime formats prepare for a `None` pattern. A
+/// cache belongs to one engine's providers: an engine with another provider starts a new one.
 #[derive(Debug, Default)]
 pub struct FormattingCache {
     number: Slot<dyn PreparedNumberFormatter>,
     date: Slot<dyn PreparedDateFormatter>,
     naive: Slot<dyn PreparedNaiveDateTimeFormatter>,
     zoned: Slot<dyn PreparedZonedDateTimeFormatter>,
+    calendar_date: Slot<dyn PreparedDateFormatter>,
+    calendar_naive: Slot<dyn PreparedNaiveDateTimeFormatter>,
+    calendar_zoned: Slot<dyn PreparedZonedDateTimeFormatter>,
 }
 
 impl FormattingCache {
-    fn number(
+    pub(super) fn number(
         cache: Option<&Self>,
         provider: &Arc<dyn NumberFormatProvider>,
         pattern: &str,
@@ -153,32 +190,49 @@ impl FormattingCache {
         cached(cache.map(|cache| &cache.number), pattern, || provider.prepare(pattern))
     }
 
-    fn date(
+    pub(super) fn date(
         cache: Option<&Self>,
         provider: &Arc<dyn DateTimeFormatProvider>,
-        pattern: &str,
+        pattern: Option<&str>,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.date), pattern, || provider.prepare_date(pattern))
+        match pattern {
+            Some(pattern) => cached(cache.map(|cache| &cache.date), pattern, || {
+                provider.prepare_date(pattern)
+            }),
+            None => cached(cache.map(|cache| &cache.calendar_date), "", || {
+                provider.default_calendar_patterns().prepare_date(&**provider)
+            }),
+        }
     }
 
-    fn naive(
+    pub(super) fn naive(
         cache: Option<&Self>,
         provider: &Arc<dyn DateTimeFormatProvider>,
-        pattern: &str,
+        pattern: Option<&str>,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.naive), pattern, || {
-            provider.prepare_naive(pattern)
-        })
+        match pattern {
+            Some(pattern) => cached(cache.map(|cache| &cache.naive), pattern, || {
+                provider.prepare_naive(pattern)
+            }),
+            None => cached(cache.map(|cache| &cache.calendar_naive), "", || {
+                provider.default_calendar_patterns().prepare_naive(&**provider)
+            }),
+        }
     }
 
-    fn zoned(
+    pub(super) fn zoned(
         cache: Option<&Self>,
         provider: &Arc<dyn DateTimeFormatProvider>,
-        pattern: &str,
+        pattern: Option<&str>,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        cached(cache.map(|cache| &cache.zoned), pattern, || {
-            provider.prepare_zoned(pattern)
-        })
+        match pattern {
+            Some(pattern) => cached(cache.map(|cache| &cache.zoned), pattern, || {
+                provider.prepare_zoned(pattern)
+            }),
+            None => cached(cache.map(|cache| &cache.calendar_zoned), "", || {
+                provider.default_calendar_patterns().prepare_zoned(&**provider)
+            }),
+        }
     }
 }
 

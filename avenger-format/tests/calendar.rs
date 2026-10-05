@@ -81,6 +81,10 @@ impl DateTimeFormatProvider for Strftime {
         Ok(self.pattern(spec))
     }
 
+    fn timezone(&self) -> Tz {
+        self.display
+    }
+
     fn default_calendar_patterns(&self) -> CalendarPatterns {
         patterns()
     }

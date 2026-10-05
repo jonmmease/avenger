@@ -1,5 +1,4 @@
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
-use avenger_format::PreparedFormatter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisOrientation {
@@ -14,8 +13,11 @@ pub struct AxisConfig {
     pub orientation: AxisOrientation,
     pub dimensions: [f32; 2],
     pub grid: bool,
-    /// Formats the ticks, together, so that they share digits.
-    pub tick_format: PreparedFormatter,
+    /// The pattern for numeric and temporal ticks, in the syntax of the text engine's number or
+    /// datetime provider, such as `",.0f"` or `"%b %d"`. An empty pattern takes the provider's
+    /// default: for dates and times, its calendar patterns. Other ticks, such as strings, show
+    /// as text.
+    pub tick_format: String,
     /// Typst markup for each tick label, where `#tick` is the tick as `tick_format` formats it,
     /// such as `#tick m/s`. Without it, labels are the formatted ticks as plain text.
     pub tick_label: Option<String>,

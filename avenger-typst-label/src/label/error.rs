@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 
+use avenger_format::{DateTimeFormatError, NumberFormatError, ValueKind};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -60,6 +61,32 @@ pub enum LabelError {
         /// The font list.
         family: String,
     },
+
+    /// The engine has no provider for a kind of value that it was asked to format.
+    #[error(
+        "cannot format {kind} values: {provider} formatting is not configured",
+        kind = .0,
+        provider = provider(.0)
+    )]
+    MissingFormatter(ValueKind),
+
+    /// The number provider rejected a pattern.
+    #[error(transparent)]
+    NumberFormat(#[from] NumberFormatError),
+
+    /// The datetime provider rejected a pattern, or could not format a value.
+    #[error(transparent)]
+    DateTimeFormat(#[from] DateTimeFormatError),
+}
+
+/// The provider that formats a kind of value.
+fn provider(kind: &ValueKind) -> &'static str {
+    match kind {
+        ValueKind::Number => "number",
+        ValueKind::Date | ValueKind::NaiveDateTime | ValueKind::ZonedDateTime => {
+            "datetime"
+        }
+    }
 }
 
 /// A non-fatal problem with a label.

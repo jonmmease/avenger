@@ -200,6 +200,10 @@ impl DateTimeFormatProvider for IcuPatternDateTimeFormatProvider {
         Ok(formatter)
     }
 
+    fn timezone(&self) -> Tz {
+        self.timezone
+    }
+
     /// The locale's names in a fixed layout: `Mar 3`, `Tue 5`, and `3 PM` in `en-US`. In the
     /// Japanese calendar, `y` is the year within the era, so add the era with `.with_year("G y")`.
     fn default_calendar_patterns(&self) -> CalendarPatterns {
@@ -253,6 +257,10 @@ impl DateTimeFormatProvider for IcuSemanticDateTimeFormatProvider {
             self.timezone,
             spec,
         )?))
+    }
+
+    fn timezone(&self) -> Tz {
+        self.timezone
     }
 
     /// Semantic field sets localized for the provider's locale.

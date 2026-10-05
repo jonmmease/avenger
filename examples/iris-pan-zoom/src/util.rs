@@ -6,7 +6,6 @@ use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
-use avenger_format::{NumberFormatProvider, PreparedFormatter};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::continuous::make_continuous_axis_marks;
@@ -184,8 +183,9 @@ impl ChartState {
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
 
-        // Make symbol legend, measured with the engine that draws the chart
-        let text_engine = avenger_typst_label::bundled_label_engine();
+        // Make symbol legend, measured with the engine that formats the axes and draws the chart
+        let text_engine = avenger_typst_label::bundled_label_engine()
+            .with_number_formatting(Arc::new(D3NumberFormatProvider::new()));
         let mut legend = make_symbol_legend(
             &SymbolLegendConfig {
                 text: color_scale
@@ -296,7 +296,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     };
 
     // Vega's default axis format
-    let format: PreparedFormatter = D3NumberFormatProvider::new().prepare(",f").unwrap().into();
+    let format = ",f";
 
     // Make y-axis
     let y_axis = make_continuous_axis_marks(
@@ -307,7 +307,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Left,
             grid: true,
-            tick_format: format.clone(),
+            tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
         },
@@ -324,7 +324,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Bottom,
             grid: true,
-            tick_format: format,
+            tick_format: format.into(),
             tick_label: None,
             style: Default::default(),
         },

@@ -12,8 +12,8 @@ pub use datetime::{
 mod formatted_number;
 pub use formatted_number::{FormattedNumber, NumberTypesetting};
 
-mod prepared;
-pub use prepared::{FormatError, FormatValues, PreparedFormatter, ValueKind};
+mod values;
+pub use values::{FormatValues, ValueKind};
 
 mod ticks;
 pub use ticks::{TickSpacing, TickStep};

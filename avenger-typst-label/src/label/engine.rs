@@ -3,11 +3,14 @@
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
-use avenger_format::{DateTimeFormatProvider, NumberFormatProvider};
+use avenger_format::{
+    DateTimeFormatProvider, FormatValues, NumberFormatProvider, TickSpacing, ValueKind,
+};
+use chrono_tz::Tz;
 
 use super::bounds::TextBounds;
 use super::error::{LabelError, LabelWarning, source_error, source_warning};
-use super::format::FormattingCache;
+use super::format::{FormattingCache, each, number_value};
 use super::frame::LabelFrame;
 use super::lower::lower;
 use super::memo::{LabelKey, Memo};
@@ -16,6 +19,7 @@ use super::options::{
     LabelWidth, MissingFontPolicy, TextStyle,
 };
 use super::styles::{Defaults, root_styles};
+use super::values::LabelValue;
 use super::world::LabelWorld;
 use super::{label_file, label_span};
 use crate::typst_eval::{eval_label, math_nesting_depth, parse_label};
@@ -133,6 +137,72 @@ impl LabelEngine {
     /// The provider of `#datetimefmt`.
     pub fn datetime_format(&self) -> Option<&Arc<dyn DateTimeFormatProvider>> {
         self.datetime_format.as_ref()
+    }
+
+    /// Labels values, such as an axis's ticks, with the engine's providers, as `#numfmt` and
+    /// `#datetimefmt` format them: numbers with the number provider, and dates and datetimes
+    /// with the datetime provider. The pattern is in the provider's syntax. An empty pattern
+    /// takes the number provider's default, or the datetime provider's
+    /// [`default_calendar_patterns`](DateTimeFormatProvider::default_calendar_patterns), which
+    /// label each value by the coarsest calendar boundary it falls on.
+    ///
+    /// Numbers are formatted together with `spacing`, so that evenly spaced values can share
+    /// digits, and scientific notation is math markup. Each date or datetime is formatted on
+    /// its own, and a missing one is empty text. Prepared formats are reused, as labels'
+    /// formats are.
+    pub fn format(
+        &self,
+        values: FormatValues<'_>,
+        pattern: &str,
+        spacing: TickSpacing,
+    ) -> Result<Vec<LabelValue>, LabelError> {
+        let cache = Some(&*self.formatting_cache);
+        let datetime = || self.datetime_provider(values.kind());
+        let datetime_pattern = (!pattern.is_empty()).then_some(pattern);
+        match values {
+            FormatValues::Numbers(values) => {
+                let provider = self
+                    .number_format
+                    .as_ref()
+                    .ok_or(LabelError::MissingFormatter(ValueKind::Number))?;
+                let formatter = FormattingCache::number(cache, provider, pattern)?;
+                Ok(formatter
+                    .format_ticks(values, spacing)
+                    .into_iter()
+                    .map(number_value)
+                    .collect())
+            }
+            FormatValues::Dates(values) => {
+                let formatter =
+                    FormattingCache::date(cache, datetime()?, datetime_pattern)?;
+                each(values, |value| formatter.format(value))
+            }
+            FormatValues::NaiveDateTimes(values) => {
+                let formatter =
+                    FormattingCache::naive(cache, datetime()?, datetime_pattern)?;
+                each(values, |value| formatter.format(value))
+            }
+            FormatValues::ZonedDateTimes(values) => {
+                let formatter =
+                    FormattingCache::zoned(cache, datetime()?, datetime_pattern)?;
+                each(values, |value| formatter.format(value))
+            }
+        }
+    }
+
+    /// The timezone that [`format`](Self::format) shows zoned datetimes in: the datetime
+    /// provider's.
+    pub fn datetime_timezone(&self) -> Result<Tz, LabelError> {
+        Ok(self.datetime_provider(ValueKind::ZonedDateTime)?.timezone())
+    }
+
+    fn datetime_provider(
+        &self,
+        kind: ValueKind,
+    ) -> Result<&Arc<dyn DateTimeFormatProvider>, LabelError> {
+        self.datetime_format
+            .as_ref()
+            .ok_or(LabelError::MissingFormatter(kind))
     }
 
     /// The engine with new formats and memos, for another provider.

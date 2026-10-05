@@ -105,6 +105,10 @@ impl DateTimeFormatProvider for ChronoDateTimeFormatProvider {
         Ok(Arc::new(formatter))
     }
 
+    fn timezone(&self) -> Tz {
+        self.timezone
+    }
+
     /// Vega's time axis patterns in strftime syntax. Names and `%p` follow the provider's locale.
     fn default_calendar_patterns(&self) -> CalendarPatterns {
         CalendarPatterns {
