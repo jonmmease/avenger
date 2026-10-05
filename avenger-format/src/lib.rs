@@ -8,6 +8,10 @@ pub use datetime::{
 
 mod formatted_number;
 pub use formatted_number::{FormattedNumber, NumberTypesetting};
+
+mod ticks;
+pub use ticks::{TickSpacing, TickStep};
+
 use std::{fmt::Debug, sync::Arc};
 
 /// Shared preparation errors for number providers, with backend diagnostic details.
@@ -42,4 +46,12 @@ pub trait NumberFormatProvider: Debug + Send + Sync + 'static {
 /// including their handling of NaN, infinity, and signed zero.
 pub trait PreparedNumberFormatter: Debug + Send + Sync + 'static {
     fn format(&self, value: f64) -> FormattedNumber;
+
+    /// Format tick values as one set, such as an axis's labels, returning one label per value.
+    /// When the pattern leaves precision open, implementations can choose one precision and
+    /// unit for evenly spaced values; explicit pattern settings take precedence. The default
+    /// formats each value independently.
+    fn format_ticks(&self, values: &[f64], _spacing: TickSpacing) -> Vec<FormattedNumber> {
+        values.iter().map(|&value| self.format(value)).collect()
+    }
 }

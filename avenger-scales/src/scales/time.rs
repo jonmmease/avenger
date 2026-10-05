@@ -14,7 +14,6 @@ use chrono_tz::Tz;
 use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
-use crate::formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter};
 
 use super::{
     ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
@@ -78,9 +77,8 @@ impl TemporalTickFormatter {
     }
 }
 
-impl DateFormatter for TemporalTickFormatter {
-    fn format(&self, values: &[Option<NaiveDate>], default: Option<&str>) -> Vec<String> {
-        let default = default.unwrap_or("");
+impl TemporalTickFormatter {
+    fn format_dates(&self, values: &[Option<NaiveDate>], default: &str) -> Vec<String> {
         let format_str = self.get_format_string();
 
         values
@@ -109,15 +107,12 @@ impl DateFormatter for TemporalTickFormatter {
             })
             .collect()
     }
-}
 
-impl TimestampFormatter for TemporalTickFormatter {
-    fn format(
+    fn format_timestamps(
         &self,
         values: &[Option<chrono::NaiveDateTime>],
-        default: Option<&str>,
+        default: &str,
     ) -> Vec<String> {
-        let default = default.unwrap_or("");
         let format_str = self.get_format_string();
 
         values
@@ -132,11 +127,8 @@ impl TimestampFormatter for TemporalTickFormatter {
             })
             .collect()
     }
-}
 
-impl TimestamptzFormatter for TemporalTickFormatter {
-    fn format(&self, values: &[Option<DateTime<Utc>>], default: Option<&str>) -> Vec<String> {
-        let default = default.unwrap_or("");
+    fn format_timestamptz(&self, values: &[Option<DateTime<Utc>>], default: &str) -> Vec<String> {
         let format_str = self.get_format_string();
 
         values
@@ -825,11 +817,9 @@ impl ScaleImpl for TimeScale {
                         }
                     })
                     .collect();
-                Ok(ScalarOrArray::new_array(DateFormatter::format(
-                    &formatter,
-                    &dates,
-                    Some(&default),
-                )))
+                Ok(ScalarOrArray::new_array(
+                    formatter.format_dates(&dates, &default),
+                ))
             }
             DataType::Date64 => {
                 let values = values.as_any().downcast_ref::<Date64Array>().unwrap();
@@ -847,11 +837,9 @@ impl ScaleImpl for TimeScale {
                         }
                     })
                     .collect();
-                Ok(ScalarOrArray::new_array(TimestampFormatter::format(
-                    &formatter,
-                    &dates,
-                    Some(&default),
-                )))
+                Ok(ScalarOrArray::new_array(
+                    formatter.format_timestamps(&dates, &default),
+                ))
             }
             DataType::Timestamp(unit, tz_opt) => {
                 // Convert to NaiveDateTime first
@@ -940,24 +928,19 @@ impl ScaleImpl for TimeScale {
                         .iter()
                         .map(|opt| opt.map(|naive| Utc.from_utc_datetime(&naive)))
                         .collect();
-                    Ok(ScalarOrArray::new_array(TimestamptzFormatter::format(
-                        &formatter,
-                        &utc_timestamps,
-                        Some(&default),
-                    )))
+                    Ok(ScalarOrArray::new_array(
+                        formatter.format_timestamptz(&utc_timestamps, &default),
+                    ))
                 } else {
                     // Use NaiveDateTime for timestamp without timezone
-                    Ok(ScalarOrArray::new_array(TimestampFormatter::format(
-                        &formatter,
-                        &timestamps,
-                        Some(&default),
-                    )))
+                    Ok(ScalarOrArray::new_array(
+                        formatter.format_timestamps(&timestamps, &default),
+                    ))
                 }
             }
             _ => {
-                // Fallback to default formatting
                 let scaled = self.scale(config, values)?;
-                config.context.formatters.format(&scaled, Some(&default))
+                super::to_text(&scaled, &default)
             }
         }
     }

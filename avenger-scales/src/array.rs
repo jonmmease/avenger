@@ -1,3 +1,16 @@
+use arrow::array::{ArrayRef, Float64Array};
+use std::sync::Arc;
+
+/// Tick values as f64, each widened through its shortest decimal, so 0.1f32 becomes 0.1
+/// rather than 0.10000000149011612. Casting a value back to f32 returns the original tick.
+pub fn tick_array(ticks: impl IntoIterator<Item = f32>) -> ArrayRef {
+    Arc::new(Float64Array::from_iter_values(
+        ticks
+            .into_iter()
+            .map(|tick| tick.to_string().parse().unwrap_or(f64::from(tick))),
+    ))
+}
+
 /// Generate approximately count ticks within the given range
 pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
     // JS: if (!(count > 0)) return [];

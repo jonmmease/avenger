@@ -449,8 +449,11 @@ impl ScaleImpl for LinearScale {
         )?;
 
         let count = count.unwrap_or(10.0);
-        let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
-        Ok(Arc::new(ticks_array) as ArrayRef)
+        Ok(array::tick_array(array::ticks(
+            domain_start,
+            domain_end,
+            count,
+        )))
     }
 
     /// Pans the domain by the given delta
@@ -574,6 +577,7 @@ impl ScaleImpl for LinearScale {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::datatypes::Float64Type;
     use float_cmp::assert_approx_eq;
 
     #[test]
@@ -833,17 +837,17 @@ mod tests {
 
         let expected = vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(5.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         let expected = vec![0.0, 5.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(2.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         let expected = vec![0.0, 10.0];
         let ticks_array = scale.ticks(&config, Some(1.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), expected);
 
         Ok(())
@@ -860,27 +864,55 @@ mod tests {
 
         let scale = LinearScale;
         let ticks_array = scale.ticks(&config, Some(10.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(
             ticks_array.values().to_vec(),
             vec![-100.0, -80.0, -60.0, -40.0, -20.0, 0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
         );
 
         let ticks_array = scale.ticks(&config, Some(5.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(
             ticks_array.values().to_vec(),
             vec![-100.0, -50.0, 0.0, 50.0, 100.0]
         );
 
         let ticks_array = scale.ticks(&config, Some(2.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), vec![-100.0, 0.0, 100.0]);
 
         let ticks_array = scale.ticks(&config, Some(1.0))?;
-        let ticks_array = ticks_array.as_primitive::<Float32Type>();
+        let ticks_array = ticks_array.as_primitive::<Float64Type>();
         assert_eq!(ticks_array.values().to_vec(), vec![0.0]);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_ticks_are_exact_decimals_at_unchanged_positions() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((0.0, 1.0), (0.0, 100.0));
+        let ticks = scale.ticks(Some(10.0))?;
+        let expected: Vec<f64> = (0..=10).map(|i| f64::from(i) / 10.0).collect();
+        assert_eq!(
+            ticks.as_primitive::<Float64Type>().values().to_vec(),
+            expected
+        );
+
+        // Scaling casts the widened ticks back to the original f32 values.
+        for (start, stop, count) in [
+            (0.0, 1.0, 10.0),
+            (-0.5, 0.5, 5.0),
+            (0.001, 0.002, 5.0),
+            (1000.0, 1001.0, 10.0),
+            (1e5, 1e5 + 1.0, 10.0),
+            (0.0, 1.2e6, 6.0),
+        ] {
+            let scale = LinearScale::configured((start, stop), (0.0, 500.0));
+            let widened = scale.scale_to_numeric(&scale.ticks(Some(count))?)?;
+            let original: ArrayRef = Arc::new(Float32Array::from(array::ticks(start, stop, count)));
+            let original = scale.scale_to_numeric(&original)?;
+            assert_eq!(widened.value(), original.value(), "[{start}, {stop}]");
+        }
         Ok(())
     }
 

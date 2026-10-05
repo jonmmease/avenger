@@ -1,4 +1,4 @@
-use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
+use arrow::array::{ArrayRef, AsArray, Float32Builder, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
 use avenger_color::ColorOrGradient;
 use avenger_common::types::SymbolShape;
@@ -6,6 +6,8 @@ use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
 use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
+use avenger_format::NumberFormatProvider;
+use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -181,7 +183,13 @@ impl ChartState {
         // Make symbol legend
         let symbol_legend = SceneMark::Group(
             make_symbol_legend(&SymbolLegendConfig {
-                text: color_scale.format(color_scale.domain()).unwrap(),
+                text: color_scale
+                    .domain()
+                    .as_string::<i32>()
+                    .iter()
+                    .map(|species| species.unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
                 title: None,
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
                 stroke_width: Some(1.0),
@@ -278,6 +286,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         ..Default::default()
     };
 
+    // Vega's default axis format
+    let format = D3NumberFormatProvider::new().prepare(",f").unwrap();
+
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
@@ -287,6 +298,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Left,
             grid: true,
+            format: format.clone(),
         },
     )
     .unwrap();
@@ -300,6 +312,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             dimensions: [chart_state.width, chart_state.height],
             orientation: AxisOrientation::Bottom,
             grid: true,
+            format,
         },
     )
     .unwrap();

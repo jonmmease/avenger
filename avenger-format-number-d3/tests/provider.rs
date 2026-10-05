@@ -3,31 +3,13 @@ use avenger_format_number_d3::{D3NumberFormatProvider, D3NumberPrecision, Number
 
 #[test]
 fn provider_prepares_explicit_patterns_and_precision() {
-    use D3NumberPrecision::{Automatic, FromSpecifier, Step};
+    use D3NumberPrecision::{Automatic, FromSpecifier};
     let provider = D3NumberFormatProvider::new().with_locale("en_US");
     for (pattern, precision, value, expected) in [
         (",.2f", FromSpecifier, 1234.5, "1,234.50"),
         (",", Automatic, 0.0012, "0.0012"),
         ("", Automatic, 1234.5, "1234.5"),
         ("c", FromSpecifier, 1234.5, "1234.5"),
-        (
-            "s",
-            Step {
-                step: 100000.0,
-                reference_value: 1100000.0,
-            },
-            900000.0,
-            "0.9M",
-        ),
-        (
-            ".2f",
-            Step {
-                step: 0.001,
-                reference_value: 1.0,
-            },
-            0.125,
-            "0.13",
-        ),
         (".2f", Automatic, 1.0, "1.00"),
     ] {
         let formatter = provider
@@ -75,19 +57,6 @@ fn provider_prepares_explicit_patterns_and_precision() {
         drop(provider);
         assert_eq!(formatter.format(1234.5).text, "1_234·5");
     }
-    for (step, reference_value, option) in [
-        (f64::NAN, 1.0, "step"),
-        (0.1, f64::INFINITY, "reference_value"),
-    ] {
-        let provider = provider.clone().with_precision(Step {
-            step,
-            reference_value,
-        });
-        assert!(matches!(
-            provider.prepare("f"),
-            Err(NumberFormatError::InvalidOption { option: actual, .. }) if actual == option
-        ));
-    }
     assert!(matches!(
         provider.with_locale("unknown").prepare("f"),
         Err(NumberFormatError::LocaleUnavailable { locale, .. }) if locale == "unknown"
@@ -99,10 +68,6 @@ fn provider_preserves_pattern_errors_in_each_precision_mode() {
     for precision in [
         D3NumberPrecision::FromSpecifier,
         D3NumberPrecision::Automatic,
-        D3NumberPrecision::Step {
-            step: 0.1,
-            reference_value: 1.0,
-        },
     ] {
         let result = D3NumberFormatProvider::new()
             .with_precision(precision)

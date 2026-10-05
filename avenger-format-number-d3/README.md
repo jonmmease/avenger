@@ -24,13 +24,33 @@ avenger-format-number-d3 = { version = "0.1", features = ["all-locales"] }
 
 Select a locale with `.with_locale("de-DE")`. Names accept hyphens or underscores. Add custom `NumberLocaleSpec` definitions with `with_custom_locale()`. Custom definitions take precedence over bundled definitions and work without `all-locales`.
 
-`with_precision()` selects a `D3NumberPrecision` policy:
+`with_precision()` selects how `format()` labels a single value when the pattern omits precision:
 
-- `FromSpecifier` uses D3's default precision when the pattern omits it.
-- `Automatic` uses Vega's automatic precision and trimming when the pattern omits precision.
-- `Step { step, reference_value }` derives precision from numeric spacing and a reference magnitude. Automatic `s` formatting uses one SI unit for all labels. Both values must be finite.
+- `FromSpecifier` uses D3's default precision.
+- `Automatic` uses Vega's automatic precision and trimming.
 
-Explicit precision in the pattern takes precedence. The caller chooses the step and reference value, usually the largest magnitude to format.
+`format_ticks()` labels tick values together, as Vega labels axes:
+
+- `TickSpacing::Uniform` follows Vega's `formatSpan`. Precision follows the tick step, and `s` patterns share one SI unit chosen from the largest magnitude. Vega reads the step and magnitude from the scale domain; this crate infers them from the tick values.
+- `TickSpacing::Varying` follows Vega's `formatFloat`, which Vega uses for log axes.
+
+```rust
+use avenger_format::{NumberFormatProvider, TickSpacing};
+use avenger_format_number_d3::D3NumberFormatProvider;
+
+fn main() -> Result<(), avenger_format::NumberFormatError> {
+    let formatter = D3NumberFormatProvider::new().prepare("s")?;
+    let labels: Vec<String> = formatter
+        .format_ticks(&[0.0, 5e5, 1e6], TickSpacing::Uniform)
+        .into_iter()
+        .map(|label| label.text)
+        .collect();
+    assert_eq!(labels, ["0.0M", "0.5M", "1.0M"]);
+    Ok(())
+}
+```
+
+Explicit precision in the pattern takes precedence in every mode.
 
 Automatic trimming removes trailing zeros before localization and padding. This intentionally differs from Vega 2.1.3 so that custom numerals, locale affixes, and field widths are preserved.
 

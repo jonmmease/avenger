@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use arrow::datatypes::DataType;
 use avenger_scales::error::AvengerScaleError;
 use thiserror::Error;
 
@@ -10,4 +11,7 @@ pub enum AvengerGuidesError {
 
     #[error("Invalid scale: {0}")]
     InvalidScale(#[from] AvengerScaleError),
+
+    #[error("Numeric axes need numeric ticks, not {0}")]
+    NonNumericTicks(DataType),
 }

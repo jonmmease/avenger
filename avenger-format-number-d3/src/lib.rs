@@ -11,9 +11,7 @@ mod provider;
 mod registry;
 mod spec;
 
-pub use adapters::{
-    prepare_number_float_format, prepare_number_prefix_format, prepare_number_step_format,
-};
+pub use adapters::{prepare_number_float_format, prepare_number_prefix_format};
 pub use avenger_format::{FormattedNumber, NumberFormatError, NumberTypesetting};
 pub use format::{format_number, PreparedNumberFormat};
 pub use locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale};

@@ -52,11 +52,8 @@ cargo run --example linear_scale
 - **Threshold scales**: Custom breakpoint categorization
 - Comparing different categorization approaches
 
-### 6. [formatting_and_ticks.rs](./formatting_and_ticks.rs)
-**Number formatting and axis generation**
-- Number formatting with precision control
-- Date and timestamp formatting
-- Timezone-aware timestamp formatting
+### 6. [ticks_and_options.rs](./ticks_and_options.rs)
+**Axis ticks and scale options**
 - Tick generation for axes
 - Scale options (clamp, round, nice)
 
@@ -70,7 +67,6 @@ cargo run --example linear_scale
 ### Features Showcased
 - **Color interpolation**: Multi-color gradients in different color spaces
 - **Data transformation**: Linear, logarithmic, and power transformations  
-- **Formatting**: Numbers, dates, timestamps with various formats
 - **Tick generation**: Automatic axis tick generation
 - **Inversion**: Converting from range back to domain values
 - **Configuration**: Scale options like clamping, rounding, and nice domains

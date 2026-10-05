@@ -13,7 +13,9 @@ Configure a provider, then pass a format string to its preparation method. Each 
 | `prepare_naive()` | `PreparedNaiveDateTimeFormatter` | `chrono::NaiveDateTime` |
 | `prepare_zoned()` | `PreparedZonedDateTimeFormatter` | `chrono::DateTime<chrono::Utc>` |
 
-Number formatting returns `FormattedNumber`, which contains the label text and optional mantissa and exponent parts for scientific notation. Formatting accepts all `f64` values, including NaN and infinity. Callers choose formats and tick spacing.
+Number formatting returns `FormattedNumber`, which contains the label text and optional mantissa and exponent parts for scientific notation. Formatting accepts all `f64` values, including NaN and infinity.
+
+`format_ticks()` formats a set of tick values together, such as an axis's labels. Pass `TickSpacing::Uniform` for evenly spaced ticks, such as a linear scale's, so the labels can share one precision and one SI or compact unit. Pass `TickSpacing::Varying` for ticks that span magnitudes, such as a log scale's. When a pattern leaves precision open, providers can derive it from the values with `TickStep::infer()`. Explicit pattern settings take precedence. Providers that don't override `format_ticks()` format each value independently.
 
 Datetime preparation checks that the format is valid for its input type. Date formats reject time, epoch, and timezone fields. Naive datetime formats reject epoch and timezone fields. Date and naive formatters ignore the display timezone. Zoned formatters convert UTC datetimes to the configured display timezone.
 

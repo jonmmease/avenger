@@ -1,4 +1,6 @@
 use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
+use avenger_format::PreparedNumberFormatter;
+use std::sync::Arc;
 
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
@@ -30,6 +32,7 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
+                format: config.format.clone(),
             };
 
             // Create a new scale with desired range for the axis
@@ -89,13 +92,6 @@ pub enum ColorbarOrientation {
 pub struct ColorbarConfig {
     pub orientation: ColorbarOrientation,
     pub dimensions: [f32; 2],
-}
-
-impl Default for ColorbarConfig {
-    fn default() -> Self {
-        Self {
-            orientation: ColorbarOrientation::Right,
-            dimensions: [100.0, 100.0],
-        }
-    }
+    /// Labels the colorbar's ticks together with `format_ticks`.
+    pub format: Arc<dyn PreparedNumberFormatter>,
 }

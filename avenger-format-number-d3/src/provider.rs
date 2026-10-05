@@ -1,12 +1,13 @@
 use crate::{
-    adapters::apply_float_precision, prepare_number_step_format, NumberLocaleSpec,
-    PreparedNumberFormat, ResolvedNumberLocale,
+    adapters::{apply_float_precision, step_format},
+    prepare_number_float_format, NumberLocaleSpec, PreparedNumberFormat, ResolvedNumberLocale,
 };
 use avenger_format::{
-    FormattedNumber, NumberFormatError, NumberFormatProvider, PreparedNumberFormatter,
+    FormattedNumber, NumberFormatError, NumberFormatProvider, PreparedNumberFormatter, TickSpacing,
+    TickStep,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 /// Prepare D3 number patterns with locale definitions and a precision policy.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -16,7 +17,7 @@ pub struct D3NumberFormatProvider {
     pub locale: Option<String>,
     /// Custom D3 definitions, keyed by locale name.
     pub locales: BTreeMap<String, NumberLocaleSpec>,
-    /// Precision selection when the pattern omits an explicit precision.
+    /// Single-value precision when the pattern omits it. Tick labels follow Vega's axis rules.
     pub precision: D3NumberPrecision,
 }
 
@@ -42,28 +43,22 @@ impl D3NumberFormatProvider {
         self
     }
 
-    /// Set precision selection for patterns that omit precision.
+    /// Set single-value precision for patterns that omit it.
     pub fn with_precision(mut self, precision: D3NumberPrecision) -> Self {
         self.precision = precision;
         self
     }
 }
 
-/// D3 precision selection. Explicit precision in the pattern takes precedence.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+/// Single-value precision when a pattern omits it. Explicit precision in the pattern takes
+/// precedence. Tick formatting follows Vega's axis rules in either mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum D3NumberPrecision {
     /// Use the pattern's precision or its ordinary D3 default.
     #[default]
     FromSpecifier,
     /// Use Vega's automatic precision and trimming.
     Automatic,
-    /// Infer precision and a shared SI unit from numeric spacing and magnitude.
-    Step {
-        /// Finite spacing between values. Its magnitude determines precision.
-        step: f64,
-        /// Finite reference magnitude, typically the largest absolute value.
-        reference_value: f64,
-    },
 }
 
 impl NumberFormatProvider for D3NumberFormatProvider {
@@ -83,35 +78,45 @@ impl NumberFormatProvider for D3NumberFormatProvider {
         } else {
             crate::bundled::resolve(&normalized)
         }?;
-        let prepared = match self.precision {
-            D3NumberPrecision::FromSpecifier => PreparedNumberFormat::new(Some(pattern), &locale),
-            D3NumberPrecision::Automatic => {
-                PreparedNumberFormat::new(Some(pattern), &locale).map(|mut prepared| {
-                    apply_float_precision(&mut prepared);
-                    prepared
-                })
-            }
-            D3NumberPrecision::Step {
-                step,
-                reference_value,
-            } => {
-                for (option, value) in [("step", step), ("reference_value", reference_value)] {
-                    if !value.is_finite() {
-                        return Err(NumberFormatError::InvalidOption {
-                            option: option.into(),
-                            message: "must be finite".into(),
-                        });
-                    }
-                }
-                prepare_number_step_format(step, reference_value, Some(pattern), &locale)
-            }
-        }?;
-        Ok(Arc::new(prepared))
+        let prepared = PreparedNumberFormat::new(Some(pattern), &locale)?;
+        let mut single = prepared.clone();
+        if self.precision == D3NumberPrecision::Automatic {
+            apply_float_precision(&mut single);
+        }
+        Ok(Arc::new(PreparedPattern {
+            varying: prepare_number_float_format(Some(pattern), &locale)?,
+            pattern: prepared,
+            single,
+        }))
     }
 }
 
-impl PreparedNumberFormatter for PreparedNumberFormat {
+/// A pattern prepared by [`D3NumberFormatProvider`].
+#[derive(Debug)]
+struct PreparedPattern {
+    /// The pattern as written, with omitted precision left automatic.
+    pattern: PreparedNumberFormat,
+    /// Single values, after the provider's precision policy.
+    single: PreparedNumberFormat,
+    /// Ticks spanning magnitudes, with Vega's `formatFloat` rules for log axes.
+    varying: PreparedNumberFormat,
+}
+
+impl PreparedNumberFormatter for PreparedPattern {
     fn format(&self, value: f64) -> FormattedNumber {
-        self.format(value)
+        self.single.format(value)
+    }
+
+    /// Uniform ticks follow Vega's `formatSpan`, with the step and magnitude inferred from
+    /// the values rather than read from a domain.
+    fn format_ticks(&self, values: &[f64], spacing: TickSpacing) -> Vec<FormattedNumber> {
+        let format = match spacing {
+            TickSpacing::Uniform => match TickStep::infer(values) {
+                Some(ticks) => Cow::Owned(step_format(&self.pattern, ticks.step, ticks.magnitude)),
+                None => Cow::Borrowed(&self.pattern),
+            },
+            TickSpacing::Varying => Cow::Borrowed(&self.varying),
+        };
+        values.iter().map(|&value| format.format(value)).collect()
     }
 }
