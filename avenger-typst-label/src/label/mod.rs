@@ -69,7 +69,6 @@ pub struct FontOptions {
     #[cfg_attr(feature = "serde", serde(default))]
     pub missing_font: MissingFontPolicy,
     pub extra_font_dirs: Vec<PathBuf>,
-    pub extra_font_families: Vec<String>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub registered_fonts: Vec<RegisteredFont>,
     pub default_sans_serif_family: Option<String>,
@@ -83,7 +82,6 @@ impl Default for FontOptions {
             load_system_fonts: true,
             missing_font: MissingFontPolicy::Fallback,
             extra_font_dirs: Vec::new(),
-            extra_font_families: Vec::new(),
             registered_fonts: Vec::new(),
             default_sans_serif_family: None,
             default_monospace_family: None,

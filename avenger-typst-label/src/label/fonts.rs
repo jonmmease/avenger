@@ -55,7 +55,7 @@ pub(crate) fn candidate_math_font_paths(config: &EngineOptions) -> Vec<PathBuf> 
         }
 
         for dir in system_font_dirs() {
-            collect_font_paths(dir, &mut push, !config.fonts.extra_font_families.is_empty());
+            collect_font_paths(dir, &mut push, false);
         }
     }
 

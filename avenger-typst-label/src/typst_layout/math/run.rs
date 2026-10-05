@@ -34,10 +34,6 @@ pub(crate) fn try_typeset_simple_row_fragment_with_fontdb(
     config: &EngineOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<MathRunArtifact>, LabelError> {
-    if !config.fonts.extra_font_families.is_empty() {
-        return Ok(None);
-    }
-
     let Some(mut font) = load_default_math_font_with_fontdb(
         config,
         fontdb,

@@ -88,13 +88,8 @@ fn final_public_api_compiles_measures_and_lowers_markup_label() {
 fn final_public_api_exposes_options_and_external_param_model() {
     let mut engine_options = EngineOptions::default();
     engine_options.fonts.load_system_fonts = false;
-    engine_options
-        .fonts
-        .extra_font_families
-        .push("Lato".to_string());
 
     assert!(!engine_options.fonts.load_system_fonts);
-    assert_eq!(engine_options.fonts.extra_font_families, ["Lato"]);
 
     let mut dict = IndexMap::new();
     dict.insert("paint".to_string(), LabelParamValue::Str("red".to_string()));
