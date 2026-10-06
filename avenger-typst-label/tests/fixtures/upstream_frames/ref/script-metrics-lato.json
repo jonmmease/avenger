@@ -1,0 +1,51 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[42,0.654,0.0,0.0,0.0,[0,1],[0,2],0],[137,0.504,0.0,0.0,0.0,[1,2],[0,2],1]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "Xx"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[42,0.654,0.0,0.0,0.0,[0,1],[29,31],0],[137,0.504,0.0,0.0,0.0,[1,2],[29,31],1]],
+          "lang": "en",
+          "size": 7.8,
+          "text": "Xx"
+        },
+        "x": 13.896,
+        "y": 2.892
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[42,0.654,0.0,0.0,0.0,[0,1],[57,59],0],[137,0.504,0.0,0.0,0.0,[1,2],[57,59],1]],
+          "lang": "en",
+          "size": 7.8,
+          "text": "Xx"
+        },
+        "x": 22.9284,
+        "y": 10.296
+      }
+    ],
+    "kind": "hard",
+    "width": 31.9608
+  },
+  "repr": "sequence(\n  [Xx],\n  super(typographic: false, body: [Xx]),\n  sub(typographic: false, body: [Xx]),\n)",
+  "source": "Xx#super(typographic: false)[Xx]#sub(typographic: false)[Xx]",
+  "warnings": []
+}

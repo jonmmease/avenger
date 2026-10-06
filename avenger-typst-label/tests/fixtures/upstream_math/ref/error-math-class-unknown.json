@@ -1,0 +1,12 @@
+{
+  "errors": [
+    {
+      "hints": [],
+      "message": "expected \"normal\", \"punctuation\", \"opening\", \"closing\", \"fence\", \"large\", \"relation\", \"unary\", \"binary\", or \"vary\"",
+      "range": [7,16]
+    }
+  ],
+  "repr": null,
+  "source": "$class(\"unknown\", !)$",
+  "warnings": []
+}

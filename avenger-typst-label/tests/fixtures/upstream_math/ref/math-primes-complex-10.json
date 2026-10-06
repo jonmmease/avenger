@@ -1,0 +1,53 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑎","type":"glyph"},
+        "bl": null,
+        "br": null,
+        "props": {"class":"Alphabetic","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": {
+          "items": [
+            {"glyph_class":"Normal","props":{"class":"Normal","size":"Script","span":null},"text":"′","type":"glyph"},
+            {
+              "b": null,
+              "base": {"props":{"size":"Script","span":[4,5]},"text":"2","type":"number"},
+              "bl": null,
+              "br": null,
+              "props": {"size":"Script","span":null},
+              "t": null,
+              "tl": null,
+              "tr": {"props":{"size":"ScriptScript","span":[6,7]},"style":{"font_size":6.6},"text":"2","type":"number"},
+              "type": "scripts"
+            }
+          ],
+          "props": {"size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "type": "group"
+        },
+        "type": "scripts"
+      },
+      "span": [0,8]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3628,0.557,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑎"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2953,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":8.4,"text":"′"},"x":6.684,"y":2.904},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[4,5],0]],"lang":"en","size":8.4,"text":"2"},"x":9.0864,"y":2.904},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3050,0.58,0.0,0.0,0.0,[0,1],[6,7],0]],"lang":"en","size":6.6,"text":"2"},"x":13.9584,"y":-0.624}
+    ],
+    "kind": "hard",
+    "width": 19.0104
+  },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [a],\n    t: attach(base: [2], t: [2]),\n    tr: primes(count: 1),\n  ),\n)",
+  "source": "$a'^2^2$",
+  "warnings": []
+}

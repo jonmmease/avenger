@@ -1,0 +1,95 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":5.0},"short_fall":0.0,"target":{"abs":0.0,"rel":5.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":5.0},"short_fall":0.0,"target":{"abs":0.0,"rel":5.0}}
+            },
+            "text": "→",
+            "type": "glyph"
+          },
+          {"glyph_class":"Relation","props":{"class":"Relation","limits":"Always","size":"Text","span":[35,38]},"text":"⋙","type":"glyph"},
+          {
+            "b": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[73,74]},
+              "style": {"font_size":8.4},
+              "text": "𝐴",
+              "type": "glyph"
+            },
+            "base": {
+              "glyph_class": "Relation",
+              "props": {"class":"Relation","limits":"Always","size":"Text","span":null},
+              "stretch": {
+                "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":5.0},"short_fall":0.0,"target":{"abs":0.0,"rel":5.0}},
+                "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":5.0},"short_fall":0.0,"target":{"abs":0.0,"rel":5.0}}
+              },
+              "text": "→",
+              "type": "glyph"
+            },
+            "bl": null,
+            "br": null,
+            "props": {"class":"Relation","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,75]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 9.4152,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [2474,0.382666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.287666667,0.0,0.0,0.0,[0,3],null,0],
+            [2475,0.79,0.0,0.0,0.0,[0,3],null,0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "→"
+        },
+        "x": 0.0,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[748,1.274,0.0,0.0,0.0,[0,3],[35,38],0]],"lang":"en","size":12.0,"text":"⋙"},"x":62.4,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[430,1.04,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"→"},"x":77.688,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2675,0.693,0.0,0.0,0.0,[0,4],[73,74],0]],"lang":"en","size":8.4,"text":"𝐴"},"x":81.0174,"y":14.8752}
+    ],
+    "kind": "hard",
+    "width": 90.168
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    stretch(body: stretch(body: [→], size: 500% + 0pt)),\n    [ ],\n    [⋙],\n    [ ],\n    attach(\n      base: stretch(body: stretch(body: [→], size: 500% + 0pt)),\n      b: [A],\n    ),\n  ),\n)",
+  "source": "$stretch(stretch(->, size: #500%)) >>> stretch(stretch(->, size: #500%))_A$",
+  "warnings": []
+}

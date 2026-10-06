@@ -1,0 +1,18 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,2]
+    }
+  ],
+  "fonts": [],
+  "frame": {"baseline":7.944,"height":7.944,"items":[],"kind":"hard","width":0.0},
+  "repr": "equation(block: false, body: [])",
+  "source": "$$",
+  "warnings": []
+}

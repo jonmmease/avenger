@@ -1,0 +1,137 @@
+{
+  "equations": [
+    {
+      "root": {
+        "balanced": true,
+        "body": {
+          "items": [
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[5,6]},"text":"𝑥","type":"glyph"},
+            {"glyph_class":"Vary","props":{"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[7,8]},"text":"+","type":"glyph"},
+            {"glyph_class":"Fence","props":{"class":"Fence","size":"Text","span":[9,10]},"text":"|","type":"glyph"},
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[10,11]},"text":"𝑦","type":"glyph"},
+            {"glyph_class":"Fence","props":{"class":"Fence","size":"Text","span":[11,12]},"text":"|","type":"glyph"},
+            {"glyph_class":"Vary","props":{"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[13,14]},"text":"+","type":"glyph"},
+            {
+              "denominator": {
+                "glyph_class": "Alphabetic",
+                "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[17,18]},
+                "style": {"font_size":8.4},
+                "text": "𝑎",
+                "type": "glyph"
+              },
+              "line": true,
+              "numerator": {
+                "glyph_class": "Alphabetic",
+                "props": {"class":"Alphabetic","size":"Script","span":[15,16]},
+                "style": {"font_size":8.4},
+                "text": "𝑧",
+                "type": "glyph"
+              },
+              "padding": 0.1,
+              "props": {"size":"Text","span":[15,18]},
+              "type": "fraction"
+            }
+          ],
+          "props": {"size":"Text","span":null},
+          "type": "group"
+        },
+        "close": {
+          "glyph_class": "Fence",
+          "props": {"class":"Closing","size":"Text","span":[18,19]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "|",
+          "type": "glyph"
+        },
+        "open": {
+          "glyph_class": "Fence",
+          "props": {"class":"Opening","size":"Text","span":[4,5]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "|",
+          "type": "glyph"
+        },
+        "props": {"size":"Text","span":[1,20]},
+        "shared": false,
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "fenced"
+      },
+      "span": [0,21]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 9.006,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 9.006,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1911,0.416,0.0,0.0,0.0,[0,1],[4,5],0]],"lang":"en","size":12.0,"text":"|"},"x":0.0,"y":7.938},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[5,6],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":4.992,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[7,8],0]],"lang":"en","size":12.0,"text":"+"},
+                "x": 14.510666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[93,0.25,0.0,0.0,0.0,[0,1],[9,10],0]],"lang":"en","size":12.0,"text":"|"},
+                "x": 25.397333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3651,0.521,0.0,0.0,0.0,[0,4],[10,11],0]],"lang":"en","size":12.0,"text":"𝑦"},
+                "x": 28.397333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[93,0.25,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":12.0,"text":"|"},
+                "x": 34.649333333,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":12.0,"text":"+"},"x":40.316,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2726,0.53,0.0,0.0,0.0,[0,4],[15,16],0]],"lang":"en","size":8.4,"text":"𝑧"},
+                "x": 52.524466667,
+                "y": 2.544
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[17,18],0]],"lang":"en","size":8.4,"text":"𝑎"},
+                "x": 52.402666667,
+                "y": 13.704
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[4.6956,0.0]},
+                  "span": [15,18],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 52.402666667,
+                "y": 4.584
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[1911,0.416,0.0,0.0,0.0,[0,1],[18,19],0]],"lang":"en","size":12.0,"text":"|"},
+                "x": 58.298266667,
+                "y": 7.938
+              }
+            ],
+            "kind": "soft",
+            "width": 63.290266667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 63.290266667
+  },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence(\n      [|],\n      [x],\n      [ ],\n      [+],\n      [ ],\n      [|],\n      [y],\n      [|],\n      [ ],\n      [+],\n      [ ],\n      frac(num: [z], denom: [a]),\n      [|],\n    ),\n  ),\n)",
+  "source": "$lr(|x + |y| + z/a|)$",
+  "warnings": []
+}

@@ -1,0 +1,80 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[6,8]},"text":"𝜋","type":"glyph"},
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[9,10]},"text":"𝑟","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"props":{"size":"Script","span":[11,12]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [5,13]
+    }
+  ],
+  "fonts": [
+    {"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]},
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}
+  ],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [3,0.6795,0.0,0.0,0.0,[0,1],[0,4],0],
+            [117,0.3475,0.0,0.0,0.0,[1,2],[0,4],1],
+            [59,0.5295,0.0,0.0,0.0,[2,3],[0,4],2],
+            [45,0.4995,0.0,0.0,0.0,[3,4],[0,4],3],
+            [2,0.2525,0.0,0.0,0.0,[4,5],[4,5],0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "Area "
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[4254,0.653,0.0,0.0,0.0,[0,4],[6,8],0]],"lang":"en","size":12.0,"text":"𝜋"},"x":27.702,"y":8.616},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[3644,0.438,0.0,0.0,0.0,[0,4],[9,10],0]],"lang":"en","size":12.0,"text":"𝑟"},"x":35.538,"y":8.616},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":8.4,"text":"2"},"x":40.794,"y":3.576},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [2,0.2525,0.0,0.0,0.0,[0,1],[13,14],0],
+            [95,0.5595,0.0,0.0,0.0,[1,2],[14,18],0],
+            [59,0.5295,0.0,0.0,0.0,[2,3],[14,18],1],
+            [117,0.3475,0.0,0.0,0.0,[3,4],[14,18],2],
+            [59,0.5295,0.0,0.0,0.0,[4,5],[14,18],3]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": " here"
+        },
+        "x": 46.386,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 73.008
+  },
+  "repr": "sequence(\n  [Area],\n  [ ],\n  equation(\n    block: false,\n    body: sequence([π], [ ], attach(base: [r], t: [2])),\n  ),\n  [ ],\n  [here],\n)",
+  "source": "Area $pi r^2$ here",
+  "warnings": []
+}

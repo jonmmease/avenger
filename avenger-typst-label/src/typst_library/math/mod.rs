@@ -1,0 +1,183 @@
+//! Ported from crates/typst-library/src/math/mod.rs @ v0.15.1, modified for Avenger.
+//!
+//! Mathematical formulas.
+//!
+//! avenger: no matrices, vectors or case distinctions, which span several lines; their
+//! functions in the math module report that. No alignment points, which only align lines.
+
+pub mod accent;
+mod attach;
+mod cancel;
+mod equation;
+mod frac;
+pub mod ir;
+mod lr;
+mod op;
+mod root;
+mod style;
+mod underover;
+
+pub use self::accent::{ACCENT_SHORT_FALL, AccentElem};
+pub use self::attach::*;
+pub use self::cancel::*;
+pub use self::equation::*;
+pub use self::frac::*;
+pub use self::lr::*;
+pub use self::op::*;
+pub use self::root::*;
+pub use self::style::*;
+pub use self::underover::*;
+
+use unicode_math_class::MathClass;
+
+use crate::typst_library::diag::{SourceResult, bail};
+use crate::typst_library::foundations::{
+    Args, Content, Module, NativeElement, Scope, StyleChain, elem, func,
+};
+use crate::typst_library::layout::{Em, HElem};
+use crate::typst_library::text::{FontFamily, TextElem};
+
+// Spacings.
+pub const THIN: Em = Em::new(1.0 / 6.0);
+pub const MEDIUM: Em = Em::new(2.0 / 9.0);
+pub const THICK: Em = Em::new(5.0 / 18.0);
+pub const QUAD: Em = Em::new(1.0);
+pub const WIDE: Em = Em::new(2.0);
+
+/// Create a module with all math definitions.
+// avenger: `vec`, `mat` and `cases` are functions that report they are unsupported.
+pub fn module() -> Module {
+    let mut math = Scope::deduplicating();
+    math.define_elem::<EquationElem>();
+    math.define_elem::<TextElem>();
+    math.define_elem::<LrElem>();
+    math.define_elem::<MidElem>();
+    math.define_elem::<AttachElem>();
+    math.define_elem::<StretchElem>();
+    math.define_elem::<ScriptsElem>();
+    math.define_elem::<LimitsElem>();
+    math.define_elem::<AccentElem>();
+    math.define_elem::<UnderlineElem>();
+    math.define_elem::<OverlineElem>();
+    math.define_elem::<UnderbraceElem>();
+    math.define_elem::<OverbraceElem>();
+    math.define_elem::<UnderbracketElem>();
+    math.define_elem::<OverbracketElem>();
+    math.define_elem::<UnderparenElem>();
+    math.define_elem::<OverparenElem>();
+    math.define_elem::<UndershellElem>();
+    math.define_elem::<OvershellElem>();
+    math.define_elem::<CancelElem>();
+    math.define_elem::<FracElem>();
+    math.define_elem::<BinomElem>();
+    math.define_func::<vec>();
+    math.define_func::<mat>();
+    math.define_func::<cases>();
+    math.define_elem::<RootElem>();
+    math.define_elem::<ClassElem>();
+    math.define_elem::<OpElem>();
+    math.define_elem::<PrimesElem>();
+    math.define_func::<abs>();
+    math.define_func::<norm>();
+    math.define_func::<round>();
+    math.define_func::<sqrt>();
+    math.define_func::<upright>();
+    math.define_func::<bold>();
+    math.define_func::<italic>();
+    math.define_func::<serif>();
+    math.define_func::<sans>();
+    math.define_func::<scr>();
+    math.define_func::<cal>();
+    math.define_func::<frak>();
+    math.define_func::<mono>();
+    math.define_func::<bb>();
+    math.define_func::<display>();
+    math.define_func::<inline>();
+    math.define_func::<script>();
+    math.define_func::<sscript>();
+
+    // Text operators.
+    op::define(&mut math);
+
+    // Spacings.
+    math.define("thin", HElem::new(THIN.into()).pack());
+    math.define("med", HElem::new(MEDIUM.into()).pack());
+    math.define("thick", HElem::new(THICK.into()).pack());
+    math.define("quad", HElem::new(QUAD.into()).pack());
+    math.define("wide", HElem::new(WIDE.into()).pack());
+
+    // Symbols.
+    crate::typst_library::symbols::define_math(&mut math);
+
+    Module::new("math", math)
+}
+
+func! {
+/// A column vector.
+// avenger: unsupported, since a vector spans several lines.
+#[func]
+pub fn vec(args: &mut Args) -> SourceResult<Content> {
+    bail!(args.span, "vectors are not supported in labels")
+}
+}
+
+func! {
+/// A matrix.
+// avenger: unsupported, since a matrix spans several lines.
+#[func]
+pub fn mat(args: &mut Args) -> SourceResult<Content> {
+    bail!(args.span, "matrices are not supported in labels")
+}
+}
+
+func! {
+/// A case distinction.
+// avenger: unsupported, since a case distinction spans several lines.
+#[func]
+pub fn cases(args: &mut Args) -> SourceResult<Content> {
+    bail!(args.span, "case distinctions are not supported in labels")
+}
+}
+
+/// Trait for recognizing math elements and auto-wrapping them in equations.
+pub trait Mathy {}
+
+elem! {
+/// Forced use of a certain math class.
+///
+/// This is useful to treat certain symbols as if they were of a different
+/// class, e.g. to make a symbol behave like a relation. The class of a symbol
+/// defines the way it is laid out, including spacing around it, and how its
+/// scripts are attached by default. Note that the latter can always be
+/// overridden using @math.limits[`{limits}`] and @math.scripts[`{scripts}`].
+///
+/// = Example <example>
+/// ```example
+/// #let loves = math.class(
+///   "relation",
+///   sym.suit.heart,
+/// )
+///
+/// $x loves y and y loves 5$
+/// ```
+#[elem(name = "class", Mathy)]
+pub struct ClassElem {
+    /// The class to apply to the content.
+    #[required]
+    pub class: MathClass,
+
+    /// The content to which the class is applied.
+    #[required]
+    pub body: Content,
+}
+}
+
+/// Resolve a prioritized iterator over the font families for math.
+// upstream: crates/typst-library/src/math/mod.rs::families @ v0.15.1
+pub fn families(styles: StyleChain<'_>) -> impl Iterator<Item = &'_ FontFamily> + Clone {
+    // avenger: the fallback families are the `fallbacks` property of equations.
+    let fallbacks = styles.get_ref(EquationElem::fallbacks);
+
+    let tail = if styles.get(TextElem::fallback) { fallbacks.0.as_slice() } else { &[] };
+    styles.get_ref(TextElem::font).into_iter().chain(tail.iter())
+}

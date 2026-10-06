@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected relative length, found auto","range":[20,24]}],"repr":null,"source":"$stretch(->, size: #auto)$","warnings":[]}

@@ -1,0 +1,98 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "denominator": {
+              "items": [
+                {"glyph_class":"Unary","props":{"class":"Unary","cramped":true,"size":"Script","span":null},"style":{"italic":false},"text":"D","type":"glyph"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[14,15]},"text":"𝑥","type":"glyph"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "line": true,
+            "numerator": {
+              "items": [
+                {"glyph_class":"Unary","props":{"class":"Unary","size":"Script","span":null},"style":{"italic":false},"text":"D","type":"glyph"},
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[6,7]},"text":"𝑦","type":"glyph"}
+              ],
+              "props": {"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "padding": 0.1,
+            "props": {"size":"Text","span":[1,16]},
+            "type": "fraction"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[16,17]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[18,19]},"text":"𝑥","type":"glyph"},
+          {"abs":0.0,"em":0.166666667,"font_size":12.0,"type":"spacing","weak":true},
+          {"glyph_class":"Unary","props":{"class":"Unary","size":"Text","span":null},"style":{"italic":false},"text":"D","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[24,25]},"text":"𝑦","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,26]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 8.244,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 8.244,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2562,0.76,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":8.4,"text":"D"},"x":1.5906,"y":1.7916},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2725,0.527,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑦"},"x":7.9746,"y":1.7916},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2562,0.76,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":8.4,"text":"D"},"x":1.2,"y":13.704},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":8.4,"text":"𝑥"},"x":7.584,"y":13.704},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[11.592,0.0]},
+                  "span": [1,16],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 1.2,
+                "y": 4.584
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[16,17],0]],"lang":"en","size":12.0,"text":","},"x":13.992,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[18,19],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 18.716,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[37,0.76,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"D"},"x":27.568,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3651,0.521,0.0,0.0,0.0,[0,4],[24,25],0]],"lang":"en","size":12.0,"text":"𝑦"},
+                "x": 36.688,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 42.94
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 42.94
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    frac(\n      num: sequence(\n        sequence(\n          h(amount: 0.17em, weak: true),\n          class(class: \"unary\", body: styled(child: [D], ..)),\n        ),\n        [ ],\n        [y],\n      ),\n      denom: sequence(\n        sequence(\n          h(amount: 0.17em, weak: true),\n          class(class: \"unary\", body: styled(child: [D], ..)),\n        ),\n        [ ],\n        [x],\n      ),\n    ),\n    [,],\n    [ ],\n    [x],\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [D], ..)),\n    ),\n    [ ],\n    [y],\n  ),\n)",
+  "source": "$(Dif y)/(Dif x), x Dif y$",
+  "warnings": []
+}

@@ -1,0 +1,67 @@
+{
+  "equations": [
+    {
+      "root": {
+        "glyph_class": "Alphabetic",
+        "props": {"class":"Alphabetic","size":"Text","span":[10,11]},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "text": "𝑥",
+        "type": "glyph"
+      },
+      "span": [9,12]
+    }
+  ],
+  "fonts": [
+    {"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]},
+    {"family":"Noto Sans Hebrew","index":0,"postscript":"NotoSansHebrew-Thin","variations":[["wdth",100.0],["wght",500.0]]},
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}
+  ],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2,0.2525,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"he","size":12.0,"text":" "},"x":35.586,"y":8.616},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 1,
+          "glyphs": [
+            [23,0.69,0.0,0.0,0.0,[6,8],[0,8],6],
+            [124,0.303,-0.01,0.0,0.0,[4,6],[0,8],4],
+            [55,0.534,0.0,0.0,0.0,[2,4],[0,8],2],
+            [96,0.749,0.0,0.0,0.0,[0,2],[0,8],0]
+          ],
+          "lang": "he",
+          "size": 12.0,
+          "text": "שלום"
+        },
+        "x": 38.616,
+        "y": 8.616
+      },
+      {"text":{"fill":"#000000ff","font":2,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[10,11],0]],"lang":"he","size":12.0,"text":"𝑥"},"x":28.734,"y":8.616},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 1,
+          "glyphs": [
+            [23,0.69,0.0,0.0,0.0,[6,8],[13,21],6],
+            [55,0.534,0.0,0.0,0.0,[4,6],[13,21],4],
+            [124,0.313,0.0,0.0,0.0,[2,4],[13,21],2],
+            [10,0.605,0.0,0.0,0.0,[0,2],[13,21],0]
+          ],
+          "lang": "he",
+          "size": 12.0,
+          "text": "עולם"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2,0.2525,0.0,0.0,0.0,[0,1],[12,13],0]],"lang":"he","size":12.0,"text":" "},"x":25.704,"y":8.616}
+    ],
+    "kind": "hard",
+    "width": 65.928
+  },
+  "repr": "sequence(\n  [שלום],\n  [ ],\n  equation(block: false, body: [x]),\n  [ ],\n  [עולם],\n)",
+  "source": "שלום $x$ עולם",
+  "warnings": []
+}

@@ -1,0 +1,93 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": {"props":{"cramped":true,"size":"Script","span":[11,12]},"style":{"font_size":8.4},"text":"1","type":"number"},
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","limits":"Always","size":"Text","span":[8,9]},"text":"𝐴","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": {"props":{"size":"Script","span":[13,14]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[15,17]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[18,19]},"text":"𝐴","type":"glyph"},
+            "bl": null,
+            "br": {"props":{"cramped":true,"size":"Script","span":[20,21]},"style":{"font_size":8.4},"text":"1","type":"number"},
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"props":{"size":"Script","span":[22,23]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,24]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 11.0304,
+    "height": 13.4184,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 11.0304,
+            "height": 13.4184,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3602,0.721,0.0,0.0,0.0,[0,4],[8,9],0]],"lang":"en","size":12.0,"text":"𝐴"},"x":0.0,"y":11.0304},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":8.4,"text":"2"},"x":1.89,"y":0.6384},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":8.4,"text":"1"},"x":1.89,"y":18.8784},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[15,17],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 11.985333333,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3602,0.721,0.0,0.0,0.0,[0,4],[18,19],0]],"lang":"en","size":12.0,"text":"𝐴"},
+                "x": 23.538666667,
+                "y": 11.0304
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[22,23],0]],"lang":"en","size":8.4,"text":"2"},
+                "x": 32.190666667,
+                "y": 5.9664
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[20,21],0]],"lang":"en","size":8.4,"text":"1"},
+                "x": 32.070666667,
+                "y": 14.0544
+              }
+            ],
+            "kind": "soft",
+            "width": 37.782666667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 37.782666667
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: limits(body: [A]), t: [2], b: [1]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: [A], t: [2], b: [1]),\n  ),\n)",
+  "source": "$limits(A)_1^2 != A_1^2$",
+  "warnings": []
+}

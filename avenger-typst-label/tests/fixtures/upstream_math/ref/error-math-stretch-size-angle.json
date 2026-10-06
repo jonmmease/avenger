@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected relative length, found angle","range":[20,25]}],"repr":null,"source":"$stretch(->, size: #45deg)$","warnings":[]}

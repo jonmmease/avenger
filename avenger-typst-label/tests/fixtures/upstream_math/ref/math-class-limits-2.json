@@ -1,0 +1,39 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": {
+          "glyph_class": "Alphabetic",
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[22,23]},
+          "style": {"font_size":8.4},
+          "text": "𝑎",
+          "type": "glyph"
+        },
+        "base": {"glyph_class":"Relation","props":{"class":"Relation","limits":"Always","size":"Text","span":[19,20]},"text":"𝑥","type":"glyph"},
+        "bl": null,
+        "br": null,
+        "props": {"class":"Relation","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": null,
+        "type": "scripts"
+      },
+      "span": [0,24]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 9.7428,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[19,20],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[22,23],0]],"lang":"en","size":8.4,"text":"𝑎"},"x":0.5142,"y":15.144}
+    ],
+    "kind": "hard",
+    "width": 6.852
+  },
+  "repr": "equation(\n  block: false,\n  body: attach(base: class(class: \"relation\", body: [x]), b: [a]),\n)",
+  "source": "$class(\"relation\", x)_a$",
+  "warnings": []
+}

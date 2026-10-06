@@ -1,0 +1,28 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Bold","variations":[]},{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.676,
+    "height": 8.676,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[42,0.6705,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":12.0,"text":"X"},"x":0.0,"y":8.676},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 1,
+          "glyphs": [[2,0.213,0.0,0.0,0.0,[0,1],[10,11],0],[43,0.63,0.0,0.0,0.0,[1,2],[11,12],0]],
+          "lang": "en",
+          "size": 12.0,
+          "text": " Y"
+        },
+        "x": 8.046,
+        "y": 8.676
+      }
+    ],
+    "kind": "hard",
+    "width": 18.162
+  },
+  "repr": "styled(child: sequence(strong(body: [x]), [ ], [y]), ..)",
+  "source": "#upper[*x* y]",
+  "warnings": []
+}

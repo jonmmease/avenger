@@ -1,0 +1,104 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑓","type":"glyph"},
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[3,4]},"text":"𝑥","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[4,5]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": ")",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[2,3]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "(",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[2,5]},
+            "shared": false,
+            "type": "fenced"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[6,8]},
+            "text": "≔",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[9,10]},"text":"𝑥","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {"props":{"size":"Script","span":[11,12]},"style":{"font_size":8.4},"text":"2","type":"number"},
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,13]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3633,0.426,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑓"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[9,0.315,0.0,0.0,0.0,[0,1],[2,3],0]],"lang":"en","size":12.0,"text":"("},"x":5.112,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[3,4],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":8.892,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[10,0.315,0.0,0.0,0.0,[0,1],[4,5],0]],"lang":"en","size":12.0,"text":")"},"x":15.744,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[615,0.824,0.0,0.0,0.0,[0,3],[6,8],0]],"lang":"en","size":12.0,"text":"≔"},
+                "x": 22.857333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[9,10],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 36.078666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":8.4,"text":"2"},
+                "x": 42.930666667,
+                "y": 2.904
+              }
+            ],
+            "kind": "soft",
+            "width": 48.522666667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 48.522666667
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    [≔],\n    [ ],\n    attach(base: [x], t: [2]),\n  ),\n)",
+  "source": "$f(x) := x^2$",
+  "warnings": []
+}

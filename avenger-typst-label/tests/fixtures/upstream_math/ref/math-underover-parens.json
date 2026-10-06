@@ -1,0 +1,205 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {
+          "accent": {
+            "glyph_class": "Normal",
+            "props": {"class":"Diacritic","size":"Text","span":[1,64]},
+            "stretch": {"x":{"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}},"y":null},
+            "text": "⏜",
+            "type": "glyph"
+          },
+          "base": {
+            "b": {
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","spaced":true,"span":null},
+              "style": {"font_size":8.4},
+              "text": "long comment",
+              "type": "text"
+            },
+            "base": {
+              "accent": {
+                "glyph_class": "Normal",
+                "props": {"class":"Diacritic","size":"Text","span":[12,45]},
+                "stretch": {"x":{"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}},"y":null},
+                "text": "⏝",
+                "type": "glyph"
+              },
+              "base": {
+                "items": [
+                  {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[23,24]},"text":"𝑥","type":"glyph"},
+                  {
+                    "glyph_class": "Vary",
+                    "props": {"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[25,26]},
+                    "text": "+",
+                    "type": "glyph"
+                  },
+                  {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[27,28]},"text":"𝑦","type":"glyph"}
+                ],
+                "props": {"size":"Text","span":null},
+                "type": "group"
+              },
+              "dotless": false,
+              "exact_frame_width": true,
+              "position": "Below",
+              "props": {"size":"Text","span":null},
+              "type": "accent"
+            },
+            "bl": null,
+            "br": null,
+            "props": {"size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          "dotless": false,
+          "exact_frame_width": true,
+          "position": "Above",
+          "props": {"size":"Text","span":null},
+          "type": "accent"
+        },
+        "bl": null,
+        "br": null,
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": {
+          "items": [
+            {"props":{"size":"Script","span":[47,48]},"text":"1","type":"number"},
+            {"glyph_class":"Vary","props":{"class":"Binary","size":"Script","span":[49,50]},"text":"+","type":"glyph"},
+            {"props":{"size":"Script","span":[51,52]},"text":"2","type":"number"},
+            {"glyph_class":"Vary","props":{"class":"Binary","size":"Script","span":[53,54]},"text":"+","type":"glyph"},
+            {"glyph_class":"Normal","props":{"class":"Normal","size":"Script","span":[55,58]},"text":"…","type":"glyph"},
+            {"glyph_class":"Vary","props":{"class":"Binary","size":"Script","span":[59,60]},"text":"+","type":"glyph"},
+            {"props":{"size":"Script","span":[61,62]},"text":"5","type":"number"}
+          ],
+          "props": {"size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "type": "group"
+        },
+        "tl": null,
+        "tr": null,
+        "type": "scripts"
+      },
+      "span": [0,65]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 14.76,
+    "height": 25.3236,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 14.76,
+            "height": 25.3236,
+            "items": [
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[23,24],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 15.471333333,
+                "y": 14.76
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[25,26],0]],"lang":"en","size":12.0,"text":"+"},"x":24.99,"y":14.76},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3651,0.521,0.0,0.0,0.0,[0,4],[27,28],0]],"lang":"en","size":12.0,"text":"𝑦"},
+                "x": 35.876666667,
+                "y": 14.76
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2254,2.48,0.0,0.0,0.0,[0,3],[12,45],0]],"lang":"en","size":12.0,"text":"⏝"},"x":13.92,"y":16.824},
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [
+                    [2601,0.24,0.0,0.0,0.0,[0,1],null,0],
+                    [2604,0.569,0.0,0.0,0.0,[1,2],null,1],
+                    [2603,0.56,0.0,0.0,0.0,[2,3],null,2],
+                    [2596,0.522,0.0,0.0,0.0,[3,4],null,3],
+                    [1,0.25,0.0,0.0,0.0,[4,5],null,4],
+                    [2592,0.478,0.0,0.0,0.0,[5,6],null,5],
+                    [2604,0.569,0.0,0.0,0.0,[6,7],null,6],
+                    [2602,0.827,0.0,0.0,0.0,[7,8],null,7],
+                    [2602,0.827,0.0,0.0,0.0,[8,9],null,8],
+                    [2594,0.53,0.0,0.0,0.0,[9,10],null,9],
+                    [2603,0.56,0.0,0.0,0.0,[10,11],null,10],
+                    [2609,0.362,0.0,0.0,0.0,[11,12],null,11]
+                  ],
+                  "lang": "en",
+                  "size": 8.4,
+                  "text": "long comment"
+                },
+                "x": 2.3652,
+                "y": 29.2632
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2244,4.8,0.0,0.0,0.0,[0,3],[1,64],0]],"lang":"en","size":12.0,"text":"⏜"},"x":0.0,"y":14.196},
+              {
+                "group": {
+                  "clip": null,
+                  "frame": {
+                    "baseline": 6.0984,
+                    "height": 6.216,
+                    "items": [
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[47,48],0]],"lang":"en","size":8.4,"text":"1"},
+                        "x": 0.0,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2793,0.685,0.0,0.0,0.0,[0,1],[49,50],0]],"lang":"en","size":8.4,"text":"+"},
+                        "x": 4.872,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[51,52],0]],"lang":"en","size":8.4,"text":"2"},
+                        "x": 10.626,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2793,0.685,0.0,0.0,0.0,[0,1],[53,54],0]],"lang":"en","size":8.4,"text":"+"},
+                        "x": 15.498,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2817,0.75,0.0,0.0,0.0,[0,3],[55,58],0]],"lang":"en","size":8.4,"text":"…"},
+                        "x": 21.252,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2793,0.685,0.0,0.0,0.0,[0,1],[59,60],0]],"lang":"en","size":8.4,"text":"+"},
+                        "x": 27.552,
+                        "y": 6.0984
+                      },
+                      {
+                        "text": {"fill":"#000000ff","font":0,"glyphs":[[2553,0.58,0.0,0.0,0.0,[0,1],[61,62],0]],"lang":"en","size":8.4,"text":"5"},
+                        "x": 33.306,
+                        "y": 6.0984
+                      }
+                    ],
+                    "kind": "soft",
+                    "width": 38.178
+                  },
+                  "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+                },
+                "x": 9.711,
+                "y": -5.46
+              }
+            ],
+            "kind": "soft",
+            "width": 57.6
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 57.6
+  },
+  "repr": "equation(\n  block: false,\n  body: overparen(\n    body: underparen(\n      body: sequence([x], [ ], [+], [ ], [y]),\n      annotation: [long comment],\n    ),\n    annotation: sequence(\n      [1],\n      [ ],\n      [+],\n      [ ],\n      [2],\n      [ ],\n      [+],\n      [ ],\n      […],\n      [ ],\n      [+],\n      [ ],\n      [5],\n    ),\n  ),\n)",
+  "source": "$overparen( underparen(x + y, \"long comment\"), 1 + 2 + ... + 5 )$",
+  "warnings": []
+}

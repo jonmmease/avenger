@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"unexpected argument: foo","range":[12,22]}],"repr":null,"source":"$frac(x, y, foo: \"bar\")$","warnings":[]}

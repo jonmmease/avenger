@@ -1,0 +1,111 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[18,19]},
+              "style": {"font_size":8.4},
+              "text": "𝑎",
+              "type": "glyph"
+            },
+            "base": {"glyph_class":"Large","props":{"class":"Large","limits":"Always","size":"Text","span":null},"text":"∫","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[20,21]},"style":{"font_size":8.4},"text":"𝑏","type":"glyph"},
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[22,24]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {"glyph_class":"Large","props":{"class":"Large","size":"Text","span":[25,33]},"text":"∫","type":"glyph"},
+            "bl": null,
+            "br": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[34,35]},
+              "style": {"font_size":8.4},
+              "text": "𝑎",
+              "type": "glyph"
+            },
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[36,37]},
+              "style": {"font_size":8.4},
+              "text": "𝑏",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,38]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 12.738,
+    "height": 17.9568,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 12.738,
+            "height": 17.9568,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∫"},"x":0.0078,"y":12.738},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2702,0.57,0.0,0.0,0.0,[0,4],[20,21],0]],"lang":"en","size":8.4,"text":"𝑏"},"x":2.3538,"y":0.7392},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[18,19],0]],"lang":"en","size":8.4,"text":"𝑎"},"x":0.0,"y":23.358},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[22,24],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 10.475133333,
+                "y": 12.738
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],[25,33],0]],"lang":"en","size":12.0,"text":"∫"},
+                "x": 22.028466667,
+                "y": 12.738
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2702,0.57,0.0,0.0,0.0,[0,4],[36,37],0]],"lang":"en","size":8.4,"text":"𝑏"},
+                "x": 29.108466667,
+                "y": 7.59
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[34,35],0]],"lang":"en","size":8.4,"text":"𝑎"},
+                "x": 26.708466667,
+                "y": 18.558
+              }
+            ],
+            "kind": "soft",
+            "width": 34.616466667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 34.616466667
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: limits(body: [∫]), t: [b], b: [a]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: [∫], t: [b], b: [a]),\n  ),\n)",
+  "source": "$limits(integral)_a^b != integral_a^b$",
+  "warnings": []
+}

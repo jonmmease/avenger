@@ -1,0 +1,183 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,10]},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[11,20]},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[20,21]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"italic":false},"text":"ı","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"italic":false},"text":"ȷ","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[59,60]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"SansSerif"},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"SansSerif"},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[92,93]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"bold":true},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"bold":true},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[125,126]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "𝚤",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"math_variant":"DoubleStruck"},
+            "text": "𝚥",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[154,155]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Chancery"},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Chancery"},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[185,186]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Fraktur"},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Fraktur"},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[218,219]},"text":",","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Monospace"},"text":"𝚤","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"Monospace"},"text":"𝚥","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[251,252]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"bold":true,"math_variant":"Fraktur"},
+            "text": "𝚤",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"italic":false,"math_variant":"SansSerif"},
+            "text": "ȷ",
+            "type": "glyph"
+          },
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[299,300]},"text":",","type":"glyph"},
+          {
+            "glyph_class": "Alphabetic",
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "style": {"italic":true,"math_variant":"DoubleStruck"},
+            "text": "𝚤",
+            "type": "glyph"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":null},"style":{"math_variant":"SansSerif"},"text":"𝚥","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,345]
+    }
+  ],
+  "fonts": [
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]},
+    {"family":"DejaVu Sans Mono","index":0,"postscript":"DejaVuSansMono","variations":[]}
+  ],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4153,0.266,0.0,0.0,0.0,[0,4],[1,10],0]],"lang":"en","size":12.0,"text":"𝑖"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4154,0.345,0.0,0.0,0.0,[0,4],[11,20],0]],"lang":"en","size":12.0,"text":"𝑗"},"x":3.192,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[20,21],0]],"lang":"en","size":12.0,"text":","},"x":7.332,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[132,0.24,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"i"},"x":12.056,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[134,0.24,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"j"},"x":14.936,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[59,60],0]],"lang":"en","size":12.0,"text":","},"x":17.816,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4031,0.3,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝘪"},"x":22.54,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4032,0.386,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝘫"},"x":26.14,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[92,93],0]],"lang":"en","size":12.0,"text":","},"x":30.772,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1656,0.301,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝒊"},"x":35.496,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[1657,0.368,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝒋"},"x":39.108,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[125,126],0]],"lang":"en","size":12.0,"text":","},
+                "x": 43.524,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3823,0.333,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝕚"},"x":48.248,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3824,0.333,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝕛"},"x":52.244,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[154,155],0]],"lang":"en","size":12.0,"text":","},"x":56.24,"y":7.944},
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[0,0.531,0.0,0.0,0.0,[0,7],null,0],[0,0.531,0.0,0.0,0.0,[0,7],null,0]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "𝒾︀"
+                },
+                "x": 60.964,
+                "y": 7.944
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[0,0.531,0.0,0.0,0.0,[0,7],null,0],[0,0.531,0.0,0.0,0.0,[0,7],null,0]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "𝒿︀"
+                },
+                "x": 73.708,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[185,186],0]],"lang":"en","size":12.0,"text":","},
+                "x": 86.452,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3778,0.279,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝔦"},"x":91.176,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3779,0.28,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝔧"},"x":94.524,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[218,219],0]],"lang":"en","size":12.0,"text":","},
+                "x": 97.884,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4135,0.605,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝚒"},"x":102.608,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[4136,0.605,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝚓"},"x":109.868,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[251,252],0]],"lang":"en","size":12.0,"text":","},
+                "x": 117.128,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3875,0.331,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝖎"},"x":121.852,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3928,0.24,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝗃"},"x":125.824,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[299,300],0]],"lang":"en","size":12.0,"text":","},
+                "x": 128.704,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":1,"glyphs":[[1947,0.602050781,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"ⅈ"},
+                "x": 133.428,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4032,0.386,0.0,0.0,0.0,[0,4],null,0]],"lang":"en","size":12.0,"text":"𝘫"},
+                "x": 140.652609375,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 145.284609375
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 145.284609375
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [ı],\n    [ ],\n    [ȷ],\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n    [,],\n    [ ],\n    styled(child: [ı], ..),\n    [ ],\n    styled(child: [ȷ], ..),\n  ),\n)",
+  "source": "$dotless.i dotless.j, upright(dotless.i) upright(dotless.j), sans(dotless.i) sans(dotless.j), bold(dotless.i) bold(dotless.j), bb(dotless.i) bb(dotless.j), cal(dotless.i) cal(dotless.j), frak(dotless.i) frak(dotless.j), mono(dotless.i) mono(dotless.j), bold(frak(dotless.i)) upright(sans(dotless.j)), italic(bb(dotless.i)) frak(sans(dotless.j))$",
+  "warnings": []
+}

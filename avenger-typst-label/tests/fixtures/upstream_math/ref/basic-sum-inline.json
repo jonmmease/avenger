@@ -1,0 +1,75 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"glyph_class":"Large","props":{"class":"Large","limits":"Display","size":"Text","span":[1,4]},"text":"∑","type":"glyph"},
+            "bl": null,
+            "br": {
+              "items": [
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[6,7]},"text":"𝑖","type":"glyph"},
+                {"glyph_class":"Relation","props":{"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[7,8]},"text":"=","type":"glyph"},
+                {"props":{"cramped":true,"size":"Script","span":[8,9]},"text":"0","type":"number"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[11,12]},
+              "style": {"font_size":8.4},
+              "text": "𝑛",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[13,14]},"text":"𝑖","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,15]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[548,0.879,0.0,0.0,0.0,[0,3],[1,4],0]],"lang":"en","size":12.0,"text":"∑"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[11,12],0]],"lang":"en","size":8.4,"text":"𝑛"},"x":10.548,"y":2.904},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2709,0.31,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑖"},"x":10.548,"y":13.032},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2800,0.685,0.0,0.0,0.0,[0,1],[7,8],0]],"lang":"en","size":8.4,"text":"="},"x":13.152,"y":13.032},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2548,0.58,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":8.4,"text":"0"},"x":18.906,"y":13.032},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3635,0.3,0.0,0.0,0.0,[0,4],[13,14],0]],"lang":"en","size":12.0,"text":"𝑖"},"x":26.498,"y":7.944}
+            ],
+            "kind": "soft",
+            "width": 30.098
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 30.098
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [∑], t: [n], b: sequence([i], [=], [0])),\n    [ ],\n    [i],\n  ),\n)",
+  "source": "$sum_(i=0)^n i$",
+  "warnings": []
+}

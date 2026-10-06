@@ -1,0 +1,193 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝑞","type":"glyph"},
+            "bl": null,
+            "br": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[3,4]},
+              "style": {"font_size":8.4},
+              "text": "𝑥",
+              "type": "glyph"
+            },
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[5,7]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {
+              "accent": {
+                "glyph_class": "Diacritic",
+                "props": {"class":"Diacritic","size":"Text","span":[8,27]},
+                "stretch": {"x":{"explicit":true,"requested":null,"short_fall":0.5,"target":{"abs":0.0,"rel":1.0}},"y":null},
+                "text": "̬",
+                "type": "glyph"
+              },
+              "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[15,16]},"text":"𝑞","type":"glyph"},
+              "dotless": true,
+              "exact_frame_width": false,
+              "position": "Below",
+              "props": {"class":"Alphabetic","size":"Text","span":null},
+              "type": "accent"
+            },
+            "bl": null,
+            "br": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[28,29]},
+              "style": {"font_size":8.4},
+              "text": "𝑥",
+              "type": "glyph"
+            },
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "glyph_class": "Relation",
+            "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[30,32]},
+            "text": "≠",
+            "type": "glyph"
+          },
+          {
+            "b": null,
+            "base": {
+              "accent": {
+                "glyph_class": "Diacritic",
+                "props": {"class":"Diacritic","size":"Text","span":[33,70]},
+                "stretch": {"x":{"explicit":true,"requested":null,"short_fall":0.5,"target":{"abs":0.0,"rel":1.0}},"y":null},
+                "text": "̬",
+                "type": "glyph"
+              },
+              "base": {
+                "accent": {
+                  "glyph_class": "Diacritic",
+                  "props": {"class":"Diacritic","size":"Text","span":[40,59]},
+                  "stretch": {"x":{"explicit":true,"requested":null,"short_fall":0.5,"target":{"abs":0.0,"rel":1.0}},"y":null},
+                  "text": "̬",
+                  "type": "glyph"
+                },
+                "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[47,48]},"text":"𝑞","type":"glyph"},
+                "dotless": true,
+                "exact_frame_width": false,
+                "position": "Below",
+                "props": {"class":"Alphabetic","size":"Text","span":null},
+                "type": "accent"
+              },
+              "dotless": true,
+              "exact_frame_width": false,
+              "position": "Below",
+              "props": {"class":"Alphabetic","size":"Text","span":null},
+              "type": "accent"
+            },
+            "bl": null,
+            "br": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[71,72]},
+              "style": {"font_size":8.4},
+              "text": "𝑥",
+              "type": "glyph"
+            },
+            "props": {"class":"Alphabetic","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,73]
+    }
+  ],
+  "fonts": [
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]},
+    {"family":"DejaVu Sans Mono","index":0,"postscript":"DejaVuSansMono","variations":[]}
+  ],
+  "frame": {
+    "baseline": 7.944,
+    "height": 10.23159375,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 10.23159375,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3643,0.558,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝑞"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[3,4],0]],"lang":"en","size":8.4,"text":"𝑥"},"x":5.64,"y":10.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[5,7],0]],"lang":"en","size":12.0,"text":"≠"},
+                "x": 14.901333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3643,0.558,0.0,0.0,0.0,[0,4],[15,16],0]],"lang":"en","size":12.0,"text":"𝑞"},
+                "x": 26.454666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":1,"glyphs":[[692,0.0,0.0,0.0,0.0,[0,2],[8,27],0]],"lang":"en","size":12.0,"text":"̬"},
+                "x": 29.106666667,
+                "y": 10.008
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[28,29],0]],"lang":"en","size":8.4,"text":"𝑥"},
+                "x": 32.454666667,
+                "y": 10.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[627,0.685,0.0,0.0,0.0,[0,3],[30,32],0]],"lang":"en","size":12.0,"text":"≠"},"x":41.716,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3643,0.558,0.0,0.0,0.0,[0,4],[47,48],0]],"lang":"en","size":12.0,"text":"𝑞"},
+                "x": 53.269333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":1,"glyphs":[[692,0.0,0.0,0.0,0.0,[0,2],[40,59],0]],"lang":"en","size":12.0,"text":"̬"},
+                "x": 55.921333333,
+                "y": 10.008
+              },
+              {
+                "text": {"fill":"#000000ff","font":1,"glyphs":[[692,0.0,0.0,0.0,0.0,[0,2],[33,70],0]],"lang":"en","size":12.0,"text":"̬"},
+                "x": 55.921333333,
+                "y": 12.849796875
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[71,72],0]],"lang":"en","size":8.4,"text":"𝑥"},
+                "x": 59.269333333,
+                "y": 10.944
+              }
+            ],
+            "kind": "soft",
+            "width": 65.197333333
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 65.197333333
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: [q], b: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(base: accent(base: [q], accent: \"\\u{32c}\"), b: [x]),\n    [ ],\n    [≠],\n    [ ],\n    attach(\n      base: accent(\n        base: accent(base: [q], accent: \"\\u{32c}\"),\n        accent: \"\\u{32c}\",\n      ),\n      b: [x],\n    ),\n  ),\n)",
+  "source": "$q_x != accent(q, \\u{032C})_x != accent(accent(q, \\u{032C}), \\u{032C})_x$",
+  "warnings": []
+}

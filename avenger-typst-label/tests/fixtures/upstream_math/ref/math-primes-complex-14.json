@@ -1,0 +1,52 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {"glyph_class":"Large","props":{"class":"Large","limits":"Display","size":"Text","span":[1,4]},"text":"∑","type":"glyph"},
+        "bl": null,
+        "br": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[6,7]},"text":"𝑆","type":"glyph"},
+          "bl": null,
+          "br": null,
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","cramped":true,"size":"ScriptScript","span":null},
+            "style": {"font_size":6.6},
+            "text": "′",
+            "type": "glyph"
+          },
+          "type": "scripts"
+        },
+        "props": {"class":"Large","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": {"glyph_class":"Normal","props":{"class":"Normal","size":"Script","span":null},"style":{"font_size":8.4},"text":"′","type":"glyph"},
+        "type": "scripts"
+      },
+      "span": [0,9]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[548,0.879,0.0,0.0,0.0,[0,3],[1,4],0]],"lang":"en","size":12.0,"text":"∑"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2953,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":8.4,"text":"′"},"x":10.548,"y":2.904},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2693,0.586,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑆"},"x":10.548,"y":13.032},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":15.4704,"y":9.924}
+    ],
+    "kind": "hard",
+    "width": 18.582
+  },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: [∑],\n    b: attach(base: [S], tr: primes(count: 1)),\n    tr: primes(count: 1),\n  ),\n)",
+  "source": "$∑'_S'$",
+  "warnings": []
+}

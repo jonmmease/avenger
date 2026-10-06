@@ -1,0 +1,45 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [55,0.562,0.0,0.0,0.0,[0,1],[73,79],0],
+            [45,0.4995,0.0,0.0,0.0,[1,2],[73,79],1],
+            [118,0.4345,0.0,0.0,0.0,[2,3],[73,79],2],
+            [95,0.5595,0.0,0.0,0.0,[3,4],[73,79],3],
+            [59,0.5295,0.0,0.0,0.0,[4,5],[73,79],4],
+            [55,0.562,0.0,0.0,0.0,[5,6],[73,79],5]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "dashed"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[37.764,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":{"array":[3.0,2.0,0.552,2.0],"phase":0.0},"join":"Bevel","miter_limit":2.0,"paint":"#000000ff","thickness":0.552}
+        },
+        "x": 0.0,
+        "y": 11.4
+      }
+    ],
+    "kind": "hard",
+    "width": 37.764
+  },
+  "repr": "underline(\n  stroke: (join: \"bevel\", dash: (array: (3pt, 2pt, \"dot\", 2pt), phase: 0pt), miter-limit: 2.0),\n  body: [dashed],\n)",
+  "source": "#underline(stroke: (dash: \"dash-dotted\", join: \"bevel\", miter-limit: 2))[dashed]",
+  "warnings": []
+}

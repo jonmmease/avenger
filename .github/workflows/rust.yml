@@ -41,6 +41,8 @@ jobs:
         run: |
           cargo test --release --workspace --locked --verbose \
             --exclude avenger-wgpu
+      - name: Verify Typst layout against upstream PNGs
+        run: cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --locked
       - name: Test all bundled formatter locales
         run: |
           cargo test --release --locked -p avenger-format-datetime-d3 -p avenger-format-number-d3 \
@@ -54,4 +56,4 @@ jobs:
       - name: Check browser examples
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu -p avenger-format-number-icu
+          cargo check --release --locked --target wasm32-unknown-unknown -p iris -p wgpu-scales -p wgpu-winit -p avenger-format-datetime-icu -p avenger-format-number-icu -p avenger-typst-label

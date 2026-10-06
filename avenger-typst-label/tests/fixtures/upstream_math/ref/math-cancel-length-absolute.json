@@ -1,0 +1,58 @@
+{
+  "equations": [
+    {
+      "root": {
+        "angle": "Auto",
+        "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[8,9]},"text":"𝑥","type":"glyph"},
+        "cross": false,
+        "invert_first_line": false,
+        "length": {"abs":12.0,"rel":0.0},
+        "props": {"class":"Alphabetic","size":"Text","span":[1,25]},
+        "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.6},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "cancel"
+      },
+      "span": [0,26]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[8,9],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":0.0,"y":7.944},
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 6.072,
+            "height": 6.072,
+            "items": [
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[0.0,-12.0]},
+                  "span": [1,25],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.6}
+                },
+                "x": 0.0,
+                "y": 6.0
+              }
+            ],
+            "kind": "soft",
+            "width": 6.852
+          },
+          "transform": [0.663224097,0.748420869,-0.748420869,0.663224097,0.0,0.0]
+        },
+        "x": 3.426,
+        "y": 4.908
+      }
+    ],
+    "kind": "hard",
+    "width": 6.852
+  },
+  "repr": "equation(\n  block: false,\n  body: cancel(body: [x], length: 0% + 12pt),\n)",
+  "source": "$cancel(x, length: #12pt)$",
+  "warnings": []
+}

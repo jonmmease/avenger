@@ -1,0 +1,15 @@
+{
+  "errors": [
+    {
+      "hints": [
+        "if you meant to display multiple letters as is, try adding spaces between each letter: `f o o`",
+        "or if you meant to display this as text, try placing it in quotes: `\"foo\"`"
+      ],
+      "message": "unknown variable: foo",
+      "range": [1,4]
+    }
+  ],
+  "repr": null,
+  "source": "$foo + 1$",
+  "warnings": []
+}

@@ -102,6 +102,29 @@ fn hex_byte(hex: &str) -> Option<u8> {
     u8::from_str_radix(hex, 16).ok()
 }
 
+/// The CSS named colors, by name in alphabetical order, as normalized sRGB RGBA with straight
+/// alpha. These are the names [`parse_color_string`] accepts.
+pub fn css_named_colors() -> Vec<(&'static str, [f32; 4])> {
+    let mut colors: Vec<_> = css_color_parser::NAMED_COLORS
+        .iter()
+        .map(|(name, color)| {
+            let rgba = [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a,
+            ];
+            (*name, rgba)
+        })
+        .chain([(
+            "rebeccapurple",
+            [102.0 / 255.0, 51.0 / 255.0, 153.0 / 255.0, 1.0],
+        )])
+        .collect();
+    colors.sort_by_key(|(name, _)| *name);
+    colors
+}
+
 /// Parse the same syntax as [`parse_color_string`], returning an error on failure.
 ///
 /// The error preserves the original input, including surrounding whitespace.
@@ -113,6 +136,16 @@ pub fn parse_color_string_strict(color_str: &str) -> Result<[f32; 4], ColorParse
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_colors_are_the_parsed_names() {
+        let colors = css_named_colors();
+        assert_eq!(colors.len(), 149);
+        assert!(colors.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        for (name, rgba) in colors {
+            assert_eq!(parse_color_string(name), Some(rgba), "{name}");
+        }
+    }
 
     #[test]
     fn supported_syntax_produces_normalized_rgba() {

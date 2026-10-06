@@ -1,0 +1,107 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": {"props":{"cramped":true,"size":"Script","span":[28,37]},"style":{"font_size":8.4},"text":"123456789","type":"number"},
+            "base": {"glyph_class":"Large","props":{"class":"Large","limits":"Always","size":"Text","span":null},"text":"∏","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {
+            "b": {"props":{"cramped":true,"size":"Script","span":[66,75]},"style":{"font_size":8.4},"text":"123456789","type":"number"},
+            "base": {"glyph_class":"Large","props":{"class":"Large","limits":"Always","size":"Text","span":null},"text":"∏","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[81,82]},
+              "style": {"font_size":8.4},
+              "text": "𝑥",
+              "type": "glyph"
+            },
+            "type": "scripts"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,84]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 13.1376,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[546,0.88,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∏"},"x":16.644,"y":7.608},
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 6.0984,
+            "height": 6.1656,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"1"},"x":0.0,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"2"},"x":4.872,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2551,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"3"},"x":9.744,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2552,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"4"},"x":14.616,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2553,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"5"},"x":19.488,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2554,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"6"},"x":24.36,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2555,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"7"},"x":29.232,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2556,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"8"},"x":34.104,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2557,0.58,0.0,0.0,0.0,[0,1],[28,37],0]],"lang":"en","size":8.4,"text":"9"},"x":38.976,"y":6.0984}
+            ],
+            "kind": "soft",
+            "width": 43.848
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 12.432
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[546,0.88,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∏"},"x":62.492,"y":7.608},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[81,82],0]],"lang":"en","size":8.4,"text":"𝑥"},"x":73.052,"y":2.904},
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 6.0984,
+            "height": 6.1656,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"1"},"x":0.0,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2550,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"2"},"x":4.872,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2551,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"3"},"x":9.744,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2552,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"4"},"x":14.616,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2553,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"5"},"x":19.488,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2554,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"6"},"x":24.36,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2555,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"7"},"x":29.232,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2556,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"8"},"x":34.104,"y":6.0984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2557,0.58,0.0,0.0,0.0,[0,1],[66,75],0]],"lang":"en","size":8.4,"text":"9"},"x":38.976,"y":6.0984}
+            ],
+            "kind": "soft",
+            "width": 43.848
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 45.848,
+        "y": 12.432
+      }
+    ],
+    "kind": "hard",
+    "width": 89.696
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(base: limits(body: [∏]), b: [123456789]),\n    [ ],\n    attach(base: limits(body: [∏]), b: [123456789], tr: [x]),\n  ),\n)",
+  "source": "$attach(limits(product), b: 123456789) attach(limits(product), b: 123456789, tr: x)$",
+  "warnings": []
+}

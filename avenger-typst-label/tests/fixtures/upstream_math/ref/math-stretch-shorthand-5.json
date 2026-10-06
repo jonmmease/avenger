@@ -1,0 +1,48 @@
+{
+  "equations": [
+    {
+      "root": {
+        "glyph_class": "Relation",
+        "props": {"class":"Relation","limits":"Always","size":"Text","span":null},
+        "stretch": {
+          "x": {"explicit":true,"requested":{"abs":0.0,"em":2.0,"rel":0.0},"short_fall":0.0,"target":{"abs":24.0,"rel":0.0}},
+          "y": {"explicit":true,"requested":{"abs":0.0,"em":2.0,"rel":0.0},"short_fall":0.0,"target":{"abs":24.0,"rel":0.0}}
+        },
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "text": "→",
+        "type": "glyph"
+      },
+      "span": [0,25]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [2474,0.37375,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.27875,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.27875,0.0,0.0,0.0,[0,3],null,0],
+            [833,0.27875,0.0,0.0,0.0,[0,3],null,0],
+            [2475,0.79,0.0,0.0,0.0,[0,3],null,0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "→"
+        },
+        "x": 0.0,
+        "y": 7.944
+      }
+    ],
+    "kind": "hard",
+    "width": 24.0
+  },
+  "repr": "equation(\n  block: false,\n  body: stretch(body: [→], size: 0% + 2em),\n)",
+  "source": "$stretch(->, size: #2em)$",
+  "warnings": []
+}

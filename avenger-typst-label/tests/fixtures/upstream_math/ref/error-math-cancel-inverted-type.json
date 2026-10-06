@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"expected boolean, found auto","range":[22,26]}],"repr":null,"source":"$cancel(x, inverted: #auto)$","warnings":[]}

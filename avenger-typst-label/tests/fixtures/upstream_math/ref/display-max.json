@@ -1,0 +1,109 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": {
+              "items": [
+                {"props":{"cramped":true,"size":"Script","span":[14,15]},"text":"1","type":"number"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[15,17]},
+                  "text": "≤",
+                  "type": "glyph"
+                },
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[17,18]},"text":"𝑛","type":"glyph"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[18,20]},
+                  "text": "≤",
+                  "type": "glyph"
+                },
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[20,21]},"text":"𝑚","type":"glyph"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "base": {"props":{"class":"Large","limits":"Display","size":"Display","spaced":true,"span":null},"text":"max","type":"text"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Large","rspace":0.166666667,"size":"Display","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Display","span":[23,24]},"text":"𝑛","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,26]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 11.1,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 11.1,
+            "items": [
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [[78,0.822,0.0,0.0,0.0,[0,1],null,0],[66,0.497,0.0,0.0,0.0,[1,2],null,1],[89,0.498,0.0,0.0,0.0,[2,3],null,2]],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "max"
+                },
+                "x": 3.1302,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[14,15],0]],"lang":"en","size":8.4,"text":"1"},"x":0.0,"y":15.888},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2894,0.693,0.0,0.0,0.0,[0,3],[15,17],0]],"lang":"en","size":8.4,"text":"≤"},"x":4.872,"y":15.888},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2714,0.562,0.0,0.0,0.0,[0,4],[17,18],0]],"lang":"en","size":8.4,"text":"𝑛"},
+                "x": 10.6932,
+                "y": 15.888
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2894,0.693,0.0,0.0,0.0,[0,3],[18,20],0]],"lang":"en","size":8.4,"text":"≤"},
+                "x": 15.414,
+                "y": 15.888
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2713,0.813,0.0,0.0,0.0,[0,4],[20,21],0]],"lang":"en","size":8.4,"text":"𝑚"},
+                "x": 21.2352,
+                "y": 15.888
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3640,0.556,0.0,0.0,0.0,[0,4],[23,24],0]],"lang":"en","size":12.0,"text":"𝑛"},
+                "x": 30.0644,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 36.7364
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 36.7364
+  },
+  "repr": "equation(\n  block: false,\n  body: styled(child: sequence(\n    attach(\n      base: op(text: [max], limits: true),\n      b: sequence([1], [≤], [n], [≤], [m]),\n    ),\n    [ ],\n    [n],\n  ), ..),\n)",
+  "source": "$display(max_(1<=n<=m) n)$",
+  "warnings": []
+}

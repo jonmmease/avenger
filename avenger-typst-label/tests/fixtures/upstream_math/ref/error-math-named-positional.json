@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":["try removing `radicand:`"],"message":"the argument `radicand` is positional","range":[6,17]}],
+  "repr": null,
+  "source": "$sqrt(radicand: x)$",
+  "warnings": []
+}

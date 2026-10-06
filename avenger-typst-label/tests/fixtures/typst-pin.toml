@@ -1,0 +1,9 @@
+# The upstream Typst release this crate follows: its ported files, its `typst-syntax`,
+# `typst-utils` and `codex` dependencies, and every generated fixture under this directory.
+# `tests/upstream_pin.rs` checks that they agree, and `UPSTREAM.md` says how to move the pin.
+# `tools/typst-upstream/references` and `generate_upstream_png_refs` refuse a `../typst` checkout at
+# another commit or with local changes to its crates or lockfile.
+version = "0.15.1"
+commit = "9dfd3a08500b7896045f907433cf7b4b02434fad"
+# The `codex` release that this Typst release depends on.
+codex = "0.3.0"

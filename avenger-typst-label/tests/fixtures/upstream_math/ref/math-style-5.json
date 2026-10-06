@@ -1,0 +1,134 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"props":{"class":"Alphabetic","size":"Text","spaced":true,"span":null},"style":{"math_variant":"Monospace"},"text":"𝚂𝚀𝚁𝚃","type":"text"},
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[14,15]},"text":"𝑥","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[15,16]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": ")",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[13,14]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "(",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[13,16]},
+            "shared": false,
+            "type": "fenced"
+          },
+          {"glyph_class":"Binary","props":{"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[17,23]},"text":"≀","type":"glyph"},
+          {"props":{"size":"Text","span":[29,32]},"style":{"math_variant":"Monospace"},"text":"𝟷𝟸𝟹","type":"number"},
+          {
+            "glyph_class": "Vary",
+            "props": {"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[33,34]},
+            "style": {"math_variant":"Monospace"},
+            "text": "+",
+            "type": "glyph"
+          },
+          {"props":{"size":"Text","span":[35,38]},"style":{"math_variant":"Monospace"},"text":"𝟺𝟻𝟼","type":"number"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,40]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [
+                    [4119,0.605,0.0,0.0,0.0,[0,4],null,0],
+                    [4117,0.605,0.0,0.0,0.0,[4,8],null,4],
+                    [4118,0.605,0.0,0.0,0.0,[8,12],null,8],
+                    [4120,0.605,0.0,0.0,0.0,[12,16],null,12]
+                  ],
+                  "lang": "en",
+                  "size": 12.0,
+                  "text": "𝚂𝚀𝚁𝚃"
+                },
+                "x": 0.0,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[9,0.315,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":12.0,"text":"("},"x":29.04,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":32.82,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[10,0.315,0.0,0.0,0.0,[0,1],[15,16],0]],"lang":"en","size":12.0,"text":")"},"x":39.672,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[595,0.286,0.0,0.0,0.0,[0,3],[17,23],0]],"lang":"en","size":12.0,"text":"≀"},
+                "x": 46.118666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4488,0.605,0.0,0.0,0.0,[0,4],[29,32],0]],"lang":"en","size":12.0,"text":"𝟷"},
+                "x": 52.217333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4489,0.605,0.0,0.0,0.0,[0,4],[29,32],0]],"lang":"en","size":12.0,"text":"𝟸"},
+                "x": 59.477333333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4490,0.605,0.0,0.0,0.0,[0,4],[29,32],0]],"lang":"en","size":12.0,"text":"𝟹"},
+                "x": 66.737333333,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[33,34],0]],"lang":"en","size":12.0,"text":"+"},"x":76.664,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4491,0.605,0.0,0.0,0.0,[0,4],[35,38],0]],"lang":"en","size":12.0,"text":"𝟺"},
+                "x": 87.550666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4492,0.605,0.0,0.0,0.0,[0,4],[35,38],0]],"lang":"en","size":12.0,"text":"𝟻"},
+                "x": 94.810666667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[4493,0.605,0.0,0.0,0.0,[0,4],[35,38],0]],"lang":"en","size":12.0,"text":"𝟼"},
+                "x": 102.070666667,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 109.330666667
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 109.330666667
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [SQRT], ..),\n    lr(body: sequence([(], [x], [)])),\n    [ ],\n    [≀],\n    [ ],\n    styled(child: sequence([123], [ ], [+], [ ], [456]), ..),\n  ),\n)",
+  "source": "$mono(\"SQRT\")(x) wreath mono(123 + 456)$",
+  "warnings": []
+}

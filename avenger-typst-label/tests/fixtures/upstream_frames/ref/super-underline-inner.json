@@ -1,0 +1,40 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3,0.6815,0.0,0.0,0.0,[0,1],[0,1],0]],"lang":"en","size":12.0,"text":"A"},"x":0.0,"y":8.616},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[291,0.58,0.0,0.0,0.0,[0,1],[70,71],0]],"lang":"en","size":7.8,"text":"4"},"x":8.178,"y":2.892},
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[4.524,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.5}
+        },
+        "x": 8.178,
+        "y": 4.692
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[2,0.2525,0.0,0.0,0.0,[0,1],[73,74],0],[6,0.6495,0.0,0.0,0.0,[1,2],[74,75],0]],
+          "lang": "en",
+          "size": 12.0,
+          "text": " B"
+        },
+        "x": 12.702,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 23.526
+  },
+  "repr": "sequence(\n  [A],\n  super(\n    typographic: false,\n    body: underline(stroke: 0.5pt, offset: 0.15em, body: [4]),\n  ),\n  [ ],\n  [B],\n)",
+  "source": "A#super(typographic: false)[#underline(stroke: 0.5pt, offset: 0.15em)[4]] B",
+  "warnings": []
+}

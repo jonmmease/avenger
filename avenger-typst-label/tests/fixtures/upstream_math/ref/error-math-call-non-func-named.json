@@ -1,0 +1,12 @@
+{
+  "errors": [
+    {
+      "hints": ["`phi` is not a function","to render the colon as text, escape it: `alpha\\: y`"],
+      "message": "named-argument syntax can only be used with functions",
+      "range": [8,16]
+    }
+  ],
+  "repr": null,
+  "source": "$phi(x, alpha: y)$",
+  "warnings": []
+}

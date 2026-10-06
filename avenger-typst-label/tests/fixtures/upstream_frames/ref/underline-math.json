@@ -1,0 +1,25 @@
+{
+  "equations": [
+    {
+      "root": {
+        "glyph_class": "Alphabetic",
+        "props": {"class":"Alphabetic","size":"Text","span":[12,13]},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "text": "𝑥",
+        "type": "glyph"
+      },
+      "span": [11,14]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [{"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[12,13],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":0.0,"y":7.944}],
+    "kind": "hard",
+    "width": 6.852
+  },
+  "repr": "underline(body: equation(block: false, body: [x]))",
+  "source": "#underline[$x$]",
+  "warnings": []
+}

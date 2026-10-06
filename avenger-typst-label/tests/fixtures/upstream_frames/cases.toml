@@ -1,0 +1,737 @@
+# Single-line labels reduced from upstream text and inline-layout tests.
+#
+# `tools/typst-upstream/references` writes `ref/{id}.json` from this manifest. Set rules from the
+# upstream tests are inlined as arguments, and named colors are written as hex, because labels
+# use CSS color names (D22). `upstream_tests` names the tests a case comes from (names are unique
+# across upstream's `tests/suite`).
+
+[defaults]
+text_font = "Lato"
+math_font = "Lete Sans Math"
+font_size = 12.0
+font_weight = 500
+
+[[case]]
+id = "plain-hello"
+source = 'Hello world'
+
+[[case]]
+id = "plain-kerning"
+source = 'AVA Tq WAVE'
+upstream_tests = ["text-kerning"]
+note = 'default kerning'
+
+[[case]]
+id = "plain-ligatures"
+source = 'fi fl Qu office'
+upstream_tests = ["text-ligatures"]
+note = 'default ligatures'
+
+[[case]]
+id = "plain-punctuation"
+source = 'Hello, world! (1–2) [a] {b}'
+
+[[case]]
+id = "plain-digits"
+source = '0123456789 3.14'
+
+[[case]]
+id = "space-collapsing-comments-1"
+source = 'A/**/B/**/C'
+upstream_tests = ["space-collapsing-comments"]
+
+[[case]]
+id = "space-collapsing-comments-2"
+source = 'A /**/ B/**/C'
+upstream_tests = ["space-collapsing-comments"]
+
+[[case]]
+id = "space-collapsing-comments-3"
+source = 'A /**/B/**/ C'
+upstream_tests = ["space-collapsing-comments"]
+
+[[case]]
+id = "space-collapse-runs"
+source = 'A   B'
+note = 'a run of spaces is one space'
+
+[[case]]
+id = "space-trim-ends"
+source = '  A B  '
+note = 'leading and trailing spaces trim'
+
+[[case]]
+id = "space-newline"
+source = "A\nB"
+note = 'a newline in markup is a space'
+
+[[case]]
+id = "space-thin-kept"
+source = '| | thin space'
+upstream_tests = ["space-thin-kept"]
+
+[[case]]
+id = "space-nbsp"
+source = 'A~B'
+note = 'nonbreaking-space shorthand'
+
+[[case]]
+id = "shorthands"
+source = 'a -- b --- c ... d'
+note = 'dash and ellipsis shorthands'
+
+[[case]]
+id = "escapes"
+source = '\#a \*b\* \_c\_ \u{41}'
+
+[[case]]
+id = "underline-basic"
+source = '#underline[Further below.]'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "underline-offset"
+source = '#underline(offset: 5pt)[Further below.]'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "underline-stroke-no-evade"
+source = '#underline(stroke: rgb("#ff4136"), evade: false)[Critical information]'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "underline-inherits-fill"
+source = '#text(fill: rgb("#ff4136"), underline[Change with the wind.])'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "overline-underline"
+source = '#overline(underline[Running amongst the wolves.])'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "strike-basic"
+source = '#strike[Statements dreamt up]'
+upstream_tests = ["underline-overline-strike"]
+
+[[case]]
+id = "strike-redact"
+source = '#strike(stroke: 10pt, extent: 0.05em)[in secret]'
+upstream_tests = ["strike-with"]
+note = '`strike.with` inlined'
+
+[[case]]
+id = "strike-transparent"
+source = '#strike(stroke: 10pt + rgb("abcdef88"), extent: 0.05em)[redacted]'
+upstream_tests = ["strike-with"]
+note = '`strike.with` inlined'
+
+[[case]]
+id = "underline-stroke-folding"
+source = '#underline(stroke: 2pt, offset: 2pt, text(fill: rgb("#ff4136"), [DANGER!]))'
+upstream_tests = ["underline-stroke-folding"]
+note = 'set rule inlined'
+
+[[case]]
+id = "underline-background"
+source = '#underline(background: true, stroke: (thickness: 0.5em, paint: rgb("#ff4136"), cap: "round"))[This is in the background]'
+upstream_tests = ["underline-background"]
+note = 'set rule inlined'
+
+[[case]]
+id = "overline-background"
+source = '#overline(background: true, stroke: (thickness: 0.5em, paint: rgb("#ff4136"), cap: "round"))[This is in the background]'
+upstream_tests = ["overline-background"]
+note = 'set rule inlined'
+
+[[case]]
+id = "strike-background"
+source = '#strike(background: true, stroke: 5pt + rgb("#ff4136"))[This is in the background]'
+upstream_tests = ["strike-background"]
+note = 'set rule inlined'
+
+[[case]]
+id = "underline-descenders"
+source = '#underline[gyp jq]'
+note = 'evasion around descenders'
+
+[[case]]
+id = "highlight-default"
+source = 'This is the built-in #highlight[highlight with default color].'
+upstream_tests = ["highlight"]
+
+[[case]]
+id = "highlight-fill"
+source = '#highlight(fill: rgb("#ccf5d6"))[to highlight]'
+upstream_tests = ["highlight"]
+note = '`green.lighten(80%)` as hex'
+
+[[case]]
+id = "highlight-bounds"
+source = '#highlight[ace], #highlight[base], #highlight[super], #highlight[phone #sym.integral]'
+upstream_tests = ["highlight-bounds"]
+
+[[case]]
+id = "highlight-edges"
+source = '#highlight(top-edge: "x-height", bottom-edge: "baseline")[ace], #highlight(top-edge: "x-height", bottom-edge: "baseline")[phone #sym.integral]'
+upstream_tests = ["highlight-edges"]
+note = 'set rule inlined'
+
+[[case]]
+id = "highlight-edges-bounds"
+source = '#highlight(top-edge: "bounds", bottom-edge: "bounds")[abc #sym.integral]'
+upstream_tests = ["highlight-edges-bounds"]
+note = 'set rule inlined'
+
+[[case]]
+id = "highlight-radius"
+source = '#highlight(radius: 3pt)[abc]'
+upstream_tests = ["highlight-radius"]
+
+[[case]]
+id = "highlight-stroke"
+source = '#highlight(stroke: 2pt + rgb("#0074d9"))[abc]'
+upstream_tests = ["highlight-stroke"]
+
+[[case]]
+id = "highlight-stroke-sides"
+source = '#highlight(stroke: (top: rgb("#0074d9"), left: rgb("#ff4136"), bottom: rgb("#2ecc40"), right: rgb("#ff851b")))[abc]'
+upstream_tests = ["highlight-stroke"]
+
+[[case]]
+id = "highlight-stroke-radius"
+source = '#highlight(stroke: 1pt, radius: 3pt)[Lorem ipsum dolor]'
+upstream_tests = ["highlight-stroke"]
+note = '`#lorem(5)` replaced by text'
+
+[[case]]
+id = "sub-super-typographic"
+source = 'x#super[123] x#sub[123]'
+upstream_tests = ["sub-super-typographic"]
+
+[[case]]
+id = "sub-super-synthesized"
+source = 'x#super[1,2,3] x#sub[1,2,3]'
+upstream_tests = ["sub-super-typographic"]
+
+[[case]]
+id = "sub-super-non-typographic"
+source = 'n#super(typographic: false, baseline: -0.25em, size: 0.7em)[1], n#sub[2], ... n#super(typographic: false, baseline: -0.25em, size: 0.7em)[N]'
+upstream_tests = ["sub-super-non-typographic"]
+note = 'set rule inlined'
+
+[[case]]
+id = "super-underline-outer"
+source = '#underline(stroke: 0.5pt, offset: 0.15em)[A#super(typographic: false)[4]] B'
+upstream_tests = ["super-underline"]
+note = 'set rules inlined'
+
+[[case]]
+id = "super-underline-inner"
+source = 'A#super(typographic: false)[#underline(stroke: 0.5pt, offset: 0.15em)[4]] B'
+upstream_tests = ["super-underline"]
+note = 'set rules inlined'
+
+[[case]]
+id = "super-underline-typographic"
+source = '#underline(stroke: 0.5pt, offset: 0.15em)[A#super[4]] B'
+upstream_tests = ["super-underline"]
+note = 'set rules inlined'
+
+[[case]]
+id = "super-highlight-outer"
+source = '#highlight[A#super(typographic: false)[4]] B'
+upstream_tests = ["super-highlight"]
+note = 'set rule inlined'
+
+[[case]]
+id = "super-highlight-inner"
+source = 'A#super[#highlight[4]] B'
+upstream_tests = ["super-highlight"]
+
+[[case]]
+id = "long-scripts-typographic"
+source = '|#super(typographic: true)[longscript]| |#sub(typographic: true)[longscript]|'
+upstream_tests = ["long-scripts"]
+
+[[case]]
+id = "long-scripts-synthesized"
+source = '|#super(typographic: false)[longscript]| |#sub(typographic: false)[longscript]|'
+upstream_tests = ["long-scripts"]
+
+[[case]]
+id = "script-metrics-lato"
+source = 'Xx#super(typographic: false)[Xx]#sub(typographic: false)[Xx]'
+upstream_tests = ["script-metrics-bundled-fonts"]
+
+[[case]]
+id = "script-metrics-mono"
+source = 'Xx#super(typographic: false)[Xx]#sub(typographic: false)[Xx]'
+upstream_tests = ["script-metrics-bundled-fonts"]
+text_font = "DejaVu Sans Mono"
+font_weight = 400
+
+[[case]]
+id = "script-nested"
+source = 'x#super[y#super[z]]'
+
+[[case]]
+id = "cases-lower"
+source = '#lower[HI!]'
+upstream_tests = ["cases-content-text"]
+
+[[case]]
+id = "cases-upper"
+source = '#upper[ArE mEmEs gReAt?]'
+upstream_tests = ["lower-and-upper"]
+
+[[case]]
+id = "cases-upper-greek"
+source = '#upper[Ελλάδα]'
+upstream_tests = ["lower-and-upper"]
+
+[[case]]
+id = "cases-symbol"
+source = '#upper[a #sym.alpha]'
+upstream_tests = ["cases-content-symbol"]
+
+[[case]]
+id = "cases-upper-strong"
+source = '#upper[*x* y]'
+note = 'case transform over strong'
+
+[[case]]
+id = "smallcaps"
+source = '#smallcaps[Smallcaps]'
+upstream_tests = ["smallcaps"]
+
+[[case]]
+id = "smallcaps-all"
+source = '#smallcaps(all: true)[Test 012]'
+upstream_tests = ["smallcaps-all"]
+
+[[case]]
+id = "smartquote"
+source = "\"The horse eats no cucumber salad\" was the first sentence ever uttered on the 'telephone.'"
+upstream_tests = ["smartquote"]
+
+[[case]]
+id = "smartquote-apostrophe"
+source = "The 5'11\" 'quick' brown fox jumps over the \"lazy\" dog's ear."
+upstream_tests = ["smartquote-apostrophe"]
+
+[[case]]
+id = "smartquote-contraction"
+source = "He said \"I'm a big fella.\""
+upstream_tests = ["smartquote-apostrophe"]
+
+[[case]]
+id = "smartquote-escape"
+source = "The 5\\'11\\\" 'quick\\' brown fox jumps over the \\\"lazy' dog\\'s ear."
+upstream_tests = ["smartquote-escape"]
+
+[[case]]
+id = "smartquote-slash-1"
+source = '"Hello"/"World"'
+upstream_tests = ["smartquote-slash"]
+
+[[case]]
+id = "smartquote-slash-2"
+source = "'\"Hello\"/\"World\"'"
+upstream_tests = ["smartquote-slash"]
+
+[[case]]
+id = "smartquote-slash-3"
+source = '""Hello"/"World""'
+upstream_tests = ["smartquote-slash"]
+
+[[case]]
+id = "smartquote-close-before-letter"
+source = 'Straight "A"s and "B"s'
+upstream_tests = ["smartquote-close-before-letter"]
+
+[[case]]
+id = "smartquote-prime-1"
+source = 'A 2" nail.'
+upstream_tests = ["smartquote-prime"]
+
+[[case]]
+id = "smartquote-prime-2"
+source = "'A 2\" nail.'"
+upstream_tests = ["smartquote-prime"]
+
+[[case]]
+id = "smartquote-prime-3"
+source = '"A 2" nail."'
+upstream_tests = ["smartquote-prime"]
+
+[[case]]
+id = "smartquote-bracket-1"
+source = '"a ["b"] c"'
+upstream_tests = ["smartquote-bracket"]
+
+[[case]]
+id = "smartquote-bracket-2"
+source = '"a b"c"d e"'
+upstream_tests = ["smartquote-bracket"]
+
+[[case]]
+id = "smartquote-nesting-1"
+source = "\"'test statement'\""
+upstream_tests = ["smartquote-nesting"]
+
+[[case]]
+id = "smartquote-nesting-2"
+source = "\"'test' statement\""
+upstream_tests = ["smartquote-nesting"]
+
+[[case]]
+id = "smartquote-nesting-3"
+source = "\"statement 'test'\""
+upstream_tests = ["smartquote-nesting"]
+
+[[case]]
+id = "smartquote-lang-de"
+source = "\"Hallo\" 'Welt'"
+upstream_tests = ["smartquote"]
+note = 'German quotes'
+lang = "de"
+
+[[case]]
+id = "smartquote-lang-fr"
+source = "\"bonjour\" 'monde'"
+upstream_tests = ["smartquote"]
+note = 'French quotes'
+lang = "fr"
+
+[[case]]
+id = "smartquote-with-embedding-chars"
+source = '"#"\u{202A}"bonjour#"\u{202C}""'
+upstream_tests = ["smartquote-with-embedding-chars"]
+lang = "fr"
+
+[[case]]
+id = "smartquotes-after-equations"
+source = "$i$'s $i$ 's"
+upstream_tests = ["issue-5146-smartquotes-after-equations"]
+
+[[case]]
+id = "text-size"
+source = '#text(20pt)[A] #text(2em)[A] #text(size: 15pt + 0.5em)[A]'
+upstream_tests = ["text-font-properties"]
+
+[[case]]
+id = "text-style-italic"
+source = '#text(style: "italic")[Italic]'
+upstream_tests = ["text-font-properties"]
+
+[[case]]
+id = "text-weight-bold"
+source = '#text(weight: "bold")[Bold]'
+upstream_tests = ["text-font-properties"]
+
+[[case]]
+id = "text-weight-regular"
+source = '#text(weight: "regular")[Regular]'
+note = 'weight relaxation: Lato has 300 and 500 here'
+
+[[case]]
+id = "text-weight-semibold"
+source = '#text(weight: 600)[Semibold]'
+note = 'weight relaxation'
+
+[[case]]
+id = "text-fill"
+source = 'This is #text(rgb("FA644B"))[way more] colorful.'
+upstream_tests = ["text-font-properties"]
+
+[[case]]
+id = "text-fill-transparent"
+source = '#text(fill: rgb("FF000080"))[This text is transparent.]'
+upstream_tests = ["text-font-properties"]
+
+[[case]]
+id = "text-unknown-family"
+source = '#text(font: "nonexistent")[but]'
+upstream_tests = ["text-unknown-font-family-warning"]
+
+[[case]]
+id = "text-font-list"
+source = '#text(font: ("nonexistent", "DejaVu Sans Mono"))[mono]'
+note = 'family list with an unknown first entry'
+
+[[case]]
+id = "text-tracking"
+source = '#text(tracking: 1pt)[Tracking]'
+
+[[case]]
+id = "text-baseline"
+source = 'A#text(baseline: -3pt)[B]C'
+
+[[case]]
+id = "text-features"
+source = '#text(features: ("frac",))[1/2] 1/2'
+
+[[case]]
+id = "text-size-relative"
+source = '#text(size: 1.5em)[Big] small'
+
+[[case]]
+id = "emph-syntax"
+source = '_Emphasized and *strong* words!_'
+upstream_tests = ["emph-syntax"]
+
+[[case]]
+id = "emph-in-word"
+source = 'hello_world Nutzer*innen'
+upstream_tests = ["emph-syntax"]
+
+[[case]]
+id = "emph-and-strong-call-in-word"
+source = 'P#strong[art]ly em#emph[phas]ized.'
+upstream_tests = ["emph-and-strong-call-in-word"]
+
+[[case]]
+id = "strong-delta"
+source = '*Bold* and #strong(delta: 150)[Medium]'
+upstream_tests = ["strong-delta"]
+note = 'set rule inlined'
+
+[[case]]
+id = "strong-nested"
+source = '*Medium* and *#[*Bold*]*'
+upstream_tests = ["strong-delta"]
+
+[[case]]
+id = "strong-emph"
+source = '*_x_*'
+
+[[case]]
+id = "strong-emph-calls"
+source = '#strong[#emph[x]]'
+
+[[case]]
+id = "emph-strong"
+source = '_*x*_'
+
+[[case]]
+id = "strong-segments"
+source = '*a**b*'
+note = 'two separate strong runs'
+
+[[case]]
+id = "underline-strong"
+source = '#underline[*x*]'
+
+[[case]]
+id = "strong-double-star-empty"
+source = '**not bold**'
+upstream_tests = ["strong-double-star-empty-hint"]
+note = 'upstream warns'
+
+[[case]]
+id = "raw-consecutive"
+source = '`A``B`'
+upstream_tests = ["raw-consecutive-single-backticks"]
+
+[[case]]
+id = "raw-fenced-one-line"
+source = """```
+let x = 1
+```"""
+note = 'a raw block of one line without a language'
+
+[[case]]
+id = "raw-inline"
+source = 'Use `x # y` and #raw("z * w")'
+
+[[case]]
+id = "raw-in-text"
+source = 'a `b` c'
+
+[[case]]
+id = "bidi-en-he-top-level-he"
+source = 'Text טֶקסט'
+upstream_tests = ["bidi-en-he-top-level"]
+lang = "he"
+
+[[case]]
+id = "bidi-en-he-top-level-en"
+source = 'Text טֶקסט'
+upstream_tests = ["bidi-en-he-top-level"]
+
+[[case]]
+id = "bidi-consecutive-embedded-rtl-runs-he"
+source = 'Aגֶ#strong[שֶׁ]םB'
+upstream_tests = ["bidi-consecutive-embedded-rtl-runs"]
+lang = "he"
+
+[[case]]
+id = "bidi-consecutive-embedded-rtl-runs-en"
+source = 'Aגֶ#strong[שֶׁ]םB'
+upstream_tests = ["bidi-consecutive-embedded-rtl-runs"]
+
+[[case]]
+id = "bidi-nesting"
+source = 'א\u{2066}A\u{2067}Bב\u{2069}?'
+upstream_tests = ["bidi-nesting"]
+dir = "rtl"
+
+[[case]]
+id = "bidi-explicit-dir"
+source = '#text("8:00 - 9:00", dir: ltr) בבוקר'
+upstream_tests = ["bidi-explicit-dir"]
+dir = "rtl"
+
+[[case]]
+id = "bidi-raw"
+source = 'לדוג. `if a == b:` זה תנאי'
+upstream_tests = ["bidi-raw"]
+lang = "he"
+
+[[case]]
+id = "bidi-tofus"
+source = '#"\u{590}\u{591}\u{592}\u{593}"'
+upstream_tests = ["issue-1373-bidi-tofus"]
+
+[[case]]
+id = "shaping-script-separation"
+source = 'ABCअपार्टमेंट'
+upstream_tests = ["shaping-script-separation"]
+
+[[case]]
+id = "shaping-devanagari"
+source = 'अपार्टमेंट'
+upstream_tests = ["shaping-script-separation"]
+
+[[case]]
+id = "fallback-hebrew"
+source = 'Aשלום B'
+upstream_tests = ["shaping-font-fallback"]
+note = 'fallback to Noto Sans Hebrew'
+
+[[case]]
+id = "emph-hebrew"
+source = '#emph[שלום]'
+note = 'fallback keeps the italic request'
+
+[[case]]
+id = "fallback-tofu"
+source = 'A\u{E000}B'
+note = 'a character no font covers'
+
+[[case]]
+id = "baseline-inline-math"
+source = 'It is $a_j = sum_(i in A_j) q_i$ of value $(p_i)/(q_i)$ and $abs({X_(i_j)})$.'
+upstream_tests = ["baseline-inline-math"]
+
+[[case]]
+id = "math-in-text"
+source = 'Area $pi r^2$ here'
+
+[[case]]
+id = "underline-math"
+source = '#underline[$x$]'
+note = 'math ignores the underline, as upstream'
+
+[[case]]
+id = "strong-math"
+source = '*$x$*'
+note = 'math inherits the strong weight'
+
+[[case]]
+id = "fill-math"
+source = '#text(fill: rgb("#ff4136"))[$x$]'
+note = 'math inherits the fill'
+
+[[case]]
+id = "math-in-rtl"
+source = 'שלום $x$ עולם'
+lang = "he"
+
+[[case]]
+id = "sym-arrow"
+source = 'Flow #sym.arrow.r target'
+upstream_tests = ["symbol"]
+
+[[case]]
+id = "sym-modifiers"
+source = '#sym.arrow.l.r.double #sym.plus.minus'
+upstream_tests = ["symbol"]
+
+[[case]]
+id = "underline-evade-descenders"
+source = '#underline(offset: 1.5pt)[group]'
+note = 'the underline meets the descenders, so evasion splits it'
+
+[[case]]
+id = "underline-no-evade-descenders"
+source = '#underline(evade: false, offset: 1.5pt)[group]'
+
+[[case]]
+id = "underline-literal-options"
+source = '#underline(stroke: 1.5pt + rgb("#ff4136"), offset: 2pt, extent: 3pt)[care]'
+
+[[case]]
+id = "overline-literal-options"
+source = '#overline(background: true, stroke: 1.5pt + rgb("#ff4136"), offset: -1.2em, extent: 2pt)[top]'
+
+[[case]]
+id = "strike-literal-options"
+source = '#strike(background: true, stroke: 1.5pt + rgb("#ff4136"), offset: -3.5pt, extent: 2pt)[gone]'
+
+[[case]]
+id = "decorations-nested"
+source = '#underline(stroke: rgb("#ff0000"))[#overline(stroke: rgb("#0000ff"))[x]]'
+note = 'the outer decoration draws first'
+
+[[case]]
+id = "decorations-nested-background"
+source = '#underline(background: true, stroke: rgb("#ff0000"))[#overline(stroke: rgb("#0000ff"))[x]]'
+
+[[case]]
+id = "underline-dash"
+source = '#underline(stroke: (thickness: 1pt, dash: (array: (2pt, "dot"), phase: 0.5pt), cap: "round"))[dashed]'
+
+[[case]]
+id = "underline-dash-named"
+source = '#underline(stroke: (dash: "dash-dotted", join: "bevel", miter-limit: 2))[dashed]'
+
+[[case]]
+id = "bidi-he-first-top-level-en"
+source = 'אבג ABC'
+note = 'the base direction comes from the language, not from the first strong character'
+
+[[case]]
+id = "plain-empty"
+source = ''
+
+# Sources upstream rejects. Their references record upstream's diagnostics.
+
+[[case]]
+id = "error-unclosed-strong"
+source = '*unclosed'
+
+[[case]]
+id = "error-unclosed-math"
+source = '$x'
+
+[[case]]
+id = "error-unknown-variable"
+source = '#nonexistent'
+
+[[case]]
+id = "error-math-unknown-variable"
+source = '$foo + 1$'
+
+[[case]]
+id = "error-wrong-argument-type"
+source = '#underline(stroke: "x")[a]'
+
+[[case]]
+id = "error-unexpected-argument"
+source = '#strong(color: 1)[a]'
+
+[[case]]
+id = "error-math-unknown-accent"
+source = '$ddot(x)$'

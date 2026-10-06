@@ -1,0 +1,100 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "denominator": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Text","span":[11,12]},"text":"𝑏","type":"glyph"},
+            "line": true,
+            "numerator": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[9,10]},"text":"𝑎","type":"glyph"},
+            "padding": 0.1,
+            "props": {"size":"Display","span":[9,12]},
+            "type": "fraction"
+          },
+          {
+            "denominator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[16,17]},
+              "style": {"font_size":8.4},
+              "text": "𝑏",
+              "type": "glyph"
+            },
+            "line": true,
+            "numerator": {
+              "glyph_class": "Alphabetic",
+              "props": {"class":"Alphabetic","size":"Script","span":[14,15]},
+              "style": {"font_size":8.4},
+              "text": "𝑎",
+              "type": "glyph"
+            },
+            "padding": 0.1,
+            "props": {"size":"Text","span":[14,17]},
+            "type": "fraction"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,18]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 10.968,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 10.968,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3628,0.557,0.0,0.0,0.0,[0,4],[9,10],0]],"lang":"en","size":12.0,"text":"𝑎"},"x":1.278,"y":0.984},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3629,0.57,0.0,0.0,0.0,[0,4],[11,12],0]],"lang":"en","size":12.0,"text":"𝑏"},"x":1.2,"y":16.344},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[6.84,0.0]},
+                  "span": [9,12],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 1.2,
+                "y": 4.584
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[14,15],0]],"lang":"en","size":8.4,"text":"𝑎"},
+                "x": 10.4862,
+                "y": 2.544
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2702,0.57,0.0,0.0,0.0,[0,4],[16,17],0]],"lang":"en","size":8.4,"text":"𝑏"},"x":10.44,"y":13.704},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[4.788,0.0]},
+                  "span": [14,17],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 10.44,
+                "y": 4.584
+              }
+            ],
+            "kind": "soft",
+            "width": 16.428
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 16.428
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: frac(num: [a], denom: [b]), ..),\n    [ ],\n    frac(num: [a], denom: [b]),\n  ),\n)",
+  "source": "$display(a/b) a/b$",
+  "warnings": []
+}

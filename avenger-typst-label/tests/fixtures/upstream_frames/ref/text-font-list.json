@@ -1,0 +1,32 @@
+{
+  "equations": [],
+  "fonts": [{"family":"DejaVu Sans Mono","index":0,"postscript":"DejaVuSansMono","variations":[]}],
+  "frame": {
+    "baseline": 9.1171875,
+    "height": 9.1171875,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [80,0.602050781,0.0,0.0,0.0,[0,1],[49,53],0],
+            [82,0.602050781,0.0,0.0,0.0,[1,2],[49,53],1],
+            [81,0.602050781,0.0,0.0,0.0,[2,3],[49,53],2],
+            [82,0.602050781,0.0,0.0,0.0,[3,4],[49,53],3]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "mono"
+        },
+        "x": 0.0,
+        "y": 9.1171875
+      }
+    ],
+    "kind": "hard",
+    "width": 28.8984375
+  },
+  "repr": "styled(child: [mono], ..)",
+  "source": "#text(font: (\"nonexistent\", \"DejaVu Sans Mono\"))[mono]",
+  "warnings": [{"hints":[],"message":"unknown font family: nonexistent","range":[12,47]}]
+}

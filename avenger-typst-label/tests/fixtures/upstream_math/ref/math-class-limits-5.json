@@ -1,0 +1,39 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": {
+          "glyph_class": "Alphabetic",
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":[29,30]},
+          "style": {"font_size":8.4},
+          "text": "𝑎",
+          "type": "glyph"
+        },
+        "base": {"glyph_class":"Normal","props":{"class":"Normal","limits":"Always","size":"Text","span":null},"text":"→","type":"glyph"},
+        "bl": null,
+        "br": null,
+        "props": {"class":"Normal","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": null,
+        "tl": null,
+        "tr": null,
+        "type": "scripts"
+      },
+      "span": [0,31]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 8.8428,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[430,1.04,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"→"},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[29,30],0]],"lang":"en","size":8.4,"text":"𝑎"},"x":3.8922,"y":14.244}
+    ],
+    "kind": "hard",
+    "width": 12.48
+  },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: limits(body: class(class: \"normal\", body: [→])),\n    b: [a],\n  ),\n)",
+  "source": "$limits(class(\"normal\", ->))_a$",
+  "warnings": []
+}

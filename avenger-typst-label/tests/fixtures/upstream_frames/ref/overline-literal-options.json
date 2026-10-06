@@ -1,0 +1,38 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[21.886,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#ff4136ff","thickness":1.5}
+        },
+        "x": -2.0,
+        "y": -5.784
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[123,0.359,0.0,0.0,0.0,[0,1],[89,92],0],[111,0.569,0.0,0.0,0.0,[1,2],[89,92],1],[114,0.5625,0.0,0.0,0.0,[2,3],[89,92],2]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "top"
+        },
+        "x": 0.0,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 17.886
+  },
+  "repr": "overline(\n  stroke: 1.5pt + rgb(\"#ff4136\"),\n  offset: -1.2em,\n  extent: 2pt,\n  background: true,\n  body: [top],\n)",
+  "source": "#overline(background: true, stroke: 1.5pt + rgb(\"#ff4136\"), offset: -1.2em, extent: 2pt)[top]",
+  "warnings": []
+}

@@ -1,0 +1,43 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [49,0.4785,0.0,0.0,0.0,[0,1],[69,73],0],
+            [45,0.4995,0.0,0.0,0.0,[1,2],[69,73],1],
+            [117,0.3475,0.0,0.0,0.0,[2,3],[69,73],2],
+            [59,0.5295,0.0,0.0,0.0,[3,4],[69,73],3]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "care"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[28.26,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#ff4136ff","thickness":1.5}
+        },
+        "x": -3.0,
+        "y": 10.616
+      }
+    ],
+    "kind": "hard",
+    "width": 22.26
+  },
+  "repr": "underline(\n  stroke: 1.5pt + rgb(\"#ff4136\"),\n  offset: 2pt,\n  extent: 3pt,\n  body: [care],\n)",
+  "source": "#underline(stroke: 1.5pt + rgb(\"#ff4136\"), offset: 2pt, extent: 3pt)[care]",
+  "warnings": []
+}

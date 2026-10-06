@@ -1,0 +1,101 @@
+{
+  "equations": [
+    {
+      "root": {
+        "base": {
+          "items": [
+            {
+              "b": null,
+              "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[11,12]},"text":"𝑓","type":"glyph"},
+              "bl": null,
+              "br": null,
+              "props": {"class":"Alphabetic","size":"Text","span":null},
+              "t": null,
+              "tl": null,
+              "tr": {"glyph_class":"Normal","props":{"class":"Normal","size":"Script","span":null},"style":{"font_size":8.4},"text":"′","type":"glyph"},
+              "type": "scripts"
+            },
+            {
+              "glyph_class": "Relation",
+              "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[14,15]},
+              "text": ":",
+              "type": "glyph"
+            },
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[16,18]},"text":"ℕ","type":"glyph"},
+            {
+              "glyph_class": "Relation",
+              "props": {"class":"Relation","limits":"Always","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[19,21]},
+              "text": "→",
+              "type": "glyph"
+            },
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[22,24]},"text":"ℝ","type":"glyph"}
+          ],
+          "props": {"size":"Text","span":null},
+          "type": "group"
+        },
+        "position": "Below",
+        "props": {"size":"Text","span":[1,25]},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "line"
+      },
+      "span": [0,26]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3633,0.426,0.0,0.0,0.0,[0,4],[11,12],0]],"lang":"en","size":12.0,"text":"𝑓"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2953,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":8.4,"text":"′"},"x":5.112,"y":2.904},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[27,0.25,0.0,0.0,0.0,[0,1],[14,15],0]],"lang":"en","size":12.0,"text":":"},
+                "x": 11.567733333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[382,0.724,0.0,0.0,0.0,[0,3],[16,18],0]],"lang":"en","size":12.0,"text":"ℕ"},
+                "x": 17.901066667,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[430,1.04,0.0,0.0,0.0,[0,3],[19,21],0]],"lang":"en","size":12.0,"text":"→"},"x":29.9224,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[388,0.768,0.0,0.0,0.0,[0,3],[22,24],0]],"lang":"en","size":12.0,"text":"ℝ"},
+                "x": 45.735733333,
+                "y": 7.944
+              },
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[54.951733333,0.0]},
+                  "span": [1,25],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 0.0,
+                "y": 11.628
+              }
+            ],
+            "kind": "soft",
+            "width": 54.951733333
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 54.951733333
+  },
+  "repr": "equation(\n  block: false,\n  body: underline(\n    body: sequence(\n      attach(base: [f], tr: primes(count: 1)),\n      [ ],\n      [:],\n      [ ],\n      [ℕ],\n      [ ],\n      [→],\n      [ ],\n      [ℝ],\n    ),\n  ),\n)",
+  "source": "$underline(f' : NN -> RR)$",
+  "warnings": []
+}

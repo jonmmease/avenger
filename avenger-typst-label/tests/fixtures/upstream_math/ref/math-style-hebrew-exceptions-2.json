@@ -1,0 +1,59 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Normal","props":{"size":"Text","span":null},"style":{"italic":false},"text":"א","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[15,16]},"text":",","type":"glyph"},
+          {"glyph_class":"Normal","props":{"size":"Text","span":null},"style":{"italic":false},"text":"ב","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[30,31]},"text":",","type":"glyph"},
+          {"glyph_class":"Normal","props":{"size":"Text","span":null},"style":{"italic":false},"text":"ג","type":"glyph"},
+          {"glyph_class":"Punctuation","props":{"class":"Punctuation","rspace":0.166666667,"size":"Text","span":[46,47]},"text":",","type":"glyph"},
+          {"glyph_class":"Normal","props":{"size":"Text","span":null},"style":{"italic":false},"text":"ד","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,64]
+    }
+  ],
+  "fonts": [
+    {"family":"Noto Sans Hebrew","index":0,"postscript":"NotoSansHebrew-Thin","variations":[["wdth",100.0],["wght",500.0]]},
+    {"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}
+  ],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3,0.647,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"א"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":1,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[15,16],0]],"lang":"en","size":12.0,"text":","},"x":7.764,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.579,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"ב"},"x":12.488,"y":7.944},
+              {"text":{"fill":"#000000ff","font":1,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[30,31],0]],"lang":"en","size":12.0,"text":","},"x":19.436,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[34,0.387,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"ג"},"x":24.16,"y":7.944},
+              {"text":{"fill":"#000000ff","font":1,"glyphs":[[13,0.227,0.0,0.0,0.0,[0,1],[46,47],0]],"lang":"en","size":12.0,"text":","},"x":28.804,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[16,0.552,0.0,0.0,0.0,[0,2],null,0]],"lang":"en","size":12.0,"text":"ד"},"x":33.528,"y":7.944}
+            ],
+            "kind": "soft",
+            "width": 40.152
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 40.152
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    styled(child: [א], ..),\n    [,],\n    [ ],\n    styled(child: [ב], ..),\n    [,],\n    [ ],\n    styled(child: [ג], ..),\n    [,],\n    [ ],\n    styled(child: [ד], ..),\n  ),\n)",
+  "source": "$upright(aleph), upright(beth), upright(gimel), upright(daleth)$",
+  "warnings": []
+}

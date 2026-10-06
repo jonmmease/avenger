@@ -1,0 +1,73 @@
+[package]
+name = "avenger-typst-label"
+version = "0.1.0"
+edition = "2024"
+# Files ported from Typst are Apache-2.0; Avenger's are BSD-3-Clause. See NOTICE.
+license = "Apache-2.0 AND BSD-3-Clause"
+
+[features]
+default = []
+raster = ["dep:image", "dep:tiny-skia"]
+serde = ["dep:serde", "chrono/serde", "indexmap/serde"]
+# Builds `typst-label-math-svg-probe`, which measures the engine's binary size.
+size-probe = []
+# The PNG references' tooling. It turns on `serde` itself, which its manifests need, so the
+# CI step that tests this feature also runs the `serde` round trip.
+upstream-png-parity = ["dep:brotli", "serde", "dep:toml"]
+
+[[bin]]
+name = "generate_upstream_png_refs"
+required-features = ["upstream-png-parity"]
+
+[[bin]]
+name = "typst-label-math-svg-probe"
+path = "src/bin/typst_label_math_svg_probe.rs"
+required-features = ["size-probe"]
+
+[dependencies]
+avenger-color = { path = "../avenger-color" }
+avenger-format = { path = "../avenger-format" }
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+chrono = { workspace = true }
+codex = { version = "=0.3.0", default-features = false, features = ["styling"] }
+fontdb = { workspace = true }
+indexmap = { workspace = true }
+image = { workspace = true, optional = true }
+rustybuzz = { workspace = true }
+ttf-parser = { workspace = true }
+tiny-skia = { workspace = true, optional = true }
+brotli = { workspace = true, optional = true }
+bitflags = "2.9.0"
+ecow = "0.2.6"
+either = "1.13.0"
+kurbo = "0.11.1"
+libm = "0.2.16"
+paste = "1.0.15"
+phf = { version = "0.11.2", features = ["macros"] }
+rustc-hash = "2.1.2"
+self_cell = "1.0.4"
+smallvec = { version = "1.15.2", features = ["union", "const_generics", "const_new"] }
+toml = { version = "0.8.23", default-features = false, features = ["parse", "display"], optional = true }
+typed-arena = "2.0.2"
+typst-syntax = "=0.15.1"
+typst-utils = "=0.15.1"
+unicode-bidi = "0.3.18"
+unicode-math-class = "0.1"
+unicode-script = "0.5.7"
+unicode-segmentation = "1.12.0"
+
+[dev-dependencies]
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-fonts = { path = "../avenger-fonts" }
+brotli = { workspace = true }
+chrono-tz = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+
+[[example]]
+name = "gallery"
+required-features = ["raster"]

@@ -1,0 +1,47 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [117,0.3475,0.0,0.0,0.0,[0,1],[56,64],0],
+            [59,0.5295,0.0,0.0,0.0,[1,2],[56,64],1],
+            [55,0.562,0.0,0.0,0.0,[2,3],[56,64],2],
+            [45,0.4995,0.0,0.0,0.0,[3,4],[56,64],3],
+            [49,0.4785,0.0,0.0,0.0,[4,5],[56,64],4],
+            [123,0.359,0.0,0.0,0.0,[5,6],[56,64],5],
+            [59,0.5295,0.0,0.0,0.0,[6,7],[56,64],6],
+            [55,0.562,0.0,0.0,0.0,[7,8],[56,64],7]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "redacted"
+        },
+        "x": 0.0,
+        "y": 8.616
+      },
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[47.61,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#abcdef88","thickness":10.0}
+        },
+        "x": -0.6,
+        "y": 5.292
+      }
+    ],
+    "kind": "hard",
+    "width": 46.41
+  },
+  "repr": "strike(\n  stroke: 10pt + rgb(\"#abcdef88\"),\n  extent: 0.05em,\n  body: [redacted],\n)",
+  "source": "#strike(stroke: 10pt + rgb(\"abcdef88\"), extent: 0.05em)[redacted]",
+  "warnings": []
+}

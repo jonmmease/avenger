@@ -1,0 +1,69 @@
+{
+  "equations": [
+    {
+      "root": {
+        "b": null,
+        "base": {
+          "glyph_class": "Relation",
+          "props": {"class":"Relation","limits":"Always","size":"Text","span":null},
+          "stretch": {
+            "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}},
+            "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}}
+          },
+          "text": "↑",
+          "type": "glyph"
+        },
+        "bl": null,
+        "br": null,
+        "props": {"class":"Relation","size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "t": {"props":{"class":"Alphabetic","size":"Script","spaced":true,"span":[31,36]},"style":{"font_size":8.4},"text":"map","type":"text"},
+        "tl": null,
+        "tr": null,
+        "type": "scripts"
+      },
+      "span": [0,37]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 14.9436,
+    "height": 15.5796,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [2225,0.0,0.0,0.262666667,0.0,[0,3],null,0],
+            [2225,0.0,0.0,0.262666667,0.0,[0,3],null,0],
+            [2225,0.0,0.0,0.262666667,0.0,[0,3],null,0],
+            [2221,0.0,0.0,0.788,0.0,[0,3],null,0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "↑"
+        },
+        "x": 3.9498,
+        "y": 21.0396
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[2602,0.827,0.0,0.0,0.0,[0,1],[31,36],0],[2590,0.5,0.0,0.0,0.0,[1,2],[31,36],1],[2605,0.562,0.0,0.0,0.0,[2,3],[31,36],2]],
+          "lang": "en",
+          "size": 8.4,
+          "text": "map"
+        },
+        "x": 0.0,
+        "y": -1.1088
+      }
+    ],
+    "kind": "hard",
+    "width": 15.8676
+  },
+  "repr": "equation(\n  block: false,\n  body: attach(\n    base: stretch(body: [↑], size: 200% + 0pt),\n    t: [map],\n  ),\n)",
+  "source": "$stretch(arrow.t, size: #200%)^\"map\"$",
+  "warnings": []
+}

@@ -1,0 +1,41 @@
+{
+  "equations": [],
+  "fonts": [{"family":"DejaVu Sans Mono","index":0,"postscript":"DejaVuSansMono","variations":[]}],
+  "frame": {
+    "baseline": 7.29375,
+    "height": 7.29375,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.29375,
+            "height": 7.29375,
+            "items": [
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[36,0.602050781,0.0,0.0,0.0,[0,1],[1,2],0]],"lang":"en","size":9.6,"text":"A"},
+                "x": 0.0,
+                "y": 7.29375
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[37,0.602050781,0.0,0.0,0.0,[0,1],[4,5],0]],"lang":"en","size":9.6,"text":"B"},
+                "x": 5.7796875,
+                "y": 7.29375
+              }
+            ],
+            "kind": "soft",
+            "width": 11.559375
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 11.559375
+  },
+  "repr": "sequence(\n  raw(text: \"A\", block: false),\n  raw(text: \"B\", block: false),\n)",
+  "source": "`A``B`",
+  "warnings": []
+}

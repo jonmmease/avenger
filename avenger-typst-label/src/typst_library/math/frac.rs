@@ -1,0 +1,198 @@
+//! Ported from crates/typst-library/src/math/frac.rs @ v0.15.1, modified for Avenger.
+//!
+//! avenger: doc examples with bare fences are marked `ignore`, so that rustdoc doesn't run them.
+
+use typst_syntax::Spanned;
+
+use crate::typst_library::diag::{At, SourceResult, bail};
+use crate::typst_library::engine::Engine;
+use crate::typst_library::foundations::{Args, Content, Value, derive_cast, elem};
+use crate::typst_library::layout::Em;
+
+/// How much padding to add around each side of a fraction.
+pub const FRAC_PADDING: Em = Em::new(0.1);
+
+elem! {
+/// A mathematical fraction.
+///
+/// = Example <example>
+/// ```example
+/// $ 1/2 < (x+1)/2 $
+/// $ ((x+1)) / 2 = frac(a, b) $
+/// ```
+///
+/// = Syntax <syntax>
+/// This function also has dedicated syntax: Use a slash to turn neighbouring
+/// expressions into a fraction. Multiple atoms can be grouped into a single
+/// expression using round grouping parentheses. Such parentheses are removed
+/// from the output, but you can nest multiple to force them.
+#[elem(name = "frac", title = "Fraction", Mathy)]
+pub struct FracElem {
+    /// The fraction's numerator.
+    #[required]
+    pub num: Content,
+
+    /// The fraction's denominator.
+    #[required]
+    pub denom: Content,
+
+    /// How the fraction should be laid out.
+    ///
+    /// #example(
+    ///   title: "Styles",
+    ///   ```ignore
+    ///   $ frac(x, y, style: "vertical") $
+    ///   $ frac(x, y, style: "skewed") $
+    ///   $ frac(x, y, style: "horizontal") $
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Setting the default",
+    ///   ```ignore
+    ///   #set math.frac(style: "skewed")
+    ///   $ a / b $
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Handling of grouping parentheses",
+    ///   ```ignore
+    ///   // Grouping parentheses are removed.
+    ///   #set math.frac(style: "vertical")
+    ///   $ (a + b) / b $
+    ///
+    ///   // Grouping parentheses are removed.
+    ///   #set math.frac(style: "skewed")
+    ///   $ (a + b) / b $
+    ///
+    ///   // Grouping parentheses are retained.
+    ///   #set math.frac(style: "horizontal")
+    ///   $ (a + b) / b $
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Different styles in inline vs block equations",
+    ///   ```ignore
+    ///   // This changes the style for inline equations only.
+    ///   #show math.equation.where(block: false): set math.frac(style: "horizontal")
+    ///
+    ///   This $(x-y)/z = 3$ is inline math, and this is block math:
+    ///   $ (x-y)/z = 3 $
+    ///   ```
+    /// )
+    ///
+    /// #example(
+    ///   title: "Use LaTeX-like convention",
+    ///   ```ignore
+    ///   // Change the default style.
+    ///   #set math.frac(style: "horizontal")
+    ///   // Define a shorthand with the original style.
+    ///   #let frac = math.frac.with(style: "vertical")
+    ///
+    ///   $ p/q = frac(p, q) $
+    ///
+    ///   // The shadowed definition can still be accessed.
+    ///   #assert.eq($p/q$, $std.math.frac(p, q)$)
+    ///   ```
+    /// )
+    #[default(FracStyle::Vertical)]
+    pub style: FracStyle,
+
+    /// Whether the numerator was originally surrounded by parentheses that were
+    /// stripped by the parser.
+    #[internal]
+    #[parse(None)]
+    #[default(false)]
+    pub num_deparenthesized: bool,
+
+    /// Whether the denominator was originally surrounded by parentheses that
+    /// were stripped by the parser.
+    #[internal]
+    #[parse(None)]
+    #[default(false)]
+    pub denom_deparenthesized: bool,
+}
+}
+
+impl FracElem {
+    // upstream: crates/typst-library/src/math/frac.rs::FracElem @ v0.15.1, the `#[parse]`
+    // attribute of `num_deparenthesized`
+    fn parse_num_deparenthesized(
+        _: &mut Engine,
+        _: &mut Args,
+    ) -> SourceResult<Option<bool>> {
+        Ok(None)
+    }
+
+    // upstream: crates/typst-library/src/math/frac.rs::FracElem @ v0.15.1, the `#[parse]`
+    // attribute of `denom_deparenthesized`
+    fn parse_denom_deparenthesized(
+        _: &mut Engine,
+        _: &mut Args,
+    ) -> SourceResult<Option<bool>> {
+        Ok(None)
+    }
+}
+
+/// Fraction style
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum FracStyle {
+    /// Stacked numerator and denominator with a bar.
+    #[default]
+    Vertical,
+    /// Numerator and denominator separated by a slash.
+    Skewed,
+    /// Numerator and denominator placed inline and parentheses are not
+    /// absorbed.
+    Horizontal,
+}
+
+derive_cast!(FracStyle { Vertical, Skewed, Horizontal });
+
+elem! {
+/// A binomial expression.
+///
+/// = Example <example>
+/// ```example
+/// $ binom(n, k) $
+/// $ binom(n, k_1, k_2, k_3, ..., k_m) $
+/// ```
+#[elem(name = "binom", title = "Binomial", Mathy)]
+pub struct BinomElem {
+    /// The binomial's upper index.
+    #[required]
+    pub upper: Content,
+
+    /// The binomial's lower index.
+    #[required]
+    #[variadic]
+    #[parse(
+        let values = args.all::<Spanned<Value>>()?;
+        if values.is_empty() {
+            // Prevents one element binomials
+            bail!(args.span, "missing argument: lower");
+        }
+        values.into_iter().map(|spanned| spanned.v.display()).collect()
+    )]
+    pub lower: Vec<Content>,
+}
+}
+
+impl BinomElem {
+    // upstream: crates/typst-library/src/math/frac.rs::BinomElem @ v0.15.1, the `#[parse]`
+    // attribute of `lower`
+    // avenger: displaying a value can fail in a label (D3).
+    fn parse_lower(_: &mut Engine, args: &mut Args) -> SourceResult<Vec<Content>> {
+        let values = args.all::<Spanned<Value>>()?;
+        if values.is_empty() {
+            // Prevents one element binomials
+            bail!(args.span, "missing argument: lower");
+        }
+        values
+            .into_iter()
+            .map(|spanned| spanned.v.display().at(spanned.span))
+            .collect()
+    }
+}

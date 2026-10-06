@@ -1,0 +1,100 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Large","props":{"class":"Large","rspace":0.166666667,"size":"Text","span":[1,9]},"text":"∫","type":"glyph"},
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":3.0,"rel":0.0},"short_fall":0.0,"target":{"abs":36.0,"rel":0.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":3.0,"rel":0.0},"short_fall":0.0,"target":{"abs":36.0,"rel":0.0}}
+            },
+            "text": "∫",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.0},"short_fall":0.0,"target":{"abs":0.0,"rel":0.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.0},"short_fall":0.0,"target":{"abs":0.0,"rel":0.0}}
+            },
+            "text": "∫",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.5},"short_fall":0.0,"target":{"abs":0.0,"rel":0.5}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":0.5},"short_fall":0.0,"target":{"abs":0.0,"rel":0.5}}
+            },
+            "text": "∫",
+            "type": "glyph"
+          },
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}}
+            },
+            "text": "∫",
+            "type": "glyph"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,131]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 15.9,
+    "height": 25.08,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],[1,9],0]],"lang":"en","size":12.0,"text":"∫"},"x":0.0,"y":15.9},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [806,0.0,0.0,1.0835,0.0,[0,3],null,0],
+            [832,0.0,0.0,0.2665,0.0,[0,3],null,0],
+            [832,0.0,0.0,0.2665,0.0,[0,3],null,0],
+            [832,0.0,0.0,0.2665,0.0,[0,3],null,0],
+            [805,0.0,0.0,1.117,0.0,[0,3],null,0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "∫"
+        },
+        "x": 9.08,
+        "y": 30.54
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∫"},"x":19.096,"y":15.9},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":12.0,"text":"∫"},"x":28.176,"y":15.9},
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[806,0.0,0.0,1.017,0.0,[0,3],null,0],[832,0.0,0.0,0.2,0.0,[0,3],null,0],[805,0.0,0.0,1.117,0.0,[0,3],null,0]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "∫"
+        },
+        "x": 37.256,
+        "y": 26.544
+      }
+    ],
+    "kind": "hard",
+    "width": 45.272
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∫],\n    [ ],\n    stretch(body: [∫], size: 0% + 3em),\n    [ ],\n    stretch(body: [∫], size: 0% + 0pt),\n    [ ],\n    stretch(body: [∫], size: 50% + 0pt),\n    [ ],\n    stretch(body: [∫], size: 200% + 0pt),\n  ),\n)",
+  "source": "$integral stretch(integral, size: #3em) stretch(integral, size: #0em) stretch(integral, size: #50%) stretch(integral, size: #200%)$",
+  "warnings": []
+}

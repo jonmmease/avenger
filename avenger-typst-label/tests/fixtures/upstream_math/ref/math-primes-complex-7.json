@@ -1,0 +1,105 @@
+{
+  "equations": [
+    {
+      "root": {
+        "denominator": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[6,7]},"text":"𝑐","type":"glyph"},
+          "bl": null,
+          "br": {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[8,9]},"text":"𝑑","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":null},
+            "style": {"font_size":6.6},
+            "t": null,
+            "tl": null,
+            "tr": {"glyph_class":"Normal","props":{"class":"Normal","cramped":true,"size":"ScriptScript","span":null},"text":"′","type":"glyph"},
+            "type": "scripts"
+          },
+          "props": {"class":"Alphabetic","cramped":true,"size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": null,
+          "type": "scripts"
+        },
+        "line": true,
+        "numerator": {
+          "b": null,
+          "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Script","span":[1,2]},"text":"𝑎","type":"glyph"},
+          "bl": null,
+          "br": {
+            "b": null,
+            "base": {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":[3,4]},"text":"𝑏","type":"glyph"},
+            "bl": null,
+            "br": null,
+            "props": {"class":"Alphabetic","cramped":true,"size":"ScriptScript","span":null},
+            "style": {"font_size":6.6},
+            "t": null,
+            "tl": null,
+            "tr": {"glyph_class":"Normal","props":{"class":"Normal","cramped":true,"size":"ScriptScript","span":null},"text":"′","type":"glyph"},
+            "type": "scripts"
+          },
+          "props": {"class":"Alphabetic","size":"Script","span":null},
+          "style": {"font_size":8.4},
+          "t": null,
+          "tl": null,
+          "tr": null,
+          "type": "scripts"
+        },
+        "padding": 0.1,
+        "props": {"size":"Text","span":[1,10]},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "fraction"
+      },
+      "span": [0,11]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 10.527,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 10.527,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2701,0.559,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":8.4,"text":"𝑎"},"x":1.2,"y":0.945},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3202,0.607,0.0,0.0,0.0,[0,4],[3,4],0]],"lang":"en","size":6.6,"text":"𝑏"},"x":5.3412,"y":3.1752},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":9.3474,"y":0.7332},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[2703,0.501,0.0,0.0,0.0,[0,4],[6,7],0]],"lang":"en","size":8.4,"text":"𝑐"},"x":1.4142,"y":13.704},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3204,0.621,0.0,0.0,0.0,[0,4],[8,9],0]],"lang":"en","size":6.6,"text":"𝑑"},"x":5.0346,"y":15.9342},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3453,0.286,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":6.6,"text":"′"},"x":9.1332,"y":13.4922},
+              {
+                "shape": {
+                  "fill": null,
+                  "fill_rule": "NonZero",
+                  "geometry": {"line":[10.935,0.0]},
+                  "span": [1,10],
+                  "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#000000ff","thickness":0.792}
+                },
+                "x": 1.2,
+                "y": 4.584
+              }
+            ],
+            "kind": "soft",
+            "width": 13.335
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 13.335
+  },
+  "repr": "equation(\n  block: false,\n  body: frac(\n    num: attach(\n      base: [a],\n      b: attach(base: [b], tr: primes(count: 1)),\n    ),\n    denom: attach(\n      base: [c],\n      b: attach(base: [d], tr: primes(count: 1)),\n    ),\n  ),\n)",
+  "source": "$a_b'/c_d'$",
+  "warnings": []
+}

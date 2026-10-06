@@ -1,0 +1,58 @@
+{
+  "equations": [
+    {
+      "root": {
+        "balanced": false,
+        "body": {
+          "denominator": {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","cramped":true,"size":"Script","span":null},
+            "style": {"font_size":8.4},
+            "text": "□",
+            "type": "glyph"
+          },
+          "line": false,
+          "numerator": {"glyph_class":"Binary","props":{"class":"Binary","size":"Script","span":null},"style":{"font_size":8.4},"text":"○","type":"glyph"},
+          "padding": 0.1,
+          "props": {"size":"Text","span":[1,22]},
+          "type": "fraction"
+        },
+        "close": {
+          "glyph_class": "Closing",
+          "props": {"class":"Closing","size":"Text","span":[1,22]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": ")",
+          "type": "glyph"
+        },
+        "open": {
+          "glyph_class": "Opening",
+          "props": {"class":"Opening","size":"Text","span":[1,22]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "(",
+          "type": "glyph"
+        },
+        "props": {"size":"Text","span":[1,22]},
+        "shared": false,
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "fenced"
+      },
+      "span": [0,23]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 9.5712,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[1836,0.4,0.0,0.0,0.0,[0,1],[1,22],0]],"lang":"en","size":12.0,"text":"("},"x":0.0,"y":7.938},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[901,0.842,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":8.4,"text":"○"},"x":6.2856,"y":2.544},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[859,0.91,0.0,0.0,0.0,[0,3],null,0]],"lang":"en","size":8.4,"text":"□"},"x":6.0,"y":13.704},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[1851,0.4,0.0,0.0,0.0,[0,1],[1,22],0]],"lang":"en","size":12.0,"text":")"},"x":14.844,"y":7.938}
+    ],
+    "kind": "hard",
+    "width": 19.644
+  },
+  "repr": "equation(\n  block: false,\n  body: binom(upper: [○], lower: ([□],)),\n)",
+  "source": "$binom(circle, square)$",
+  "warnings": []
+}

@@ -1,0 +1,119 @@
+//! Lowers compiled labels to PDF drawing items: text as glyph runs in their fonts, so that it
+//! stays text, and shapes as paths.
+//!
+//! avenger: drawing items in place of a PDF document, which `avenger-pdf` writes, embedding
+//! the fonts. As in upstream's PDF export, bitmap glyphs stay in their runs, and the writer
+//! draws them from their fonts.
+
+use std::ops::Range;
+
+use avenger_color::AbsoluteColor;
+
+use crate::label::{CompiledLabel, FontRef, FrameItem, Point, Size, TextItem, Transform};
+use crate::typst_svg::{PathItem, shape_path};
+
+/// Options for lowering a label to PDF drawing items.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PdfOptions {}
+
+/// A label as PDF drawing items.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfLabel {
+    /// The label's size.
+    pub size: Size,
+    /// The label's text, for text extraction.
+    pub semantic_text: String,
+    /// The fonts the label's text uses.
+    pub fonts: Vec<FontRef>,
+    /// The items, in drawing order.
+    pub items: Vec<PdfItem>,
+}
+
+/// A PDF drawing item.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PdfItem {
+    /// A run of glyphs in one font.
+    Text(PdfText),
+    /// A filled or stroked path.
+    Path(PathItem),
+}
+
+/// A run of glyphs in one font, size and fill.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfText {
+    /// The font, as an index into the label's fonts.
+    pub font: usize,
+    /// The font size, in points.
+    pub size: f32,
+    /// The glyphs' fill.
+    pub fill: AbsoluteColor,
+    /// The transform from the run's coordinates to the label's. The run's origin lies on its
+    /// baseline.
+    pub transform: Transform,
+    /// The text the glyphs show.
+    pub text: String,
+    /// The glyphs, in visual order.
+    pub glyphs: Vec<PdfGlyph>,
+}
+
+/// A glyph in a run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfGlyph {
+    /// The glyph's index in the font.
+    pub id: u16,
+    /// The glyph's origin relative to the run's, in points.
+    pub position: Point,
+    /// The horizontal advance, in points.
+    pub x_advance: f32,
+    /// The glyph's cluster in the run's text.
+    pub range: Range<usize>,
+    /// The glyph's range in the label source.
+    pub source: Range<usize>,
+}
+
+/// Lowers a label to PDF drawing items.
+pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> PdfLabel {
+    let mut fonts: Vec<FontRef> = vec![];
+    let mut items = vec![];
+    label.frame.visit(Transform::IDENTITY, &mut |ts, item| match item {
+        FrameItem::Text(text) => {
+            let font = match fonts.iter().position(|font| *font == text.font) {
+                Some(index) => index,
+                None => {
+                    fonts.push(text.font.clone());
+                    fonts.len() - 1
+                }
+            };
+            items.push(PdfItem::Text(text_run(ts, text, font)));
+        }
+        FrameItem::Shape(shape) => items.push(PdfItem::Path(shape_path(ts, shape))),
+        FrameItem::Group(_) => {}
+    });
+    PdfLabel {
+        size: label.frame.size,
+        semantic_text: label.semantic_text.clone(),
+        fonts,
+        items,
+    }
+}
+
+/// A text item as a run.
+fn text_run(ts: Transform, text: &TextItem, font: usize) -> PdfText {
+    PdfText {
+        font,
+        size: text.size,
+        fill: text.fill,
+        transform: ts,
+        text: text.text.clone(),
+        glyphs: text
+            .positioned_glyphs()
+            .map(|(position, glyph)| PdfGlyph {
+                id: glyph.id,
+                position,
+                x_advance: glyph.x_advance * text.size,
+                range: glyph.range.clone(),
+                source: glyph.source.clone(),
+            })
+            .collect(),
+    }
+}

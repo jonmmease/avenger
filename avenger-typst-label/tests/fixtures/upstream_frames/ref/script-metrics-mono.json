@@ -1,0 +1,51 @@
+{
+  "equations": [],
+  "fonts": [{"family":"DejaVu Sans Mono","index":0,"postscript":"DejaVuSansMono","variations":[]}],
+  "frame": {
+    "baseline": 9.1171875,
+    "height": 9.1171875,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[59,0.602050781,0.0,0.0,0.0,[0,1],[0,2],0],[91,0.602050781,0.0,0.0,0.0,[1,2],[0,2],1]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "Xx"
+        },
+        "x": 0.0,
+        "y": 9.1171875
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[59,0.602050781,0.0,0.0,0.0,[0,1],[29,31],0],[91,0.602050781,0.0,0.0,0.0,[1,2],[29,31],1]],
+          "lang": "en",
+          "size": 8.396484375,
+          "text": "Xx"
+        },
+        "x": 14.44921875,
+        "y": 3.357421875
+      },
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[59,0.602050781,0.0,0.0,0.0,[0,1],[57,59],0],[91,0.602050781,0.0,0.0,0.0,[1,2],[57,59],1]],
+          "lang": "en",
+          "size": 8.396484375,
+          "text": "Xx"
+        },
+        "x": 24.559438705,
+        "y": 10.79296875
+      }
+    ],
+    "kind": "hard",
+    "width": 34.669658661
+  },
+  "repr": "sequence(\n  [Xx],\n  super(typographic: false, body: [Xx]),\n  sub(typographic: false, body: [Xx]),\n)",
+  "source": "Xx#super(typographic: false)[Xx]#sub(typographic: false)[Xx]",
+  "warnings": []
+}

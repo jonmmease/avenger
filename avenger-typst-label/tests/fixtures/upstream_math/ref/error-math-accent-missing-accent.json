@@ -1,0 +1,1 @@
+{"errors":[{"hints":[],"message":"missing argument: accent","range":[1,10]}],"repr":null,"source":"$accent(x)$","warnings":[]}

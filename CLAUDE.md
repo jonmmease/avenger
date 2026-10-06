@@ -107,3 +107,6 @@ When implementing new features:
 2. For new scales: Implement `ScaleImpl` trait in `avenger-scales`
 3. For interactivity: Use `EventStreamHandler` pattern in `avenger-app`
 4. For GPU optimizations: Modify shaders in `avenger-wgpu/src/shaders/`
+
+To move `avenger-typst-label` to a new upstream Typst release, follow "Following upstream" in
+`avenger-typst-label/UPSTREAM.md`

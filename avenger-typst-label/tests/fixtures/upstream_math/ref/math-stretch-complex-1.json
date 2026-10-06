@@ -1,0 +1,112 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[1,2]},"text":"𝐻","type":"glyph"},
+          {
+            "b": null,
+            "base": {
+              "glyph_class": "Relation",
+              "props": {"class":"Relation","limits":"Always","size":"Text","span":[11,12]},
+              "stretch": {
+                "x": {"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}},
+                "y": {"explicit":true,"requested":null,"short_fall":0.0,"target":{"abs":0.0,"rel":1.0}}
+              },
+              "text": "=",
+              "type": "glyph"
+            },
+            "bl": null,
+            "br": null,
+            "props": {"class":"Relation","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":null},
+            "t": {"props":{"class":"Alphabetic","size":"Script","spaced":true,"span":[14,22]},"style":{"font_size":8.4},"text":"define","type":"text"},
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[23,24]},"text":"𝑈","type":"glyph"},
+          {"glyph_class":"Vary","props":{"class":"Binary","lspace":0.222222222,"rspace":0.222222222,"size":"Text","span":[25,26]},"text":"+","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[27,28]},"text":"𝑝","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[29,30]},"text":"𝑉","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,31]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3609,0.731,0.0,0.0,0.0,[0,4],[1,2],0]],"lang":"en","size":12.0,"text":"𝐻"},"x":0.0,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[30,0.685,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":12.0,"text":"="},
+                "x": 19.662933333,
+                "y": 7.944
+              },
+              {
+                "text": {
+                  "fill": "#000000ff",
+                  "font": 0,
+                  "glyphs": [
+                    [2593,0.562,0.0,0.0,0.0,[0,1],[14,22],0],
+                    [2594,0.53,0.0,0.0,0.0,[1,2],[14,22],1],
+                    [2595,0.352,0.0,0.0,0.0,[2,3],[14,22],2],
+                    [2598,0.244,0.0,0.0,0.0,[3,4],[14,22],3],
+                    [2603,0.56,0.0,0.0,0.0,[4,5],[14,22],4],
+                    [2594,0.53,0.0,0.0,0.0,[5,6],[14,22],5]
+                  ],
+                  "lang": "en",
+                  "size": 8.4,
+                  "text": "define"
+                },
+                "x": 12.105333333,
+                "y": 1.1292
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3622,0.657,0.0,0.0,0.0,[0,4],[23,24],0]],"lang":"en","size":12.0,"text":"𝑈"},
+                "x": 38.773866667,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[12,0.685,0.0,0.0,0.0,[0,1],[25,26],0]],"lang":"en","size":12.0,"text":"+"},
+                "x": 49.324533333,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3642,0.562,0.0,0.0,0.0,[0,4],[27,28],0]],"lang":"en","size":12.0,"text":"𝑝"},
+                "x": 60.2112,
+                "y": 7.944
+              },
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3623,0.684,0.0,0.0,0.0,[0,4],[29,30],0]],"lang":"en","size":12.0,"text":"𝑉"},
+                "x": 66.9552,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 75.1632
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 75.1632
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [H],\n    [ ],\n    attach(base: stretch(body: [=]), t: [define]),\n    [ ],\n    [U],\n    [ ],\n    [+],\n    [ ],\n    [p],\n    [ ],\n    [V],\n  ),\n)",
+  "source": "$H stretch(=)^\"define\" U + p V$",
+  "warnings": []
+}

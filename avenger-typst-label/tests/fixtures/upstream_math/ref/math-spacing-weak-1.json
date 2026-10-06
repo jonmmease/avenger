@@ -1,0 +1,87 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {"glyph_class":"Large","props":{"class":"Large","rspace":0.166666667,"size":"Text","span":[1,9]},"text":"∫","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[10,11]},"text":"𝑓","type":"glyph"},
+          {
+            "balanced": true,
+            "body": {
+              "items": [{"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[12,13]},"text":"𝑥","type":"glyph"}],
+              "props": {"size":"Text","span":null},
+              "type": "group"
+            },
+            "close": {
+              "glyph_class": "Closing",
+              "props": {"class":"Closing","size":"Text","span":[13,14]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": ")",
+              "type": "glyph"
+            },
+            "open": {
+              "glyph_class": "Opening",
+              "props": {"class":"Opening","size":"Text","span":[11,12]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "(",
+              "type": "glyph"
+            },
+            "props": {"size":"Text","span":[11,14]},
+            "shared": false,
+            "type": "fenced"
+          },
+          {"abs":0.0,"em":0.166666667,"font_size":12.0,"type":"spacing","weak":true},
+          {"glyph_class":"Unary","props":{"class":"Unary","size":"Text","span":null},"style":{"italic":false},"text":"d","type":"glyph"},
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[19,20]},"text":"𝑥","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,21]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "group": {
+          "clip": null,
+          "frame": {
+            "baseline": 7.944,
+            "height": 7.944,
+            "items": [
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[574,0.59,0.0,0.0,0.0,[0,3],[1,9],0]],"lang":"en","size":12.0,"text":"∫"},"x":0.0,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[3633,0.426,0.0,0.0,0.0,[0,4],[10,11],0]],"lang":"en","size":12.0,"text":"𝑓"},"x":9.08,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[9,0.315,0.0,0.0,0.0,[0,1],[11,12],0]],"lang":"en","size":12.0,"text":"("},"x":14.192,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[12,13],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 17.972,
+                "y": 7.944
+              },
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[10,0.315,0.0,0.0,0.0,[0,1],[13,14],0]],"lang":"en","size":12.0,"text":")"},"x":24.824,"y":7.944},
+              {"text":{"fill":"#000000ff","font":0,"glyphs":[[69,0.56,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"d"},"x":30.604,"y":7.944},
+              {
+                "text": {"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[19,20],0]],"lang":"en","size":12.0,"text":"𝑥"},
+                "x": 37.324,
+                "y": 7.944
+              }
+            ],
+            "kind": "soft",
+            "width": 44.176
+          },
+          "transform": [1.0,0.0,0.0,1.0,0.0,0.0]
+        },
+        "x": 0.0,
+        "y": 0.0
+      }
+    ],
+    "kind": "hard",
+    "width": 44.176
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    [∫],\n    [ ],\n    sequence([f], lr(body: sequence([(], [x], [)]))),\n    [ ],\n    sequence(\n      h(amount: 0.17em, weak: true),\n      class(class: \"unary\", body: styled(child: [d], ..)),\n    ),\n    [ ],\n    [x],\n  ),\n)",
+  "source": "$integral f(x) dif x$",
+  "warnings": []
+}

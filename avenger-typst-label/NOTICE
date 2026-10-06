@@ -1,0 +1,18 @@
+avenger-typst-label
+Copyright 2026 Jon Mease
+
+This crate's own code is licensed under the BSD 3-Clause License (LICENSE).
+
+It contains code ported from Typst (https://github.com/typst/typst), which is
+licensed under the Apache License, Version 2.0 (LICENSE-APACHE):
+
+    Copyright The Typst Project Developers
+
+The ported code is in the files whose first line says they are ported from Typst, and in the
+functions marked `// upstream:`. Those files and functions are modified for Avenger, as their
+headers and `avenger:` comments say.
+
+The reference fixtures in tests/fixtures/upstream_frames, tests/fixtures/upstream_math and
+tests/fixtures/upstream_png reduce test cases from Typst's test suite (tests/suite) and record
+the output of Typst 0.15.1. They are licensed under the Apache License, Version 2.0, as Typst
+is. The fixture fonts in tests/fixtures/fonts come with their licenses, next to them.

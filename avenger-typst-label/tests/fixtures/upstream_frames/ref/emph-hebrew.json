@@ -1,0 +1,32 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Noto Sans Hebrew","index":0,"postscript":"NotoSansHebrew-Thin","variations":[["wdth",100.0],["wght",500.0]]}],
+  "frame": {
+    "baseline": 8.568,
+    "height": 8.568,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [23,0.69,0.0,0.0,0.0,[6,8],[6,14],6],
+            [124,0.303,-0.01,0.0,0.0,[4,6],[6,14],4],
+            [55,0.534,0.0,0.0,0.0,[2,4],[6,14],2],
+            [96,0.749,0.0,0.0,0.0,[0,2],[6,14],0]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "שלום"
+        },
+        "x": 0.0,
+        "y": 8.568
+      }
+    ],
+    "kind": "hard",
+    "width": 27.312
+  },
+  "repr": "emph(body: [שלום])",
+  "source": "#emph[שלום]",
+  "warnings": []
+}

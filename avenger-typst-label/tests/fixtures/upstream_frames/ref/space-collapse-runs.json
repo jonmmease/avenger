@@ -1,0 +1,27 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [[3,0.648,0.0,0.0,0.0,[0,1],[0,1],0],[2,0.2525,0.0,0.0,0.0,[1,2],[1,4],0],[6,0.6495,0.0,0.0,0.0,[2,3],[4,5],0]],
+          "lang": "en",
+          "size": 12.0,
+          "text": "A B"
+        },
+        "x": 0.0,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 18.6
+  },
+  "repr": "sequence([A], [ ], [B])",
+  "source": "A   B",
+  "warnings": []
+}

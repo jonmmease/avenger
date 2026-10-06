@@ -1,0 +1,67 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "glyph_class": "Normal",
+            "props": {"class":"Normal","size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}}
+            },
+            "text": "/",
+            "type": "glyph"
+          },
+          {"abs":0.0,"em":1.0,"font_size":12.0,"type":"spacing","weak":false},
+          {"glyph_class":"Normal","props":{"class":"Normal","size":"Text","span":[31,33]},"text":"/","type":"glyph"},
+          {"abs":0.0,"em":1.0,"font_size":12.0,"type":"spacing","weak":false},
+          {"glyph_class":"Large","props":{"class":"Large","limits":"Display","size":"Text","span":null},"text":"/","type":"glyph"},
+          {"abs":0.0,"em":1.0,"font_size":12.0,"type":"spacing","weak":false},
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","limits":"Display","size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}}
+            },
+            "text": "/",
+            "type": "glyph"
+          },
+          {"abs":0.0,"em":1.0,"font_size":12.0,"type":"spacing","weak":false},
+          {
+            "glyph_class": "Large",
+            "props": {"class":"Large","limits":"Display","size":"Text","span":null},
+            "stretch": {
+              "x": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}},
+              "y": {"explicit":true,"requested":{"abs":0.0,"em":0.0,"rel":2.0},"short_fall":0.0,"target":{"abs":0.0,"rel":2.0}}
+            },
+            "text": "/",
+            "type": "glyph"
+          }
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,150]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 9.75,
+    "height": 12.78,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2152,0.958,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"/"},"x":0.0,"y":9.744},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[16,0.504,0.0,0.0,0.0,[0,1],[31,33],0]],"lang":"en","size":12.0,"text":"/"},"x":23.496,"y":9.75},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[16,0.504,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"/"},"x":41.544,"y":9.75},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2152,0.958,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"/"},"x":59.592,"y":9.744},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2152,0.958,0.0,0.0,0.0,[0,1],null,0]],"lang":"en","size":12.0,"text":"/"},"x":83.088,"y":9.744}
+    ],
+    "kind": "hard",
+    "width": 94.584
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    stretch(body: [/], size: 200% + 0pt),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    [/],\n    [ ],\n    h(amount: 1em),\n    [ ],\n    class(class: \"large\", body: [/]),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    class(\n      class: \"large\",\n      body: stretch(body: [/], size: 200% + 0pt),\n    ),\n    [ ],\n    h(amount: 1em),\n    [ ],\n    stretch(\n      body: class(class: \"large\", body: [/]),\n      size: 200% + 0pt,\n    ),\n  ),\n)",
+  "source": "$stretch(size: #200%, \\/) quad \\/ quad class(\"large\", \\/) quad class(\"large\", stretch(size: #200%, \\/)) quad stretch(size: #200%, class(\"large\", \\/))$",
+  "warnings": []
+}

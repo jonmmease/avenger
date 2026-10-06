@@ -1,0 +1,73 @@
+{
+  "equations": [
+    {
+      "root": {
+        "items": [
+          {
+            "b": null,
+            "base": {"props":{"class":"Large","limits":"Display","size":"Text","spaced":true,"span":null},"text":"myop","type":"text"},
+            "bl": null,
+            "br": {
+              "items": [
+                {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","cramped":true,"size":"Script","span":[28,29]},"text":"𝑥","type":"glyph"},
+                {
+                  "glyph_class": "Relation",
+                  "props": {"class":"Relation","cramped":true,"limits":"Always","size":"Script","span":[29,31]},
+                  "text": "≔",
+                  "type": "glyph"
+                },
+                {"props":{"cramped":true,"size":"Script","span":[31,32]},"text":"1","type":"number"}
+              ],
+              "props": {"cramped":true,"size":"Script","span":null},
+              "style": {"font_size":8.4},
+              "type": "group"
+            },
+            "props": {"class":"Large","rspace":0.166666667,"size":"Text","span":null},
+            "t": null,
+            "tl": null,
+            "tr": null,
+            "type": "scripts"
+          },
+          {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[34,35]},"text":"𝑥","type":"glyph"}
+        ],
+        "props": {"size":"Text","span":null},
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "group"
+      },
+      "span": [0,36]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [78,0.802,0.0,0.0,0.0,[0,1],null,0],
+            [90,0.497,0.0,0.0,0.0,[1,2],null,1],
+            [80,0.567,0.0,0.0,0.0,[2,3],null,2],
+            [81,0.56,0.0,0.0,0.0,[3,4],null,3]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "myop"
+        },
+        "x": 0.0,
+        "y": 7.944
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2724,0.62,0.0,0.0,0.0,[0,4],[28,29],0]],"lang":"en","size":8.4,"text":"𝑥"},"x":29.112,"y":10.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[615,0.824,0.0,0.0,0.0,[0,3],[29,31],0]],"lang":"en","size":8.4,"text":"≔"},"x":34.32,"y":10.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[2549,0.58,0.0,0.0,0.0,[0,1],[31,32],0]],"lang":"en","size":8.4,"text":"1"},"x":41.2416,"y":10.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3650,0.571,0.0,0.0,0.0,[0,4],[34,35],0]],"lang":"en","size":12.0,"text":"𝑥"},"x":48.8336,"y":7.944}
+    ],
+    "kind": "hard",
+    "width": 55.6856
+  },
+  "repr": "equation(\n  block: false,\n  body: sequence(\n    attach(\n      base: op(text: [myop], limits: true),\n      b: sequence([x], [≔], [1]),\n    ),\n    [ ],\n    [x],\n  ),\n)",
+  "source": "$op(\"myop\", limits: #true)_(x:=1) x$",
+  "warnings": []
+}

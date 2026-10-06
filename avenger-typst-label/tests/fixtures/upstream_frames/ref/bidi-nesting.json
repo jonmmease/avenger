@@ -1,0 +1,23 @@
+{
+  "equations": [],
+  "fonts": [
+    {"family":"Noto Sans Hebrew","index":0,"postscript":"NotoSansHebrew-Thin","variations":[["wdth",100.0],["wght",500.0]]},
+    {"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}
+  ],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3,0.647,0.0,0.0,0.0,[0,5],[0,2],0]],"lang":"en","size":12.0,"text":"א⁦"},"x":28.326,"y":8.616},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[3,0.6815,0.0,0.0,0.0,[0,4],[10,11],0]],"lang":"en","size":12.0,"text":"A⁧"},"x":0.0,"y":8.616},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[6,0.6495,0.0,0.0,0.0,[0,1],[19,22],0]],"lang":"en","size":12.0,"text":"B"},"x":15.126,"y":8.616},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[12,0.579,0.0,0.0,0.0,[0,2],[19,22],1]],"lang":"en","size":12.0,"text":"ב"},"x":8.178,"y":8.616},
+      {"text":{"fill":"#000000ff","font":1,"glyphs":[[198,0.4505,0.0,0.0,0.0,[0,4],[22,30],0]],"lang":"en","size":12.0,"text":"⁩?"},"x":22.92,"y":8.616}
+    ],
+    "kind": "hard",
+    "width": 36.09
+  },
+  "repr": "sequence([א], [⁦], [A], [⁧], [Bב], [⁩], [?])",
+  "source": "א\\u{2066}A\\u{2067}Bב\\u{2069}?",
+  "warnings": []
+}

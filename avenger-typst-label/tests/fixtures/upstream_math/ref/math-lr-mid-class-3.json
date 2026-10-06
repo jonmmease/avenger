@@ -1,0 +1,61 @@
+{
+  "equations": [
+    {
+      "root": {
+        "balanced": true,
+        "body": {
+          "items": [
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[2,3]},"text":"𝑎","type":"glyph"},
+            {
+              "glyph_class": "Fence",
+              "mid_stretched": true,
+              "props": {"class":"Relation","lspace":0.277777778,"rspace":0.277777778,"size":"Text","span":[8,9]},
+              "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+              "text": "|",
+              "type": "glyph"
+            },
+            {"glyph_class":"Alphabetic","props":{"class":"Alphabetic","size":"Text","span":[11,12]},"text":"𝑏","type":"glyph"}
+          ],
+          "props": {"size":"Text","span":null},
+          "type": "group"
+        },
+        "close": {
+          "glyph_class": "Closing",
+          "props": {"class":"Closing","size":"Text","span":[12,13]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": ")",
+          "type": "glyph"
+        },
+        "open": {
+          "glyph_class": "Opening",
+          "props": {"class":"Opening","size":"Text","span":[1,2]},
+          "stretch": {"x":null,"y":{"explicit":true,"requested":null,"short_fall":0.1,"target":{"abs":0.0,"rel":1.0}}},
+          "text": "(",
+          "type": "glyph"
+        },
+        "props": {"size":"Text","span":[1,13]},
+        "shared": false,
+        "style": {"bold":false,"fill":"#000000ff","font":"lete sans math","font_size":12.0,"italic":null,"math_variant":null,"style":"Normal","weight":500},
+        "type": "fenced"
+      },
+      "span": [0,14]
+    }
+  ],
+  "fonts": [{"family":"Lete Sans Math","index":0,"postscript":"LeteSansMath","variations":[]}],
+  "frame": {
+    "baseline": 7.944,
+    "height": 7.944,
+    "items": [
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[9,0.315,0.0,0.0,0.0,[0,1],[1,2],0]],"lang":"en","size":12.0,"text":"("},"x":0.0,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3628,0.557,0.0,0.0,0.0,[0,4],[2,3],0]],"lang":"en","size":12.0,"text":"𝑎"},"x":3.78,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[93,0.25,0.0,0.0,0.0,[0,1],[8,9],0]],"lang":"en","size":12.0,"text":"|"},"x":13.797333333,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[3629,0.57,0.0,0.0,0.0,[0,4],[11,12],0]],"lang":"en","size":12.0,"text":"𝑏"},"x":20.130666667,"y":7.944},
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[10,0.315,0.0,0.0,0.0,[0,1],[12,13],0]],"lang":"en","size":12.0,"text":")"},"x":26.970666667,"y":7.944}
+    ],
+    "kind": "hard",
+    "width": 30.750666667
+  },
+  "repr": "equation(\n  block: false,\n  body: lr(\n    body: sequence([(], [a], [ ], mid(body: [|]), [ ], [b], [)]),\n  ),\n)",
+  "source": "$(a mid(|) b)$",
+  "warnings": []
+}

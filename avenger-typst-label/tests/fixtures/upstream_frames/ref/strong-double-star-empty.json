@@ -1,0 +1,39 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [109,0.5595,0.0,0.0,0.0,[0,1],[2,10],0],
+            [111,0.5595,0.0,0.0,0.0,[1,2],[2,10],1],
+            [123,0.362,0.0,0.0,0.0,[2,3],[2,10],2],
+            [2,0.2525,0.0,0.0,0.0,[3,4],[2,10],3],
+            [48,0.562,0.0,0.0,0.0,[4,5],[2,10],4],
+            [111,0.569,0.0,0.0,0.0,[5,6],[2,10],5],
+            [514,0.239,0.0,0.0,0.0,[6,7],[2,10],6],
+            [55,0.562,0.0,0.0,0.0,[7,8],[2,10],7]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "not bold"
+        },
+        "x": 0.0,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 43.986
+  },
+  "repr": "sequence(strong(body: []), [not bold], strong(body: []))",
+  "source": "**not bold**",
+  "warnings": [
+    {"hints":["using multiple consecutive stars (e.g. **) has no additional effect"],"message":"no text within stars","range":[0,2]},
+    {"hints":["using multiple consecutive stars (e.g. **) has no additional effect"],"message":"no text within stars","range":[10,12]}
+  ]
+}

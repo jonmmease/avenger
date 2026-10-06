@@ -1,0 +1,38 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[6.048,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#ff0000ff","thickness":0.552}
+        },
+        "x": 0.0,
+        "y": 11.4
+      },
+      {"text":{"fill":"#000000ff","font":0,"glyphs":[[137,0.504,0.0,0.0,0.0,[0,1],[87,88],0]],"lang":"en","size":12.0,"text":"x"},"x":0.0,"y":8.616},
+      {
+        "shape": {
+          "fill": null,
+          "fill_rule": "NonZero",
+          "geometry": {"line":[6.048,0.0]},
+          "span": null,
+          "stroke": {"cap":"Butt","dash":null,"join":"Miter","miter_limit":4.0,"paint":"#0000ffff","thickness":0.552}
+        },
+        "x": 0.0,
+        "y": -1.2
+      }
+    ],
+    "kind": "hard",
+    "width": 6.048
+  },
+  "repr": "underline(\n  stroke: rgb(\"#ff0000\"),\n  background: true,\n  body: overline(stroke: rgb(\"#0000ff\"), body: [x]),\n)",
+  "source": "#underline(background: true, stroke: rgb(\"#ff0000\"))[#overline(stroke: rgb(\"#0000ff\"))[x]]",
+  "warnings": []
+}
