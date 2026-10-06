@@ -26,13 +26,13 @@ pub struct Fonts {
     fonts: Vec<Font>,
 }
 
-/// Loads the same fonts the PNG generator gives typst-cli: Avenger's bundled Lato, DejaVu Sans
-/// Mono and Lete Sans Math, plus `avenger-typst-label/tests/fixtures/fonts`.
+/// Loads the same fonts the PNG generator gives typst-cli: Avenger's bundled Lato Light, Italic
+/// and Bold, DejaVu Sans Mono and Lete Sans Math, plus `avenger-typst-label/tests/fixtures/fonts`,
+/// which holds the Lato Medium the references set text in.
 pub fn load_fixture_fonts(repo_root: &Path) -> Result<Fonts> {
     let mut paths: Vec<PathBuf> = [
         "avenger-fonts/fonts/Lato/Lato-Light.ttf.br",
         "avenger-fonts/fonts/Lato/Lato-Italic.ttf.br",
-        "avenger-fonts/fonts/Lato/Lato-Medium.ttf.br",
         "avenger-fonts/fonts/Lato/Lato-Bold.ttf.br",
         "avenger-fonts/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br",
         "avenger-fonts/fonts/Lete_Sans_Math/LeteSansMath.otf.br",

@@ -32,7 +32,7 @@ const FONT_BYTES: &[&[u8]] = &[
     avenger_fonts::LATO_BOLD,
     avenger_fonts::LATO_ITALIC,
     avenger_fonts::LATO_LIGHT,
-    avenger_fonts::LATO_MEDIUM,
+    include_bytes!("../fixtures/fonts/Lato-Medium.ttf.br"),
     avenger_fonts::LETE_SANS_MATH_BOLD,
     avenger_fonts::LETE_SANS_MATH,
     include_bytes!("../fixtures/fonts/NotoSansDevanagari.ttf.br"),

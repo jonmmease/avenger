@@ -3,11 +3,11 @@
 /// Brotli-compressed Lato Light TrueType font.
 pub const LATO_LIGHT: &[u8] = include_bytes!("../fonts/Lato/Lato-Light.ttf.br");
 
+/// Brotli-compressed Lato Regular TrueType font.
+pub const LATO_REGULAR: &[u8] = include_bytes!("../fonts/Lato/Lato-Regular.ttf.br");
+
 /// Brotli-compressed Lato Italic TrueType font.
 pub const LATO_ITALIC: &[u8] = include_bytes!("../fonts/Lato/Lato-Italic.ttf.br");
-
-/// Brotli-compressed Lato Medium TrueType font.
-pub const LATO_MEDIUM: &[u8] = include_bytes!("../fonts/Lato/Lato-Medium.ttf.br");
 
 /// Brotli-compressed Lato Bold TrueType font.
 pub const LATO_BOLD: &[u8] = include_bytes!("../fonts/Lato/Lato-Bold.ttf.br");

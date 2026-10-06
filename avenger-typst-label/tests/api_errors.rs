@@ -140,7 +140,7 @@ fn lato_engine(policy: MissingFontPolicy) -> LabelEngine {
     options.fonts.missing_font = policy;
     options.fonts.default_sans_serif_family = Some("Lato".to_string());
     let mut lato = Vec::new();
-    brotli::Decompressor::new(avenger_fonts::LATO_MEDIUM, 4096)
+    brotli::Decompressor::new(avenger_fonts::LATO_REGULAR, 4096)
         .read_to_end(&mut lato)
         .unwrap();
     options.fonts.registered_fonts = vec![RegisteredFont::new(Arc::<[u8]>::from(lato))];

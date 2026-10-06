@@ -10,10 +10,13 @@ Noto Sans Hebrew and Noto Sans Devanagari come from google/fonts revision
 - Hebrew: `7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88`
 - Devanagari: `14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e`
 
+`Lato-Medium` is Lato 2.015 Medium, cut to the Latin subset of the Lato faces in
+`avenger-fonts`. The references set text in it at weight 500.
+
 The `Audit*` families are modified fixtures with distinct names:
 
-- `AuditNoScriptMetrics`: bundled Lato Medium with its OS/2 table removed.
-- `AuditScriptOffsets`: bundled Lato Medium with superscript X offset 400 and subscript X offset -200 font units.
+- `AuditNoScriptMetrics`: Lato Medium with its OS/2 table removed.
+- `AuditScriptOffsets`: Lato Medium with superscript X offset 400 and subscript X offset -200 font units.
 - `AuditHebrewRegular`: Noto Sans Hebrew instantiated at weight 400 and width 100.
 
 To rebuild the modified fixtures, install Python `fonttools` and `brotli`, then run

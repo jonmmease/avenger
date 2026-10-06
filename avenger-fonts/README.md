@@ -3,7 +3,7 @@
 `avenger-fonts` exposes Brotli-compressed font bytes as named constants. It has
 no dependencies. Callers decompress and register the fonts they need.
 
-The assets include Lato Light, Italic, Medium, and Bold, DejaVu Sans Mono, and
+The assets include Lato Light, Regular, Italic, and Bold, DejaVu Sans Mono, and
 Lete Sans Math Regular and Bold. Each font directory contains its license.
 
 Consumers choose default fonts and manage decompression, caching, and

@@ -1,8 +1,7 @@
 use std::io::Read;
 
 use avenger_typst_label::{
-    EngineOptions, FontWeight, LabelEngine, LabelOptions, RasterOptions, RegisteredFont,
-    rasterize,
+    EngineOptions, LabelEngine, LabelOptions, RasterOptions, RegisteredFont, rasterize,
 };
 
 fn engine_options() -> EngineOptions {
@@ -26,8 +25,8 @@ fn engine_options() -> EngineOptions {
 
 const FONT_BYTES: &[&[u8]] = &[
     avenger_fonts::LATO_LIGHT,
+    avenger_fonts::LATO_REGULAR,
     avenger_fonts::LATO_ITALIC,
-    avenger_fonts::LATO_MEDIUM,
     avenger_fonts::LATO_BOLD,
     avenger_fonts::DEJAVU_SANS_MONO,
     avenger_fonts::LETE_SANS_MATH,
@@ -43,9 +42,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let mut options = LabelOptions::default();
     options.text.font_size = 24.0;
-    // Lato Medium. The bundled set has no Regular face, and the default weight, 400, is as
-    // close to Light as to Medium.
-    options.text.font_weight = FontWeight::from_number(500);
     let lines = [
         "#strong[Single-line typesetting] with _emphasis_ and `raw text`",
         "$sqrt(x^2 + y^2)$, $frac(a + b, c)$ and $display(sum_(i=1)^n i)$",

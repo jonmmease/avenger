@@ -113,8 +113,8 @@ fn engine_options(system_fonts: bool) -> EngineOptions {
     options.fonts.default_math_family = Some("Lete Sans Math".into());
     options.fonts.registered_fonts = [
         avenger_fonts::LATO_LIGHT,
+        avenger_fonts::LATO_REGULAR,
         avenger_fonts::LATO_ITALIC,
-        avenger_fonts::LATO_MEDIUM,
         avenger_fonts::LATO_BOLD,
         avenger_fonts::DEJAVU_SANS_MONO,
         avenger_fonts::LETE_SANS_MATH,
