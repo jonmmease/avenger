@@ -245,16 +245,15 @@ Run crate validation in release mode:
 cargo test --release -p avenger-typst-label -- --nocapture
 ```
 
-The crate also has an optional upstream PNG parity corpus. The Rust integration
-test is offline and compares against checked-in reference PNGs:
+The default suite includes the upstream frame and math IR oracles. The PNG corpus needs the
+`raster` and `upstream-png-parity` features:
 
 ```bash
 cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --test upstream_png_parity -- --nocapture
 ```
 
-The reference generator is the only parity path that expects an upstream Typst
-checkout at `../typst`. See `tests/fixtures/upstream_png/README.md` for fixture
-maintenance, reference generation, and failure artifact details.
+Both read only checked-in references. Only the reference generators need an upstream Typst
+checkout at `../typst`; see `tests/fixtures/README.md`.
 
 ## Render the label gallery
 

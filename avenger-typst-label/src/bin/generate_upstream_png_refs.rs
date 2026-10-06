@@ -40,7 +40,7 @@ struct Case {
 }
 
 fn default_scale() -> f32 {
-    1.0
+    2.0
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +48,10 @@ struct Pin {
     version: String,
     commit: String,
 }
+
+/// The page margin around the label box, in points. The reference's logical size is its page
+/// size minus twice this.
+const MARGIN_PT: f32 = 128.0;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let check = match std::env::args().nth(1).as_deref() {
@@ -288,25 +292,11 @@ fn read_label_source(path: &Path) -> Result<String, Box<dyn Error>> {
         .to_string())
 }
 
+/// Puts the label in a box on an auto-sized page, so the page is the box plus `MARGIN_PT` on
+/// every side.
 fn wrap_source(case: &Case, source: &str) -> String {
-    if case.id.starts_with("audit-") {
-        return format!(
-            "#set page(width: auto, height: auto, margin: 128pt, fill: white)\n#set text(font: {:?}, size: {}pt, weight: {})\n#show math.equation: set text(font: {:?}, weight: {})\n#show raw: set text(font: \"DejaVu Sans Mono\")\n#box[{}]\n",
-            case.text_font,
-            case.font_size,
-            case.font_weight,
-            case.math_font,
-            case.font_weight,
-            source
-        );
-    }
     format!(
-        r#"#set page(width: auto, height: 120pt, margin: 20pt, fill: white)
-#set align(horizon)
-#set text(font: "{}", size: {}pt, weight: {}, fill: black)
-#show math.equation: set text(font: "{}", weight: {})
-{}
-"#,
+        "#set page(width: auto, height: auto, margin: {MARGIN_PT}pt, fill: white)\n#set text(font: {:?}, size: {}pt, weight: {})\n#show math.equation: set text(font: {:?}, weight: {})\n#show raw: set text(font: \"DejaVu Sans Mono\")\n#box[{}]\n",
         case.text_font, case.font_size, case.font_weight, case.math_font, case.font_weight, source
     )
 }

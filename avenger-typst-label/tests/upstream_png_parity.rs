@@ -1,27 +1,62 @@
+//! Compares rasterized labels with PNG references rendered by upstream Typst.
+//!
+//! The generator puts each label in a box on an auto-sized page with a `MARGIN_PT` margin, so a
+//! reference's logical size is its page size minus the margins, and the label's logical origin
+//! sits at the margin. Each case runs two checks:
+//!
+//! - `metrics`: the label's width and height match the reference's logical size, within the
+//!   half-pixel rounding of the page size.
+//! - `ink`: with both images aligned at their logical origins, the ink agrees. Similarity is one
+//!   minus the mean channel difference over pixels that are ink in either image, taken in every
+//!   em-sized tile; the worst tile must reach `MIN_SIMILARITY`. A shifted, resized,
+//!   re-weighted, recolored or swapped glyph fails it.
+//!
+//! Known divergences are listed in `tests/fixtures/upstream_png/expected_failures.toml`.
+//! Failing cases write `expected.png`, `actual.png` and `diff.png` to
+//! `tests/output/upstream_png/{id}/`.
+
 #![cfg(all(feature = "raster", feature = "upstream-png-parity"))]
 
 mod common;
 
 use std::{
-    fs,
-    fs::File,
+    collections::BTreeSet,
+    fs::{self, File},
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
 };
 
 use avenger_typst_label::{
-    FontWeight, LabelEngine, LabelOptions, MathFontSpec, RasterOptions, rasterize,
+    Color, FontWeight, LabelEngine, LabelOptions, MathFontSpec, RasterImage, RasterOptions,
+    rasterize,
 };
+use common::oracle::{Census, ExpectedFailures, output_dir};
 use serde::Deserialize;
+
+/// The page margin the generator puts around each label.
+const MARGIN_PT: f64 = 128.0;
+
+/// A pixel is ink when any channel is darker than this over white.
+const INK_THRESHOLD: u8 = 250;
+
+/// The lowest worst-tile ink similarity a case may have. Matching renders score 0.93 or more;
+/// the mutations in `png_comparison_rejects_mutations` score 0.87 or less.
+const MIN_SIMILARITY: f64 = 0.90;
 
 #[derive(Debug, Deserialize)]
 struct Cases {
     case: Vec<Case>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Case {
     id: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    upstream_tests: Vec<String>,
+    #[allow(dead_code)]
+    note: Option<String>,
     source: String,
     font_size: f32,
     #[serde(default = "default_scale")]
@@ -29,150 +64,468 @@ struct Case {
     font_weight: u16,
     text_font: String,
     math_font: String,
-    pixel_tolerance: u32,
-    min_similarity: f64,
     #[serde(default)]
     requires_system_emoji: bool,
 }
 
 fn default_scale() -> f32 {
-    1.0
+    2.0
+}
+
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/upstream_png")
+}
+
+fn load_cases() -> Vec<Case> {
+    let path = fixtures_dir().join("cases.toml");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    let mut cases: Cases =
+        toml::from_str(&text).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+    cases.case.sort_by(|left, right| left.id.cmp(&right.id));
+    cases.case
+}
+
+fn engine() -> LabelEngine {
+    let mut options = common::engine_options();
+    options.fonts.load_system_fonts = false;
+    LabelEngine::new(options).expect("label engine should initialize")
+}
+
+fn emoji_available() -> bool {
+    Path::new("/System/Library/Fonts/Apple Color Emoji.ttc").is_file()
 }
 
 #[test]
 fn upstream_png_parity() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fixtures_dir = manifest_dir.join("tests/fixtures/upstream_png");
-    let cases_path = fixtures_dir.join("cases.toml");
-    let mut cases: Cases = toml::from_str(
-        &fs::read_to_string(&cases_path)
-            .unwrap_or_else(|err| panic!("failed to read {}: {err}", cases_path.display())),
-    )
-    .unwrap_or_else(|err| panic!("failed to parse {}: {err}", cases_path.display()));
-    cases.case.sort_by(|left, right| left.id.cmp(&right.id));
+    let engine = engine();
+    let expected = ExpectedFailures::load("upstream_png", "expected_failures.toml");
+    let out_dir = output_dir("upstream_png");
+    fs::remove_dir_all(&out_dir).ok();
 
-    let mut engine_options = common::engine_options();
-    engine_options.fonts.load_system_fonts = false;
-    let engine = LabelEngine::new(engine_options).expect("label engine should initialize");
-
-    let mut failures = Vec::new();
-    for case in &cases.case {
-        if case.requires_system_emoji
-            && !Path::new("/System/Library/Fonts/Apple Color Emoji.ttc").is_file()
-        {
+    let mut census = Census::default();
+    for case in load_cases() {
+        if case.requires_system_emoji && !emoji_available() {
             eprintln!(
                 "skipping {} because Apple Color Emoji is unavailable",
                 case.id
             );
             continue;
         }
+        let reference = Reference::load(&case);
+        let source = read_label_source(&fixtures_dir().join("src").join(&case.source));
+        let options = label_options(&case);
+        let (failed, detail) = match render(&engine, &source, &options, case.scale) {
+            Ok(actual) => {
+                let comparison = compare(&reference, &actual, case.scale, case.font_size);
+                let failed = comparison.failed_checks();
+                if !failed.is_empty() {
+                    comparison.write_artifacts(&out_dir.join(&case.id));
+                }
+                (failed, comparison.describe())
+            }
+            Err(err) => (
+                BTreeSet::from(["compile".to_string()]),
+                format!("    {err}\n"),
+            ),
+        };
+        census.record(&case.id, failed, detail);
+    }
+    census.check(
+        &expected,
+        "tests/fixtures/upstream_png/expected_failures.toml",
+        &out_dir,
+    );
+}
 
-        if let Err(err) = run_case(&engine, &fixtures_dir, case) {
-            failures.push(err);
+/// Mutated renders of passing cases must fail the comparison: the suite has to notice a 3%
+/// size change, bold instead of medium, a recolor, a one-pixel shift, and one-glyph swaps.
+#[test]
+fn png_comparison_rejects_mutations() {
+    let engine = engine();
+    let expected = ExpectedFailures::load("upstream_png", "expected_failures.toml");
+    let listed = expected
+        .cases
+        .iter()
+        .map(|case| case.id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    let mut accepted = Vec::new();
+    let mut tried = 0;
+    for case in load_cases() {
+        if listed.contains(case.id.as_str()) || case.requires_system_emoji {
+            continue;
+        }
+        let reference = Reference::load(&case);
+        let source = read_label_source(&fixtures_dir().join("src").join(&case.source));
+        let Ok(unmutated) = render(&engine, &source, &label_options(&case), case.scale) else {
+            continue;
+        };
+        for mutation in Mutation::ALL {
+            let Some((source, options)) = mutation.apply(&case, &source) else {
+                continue;
+            };
+            let Ok(mut actual) = render(&engine, &source, &options, case.scale) else {
+                continue;
+            };
+            if let Mutation::Shift = mutation {
+                actual.origin_x += 1.0 / f64::from(case.scale);
+            }
+            if actual.same_as(&unmutated) {
+                // The mutation changed nothing, for example bold text that is already bold.
+                continue;
+            }
+            tried += 1;
+            let c = compare(&reference, &actual, case.scale, case.font_size);
+            if c.failed_checks().is_empty() {
+                accepted.push(format!("{} with {mutation:?}", case.id));
+            }
         }
     }
+    assert!(tried > 200, "only {tried} mutations ran");
+    assert!(
+        accepted.is_empty(),
+        "{} of {tried} mutated renders passed:\n{}",
+        accepted.len(),
+        accepted.join("\n")
+    );
+}
 
-    if !failures.is_empty() {
-        panic!("upstream PNG parity failures:\n{}", failures.join("\n\n"));
+#[derive(Debug, Clone, Copy)]
+enum Mutation {
+    /// Text and math 3% larger.
+    Larger,
+    /// Weight 700 instead of the case's weight.
+    Bold,
+    /// A dark red fill instead of black.
+    Recolor,
+    /// The raster moved one pixel to the right.
+    Shift,
+    /// The first `^2` replaced by `^3`.
+    Script,
+    /// The first `e` replaced by `c`.
+    Letter,
+    /// The first `hat` replaced by `tilde`.
+    Accent,
+}
+
+impl Mutation {
+    const ALL: [Self; 7] = [
+        Self::Larger,
+        Self::Bold,
+        Self::Recolor,
+        Self::Shift,
+        Self::Script,
+        Self::Letter,
+        Self::Accent,
+    ];
+
+    fn apply(self, case: &Case, source: &str) -> Option<(String, LabelOptions)> {
+        let mut options = label_options(case);
+        let source = match self {
+            Self::Larger => {
+                options.text.font_size *= 1.03;
+                options.math.font_size *= 1.03;
+                source.to_string()
+            }
+            Self::Bold => {
+                if case.font_weight >= 700 {
+                    return None;
+                }
+                options.text.font_weight = FontWeight::Number(700);
+                options.math.font_weight = FontWeight::Number(700);
+                source.to_string()
+            }
+            Self::Recolor => {
+                let red = Color::rgba(0.6, 0.0, 0.0, 1.0);
+                options.text.fill = red;
+                options.math.fill = red;
+                source.to_string()
+            }
+            Self::Shift => source.to_string(),
+            Self::Script => source
+                .contains("^2")
+                .then(|| source.replacen("^2", "^3", 1))?,
+            Self::Letter => source.contains('e').then(|| source.replacen('e', "c", 1))?,
+            Self::Accent => source
+                .contains("hat(")
+                .then(|| source.replacen("hat(", "tilde(", 1))?,
+        };
+        Some((source, options))
     }
 }
 
-fn run_case(engine: &LabelEngine, fixtures_dir: &Path, case: &Case) -> Result<(), String> {
-    let source_path = fixtures_dir.join("src").join(&case.source);
-    let source = read_label_source(&source_path)?;
-    let expected_path = fixtures_dir.join("ref").join(format!("{}.png", case.id));
-    if !expected_path.is_file() {
-        return Err(format!(
-            "missing upstream PNG reference for {}; run:\n  cargo run --release -p avenger-typst-label --features upstream-png-parity --bin generate_upstream_png_refs",
-            case.id
-        ));
-    }
-
+fn label_options(case: &Case) -> LabelOptions {
     let mut options = LabelOptions::default();
     options.text.font_family = case.text_font.clone();
     options.text.font_size = case.font_size;
     options.text.font_weight = FontWeight::Number(case.font_weight);
-    options.math.font = math_font_spec(&case.math_font);
-    options.math.font_size = case.font_size;
-    options.math.font_weight = FontWeight::Number(case.font_weight);
-
-    let compiled = engine
-        .compile(&source, &options)
-        .map_err(|err| format!("{}: failed to compile Avenger label: {err}", case.id))?;
-    let actual = rasterize(&compiled, &RasterOptions { scale: case.scale })
-        .map_err(|err| format!("{}: failed to rasterize Avenger label: {err}", case.id))?;
-
-    let expected = read_png_rgba(&expected_path).map_err(|err| {
-        format!(
-            "{}: failed to open {}: {err}",
-            case.id,
-            expected_path.display()
-        )
-    })?;
-    let actual =
-        TestRgbaImage::from_vec(actual.image.width, actual.image.height, actual.image.data)
-            .ok_or_else(|| {
-                format!(
-                    "{}: raster buffer dimensions do not match data length",
-                    case.id
-                )
-            })?;
-
-    let expected = crop_to_content(&composite_over_white(&expected), 4)
-        .ok_or_else(|| format!("{}: expected reference is blank", case.id))?;
-    let actual = crop_to_content(&composite_over_white(&actual), 4)
-        .ok_or_else(|| format!("{}: actual render is blank", case.id))?;
-
-    let report = compare_images(&expected, &actual);
-    let width_delta = expected.width.abs_diff(actual.width);
-    let height_delta = expected.height.abs_diff(actual.height);
-    let dimension_failed =
-        width_delta > case.pixel_tolerance || height_delta > case.pixel_tolerance;
-    let similarity_failed = report.similarity < case.min_similarity;
-    if dimension_failed || similarity_failed {
-        let output_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../target/tests/upstream_png_parity")
-            .join(&case.id);
-        fs::create_dir_all(&output_dir)
-            .map_err(|err| format!("{}: failed to create failure dir: {err}", case.id))?;
-        write_png_rgba(&output_dir.join("expected.png"), &expected)
-            .map_err(|err| format!("{}: failed to save expected artifact: {err}", case.id))?;
-        write_png_rgba(&output_dir.join("actual.png"), &actual)
-            .map_err(|err| format!("{}: failed to save actual artifact: {err}", case.id))?;
-        write_png_rgba(&output_dir.join("diff.png"), &report.diff)
-            .map_err(|err| format!("{}: failed to save diff artifact: {err}", case.id))?;
-
-        return Err(format!(
-            "{}: dimension_failed={}, similarity_failed={}; similarity {:.6} (min {:.6}); dimensions differ by {}x{} px (allowed {}); max delta {}, mean delta {:.4}; artifacts: {}",
-            case.id,
-            dimension_failed,
-            similarity_failed,
-            report.similarity,
-            case.min_similarity,
-            width_delta,
-            height_delta,
-            case.pixel_tolerance,
-            report.max_channel_delta,
-            report.mean_channel_delta,
-            output_dir.display()
-        ));
-    }
-
-    Ok(())
-}
-
-fn read_label_source(path: &Path) -> Result<String, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    Ok(source.trim_end_matches(['\r', '\n']).to_string())
-}
-
-fn math_font_spec(font: &str) -> MathFontSpec {
-    match font {
+    options.math.font = match case.math_font.as_str() {
         "Lete Sans Math" | "LeteSansMath" => MathFontSpec::LeteSansMath,
         "New Computer Modern Math" | "NewComputerModernMath" => MathFontSpec::NewComputerModernMath,
         family => MathFontSpec::Family(family.to_string()),
+    };
+    options.math.font_size = case.font_size;
+    options.math.font_weight = FontWeight::Number(case.font_weight);
+    options
+}
+
+/// A label's raster with its logical size and origin, in points.
+struct Rendered {
+    image: TestRgbaImage,
+    width: f64,
+    height: f64,
+    /// Where the raster's top-left pixel sits relative to the logical origin.
+    origin_x: f64,
+    origin_y: f64,
+}
+
+fn render(
+    engine: &LabelEngine,
+    source: &str,
+    options: &LabelOptions,
+    scale: f32,
+) -> Result<Rendered, String> {
+    let compiled = engine
+        .compile(source, options)
+        .map_err(|err| format!("failed to compile: {err}"))?;
+    let RasterImage {
+        image,
+        origin_x,
+        origin_y,
+        ..
+    } = rasterize(&compiled, &RasterOptions { scale })
+        .map_err(|err| format!("failed to rasterize: {err}"))?;
+    let image = TestRgbaImage::from_vec(image.width, image.height, image.data)
+        .ok_or("raster buffer dimensions do not match data length")?;
+    Ok(Rendered {
+        image: composite_over_white(&image),
+        width: f64::from(compiled.metrics.width),
+        height: f64::from(compiled.metrics.height),
+        origin_x: f64::from(origin_x),
+        origin_y: f64::from(origin_y),
+    })
+}
+
+impl Rendered {
+    fn same_as(&self, other: &Self) -> bool {
+        self.image.data == other.image.data
+            && self.origin_x == other.origin_x
+            && self.origin_y == other.origin_y
     }
+}
+
+/// An upstream reference and its logical size.
+struct Reference {
+    image: TestRgbaImage,
+    width: f64,
+    height: f64,
+}
+
+impl Reference {
+    fn load(case: &Case) -> Self {
+        let path = fixtures_dir().join("ref").join(format!("{}.png", case.id));
+        let image = read_png_rgba(&path).unwrap_or_else(|err| {
+            panic!(
+                "{}: failed to open {} ({err}); regenerate with generate_upstream_png_refs",
+                case.id,
+                path.display()
+            )
+        });
+        let scale = f64::from(case.scale);
+        Self {
+            width: f64::from(image.width) / scale - 2.0 * MARGIN_PT,
+            height: f64::from(image.height) / scale - 2.0 * MARGIN_PT,
+            image: composite_over_white(&image),
+        }
+    }
+}
+
+struct Comparison {
+    width_delta: f64,
+    height_delta: f64,
+    /// The allowed logical size difference: half a pixel, from the page size's rounding.
+    size_tolerance: f64,
+    /// Ink similarity over the whole label.
+    similarity: f64,
+    /// The worst ink similarity of any em-sized tile.
+    local: f64,
+    expected: TestRgbaImage,
+    actual: TestRgbaImage,
+    diff: TestRgbaImage,
+}
+
+/// Aligns both images at the label's logical origin and compares the ink.
+fn compare(reference: &Reference, actual: &Rendered, scale: f32, font_size: f32) -> Comparison {
+    let scale = f64::from(scale);
+    // Pixel offset of the actual raster inside the reference image.
+    let dx = (MARGIN_PT * scale + actual.origin_x * scale).round() as i64;
+    let dy = (MARGIN_PT * scale + actual.origin_y * scale).round() as i64;
+
+    let expected_box = ink_bounds(&reference.image, 0, 0);
+    let actual_box = ink_bounds(&actual.image, dx, dy);
+    let bounds = match (expected_box, actual_box) {
+        (Some(a), Some(b)) => Some([
+            a[0].min(b[0]),
+            a[1].min(b[1]),
+            a[2].max(b[2]),
+            a[3].max(b[3]),
+        ]),
+        (a, b) => a.or(b),
+    };
+    let [x0, y0, x1, y1] = bounds.map_or([0, 0, 0, 0], |[x0, y0, x1, y1]| {
+        [x0 - 4, y0 - 4, x1 + 5, y1 + 5]
+    });
+    let width = (x1 - x0).max(1) as u32;
+    let height = (y1 - y0).max(1) as u32;
+
+    let sample = |image: &TestRgbaImage, ox: i64, oy: i64, x: i64, y: i64| -> [u8; 4] {
+        let (ix, iy) = (x - ox, y - oy);
+        if ix < 0 || iy < 0 || ix >= i64::from(image.width) || iy >= i64::from(image.height) {
+            [255; 4]
+        } else {
+            image.pixel(ix as u32, iy as u32)
+        }
+    };
+
+    let mut expected = TestRgbaImage::new(width, height);
+    let mut aligned = TestRgbaImage::new(width, height);
+    let mut diff = TestRgbaImage::new(width, height);
+    let mut total = 0u64;
+    let mut ink_pixels = 0u64;
+    for y in 0..height {
+        for x in 0..width {
+            let (px, py) = (x0 + i64::from(x), y0 + i64::from(y));
+            let e = sample(&reference.image, 0, 0, px, py);
+            let a = sample(&actual.image, dx, dy, px, py);
+            expected.put_pixel(x, y, e);
+            aligned.put_pixel(x, y, a);
+            let delta = (0..3).map(|c| e[c].abs_diff(a[c])).max().unwrap();
+            let shade = 255 - delta.saturating_mul(4);
+            diff.put_pixel(x, y, [255, shade, shade, 255]);
+            if is_ink(e) || is_ink(a) {
+                ink_pixels += 1;
+                total += u64::from(delta);
+            }
+        }
+    }
+    let similarity = if ink_pixels == 0 {
+        1.0
+    } else {
+        1.0 - total as f64 / (ink_pixels as f64 * 255.0)
+    };
+    let tile = (f64::from(font_size) * scale).round().max(4.0) as u32;
+    let local = worst_tile_similarity(&expected, &aligned, tile);
+
+    Comparison {
+        width_delta: actual.width - reference.width,
+        height_delta: actual.height - reference.height,
+        size_tolerance: 0.5 / scale + 1e-3,
+        similarity,
+        local,
+        expected,
+        actual: aligned,
+        diff,
+    }
+}
+
+/// The lowest ink similarity over em-sized tiles at half-tile steps. A local defect such as a
+/// swapped glyph barely moves the label-wide mean but dominates its tile.
+fn worst_tile_similarity(expected: &TestRgbaImage, actual: &TestRgbaImage, tile: u32) -> f64 {
+    let step = (tile / 2).max(1);
+    let mut worst = 1.0f64;
+    let mut y = 0;
+    loop {
+        let mut x = 0;
+        loop {
+            let (mut total, mut ink) = (0u64, 0u64);
+            for py in y..(y + tile).min(expected.height) {
+                for px in x..(x + tile).min(expected.width) {
+                    let (e, a) = (expected.pixel(px, py), actual.pixel(px, py));
+                    if is_ink(e) || is_ink(a) {
+                        ink += 1;
+                        total += u64::from((0..3).map(|c| e[c].abs_diff(a[c])).max().unwrap());
+                    }
+                }
+            }
+            // Ignore tiles that only clip the edge of a stroke.
+            if ink * 50 >= u64::from(tile) * u64::from(tile) {
+                worst = worst.min(1.0 - total as f64 / (ink as f64 * 255.0));
+            }
+            if x + tile >= expected.width {
+                break;
+            }
+            x += step;
+        }
+        if y + tile >= expected.height {
+            break;
+        }
+        y += step;
+    }
+    worst
+}
+
+impl Comparison {
+    fn failed_checks(&self) -> BTreeSet<String> {
+        let mut failed = BTreeSet::new();
+        if self.width_delta.abs() > self.size_tolerance
+            || self.height_delta.abs() > self.size_tolerance
+        {
+            failed.insert("metrics".to_string());
+        }
+        if self.local < MIN_SIMILARITY {
+            failed.insert("ink".to_string());
+        }
+        failed
+    }
+
+    fn describe(&self) -> String {
+        format!(
+            "    size differs by {:.3} x {:.3} pt (allowed {:.3}); ink similarity {:.4}, worst tile {:.4} (min {MIN_SIMILARITY})\n",
+            self.width_delta, self.height_delta, self.size_tolerance, self.similarity, self.local
+        )
+    }
+
+    fn write_artifacts(&self, dir: &Path) {
+        fs::create_dir_all(dir).unwrap();
+        for (name, image) in [
+            ("expected", &self.expected),
+            ("actual", &self.actual),
+            ("diff", &self.diff),
+        ] {
+            write_png_rgba(&dir.join(format!("{name}.png")), image).unwrap();
+        }
+    }
+}
+
+fn is_ink(pixel: [u8; 4]) -> bool {
+    pixel[0] < INK_THRESHOLD || pixel[1] < INK_THRESHOLD || pixel[2] < INK_THRESHOLD
+}
+
+/// The ink's bounds `[x0, y0, x1, y1)` after offsetting the image by `(dx, dy)`.
+fn ink_bounds(image: &TestRgbaImage, dx: i64, dy: i64) -> Option<[i64; 4]> {
+    let mut bounds: Option<[i64; 4]> = None;
+    for y in 0..image.height {
+        for x in 0..image.width {
+            if is_ink(image.pixel(x, y)) {
+                let (px, py) = (i64::from(x) + dx, i64::from(y) + dy);
+                let b = bounds.get_or_insert([px, py, px + 1, py + 1]);
+                *b = [
+                    b[0].min(px),
+                    b[1].min(py),
+                    b[2].max(px + 1),
+                    b[3].max(py + 1),
+                ];
+            }
+        }
+    }
+    bounds
+}
+
+fn read_label_source(path: &Path) -> String {
+    let source = fs::read_to_string(path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    source.trim_end_matches(['\r', '\n']).to_string()
 }
 
 fn composite_over_white(image: &TestRgbaImage) -> TestRgbaImage {
@@ -181,117 +534,15 @@ fn composite_over_white(image: &TestRgbaImage) -> TestRgbaImage {
         for x in 0..image.width {
             let pixel = image.pixel(x, y);
             let alpha = f32::from(pixel[3]) / 255.0;
-            let red = composite_channel(pixel[0], alpha);
-            let green = composite_channel(pixel[1], alpha);
-            let blue = composite_channel(pixel[2], alpha);
-            output.put_pixel(x, y, [red, green, blue, 255]);
-        }
-    }
-    output
-}
-
-fn composite_channel(channel: u8, alpha: f32) -> u8 {
-    (f32::from(channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8
-}
-
-fn crop_to_content(image: &TestRgbaImage, padding: u32) -> Option<TestRgbaImage> {
-    let mut min_x = image.width;
-    let mut min_y = image.height;
-    let mut max_x = 0;
-    let mut max_y = 0;
-    let mut found = false;
-
-    for y in 0..image.height {
-        for x in 0..image.width {
-            let pixel = image.pixel(x, y);
-            if pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250 {
-                found = true;
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-            }
-        }
-    }
-
-    if !found {
-        return None;
-    }
-
-    let width = max_x - min_x + 1;
-    let height = max_y - min_y + 1;
-    let mut cropped = TestRgbaImage::new(width + 2 * padding, height + 2 * padding);
-    for y in 0..cropped.height {
-        for x in 0..cropped.width {
-            cropped.put_pixel(x, y, [255; 4]);
-        }
-    }
-    for y in 0..height {
-        for x in 0..width {
-            cropped.put_pixel(x + padding, y + padding, image.pixel(min_x + x, min_y + y));
-        }
-    }
-    Some(cropped)
-}
-
-struct CompareReport {
-    similarity: f64,
-    mean_channel_delta: f64,
-    max_channel_delta: u8,
-    diff: TestRgbaImage,
-}
-
-fn compare_images(expected: &TestRgbaImage, actual: &TestRgbaImage) -> CompareReport {
-    let width = expected.width.max(actual.width);
-    let height = expected.height.max(actual.height);
-    let expected = pad_to(expected, width, height);
-    let actual = pad_to(actual, width, height);
-    let mut diff = TestRgbaImage::new(width, height);
-    let mut max_channel_delta = 0u8;
-    let mut total_delta = 0u64;
-    let mut channels = 0u64;
-
-    for y in 0..height {
-        for x in 0..width {
-            let expected_pixel = expected.pixel(x, y);
-            let actual_pixel = actual.pixel(x, y);
-            let red = expected_pixel[0].abs_diff(actual_pixel[0]);
-            let green = expected_pixel[1].abs_diff(actual_pixel[1]);
-            let blue = expected_pixel[2].abs_diff(actual_pixel[2]);
-            max_channel_delta = max_channel_delta.max(red).max(green).max(blue);
-            total_delta += u64::from(red) + u64::from(green) + u64::from(blue);
-            channels += 3;
-            diff.put_pixel(
+            let channel = |c: u8| (f32::from(c) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
+            output.put_pixel(
                 x,
                 y,
-                [
-                    red.saturating_mul(4),
-                    green.saturating_mul(4),
-                    blue.saturating_mul(4),
-                    255,
-                ],
+                [channel(pixel[0]), channel(pixel[1]), channel(pixel[2]), 255],
             );
         }
     }
-
-    let mean_channel_delta = total_delta as f64 / channels as f64;
-    let similarity = 1.0 - total_delta as f64 / (channels as f64 * 255.0);
-    CompareReport {
-        similarity,
-        mean_channel_delta,
-        max_channel_delta,
-        diff,
-    }
-}
-
-fn pad_to(image: &TestRgbaImage, width: u32, height: u32) -> TestRgbaImage {
-    let mut padded = TestRgbaImage::from_pixel(width, height, [255, 255, 255, 255]);
-    for y in 0..image.height {
-        for x in 0..image.width {
-            padded.put_pixel(x, y, image.pixel(x, y));
-        }
-    }
-    padded
+    output
 }
 
 #[derive(Clone)]
@@ -306,28 +557,16 @@ impl TestRgbaImage {
         Self {
             width,
             height,
-            data: vec![0; width as usize * height as usize * 4],
+            data: vec![255; width as usize * height as usize * 4],
         }
-    }
-
-    fn from_pixel(width: u32, height: u32, pixel: [u8; 4]) -> Self {
-        let mut image = Self::new(width, height);
-        for chunk in image.data.chunks_mut(4) {
-            chunk.copy_from_slice(&pixel);
-        }
-        image
     }
 
     fn from_vec(width: u32, height: u32, data: Vec<u8>) -> Option<Self> {
-        if data.len() == width as usize * height as usize * 4 {
-            Some(Self {
-                width,
-                height,
-                data,
-            })
-        } else {
-            None
-        }
+        (data.len() == width as usize * height as usize * 4).then_some(Self {
+            width,
+            height,
+            data,
+        })
     }
 
     fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
@@ -391,29 +630,18 @@ fn convert_png_to_rgba(
 
     Ok(match color_type {
         png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => {
-            let mut out = Vec::with_capacity(data.len() / 3 * 4);
-            for pixel in data.chunks_exact(3) {
-                out.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-            }
-            out
-        }
-        png::ColorType::GrayscaleAlpha => {
-            let mut out = Vec::with_capacity(data.len() / 2 * 4);
-            for pixel in data.chunks_exact(2) {
-                out.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
-            }
-            out
-        }
-        png::ColorType::Grayscale => {
-            let mut out = Vec::with_capacity(data.len() * 4);
-            for gray in data {
-                out.extend_from_slice(&[*gray, *gray, *gray, 255]);
-            }
-            out
-        }
-        png::ColorType::Indexed => {
-            return Err("unsupported indexed PNG output".to_string());
-        }
+        png::ColorType::Rgb => data
+            .chunks_exact(3)
+            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => data
+            .chunks_exact(2)
+            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+            .collect(),
+        png::ColorType::Grayscale => data
+            .iter()
+            .flat_map(|gray| [*gray, *gray, *gray, 255])
+            .collect(),
+        png::ColorType::Indexed => return Err("unsupported indexed PNG output".to_string()),
     })
 }
